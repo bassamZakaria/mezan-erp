@@ -40,22 +40,67 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe("AppShell — the two-row top bar", () => {
-  it("renders the wordmark, the page children and no side rail", () => {
+describe("AppShell — workspace column plus a two-row bar", () => {
+  it("renders the wordmark, the page children and the three navigation landmarks", () => {
     renderShell();
     expect(screen.getByText("ميزان")).toBeInTheDocument();
     expect(screen.getByText("محتوى الصفحة")).toBeInTheDocument();
-    // The rail is gone: nothing in the shell renders an <aside> any more.
-    expect(document.querySelector("aside")).toBeNull();
+    const names = screen.getAllByRole("navigation").map((nav) => nav.getAttribute("aria-label"));
+    expect(names).toEqual(["روابط مباشرة", "شاشات مساحة العمل — الشراء والتوريد", "التنقل بين مساحات العمل"]);
+    // Every name distinct — three landmarks called the same thing name none.
+    expect(new Set(names).size).toBe(3);
   });
 
-  it("gives row one and row two separate nav landmarks with distinct Arabic names", () => {
+  it("makes the logo and wordmark one named link to the dashboard", () => {
+    const onNavigateHome = vi.fn();
+    renderShell({ onNavigateHome });
+    const home = screen.getByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" });
+    expect(home).toContainElement(screen.getByText("ميزان"));
+    expect(home.querySelector("svg")).not.toBeNull();
+    fireEvent.click(home);
+    expect(onNavigateHome).toHaveBeenCalledOnce();
+  });
+
+  it("draws a one-screen destination as a standalone link beside the tabs, not as a workspace tab", () => {
+    const onClick = vi.fn();
+    renderShell({
+      directNavItems: [{ key: "approvals", label: "الموافقات", tag: { label: "3" }, onClick }],
+      activeNavKey: "approvals",
+    });
+    const approvals = screen.getByRole("button", { name: "الموافقات (3)" });
+    // Not a workspace tab: it opens one screen and has no second row of its own.
+    expect(approvals).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" })).queryByText("الموافقات")).toBeNull();
+    expect(approvals.closest("nav")?.getAttribute("aria-label")).toBe("روابط مباشرة");
+    fireEvent.click(approvals);
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the last workspace on row two when the open screen belongs to no tab", () => {
+    const { rerender } = renderShell();
+    expect(screen.getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();
+    // Off-workspace (an approvals or settings screen): no tab is current, and
+    // row two must NOT silently swap to the first workspace.
+    rerender(
+      <AppShell user={user} workspaces={workspaces} workspaceGroups={workspaceGroups} activeNavKey="approvals">
+        <div>محتوى الصفحة</div>
+      </AppShell>,
+    );
+    expect(screen.getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();
+    const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    expect(within(rail).queryByRole("button", { current: "page" })).toBeNull();
+  });
+
+  it("puts the workspaces in the column and their screens in row two", () => {
     renderShell();
-    const rowOne = screen.getByRole("navigation", { name: "مساحات العمل" });
+    const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
     const rowTwo = screen.getByRole("navigation", { name: "شاشات مساحة العمل — الشراء والتوريد" });
-    expect(rowOne).not.toBe(rowTwo);
-    expect(within(rowOne).getByRole("button", { name: "الشراء والتوريد" })).toBeInTheDocument();
+    expect(within(rail).getByRole("button", { name: "الشراء والتوريد" })).toBeInTheDocument();
+    expect(within(rail).getByText("مساحات العمل")).toBeInTheDocument();
     expect(within(rowTwo).getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();
+    // «كل الشاشات» lives under the column's divider, not on row two.
+    expect(within(rail).getByRole("button", { name: /كل الشاشات/ })).toBeInTheDocument();
+    expect(within(rowTwo).queryByRole("button", { name: /كل الشاشات/ })).toBeNull();
   });
 
   it("puts a skip link to <main> first in the tab order", () => {
@@ -96,16 +141,16 @@ describe("AppShell — the two-row top bar", () => {
   it("marks the active workspace with aria-current and reports a tab click", () => {
     const onWorkspaceChange = vi.fn();
     renderShell({ onWorkspaceChange });
-    const rowOne = screen.getByRole("navigation", { name: "مساحات العمل" });
-    expect(within(rowOne).getByRole("button", { name: "الشراء والتوريد" })).toHaveAttribute("aria-current", "page");
-    fireEvent.click(within(rowOne).getByRole("button", { name: "المخزون والتصنيع" }));
+    const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    expect(within(rail).getByRole("button", { name: "الشراء والتوريد" })).toHaveAttribute("aria-current", "page");
+    fireEvent.click(within(rail).getByRole("button", { name: "المخزون والتصنيع" }));
     expect(onWorkspaceChange).toHaveBeenCalledWith("stock");
   });
 
   it("falls back to «كل الشاشات» filtered to the workspace when the tab has no hub to open", () => {
     renderShell({ allScreensGroups: workspaceGroups, onWorkspaceChange: () => false });
-    const rowOne = screen.getByRole("navigation", { name: "مساحات العمل" });
-    fireEvent.click(within(rowOne).getByRole("button", { name: "المخزون والتصنيع" }));
+    const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    fireEvent.click(within(rail).getByRole("button", { name: "المخزون والتصنيع" }));
     const panel = screen.getByRole("dialog", { name: "كل الشاشات" });
     expect(within(panel).getByRole("button", { name: /لوحة المخزون/ })).toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: /لوحة المشتريات/ })).toBeNull();
@@ -113,7 +158,7 @@ describe("AppShell — the two-row top bar", () => {
 
   it("browses every destination from «كل الشاشات», grouped and searchable", () => {
     renderShell({ allScreensGroups: workspaceGroups });
-    fireEvent.click(screen.getByRole("button", { name: /كل الشاشات/ }));
+    fireEvent.click(screen.getByRole("button", { name: "كل الشاشات" }));
     const panel = screen.getByRole("dialog", { name: "كل الشاشات" });
     // Grouped by workspace, then by section — a report reachable from nowhere
     // else on row two is listed here.
@@ -127,44 +172,62 @@ describe("AppShell — the two-row top bar", () => {
   it("runs a destination's onClick from «كل الشاشات» and closes the panel", () => {
     const onClick = vi.fn();
     renderShell({ allScreensGroups: [{ key: "stock", label: "المخزون", items: [{ key: "items", label: "الأصناف", onClick }] }] });
-    fireEvent.click(screen.getByRole("button", { name: /كل الشاشات/ }));
+    fireEvent.click(screen.getByRole("button", { name: "كل الشاشات" }));
     fireEvent.click(screen.getByRole("button", { name: /الأصناف/ }));
     expect(onClick).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog", { name: "كل الشاشات" })).toBeNull();
   });
 
-  it("inverts the arrow keys in RTL — ArrowRight is the PREVIOUS tab, ArrowLeft the next", () => {
+  it("inverts the arrow keys on ROW TWO — ArrowRight is the PREVIOUS chip, ArrowLeft the next", () => {
     renderShell();
-    const rowOne = screen.getByRole("navigation", { name: "مساحات العمل" });
-    const [first, second, third] = workspaces.map((w) => within(rowOne).getByRole("button", { name: w.label }));
-    if (!first || !second || !third) throw new Error("the three workspace tabs must render");
-    second.focus();
+    const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
+    const hub = within(rowTwo).getByRole("button", { name: "لوحة المشتريات" });
+    const daily = within(rowTwo).getByRole("button", { name: "أوامر الشراء" });
+    const reports = within(rowTwo).getByRole("button", { name: "التقارير" });
+    hub.focus();
 
-    fireEvent.keyDown(second, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(hub, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(daily);
+    fireEvent.keyDown(daily, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(hub);
+    // Wraps backwards onto the last cell — the section dropdown's trigger.
+    fireEvent.keyDown(hub, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(reports);
 
-    fireEvent.keyDown(first, { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(second);
-
-    fireEvent.keyDown(second, { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(third);
-
-    // Wraps: one more "next" from the last lands on the first.
-    fireEvent.keyDown(third, { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(first);
-
-    fireEvent.keyDown(first, { key: "End" });
-    expect(document.activeElement).toBe(third);
-    fireEvent.keyDown(third, { key: "Home" });
-    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(reports, { key: "Home" });
+    expect(document.activeElement).toBe(hub);
+    fireEvent.keyDown(hub, { key: "End" });
+    expect(document.activeElement).toBe(reports);
   });
 
-  it("keeps the workspace strip to one Tab stop via a roving tabindex", () => {
+  it("does NOT invert the arrow keys in the workspace column — a vertical list reads the same in both directions", () => {
     renderShell();
-    const rowOne = screen.getByRole("navigation", { name: "مساحات العمل" });
-    expect(within(rowOne).getByRole("button", { name: "الشراء والتوريد" })).toHaveAttribute("tabindex", "0");
-    expect(within(rowOne).getByRole("button", { name: "البيع والتحصيل" })).toHaveAttribute("tabindex", "-1");
-    expect(within(rowOne).getByRole("button", { name: "المخزون والتصنيع" })).toHaveAttribute("tabindex", "-1");
+    const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    const [sell, buy, stock] = workspaces.map((w) => within(rail).getByRole("button", { name: w.label }));
+    if (!sell || !buy || !stock) throw new Error("the three workspaces must render");
+    buy.focus();
+
+    fireEvent.keyDown(buy, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(stock);
+    fireEvent.keyDown(stock, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(buy);
+    fireEvent.keyDown(buy, { key: "Home" });
+    expect(document.activeElement).toBe(sell);
+    fireEvent.keyDown(sell, { key: "End" });
+    expect(document.activeElement).toBe(stock);
+    // A horizontal key means nothing on a vertical list; focus must not move.
+    fireEvent.keyDown(stock, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(stock);
+  });
+
+  it("keeps the column and row two to one Tab stop each via a roving tabindex", () => {
+    renderShell();
+    const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    expect(within(rail).getByRole("button", { name: "الشراء والتوريد" })).toHaveAttribute("tabindex", "0");
+    expect(within(rail).getByRole("button", { name: "البيع والتحصيل" })).toHaveAttribute("tabindex", "-1");
+    const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
+    expect(within(rowTwo).getByRole("button", { name: "لوحة المشتريات" })).toHaveAttribute("tabindex", "0");
+    expect(within(rowTwo).getByRole("button", { name: "أوامر الشراء" })).toHaveAttribute("tabindex", "-1");
   });
 
   it("opens the command palette from row one's command bar", () => {

@@ -42,8 +42,8 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     defaultCollapsed: true,
     itemKeys: ["sales-hub"],
     sections: [
-      { key: "daily", itemKeys: ["quotes", "sales-invoices", "sales-returns", "van-trips", "installment-follow-ups", "crm-activities"] },
-      { key: "master", defaultCollapsed: true, itemKeys: ["customers", "crm-hub", "leads", "opportunities", "pipeline", "installment-plans"] },
+      { key: "daily", itemKeys: ["quotes", "sales-invoices", "sales-returns", "van-trips"] },
+      { key: "master", defaultCollapsed: true, itemKeys: ["customers"] },
       {
         key: "reports",
         defaultCollapsed: true,
@@ -55,11 +55,31 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
           "report-sales-top-products",
           "report-van-sales",
           "report-aging-customers",
-          "report-installments-overview",
-          "report-installments-overdue",
         ],
       },
-      { key: "config", defaultCollapsed: true, itemKeys: ["price-lists", "promotions", "pipeline-stages"] },
+      { key: "config", defaultCollapsed: true, itemKeys: ["price-lists", "promotions"] },
+    ],
+  },
+  {
+    key: "crm",
+    defaultCollapsed: true,
+    itemKeys: ["crm-hub"],
+    sections: [
+      { key: "daily", itemKeys: ["crm-activities", "leads", "opportunities", "pipeline"] },
+      { key: "config", defaultCollapsed: true, itemKeys: ["pipeline-stages"] },
+    ],
+  },
+  {
+    key: "installments",
+    defaultCollapsed: true,
+    itemKeys: ["installment-plans"],
+    sections: [
+      { key: "daily", itemKeys: ["installment-follow-ups"] },
+      {
+        key: "reports",
+        defaultCollapsed: true,
+        itemKeys: ["report-installments-overview", "report-installments-overdue"],
+      },
     ],
   },
   {
@@ -83,12 +103,6 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     sections: [
       { key: "daily", itemKeys: ["stock-balance", "stock-transfers", "stock-adjustments", "physical-counts", "writedown-runs"] },
       {
-        key: "production",
-        defaultCollapsed: true,
-        itemKeys: ["manufacturing-hub", "production-dashboard", "work-orders", "custom-manufacturing", "boms"],
-      },
-      { key: "master", defaultCollapsed: true, itemKeys: ["items", "product-templates", "configurable-products", "item-specifications"] },
-      {
         key: "reports",
         defaultCollapsed: true,
         itemKeys: [
@@ -100,10 +114,35 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
           "report-inventory-expiring",
           "report-inventory-slow-moving",
           "report-inventory-drift",
-          "report-make-vs-buy",
         ],
       },
+    ],
+  },
+  {
+    key: "items",
+    defaultCollapsed: true,
+    itemKeys: ["items"],
+    sections: [
+      { key: "master", itemKeys: ["product-templates", "configurable-products", "item-specifications"] },
       { key: "config", defaultCollapsed: true, itemKeys: ["labels"] },
+    ],
+  },
+  {
+    key: "manufacturing",
+    defaultCollapsed: true,
+    itemKeys: ["manufacturing-hub"],
+    sections: [
+      { key: "daily", itemKeys: ["production-dashboard", "work-orders", "custom-manufacturing", "boms"] },
+      { key: "reports", defaultCollapsed: true, itemKeys: ["report-make-vs-buy"] },
+    ],
+  },
+  {
+    key: "treasury",
+    defaultCollapsed: true,
+    itemKeys: ["treasury-hub"],
+    sections: [
+      { key: "daily", itemKeys: ["treasury-vouchers", "cheques"] },
+      { key: "master", defaultCollapsed: true, itemKeys: ["treasury-accounts"] },
     ],
   },
   {
@@ -111,13 +150,9 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     defaultCollapsed: true,
     itemKeys: ["accounting-hub"],
     sections: [
-      { key: "daily", itemKeys: ["treasury-vouchers", "cheques", "journals"] },
-      { key: "close", defaultCollapsed: true, itemKeys: ["fiscal-periods", "reconciliation", "bank-reconciliation", "revaluation", "eta"] },
-      {
-        key: "master",
-        defaultCollapsed: true,
-        itemKeys: ["coa", "treasury-hub", "treasury-accounts", "cost-centers", "taxes", "exchange-rates"],
-      },
+      { key: "daily", itemKeys: ["journals"] },
+      { key: "close", itemKeys: ["fiscal-periods", "reconciliation", "bank-reconciliation", "revaluation", "eta"] },
+      { key: "master", defaultCollapsed: true, itemKeys: ["coa", "cost-centers", "taxes", "exchange-rates"] },
       { key: "reports", defaultCollapsed: true, itemKeys: ["trial-balance-report", "financial-reports", "cost-center-pl"] },
     ],
   },
@@ -127,15 +162,18 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     itemKeys: ["hr-dashboard"],
     sections: [
       { key: "staff", itemKeys: ["employees", "departments", "job-titles", "contracts"] },
-      {
-        key: "time",
-        defaultCollapsed: true,
-        itemKeys: ["attendance", "holidays", "leave-requests", "leave-balances", "leave-accrual-batches", "my-leave"],
-      },
+      { key: "time", defaultCollapsed: true, itemKeys: ["attendance", "holidays", "leave-requests", "leave-balances", "leave-accrual-batches", "my-leave"] },
       { key: "pay", defaultCollapsed: true, itemKeys: ["payroll", "advances"] },
-      { key: "assets", defaultCollapsed: true, itemKeys: ["assets-hub", "asset-register", "depreciation-runs"] },
-      { key: "projects", defaultCollapsed: true, itemKeys: ["projects"] },
-      { key: "config", defaultCollapsed: true, itemKeys: ["leave-policies", "payroll-components", "asset-categories"] },
+      { key: "config", defaultCollapsed: true, itemKeys: ["leave-policies", "payroll-components"] },
+    ],
+  },
+  {
+    key: "assets",
+    defaultCollapsed: true,
+    itemKeys: ["assets-hub"],
+    sections: [
+      { key: "daily", itemKeys: ["asset-register", "depreciation-runs", "projects"] },
+      { key: "config", defaultCollapsed: true, itemKeys: ["asset-categories"] },
     ],
   },
   {

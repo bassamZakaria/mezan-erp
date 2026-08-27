@@ -37,7 +37,13 @@ function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, 
         leadingIcon={icon}
         chevron={expanded}
         renderValue={expanded ? undefined : () => null}
-        className={cn(!expanded && "[&>button]:h-[30px] [&>button]:w-[30px] [&>button]:justify-center [&>button]:px-0")}
+        className={cn(
+          // The top bar's minimum target is `--h-btn` (44px); `Select`'s own
+          // size scale tops out at 38, so the trigger is raised here rather
+          // than in the primitive every screen shares.
+          "[&>button]:min-h-[var(--h-btn)]",
+          !expanded && "[&>button]:h-[30px] [&>button]:w-[30px] [&>button]:justify-center [&>button]:px-0",
+        )}
       />
     </div>
   );

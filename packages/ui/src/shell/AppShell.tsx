@@ -1,14 +1,15 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useTheme } from "../hooks/useTheme";
-import { useTranslation, useUiTranslation } from "../i18n";
+import { useUiTranslation } from "../i18n";
 import { AllScreensPanel } from "./AllScreensPanel";
+import { BrandMark } from "./BrandMark";
 import { ChromeActions } from "./ChromeActions";
 import { CommandBar } from "./CommandBar";
 import { ScopeSwitchers } from "./ScopeSwitcher";
 import { TopbarMenu } from "./TopbarMenu";
+import { WorkspaceRail } from "./WorkspaceRail";
 import { WorkspaceScreensBar } from "./WorkspaceScreensBar";
-import { WorkspaceTabs } from "./WorkspaceTabs";
 import type { TopbarScopeOption } from "./Topbar";
 import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
 
@@ -16,8 +17,18 @@ import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./
 const MAIN_ID = "mz-main";
 
 export interface AppShellProps {
-  /** The workspaces, as labelled tabs in row one. */
+  /** Opens the main dashboard — the logo and wordmark are one link to it. */
+  onNavigateHome?: () => void;
+  /** The six workspaces, as the vertical list in the workspace column. */
   workspaces?: readonly NavItem[];
+  /**
+   * Single destinations that are NOT workspaces — الموافقات. A workspace row
+   * promises a row two; these have exactly one screen behind them, so they sit
+   * in row one beside the wordmark rather than in the column, where they would
+   * be a seventh "workspace" whose second row is a single chip. A `tag` renders
+   * as its count badge.
+   */
+  directNavItems?: readonly NavItem[];
   /**
    * The same workspaces as full nav groups — what ROW TWO renders: the active
    * one's hub and first-section screens as chips, its remaining sections as
@@ -27,10 +38,12 @@ export interface AppShellProps {
   activeWorkspaceKey?: string;
   /**
    * Opens the workspace's hub. Return `false` when that workspace has no hub
-   * to open: the shell then opens «كل الشاشات» filtered to it, so a tab click
-   * is never a no-op.
+   * to open: the shell then opens «كل الشاشات» filtered to it, so a click on a
+   * workspace is never a no-op.
    */
   onWorkspaceChange?: (key: string) => boolean | void;
+  /** The live column at the inline end of the content, when a screen feeds one. */
+  gutter?: ReactNode;
   /**
    * Every destination, workspace-grouped — what «كل الشاشات» browses. Supply
    * it and the button opens `AllScreensPanel`; leave it empty and the button
@@ -64,29 +77,41 @@ export interface AppShellProps {
 }
 
 /**
- * AppShell — a two-row top bar and no side rail.
+ * AppShell — design direction ب (`design/directions/nav-level.html`): the six
+ * workspaces live in a 172px column, not in the top bar.
  *
- * Row one: the wordmark, the workspaces as labelled tabs, the command bar, the
- * branch/warehouse scope, the language switcher, the appearance toggle, the
- * settings gear, notifications and the user menu. Row two: the ACTIVE
- * workspace's own screens — its hub and first section as chips, its later
- * sections as dropdowns — then «كل الشاشات». Row two changes when row one does,
- * which is what makes the ~118 destinations browsable rather than recallable.
+ *   ┌───────────────────────────────────────────────────────┐
+ *   │ row one   logo · الموافقات ·········· ⌘K scope ع ☀ ⚙ 🔔 م │  chrome
+ *   ├───────────────────────────────────────────────────────┤
+ *   │ row two   hub · daily chips ······ [section ▾] … [+N]  │  the active
+ *   ├──────────┬──────────────────────────────┬─────────────┤   workspace's
+ *   │ مساحات   │            main              │   gutter    │   own screens
+ *   │ العمل    │                              │             │
+ *   │ ☰ كل الشاشات                                            │
+ *   └──────────┴──────────────────────────────┴─────────────┘
  *
- * Both rows are their own `<nav>` landmark with its own Arabic name, and a skip
- * link to `<main>` is the first focusable element on the page.
+ * Taking the workspaces out of row one is what lets the chrome's own controls —
+ * language, appearance, settings, notifications, the user menu — all stay
+ * visible as themselves instead of collapsing into a «⋯» nobody opens.
  *
- * ROW ONE IS NOT `overflow-hidden`. Only the tab strip inside it is: the user
- * menu and the notifications panel are anchored (`position: absolute`) rather
- * than portaled, and clipping row one would slice both off at its edge. Row
- * TWO is clipped — that is how it truncates to «+N» — so every dropdown it
- * opens is portaled instead (see `WorkspaceScreensBar`).
+ * THREE navigation landmarks, each with its own Arabic name: the workspace
+ * column, row one's direct links, and row two. A skip link to `<main>` is the
+ * first focusable element on the page.
+ *
+ * ROW ONE IS NOT `overflow-hidden`: the user menu and the notifications panel
+ * are anchored (`position: absolute`) rather than portaled, and clipping row
+ * one would slice both off at its edge. Row TWO is clipped — that is how it
+ * truncates to «+N» — so every dropdown it opens is portaled instead (see
+ * `WorkspaceScreensBar`).
  */
 export function AppShell({
+  onNavigateHome,
   workspaces = [],
+  directNavItems = [],
   workspaceGroups = [],
   activeWorkspaceKey,
   onWorkspaceChange,
+  gutter,
   allScreensGroups = [],
   onOpenAllScreens,
   utilityGroups = [],
@@ -108,10 +133,20 @@ export function AppShell({
 }: AppShellProps) {
   const { theme, toggleTheme } = useTheme();
   const { t } = useUiTranslation();
-  const { direction } = useTranslation();
-  const rtl = direction === "rtl";
-
-  const activeGroup = workspaceGroups.find((group) => group.key === activeWorkspaceKey) ?? workspaceGroups[0] ?? null;
+  /**
+   * Row two follows row one — but a screen that belongs to no workspace tab
+   * (الموافقات, every الإعدادات screen) leaves `activeWorkspaceKey` undefined,
+   * and falling back to `workspaceGroups[0]` would silently swap row two to the
+   * first workspace the moment one of those is opened. The last workspace the
+   * user was actually in stays on the bar instead; only the CHIP loses its
+   * `aria-current`, which is the honest signal.
+   */
+  const [lastWorkspaceKey, setLastWorkspaceKey] = useState<string | undefined>(activeWorkspaceKey);
+  useEffect(() => {
+    if (activeWorkspaceKey) setLastWorkspaceKey(activeWorkspaceKey);
+  }, [activeWorkspaceKey]);
+  const rowTwoKey = activeWorkspaceKey ?? lastWorkspaceKey;
+  const activeGroup = workspaceGroups.find((group) => group.key === rowTwoKey) ?? workspaceGroups[0] ?? null;
 
   const canBrowse = allScreensGroups.length > 0;
   const [allScreensOpen, setAllScreensOpen] = useState(false);
@@ -160,25 +195,65 @@ export function AppShell({
 
       <header className="sticky top-0 z-40 flex-none bg-chrome text-chrome-ink shadow-chrome">
         <div className="flex items-center gap-[10px] ps-[6px] pe-[12px]">
-          <span className="mz-disp flex-none px-[12px] text-lg font-bold max-[900px]:hidden">{t("shell.brand.name")}</span>
+          {/* The mark is the app's own balance-beam glyph (`BrandMark`) — there
+              is no logo file in the repo — and the whole lockup is one link
+              home, which is the convention every user already expects. */}
+          <button
+            type="button"
+            onClick={onNavigateHome}
+            aria-label={t("shell.bar.home")}
+            className="flex min-h-[var(--h-btn)] flex-none items-center gap-[8px] rounded-md px-[10px] text-chrome-ink transition-colors hover:bg-chrome-hover"
+          >
+            <BrandMark className="h-[24px] w-[24px] flex-none text-accent" />
+            <span className="mz-disp text-lg font-bold max-[900px]:hidden">{t("shell.brand.name")}</span>
+          </button>
 
-          {/* The one clipped region of row one: the tab strip yields first when
-              the viewport narrows, so the controls at the inline end stay put. */}
-          <div className="flex min-w-0 flex-1 overflow-hidden">
-            <WorkspaceTabs
-              items={workspaces}
-              activeKey={activeWorkspaceKey}
-              onChange={handleWorkspaceChange}
-              ariaLabel={t("shell.bar.workspaces")}
-              direction={rtl ? "rtl" : "ltr"}
-            />
-          </div>
+          {/* The one clipped region of row one: the direct links yield first
+              when the viewport narrows, so the controls at the inline end stay
+              put. With the workspaces now in their own column this row has room
+              to spare, and every chrome control below stays visible as itself. */}
+          <nav aria-label={t("shell.bar.directLinks")} className="flex min-w-0 flex-1 items-center gap-[8px] overflow-hidden">
+            {directNavItems.map((item) => {
+              const active = item.key === activeNavKey;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={item.onClick}
+                  // The label is hidden on a narrow viewport and the badge is a
+                  // bare number, so the name is spelled out here either way.
+                  aria-label={item.tag ? `${item.label} (${item.tag.label})` : item.label}
+                  title={item.label}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex min-h-[var(--h-btn)] flex-none items-center gap-[7px] rounded-md border px-[12px] text-xs transition-colors",
+                    // Never colour alone: the open screen also carries a heavier
+                    // weight and the filled chrome, not just the accent border.
+                    active
+                      ? "border-chrome-accent bg-chrome-active font-bold text-chrome-ink"
+                      : "border-chrome-border bg-chrome-hover font-medium text-chrome-ink-muted hover:text-chrome-ink",
+                  )}
+                >
+                  {item.icon ? <span className="flex-none">{item.icon}</span> : null}
+                  <span className="whitespace-nowrap max-[900px]:hidden">{item.label}</span>
+                  {item.tag ? (
+                    <span className="mz-num flex-none rounded-pill bg-accent px-[6px] text-2xs font-bold leading-[16px] text-accent-ink">
+                      {item.tag.label}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </nav>
 
           <div className="flex flex-none items-center gap-[8px]">
             <CommandBar
               items={commandItems}
               placeholder={t("shell.command.placeholder")}
-              className="w-[230px] max-[1400px]:w-[160px] max-[1100px]:hidden"
+              // `CommandBar`'s own box is 38px (the shared control scale); the
+              // bar's minimum target is 44 (`--h-btn`), so it is raised here
+              // rather than in the primitive every screen shares.
+              className="w-[250px] [&>div]:min-h-[var(--h-btn)] max-[1280px]:w-[180px] max-[980px]:hidden"
             />
 
             <ScopeSwitchers
@@ -277,21 +352,35 @@ export function AppShell({
           </div>
         </div>
 
+        {/* Row two spans the FULL width, above the column — it names the
+            workspace the column has selected, so it cannot sit inside it. */}
         <WorkspaceScreensBar
           group={activeGroup}
           activeKey={activeNavKey}
-          onOpenAllScreens={() => openAllScreens(null)}
           ariaLabel={
             activeGroup ? `${t("shell.bar.workspaceScreens")} — ${activeGroup.label}` : t("shell.bar.workspaceScreens")
           }
-          allScreensLabel={t("shell.rail.all")}
           overflowLabel={t("shell.bar.overflow")}
         />
       </header>
 
-      <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 px-[24px] pb-[64px] pt-[20px]">
-        <div className="ms-auto me-auto w-full max-w-[1440px]">{children}</div>
-      </main>
+      <div className="flex min-h-0 flex-1 items-stretch">
+        <WorkspaceRail
+          items={workspaces}
+          activeKey={activeWorkspaceKey}
+          onChange={handleWorkspaceChange}
+          heading={t("shell.bar.workspaces")}
+          ariaLabel={t("shell.bar.workspacesLandmark")}
+          allScreensLabel={t("shell.rail.all")}
+          onOpenAllScreens={() => openAllScreens(null)}
+        />
+
+        <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 px-[24px] pb-[64px] pt-[20px]">
+          {children}
+        </main>
+
+        {gutter}
+      </div>
 
       <AllScreensPanel
         open={allScreensOpen}

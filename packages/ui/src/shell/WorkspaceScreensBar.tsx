@@ -2,12 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
 import { useFormat } from "../hooks/useFormat";
+import { useTranslation } from "../i18n";
 import { POPUP_Z_CLASS, usePopupPosition } from "./popup-position";
 import type { NavGroup, NavItem, NavSection } from "./types";
 
 /**
- * ROW TWO IS THE ACTIVE WORKSPACE'S OWN SCREENS — classic two-level
- * navigation. Row one picks the job (البيع، الشراء، المخزون…), row two shows
+ * ROW TWO IS THE ACTIVE WORKSPACE'S OWN SCREENS — level two of the navigation.
+ * The workspace column picks the job (البيع، الشراء، المخزون…), row two shows
  * what that job contains and changes with it. This is what makes ~118
  * destinations browsable instead of recallable: nothing here has to be typed.
  *
@@ -31,6 +32,19 @@ import type { NavGroup, NavItem, NavSection } from "./types";
  * invisible in an app that hides every scrollbar — and is where browsers still
  * disagree about the sign of `scrollLeft` in RTL.
  */
+
+/**
+ * IN RTL THE ARROW KEYS INVERT. The physical key does not move — its meaning
+ * does: on an RTL strip the previous chip is drawn to the RIGHT of the current
+ * one, so ArrowRight must step BACK (-1) and ArrowLeft FORWARD (+1). Reversing
+ * this is the single most common RTL keyboard defect; do not "simplify" it.
+ * The workspace column is VERTICAL and therefore inverts nothing.
+ */
+function step(key: string, rtl: boolean): number {
+  if (key === "ArrowRight") return rtl ? -1 : 1;
+  if (key === "ArrowLeft") return rtl ? 1 : -1;
+  return 0;
+}
 
 const GAP_PX = 6;
 /** Sub-pixel slack so a rounding error never pushes the last chip past the row. */
@@ -62,9 +76,7 @@ export interface WorkspaceScreensBarProps {
   group?: NavGroup | null;
   /** The screen currently on display — its chip, or its section's menu, is marked. */
   activeKey?: string;
-  onOpenAllScreens?: () => void;
   ariaLabel: string;
-  allScreensLabel: string;
   overflowLabel: string;
   className?: string;
 }
@@ -126,6 +138,9 @@ interface BarMenuProps {
   triggerClassName: string;
   triggerContent: ReactNode;
   triggerAriaLabel?: string;
+  /** Lets the strip's roving tabindex reach this trigger. */
+  triggerRef?: (el: HTMLElement | null) => void;
+  tabIndex?: number;
   children: (close: () => void) => ReactNode;
 }
 
@@ -135,7 +150,7 @@ interface BarMenuProps {
  * popup that stays inside that ancestor is confined to its stacking context
  * and clipped by its overflow no matter how high its own z-index goes.
  */
-function BarMenu({ label, triggerClassName, triggerContent, triggerAriaLabel, children }: BarMenuProps) {
+function BarMenu({ label, triggerClassName, triggerContent, triggerAriaLabel, triggerRef: exposeRef, tabIndex, children }: BarMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -183,8 +198,12 @@ function BarMenu({ label, triggerClassName, triggerContent, triggerAriaLabel, ch
   return (
     <>
       <button
-        ref={triggerRef}
+        ref={(el) => {
+          triggerRef.current = el;
+          exposeRef?.(el);
+        }}
         type="button"
+        tabIndex={tabIndex}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={triggerAriaLabel}
@@ -215,13 +234,13 @@ function BarMenu({ label, triggerClassName, triggerContent, triggerAriaLabel, ch
 export function WorkspaceScreensBar({
   group,
   activeKey,
-  onOpenAllScreens,
   ariaLabel,
-  allScreensLabel,
   overflowLabel,
   className,
 }: WorkspaceScreensBarProps) {
   const format = useFormat();
+  const { direction } = useTranslation();
+  const rtl = direction === "rtl";
   const rowRef = useRef<HTMLDivElement | null>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
 
@@ -310,7 +329,46 @@ export function WorkspaceScreensBar({
   const hiddenSections = hiddenCells.filter((cell): cell is Extract<Cell, { kind: "section" }> => cell.kind === "section");
   const hiddenCount = hiddenScreens.length + hiddenSections.reduce((sum, cell) => sum + cell.section.items.length, 0);
 
-  function renderCell(cell: Cell) {
+  /**
+   * The strip is ONE Tab stop: `Tab` reaches the current chip, the arrow keys
+   * walk the rest. Ten chips and menus that each took their own Tab stop would
+   * put ten presses between the bar and the page it names.
+   */
+  const cellRefs = useRef<(HTMLElement | null)[]>([]);
+  const activeCellIndex = visibleCells.findIndex((cell) => cell.kind !== "label" && cell.active);
+  const firstCellIndex = visibleCells.findIndex((cell) => cell.kind !== "label");
+  const rovingIndex = activeCellIndex >= 0 ? activeCellIndex : firstCellIndex;
+
+  function focusCell(index: number) {
+    const stops = visibleCells.map((cell, at) => (cell.kind === "label" ? -1 : at)).filter((at) => at >= 0);
+    if (stops.length === 0) return;
+    const current = stops.indexOf(index);
+    const wrapped = ((current % stops.length) + stops.length) % stops.length;
+    cellRefs.current[stops[wrapped] ?? 0]?.focus();
+  }
+
+  function onStripKeyDown(event: React.KeyboardEvent<HTMLUListElement>) {
+    const stops = visibleCells.map((cell, at) => (cell.kind === "label" ? -1 : at)).filter((at) => at >= 0);
+    if (stops.length === 0) return;
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      cellRefs.current[(event.key === "Home" ? stops[0] : stops[stops.length - 1]) ?? 0]?.focus();
+      return;
+    }
+    const delta = step(event.key, rtl);
+    if (delta === 0) return;
+    event.preventDefault();
+    const at = cellRefs.current.findIndex((el) => el === document.activeElement);
+    const from = stops.indexOf(at >= 0 ? at : (rovingIndex ?? stops[0] ?? 0));
+    const next = ((from + delta) % stops.length + stops.length) % stops.length;
+    cellRefs.current[stops[next] ?? 0]?.focus();
+  }
+
+  function renderCell(cell: Cell, index: number) {
+    const setRef = (el: HTMLElement | null) => {
+      cellRefs.current[index] = el;
+    };
+    const tabIndex = index === rovingIndex ? 0 : -1;
     if (cell.kind === "label") {
       return (
         <li key={cell.id} className={SECTION_LABEL}>
@@ -323,6 +381,8 @@ export function WorkspaceScreensBar({
         <li key={cell.id} className="flex">
           <BarMenu
             label={cell.section.label}
+            triggerRef={setRef}
+            tabIndex={tabIndex}
             triggerClassName={cn(CHIP_BASE, cell.active ? CHIP_ACTIVE : CHIP_SECTION)}
             triggerContent={
               <>
@@ -342,11 +402,25 @@ export function WorkspaceScreensBar({
     return (
       <li key={cell.id} className="flex">
         {item.href ? (
-          <a href={item.href} aria-current={active ? "page" : undefined} className={classes} onClick={item.onClick}>
+          <a
+            ref={setRef}
+            href={item.href}
+            tabIndex={tabIndex}
+            aria-current={active ? "page" : undefined}
+            className={classes}
+            onClick={item.onClick}
+          >
             {chipContent(item, active)}
           </a>
         ) : (
-          <button type="button" aria-current={active ? "page" : undefined} className={classes} onClick={item.onClick}>
+          <button
+            ref={setRef}
+            type="button"
+            tabIndex={tabIndex}
+            aria-current={active ? "page" : undefined}
+            className={classes}
+            onClick={item.onClick}
+          >
             {chipContent(item, active)}
           </button>
         )}
@@ -363,7 +437,9 @@ export function WorkspaceScreensBar({
       )}
     >
       <div ref={rowRef} className="flex min-w-0 flex-1 items-center">
-        <ul className="flex flex-none items-center gap-[6px]">{visibleCells.map(renderCell)}</ul>
+        <ul onKeyDown={onStripKeyDown} className="flex flex-none items-center gap-[6px]">
+          {visibleCells.map(renderCell)}
+        </ul>
       </div>
 
       <div className="flex flex-none items-center gap-[6px]">
@@ -389,11 +465,6 @@ export function WorkspaceScreensBar({
             )}
           </BarMenu>
         ) : null}
-
-        <button type="button" onClick={onOpenAllScreens} className={cn(CHIP_BASE, CHIP_IDLE, "font-medium")}>
-          <span aria-hidden>☰</span>
-          {allScreensLabel}
-        </button>
       </div>
 
       {/*

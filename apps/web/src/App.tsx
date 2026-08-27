@@ -7,7 +7,7 @@ import { useNotificationsBell } from "./notifications/NotificationsBell";
 import { useScopeSelector } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
-import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, UTILITY_GROUP_KEYS } from "./nav-config";
+import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, PINNED_NAV_ITEM_KEYS, UTILITY_GROUP_KEYS } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
@@ -501,10 +501,26 @@ export function App() {
   // Nothing is lifted out of a workspace any more. الموافقات used to be pulled
   // out as a fixed rail pin; row two is not personal, so removing it here would
   // simply delete the approvals inbox from the only place its workspace lists it.
+  // الموافقات is one destination, not a workspace: a tab promises a second row
+  // of screens and this has exactly one, so it is drawn beside the tabs as a
+  // plain link. Its group (سير العمل) then holds nothing and drops out of the
+  // tabs — «كل الشاشات» still lists it, since it is handed the whole tree.
+  const directNavItems = useMemo(
+    () => groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key)),
+    [groups],
+  );
+
+  /**
+   * The six workspaces of the column. الإعداد والصلاحيات IS one of them
+   * (direction ب lists it sixth) even though its screens are ALSO behind the
+   * header gear: the gear is the shortcut for someone already at work, the
+   * column is where someone browsing expects to find it. Both read the same
+   * tree, so they cannot disagree.
+   */
   const workspaceGroups = useMemo(
     () =>
       groups
-        .filter((group) => !UTILITY_GROUP_KEYS.has(group.key))
+        .map((group) => ({ ...group, items: group.items.filter((item) => !PINNED_NAV_ITEM_KEYS.includes(item.key)) }))
         // A group may carry all of its screens in sections and none directly —
         // التقارير does — so an empty `items` is not an empty group.
         .filter((group) => navGroupItems(group).length > 0),
@@ -516,7 +532,14 @@ export function App() {
     [workspaceGroups],
   );
 
-  const activeWorkspaceKey = groupKeyForScreen(activeScreen) ?? workspaces[0]?.key ?? "";
+  /**
+   * Undefined when the screen on display belongs to no workspace tab —
+   * الموافقات and every الإعدادات screen do. No tab is then marked current;
+   * `AppShell` keeps the last real workspace on row two so the bar does not
+   * silently swap to البيع the moment either is opened.
+   */
+  const resolvedWorkspaceKey = groupKeyForScreen(activeScreen);
+  const activeWorkspaceKey = workspaces.some((w) => w.key === resolvedWorkspaceKey) ? (resolvedWorkspaceKey ?? undefined) : undefined;
 
   /**
    * Each workspace tab opens that workspace's hub. `hubScreenForGroup` resolves
@@ -704,7 +727,9 @@ export function App() {
     <NavigationProvider value={navigation}>
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
+      onNavigateHome={() => navigate("dashboard")}
       workspaces={workspaces}
+      directNavItems={directNavItems}
       activeWorkspaceKey={activeWorkspaceKey}
       onWorkspaceChange={onWorkspaceChange}
       // Row two: the active workspace's own screens.

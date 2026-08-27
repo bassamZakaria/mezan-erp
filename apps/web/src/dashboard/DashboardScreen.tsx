@@ -318,7 +318,7 @@ export function DashboardScreen() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-[6px]" role="group" aria-label={t("dashboard.range.legend")} style={riseStyle(1, reduced)}>
+      <div className="flex flex-wrap gap-[6px]" role="radiogroup" aria-label={t("dashboard.range.legend")} style={riseStyle(1, reduced)}>
         {RANGE_OPTIONS.map((opt) => (
           <Chip key={opt.value} type="button" active={range === opt.value} onClick={() => setRange(opt.value)}>
             {t(opt.labelKey)}

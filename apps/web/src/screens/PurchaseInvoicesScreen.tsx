@@ -788,7 +788,7 @@ export function PurchaseInvoicesScreen() {
             <EntityPicker label={t("purchaseInvoices.field.supplier")} value={supplier} onChange={setSupplier} options={supplierOptions} placeholder={t("purchaseInvoices.field.supplierPlaceholder")} />
             {lines.map((line, i) => (
               <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
-                <div className="mb-[8px] flex flex-wrap gap-[8px]">
+                <div className="mb-[8px] flex flex-wrap gap-[8px]" role="radiogroup">
                   {LINE_KINDS.map((kind) => (
                     <Chip
                       key={kind}

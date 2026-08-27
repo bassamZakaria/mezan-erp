@@ -14,6 +14,10 @@
   <a class="home" href="index.html">↩ كل الاتجاهات</a>
   <b>المِشكاة · Lantern</b>
   <a class="home" href="1-mizan.html">◀ المِيزان</a><a class="home" href="3-shubbak.html">الشُبّاك ▶</a>
+  <div class="grp" id="theme">
+    <button data-th="light" aria-pressed="true">فاتح · Light</button>
+    <button data-th="dark" aria-pressed="false">داكن · Dark</button>
+  </div>
   <div class="grp" id="nums">
     <button data-n="west" aria-pressed="true">أرقام غربية</button>
     <button data-n="east" aria-pressed="false">أرقام عربية</button>
@@ -27,5 +31,12 @@
 <div class="jump" id="jump"></div>
 <div id="stage"></div>
 <script src="directions.js"></script>
+<script>
+document.getElementById("theme").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+  document.querySelectorAll("#stage [data-dir]").forEach(el=>el.dataset.theme = b.dataset.th);
+});
+</script>
 </body>
 </html>

@@ -361,4 +361,67 @@ export async function seedPlatform(app: App): Promise<void> {
   if (firstReturnNotification) {
     await stepAs(app, "POST", `/notifications/${firstReturnNotification.id}/read`, PLATFORM_ADMIN, {});
   }
+
+  await seedPreferences(app);
+}
+
+/**
+ * الوضع الشخصي — one real per-user layout for USER-ADMIN, written through
+ * `PUT /preferences` as that user, so the shell opens onto pins, recents,
+ * shortcut tiles and a customised invoice table instead of an empty default.
+ * A user who has never customised anything is a valid state, but it proves
+ * nothing: an unpinned rail cannot show that pins survive a device change.
+ *
+ * Every `entityId` below is a real seeded document id (see `./shared.ts`'s
+ * CORE) and every `route` is a real hash route from `apps/web/src/nav-config.tsx`.
+ */
+async function seedPreferences(app: App): Promise<void> {
+  const pinnedAt = "2026-08-20T08:15:00.000Z";
+  await stepAs(app, "PUT", "/preferences", PLATFORM_ADMIN, {
+    layoutName: "تخطيط محمد — المبيعات والخزينة",
+    numerals: "arabic",
+    railCollapsed: false,
+    pinnedScreens: [
+      { id: "PIN-SALES-INVOICES", route: "#/sell/sales-invoices", labelAr: "فواتير المبيعات", labelEn: "Sales invoices", icon: "receipt", group: "sell", order: 0, pinnedAt },
+      { id: "PIN-CUSTOMERS", route: "#/sell/customers", labelAr: "العملاء", labelEn: "Customers", icon: "users", group: "sell", order: 1, pinnedAt },
+      { id: "PIN-VOUCHERS", route: "#/money/treasury-vouchers", labelAr: "سندات الخزينة", labelEn: "Treasury vouchers", icon: "wallet", group: "money", order: 2, pinnedAt },
+      { id: "PIN-STOCK-BALANCE", route: "#/stock/stock-balance", labelAr: "أرصدة المخزون", labelEn: "Stock balance", icon: "boxes", group: "stock", order: 3, pinnedAt },
+    ],
+    recentRecords: [
+      { id: "RCNT-1", route: `#/sell/sales-invoices/${CORE.salesInvoices[0]}`, entityType: "SALES_INVOICE", entityId: CORE.salesInvoices[0], labelAr: "فاتورة مبيعات — شركة الأمل للتجارة", labelEn: "Sales invoice — Al Amal Trading", documentNumber: null, icon: "receipt", branchId: "BR-MAIN", openedAt: "2026-08-26T09:05:00.000Z" },
+      { id: "RCNT-2", route: `#/buy/purchase-invoices/${CORE.purchaseInvoices[0]}`, entityType: "PURCHASE_INVOICE", entityId: CORE.purchaseInvoices[0], labelAr: "فاتورة مشتريات", labelEn: "Purchase invoice", documentNumber: null, icon: "truck", branchId: "BR-MAIN", openedAt: "2026-08-26T08:40:00.000Z" },
+      { id: "RCNT-3", route: `#/sell/customers/${CORE.customers[1]}`, entityType: "CUSTOMER", entityId: CORE.customers[1], labelAr: "مجموعة الفجر التجارية", labelEn: "Al Fajr Group", documentNumber: null, icon: "users", branchId: null, openedAt: "2026-08-25T13:20:00.000Z" },
+    ],
+    dashboard: {
+      columns: 3,
+      widgets: [
+        { id: "WGT-RECEIVABLES", kind: "receivables", column: 0, order: 0, size: "md", visible: true, settings: { range: "month" } },
+        { id: "WGT-CASH", kind: "cash-position", column: 1, order: 0, size: "md", visible: true, settings: {} },
+        { id: "WGT-SALES-TREND", kind: "sales-trend", column: 2, order: 0, size: "lg", visible: true, settings: { range: "quarter" } },
+        { id: "WGT-LOW-STOCK", kind: "low-stock", column: 0, order: 1, size: "sm", visible: false, settings: {} },
+      ],
+    },
+    shortcutTiles: [
+      { id: "TILE-NEW-INVOICE", route: "#/sell/sales-invoices/new", labelAr: "فاتورة مبيعات جديدة", labelEn: "New sales invoice", icon: "plus", tone: "primary", order: 0 },
+      { id: "TILE-COLLECT", route: "#/money/treasury-vouchers/new", labelAr: "تحصيل نقدي", labelEn: "Collect cash", icon: "wallet", tone: "accent", order: 1 },
+      { id: "TILE-STOCK", route: "#/stock/stock-balance", labelAr: "أرصدة المخزون", labelEn: "Stock balance", icon: "boxes", tone: null, order: 2 },
+    ],
+    tableViews: [
+      {
+        tableId: "sales-invoices",
+        columns: [
+          { key: "number", visible: true, order: 0, widthPx: 120, pinned: "start" },
+          { key: "date", visible: true, order: 1, widthPx: null, pinned: null },
+          { key: "customer", visible: true, order: 2, widthPx: 220, pinned: null },
+          { key: "total", visible: true, order: 3, widthPx: null, pinned: null },
+          { key: "status", visible: true, order: 4, widthPx: null, pinned: "end" },
+          { key: "salesperson", visible: false, order: 5, widthPx: null, pinned: null },
+        ],
+        sortKey: "date",
+        sortDirection: "desc",
+        pageSize: 50,
+        density: "compact",
+      },
+    ],
+  });
 }

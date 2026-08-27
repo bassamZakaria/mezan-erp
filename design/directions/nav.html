@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>خيارات التنقّل — ستة بدائل للشريط الجانبي</title>
+<title>خيارات التنقّل — سبعة بدائل للشريط الجانبي</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Reem+Kufi:wght@500;600;700&display=swap" rel="stylesheet">
@@ -11,6 +11,10 @@
 <style>
 /* nav-comparison chrome only */
 .opt{border-block-end:12px solid #18181B}
+.audience{background:#0F0F11;border-block-end:1px solid #27272A;padding:15px 20px;
+     color:#A1A1AA;font-size:12.5px;line-height:1.85;max-width:118ch}
+.audience b{color:#FAFAFA}
+.audience .rules{color:#71717A;font-size:11.5px;margin-block-start:6px;display:block}
 .opt .app{min-height:0}
 .opt .body{min-height:0}
 .opt .cap{background:#18181B;color:#A1A1AA;font-size:12px;padding:12px 20px}
@@ -64,6 +68,33 @@
 .crail.mini .it .lbl{display:none}
 .crail.mini .tgl{margin:0 10px 8px;width:40px;padding:0}
 
+.hyb{width:236px;flex:0 0 236px;background:var(--surface);border-inline-end:1px solid var(--line-2);padding-block:8px}
+.hyb .bm{display:flex;align-items:center;gap:9px;padding:4px 14px 12px;font-size:17px;
+     font-family:var(--font-disp);font-weight:var(--fw-disp)}
+.hyb .sbox{margin:0 10px 10px;min-height:40px;display:flex;align-items:center;gap:8px;padding:0 11px;
+     font-size:12.5px;color:var(--faint);background:var(--bg);border:1px solid var(--line-2);border-radius:var(--r)}
+.hyb .hd{padding:9px 14px 4px;font-size:11px;color:var(--faint);font-weight:600}
+.hyb .it{padding:7px 14px;font-size:13px;min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer}
+.hyb .it:hover{background:var(--surface-2)}
+.hyb .it[aria-current]{font-weight:600;box-shadow:inset 2px 0 0 var(--ink);background:var(--surface-2)}
+.hyb .it .pin{margin-inline-start:auto;opacity:.45;font-size:11px}
+.hyb .sep{height:1px;background:var(--line);margin:8px 12px}
+.hyb .tgl{margin:8px 10px 0;width:calc(100% - 20px)}
+.hybmini{width:60px;flex:0 0 60px;background:var(--surface);border-inline-end:1px solid var(--line-2);padding-block:8px}
+.hybmini .it{min-height:44px;display:grid;place-items:center;font-size:15px;cursor:pointer}
+.hybmini .it[aria-current]{box-shadow:inset 2px 0 0 var(--ink);background:var(--surface-2)}
+.hybmini .hd{height:1px;background:var(--line);margin:8px 10px}
+
+.opt .cap .who{display:flex;gap:14px;flex-wrap:wrap;margin-block-start:10px;
+     padding-block-start:9px;border-block-start:1px solid #27272A}
+.opt .cap .who span{font-size:11.5px;color:#71717A}
+.opt .cap .who b{color:#A1A1AA;font-weight:500}
+.opt .cap .y{color:#86B48F}.opt .cap .m{color:#D8B25F}.opt .cap .x{color:#D08A7A}
+.opt.pick{box-shadow:inset 0 0 0 2px #3F5A45}
+.opt.pick .cap{background:#14201A}
+.opt .cap .badge{display:inline-block;font-size:11px;color:#86B48F;border:1px solid #2F5137;
+     background:#122418;border-radius:4px;padding:3px 9px;margin-inline-start:10px}
+
 .wsonly{display:flex;align-items:center;gap:2px;background:var(--chrome-bg);color:var(--chrome-ink);
         border-block-end:1px solid var(--chrome-line);padding-inline:4px}
 .hubgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-block-start:14px}
@@ -75,7 +106,7 @@
 
 <div class="top">
   <a class="home" href="index.html">↩ كل الاتجاهات</a>
-  <b>خيارات التنقّل · ستة بدائل للشريط الجانبي</b>
+  <b>خيارات التنقّل · سبعة بدائل للشريط الجانبي</b>
   <div class="grp" id="nums">
     <button data-n="west" aria-pressed="true">أرقام غربية</button>
     <button data-n="east" aria-pressed="false">أرقام عربية</button>
@@ -87,6 +118,15 @@
 هو <em>التنقّل نفسه</em>. الشيء الثابت في الستة: <em>١٢٠ وجهة</em> موزّعة على ٦ مساحات عمل،
 وكلها تظل قابلة للوصول عبر البحث و<span class="num">⌘K</span> و«كل الشاشات» مهما كان الشكل.
 <br>البديل الأول هو الموجود حاليًا في النماذج — وهو الذي لم يعجبك.
+</div>
+
+<div class="audience">
+<b>مَن يستخدم هذا كل يوم — وكل بديل يُحكم عليه بهم · Judged against these five:</b>
+<b style="color:#D4D4D8">المُدخِل اليومي</b> · <b style="color:#D4D4D8">أمين المخزن</b> ·
+<b style="color:#D4D4D8">المحاسب</b> · <b style="color:#D4D4D8">صاحب المنشأة</b> (وهو من يوقّع شيك الترخيص) ·
+<b style="color:#D4D4D8">الدعم</b> (يحل المشكلة بالتليفون دون رؤية الشاشة).
+<span class="rules">الثابت في كل البدائل: ١٢٠ وجهة تظل قابلة للوصول عبر البحث و⌘K و«كل الشاشات».
+والمثبّتات تنتقل من localStorage إلى الخادم مهما كان الاختيار.</span>
 </div>
 
 <div id="stage"></div>
@@ -119,6 +159,8 @@ const topbar = (labels=true) => `
     ${WS.map((w,i)=>`<button class="ws" ${i===0?'aria-current="true"':''}>${w}</button>`).join("")}
     <div class="sp"><button class="cmdk">⌘K &nbsp;ابحث أو نفّذ أمرًا</button><span>الفرع الرئيسي</span></div>
   </div>`;
+
+const WHO = {"0": [["المُدخِل", "y", "عرض أوسع"], ["أمين المخزن", "x", "أيقونات بلا كلمات"], ["المحاسب", "m", ""], ["صاحب المنشأة", "x", "يخمّن"], ["الدعم", "x", "لا يستطيع الوصف"]], "1": [["المُدخِل", "m", "محتوى أضيق"], ["أمين المخزن", "y", "يقرأ بلا تدريب"], ["المحاسب", "y", ""], ["صاحب المنشأة", "y", ""], ["الدعم", "y", "أسهل مكالمة"]], "2": [["المُدخِل", "x", "‏٣٠٠ بكسل مفقودة"], ["أمين المخزن", "y", ""], ["المحاسب", "y", "مستويان ظاهران"], ["صاحب المنشأة", "y", ""], ["الدعم", "y", ""]], "3": [["المُدخِل", "y", "الأوسع"], ["أمين المخزن", "m", "صفحة وسيطة"], ["المحاسب", "m", "قفز كثير"], ["صاحب المنشأة", "y", "نظيف"], ["الدعم", "m", ""]], "4": [["المُدخِل", "y", "يطوي"], ["أمين المخزن", "y", "يقرأ"], ["المحاسب", "y", ""], ["صاحب المنشأة", "y", ""], ["الدعم", "m", "«مفتوح ولا مطوي؟»"]], "5": [["المُدخِل", "y", "شغله أولًا"], ["أمين المخزن", "y", ""], ["المحاسب", "y", ""], ["صاحب المنشأة", "m", "بلا شجرة"], ["الدعم", "x", "لا شريطين متشابهين"]], "6": [["المُدخِل", "y", "يطوي"], ["أمين المخزن", "y", "يقرأ"], ["المحاسب", "y", ""], ["صاحب المنشأة", "y", "بلا تدريب"], ["الدعم", "m", "سؤال زائد واحد"]]};
 
 const OPTIONS = [
   {
@@ -240,15 +282,56 @@ const OPTIONS = [
         <div class="fake">${fake}</div>
       </div>`
   },
+  {
+    id:"hybrid",
+    pick:true,
+    name:"٧ · مُسمّى + رأسه شخصي + قابل للطي",
+    desc:"مُسمّى بالكلمات دائمًا؛ رأسه بحث ثم مثبّتاتك ثم آخر ما فتحته؛ وتحته مساحات العمل الست؛ وزر يطويه إلى أيقونات. الحالة محفوظة على الخادم.",
+    pro:"البديل الوحيد الذي لا يفرض مقايضة واحدة على الجميع: الموظف الجديد يقرأ، والمُدخِل يطوي ويكسب العرض، والدعم يظل قادرًا على قول «الصف الثالث». والكتلة الشخصية في الأعلى هي ما يمنعه من أن يبدو كالمنافس رغم تشابه الشكل — أول ما تراه ست شاشاتك لا خريطة البرنامج.",
+    con:"حالتان يجب تصميمهما واختبارهما بدل واحدة، ومكالمة الدعم تبدأ بسؤال زائد: «الشريط عندك مفتوح ولا مطوي؟». ويحتاج تفضيلات مستخدم على الخادم — وهي غير موجودة اليوم.",
+    html: topbar() + `
+      <div class="navdemo">
+        <div class="hyb">
+          <div class="bm">ميزان</div>
+          <div class="sbox">🔍 ابحث في ${I(120)} شاشة…</div>
+          <div class="hd">مثبّت · شغلك أنت</div>
+          <div class="it" aria-current="true">🧾 فواتير المبيعات<span class="pin">📌</span></div>
+          <div class="it">💵 سندات القبض<span class="pin">📌</span></div>
+          <div class="it">📦 الرصيد المخزني<span class="pin">📌</span></div>
+          <div class="hd">آخر ما فتحته</div>
+          <div class="it">↺ شركة الأمل للتجارة</div>
+          <div class="it">↺ ميزان المراجعة</div>
+          <div class="sep"></div>
+          <div class="hd">مساحات العمل</div>
+          ${[["◧","البيع والتحصيل"],["◨","الشراء والتوريد"],["▣","المخزون والتصنيع"],
+             ["₤","المالية والإقفال"],["◑","الأشخاص والأصول"],["⚙","الإعداد والصلاحيات"]]
+            .map(w=>`<div class="it">${w[0]} ${w[1]}</div>`).join("")}
+          <button class="btn sec sm tgl">⟨ اطوِ الشريط</button>
+        </div>
+        <div class="hybmini">
+          ${["◧","🧾","💵","📦"].map((g,i)=>`<div class="it" ${i===1?'aria-current="true"':''}>${g}</div>`).join("")}
+          <div class="hd"></div>
+          ${["◨","▣","₤","◑","⚙"].map(g=>`<div class="it">${g}</div>`).join("")}
+          <div class="hd"></div>
+          <div class="it">⟩</div>
+        </div>
+        <div class="fake">${fake}
+          <p style="color:var(--faint);font-size:12px;margin-block-start:16px">
+            الحالتان معروضتان جنبًا إلى جنب هنا للمقارنة فقط — في المنتج واحدة في كل مرة،
+            والاختيار محفوظ لك على الخادم فيتبعك على أي جهاز.</p>
+        </div>
+      </div>`
+  },
 ];
 
-document.getElementById("stage").innerHTML = OPTIONS.map(o=>`
-  <section class="opt">
+document.getElementById("stage").innerHTML = OPTIONS.map((o,i)=>`
+  <section class="opt ${o.pick?"pick":""}">
     <div class="cap">
-      <b>${o.name}</b>
+      <b>${o.name}${o.pick?`<span class="badge">التوصية · Recommended</span>`:""}</b>
       <span class="line">${o.desc}</span>
       <span class="line pro">+ ${o.pro}</span>
       <span class="line con">− ${o.con}</span>
+      <span class="who">${WHO[i].map(w=>`<span><b>${w[0]}</b> <span class="${w[1]}">${w[1]==="y"?"✓":w[1]==="m"?"~":"✕"}</span>${w[2]?" "+w[2]:""}</span>`).join("")}</span>
     </div>
     <div data-dir="a"><div class="app">${o.html}</div></div>
   </section>`).join("");

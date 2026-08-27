@@ -41,6 +41,10 @@ export {
   type SqliteBarcodeConfigStoreHandle,
 } from "./barcode-config-store.js";
 export {
+  createSqliteUserPreferencesStore,
+  type SqliteUserPreferencesStoreHandle,
+} from "./user-preferences-store.js";
+export {
   createSqliteBranchStore,
   type SqliteBranchStoreHandle,
 } from "./branch-store.js";

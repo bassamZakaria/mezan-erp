@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>التغييرات الرئيسية — Main Component Changes · Before / After</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Kufi+Arabic:wght@500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=Reem+Kufi:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="directions.css">
+<style>
+/* ---------- page chrome ---------- */
+.wrapx{max-width:1560px;margin:0 auto;padding:38px 20px 90px}
+h1{font-family:"Reem Kufi",sans-serif;font-size:27px;margin:0 0 4px;color:#FAFAFA}
+h1 .en{font-family:"IBM Plex Sans Arabic",sans-serif;font-size:16px;color:#71717A;font-weight:400}
+.lede{color:#A1A1AA;font-size:13.5px;margin:0 0 4px;max-width:104ch}
+.lede.en{color:#71717A;direction:ltr;text-align:left}
+.back{display:inline-block;color:#A1A1AA;font-size:12.5px;text-decoration:none;
+      padding:6px 11px;border:1px solid #3F3F46;border-radius:4px;margin-block-end:22px}
+.back:hover{color:#FAFAFA;border-color:#71717A}
+
+.cmpx{margin-block-start:40px;border:1px solid #27272A;border-radius:8px;overflow:hidden;background:#131316}
+.cmpx > .hd{padding:14px 18px;border-block-end:1px solid #27272A;background:#18181B}
+.cmpx > .hd b{color:#FAFAFA;font-size:15.5px;display:block;margin-block-end:4px}
+.cmpx > .hd .why{color:#A1A1AA;font-size:12.5px;line-height:1.75;max-width:110ch}
+.cmpx > .hd .why .en{display:block;color:#71717A;direction:ltr;text-align:left;margin-block-start:4px}
+.cmpx > .hd .rule{display:inline-block;margin-block-start:8px;font-size:11px;color:#D8B25F;
+     border:1px solid #5A4A22;background:#26200F;border-radius:4px;padding:3px 9px}
+.cmpx > .hd .rule.bug{color:#D08A7A;border-color:#5A322A;background:#2A1712}
+
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#27272A}
+.pane{background:#131316;min-width:0}
+.pane > .lbl{padding:8px 14px;font-size:11.5px;display:flex;gap:8px;align-items:center;
+     border-block-end:1px solid #27272A}
+.pane.old > .lbl{color:#D08A7A;background:#1B1416}
+.pane.new > .lbl{color:#86B48F;background:#131B16}
+.pane > .lbl .t{margin-inline-start:auto;color:#52525B;font-size:11px}
+.pane > .pbody{padding:16px}
+@media (max-width:1100px){.pair{grid-template-columns:1fr}}
+
+/* ================================================================
+   THE OLD SKIN — today's real tokens, copied from
+   packages/ui/src/tokens/tokens.css so the "before" is honest.
+   ================================================================ */
+.oldskin{
+  --bg:#f2efe9;--surface:#ffffff;--surface-2:#f7f4ed;--ink:#14231e;--muted:#424f48;--faint:#5a6c62;
+  --line:#e6e0d2;--line-2:#d3cbb6;
+  --brand:#0c463e;--accent:#b0862f;--accent-soft:#f6efdb;
+  --ok:#2c8a57;--ok-soft:#e1f1e8;--warn:#b0791f;--warn-soft:#f7ecd3;
+  --bad:#c0402f;--bad-soft:#f8e4df;
+  --chrome:#0b3a34;--chrome-2:#072b27;--chrome-ink:#e4f1ec;--chrome-ink-muted:#a9c6bc;
+  --shadow-1:0 1px 2px rgba(20,45,36,.07),0 1px 1px rgba(20,45,36,.04);
+  background:var(--bg);color:var(--ink);font-family:"Noto Sans Arabic",sans-serif;
+  font-size:15px;line-height:1.75;padding:14px;border-radius:6px}
+.oldskin h3,.oldskin .disp{font-family:"Noto Kufi Arabic",sans-serif;font-weight:600}
+.oldskin .onum{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+     direction:ltr;unicode-bidi:isolate;display:inline-block}
+
+.oldskin .ocard{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+     box-shadow:var(--shadow-1);padding:14px}
+.oldskin .ostats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-block-end:14px}
+.oldskin .ostat{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+     box-shadow:var(--shadow-1);padding:13px 14px;transition:transform .15s,box-shadow .15s}
+.oldskin .ostat:hover{transform:translateY(-2px);
+     box-shadow:0 22px 48px -22px rgba(12,40,32,.3),0 6px 16px -8px rgba(12,40,32,.14)}
+.oldskin .ostat .k{font-size:12px;color:var(--faint);margin-block-end:4px}
+.oldskin .ostat .v{font-size:19px;font-family:"IBM Plex Mono",monospace}
+.oldskin .ochips{display:flex;gap:7px;flex-wrap:wrap;margin-block-end:12px}
+.oldskin .ochip{height:31px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;
+     font-size:12.5px;border-radius:999px;border:1px solid var(--line-2);background:var(--surface);
+     color:var(--muted);cursor:pointer}
+.oldskin .ochip[aria-pressed=true]{background:var(--brand);color:#fff;border-color:var(--brand)}
+.oldskin .ochip .n{opacity:.6;font-size:11px}
+.oldskin .ofilter{font-size:12.5px;color:var(--faint);display:flex;align-items:center;gap:7px;
+     margin-block-end:12px;cursor:pointer}
+.oldskin table{width:100%;border-collapse:collapse;font-size:14px}
+.oldskin th{text-align:start;font-size:11px;color:var(--faint);padding:8px 10px;
+     border-block-end:1px solid var(--line-2);text-transform:uppercase;letter-spacing:.14em}
+.oldskin td{padding:0;height:40px;border-block-end:1px solid var(--line)}
+.oldskin td .c{padding:0 10px;display:flex;align-items:center;height:100%}
+.oldskin td .c.e{justify-content:flex-end}
+.oldskin .opill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+     font-size:11.5px}
+.oldskin .opill.ok{background:var(--ok-soft);color:var(--ok)}
+.oldskin .opill.bad{background:var(--bad-soft);color:var(--bad)}
+.oldskin .opill.mute{background:var(--surface-2);color:var(--muted)}
+.oldskin .opill::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor}
+.oldskin .obtn{font:inherit;font-size:14px;height:36px;padding:0 15px;border-radius:8px;cursor:pointer;
+     background:var(--brand);color:#fff;border:1px solid var(--brand)}
+.oldskin .obtn.sec{background:var(--surface);color:var(--ink);border-color:var(--line-2)}
+.oldskin .obtn.sm{height:31px;font-size:12.5px;padding:0 11px}
+.oldskin .odrawer{width:430px;max-width:100%;background:var(--surface);border:1px solid var(--line);
+     border-radius:14px;box-shadow:0 22px 48px -22px rgba(12,40,32,.3);padding:16px;margin-inline-start:auto}
+.oldskin .ofield{margin-block-end:12px}
+.oldskin .ofield label{display:block;font-size:12.5px;color:var(--muted);margin-block-end:5px}
+.oldskin .ofield .in{height:36px;display:flex;align-items:center;padding:0 11px;font-size:14px;
+     background:var(--surface);border:1px solid var(--line-2);border-radius:8px}
+.oldskin .oline{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+     box-shadow:var(--shadow-1);padding:12px;margin-block-end:10px}
+.oldskin .oline .t{font-size:12px;color:var(--faint);margin-block-end:8px}
+.oldskin .oline .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-block-end:8px}
+.oldskin .oempty{text-align:center;padding:26px;color:var(--faint);font-size:13.5px}
+.oldskin .odash{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.oldskin .oacts{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-block-end:14px}
+.oldskin .oeyebrow{font-family:"Noto Kufi Arabic",sans-serif;font-size:11px;font-weight:500;
+     letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.oldskin .ochrome{background:linear-gradient(180deg,var(--chrome),var(--chrome-2));
+     color:var(--chrome-ink);border-radius:10px;padding:12px 14px;width:264px}
+.oldskin .ochrome .it{padding:8px 10px;border-radius:8px;font-size:13.5px;display:flex;gap:9px;align-items:center}
+.oldskin .ochrome .it[aria-current]{background:rgba(255,255,255,.09);
+     box-shadow:inset 2px 0 0 var(--accent);font-weight:600}
+.oldskin .ochrome .it.m{color:var(--chrome-ink-muted)}
+
+/* ---- sidebar comparison ---- */
+.oldskin .orail{background:linear-gradient(180deg,var(--chrome),var(--chrome-2));
+     color:var(--chrome-ink);width:264px;padding:12px 0;border-radius:10px;
+     box-shadow:0 0 0 1px rgba(0,0,0,.04),8px 0 30px -18px rgba(7,43,39,.55)}
+.oldskin .orail .bm{display:flex;align-items:center;gap:9px;padding:4px 14px 14px;font-size:16px;
+     font-family:"Noto Kufi Arabic",sans-serif;font-weight:700}
+.oldskin .orail .bm .sq{width:30px;height:30px;border-radius:9px;background:var(--accent);
+     display:grid;place-items:center;color:#1c1405;font-size:15px}
+.oldskin .orail .g{padding:9px 14px;font-size:13.5px;display:flex;align-items:center;gap:8px;cursor:pointer}
+.oldskin .orail .g .ch{margin-inline-start:auto;opacity:.5;font-size:10px}
+.oldskin .orail .s{padding:7px 14px 7px 14px;padding-inline-start:36px;font-size:12.5px;
+     color:var(--chrome-ink-muted);cursor:pointer;height:31px;display:flex;align-items:center}
+.oldskin .orail .s[aria-current]{background:rgba(255,255,255,.09);color:#fff;
+     box-shadow:inset 2px 0 0 var(--accent);font-weight:600}
+.oldskin .orail .hd{padding:12px 14px 5px;font-size:11px;font-family:"Noto Kufi Arabic",sans-serif;
+     font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);opacity:.9}
+
+.railnew{width:236px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);
+     padding-block:8px;flex:0 0 236px}
+.railnew .bm{display:flex;align-items:center;gap:9px;padding:4px 14px 12px;font-size:17px;
+     font-family:var(--font-disp);font-weight:var(--fw-disp)}
+.railnew .sbox{margin:0 10px 10px;min-height:40px;display:flex;align-items:center;gap:8px;padding:0 11px;
+     font-size:12.5px;color:var(--faint);background:var(--bg);border:1px solid var(--line-2);border-radius:var(--r)}
+.railnew .hd{padding:9px 14px 4px;font-size:11px;color:var(--faint);font-weight:600}
+.railnew .it{padding:7px 14px;font-size:13px;min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer}
+.railnew .it:hover{background:var(--surface-2)}
+.railnew .it[aria-current]{font-weight:600;box-shadow:inset 2px 0 0 var(--ink);background:var(--surface-2)}
+.railnew .it .pin{margin-inline-start:auto;opacity:.45;font-size:11px}
+.railnew .sep{height:1px;background:var(--line);margin:8px 12px}
+.railnew .tgl{margin:8px 10px 0;width:calc(100% - 20px)}
+.railmini{width:60px;flex:0 0 60px;background:var(--surface);border:1px solid var(--line-2);
+     border-radius:var(--r);padding-block:8px}
+.railmini .it{min-height:44px;display:grid;place-items:center;font-size:15px;cursor:pointer}
+.railmini .it[aria-current]{box-shadow:inset 2px 0 0 var(--ink);background:var(--surface-2)}
+.railmini .hd{height:1px;background:var(--line);margin:8px 10px}
+
+/* the new side reuses directions.css verbatim */
+.pane .app{min-height:0;padding:14px;border-radius:6px}
+.pane .body{min-height:0}
+</style>
+</head>
+<body>
+<div class="wrapx">
+<a class="back" href="index.html">↩ كل قرارات التصميم · All design decisions</a>
+
+<h1>التغييرات الرئيسية <span class="en">· Main Component Changes — Before / After</span></h1>
+<p class="lede">اليمين هو التصميم الحالي مرسومًا برموزه الحقيقية المنسوخة من
+<span dir="ltr">packages/ui/src/tokens/tokens.css</span> — لا كاريكاتير له. اليسار هو الجديد
+باتجاه «المِيزان». نفس البيانات في الاثنين.</p>
+<p class="lede en">Right is today's design drawn with its real tokens copied from
+<span dir="ltr">packages/ui/src/tokens/tokens.css</span> — not a strawman. Left is the new one in the
+المِيزان direction. Same data on both sides.</p>
+
+<div id="stage"></div>
+</div>
+
+<script>
+const N = v => `<span class="num">${v}</span>`;
+const O = v => `<span class="onum">${v}</span>`;
+
+const ITEMS = [
+
+/* 1 ─────────────────────────────────────────────── list header */
+{t:"رأس القائمة — من أقراص التصفية إلى شريط المبالغ",
+ en:"List header — from filter chips to a money bar",
+ why:"الأقراص تعرض عدّادًا (وأحيانًا صفرًا) وتخفي المبلغ، وارتفاعها ٣١ بكسل، وهي أزرار <span dir='ltr'>aria-pressed</span> داخل <span dir='ltr'>role=tablist</span> — إعلان خاطئ لقارئ الشاشة. بطاقات المؤشّرات فوقها ترتفع عند المرور داخل شاشة بيانات.",
+ whyEn:"Chips show a count (sometimes zero), hide the amount, stand 31px tall, and are aria-pressed buttons inside a role=tablist — a wrong screen-reader announcement. The KPI cards above them hover-lift inside a data screen.",
+ rule:"قاعدة: كل عنصر ≥٤٤ بكسل · Rule: every control ≥44px",
+ old:`
+  <div class="ostats">
+    <div class="ostat"><div class="k">عدد الفواتير</div><div class="v onum">342</div></div>
+    <div class="ostat"><div class="k">الإجمالي</div><div class="v onum">99,711.60</div></div>
+    <div class="ostat"><div class="k">متأخرة</div><div class="v onum">2</div></div>
+    <div class="ostat"><div class="k">مسودات</div><div class="v onum">1</div></div>
+  </div>
+  <div class="ochips">
+    <button class="ochip" aria-pressed="true">الكل<span class="n onum">342</span></button>
+    <button class="ochip">مسودة<span class="n onum">12</span></button>
+    <button class="ochip">مؤكدة<span class="n onum">48</span></button>
+    <button class="ochip">متأخرة<span class="n onum">2</span></button>
+    <button class="ochip">ملغاة<span class="n onum">0</span></button>
+    <button class="ochip">مرتجعة<span class="n onum">0</span></button>
+  </div>
+  <div class="ofilter">▸ عوامل التصفية</div>`,
+ neu:`
+  <div class="moneybar" role="group" aria-label="الحالة بالمبلغ">
+    <button class="seg bad" aria-pressed="true"><span class="k">متأخرة</span>
+      <span class="v num">10,600.00</span><span class="c"><span class="num">2</span> فواتير</span></button>
+    <button class="seg warn"><span class="k">مستحقة قريبًا</span>
+      <span class="v num">56,550.00</span><span class="c"><span class="num">2</span> فواتير</span></button>
+    <button class="seg mute"><span class="k">مسودات</span>
+      <span class="v num">9,621.60</span><span class="c">فاتورة واحدة</span></button>
+  </div>
+  <div class="toolbar">
+    <div class="views" role="group" aria-label="قوائم محفوظة">
+      <button aria-pressed="true">اللي عليّ أحصّله<span class="n num">7</span></button>
+      <button>مسودات<span class="n num">12</span></button>
+    </div>
+    <div class="search">🔍 ابحث برقم الفاتورة أو اسم العميل…</div>
+  </div>
+  <div class="tags">
+    <span class="tag">الحالة: متأخرة <button class="x" aria-label="إزالة">✕</button></span>
+    <button class="more">+ إضافة عامل تصفية</button>
+  </div>`},
+
+/* 2 ─────────────────────────────────────────────── table rows */
+{t:"صفوف الجدول — التاريخ المطلق يصير نسبيًا",
+ en:"Table rows — absolute dates become relative",
+ why:"«٢٢ أغسطس ٢٠٢٦» يفرض على القارئ عملية طرح ذهنية ليعرف هل تأخّرت أم لا. والحالة معروضة بقرص ملوّن بنقطة، واللون وحده يحمل المعنى.",
+ whyEn:"\"22 Aug 2026\" makes the reader do subtraction to know whether it is late. Status is a coloured dot pill, and colour alone carries the meaning.",
+ rule:"قاعدة: لا لون بلا كلمة أو شكل · Rule: never colour alone",
+ old:`
+  <table>
+    <thead><tr><th>الرقم</th><th>العميل</th><th>الاستحقاق</th><th class="e" style="text-align:end">الإجمالي</th><th>الحالة</th></tr></thead>
+    <tbody>
+      <tr><td><span class="c onum">INV-2026-0339</span></td><td><span class="c">مجموعة الفجر</span></td>
+        <td><span class="c onum">6 سبتمبر 2026</span></td><td><span class="c e onum">7,480.00</span></td>
+        <td><span class="c"><span class="opill bad">متأخرة</span></span></td></tr>
+      <tr><td><span class="c onum">INV-2026-0341</span></td><td><span class="c">مؤسسة النور</span></td>
+        <td><span class="c onum">10 أكتوبر 2026</span></td><td><span class="c e onum">41,250.00</span></td>
+        <td><span class="c"><span class="opill ok">مؤكدة</span></span></td></tr>
+      <tr><td><span class="c onum">INV-2026-0342</span></td><td><span class="c">شركة الأمل</span></td>
+        <td><span class="c onum">26 سبتمبر 2026</span></td><td><span class="c e onum">9,621.60</span></td>
+        <td><span class="c"><span class="opill mute">مسودة</span></span></td></tr>
+    </tbody>
+  </table>`,
+ neu:`
+  <table>
+    <thead><tr><th>الرقم</th><th>العميل</th><th>الاستحقاق</th><th class="e">الإجمالي</th><th>الحالة</th></tr></thead>
+    <tbody>
+      <tr><td><span class="cell num">INV-2026-0339</span></td><td><span class="cell">مجموعة الفجر</span></td>
+        <td><span class="cell late">متأخرة <span class="num">21</span> يومًا</span></td>
+        <td class="e"><span class="cell num">7,480.00</span></td>
+        <td><span class="cell"><span class="chip bad">▲ متأخرة</span></span></td></tr>
+      <tr><td><span class="cell num">INV-2026-0341</span></td><td><span class="cell">مؤسسة النور</span></td>
+        <td><span class="cell">خلال <span class="num">44</span> يومًا</span></td>
+        <td class="e"><span class="cell num">41,250.00</span></td>
+        <td><span class="cell"><span class="chip ok">✓ مؤكدة</span></span></td></tr>
+      <tr><td><span class="cell num">INV-2026-0342</span></td><td><span class="cell">شركة الأمل</span></td>
+        <td><span class="cell">خلال <span class="num">30</span> يومًا</span></td>
+        <td class="e"><span class="cell num">9,621.60</span></td>
+        <td><span class="cell"><span class="chip mute">◷ مسودة</span></span></td></tr>
+    </tbody>
+  </table>`},
+
+/* 3 ─────────────────────────────────────────────── line items */
+{t:"بنود المستند — من كروت إلى جدول كثيف",
+ en:"Document lines — from cards to a dense grid",
+ why:"كل بند اليوم كارت فيه أربعة صفوف حقول بتسمية فوق كل حقل. فاتورة من عشرة بنود = تسع ضغطات «إضافة بند» بالماوس، ولا تركيز تلقائي على حقل الصنف في السطر الجديد. هذا أكبر مصدر بطء في الإدخال اليومي.",
+ whyEn:"Each line is a card of four labelled field rows. A ten-line invoice is nine mouse clicks on \"add line\", with no autofocus into the new row. This is the single biggest drag on daily entry.",
+ rule:"طلب المُدخِل اليومي · Asked for by the daily operator",
+ old:`
+  <div class="oline">
+    <div class="t">بند رقم 1</div>
+    <div class="row"><div class="ofield"><label>الصنف</label><div class="in">سكر أبيض ١ كجم</div></div>
+      <div class="ofield"><label>الكود</label><div class="in onum">IT-0003</div></div></div>
+    <div class="row"><div class="ofield"><label>الكمية</label><div class="in onum">40</div></div>
+      <div class="ofield"><label>الوحدة</label><div class="in">كجم</div></div></div>
+    <div class="row"><div class="ofield"><label>السعر</label><div class="in onum">42.00</div></div>
+      <div class="ofield"><label>الإجمالي</label><div class="in onum">1,680.00</div></div></div>
+  </div>
+  <div class="oline">
+    <div class="t">بند رقم 2</div>
+    <div class="row"><div class="ofield"><label>الصنف</label><div class="in">زيت عباد الشمس ١ لتر</div></div>
+      <div class="ofield"><label>الكود</label><div class="in onum">IT-0002</div></div></div>
+    <div class="row"><div class="ofield"><label>الكمية</label><div class="in onum">24</div></div>
+      <div class="ofield"><label>الوحدة</label><div class="in">لتر</div></div></div>
+  </div>
+  <button class="obtn sec sm">+ إضافة بند</button>`,
+ neu:`
+  <span class="gt">البنود — Tab للتنقل بين الخانات، Enter لسطر جديد</span>
+  <table>
+    <thead><tr><th style="width:32%">الصنف</th><th>الكود</th><th class="e">الكمية</th><th>الوحدة</th>
+      <th class="e">السعر</th><th class="e">الإجمالي</th></tr></thead>
+    <tbody>
+      <tr><td><span class="cell">سكر أبيض ١ كجم</span></td><td><span class="cell num">IT-0003</span></td>
+        <td class="e"><span class="cell num">40</span></td><td><span class="cell">كجم</span></td>
+        <td class="e"><span class="cell num">42.00</span></td><td class="e"><span class="cell num">1,680.00</span></td></tr>
+      <tr><td><span class="cell">زيت عباد الشمس ١ لتر</span></td><td><span class="cell num">IT-0002</span></td>
+        <td class="e"><span class="cell num">24</span></td><td><span class="cell">لتر</span></td>
+        <td class="e"><span class="cell num">95.00</span></td><td class="e"><span class="cell num">2,280.00</span></td></tr>
+      <tr><td><span class="cell">شاي أسود ٥٠٠ جم</span></td><td><span class="cell num">IT-0004</span></td>
+        <td class="e"><span class="cell num">12</span></td><td><span class="cell">عبوة</span></td>
+        <td class="e"><span class="cell num">260.00</span></td><td class="e"><span class="cell num">3,120.00</span></td></tr>
+      <tr><td colspan="6"><span class="cell" style="opacity:.5">اكتب اسم الصنف أو امسح الباركود…</span></td></tr>
+    </tbody>
+  </table>`},
+
+/* 4 ─────────────────────────────────────────────── document header */
+{t:"رأس المستند — يكتسب المؤشّر والمرتبط والرصيد الدائن",
+ en:"Document header — gains pager, related records and unapplied credit",
+ why:"اليوم: عنوان وأزرار. لا طريق للسجل التالي في قائمة مُصفّاة، ولا رابط للسجلات المرتبطة، ولا علم بأن للعميل رصيدًا دائنًا يمكن خصمه من هذه الفاتورة نفسها.",
+ whyEn:"Today: a title and buttons. No way to the next record in a filtered list, no link to related records, and no hint that this customer has credit that could be applied to this very invoice.",
+ rule:"من Odoo — آلية عامة لا توقيع بصري · From Odoo — a generic mechanic, not a visual signature",
+ old:`
+  <div style="display:flex;align-items:flex-start;gap:14px;margin-block-end:14px">
+    <div><h3 style="margin:0;font-size:20px">فاتورة مبيعات INV-2026-0341</h3>
+      <div style="font-size:12.5px;color:var(--faint);margin-block-start:4px">مؤسسة النور للمقاولات · <span class="onum">26 أغسطس 2026</span></div></div>
+    <div style="margin-inline-start:auto;display:flex;gap:8px">
+      <button class="obtn sec">طباعة</button><button class="obtn">تحصيل دفعة</button></div>
+  </div>
+  <div class="ocard"><div class="oeyebrow">البنود</div>
+    <div style="font-size:13.5px;margin-block-start:8px">أرز أبيض ٥ كجم — <span class="onum">22,200.00</span></div>
+    <div style="font-size:13.5px">شاي أسود ٥٠٠ جم — <span class="onum">13,000.00</span></div>
+  </div>`,
+ neu:`
+  <div class="phead">
+    <div><h1 style="font-size:19px">فاتورة مبيعات INV-2026-0341</h1>
+      <div class="sub">مؤسسة النور للمقاولات · <span class="num">26</span>&nbsp;أغسطس&nbsp;<span class="num">2026</span></div></div>
+    <div class="acts">
+      <span class="recpager"><button class="rp">›</button>
+        <span><span class="num">2</span> من <span class="num">10</span></span>
+        <button class="rp">‹</button></span>
+      <button class="btn sec sm">طباعة</button><button class="btn sm">تحصيل دفعة</button>
+    </div>
+  </div>
+  <div class="related">
+    <button class="rel"><span class="n num">3</span><span class="l">أذون صرف</span></button>
+    <button class="rel"><span class="n num">2</span><span class="l">دفعات</span></button>
+    <button class="rel"><span class="n num">1</span><span class="l">قيد يومية</span></button>
+  </div>
+  <div class="creditbox">
+    <div class="ch"><b>لهذا العميل رصيد دائن غير مُطبَّق</b>
+      <span>يمكن خصمه من هذه الفاتورة دون مغادرة الشاشة.</span></div>
+    <div class="cr"><span class="num">CN-2026-0041</span><span>إشعار خصم</span>
+      <span class="num" style="margin-inline-start:auto">4,120.00</span>
+      <button class="btn sec sm">طبّق</button></div>
+  </div>`},
+
+/* 5 ─────────────────────────────────────────────── drawer → page */
+{t:"التحرير — من درج ٤٣٠ بكسل إلى صفحة لها رابط",
+ en:"Editing — from a 430px drawer to a routed page",
+ why:"٦٢ شاشة تحرّر داخل درج عرضه ٤٣٠ بكسل، بما فيها مستندات لها بنود ودورة حياة وأثر مالي. والدرج نفسه لا ينقل التركيز إليه عند الفتح، فمستخدم لوحة المفاتيح يظل خارجه.",
+ whyEn:"62 screens edit inside a 430px drawer — including documents with line items, a lifecycle and a financial consequence. The drawer also never moves focus into itself on open, so a keyboard user is left outside it.",
+ rule:"عيب مؤكَّد في SidePanel.tsx · Confirmed defect in SidePanel.tsx",
+ ruleBug:true,
+ old:`
+  <div class="odrawer">
+    <h3 style="margin:0 0 12px;font-size:16px">فاتورة مبيعات جديدة</h3>
+    <div class="ofield"><label>العميل</label><div class="in">شركة الأمل للتجارة</div></div>
+    <div class="ofield"><label>التاريخ</label><div class="in onum">27 أغسطس 2026</div></div>
+    <div class="ofield"><label>المخزن</label><div class="in">المخزن الرئيسي</div></div>
+    <div class="ofield"><label>البنود</label>
+      <div class="in" style="height:auto;padding:10px;display:block;font-size:12.5px;color:var(--faint)">
+        ٣ بنود — مرّر داخل الدرج للتحرير</div></div>
+    <div style="display:flex;gap:8px;margin-block-start:14px">
+      <button class="obtn">حفظ</button><button class="obtn sec">إلغاء</button></div>
+  </div>`,
+ neu:`
+  <div class="phead">
+    <div><h1 style="font-size:19px">فاتورة مبيعات — مسودة</h1>
+      <div class="sub">صفحة لها رابط · <span class="mz-lat">/sales/invoices/INV-2026-0342</span></div></div>
+    <div class="acts"><button class="btn sec sm">حفظ كمسودة</button><button class="btn sm">ترحيل</button></div>
+  </div>
+  <div class="form" style="max-width:none;margin-block-end:14px">
+    <div class="field"><label>العميل <span class="req">*</span></label>
+      <div class="in pick">شركة الأمل للتجارة <span class="kbd">⌘K</span></div></div>
+    <div class="field"><label>التاريخ</label>
+      <div class="in"><span><span class="num">27</span>&nbsp;أغسطس&nbsp;<span class="num">2026</span></span></div></div>
+    <div class="field"><label>المخزن</label><div class="in pick">المخزن الرئيسي <span class="kbd">▾</span></div></div>
+  </div>
+  <table>
+    <thead><tr><th>الصنف</th><th class="e">الكمية</th><th class="e">الإجمالي</th></tr></thead>
+    <tbody>
+      <tr><td><span class="cell">سكر أبيض ١ كجم</span></td><td class="e"><span class="cell num">40</span></td>
+        <td class="e"><span class="cell num">1,680.00</span></td></tr>
+      <tr><td><span class="cell">زيت عباد الشمس ١ لتر</span></td><td class="e"><span class="cell num">24</span></td>
+        <td class="e"><span class="cell num">2,280.00</span></td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:11.5px;color:var(--faint);margin-block-start:10px">
+    الدرج يبقى للبيانات الأساسية القصيرة فقط — عميل، صنف، مركز تكلفة.</p>`},
+
+/* 6 ─────────────────────────────────────────────── picker */
+{t:"اختيار الكيان — إنشاء سريع من داخل السياق",
+ en:"Entity picker — quick create in context",
+ why:"لو العميل غير مسجّل، يترك المُدخِل المسودة، يفتح شاشة العملاء، يضيفه، يرجع، ويعيد إدخال البنود من أولها. وهذا بالضبط ما يدفع الموظف لكتابة الاسم كنص حر — وهو ما يولّد معرّفات مُختلقة في قاعدة البيانات.",
+ whyEn:"If the customer is not on file, the operator abandons the draft, opens the customers screen, adds them, comes back and re-keys the lines. This is exactly what pushes staff to type a free-text name instead — which is how fabricated ids get into the database.",
+ rule:"قاعدة: كل حقل يسمّي كيانًا لا بد أن يكون قائمة اختيار · Rule: any field naming an entity must be a picker",
+ old:`
+  <div class="ofield" style="max-width:420px">
+    <label>العميل</label>
+    <div class="in">ابحث بالاسم أو الكود…</div>
+  </div>
+  <div class="ocard" style="max-width:420px;margin-block-start:8px">
+    <div style="font-size:13.5px;padding:6px 0">شركة الأمل للتجارة</div>
+    <div style="font-size:13.5px;padding:6px 0">مؤسسة النور للمقاولات</div>
+    <div style="font-size:13.5px;padding:6px 0">مجموعة الفجر التجارية</div>
+    <div style="font-size:12.5px;color:var(--faint);padding:6px 0;border-block-start:1px solid var(--line)">
+      لا نتائج أخرى</div>
+  </div>`,
+ neu:`
+  <div class="field" style="max-width:420px">
+    <label>العميل <span class="req">*</span></label>
+    <div class="in pick">شركة البركة للتوزيع <span class="kbd">⌘K</span></div>
+  </div>
+  <div style="max-width:420px;margin-block-start:8px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--surface)">
+    <div style="font-size:13px;padding:9px 12px;border-block-end:1px solid var(--line);color:var(--muted)">لا يوجد عميل بهذا الاسم</div>
+    <div style="padding:10px 12px">
+      <button class="btn sm block">+ أضف «شركة البركة للتوزيع» كعميل جديد</button>
+      <p style="font-size:11.5px;color:var(--faint);margin:8px 0 0">
+        نموذج قصير، والمسودة محفوظة ولن تُفقد.</p>
+    </div>
+  </div>`},
+
+/* 7 ─────────────────────────────────────────────── confirm */
+{t:"التأكيد — من «هل أنت متأكد؟» إلى ذكر العاقبة",
+ en:"Confirm — from \\u00abare you sure?\\u00bb to naming the consequence",
+ why:"«هل أنت متأكد؟» لا تخبر أحدًا بشيء. المستخدم غير المتخصص لا يعرف أن الإلغاء سيُنشئ قيدًا عكسيًا ويعيد كمية للمخزن، ولا يعرف أن المستند الأصلي يبقى في الدفاتر ولا يُحذف.",
+ whyEn:"\\u00abAre you sure?\\u00bb tells nobody anything. A non-specialist does not know that voiding posts a reversing entry and returns stock, nor that the original document stays in the books and is never deleted.",
+ rule:"قاعدة: الإجراء غير القابل للتراجع يذكر عاقبته بجملة عربية واحدة · Rule: irreversible actions state their consequence in one plain sentence",
+ old:`
+  <div class="ocard" style="max-width:430px">
+    <h3 style="margin:0 0 8px;font-size:16px">تأكيد</h3>
+    <p style="margin:0 0 14px;font-size:13.5px;color:var(--muted)">هل أنت متأكد؟</p>
+    <div style="display:flex;gap:8px"><button class="obtn">نعم</button>
+      <button class="obtn sec">لا</button></div>
+  </div>`,
+ neu:`
+  <div class="dialog">
+    <h3>إلغاء الفاتورة INV-2026-0341؟</h3>
+    <p>سيُنشئ النظام قيدًا عكسيًا بقيمة <span class="num">40,128.00</span> ج.م ويعيد
+       <span class="num">170</span> وحدة إلى المخزن الرئيسي.
+       القيد الأصلي يبقى في الدفاتر — لا يُحذف.</p>
+    <div class="acts"><button class="btn danger">إلغاء الفاتورة</button>
+      <button class="btn sec">رجوع</button></div>
+  </div>`},
+
+/* 8 ─────────────────────────────────────────────── empty */
+{t:"الحالة الفارغة — تسمّي الناقص وتقدّم زره",
+ en:"Empty state — names what is missing and offers its button",
+ why:"«لا توجد بيانات» طريق مسدود. المستخدم لا يعرف هل القائمة فارغة فعلًا أم أن تصفيته أخفت الصفوف، ولا يعرف ماذا يفعل بعدها.",
+ whyEn:"\\u00abNo data\\u00bb is a dead end. The user cannot tell whether the list is genuinely empty or their filter hid the rows, and has no idea what to do next.",
+ rule:"قاعدة: الفراغ ليس بياضًا · Rule: empty is never blank",
+ old:`<div class="ocard"><div class="oempty">لا توجد بيانات</div></div>`,
+ neu:`
+  <div class="empty">
+    <div class="g">◫</div><h3>لا فواتير في «اللي عليّ أحصّله»</h3>
+    <p>هذه القائمة تعرض الفواتير المتأخرة فقط، ولا يوجد متأخر اليوم.</p>
+    <button class="btn">فاتورة مبيعات جديدة</button>
+  </div>`},
+
+/* 9 ─────────────────────────────────────────────── dashboard */
+{t:"لوحة التحكّم — من لوحة أرقام إلى قائمة عمل",
+ en:"Dashboard — from a board of numbers to a worklist",
+ why:"ثمانية أزرار متساوية الوزن وسبع لوحات غير مرتّبة ورسوم بيانية. صاحب المنشأة يفتحها فيرى ما رآه أمس؛ لا شيء يقول «افعل هذا الآن». وكل شخصية عميل سُئلت حذفت الرسم الدائري وأعلى الأصناف — بلا استثناء واحد.",
+ whyEn:"Eight equal-weight buttons, seven unranked panels, charts. The owner opens it and sees what they saw yesterday; nothing says \\u00abdo this now\\u00bb. Every buyer persona deleted the donut and top-items — without a single exception.",
+ rule:"§3.2 قرّرت هذا ولم يُطبَّق في الكود · §3.2 decided this and the code never applied it",
+ old:`
+  <div class="oacts">
+    <button class="obtn sec sm">فاتورة بيع</button><button class="obtn sec sm">سند قبض</button>
+    <button class="obtn sec sm">عرض سعر</button><button class="obtn sec sm">صنف جديد</button>
+    <button class="obtn sec sm">استلام</button><button class="obtn sec sm">سند صرف</button>
+    <button class="obtn sec sm">عميل جديد</button><button class="obtn sec sm">تحويل</button>
+  </div>
+  <div class="odash">
+    <div class="ostat"><div class="k">المبيعات</div><div class="v onum">214,812.50</div></div>
+    <div class="ostat"><div class="k">المصروفات</div><div class="v onum">44,400.00</div></div>
+    <div class="ostat"><div class="k">العملاء</div><div class="v onum">186,220.00</div></div>
+    <div class="ostat"><div class="k">بيانات النظام</div><div class="v onum">268</div></div>
+  </div>
+  <div class="ocard" style="margin-block-start:10px">
+    <div class="oeyebrow">توزيع المصروفات</div>
+    <div style="height:70px;display:grid;place-items:center;color:var(--faint);font-size:12.5px">
+      رسم دائري</div>
+  </div>`,
+ neu:`
+  <div class="wl">
+    <div class="row urgent"><button class="drag">⠿</button><span class="cnt num">7</span>
+      <span class="txt"><div class="t1">فواتير متأخرة التحصيل</div>
+      <div class="t2">أقدمها <span class="num">64</span> يوم · شركة الأمل، مجموعة الفجر</div></span>
+      <button class="btn sec sm">تحصيل</button></div>
+    <div class="row urgent"><button class="drag">⠿</button><span class="cnt num">3</span>
+      <span class="txt"><div class="t1">شيكات تستحق هذا الأسبوع</div>
+      <div class="t2">البنك الأهلي — جاري</div></span>
+      <button class="btn sec sm">فتح الشيكات</button></div>
+    <div class="row"><button class="drag">⠿</button><span class="cnt num">12</span>
+      <span class="txt"><div class="t1">مستندات غير مرحّلة</div>
+      <div class="t2"><span class="num">9</span> فواتير بيع · <span class="num">3</span> أذون استلام</div></span>
+      <button class="btn sec sm">مراجعة</button></div>
+    <div class="row"><button class="drag">⠿</button><span class="cnt num">1</span>
+      <span class="txt"><div class="t1">فترة محاسبية بانتظار الإقفال</div>
+      <div class="t2">يوليو <span class="num">2026</span></div></span>
+      <button class="btn sec sm">الإقفال</button></div>
+  </div>`},
+
+/* 10 ─────────────────────────────────────────────── the instrument */
+{t:"الميزان — من عنصر على اللوحة إلى أداة المنتج المميّزة",
+ en:"The balance — from one dashboard element to the product's signature instrument",
+ why:"اليوم رقم واحد معروض. الجديد يعرض الطرفين والحكم ومن أين يبدأ البحث عن الفرق، ويعرف نوعين من الحقيقة: «يجب أن يتساويا» (الخزينة، ميزان المراجعة، البنك، الجرد) و«يجب ألا يتجاوز» (حد الائتمان، الميزانية، حد إعادة الطلب). الطرف الذي لم يبلغ سقفه خبر سار ولا يجوز أن يُقرأ كعجز.",
+ whyEn:"Today it shows one number. The new one shows both sides, the verdict, and where to start looking — and knows two kinds of truth: \\u00abthese must be equal\\u00bb (cash close, trial balance, bank, stock count) and \\u00abthis must not exceed that\\u00bb (credit limit, budget, reorder point). A ceiling not yet reached is good news and must never read as a shortfall.",
+ rule:"طلبته ٦ شخصيات مستقلة بصياغات مختلفة · Six personas invented it independently",
+ old:`
+  <div class="ocard" style="max-width:300px">
+    <div class="oeyebrow">الخزينة</div>
+    <div style="font-size:26px;font-family:'IBM Plex Mono',monospace;margin-block-start:6px">312,480.00</div>
+    <div style="font-size:12.5px;color:var(--faint)">الرصيد الحالي</div>
+  </div>`,
+ neu:`
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div>
+      <div class="bal short">
+        <span class="gt">تقفيل الخزينة — اليوم</span>
+        <div class="side"><span>المتوقع بالدفاتر</span><span class="v num">312,480.00</span></div>
+        <div class="beam"><i style="inline-size:99.8%"></i></div>
+        <div class="side"><span>المعدود فعليًا</span><span class="v num">311,930.00</span></div>
+        <div class="verdict"><span class="sym">▲</span><span>ناقص بمقدار <span class="num">550.00</span> ج.م</span></div>
+        <button class="btn sec sm block" style="margin-block-start:10px">أين الفرق؟</button>
+      </div>
+      <p style="font-size:11px;color:var(--faint);margin:6px 0 0">يجب أن يتساويا · must be equal</p>
+    </div>
+    <div>
+      <div class="bal">
+        <span class="gt">حد الائتمان — بعد هذه الفاتورة</span>
+        <div class="side"><span>الحد المسموح</span><span class="v num">50,000.00</span></div>
+        <div class="beam"><i style="inline-size:56%"></i></div>
+        <div class="side"><span>الرصيد بعد الترحيل</span><span class="v num">28,021.60</span></div>
+        <div class="verdict"><span class="sym">⚖</span><span>ضمن الحد — متبقٍ <span class="num">21,978.40</span> ج.م</span></div>
+      </div>
+      <p style="font-size:11px;color:var(--faint);margin:6px 0 0">يجب ألا يتجاوز · must not exceed</p>
+    </div>
+  </div>`},
+
+/* 11 ─────────────────────────────────────────────── report header */
+{t:"رأس التقرير — شريط تحكّم وسطر تصفية يُطبع",
+ en:"Report header — a control bar and a printed filter line",
+ why:"اليوم: معاملات ثم «تشغيل». لا فترات جاهزة، ولا مقارنة بفترة سابقة، ولا تبديل بين أساس الاستحقاق والأساس النقدي — والفارق بينهما يغيّر كل رقم في الشاشة. والأهم: الورقة المطبوعة لا تقول كيف حُسبت، فيتجادل اثنان حول رقمين مختلفين لنفس التقرير.",
+ whyEn:"Today: parameters, then Run. No period presets, no compare-to-previous, and no cash/accrual toggle — a distinction that changes every figure on screen. Worst of all, the printed page does not say how it was computed, so two people argue over two different numbers from \\u00abthe same\\u00bb report.",
+ rule:"أهم تفصيلة أخذناها من QuickBooks · The best single detail taken from QuickBooks",
+ old:`
+  <div class="ocard">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+      <div class="ofield" style="margin:0"><label>من تاريخ</label><div class="in onum">2026-01-01</div></div>
+      <div class="ofield" style="margin:0"><label>إلى تاريخ</label><div class="in onum">2026-08-27</div></div>
+      <div class="ofield" style="margin:0"><label>الفرع</label><div class="in">الكل</div></div>
+    </div>
+    <button class="obtn" style="margin-block-start:12px">تشغيل التقرير</button>
+  </div>`,
+ neu:`
+  <div class="rptbar">
+    <label>الفترة<span class="ctl">من بداية السنة حتى اليوم <span class="kbd">▾</span></span></label>
+    <label>المقارنة<span class="ctl">بنفس الفترة من السنة الماضية <span class="kbd">▾</span></span></label>
+    <label>الأساس المحاسبي
+      <span class="seg2"><button aria-pressed="true">الاستحقاق</button><button>النقدي</button></span></label>
+    <span style="margin-inline-start:auto;display:flex;gap:8px">
+      <button class="btn sec sm">طيّ الكل</button><button class="btn sec sm">تخصيص</button></span>
+  </div>
+  <div class="tags"><span class="tag">الفرع: الكل <button class="x">✕</button></span>
+    <button class="more">+ إضافة عامل تصفية</button></div>
+  <p class="applied">عوامل التصفية المطبَّقة تُطبع مع التقرير: الفرع = الكل · الأساس = الاستحقاق ·
+    المقارنة = <span class="num">2025</span>. من يقرأ الورقة يعرف كيف حُسبت.</p>`},
+
+/* 12 ─────────────────────────────────────────────── numerals */
+{t:"الأرقام — نظام واحد لا نظامان",
+ en:"Numerals — one system, not two",
+ why:"مصفوفة أعمار الديون اليوم ترأس أعمدتها بالأرقام العربية الهندية وتملأ خلاياها بالغربية. هذا ليس جرأة تصميمية، بل خطأ يجعل القارئ يشكّ في كل رقم آخر على الشاشة — وهو ما قاله صاحب المنشأة حرفيًا.",
+ whyEn:"The aging matrix heads its columns in Arabic-Indic numerals and fills its cells in Western ones. That is not a bold choice, it is an error that makes the reader doubt every other figure on the screen — the owner said so in as many words.",
+ rule:"قاعدة: نظام ترقيم واحد لكل مستخدم، ولا يُخلطان أبدًا · Rule: one numeral system per user, never mixed",
+ ruleBug:true,
+ old:`
+  <table>
+    <thead><tr><th>العميل</th><th style="text-align:end">١–٣٠ يوم</th><th style="text-align:end">٣١–٦٠ يوم</th>
+      <th style="text-align:end">أكثر من ٦٠</th></tr></thead>
+    <tbody>
+      <tr><td><span class="c">شركة الأمل للتجارة</span></td>
+        <td><span class="c e onum">11,200.00</span></td><td><span class="c e onum">5,300.00</span></td>
+        <td><span class="c e onum">1,900.00</span></td></tr>
+      <tr><td><span class="c">مؤسسة النور للمقاولات</span></td>
+        <td><span class="c e onum">41,250.00</span></td><td><span class="c e onum">22,940.00</span></td>
+        <td><span class="c e onum">0.00</span></td></tr>
+    </tbody>
+  </table>`,
+ neu:`
+  <table>
+    <thead><tr><th>العميل</th><th class="e">١–٣٠ يوم</th><th class="e">٣١–٦٠ يوم</th>
+      <th class="e">أكثر من ٦٠</th></tr></thead>
+    <tbody>
+      <tr><td><span class="cell">شركة الأمل للتجارة</span></td>
+        <td class="e"><span class="cell num">١١٬٢٠٠٫٠٠</span></td>
+        <td class="e"><span class="cell num">٥٬٣٠٠٫٠٠</span></td>
+        <td class="e"><span class="cell num">١٬٩٠٠٫٠٠</span></td></tr>
+      <tr><td><span class="cell">مؤسسة النور للمقاولات</span></td>
+        <td class="e"><span class="cell num">٤١٬٢٥٠٫٠٠</span></td>
+        <td class="e"><span class="cell num">٢٢٬٩٤٠٫٠٠</span></td>
+        <td class="e"><span class="cell num">٠٫٠٠</span></td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:11.5px;color:var(--faint);margin-block-start:10px">
+    الاختيار يخصّ المستخدم ويُحفظ له على الخادم، ويُطبَّق على الرؤوس والخلايا والمجاميع معًا.</p>`},
+/* 13 ─────────────────────────────────────────────── the sidebar */
+{t:"الشريط الجانبي — مُسمّى دائمًا، شخصي في رأسه، قابل للطي",
+ en:"The sidebar — always labelled, personal at the top, collapsible",
+ why:"اليوم شريطان في نسختين: عمود ٢٦٤ بكسل بتدرّج تيل داكن وخط ذهبي للعنصر النشط — وهي الصورة الظلية التي يتقاسمها كل ERP في السوق — أو عمود أيقونات ٥٦ بكسل بلا كلمات، وهو الذي لم يعجبك. الأول يشبه المنافس، والثاني يجعل المعنى في الـtooltip. والمثبّتات في الحالتين محفوظة في localStorage، فتضيع مع تغيير الجهاز.<br><b>التوصية:</b> شريط مُسمّى بالكلمات دائمًا، رأسه شغلك أنت (بحث ثم مثبّتات ثم آخر ما فُتح)، وتحته مساحات العمل الست، وزر واحد يطويه إلى أيقونات لمن يريد عرضًا أكبر. الحالة تُحفظ لك على الخادم.",
+ whyEn:"Today it exists in two forms: a 264px dark-teal gradient rail with a gold active bar — the silhouette every ERP in this market shares — or a 56px wordless icon spine, which is the one you disliked. The first looks like the competitor; the second puts the meaning in a tooltip. Pins are localStorage in both, so they vanish on a device change.<br><b>Recommendation:</b> always word-labelled, with your own work at the top (search, then pins, then recents), the six workspaces below, and one button that collapses it to icons for anyone who wants the width. The state is saved to your account on the server.",
+ rule:"يرضي الخمسة: الموظف الجديد يقرأ · المُدخِل يطوي · الدعم يقول «الصف الثالث» · Serves all five personas",
+ old:`
+  <div style="display:flex;gap:16px;align-items:flex-start">
+    <div class="orail">
+      <div class="bm"><span class="sq">م</span>ميزان</div>
+      <div class="hd">البيع والتحصيل</div>
+      <div class="g">▾ البيع والتحصيل</div>
+      <div class="s">لوحة البيع</div>
+      <div class="s">عروض الأسعار</div>
+      <div class="s" aria-current="true">فواتير المبيعات</div>
+      <div class="s">مرتجعات المبيعات</div>
+      <div class="s">العملاء</div>
+      <div class="g">▸ الشراء والتوريد<span class="ch">▸</span></div>
+      <div class="g">▸ المخزون والتصنيع<span class="ch">▸</span></div>
+      <div class="g">▸ المالية والإقفال<span class="ch">▸</span></div>
+      <div class="g">▸ الأشخاص والأصول<span class="ch">▸</span></div>
+      <div class="g">▸ الإعداد والصلاحيات<span class="ch">▸</span></div>
+    </div>
+    <div style="flex:1;min-width:0;font-size:12.5px;color:var(--faint);line-height:1.9">
+      <b style="color:var(--ink)">أو</b> النسخة الثانية: عمود أيقونات ٥٦ بكسل
+      <span style="display:inline-flex;gap:4px;vertical-align:middle;margin-inline-start:8px">
+        ${["◫","✦","☰","✓","◔"].map(g=>`<span style="width:34px;height:34px;display:grid;place-items:center;
+           background:var(--surface);border:1px solid var(--line);border-radius:8px">${g}</span>`).join("")}
+      </span>
+      <br>بلا كلمة واحدة. المعنى كله داخل الـtooltip، والقاعدة تقول: لا شيء يظهر عند المرور فقط.
+      <br><br>المثبّتات محفوظة في <span dir="ltr">localStorage</span> — تضيع مع مسح الكاش أو تغيير الجهاز،
+      وتبدو للمستخدم كأنها فقدان بيانات.
+    </div>
+  </div>`,
+ neu:`
+  <div style="display:flex;gap:14px;align-items:flex-start">
+    <div class="railnew">
+      <div class="bm">ميزان</div>
+      <div class="sbox">🔍 ابحث في <span class="num">120</span> شاشة…</div>
+      <div class="hd">مثبّت · شغلك أنت</div>
+      <div class="it" aria-current="true">🧾 فواتير المبيعات<span class="pin">📌</span></div>
+      <div class="it">💵 سندات القبض<span class="pin">📌</span></div>
+      <div class="it">📦 الرصيد المخزني<span class="pin">📌</span></div>
+      <div class="hd">آخر ما فتحته</div>
+      <div class="it">↺ شركة الأمل للتجارة</div>
+      <div class="it">↺ ميزان المراجعة</div>
+      <div class="sep"></div>
+      <div class="hd">مساحات العمل</div>
+      ${[["◧", "البيع والتحصيل"], ["◨", "الشراء والتوريد"], ["▣", "المخزون والتصنيع"], ["₤", "المالية والإقفال"], ["◑", "الأشخاص والأصول"], ["⚙", "الإعداد والصلاحيات"]].map(w=>`<div class="it">${w[0]} ${w[1]}</div>`).join("")}
+      <button class="btn sec sm tgl">⟨ اطوِ الشريط</button>
+    </div>
+    <div class="railmini">
+      ${["◧","🧾","💵","📦"].map((g,i)=>`<div class="it" ${i===1?'aria-current="true"':''}>${g}</div>`).join("")}
+      <div class="hd"></div>
+      ${["◨","▣","₤","◑","⚙"].map(g=>`<div class="it">${g}</div>`).join("")}
+      <div class="hd"></div>
+      <div class="it">⟩</div>
+    </div>
+    <div style="flex:1;min-width:0;font-size:12.5px;color:var(--muted);line-height:1.9">
+      <b style="color:var(--ink)">الحالتان معروضتان معًا هنا للمقارنة فقط</b> — في المنتج واحدة في كل مرة،
+      والاختيار محفوظ لك على الخادم فيتبعك على أي جهاز.
+      <br><br>لماذا هذا الترتيب: الشريط يبدأ بشغلك أنت لا بخريطة البرنامج، لأن الموظف يفتح
+      نفس الست أو السبع شاشات كل يوم. الشجرة الكاملة تحته، مُسمّاة بالكلمات، فالموظف الجديد يقرأ ولا يخمّن.
+      <br><br>وللدعم: زر «استعادة الوضع الافتراضي» في مكان ثابت، والتخطيط له اسم يُقرأ في التليفون،
+      والمدير يستطيع رؤية شريط أي مستخدم للقراءة فقط.
+    </div>
+  </div>`},
+
+];
+
+document.getElementById("stage").innerHTML = ITEMS.map((it,i)=>`
+  <section class="cmpx">
+    <div class="hd">
+      <b>${i+1} · ${it.t} <span style="color:#71717A;font-weight:400;font-size:13px">— ${it.en}</span></b>
+      <div class="why">${it.why}<span class="en">${it.whyEn}</span></div>
+      ${it.rule?`<span class="rule ${it.ruleBug?"bug":""}">${it.rule}</span>`:""}
+    </div>
+    <div class="pair">
+      <div class="pane old"><div class="lbl">● اليوم · Today <span class="t">tokens.css الحالي</span></div>
+        <div class="pbody"><div class="oldskin">${it.old}</div></div></div>
+      <div class="pane new"><div class="lbl">● الجديد · New <span class="t">المِيزان</span></div>
+        <div class="pbody"><div data-dir="a"><div class="app">${it.neu}</div></div></div></div>
+    </div>
+  </section>`).join("");
+</script>
+</body>
+</html>

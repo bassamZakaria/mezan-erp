@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>خريطة المكوّنات — Component Map · Old → New</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Reem+Kufi:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:#0F0F11;color:#D4D4D8;font-family:"IBM Plex Sans Arabic",sans-serif;
+     line-height:1.75;font-size:13.5px}
+.wrap{max-width:1500px;margin:0 auto;padding:40px 22px 90px}
+h1{font-family:"Reem Kufi",sans-serif;font-size:28px;margin:0 0 4px;color:#FAFAFA}
+h1 .en{font-family:"IBM Plex Sans Arabic",sans-serif;font-size:17px;color:#71717A;font-weight:400}
+.lede{color:#A1A1AA;font-size:13.5px;margin:0 0 4px;max-width:100ch}
+.lede.en{color:#71717A;direction:ltr;text-align:left}
+.back{display:inline-block;color:#A1A1AA;font-size:12.5px;text-decoration:none;
+      padding:6px 11px;border:1px solid #3F3F46;border-radius:4px;margin-block-end:22px}
+.back:hover{color:#FAFAFA;border-color:#71717A}
+
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-block:22px 14px;
+       position:sticky;top:0;background:#0F0F11;padding-block:12px;z-index:20;border-block-end:1px solid #27272A}
+.tools button{font:inherit;font-size:12.5px;color:#A1A1AA;background:#18181B;border:1px solid #27272A;
+     padding:8px 13px;border-radius:5px;cursor:pointer;min-height:38px}
+.tools button[aria-pressed=true]{background:#3F3F46;color:#FAFAFA;border-color:#52525B}
+.tools .count{color:#52525B;font-size:12px;margin-inline-start:auto}
+
+h2{font-family:"Reem Kufi",sans-serif;font-size:18px;color:#FAFAFA;margin:34px 0 4px}
+h2 .en{font-family:"IBM Plex Sans Arabic",sans-serif;font-size:13px;color:#71717A;font-weight:400}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-block-start:10px}
+th,td{text-align:start;padding:9px 11px;border-block-end:1px solid #232326;vertical-align:top}
+th{color:#71717A;font-size:11px;font-weight:600;background:#131316;white-space:nowrap}
+tr.hide{display:none}
+td.c{white-space:nowrap}
+td.c code{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:#E4E4E7;direction:ltr;
+          unicode-bidi:isolate;display:inline-block}
+td.c .path{display:block;font-size:10.5px;color:#52525B;direction:ltr;unicode-bidi:isolate;margin-block-start:2px}
+td.now{color:#8FA4B8;width:24%}
+td.next{color:#D4D4D8;width:30%}
+td.next .en{display:block;color:#71717A;font-size:11.5px;direction:ltr;text-align:left;margin-block-start:3px}
+td.now .en{display:block;color:#5B6B7A;font-size:11.5px;direction:ltr;text-align:left;margin-block-start:3px}
+
+.v{display:inline-block;padding:3px 9px;border-radius:4px;font-size:11px;white-space:nowrap;border:1px solid}
+.v.keep{color:#86B48F;border-color:#2F5137;background:#122418}
+.v.change{color:#D8B25F;border-color:#5A4A22;background:#26200F}
+.v.replace{color:#8FA4B8;border-color:#334657;background:#141D26}
+.v.retire{color:#D08A7A;border-color:#5A322A;background:#2A1712}
+.v.new{color:#C79AD8;border-color:#4A3355;background:#221729}
+
+.note{border:1px solid #3F3F46;background:#131316;border-radius:6px;padding:15px 17px;margin-block-start:26px;
+      color:#A1A1AA;font-size:12.5px}
+.note b{color:#FAFAFA}
+.note .en{display:block;color:#71717A;margin-block-start:7px;direction:ltr;text-align:left}
+.bug{color:#D08A7A}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">↩ كل قرارات التصميم · All design decisions</a>
+
+<h1>خريطة المكوّنات <span class="en">· Component Map — Old → New</span></h1>
+<p class="lede">كل مكوّن موجود اليوم في <span dir="ltr">packages/ui</span> و<span dir="ltr">apps/web</span>،
+وماذا يحدث له في التصميم الجديد. الحكم على كل مكوّن واحد من خمسة: يبقى، يتغيّر، يُستبدل، يُتقاعد، جديد.</p>
+<p class="lede en">Every component that exists today in <span dir="ltr">packages/ui</span> and
+<span dir="ltr">apps/web</span>, and what happens to it. One of five verdicts each:
+Keep, Change, Replace, Retire, New.</p>
+
+<div class="tools" id="tools">
+  <button data-f="all" aria-pressed="true">الكل · All</button>
+  <button data-f="keep" aria-pressed="false">يبقى · Keep</button>
+  <button data-f="change" aria-pressed="false">يتغيّر · Change</button>
+  <button data-f="replace" aria-pressed="false">يُستبدل · Replace</button>
+  <button data-f="retire" aria-pressed="false">يُتقاعد · Retire</button>
+  <button data-f="new" aria-pressed="false">جديد · New</button>
+  <span class="count" id="count"></span>
+</div>
+
+<div id="stage"></div>
+
+<div class="note">
+  <b>القاعدة التي تحكم الخريطة:</b> لا يُتقاعد مكوّن لأنه قبيح، بل لأنه يخالف قاعدة مُلزِمة
+  أو لأن مكوّنًا آخر صار يؤدّي عمله. وكل «جديد» هنا طلبته شخصية مستخدم بالاسم، لا ذوق تصميمي.
+  <span class="en"><b>The rule behind this map:</b> nothing is retired for being ugly — only for
+  breaking a binding ground rule, or because another component now does its job. Every "New"
+  row was asked for by a named user persona, not by taste.</span>
+</div>
+
+<script>
+const G = [
+ ["الهيكل والتنقّل","Shell &amp; navigation",[
+  ["AppShell","packages/ui/src/shell/AppShell.tsx","change",
+   "إطار ثابت: شريط علوي + عمود أيقونات + محتوى بعرض أقصى ١٣٢٠ بكسل.",
+   "Fixed frame: top bar + icon spine + 1320px max-width main.",
+   "يصبح الإطار الذي تختاره من صفحة «خيارات الإطار»، ويكتسب خانة دائمة للعمود الحيّ.",
+   "Becomes the chosen frame, and gains a permanent slot for the live gutter."],
+  ["Sidebar","packages/ui/src/shell/Sidebar.tsx","replace",
+   "عمود أيقونات ٥٦ بكسل + شجرة ١٢٠ وجهة + مثبّتات محفوظة في localStorage.",
+   "56px icon spine + 120-destination tree + pins in localStorage.",
+   "يُستبدل بالبديل الذي تختاره من «خيارات التنقّل». المثبّتات تنتقل للخادم.",
+   "Replaced by the chosen nav option. Pins move to the server."],
+  ["Topbar","packages/ui/src/shell/Topbar.tsx","change",
+   "شريط ٦٢ بكسل: بحث · جرس · ترس · صورة رمزية متدرّجة — هيكل الفئة كلها.",
+   "62px bar: search · bell · gear · gradient avatar — the category skeleton.",
+   "يصير شريط مساحات العمل الست، ويفقد التدرّج والترتيب المألوف.",
+   "Becomes the six-workspace bar; loses the gradient and the familiar ordering."],
+  ["CommandPalette","packages/ui/src/shell/CommandPalette.tsx","change",
+   "بحث في الشاشات بالاسم الرسمي فقط.",
+   "Searches screens by formal name only.",
+   "يقبل اللغة الدارجة («أستلم فلوس من عميل») ويعرض المصطلح الرسمي بجانبه — فيعلّم بدل أن يفترض.",
+   "Accepts colloquial phrasing and shows the formal term beside it — teaches instead of assuming."],
+  ["BrandMark","packages/ui/src/shell/BrandMark.tsx","change","العلامة بالهوية الحالية (تيل + ذهبي).",
+   "Wordmark in the current teal + gold identity.",
+   "يُعاد رسمه بخط العرض الجديد للاتجاه المختار.",
+   "Redrawn in the chosen direction's display face."],
+  ["CommandBar","packages/ui/src/shell/CommandBar.tsx","keep","شريط الأوامر ومفاتيح الاختصار.",
+   "Command bar and shortcut keys.","يبقى — يعمل، ويُستخدم أكثر لا أقل.",
+   "Kept — it works, and gets used more, not less."],
+  ["ScopeSwitchers","packages/ui/src/shell/ScopeSwitcher.tsx","keep",
+   "مبدّل الفرع والمخزن أعلى الشريط.","Branch and warehouse switcher at the rail top.",
+   "يبقى في مكانه حرفيًا — طلب صريح من صاحب التجزئة وأمين المخزن: «لا تحرّكه».",
+   "Stays exactly where it is — retail owner and warehouse keeper both said: do not move it."],
+  ["NotificationsPanel","packages/ui/src/shell/NotificationsPanel.tsx","keep","لوحة التنبيهات.",
+   "Notifications panel.","تبقى.","Kept."],
+  ["TopbarMenu","packages/ui/src/shell/TopbarMenu.tsx","keep","قوائم الشريط العلوي.",
+   "Top bar menus.","تبقى.","Kept."],
+ ]],
+
+ ["القوائم والمستندات","Lists &amp; documents",[
+  ["DocumentList","packages/ui/src/primitives/DocumentList.tsx","change",
+   "شرائح حالة بعدّاد صفر، شريط تصفية مطوي، أهداف ٣١ بكسل، بطاقات مؤشّرات أعلى القائمة.",
+   "Zero-count status chips, collapsed filter bar, 31px targets, KPI cards on top.",
+   "شريط مبالغ حسب الحالة، تواريخ نسبية، اختيار أعمدة، إجمالي الصفحة، أهداف ٤٤ بكسل.",
+   "Money bar by status, relative dates, column chooser, page totals, 44px targets."],
+  ["DocumentListStat","packages/ui/src/primitives/DocumentList.tsx","retire",
+   "بطاقات مؤشّرات ترتفع عند المرور فوق كل قائمة.","Hover-lifting KPI cards above every list.",
+   "يحل محلّها شريط المبالغ — نفس المعلومة وأنت تستطيع الضغط عليها.",
+   "Superseded by the money bar — same information, and clickable."],
+  ["DocumentListStatusChip","packages/ui/src/primitives/DocumentList.tsx","change",
+   "أقراص تصفية بـ<span dir='ltr'>aria-pressed</span> داخل <span dir='ltr'>role=tablist</span> — إعلان خاطئ.",
+   "aria-pressed buttons inside role=tablist — a wrong announcement.",
+   "تبقى كوسم حالة على الصف فقط؛ التصفية تنتقل لشريط المبالغ والقوائم المسمّاة.",
+   "Stays as a row status badge only; filtering moves to the money bar and named views."],
+  ["ListViews","packages/ui/src/primitives/ListViews.tsx","change",
+   "قوائم مسمّاة، غير محفوظة على الخادم.","Named views, not server-persisted.",
+   "تُحفظ للمستخدم على الخادم، ولها اسم يُقرأ في التليفون، والقائمة الفارغة تخفي نفسها.",
+   "Persisted per user on the server, named so it can be read aloud on a support call, empty views hide."],
+  ["AppliedFilters","packages/ui/src/primitives/ListViews.tsx","change",
+   "وسوم تصفية قابلة للإزالة على الشاشة.","Removable filter tags on screen.",
+   "تُطبع أيضًا مع التقرير — الورقة تقول كيف حُسبت.",
+   "Also printed with the report — the paper says how it was computed."],
+  ["DocumentDetail","packages/ui/src/primitives/DocumentDetail.tsx","change",
+   "رأس + بنود + إجماليات.","Header + lines + totals.",
+   "يكتسب مؤشّر التنقّل بين السجلات، وعدّادات السجلات المرتبطة، وصندوق الرصيد الدائن غير المطبَّق.",
+   "Gains the record pager, related-record counters, and the unapplied-credit box."],
+  ["DocumentStatusStepper","packages/ui/src/primitives/DocumentStatusStepper.tsx","keep",
+   "مسار حالات المستند.","Document status track.",
+   "يبقى — لكن كل حالة يجب أن يكون لها زر ظاهر ينقلها (وهي فجوة قائمة اليوم).",
+   "Kept — but every status must have a visible control that advances it (an open gap today)."],
+  ["SidePanel","packages/ui/src/primitives/SidePanel.tsx","change",
+   "درج ٤٣٠ بكسل يحرّر فيه ٦٢ شاشة. <span class='bug'>ولا ينقل التركيز إليه عند الفتح.</span>",
+   "430px drawer used by 62 screens to edit. <span class='bug'>Does not move focus into itself on open.</span>",
+   "يقتصر على البيانات الأساسية القصيرة؛ كل ما له بنود أو دورة حياة يصير صفحة. وعيب التركيز يُصلَح.",
+   "Reduced to short master data; anything with lines or a lifecycle becomes a page. Focus bug fixed."],
+  ["EntityPicker","packages/ui/src/primitives/EntityPicker.tsx","change",
+   "اختيار فقط — لا إنشاء. تترك المسودة لتضيف عميلًا.",
+   "Select only — no create. You lose the draft to add a customer.",
+   "يكتسب «+ جديد» داخل القائمة يفتح نموذجًا قصيرًا بلا فقدان المسودة.",
+   "Gains inline create that opens a short form without losing the draft."],
+  ["RowMenu · Select · AccountTree · PermissionMatrix","packages/ui/src/primitives/","keep",
+   "تعمل كما هي.","Working as they are.","تبقى بلا تغيير سلوكي.","Kept, no behavioural change."],
+  ["DateRangeFilter","packages/ui/src/primitives/DateRangeFilter.tsx","change",
+   "مدى تاريخين.","Two-date range.",
+   "يكتسب فترات جاهزة (هذا الشهر، الربع، من بداية السنة) ومقارنة بفترة سابقة.",
+   "Gains presets (this month, quarter, year-to-date) and compare-to-previous."],
+ ]],
+
+ ["النماذج والإدخال","Forms &amp; input",[
+  ["Field · TextInput · TextArea · Checkbox · Switch · SearchInput","packages/ui/src/primitives/form.tsx","keep",
+   "بدائل نماذج سليمة.","Sound form primitives.",
+   "تبقى — قاعدة صريحة: التميّز لا يُنفق على عناصر التحكّم.",
+   "Kept — explicit rule: uniqueness is never spent on controls."],
+  ["MoneyInput · QtyInput","packages/ui/src/primitives/","keep",
+   "إدخال المبالغ والكميات.","Money and quantity entry.",
+   "تبقى — ومعها قاعدة الأرقام الجدولية ونظام ترقيم واحد.",
+   "Kept — with tabular figures and one numeral system."],
+  ["سطور البنود (داخل الشاشات)","apps/web/src/screens/*","replace",
+   "كل بند كارت منفصل بأربعة صفوف حقول — عشرة بنود = تسع نقرات ماوس بلا تركيز تلقائي.",
+   "Each line is a card of four field rows — ten lines is nine mouse clicks with no autofocus.",
+   "جدول كثيف واحد: Tab بين الخانات، Enter يفتح سطرًا ويركّز على الصنف. أكبر مكسب يومي للمُدخِل.",
+   "One dense grid: Tab across, Enter opens a row and focuses the item. The biggest daily win for the operator."],
+ ]],
+
+ ["الحالات والرسائل","Feedback &amp; states",[
+  ["ToastProvider · useToast","packages/ui/src/primitives/feedback.tsx","keep",
+   "موجود ويعمل.","Exists and works.",
+   "يبقى — ويحل محل ٥٤ رسالة حالة مكتوبة يدويًا في الشاشات.",
+   "Kept — and replaces 54 hand-rolled status messages across screens."],
+  ["ConfirmDialog","packages/ui/src/primitives/feedback.tsx","change",
+   "يسأل «هل أنت متأكد؟».","Asks «are you sure?».",
+   "يذكر العاقبة بجملة عربية واحدة: القيد العكسي، والكمية العائدة للمخزن، وأن الأصل لا يُحذف.",
+   "States the consequence in one plain sentence: the reversing entry, the stock returned, and that the original is never deleted."],
+  ["Skeleton · SkeletonTable","packages/ui/src/primitives/feedback.tsx","keep",
+   "موجودة.","Exist.","تبقى وتُستخدم فعليًا — اليوم لا شاشة تستخدمها.",
+   "Kept and actually used — today no screen uses them."],
+  ["EmptyState","packages/ui/src/primitives/atoms.tsx","change",
+   "تقول «لا توجد بيانات».","Says «no data».",
+   "تسمّي الناقص وتقدّم زر إنشائه. الفراغ حالة حقيقية لا شاشة بيضاء.",
+   "Names what is missing and offers the button that creates it."],
+ ]],
+
+ ["الذرّات البصرية","Visual atoms",[
+  ["Button · IconButton","packages/ui/src/primitives/atoms.tsx","change",
+   "أحجام متفاوتة، بعضها تحت ٤٤ بكسل.","Mixed sizes, some under 44px.",
+   "٤٤ بكسل حدًّا أدنى، وزر أساسي واحد لكل شاشة، والباقي في قائمة إضافية.",
+   "44px minimum, exactly one primary per screen, the rest into an overflow menu."],
+  ["Card","packages/ui/src/primitives/atoms.tsx","retire",
+   "بطاقة بحد ١ بكسل وظل — أثاث حقبة Bootstrap، ويخالف قرار §3.4 نفسه.",
+   "1px border + drop shadow — Bootstrap-era furniture, and against the spec's own §3.4.",
+   "يحل محلّها الخطوط الشعرية والدرزات. (تبقى في اتجاه واحد فقط إن اخترته.)",
+   "Replaced by hairlines and seams. (Survives only in one direction, if you pick it.)"],
+  ["StatCard","packages/ui/src/primitives/atoms.tsx","retire",
+   "بطاقة ترتفع عند المرور <span dir='ltr'>hover:-translate-y-[2px]</span> داخل شاشة بيانات.",
+   "Hover-lifting card inside a data application.",
+   "تُتقاعد. حركة استهلاكية داخل جدول محاسبي.","Retired. Consumer motion inside an accounting grid."],
+  ["Chip","packages/ui/src/primitives/atoms.tsx","change",
+   "صف أقراص تصفية — نمط Tailwind UI المعروف.","Filter pill row — the recognisable Tailwind UI pattern.",
+   "يصير مبدّلًا مقطعيًا صادقًا بإعلان صحيح و٤٤ بكسل، أو يُستبدل بالقوائم المسمّاة.",
+   "Becomes an honest segmented control with correct ARIA and 44px, or gives way to named views."],
+  ["StatusPill · Segmented · Money · Qty","packages/ui/src/primitives/atoms.tsx","keep",
+   "سليمة.","Sound.","تبقى.","Kept."],
+  ["Kbd · DisclosureChevron","packages/ui/src/primitives/","keep",
+   "صحيحة الاتجاه في RTL.","RTL-correct.","تبقى.","Kept."],
+ ]],
+
+ ["التقارير","Reports",[
+  ["ReportRunner · ReportScreen","packages/ui/src/primitives/ReportRunner.tsx","change",
+   "معاملات ثم تشغيل.","Parameters, then run.",
+   "شريط تحكّم موحّد: فترة جاهزة، مقارنة بفترة، أساس محاسبي، تقسيم أعمدة، طيّ الكل — ترثه الثلاثون تقريرًا.",
+   "One control bar: period presets, compare period, accounting basis, column split, collapse — inherited by all 30 reports."],
+  ["ReportDrillDownPanel","apps/web/src/screens/reports/","keep",
+   "موجود.","Exists.",
+   "يبقى ويُرقّى: كل رقم في كل تقرير ينزل إلى حركاته ثم إلى مستنده. لا رقم بلا مصدر.",
+   "Kept and promoted: every figure in every report drills to its movements and then its document."],
+  ["ReportChart · charts","packages/ui/src/primitives/","change",
+   "رسوم داخل الشاشات الرئيسية.","Charts inside primary screens.",
+   "تنتقل إلى تبويب «تحليلات» — القرار موجود في §3.2 ولم يُطبَّق في الكود.",
+   "Move to a تحليلات tab — decided in §3.2, never applied in code."],
+ ]],
+
+ ["لوحة اليوم","Dashboard",[
+  ["AttentionQueue","apps/web/src/dashboard/AttentionQueue.tsx","change",
+   "لوحة من عدّة لوحات.","One panel among several.",
+   "تُرقّى: تصير هي لوحة اليوم نفسها — قائمة عمل لا لوحة مؤشّرات.",
+   "Promoted: it becomes the dashboard — a worklist, not a KPI board."],
+  ["BalanceBeam","apps/web/src/dashboard/BalanceBeam.tsx","change",
+   "عنصر واحد على لوحة التحكّم.","A single dashboard element.",
+   "يُرقّى إلى الأداة المميّزة للمنتج، مُعمَّمة: نوعان من الحقيقة (يجب أن يتساويا / يجب ألا يتجاوز)، وتُستخدم في الخزينة والائتمان والبنك وميزان المراجعة والجرد.",
+   "Promoted to the product's signature instrument, generalised to two kinds of truth (must be equal / must not exceed) and reused across treasury, credit, bank, trial balance and stock counts."],
+  ["KpiStrip","apps/web/src/dashboard/KpiStrip.tsx","change",
+   "مؤشّرات غير مرتّبة على مستوى الشركة فقط.","Unranked, company-wide only.",
+   "شريط واحد مضغوط، ويحترم الفرع — صاحب التجزئة يريد صفًّا لكل فرع لا رقمًا واحدًا.",
+   "One compressed strip that respects branch scope — the retail owner wants a row per branch."],
+  ["AgingMatrix","apps/web/src/dashboard/AgingMatrix.tsx","change",
+   "رؤوس بالأرقام العربية الهندية وخلايا بالغربية — نظامان في شاشة واحدة.",
+   "Arabic-Indic headers, Western cells — two numeral systems on one screen.",
+   "نظام ترقيم واحد يتبع اختيار المستخدم في كل خلية ورأس.",
+   "One numeral system, following the user's choice, in every cell and header."],
+  ["ExpenseDonut · TopItems","apps/web/src/dashboard/","retire",
+   "على لوحة التحكّم الرئيسية.","On the primary dashboard.",
+   "تُتقاعد من لوحة اليوم إلى تبويب التحليلات. حذفتهما كل شخصية عميل سُئلت، بلا استثناء.",
+   "Retired from the worklist to the analytics tab. Every single buyer persona deleted them."],
+  ["«بيانات النظام»","apps/web/src/dashboard/","retire",
+   "عدد الحسابات والمستخدمين على لوحة التحكّم.","Account and user counts on the dashboard.",
+   "تُتقاعد — هذه شاشة إعداد لا قرار يومي.","Retired — that is a setup screen, not a daily decision."],
+  ["motion","apps/web/src/dashboard/motion.ts","keep","دخول هادئ واحد.","One quiet entrance.",
+   "يبقى كما هو.","Kept as is."],
+ ]],
+
+ ["الرموز والخطوط","Tokens &amp; type",[
+  ["tokens.css","packages/ui/src/tokens/tokens.css","replace",
+   "تيل غامق + ذهبي، ظلال، استدارة ٨/١٤، وأسماء رموز خاصة بالهوية الحالية.",
+   "Dark teal + gold, shadows, 8/14 radius, tokens named for the current identity.",
+   "مجموعة رموز موحّدة يملأها الاتجاه المختار. كل اتجاه = قيم فقط، لا إعادة كتابة.",
+   "One shared token contract filled by the chosen direction. A direction is values only, never a rewrite."],
+  ["fonts.css","packages/ui/src/tokens/fonts.css","replace",
+   "<span class='bug'>استيراد من fonts.googleapis.com ولا يوجد ملف خط واحد في المستودع — النسخة المكتبية بلا إنترنت تسقط على خط ويندوز الافتراضي في كل شاشة.</span>",
+   "<span class='bug'>Remote @import, zero font files in the repo — the offline desktop build falls back to Windows default Arabic on every screen.</span>",
+   "خطوط مُجزَّأة محليًا داخل الحزمة، وخط أرقام يحمل الأرقام العربية الهندية بعرض جدولي.",
+   "Subsetted woff2 vendored into the package, and a figure face that carries Arabic-Indic tabular digits."],
+  [".mz-eyebrow","packages/ui/src/tokens/tokens.css","change",
+   "<span class='bug'>uppercase + letter-spacing على نص عربي — الأولى بلا أثر والثانية تفكّ اتصال الحروف.</span>",
+   "<span class='bug'>uppercase + letter-spacing on Arabic — the first is a no-op, the second breaks letter joining.</span>",
+   "يُزال الاثنان في المسار العربي.","Both removed on the Arabic path."],
+ ]],
+
+ ["مكوّنات جديدة","New components",[
+  ["Gutter · العمود الحيّ","packages/ui/src/shell/","new","—","—",
+   "عمود دائم عند نهاية القراءة يعرض الطرف الآخر لما تفعله الآن، حيًّا، ومعه الإجراء. طلبته ست شخصيات مستقلة بصياغات مختلفة.",
+   "A permanent inline-end column showing the other side of what you are doing, live, with the action attached. Six personas invented it independently."],
+  ["MoneyBar","packages/ui/src/primitives/","new","—","—",
+   "الحالة كمبلغ تضغط عليه لا كقرص تصفية.","Status as a clickable amount, not a filter chip."],
+  ["RecordPager","packages/ui/src/primitives/","new","—","—",
+   "«٢ من ١٠» داخل المستند للمشي على قائمة مُصفّاة بلا رجوع.",
+   "«2 of 10» inside the document, to walk a filtered list without going back."],
+  ["RelatedCounters","packages/ui/src/primitives/","new","—","—",
+   "عدّادات تربط بالسجلات المرتبطة: أذون الصرف، الدفعات، المرتجع، القيد.",
+   "Counted links to related records: issues, payments, returns, the journal entry."],
+  ["CreditBox","packages/ui/src/primitives/","new","—","—",
+   "الرصيد الدائن غير المطبَّق معروض على الفاتورة مع زر «طبّق».",
+   "Unapplied credit shown on the invoice with an Apply button."],
+  ["BankReviewRow","apps/web/src/screens/","new","—","—",
+   "طابِق / جديدة / استبعد — مراجعة حركة البنك بلا كلمة مدين أو دائن.",
+   "Match / New / Exclude — bank review with no debit or credit anywhere."],
+  ["ReportControlBar + AppliedFiltersPrintLine","packages/ui/src/primitives/","new","—","—",
+   "رأس تقرير موحّد، وسطر عوامل تصفية يُطبع مع الورقة.",
+   "One report header, and a filter line that prints with the paper."],
+  ["ReportGroup · حزمة إقفال الشهر","apps/web/src/screens/reports/","new","—","—",
+   "مجموعة تقارير محفوظة تُشغَّل وتُطبع بزر واحد.",
+   "A saved report set that runs and prints in one action."],
+  ["ShortcutBoard + ShortcutTile","apps/web/src/screens/","new","—","—",
+   "صفحة اختصارات يبنيها المستخدم: إجراءات، قوائم محفوظة، آخر ما فُتح.",
+   "A user-built shortcut page: actions, saved views, recents."],
+  ["DashboardCustomiser + ResetToDefault","apps/web/src/dashboard/","new","—","—",
+   "إضافة وحذف وترتيب اللوحات، وزر «استعادة الوضع الافتراضي» في مكان ثابت على كل شاشة قابلة للتخصيص — شرط الدعم.",
+   "Add, remove and reorder panels, with a fixed-position Reset control on every customisable screen — support's condition."],
+  ["GuidedFlow","apps/web/src/screens/","new","—","—",
+   "سؤال واحد في كل خطوة بلغة العمل، والمصطلح الرسمي بجانبه، ومخرج للنموذج الكامل.",
+   "One question at a time in work language, the formal term beside it, and an escape to the full form."],
+  ["CreateHub + QuickCreateDialog","apps/web/src/screens/","new","—","—",
+   "شاشة إنشاء مرتّبة بالعمل، وإنشاء سريع من داخل المستند بلا فقدان المسودة.",
+   "A create hub ordered by work, and quick create from inside a document without losing the draft."],
+  ["UserPreferences (خدمة)","packages/backend/src/","new","—","—",
+   "تفضيلات المستخدم على الخادم: المثبّتات، تخطيط اللوحة، بلاطات الاختصارات، الأعمدة، نظام الترقيم. اليوم كلها في localStorage.",
+   "Server-side user preferences: pins, dashboard layout, shortcut tiles, columns, numeral system. All localStorage today."],
+ ]],
+];
+
+const V = {keep:["يبقى","Keep"],change:["يتغيّر","Change"],replace:["يُستبدل","Replace"],
+           retire:["يُتقاعد","Retire"],new:["جديد","New"]};
+
+document.getElementById("stage").innerHTML = G.map(g=>`
+  <h2>${g[0]} <span class="en">· ${g[1]}</span></h2>
+  <table><thead><tr>
+    <th style="width:19%">المكوّن · Component</th>
+    <th style="width:9%">الحكم · Verdict</th>
+    <th>اليوم · Today</th>
+    <th>الجديد · New</th>
+  </tr></thead><tbody>
+  ${g[2].map(r=>`<tr data-v="${r[2]}">
+    <td class="c"><code>${r[0]}</code><span class="path">${r[1]}</span></td>
+    <td><span class="v ${r[2]}">${V[r[2]][0]} · ${V[r[2]][1]}</span></td>
+    <td class="now">${r[3]}<span class="en">${r[4]}</span></td>
+    <td class="next">${r[5]}<span class="en">${r[6]}</span></td>
+  </tr>`).join("")}
+  </tbody></table>`).join("");
+
+function tally(){
+  const rows=[...document.querySelectorAll("tr[data-v]")];
+  const vis=rows.filter(r=>!r.classList.contains("hide"));
+  const by={};rows.forEach(r=>by[r.dataset.v]=(by[r.dataset.v]||0)+1);
+  document.getElementById("count").textContent =
+    `معروض ${vis.length} من ${rows.length} · ` +
+    Object.entries(by).map(([k,v])=>`${V[k][1]} ${v}`).join(" · ");
+}
+document.getElementById("tools").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  [...e.currentTarget.querySelectorAll("button")].forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+  const f=b.dataset.f;
+  document.querySelectorAll("tr[data-v]").forEach(r=>r.classList.toggle("hide", f!=="all" && r.dataset.v!==f));
+  document.querySelectorAll("h2").forEach(h=>{
+    const t=h.nextElementSibling;
+    const any=[...t.querySelectorAll("tr[data-v]")].some(r=>!r.classList.contains("hide"));
+    h.style.display=any?"":"none"; t.style.display=any?"":"none";
+  });
+  tally();
+});
+tally();
+</script>
+</div>
+</body>
+</html>

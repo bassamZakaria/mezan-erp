@@ -444,7 +444,7 @@ export function TreasuryVouchersScreen() {
                 type="date"
               />
             </div>
-          <div className="flex flex-wrap gap-[8px]">
+          <div className="flex flex-wrap gap-[8px]" role="radiogroup">
             <Chip
               active={typeFilter === "all"}
               onClick={() => {

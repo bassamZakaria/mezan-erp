@@ -205,13 +205,27 @@ const uiAr = {
   // Revamp — the rail learns what this person uses
   "shell.rail.search": "اكتب اسم الشاشة أو الشغلة اللي عايزها…",
   "shell.rail.searchLabel": "بحث في الشاشات",
-  "shell.rail.pinned": "المثبّتة",
   "shell.rail.recent": "آخر ما فتحت",
   "shell.rail.all": "كل الشاشات",
-  "shell.rail.pin": "تثبيت {screen} في الأعلى",
-  "shell.rail.unpin": "إلغاء تثبيت {screen}",
   "shell.rail.noResults": "مفيش شاشة بالاسم ده",
   "shell.rail.clearSearch": "مسح البحث",
+
+  // Revamp — the two-row top bar that replaced the rail
+  "shell.bar.skip": "تخطَّ إلى المحتوى",
+  "shell.bar.home": "ميزان — الذهاب إلى لوحة التحكم",
+  "shell.bar.workspaces": "مساحات العمل",
+  "shell.bar.workspacesLandmark": "التنقل بين مساحات العمل",
+  "shell.bar.directLinks": "روابط مباشرة",
+  "shell.bar.workspaceScreens": "شاشات مساحة العمل",
+  "shell.bar.overflow": "شاشات إضافية",
+  "shell.bar.chromeActions": "أدوات الواجهة",
+  "shell.all.description": "تصفَّح كل الشاشات مرتّبةً حسب مساحة العمل وأقسامها، أو ابحث بالاسم.",
+  "shell.all.search": "ابحث في كل الشاشات",
+  "shell.all.close": "إغلاق كل الشاشات",
+  "shell.all.filter": "تصفية حسب مساحة العمل",
+  "shell.all.everyWorkspace": "كل مساحات العمل",
+  "shell.all.empty": "لا توجد شاشة بهذا الاسم.",
+  "shell.all.countSuffix": "شاشة معروضة",
 } as const;
 
 export type UiTranslationKey = keyof typeof uiAr;
@@ -416,13 +430,27 @@ const uiEn: Record<UiTranslationKey, string> = {
   // Revamp — the rail learns what this person uses
   "shell.rail.search": "Type the screen or the job you want…",
   "shell.rail.searchLabel": "Search screens",
-  "shell.rail.pinned": "Pinned",
   "shell.rail.recent": "Recently opened",
   "shell.rail.all": "All screens",
-  "shell.rail.pin": "Pin {screen} to the top",
-  "shell.rail.unpin": "Unpin {screen}",
   "shell.rail.noResults": "No screen by that name",
   "shell.rail.clearSearch": "Clear search",
+
+  // Revamp — the two-row top bar that replaced the rail
+  "shell.bar.skip": "Skip to content",
+  "shell.bar.home": "Mezan — go to the dashboard",
+  "shell.bar.workspaces": "Workspaces",
+  "shell.bar.workspacesLandmark": "Workspace navigation",
+  "shell.bar.directLinks": "Direct links",
+  "shell.bar.workspaceScreens": "Workspace screens",
+  "shell.bar.overflow": "More screens",
+  "shell.bar.chromeActions": "Interface controls",
+  "shell.all.description": "Browse every screen by workspace and section, or search by name.",
+  "shell.all.search": "Search every screen",
+  "shell.all.close": "Close all screens",
+  "shell.all.filter": "Filter by workspace",
+  "shell.all.everyWorkspace": "All workspaces",
+  "shell.all.empty": "No screen matches that name.",
+  "shell.all.countSuffix": "screens listed",
 };
 
 export const uiCatalogs: LocaleCatalogs = { ar: uiAr, en: uiEn };

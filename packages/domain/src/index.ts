@@ -121,6 +121,9 @@ export * from "./items/index.js";
 // --- barcode-config/ — tenant-wide barcode configuration + embedded-barcode parsing ---
 export * from "./barcode-config/index.js";
 
+// --- user-preferences/ — per-user shell personalisation (pins, recents, layout, columns) ---
+export * from "./user-preferences/index.js";
+
 // --- Phase 1: Users & Roles / Permissions ---
 export * from "./roles/index.js";
 export * from "./users/index.js";

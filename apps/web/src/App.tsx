@@ -31,7 +31,7 @@ import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
 import { NavigationProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
-import { hashForRoute, parseHash } from "./routing";
+import { groupKeyForScreen, hashForRoute, hubScreenForGroup, parseHash } from "./routing";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
 import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
@@ -493,40 +493,69 @@ export function App() {
     }));
   }, [navigate, pendingApprovalCount, t]);
 
-  // Settings and system live in the topbar's gear menu and approvals sits
-  // pinned at the top of the rail rather than inside a group; the `g`-chord
-  // shortcuts below still see the whole tree.
-  const pinnedNavItems = useMemo(
+  // "Workspace" here is the top-level grouping `nav-config.tsx` already names:
+  // the two-row top bar switches between them in row one instead of a left
+  // rail, and ROW TWO renders the active one's own screens. الإعداد والصلاحيات
+  // is deliberately not a tab — it is the gear menu, and «كل الشاشات» lists it.
+  //
+  // Nothing is lifted out of a workspace any more. الموافقات used to be pulled
+  // out as a fixed rail pin; row two is not personal, so removing it here would
+  // simply delete the approvals inbox from the only place its workspace lists it.
+  // الموافقات is one destination, not a workspace: a tab promises a second row
+  // of screens and this has exactly one, so it is drawn beside the tabs as a
+  // plain link. Its group (سير العمل) then holds nothing and drops out of the
+  // tabs — «كل الشاشات» still lists it, since it is handed the whole tree.
+  const directNavItems = useMemo(
     () => groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key)),
     [groups],
   );
-  const railGroups = useMemo(
+
+  /**
+   * The six workspaces of the column. الإعداد والصلاحيات IS one of them
+   * (direction ب lists it sixth) even though its screens are ALSO behind the
+   * header gear: the gear is the shortcut for someone already at work, the
+   * column is where someone browsing expects to find it. Both read the same
+   * tree, so they cannot disagree.
+   */
+  const workspaceGroups = useMemo(
     () =>
       groups
-        .filter((group) => !UTILITY_GROUP_KEYS.has(group.key))
         .map((group) => ({ ...group, items: group.items.filter((item) => !PINNED_NAV_ITEM_KEYS.includes(item.key)) }))
         // A group may carry all of its screens in sections and none directly —
         // التقارير does — so an empty `items` is not an empty group.
         .filter((group) => navGroupItems(group).length > 0),
     [groups],
   );
-  // The rail opens on what this person actually uses. History belongs to the
-  // app, not the shell, so the rail is handed the resolved items.
-  const [recentKeys, setRecentKeys] = useState<string[]>(loadRecentScreens);
-  useEffect(() => {
-    if (!isRoutable(activeScreen) || activeScreen === "dashboard") return;
-    setRecentKeys((prev) => {
-      const next = [activeScreen, ...prev.filter((key) => key !== activeScreen)].slice(0, 8);
-      if (next.length === prev.length && next.every((key, at) => key === prev[at])) return prev;
-      persistRecentScreens(next);
-      return next;
-    });
-  }, [activeScreen]);
 
-  const recentNavItems = useMemo(() => {
-    const byKey = new Map(groups.flatMap((group) => navGroupItems(group)).map((item) => [item.key, item]));
-    return recentKeys.map((key) => byKey.get(key)).filter((item): item is NavItem => item !== undefined);
-  }, [groups, recentKeys]);
+  const workspaces: NavItem[] = useMemo(
+    () => workspaceGroups.map((group) => ({ key: group.key, label: group.label })),
+    [workspaceGroups],
+  );
+
+  /**
+   * Undefined when the screen on display belongs to no workspace tab —
+   * الموافقات and every الإعدادات screen do. No tab is then marked current;
+   * `AppShell` keeps the last real workspace on row two so the bar does not
+   * silently swap to البيع the moment either is opened.
+   */
+  const resolvedWorkspaceKey = groupKeyForScreen(activeScreen);
+  const activeWorkspaceKey = workspaces.some((w) => w.key === resolvedWorkspaceKey) ? (resolvedWorkspaceKey ?? undefined) : undefined;
+
+  /**
+   * Each workspace tab opens that workspace's hub. `hubScreenForGroup` resolves
+   * the group's own hub screen and, where it has none, its first screen.
+   * Reporting `false` is not decorative: `AppShell` then opens «كل الشاشات»
+   * filtered to that workspace, so the tab always lands on its own screens.
+   */
+  const onWorkspaceChange = useCallback(
+    (key: string) => {
+      const hub = hubScreenForGroup(key);
+      if (!hub || !isRoutable(hub)) return false;
+      navigate(hub as ScreenKey);
+      return true;
+    },
+    [navigate],
+  );
 
   const utilityGroups = useMemo(
     () =>
@@ -698,15 +727,19 @@ export function App() {
     <NavigationProvider value={navigation}>
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
-      topNavItem={routedTopNavItem}
-      navGroups={railGroups}
+      onNavigateHome={() => navigate("dashboard")}
+      workspaces={workspaces}
+      directNavItems={directNavItems}
+      activeWorkspaceKey={activeWorkspaceKey}
+      onWorkspaceChange={onWorkspaceChange}
+      // Row two: the active workspace's own screens.
+      workspaceGroups={workspaceGroups}
+      // Every group, الإعداد والصلاحيات included — «كل الشاشات» is the
+      // unfiltered map, so a screen no workspace tab shows is still browsable.
+      allScreensGroups={groups}
       utilityGroups={utilityGroups}
-      pinnedNavItems={pinnedNavItems}
-      recentNavItems={recentNavItems}
       user={shellUser}
       commandItems={routedCommandItems}
-      tenantName={session.tenantName}
-      scopeLabel={scopeLabel}
       userMenuItems={userMenuItems}
       notificationCount={notificationsBell.unreadCount}
       onToggleNotifications={notificationsBell.onToggle}

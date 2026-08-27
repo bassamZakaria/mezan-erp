@@ -84,7 +84,7 @@ export function ReconciliationScreen() {
         </div>
       ) : null}
 
-      <div className="mb-[16px] flex flex-wrap gap-[8px]">
+      <div className="mb-[16px] flex flex-wrap gap-[8px]" role="radiogroup">
         <Chip active={tab === "summary"} onClick={() => setTab("summary")}>{t("reconciliation.reconciliationSummary")}</Chip>
         <Chip active={tab === "unlinked"} onClick={() => setTab("unlinked")}>{t("reconciliation.unlinkedEntries")}{report?.unlinked.length ?? 0})</Chip>
       </div>

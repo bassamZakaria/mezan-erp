@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>التقارير — ما نأخذه من QuickBooks وأين نتفوّق</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Reem+Kufi:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:#0F0F11;color:#D4D4D8;font-family:"IBM Plex Sans Arabic",sans-serif;
+     line-height:1.85;font-size:14px}
+.wrap{max-width:1060px;margin:0 auto;padding:46px 24px 80px}
+h1{font-family:"Reem Kufi",sans-serif;font-size:29px;margin:0 0 10px;color:#FAFAFA}
+.lede{color:#A1A1AA;font-size:14px;margin:0 0 6px;max-width:78ch}
+.back{display:inline-block;color:#A1A1AA;font-size:12.5px;text-decoration:none;
+      padding:6px 11px;border:1px solid #3F3F46;border-radius:4px;margin-block-end:26px}
+.back:hover{color:#FAFAFA;border-color:#71717A}
+h2{font-family:"Reem Kufi",sans-serif;font-size:20px;color:#FAFAFA;margin:44px 0 6px}
+.sub{color:#71717A;font-size:12.5px;margin:0 0 18px;max-width:80ch}
+
+table{width:100%;border-collapse:collapse;font-size:13px;margin-block:12px 0}
+th,td{text-align:start;padding:9px 12px;border-block-end:1px solid #27272A;vertical-align:top}
+th{color:#71717A;font-size:11.5px;font-weight:600;background:#131316;position:sticky;top:0}
+td.g{color:#FAFAFA;font-weight:600;white-space:nowrap}
+td.them{color:#8FA4B8}
+td.us{color:#A1A1AA}
+.yes{color:#86B48F}.no{color:#D08A7A}.part{color:#D8B25F}
+.num{font-family:"IBM Plex Mono",monospace;direction:ltr;unicode-bidi:isolate;display:inline-block}
+
+.item{border:1px solid #27272A;border-radius:6px;background:#18181B;padding:15px 18px;margin-block-end:11px}
+.item.take{border-inline-start:3px solid #86B48F}
+.item.avoid{border-inline-start:3px solid #D08A7A}
+.item.win{border-inline-start:3px solid #8FA4B8}
+.item h3{margin:0 0 5px;font-size:15px;color:#FAFAFA;font-weight:600}
+.item h3 .tag{font-size:11px;font-weight:400;color:#71717A;margin-inline-start:8px}
+.item p{margin:0 0 6px;color:#A1A1AA;font-size:13px}
+.item p:last-child{margin-block-end:0}
+.item .ours{color:#86B48F;font-size:12.5px}
+.item .ours b{color:#A8CDB0}
+.item .no{font-size:12.5px}
+
+.note{border:1px solid #3F3F46;background:#131316;border-radius:6px;padding:16px 18px;margin-block-start:24px;
+      color:#A1A1AA;font-size:13px}
+.note b{color:#FAFAFA}
+.srcs{margin-block-start:40px;font-size:11.5px;color:#52525B;line-height:1.9}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">↩ كل قرارات التصميم</a>
+
+<h1>التقارير</h1>
+<p class="lede">قوبل كتالوج QuickBooks Online بكتالوجنا الفعلي: <b style="color:#FAFAFA"><span class="num">32</span>
+تعريف تقرير</b> في <span class="num" dir="ltr">packages/domain/src/reports/</span>،
+منها <span class="num">30</span> لها شاشة — <span class="num">22</span> عبر مفاتيح تنقّل مستقلة،
+وثمانية مجمّعة داخل شاشة القوائم المالية.</p>
+<p class="sub">النتيجة المختصرة: عمقنا المحاسبي والمخزني <b style="color:#A1A1AA">أوسع</b> من QuickBooks.
+ما ينقصنا ليس التقارير، بل <b style="color:#A1A1AA">آلية شاشة التقرير</b> وطريقة تسمية المجموعات.</p>
+
+<h2>١ · تسمية المجموعات — أقوى ما يمكن أخذه</h2>
+<p class="sub">QuickBooks لا يسمّي مجموعات التقارير بأسماء الوحدات المحاسبية، بل بالسؤال الذي يطرحه صاحب العمل.
+هذا بالضبط ما تطلبه قاعدتنا «سَمِّ بالمهمة أولًا والمصطلح المحاسبي ثانيًا»، وهو مجاني التنفيذ.</p>
+<table>
+  <thead><tr><th style="width:30%">QuickBooks</th><th style="width:34%">الترجمة الحرفية</th><th>ما نسمّيه نحن</th></tr></thead>
+  <tbody>
+    <tr><td class="them">Who owes you</td><td class="us">مَن يدين لك</td><td class="g">مين عليه فلوس؟</td></tr>
+    <tr><td class="them">What you owe</td><td class="us">ما تدين به</td><td class="g">أنا عليّ إيه؟</td></tr>
+    <tr><td class="them">Business overview</td><td class="us">نظرة عامة على النشاط</td><td class="g">المنشأة ماشية إزاي؟</td></tr>
+    <tr><td class="them">Sales and customers</td><td class="us">المبيعات والعملاء</td><td class="g">بيعت إيه ولمين؟</td></tr>
+    <tr><td class="them">Expenses and vendors</td><td class="us">المصروفات والموردون</td><td class="g">صرفت على إيه؟</td></tr>
+    <tr><td class="them">Sales tax</td><td class="us">ضريبة المبيعات</td><td class="g">الضرائب والإقرارات</td></tr>
+    <tr><td class="them">For my accountant</td><td class="us">لمحاسبي</td><td class="g">للمحاسب — الدفاتر الكاملة</td></tr>
+  </tbody>
+</table>
+<div class="note"><b>ملاحظة مهمة:</b> هذا لا يلغي قرارنا بأن التقرير يعيش عند موضوعه (§3.3).
+المجموعات المسمّاة بالسؤال هي شكل فهرس «كل التقارير»، لا بديل عن وجود تقارير البيع داخل مساحة البيع.</div>
+
+<h2>٢ · آليات شاشة التقرير — مبنيّة الآن في النماذج</h2>
+
+<div class="item take">
+  <h3>عوامل التصفية تُطبع مع التقرير <span class="tag">QuickBooks — أهم تفصيلة</span></h3>
+  <p>سطر أسفل العنوان يذكر كل ما طُبِّق: الفترة، الفرع، الأساس المحاسبي، المقارنة.
+  الورقة المطبوعة تقول كيف حُسبت، فلا يتجادل اثنان حول رقمين مختلفين لنفس التقرير.</p>
+  <p class="ours"><b>عندنا:</b> سطر «عوامل التصفية المطبَّقة» تحت الوسوم مباشرة في شاشة ميزان المراجعة.</p>
+</div>
+
+<div class="item take">
+  <h3>رأس التقرير: فترة جاهزة · مقارنة · أساس محاسبي · تقسيم أعمدة <span class="tag">QuickBooks</span></h3>
+  <p>فترات معدّة مسبقًا، ومقارنة بالفترة السابقة أو بالسنة الماضية مع عمود نسبة تغيّر،
+  وتبديل بين أساس الاستحقاق والأساس النقدي، وتقسيم الأعمدة بالشهر أو الربع أو الفرع.</p>
+  <p class="ours"><b>عندنا:</b> شريط تحكّم كامل أعلى التقرير، وعمود «٢٠٢٥ — نفس الفترة» مع سهم ونسبة.
+  الأساس المحاسبي مُبدَّل صريح، لأن الفارق بينهما يغيّر كل رقم في الشاشة.</p>
+</div>
+
+<div class="item take">
+  <h3>النزول من الرقم إلى المستند <span class="tag">Odoo · QuickBooks — QuickZoom</span></h3>
+  <p>كل رقم في تقرير مُجمَّع زر: يفتح حركات الحساب، ومن الحركة يفتح المستند نفسه.</p>
+  <p class="ours"><b>عندنا:</b> الأرقام أزرار بخط سفلي متقطّع، ومسار النزول مرسوم في العمود الجانبي.
+  القاعدة: <b>لا يوجد رقم لا يمكن تتبّعه إلى مستند.</b> لدينا <span class="num" dir="ltr">ReportDrillDownPanel</span> بالفعل.</p>
+</div>
+
+<div class="item take">
+  <h3>حزم تقارير محفوظة تُشغَّل دفعة واحدة <span class="tag">QuickBooks — Report groups</span></h3>
+  <p>مجموعة تقارير باسم واحد، تُشغَّل وتُصدَّر معًا كملف واحد.</p>
+  <p class="ours"><b>عندنا:</b> «حزمة إقفال الشهر» في العمود الجانبي — ميزان المراجعة، قائمة الدخل، الميزانية،
+  أعمار الديون، إقرار القيمة المضافة. زر واحد يشغّلها ويطبعها. هذا ما يطلبه مكتب المحاسبة شهريًا لكل عميل.
+  <br>ملاحظة: الجدولة عندهم بالبريد؛ عندنا النسخة المكتبية بلا إنترنت، فالمكافئ هو التشغيل والطباعة، لا الإرسال.</p>
+</div>
+
+<div class="item take">
+  <h3>النجمة، والتقارير المحفوظة، وطيّ الكل <span class="tag">QuickBooks</span></h3>
+  <p class="ours"><b>عندنا:</b> زر «☆ حفظ» في رأس التقرير، وزر «طيّ الكل» بجانب «تخصيص التقرير».</p>
+</div>
+
+<h2>٣ · أخطاء QuickBooks في التقارير — نتجنّبها صراحةً</h2>
+
+<div class="item avoid">
+  <h3>«العرض الحديث» الذي أربك المستخدمين <span class="tag">شكوى موثّقة وواسعة</span></h3>
+  <p class="no">نافذة داخل نافذة، ولوحة تصفية مزاحة للجانب، و— الأسوأ — <b>نفس عوامل التصفية تعطي إجماليات مختلفة</b>
+  عن العرض الكلاسيكي. ولا يمكن تثبيت الكلاسيكي كافتراضي قبل إيقافه.
+  الدرس: تغيير شكل التقرير لا يجوز أن يغيّر رقمًا واحدًا، وإن غيّره فهو خلل لا تحديث.</p>
+</div>
+
+<div class="item avoid">
+  <h3>التقرير ينقلب لعرض آخر عند النزول ويُصفِّر الفترة <span class="tag">QuickBooks</span></h3>
+  <p class="no">النزول إلى حركة يبدّل نمط العرض ويعيد ضبط المدى الزمني بصمت.
+  قاعدتنا: النزول والعودة يحفظان الفترة والتصفية كما هي، دائمًا.</p>
+</div>
+
+<div class="item avoid">
+  <h3>ما يظهر على الشاشة لا يُطبع كما هو <span class="tag">QuickBooks — عيب معترف به</span></h3>
+  <p class="no">أعمدة تنزاح، ونصوص الوصف تعيد التدفّق، وحد أقصى لخلايا PDF.
+  عندنا الطباعة ليست تفصيلة: تسع تبويبات قوالب طباعة، وفاتورة ورقية لها متطلبات قانونية مصرية.
+  <b>كل تقرير يجب أن يُختبر مطبوعًا لا معروضًا فقط.</b></p>
+</div>
+
+<h2>٤ · أين نتفوّق أصلًا — وهو ما ينقص QuickBooks بنيويًا</h2>
+<p class="sub">هذه ليست مجاملة: كل سطر أدناه موجود كتعريف تقرير في مستودعنا اليوم، وكلها مذكورة كنواقص
+في مراجعات QuickBooks للشركات التي تحمل مخزونًا.</p>
+<table>
+  <thead><tr><th style="width:38%">ما يحتاجه عميل مصري</th><th style="width:24%">QuickBooks</th><th>عندنا</th></tr></thead>
+  <tbody>
+    <tr><td>حركة صنف (كارت الصنف) تاريخيًا</td><td class="no">✕ لا يوجد — تقييم لحظي فقط</td>
+        <td class="yes">✓ <span class="num" dir="ltr">inventory-ledger</span> · <span class="num" dir="ltr">inventory-movement</span></td></tr>
+    <tr><td>تقييم المخزون بالمتوسط المرجّح</td><td class="no">✕ FIFO فقط</td>
+        <td class="yes">✓ <span class="num" dir="ltr">inventory-valuation</span> بالمتوسط المرجّح</td></tr>
+    <tr><td>تعدّد الفروع والمخازن وتحويلاتها</td><td class="no">✕ لا تجميع حقيقي متعدّد الفروع</td>
+        <td class="yes">✓ الفرع والمخزن بُعدان أصيلان</td></tr>
+    <tr><td>أعمار الديون حسب المندوب / أداء المندوبين</td><td class="no">✕ غير موجود</td>
+        <td class="yes">✓ <span class="num" dir="ltr">sales-by-salesperson</span></td></tr>
+    <tr><td>الدفعات وتواريخ الصلاحية</td><td class="no">✕ لا تقارير دفعات أو صلاحية</td>
+        <td class="yes">✓ <span class="num" dir="ltr">inventory-expiring</span> · <span class="num" dir="ltr">inventory-aging</span></td></tr>
+    <tr><td>مراكز التكلفة وربحيتها</td><td class="part">~ Class/Location فقط، ولا تتوازن داخل كل فئة</td>
+        <td class="yes">✓ مركز التكلفة بُعد على القيد</td></tr>
+    <tr><td>الأصناف الراكدة والفروق غير المفسَّرة</td><td class="no">✕ غير موجود</td>
+        <td class="yes">✓ <span class="num" dir="ltr">inventory-slow-moving</span> · <span class="num" dir="ltr">inventory-drift</span></td></tr>
+    <tr><td>خصم وتحصيل (ضريبة الخصم)</td><td class="no">✕ خارج نطاقه</td>
+        <td class="yes">✓ <span class="num" dir="ltr">withholding-tax</span> · <span class="num" dir="ltr">vat-return</span></td></tr>
+    <tr><td>التصنيع: اصنع أم اشترِ</td><td class="no">✕ لا تصنيع</td>
+        <td class="yes">✓ <span class="num" dir="ltr">make-vs-buy</span></td></tr>
+    <tr><td>الأقساط ومتأخّراتها</td><td class="no">✕ غير موجود</td>
+        <td class="yes">✓ <span class="num" dir="ltr">installments-overview</span> · <span class="num" dir="ltr">installments-overdue</span></td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+<b>الخلاصة العملية:</b> لا نحتاج تقارير جديدة. نحتاج ثلاثة أشياء:
+(١) شريط تحكّم موحّدًا أعلى كل تقرير — فترة، مقارنة، أساس محاسبي، تقسيم أعمدة؛
+(٢) سطر عوامل التصفية المطبوع مع الورقة؛
+(٣) أن ينزل كل رقم إلى مستنده.
+الثلاثة مبنيّة الآن في نموذج «ميزان المراجعة»، وترثها التقارير الثلاثون عبر مكوّن واحد
+(<span class="num" dir="ltr">ReportScreen</span>) كما هي الحال في المستودع فعلًا.
+</div>
+
+<div class="srcs">
+المصادر: quickbooks.intuit.com/learn-support (قائمة التقارير حسب الاشتراك، التقارير المخصّصة والمجموعات،
+الجدولة، العرض الكلاسيكي مقابل الحديث، مقارنة الفترات، تصدير PDF) ·
+مجتمع QuickBooks (سلاسل شكاوى العرض الحديث والطباعة والتصدير) ·
+مراجعات inFlow و Redmond Accounting حول حدود المخزون وتتبّع الفئات ·
+ومقابل ذلك: <span class="num" dir="ltr">packages/domain/src/reports/</span> في هذا المستودع.
+</div>
+
+</div>
+</body>
+</html>

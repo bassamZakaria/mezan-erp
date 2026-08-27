@@ -1,93 +1,158 @@
 /*
- * Mezan design tokens — CSS custom properties.
+ * Mezan design tokens — المِشكاة (Lantern).
  *
- * Light-first: the bare `:root` block below is the COMPLETE light palette and
- * is the default with no other signal. Dark applies two ways, matching the
- * approved mockup (design/mezan-enhanced-mockups.html):
- *   1. `prefers-color-scheme: dark` when the app hasn't set an explicit theme
+ * Authority: docs/superpowers/specs/2026-08-27-visual-identity-and-shell-design.md
+ * §1.1–§1.2. Values are ported from `design/directions/directions.css`
+ * (`[data-dir="b"] .app` for light, `[data-dir="b"][data-theme="dark"] .app`
+ * for dark), with the corrections recorded under "Contrast" below.
+ *
+ * ── THREE THEME STATES ────────────────────────────────────────────────────
+ * Light-first: the bare `:root` block is the COMPLETE palette and is the
+ * default with no other signal. Dark applies two ways:
+ *   1. `prefers-color-scheme: dark` when the app has set no explicit theme
  *      (`:root:not([data-theme="light"])`)
- *   2. an explicit `[data-theme="dark"]` attribute on <html>, which wins
- *      regardless of OS preference (set by the theme toggle / useTheme()).
+ *   2. an explicit `[data-theme="dark"]` on <html>, which wins regardless of
+ *      OS preference (set by the theme toggle / useTheme()).
+ * Every value is defined in the bare `:root`; the media/attribute blocks only
+ * REDEFINE. A token that existed solely inside one of those blocks would be
+ * undefined in the other two states.
  *
- * Every colour is defined in the bare `:root` block; the media/attribute
- * blocks only REDEFINE. A colour that exists solely inside one of those blocks
- * would be undefined in the other two states.
+ * ── THE DARK BLOCK IS COLOUR ONLY ─────────────────────────────────────────
+ * A theme change alters colour and nothing else. Geometry, type and size
+ * tokens (`--h-*`, `--fs-*`, `--pad*`, `--r`, `--r-*`, `--w-*`, `--tile-*`,
+ * `--font-*`, `--fw-*`, `--lh`, `--notch*`) are DELIBERATELY ABSENT from both
+ * dark blocks. Measured across the two source directions, 12 of 14 structural
+ * tokens differed — including `--h-btn` at 44px light and 38px dark, which
+ * would make the dark theme fail the 44px target-size ground rule that the
+ * light theme passes. `pnpm --filter @mezan/ui lint:theme`
+ * (packages/ui/scripts/check-theme-colour-only.mjs) fails the build if a
+ * structural token ever appears in a dark block.
  *
- * The `--chrome-*` set is deliberately independent of `--surface-*`: the
- * sidebar + topbar are dark teal in BOTH themes, so chrome cannot inherit the
- * surface/ink tokens in light mode.
+ * ── ONE ACTION COLOUR PER THEME ───────────────────────────────────────────
+ * `--action*` is the single high-chroma action family: lapis `#2E3A8C` in
+ * light, gold `#E0A93B` in dark. Lapis cannot carry a dark surface at
+ * accessible contrast (1.5:1 on `#12100C`), so dark substitutes gold for the
+ * SAME role — a role substitution, not a second brand colour.
+ * `--brand*` and `--accent*` are aliases of `--action*`; they are two names
+ * this codebase already uses for the one role, kept so no consumer breaks.
  *
- * Do not add left/right physical values here — logical properties only
- * (the repo's `pnpm lint:rtl` check enforces this on consumers).
+ * `--chrome-accent` is the exception and stays gold in BOTH themes, because
+ * the chrome (sidebar/topbar) is a dark stone panel in the light theme too —
+ * the same surface constraint that forces gold in the dark theme applies to
+ * it in the light one. It is the action role rendered on chrome, not a second
+ * colour.
+ *
+ * ── CONTRAST ──────────────────────────────────────────────────────────────
+ * Measured with alpha composited over the real backdrop (an earlier audit
+ * reported 86 failures that were all one alpha-parsing bug in the tool).
+ * Reference values that did not meet AA were darkened/lightened along their
+ * own hue, keeping the palette's character. Worst-case backdrop in brackets:
+ *   --text-faint     light #8B8173 → #665F53  (3.08:1 → 4.64:1 [surface-3])
+ *   --text-faint     dark  #7E7364 → #948B7E  (3.61:1 → 5.82:1 [surface-3])
+ *   --warning        light #8A5A1E → #825419  (4.33:1 → 4.61:1 [surface-3])
+ *   --border-strong  light #D0C5B0 → #837C6F  (1.44:1 → 3.03:1, WCAG 1.4.11)
+ *   --border-strong  dark  #3B342A → #736E67  (1.46:1 → 3.06:1, WCAG 1.4.11)
+ * `--text-muted` was darkened alongside `--text-faint` so the three-step ink
+ * ramp stays legible as three steps.
+ *
+ * `--surface-3` has no counterpart in the reference, which stops at two
+ * surfaces. It is the RECESSED step in both themes — darker than `--bg` in
+ * light AND in dark — because it backs wells: disabled fields, inert stepper
+ * stages, count pills. Making it a raised (lighter) step in dark left no room
+ * between `--surface-2` and `--border`, so a bordered panel drawn on it had
+ * an invisible border.
+ *
+ * `--border` is the DECORATIVE hairline (table rules, panel seams) and is
+ * deliberately below 3:1 — it carries no meaning. `--border-strong` is the
+ * token for a control boundary that a user must be able to see (input,
+ * checkbox, secondary button); anything that draws a meaningful edge must use
+ * it, not `--border`.
+ *
+ * ── LOGICAL PROPERTIES ONLY ───────────────────────────────────────────────
+ * No left/right physical values here — `pnpm lint:rtl` enforces this.
  */
 
 :root {
-  --bg: #f2efe9;
-  --surface: #ffffff;
-  --surface-2: #f7f4ed;
-  --surface-3: #ede7da;
-  --border: #e6e0d2;
-  --border-strong: #d3cbb6;
-  --text: #14231e;
-  --text-muted: #424f48;
-  --text-faint: #5a6c62;
+  /* ── surfaces: warm stone, tiling edge to edge ───────────────────────── */
+  --bg: #f8f4ec;
+  --surface: #f1ebe0;
+  --surface-2: #ede6d9;
+  --surface-3: #e5dccb;
+  --border: #ded5c4;
+  --border-strong: #837c6f;
 
-  --chrome: #0b3a34;
-  --chrome-2: #072b27;
-  --chrome-ink: #e4f1ec;
-  --chrome-ink-muted: #a9c6bc;
-  --chrome-border: rgba(255, 255, 255, 0.09);
-  --chrome-hover: rgba(255, 255, 255, 0.06);
-  --chrome-active: rgba(255, 255, 255, 0.09);
-  --chrome-accent: #cb9e3d;
+  /* ── ink ramp ────────────────────────────────────────────────────────── */
+  --text: #22201a;
+  --text-muted: #4e4739;
+  --text-faint: #665f53;
 
-  --brand: #0c463e;
-  --brand-strong: #073029;
-  --brand-soft: #e2efea;
-  --brand-ink: #ffffff;
+  /* ── chrome: a dark stone panel in BOTH themes, so it never inherits the
+        surface/ink tokens. ────────────────────────────────────────────── */
+  --chrome: #22201a;
+  --chrome-2: #16140f;
+  --chrome-ink: #f8f4ec;
+  --chrome-ink-muted: #a79c8a;
+  --chrome-border: rgba(255, 255, 255, 0.12);
+  --chrome-hover: rgba(255, 255, 255, 0.07);
+  --chrome-active: rgba(255, 255, 255, 0.12);
+  --chrome-accent: #e0a93b;
 
-  --accent: #b0862f;
-  --accent-strong: #8a6620;
-  --accent-soft: #f6efdb;
-  --accent-bright: #cb9e3d;
-  --accent-ink: #1c1405;
+  /* ── the one action colour ───────────────────────────────────────────── */
+  --action: #2e3a8c;
+  --action-strong: #232c6b;
+  --action-bright: #3d4bae;
+  --action-soft: #e4e5f2;
+  --action-ink: #f8f4ec;
 
-  --success: #2c8a57;
-  --success-soft: #e1f1e8;
-  --success-ink: #1c6b41;
-  --warning: #b0791f;
-  --warning-soft: #f7ecd3;
-  --warning-ink: #845812;
-  --danger: #c0402f;
-  --danger-soft: #f8e4df;
-  --danger-ink: #8f2a1e;
-  --info: #2f6690;
-  --info-soft: #e1eaf2;
-  --info-ink: #234e6e;
+  /* ── document/state semantics ────────────────────────────────────────── */
+  --success: #2e6b45;
+  --success-soft: #e3ede5;
+  --success-ink: #26583a;
+  --warning: #825419;
+  --warning-soft: #f0e6d6;
+  --warning-ink: #6f481a;
+  --danger: #9b3024;
+  --danger-soft: #f4e2de;
+  --danger-ink: #7e2419;
+  --info: #2c6488;
+  --info-soft: #e1eaf1;
+  --info-ink: #22506e;
 
-  --chart-1: #0e7c69;
-  --chart-2: #c05a2e;
-  --chart-3: #b0862f;
-  --chart-4: #3b6ea5;
-  --chart-5: #7a5c8e;
-  --chart-6: #4b7f6b;
+  --chart-1: #2e3a8c;
+  --chart-2: #a8552a;
+  --chart-3: #8a6420;
+  --chart-4: #2c6488;
+  --chart-5: #6b4e86;
+  --chart-6: #2e6b45;
 
-  --scrim: rgba(8, 20, 16, 0.45);
+  --scrim: rgba(34, 32, 26, 0.55);
 
-  --shadow-1:
-    0 1px 2px rgba(20, 45, 36, 0.07),
-    0 1px 1px rgba(20, 45, 36, 0.04);
+  /* Lantern draws hairlines, not shadows. `--shadow-1` and `--shadow-chrome`
+     are `none` on purpose; `--shadow-2` keeps a ring plus the faintest lift so
+     a true overlay still reads as floating. Both reference `--border-strong`
+     and `--scrim`, so they follow the theme without being redefined in the
+     dark blocks — which is what keeps those blocks colour-only. */
+  --shadow-1: none;
   --shadow-2:
-    0 22px 48px -22px rgba(12, 40, 32, 0.3),
-    0 6px 16px -8px rgba(12, 40, 32, 0.14);
-  --shadow-chrome:
-    0 0 0 1px rgba(0, 0, 0, 0.04),
-    8px 0 30px -18px rgba(7, 43, 39, 0.55);
+    0 0 0 1px var(--border-strong),
+    0 18px 40px -24px var(--scrim);
+  --shadow-chrome: none;
 
-  --r-sm: 5px;
-  --r-md: 8px;
-  --r-lg: 14px;
+  color-scheme: light;
+
+  /* ══ STRUCTURE — never redefined by a theme ═══════════════════════════ */
+
+  /* Corners are CUT, not drawn: the identity's radius is 0 and the notch is
+     applied as a clip-path by the components that carry one. `--r-pill` stays
+     round because a pill/dot is a shape, not a corner treatment. */
+  --r: 0px;
+  --r-sm: var(--r);
+  --r-md: var(--r);
+  --r-lg: var(--r);
   --r-pill: 999px;
+  --notch: 9px;
+  --notch-lg: 11px;
+  --notch-xl: 13px;
 
   --fs-2xs: 0.6875rem;
   --fs-xs: 0.75rem;
@@ -98,150 +163,185 @@
   --fs-xl: 1.375rem;
   --fs-2xl: 1.75rem;
   --fs-3xl: 2.25rem;
+  --lh: 1.75;
 
-  /* Families follow design/mezan-enhanced-mockups.html, the design authority.
-     The code had drifted to Noto Kufi / Noto Sans Arabic, which the mockup
-     never specified. All five are self-hosted — see fonts.css. */
-  --font-ar: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  /* Control and row geometry, from the approved Lantern direction. `--h-btn`
+     is the 44px minimum target size; nothing operable may be shorter. */
+  --h-ws: 46px;
+  --h-btn: 44px;
+  --h-row: 36px;
+  --h-wl: 62px;
+  --h-tree: 42px;
+  --w-spine: 56px;
+  --w-gut: 262px;
+  --pad: 26px 30px;
+  --pad-th: 10px 12px;
+  --pad-td: 0 12px;
+  --pad-wl: 14px 16px;
+  --pad-strip: 13px 15px;
+  --tile-w: 178px;
+  --tile-h: 106px;
+  --tile-gap: 1px;
+
+  /* Faces are vendored as subsetted woff2 — see fonts.css, which owns the
+     @font-face rules. This file only names them. */
+  --font-ar: "Readex Pro", "Segoe UI", Tahoma, sans-serif;
   --font-body: var(--font-ar);
-  --font-display: "Tajawal", "IBM Plex Sans Arabic", sans-serif;
-  --font-sig: "Reem Kufi", "Tajawal", sans-serif;
-  --font-lat: "IBM Plex Sans", "IBM Plex Sans Arabic", sans-serif;
-  /* IBM Plex Mono carries no Arabic-Indic digits. A tenant on the ٠١٢ numeral
-     system would otherwise get its figures from an arbitrary system fallback,
-     breaking "one numeral system per user" mid-column. IBM Plex Sans Arabic
-     has ٠-٩ and tabular figures, so it is the per-glyph fallback. */
-  --font-mono: "IBM Plex Mono", "IBM Plex Sans Arabic", monospace;
+  --font-display: "Zain", "Readex Pro", sans-serif;
+  --font-sig: var(--font-display);
+  --font-lat: "IBM Plex Sans", "Readex Pro", sans-serif;
+  --fw-disp: 700;
+  /* LOAD-BEARING FALLBACK — do not trim. IBM Plex Mono contains NO
+     Arabic-Indic digits (U+0660-0669 absent from its cmap, verified). A
+     tenant on the ٠١٢ numeral system would get figures from an arbitrary
+     system font mid-column, breaking "one numeral system per user". Readex
+     Pro's Arabic subset carries all ten, so it is the per-glyph fallback. */
+  --font-mono: "IBM Plex Mono", "Readex Pro", monospace;
 
-  color-scheme: light;
+  /* ══ ALIASES ══════════════════════════════════════════════════════════
+     Every name below is an older or mockup-side spelling of a token above.
+     They are `var()` references, NOT copies, so they follow the dark palette
+     without appearing in the dark blocks. Do not give any of them a literal
+     value — that would silently pin it to the light theme. */
+
+  /* the one action colour, under the two names this codebase already uses */
+  --brand: var(--action);
+  --brand-strong: var(--action-strong);
+  --brand-soft: var(--action-soft);
+  --brand-ink: var(--action-ink);
+  --accent: var(--action);
+  --accent-strong: var(--action-strong);
+  --accent-bright: var(--action-bright);
+  --accent-soft: var(--action-soft);
+  --accent-ink: var(--action-ink);
+
+  /* the shared contract used by design/directions/directions.css, so markup
+     ported from the mockups compiles against the shipped tokens */
+  --ink: var(--text);
+  --muted: var(--text-muted);
+  --faint: var(--text-faint);
+  --line: var(--border);
+  --line-2: var(--border-strong);
+  --th-bg: var(--surface-2);
+  --ok: var(--success);
+  --ok-soft: var(--success-soft);
+  --warn: var(--warning);
+  --warn-soft: var(--warning-soft);
+  --bad: var(--danger);
+  --bad-soft: var(--danger-soft);
+  --chrome-bg: var(--chrome);
+  --chrome-line: var(--chrome-border);
+  --chrome-field: var(--chrome-hover);
+  --font-disp: var(--font-display);
+  --shadow: var(--shadow-1);
 }
+
+/* ══ DARK — COLOUR ONLY ═════════════════════════════════════════════════
+   Deep warm surfaces, one gold action colour. Nothing structural belongs in
+   either block below; `lint:theme` fails the build if anything appears. */
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0a1310;
-    --surface: #101c18;
-    --surface-2: #152420;
-    --surface-3: #1c2c27;
-    --border: #243530;
-    --border-strong: #33473f;
-    --text: #e9efea;
-    --text-muted: #9db0a6;
-    --text-faint: #83978c;
+    --bg: #12100c;
+    --surface: #1a1712;
+    --surface-2: #211d17;
+    --surface-3: #0e0c09;
+    --border: #2a251d;
+    --border-strong: #736e67;
 
-    --chrome: #081310;
-    --chrome-2: #050d0b;
-    --chrome-ink: #e4f1ec;
-    --chrome-ink-muted: #9dbdb1;
-    --chrome-border: rgba(255, 255, 255, 0.07);
-    --chrome-hover: rgba(255, 255, 255, 0.05);
-    --chrome-active: rgba(255, 255, 255, 0.08);
-    --chrome-accent: #e7c77c;
+    --text: #efe9dd;
+    --text-muted: #b9af9d;
+    --text-faint: #948b7e;
 
-    --brand: #3fb39e;
-    --brand-strong: #57c9b3;
-    --brand-soft: #0f2a25;
-    --brand-ink: #06110d;
+    --chrome: #0b0a07;
+    --chrome-2: #050403;
+    --chrome-ink: #efe9dd;
+    --chrome-ink-muted: #a79c8a;
+    --chrome-border: rgba(255, 255, 255, 0.1);
+    --chrome-hover: rgba(255, 255, 255, 0.06);
+    --chrome-active: rgba(255, 255, 255, 0.1);
+    --chrome-accent: #e0a93b;
 
-    --accent: #d8b25f;
-    --accent-strong: #e7c77c;
-    --accent-soft: #2b2412;
-    --accent-bright: #e7c77c;
-    --accent-ink: #1c1405;
+    --action: #e0a93b;
+    --action-strong: #efc062;
+    --action-bright: #efc062;
+    --action-soft: #2f2513;
+    --action-ink: #1b1405;
 
-    --success: #4cb07d;
-    --success-soft: #123626;
-    --success-ink: #84d6a9;
+    --success: #6fb98a;
+    --success-soft: #16301f;
+    --success-ink: #93cfaa;
     --warning: #d9a24c;
-    --warning-soft: #38290f;
+    --warning-soft: #332612;
     --warning-ink: #ebbe7b;
-    --danger: #e37b67;
-    --danger-soft: #3a1712;
+    --danger: #e08a76;
+    --danger-soft: #3a1d16;
     --danger-ink: #f0a796;
-    --info: #6fa3cc;
-    --info-soft: #12293a;
-    --info-ink: #9ec7e7;
+    --info: #7fb0d4;
+    --info-soft: #16283a;
+    --info-ink: #a3c9e4;
 
-    --chart-1: #2fb49a;
-    --chart-2: #d2723f;
-    --chart-3: #d8b25f;
-    --chart-4: #5a94cc;
-    --chart-5: #a98bc0;
-    --chart-6: #6faf95;
+    --chart-1: #8e9be8;
+    --chart-2: #e0a93b;
+    --chart-3: #d98f5a;
+    --chart-4: #7fb0d4;
+    --chart-5: #b79bd4;
+    --chart-6: #6fb98a;
 
-    --scrim: rgba(0, 0, 0, 0.62);
-
-    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
-    --shadow-2:
-      0 24px 50px -22px rgba(0, 0, 0, 0.7),
-      0 6px 16px -8px rgba(0, 0, 0, 0.4);
-    --shadow-chrome:
-      0 0 0 1px rgba(0, 0, 0, 0.5),
-      8px 0 30px -18px rgba(0, 0, 0, 0.7);
+    --scrim: rgba(0, 0, 0, 0.66);
 
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #0a1310;
-  --surface: #101c18;
-  --surface-2: #152420;
-  --surface-3: #1c2c27;
-  --border: #243530;
-  --border-strong: #33473f;
-  --text: #e9efea;
-  --text-muted: #9db0a6;
-  --text-faint: #83978c;
+  --bg: #12100c;
+  --surface: #1a1712;
+  --surface-2: #211d17;
+  --surface-3: #0e0c09;
+  --border: #2a251d;
+  --border-strong: #736e67;
 
-  --chrome: #081310;
-  --chrome-2: #050d0b;
-  --chrome-ink: #e4f1ec;
-  --chrome-ink-muted: #9dbdb1;
-  --chrome-border: rgba(255, 255, 255, 0.07);
-  --chrome-hover: rgba(255, 255, 255, 0.05);
-  --chrome-active: rgba(255, 255, 255, 0.08);
-  --chrome-accent: #e7c77c;
+  --text: #efe9dd;
+  --text-muted: #b9af9d;
+  --text-faint: #948b7e;
 
-  --brand: #3fb39e;
-  --brand-strong: #57c9b3;
-  --brand-soft: #0f2a25;
-  --brand-ink: #06110d;
+  --chrome: #0b0a07;
+  --chrome-2: #050403;
+  --chrome-ink: #efe9dd;
+  --chrome-ink-muted: #a79c8a;
+  --chrome-border: rgba(255, 255, 255, 0.1);
+  --chrome-hover: rgba(255, 255, 255, 0.06);
+  --chrome-active: rgba(255, 255, 255, 0.1);
+  --chrome-accent: #e0a93b;
 
-  --accent: #d8b25f;
-  --accent-strong: #e7c77c;
-  --accent-soft: #2b2412;
-  --accent-bright: #e7c77c;
-  --accent-ink: #1c1405;
+  --action: #e0a93b;
+  --action-strong: #efc062;
+  --action-bright: #efc062;
+  --action-soft: #2f2513;
+  --action-ink: #1b1405;
 
-  --success: #4cb07d;
-  --success-soft: #123626;
-  --success-ink: #84d6a9;
+  --success: #6fb98a;
+  --success-soft: #16301f;
+  --success-ink: #93cfaa;
   --warning: #d9a24c;
-  --warning-soft: #38290f;
+  --warning-soft: #332612;
   --warning-ink: #ebbe7b;
-  --danger: #e37b67;
-  --danger-soft: #3a1712;
+  --danger: #e08a76;
+  --danger-soft: #3a1d16;
   --danger-ink: #f0a796;
-  --info: #6fa3cc;
-  --info-soft: #12293a;
-  --info-ink: #9ec7e7;
+  --info: #7fb0d4;
+  --info-soft: #16283a;
+  --info-ink: #a3c9e4;
 
-  --chart-1: #2fb49a;
-  --chart-2: #d2723f;
-  --chart-3: #d8b25f;
-  --chart-4: #5a94cc;
-  --chart-5: #a98bc0;
-  --chart-6: #6faf95;
+  --chart-1: #8e9be8;
+  --chart-2: #e0a93b;
+  --chart-3: #d98f5a;
+  --chart-4: #7fb0d4;
+  --chart-5: #b79bd4;
+  --chart-6: #6fb98a;
 
-  --scrim: rgba(0, 0, 0, 0.62);
-
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --shadow-2:
-    0 24px 50px -22px rgba(0, 0, 0, 0.7),
-    0 6px 16px -8px rgba(0, 0, 0, 0.4);
-  --shadow-chrome:
-    0 0 0 1px rgba(0, 0, 0, 0.5),
-    8px 0 30px -18px rgba(0, 0, 0, 0.7);
+  --scrim: rgba(0, 0, 0, 0.66);
 
   color-scheme: dark;
 }
@@ -280,7 +380,7 @@ body {
   color: var(--text);
   font-family: var(--font-ar);
   font-size: var(--fs-md);
-  line-height: 1.75;
+  line-height: var(--lh);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -290,6 +390,7 @@ h2,
 h3,
 h4 {
   font-family: var(--font-display);
+  font-weight: var(--fw-disp);
   line-height: 1.4;
   text-wrap: balance;
 }
@@ -301,7 +402,9 @@ h4 {
   unicode-bidi: isolate;
 }
 
-/* Figures: tabular-nums, always LTR-isolated regardless of surrounding RTL text. */
+/* Figures: tabular-nums, always LTR-isolated regardless of surrounding RTL text.
+   The figure face is the SAME in both themes — a theme toggle that changed the
+   typeface of every number in the ledger is not a theme. */
 .mz-num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -320,6 +423,7 @@ th.mz-num {
 
 .mz-disp {
   font-family: var(--font-display);
+  font-weight: var(--fw-disp);
   line-height: 1.4;
   text-wrap: balance;
 }
@@ -330,8 +434,8 @@ th.mz-num {
 
 /* Arabic has no letter case, so `text-transform: uppercase` does nothing to it,
    and `letter-spacing` actively harms it: Arabic letterforms JOIN, and adding
-   tracking pulls a connected word into disconnected glyphs. Both are therefore
-   scoped to Latin runs only (see the [lang="en"] / .mz-lat rule below). */
+   tracking pulls a connected word into disconnected glyphs. Neither appears
+   here; both are scoped to Latin runs only by the rule below. */
 .mz-eyebrow {
   font-family: var(--font-sig);
   font-size: var(--fs-2xs);
@@ -365,13 +469,49 @@ th.mz-num {
   rotate: 90deg;
 }
 
+/* The notched corner is the identity's structural signature — geometry cut out
+   of the panel rather than a border drawn around it. Two opposite corners only:
+   cutting all four reads as a decorative badge instead of a tiled panel. */
+.mz-notch {
+  clip-path: polygon(
+    var(--notch) 0,
+    100% 0,
+    100% calc(100% - var(--notch)),
+    calc(100% - var(--notch)) 100%,
+    0 100%,
+    0 var(--notch)
+  );
+}
+
+.mz-notch-lg {
+  clip-path: polygon(
+    var(--notch-lg) 0,
+    100% 0,
+    100% calc(100% - var(--notch-lg)),
+    calc(100% - var(--notch-lg)) 100%,
+    0 100%,
+    0 var(--notch-lg)
+  );
+}
+
+.mz-notch-xl {
+  clip-path: polygon(
+    var(--notch-xl) 0,
+    100% 0,
+    100% calc(100% - var(--notch-xl)),
+    calc(100% - var(--notch-xl)) 100%,
+    0 100%,
+    0 var(--notch-xl)
+  );
+}
+
 ::selection {
-  background: var(--accent-soft);
+  background: var(--action-soft);
   color: var(--text);
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--action);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }

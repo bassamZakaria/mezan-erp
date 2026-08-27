@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>أين تعيش مساحات العمل؟</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Readex+Pro:wght@300;400;500;600&family=Zain:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="directions.css">
+<style>
+.wrapx{max-width:1520px;margin:0 auto;padding:34px 20px 80px}
+h1{font-family:"Zain",sans-serif;font-size:26px;margin:0 0 4px;color:#FAFAFA}
+.lede{color:#A1A1AA;font-size:13.5px;margin:0 0 4px;max-width:104ch;line-height:1.8}
+.lede b{color:#FAFAFA}
+.back{display:inline-block;color:#A1A1AA;font-size:12.5px;text-decoration:none;
+      padding:6px 11px;border:1px solid #3F3F46;border-radius:4px;margin-block-end:18px}
+.sec{margin-block-start:30px;border:1px solid #27272A;border-radius:8px;overflow:hidden;background:#131316}
+.sec > .hd{padding:13px 18px;border-block-end:1px solid #27272A;background:#18181B}
+.sec > .hd > b{color:#FAFAFA;font-size:15px;display:block;margin-block-end:5px}
+.sec .why{color:#A1A1AA;font-size:12.5px;line-height:1.8;max-width:114ch}
+.sec .why b{color:#D4D4D8;font-weight:600}
+.sec .m{display:flex;gap:16px;flex-wrap:wrap;margin-block-start:9px;font-size:11.5px}
+.sec .m span{color:#71717A;border:1px solid #27272A;padding:4px 9px;border-radius:4px}
+.sec .m b{color:#D4D4D8;font-weight:600}
+.sec .m .good{color:#86B48F;border-color:#2F5137}
+.sec .m .bad{color:#D08A7A;border-color:#5A322A}
+.sec .app{min-height:0}
+
+/* shared chrome bits */
+.tb{background:var(--chrome-bg);color:var(--chrome-ink)}
+.tb .r{display:flex;align-items:center;gap:2px;padding-inline:6px}
+.tb .brand{display:flex;align-items:center;gap:8px;padding:0 12px;font-family:var(--font-disp);
+  font-weight:var(--fw-disp);font-size:16px;min-height:46px}
+.tb .brand .mk{width:26px;height:26px;flex:none}
+.tb .ws{padding:0 14px;height:46px;display:flex;align-items:center;font-size:13.5px;cursor:pointer;
+  border:0;background:none;color:inherit;opacity:.6;font-family:inherit}
+.tb .ws[aria-current]{opacity:1;font-weight:600;background:var(--bg);color:var(--ink)}
+.tb .appr{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;font-size:12.5px;
+  border:1px solid var(--chrome-line);background:var(--chrome-field);color:inherit;margin-inline-start:6px}
+.tb .appr .n{background:var(--danger);color:#fff;border-radius:999px;padding:0 5px;font-size:10.5px}
+.tb .sp{margin-inline-start:auto;display:flex;align-items:center;gap:8px;padding-inline-end:10px;font-size:12.5px}
+.tb .ic{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--chrome-line);
+  background:var(--chrome-field);color:inherit;font-size:13px}
+.tb .r2{display:flex;align-items:center;gap:6px;padding:7px 12px;background:var(--surface);
+  border-block:1px solid var(--line);color:var(--ink);flex-wrap:nowrap;overflow:hidden}
+.tb .r2 .chip{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;font-size:12.5px;
+  background:var(--bg);border:1px solid var(--line-2);white-space:nowrap;color:inherit}
+.tb .r2 .chip[aria-current]{background:var(--action-soft);border-color:var(--action);color:var(--action);font-weight:600}
+.tb .r2 .menu{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;font-size:12.5px;
+  background:none;border:1px solid transparent;color:var(--muted);white-space:nowrap}
+.tb .r2 .sep{width:1px;height:22px;background:var(--line-2);margin-inline:4px;flex:none}
+
+/* sidebar variant */
+.sb{width:172px;flex:0 0 172px;background:var(--surface);border-inline-end:1px solid var(--line-2);padding-block:8px}
+.sb .it{display:flex;align-items:center;gap:9px;min-height:44px;padding:0 14px;font-size:13px;cursor:pointer}
+.sb .it[aria-current]{font-weight:600;background:var(--surface-2);box-shadow:inset 2px 0 0 var(--action)}
+.sb .it:hover{background:var(--surface-2)}
+.sb .hd{padding:8px 14px 4px;font-size:11px;color:var(--faint);font-weight:600}
+.sb .sep{height:1px;background:var(--line);margin:8px 12px}
+
+.body2{display:flex;align-items:stretch;min-height:250px}
+.mainx{flex:1;min-width:0;padding:16px 20px;background:var(--bg)}
+.gutx{width:268px;flex:0 0 268px;background:var(--surface);border-inline-start:1px solid var(--line-2);padding:14px}
+.gutx.q{width:64px;flex-basis:64px;display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px 0}
+.gutx.q .dot{width:10px;height:10px;border-radius:999px;background:var(--success)}
+.gutx.q .v{writing-mode:vertical-rl;font-size:11.5px;color:var(--muted)}
+.ruler{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--faint);margin-block-start:10px}
+.ruler i{height:2px;background:var(--action);display:block}
+</style>
+</head>
+<body>
+<div class="wrapx">
+<a class="back" href="index.html">↩ كل قرارات التصميم</a>
+<h1>أين تعيش مساحات العمل الست؟</h1>
+<p class="lede">نفس المحتوى، نفس الصف الثاني (بنود مساحة العمل المفتوحة). المتغيّر الوحيد:
+هل الست في <b>الشريط العلوي</b> أم في <b>عمود جانبي</b>؟ الأرقام أسفل كل خيار هي عرض المحتوى المتبقي
+على شاشة <span class="num">1440</span> بكسل، والعمود الحيّ <b>مفتوح</b> في الحالتين — وهو أسوأ حالة.</p>
+<div id="stage"></div>
+</div>
+
+<script>
+const MARK = `<svg class="mk" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+  <path d="M12 4v14M6 18h12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M4 9h16M4 9l-2.2 4.4a3.2 3.2 0 0 0 4.4 0L4 9Zm16 0-2.2 4.4a3.2 3.2 0 0 0 4.4 0L20 9Z"
+        stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+
+const WS=[["البيع والتحصيل",1],["الشراء والتوريد",0],["المخزون والتصنيع",0],
+          ["المالية والإقفال",0],["الأشخاص والأصول",0],["الإعداد والصلاحيات",0]];
+
+// sell = daily:6 chips + master/reports/config as menus — the worst case with stock
+const ROW2 = `
+  <button class="chip">◧ لوحة البيع</button>
+  <span class="sep"></span>
+  <button class="chip" aria-current="true">🧾 فواتير المبيعات</button>
+  <button class="chip">📄 عروض الأسعار</button>
+  <button class="chip">↩ مرتجعات المبيعات</button>
+  <button class="chip">🚚 رحلات البيع</button>
+  <button class="chip">💳 متابعة الأقساط</button>
+  <button class="chip">📞 أنشطة العملاء</button>
+  <span class="sep"></span>
+  <button class="menu">البيانات الأساسية <span style="opacity:.55">▾</span></button>
+  <button class="menu">التقارير <span style="opacity:.55">▾</span></button>
+  <button class="menu">الإعدادات <span style="opacity:.55">▾</span></button>`;
+
+const CONTENT = `
+  <div class="phead"><div><h1 style="font-size:18px">فواتير المبيعات</h1>
+    <div class="sub"><span class="num">342</span> فاتورة · الفرع الرئيسي</div></div>
+    <div class="acts"><button class="btn sec sm">تصدير</button><button class="btn sm">فاتورة جديدة</button></div></div>
+  <table><thead><tr><th>الرقم</th><th>العميل</th><th>الاستحقاق</th><th class="e">الإجمالي</th><th>الحالة</th></tr></thead>
+  <tbody>
+    <tr><td><span class="cell num">INV-2026-0342</span></td><td><span class="cell">شركة الأمل للتجارة</span></td>
+      <td><span class="cell">خلال <span class="num">30</span> يومًا</span></td>
+      <td class="e"><span class="cell num">9,621.60</span></td>
+      <td><span class="cell"><span class="chip mute">◷ مسودة</span></span></td></tr>
+    <tr><td><span class="cell num">INV-2026-0339</span></td><td><span class="cell">مجموعة الفجر التجارية</span></td>
+      <td><span class="cell late">متأخرة <span class="num">21</span> يومًا</span></td>
+      <td class="e"><span class="cell num">7,480.00</span></td>
+      <td><span class="cell"><span class="chip bad">▲ متأخرة</span></span></td></tr>
+  </tbody></table>`;
+
+const GUT = `
+  <span class="gt">شركة الأمل للتجارة</span>
+  <div class="bal"><div class="side"><span>الحد المسموح</span><span class="v num">50,000.00</span></div>
+    <div class="beam"><i style="inline-size:56%"></i></div>
+    <div class="side"><span>الرصيد بعد الترحيل</span><span class="v num">28,021.60</span></div>
+    <div class="verdict"><span class="sym">⚖</span><span>ضمن الحد</span></div></div>`;
+
+const A = `
+<div class="app">
+  <div class="tb">
+    <div class="r">
+      <span class="brand">${MARK}ميزان</span>
+      ${WS.map(w=>`<button class="ws" ${w[1]?'aria-current="true"':''}>${w[0]}</button>`).join("")}
+      <button class="appr">✓ الموافقات <span class="n num">1</span></button>
+      <div class="sp">
+        <button class="cmdk">⌘K &nbsp;بحث</button>
+        <span style="font-size:12px;opacity:.75">الفرع الرئيسي</span>
+        <button class="ic" title="المزيد">⋯</button>
+        <button class="ic" title="المستخدم">م</button>
+      </div>
+    </div>
+    <div class="r2">${ROW2}</div>
+  </div>
+  <div class="body2"><div class="mainx">${CONTENT}</div><aside class="gutx">${GUT}</aside></div>
+</div>`;
+
+const B = `
+<div class="app">
+  <div class="tb">
+    <div class="r">
+      <span class="brand">${MARK}ميزان</span>
+      <button class="appr">✓ الموافقات <span class="n num">1</span></button>
+      <div class="sp">
+        <button class="cmdk">⌘K &nbsp;ابحث أو نفّذ أمرًا</button>
+        <span style="font-size:12px;opacity:.75">كل الفروع</span>
+        <span style="font-size:12px;opacity:.75">كل المخازن</span>
+        <button class="ic" title="اللغة">ع</button>
+        <button class="ic" title="المظهر">☀</button>
+        <button class="ic" title="الإعدادات">⚙</button>
+        <button class="ic" title="التنبيهات">◔</button>
+        <button class="ic" title="المستخدم">م</button>
+      </div>
+    </div>
+    <div class="r2">${ROW2}</div>
+  </div>
+  <div class="body2">
+    <div class="sb">
+      <div class="hd">مساحات العمل</div>
+      ${WS.map(w=>`<div class="it" ${w[1]?'aria-current="true"':''}>${w[0]}</div>`).join("")}
+      <div class="sep"></div>
+      <div class="it">☰ كل الشاشات</div>
+    </div>
+    <div class="mainx">${CONTENT}</div><aside class="gutx">${GUT}</aside></div>
+</div>`;
+
+const SECS=[
+ {t:"أ · الست في الشريط العلوي، واليمين مجمَّع في قائمة واحدة",
+  why:"هذا هو المبني حاليًا، مع تعديل واحد يحلّ الزحام: <b>اللغة والمظهر والإعدادات والتنبيهات تُطوى في زر «⋯» واحد</b>. "+
+      "أربعة عناصر تصير واحدًا، فيتنفّس الصف الأول دون إضافة عمود. الست مرئية دائمًا كتبويبات، والصف الثاني كما هو.",
+  m:['<span class="good">المحتوى <b>1172</b> بكسل</span>','<span>محور تنقّل واحد أفقي</span>',
+     '<span class="bad">ست تبويبات تزاحم البحث</span>','<span>الشعار يختفي تحت <b>900</b> بكسل</span>'],
+  body:A},
+ {t:"ب · الست في عمود جانبي، والأقسام في الصف الثاني",
+  why:"اقتراحك. الصف الأول يتخفّف كثيرًا — تبقى فيه أدوات فقط، فيتّسع للغة والمظهر والترس والجرس <b>ظاهرة كلها</b> بلا قائمة «⋯». "+
+      "والست مقروءة عموديًا، وهو أسهل للموظف الجديد من ستة تبويبات أفقية. الثمن عمود ثالث: <b>‎172 بكسل دائمة</b>، "+
+      "والتنقّل يعمل على <b>محورين</b> — عمودي للمساحة، أفقي لأقسامها.",
+  m:['<span class="bad">المحتوى <b>1000</b> بكسل</span>','<span class="bad">ثلاثة أعمدة مع العمود الحيّ</span>',
+     '<span class="good">الصف الأول مرتاح — لا إخفاء</span>','<span class="good">الست مقروءة كقائمة</span>'],
+  body:B},
+];
+
+document.getElementById("stage").innerHTML = SECS.map(s=>`
+  <section class="sec" data-dir="b" data-theme="light">
+    <div class="hd"><b>${s.t}</b><div class="why">${s.why}</div>
+      <div class="m">${s.m.join("")}</div></div>
+    ${s.body}
+  </section>`).join("");
+</script>
+</body>
+</html>

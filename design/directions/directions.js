@@ -21,23 +21,23 @@ const DATA = {
     { n:1,  t1:"فترة محاسبية بانتظار الإقفال", t2:"يوليو 2026 — قيد واحد غير مرحّل",          b:"الإقفال",     u:false },
   ],
   invoices: [
-    { no:"INV-2026-0342", cust:"شركة الأمل للتجارة",     date:"27 أغسطس 2026", due:"26 سبتمبر 2026", tot:9621.60,  st:"مسودة",  k:"mute" },
-    { no:"INV-2026-0341", cust:"مؤسسة النور للمقاولات",  date:"26 أغسطس 2026", due:"10 أكتوبر 2026", tot:41250.00, st:"مؤكدة",  k:"ok"   },
-    { no:"INV-2026-0339", cust:"مجموعة الفجر التجارية",  date:"22 أغسطس 2026", due:"6 سبتمبر 2026",  tot:7480.00,  st:"متأخرة", k:"bad"  },
-    { no:"INV-2026-0337", cust:"شركة الأمل للتجارة",     date:"19 أغسطس 2026", due:"18 سبتمبر 2026", tot:15300.00, st:"مؤكدة",  k:"ok"   },
-    { no:"INV-2026-0334", cust:"مؤسسة النور للمقاولات",  date:"14 أغسطس 2026", due:"28 سبتمبر 2026", tot:22940.00, st:"محصّلة", k:"ok"   },
-    { no:"INV-2026-0330", cust:"مجموعة الفجر التجارية",  date:"9 أغسطس 2026",  due:"24 أغسطس 2026",  tot:3120.00,  st:"متأخرة", k:"bad"  },
+    { no:"INV-2026-0342", cust:"شركة الأمل للتجارة",     date:"27 أغسطس 2026", due:"خلال 30 يومًا",   dk:"",     tot:9621.60,  st:"مسودة",  k:"mute" },
+    { no:"INV-2026-0341", cust:"مؤسسة النور للمقاولات",  date:"26 أغسطس 2026", due:"خلال 44 يومًا",   dk:"",     tot:41250.00, st:"مؤكدة",  k:"ok"   },
+    { no:"INV-2026-0339", cust:"مجموعة الفجر التجارية",  date:"22 أغسطس 2026", due:"متأخرة 21 يومًا", dk:"late", tot:7480.00,  st:"متأخرة", k:"bad"  },
+    { no:"INV-2026-0337", cust:"شركة الأمل للتجارة",     date:"19 أغسطس 2026", due:"خلال 22 يومًا",   dk:"",     tot:15300.00, st:"مؤكدة",  k:"ok"   },
+    { no:"INV-2026-0334", cust:"مؤسسة النور للمقاولات",  date:"14 أغسطس 2026", due:"خلال 32 يومًا",   dk:"",     tot:22940.00, st:"محصّلة", k:"ok"   },
+    { no:"INV-2026-0330", cust:"مجموعة الفجر التجارية",  date:"9 أغسطس 2026",  due:"متأخرة 3 أيام",   dk:"late", tot:3120.00,  st:"متأخرة", k:"bad"  },
   ],
   trial: [
-    { c:"1100", n:"النقدية بالخزينة",        d:312480.00, k:0 },
-    { c:"1120", n:"البنك الأهلي — جاري",     d:186540.25, k:0 },
-    { c:"1200", n:"العملاء (حساب مراقب)",    d:186220.00, k:0 },
-    { c:"1300", n:"المخزون",                 d:421905.00, k:0 },
-    { c:"2100", n:"الموردون (حساب مراقب)",   d:0, k:94750.00 },
-    { c:"2300", n:"ضريبة القيمة المضافة",    d:0, k:41182.75 },
-    { c:"3100", n:"رأس المال",               d:0, k:800000.00 },
-    { c:"4100", n:"إيرادات المبيعات",        d:0, k:214812.50 },
-    { c:"5100", n:"تكلفة البضاعة المباعة",   d:44400.00, k:0 },
+    { c:"1100", n:"النقدية بالخزينة",        d:312480.00, k:0, p:0.88 },
+    { c:"1120", n:"البنك الأهلي — جاري",     d:186540.25, k:0, p:1.12 },
+    { c:"1200", n:"العملاء (حساب مراقب)",    d:186220.00, k:0, p:0.74 },
+    { c:"1300", n:"المخزون",                 d:421905.00, k:0, p:0.95 },
+    { c:"2100", n:"الموردون (حساب مراقب)",   d:0, k:94750.00, p:1.08 },
+    { c:"2300", n:"ضريبة القيمة المضافة",    d:0, k:41182.75, p:0.91 },
+    { c:"3100", n:"رأس المال",               d:0, k:800800.00, p:1.00 },
+    { c:"4100", n:"إيرادات المبيعات",        d:0, k:214812.50, p:0.82 },
+    { c:"5100", n:"تكلفة البضاعة المباعة",   d:44400.00, k:0, p:0.86 },
   ],
   aging: [
     { n:"شركة الأمل للتجارة",     a:11200.00, b:5300.00,  c:1900.00, d:0 },
@@ -169,6 +169,16 @@ const today = () => shell(
 const list = () => shell(
   head("فواتير المبيعات", `${I(342)} فاتورة · الفرع الرئيسي`,
        `<button class="btn sec">تصدير</button><button class="btn">فاتورة جديدة</button>`) + `
+  <div class="moneybar" role="group" aria-label="الحالة بالمبلغ">
+    <button class="seg bad" aria-pressed="true"><span class="k">متأخرة</span>
+      <span class="v num">10,600.00</span><span class="c"><span class="num">2</span> فواتير</span></button>
+    <button class="seg warn"><span class="k">مستحقة قريبًا</span>
+      <span class="v num">56,550.00</span><span class="c"><span class="num">2</span> فواتير</span></button>
+    <button class="seg mute"><span class="k">مسودات</span>
+      <span class="v num">9,621.60</span><span class="c">فاتورة واحدة</span></button>
+    <button class="seg ok"><span class="k">محصّلة هذا الشهر</span>
+      <span class="v num">22,940.00</span><span class="c">فاتورة واحدة</span></button>
+  </div>
   <div class="toolbar">
     <div class="views" role="group" aria-label="قوائم محفوظة">
       <button aria-pressed="true">اللي عليّ أحصّله<span class="n num">7</span></button>
@@ -177,6 +187,7 @@ const list = () => shell(
       <button aria-pressed="false">الكل</button>
     </div>
     <div class="search">🔍 ابحث برقم الفاتورة أو اسم العميل…</div>
+    <button class="btn sec sm" style="margin-inline-start:auto" title="اختيار الأعمدة">⇄ الأعمدة</button>
   </div>
   <div class="tags">
     <span class="tag">الحالة: متأخرة <button class="x" aria-label="إزالة">✕</button></span>
@@ -198,7 +209,7 @@ const list = () => shell(
         <td><span class="cell num">${v.no}</span></td>
         <td><span class="cell">${v.cust}</span></td>
         <td><span class="cell">${dg(v.date)}</span></td>
-        <td><span class="cell">${dg(v.due)}</span></td>
+        <td><span class="cell ${v.dk==='late'?'late':''}">${dg(v.due)}</span></td>
         <td class="e"><span class="cell num">${n(v.tot)}</span></td>
         <td><span class="cell"><span class="chip ${v.k}">${v.st}</span></span></td>
         <td><span class="cell"><button class="rowmenu" aria-label="إجراءات">⋯</button></span></td>
@@ -269,8 +280,17 @@ const inv = () => {
 /* ================= 4 · document detail + lifecycle ================= */
 const detail = () => shell(
   head("فاتورة مبيعات INV-2026-0341", `مؤسسة النور للمقاولات · ${I(26)} أغسطس ${I(2026)}`,
-       `<button class="btn sec">طباعة</button><button class="btn sec">إشعار خصم</button>
+       `<span class="recpager"><button class="rp" aria-label="السابق">›</button>
+          <span><span class="num">2</span> من <span class="num">10</span></span>
+          <button class="rp" aria-label="التالي">‹</button></span>
+        <button class="btn sec">طباعة</button><button class="btn sec">إشعار خصم</button>
         <button class="btn">تحصيل دفعة</button>`) + `
+  <div class="related">
+    <button class="rel"><span class="n num">3</span><span class="l">أذون صرف</span></button>
+    <button class="rel"><span class="n num">2</span><span class="l">دفعات</span></button>
+    <button class="rel"><span class="n num">1</span><span class="l">مرتجع</span></button>
+    <button class="rel"><span class="n num">1</span><span class="l">قيد يومية</span></button>
+  </div>
   <div class="stepper">
     <span class="st done"><span class="d">✓</span>مسودة</span><span class="sep"></span>
     <span class="st done"><span class="d">✓</span>مؤكدة</span><span class="sep"></span>
@@ -283,6 +303,18 @@ const detail = () => shell(
     <div><b>الخطوة التالية: تحصيل دفعة</b>
     كل حالة في دورة حياة المستند لها زر ظاهر ينقلها للتالي. الحالة التي بلا زر طريق مسدود.</div>
   </div>
+  <div class="creditbox">
+    <div class="ch"><b>لهذا العميل رصيد دائن غير مُطبَّق</b>
+      <span>يمكن خصمه من هذه الفاتورة دون مغادرة الشاشة.</span></div>
+    ${[["CN-2026-0041","إشعار خصم","18 أغسطس 2026","4,120.00"],
+       ["RCP-2026-0180","دفعة مقدمة","10 أغسطس 2026","2,500.00"]]
+      .map(c=>`<div class="cr">
+        <span class="num">${c[0]}</span><span>${c[1]}</span>
+        <span style="color:var(--muted)">${dg(c[2])}</span>
+        <span class="num" style="margin-inline-start:auto">${c[3]}</span>
+        <button class="btn sec sm">طبّق</button></div>`).join("")}
+  </div>
+
   <div class="secbar"><h2>البنود</h2></div>
   <table>
     <thead><tr><th>الصنف</th><th class="e">الكمية</th><th class="e">السعر</th><th class="e">الإجمالي</th></tr></thead>
@@ -321,34 +353,79 @@ const report = () => {
   const td = DATA.trial.reduce((s,r)=>s+r.d,0), tk = DATA.trial.reduce((s,r)=>s+r.k,0);
   return shell(
     head("ميزان المراجعة", `الفترة: ${I(1)} يناير – ${I(27)} أغسطس ${I(2026)} · كل الفروع`,
-         `<button class="btn sec">تصدير Excel</button><button class="btn sec">طباعة</button>
+         `<button class="btn sec sm" title="حفظ في تقاريري">☆ حفظ</button>
+          <button class="btn sec">تصدير Excel</button><button class="btn sec">طباعة</button>
           <button class="btn">تشغيل التقرير</button>`) + `
+  <div class="rptbar">
+    <label>الفترة
+      <span class="ctl">من بداية السنة حتى اليوم <span class="kbd">▾</span></span></label>
+    <label>المقارنة
+      <span class="ctl">بنفس الفترة من السنة الماضية <span class="kbd">▾</span></span></label>
+    <label>الأساس المحاسبي
+      <span class="seg2"><button aria-pressed="true">الاستحقاق</button><button>النقدي</button></span></label>
+    <label>تقسيم الأعمدة
+      <span class="ctl">بلا تقسيم <span class="kbd">▾</span></span></label>
+    <span style="margin-inline-start:auto;display:flex;gap:8px">
+      <button class="btn sec sm">طيّ الكل</button>
+      <button class="btn sec sm">تخصيص التقرير</button>
+    </span>
+  </div>
   <div class="tags">
-    <span class="tag">الفترة: حتى ${I(27)} أغسطس <button class="x" aria-label="إزالة">✕</button></span>
+    <span class="tag">الفرع: الكل <button class="x" aria-label="إزالة">✕</button></span>
     <span class="tag">تضمين الأرصدة الصفرية: لا <button class="x" aria-label="إزالة">✕</button></span>
     <button class="more">+ إضافة عامل تصفية</button>
   </div>
+  <p class="applied">عوامل التصفية المطبَّقة تُطبع مع التقرير: الفرع = الكل · الأرصدة الصفرية = مستبعدة ·
+    الأساس = الاستحقاق · المقارنة = ${I(2025)}. من يقرأ الورقة يعرف كيف حُسبت.</p>
   <table>
-    <thead><tr><th>الحساب</th><th>الاسم</th><th class="e">مدين</th><th class="e">دائن</th><th style="width:44px"></th></tr></thead>
+    <thead><tr><th style="width:34px"></th><th>الحساب</th><th>الاسم</th>
+      <th class="e">مدين</th><th class="e">دائن</th>
+      <th class="e">${I(2025)} — نفس الفترة</th><th class="e">التغيّر</th></tr></thead>
     <tbody>
-      ${DATA.trial.map(r=>`<tr>
+      ${DATA.trial.map(r=>{
+        const cur = r.d || r.k, prev = cur * r.p, delta = prev ? (cur-prev)/prev*100 : 0;
+        return `<tr>
+        <td><span class="cell"><button class="tw" aria-label="طيّ">▾</button></span></td>
         <td><span class="cell num">${r.c}</span></td>
         <td><span class="cell">${r.n}</span></td>
-        <td class="e"><span class="cell">${dash(r.d)}</span></td>
-        <td class="e"><span class="cell">${dash(r.k)}</span></td>
-        <td><span class="cell"><button class="rowmenu" title="عرض دفتر الأستاذ">↗</button></span></td>
-      </tr>`).join("")}
+        <td class="e"><span class="cell">${r.d?`<button class="drill num">${n(r.d)}</button>`:`<span style="opacity:.3">—</span>`}</span></td>
+        <td class="e"><span class="cell">${r.k?`<button class="drill num">${n(r.k)}</button>`:`<span style="opacity:.3">—</span>`}</span></td>
+        <td class="e"><span class="cell num" style="color:var(--muted)">${n(prev)}</span></td>
+        <td class="e"><span class="cell ${delta>=0?"up":"down"}">${delta>=0?"▲":"▼"}&nbsp;<span class="num">${n(Math.abs(delta),1)}%</span></span></td>
+      </tr>`;}).join("")}
     </tbody>
     <tfoot><tr>
-      <td colspan="2"><span class="cell">الإجمالي</span></td>
+      <td colspan="3"><span class="cell">الإجمالي</span></td>
       <td class="e"><span class="cell num">${n(td)}</span></td>
-      <td class="e"><span class="cell num">${n(tk)}</span></td><td></td>
+      <td class="e"><span class="cell num">${n(tk)}</span></td>
+      <td colspan="2"></td>
     </tr></tfoot>
   </table>
 `, `
   ${balance({label:"ميزان المراجعة", aName:"إجمالي المدين", aVal:td, bName:"إجمالي الدائن", bVal:tk})}
-  <div style="margin-block-start:20px;font-size:12px;color:var(--muted);line-height:1.8">
-    نفس الأداة المستخدمة في تقفيل الخزينة وحد الائتمان — تظهر الطرفين والحكم ومن أين يبدأ البحث عن الفرق.
+  <div style="margin-block-start:18px;font-size:12px;color:var(--muted);line-height:1.8">
+    نفس الأداة المستخدمة في تقفيل الخزينة وحد الائتمان والمطابقة البنكية.
+  </div>
+  <div style="margin-block-start:20px">
+    <span class="gt">النزول إلى المصدر</span>
+    <p style="font-size:12px;color:var(--muted);line-height:1.8;margin:0 0 10px">
+      كل رقم في التقرير زر: يفتح حركات الحساب، ومن الحركة تفتح المستند نفسه.
+      لا يوجد رقم لا يمكن تتبّعه إلى مستند.</p>
+    <div class="drillpath">
+      <span>الرقم في التقرير</span><span class="ar">‹</span>
+      <span>حركات الحساب</span><span class="ar">‹</span>
+      <span>الفاتورة أو السند</span>
+    </div>
+  </div>
+  <div style="margin-block-start:20px">
+    <span class="gt">حزمة إقفال الشهر</span>
+    <p style="font-size:12px;color:var(--muted);line-height:1.8;margin:0 0 10px">
+      مجموعة تقارير محفوظة تُشغَّل وتُطبع دفعة واحدة.</p>
+    <div style="font-size:12.5px">
+      ${["ميزان المراجعة","قائمة الدخل","الميزانية","أعمار الديون","إقرار القيمة المضافة"]
+        .map(x=>`<div style="padding:5px 0;border-block-end:1px solid var(--line)">${x}</div>`).join("")}
+    </div>
+    <button class="btn sec sm block" style="margin-block-start:10px">تشغيل الحزمة وطباعتها</button>
   </div>
 `);
 };
@@ -701,7 +778,57 @@ const quick = () => shell(
   </div>
 `);
 
-const SCREENS = { today, create, newdoc, guided, quick, list, inv, detail, report, aging, coa, form, states, short, login };
+/* ================= 16 - bank review and reconciliation =================
+   Borrowed: QuickBooks' three-button bank review (Add / Match / Exclude) and
+   its "the difference must reach zero" reconciliation. Neither says debit or
+   credit; the journal is derived behind the screen. Our balance instrument is
+   already exactly the second one, so it does the reconciliation verdict. */
+const bank = () => shell(
+  head("مراجعة حركة البنك", `البنك الأهلي — جاري · ${I(14)} حركة بانتظار المراجعة`,
+       `<button class="btn sec">استيراد كشف</button><button class="btn">مطابقة الشهر</button>`) + `
+  <div class="banner" style="margin-block-end:16px">
+    <span>◷</span>
+    <div><b>ثلاثة أزرار فقط، ولا كلمة «مدين» أو «دائن»</b>
+    لكل حركة نازلة من البنك: هل هي <b>جديدة</b> على الدفاتر، أم <b>تطابق</b> مستندًا سجّلته بالفعل،
+    أم <b>ليست</b> حركة تخصّنا؟ القيد يُبنى خلف الستار.</div>
+  </div>
+
+  <table>
+    <thead><tr><th>التاريخ</th><th>البيان من البنك</th><th class="e">المبلغ</th>
+      <th>اقتراح النظام</th><th style="width:250px"></th></tr></thead>
+    <tbody>
+      ${[["25 أغسطس","TRF ALAMAL TRADING","15,300.00","يطابق INV-2026-0337","ok","طابِق"],
+         ["24 أغسطس","POS SETTLEMENT 8842","3,480.00","لا يوجد اقتراح","mute","جديدة"],
+         ["23 أغسطس","CHQ 004512 GREEN VALLEY","−9,750.00","يطابق شيك ٤٥١٢","ok","طابِق"],
+         ["22 أغسطس","BANK CHARGES","−120.00","مصروف بنكي؟","warn","جديدة"]]
+        .map(r=>`<tr>
+          <td><span class="cell">${dg(r[0])}</span></td>
+          <td><span class="cell mz-lat">${r[1]}</span></td>
+          <td class="e"><span class="cell num">${r[2]}</span></td>
+          <td><span class="cell"><span class="chip ${r[4]}">${r[3]}</span></span></td>
+          <td><span class="cell" style="gap:6px">
+            <button class="btn sm">${r[5]}</button>
+            <button class="btn sec sm">${r[5]==="طابِق"?"جديدة":"طابِق"}</button>
+            <button class="btn sec sm">استبعد</button></span></td></tr>`).join("")}
+    </tbody>
+  </table>
+`, `
+  ${balance({label:"مطابقة كشف البنك", aName:"رصيد الكشف", aVal:186540.25,
+             bName:"رصيد الدفاتر", bVal:183060.25})}
+  <div style="margin-block-start:16px;font-size:12px;color:var(--muted);line-height:1.8">
+    الهدف رقم واحد: أن يصير الفرق <span class="num">0.00</span>.
+    كل «طابِق» يقرّبه، و«أين الفرق؟» يفتح ما لم يُطابَق بعد.
+  </div>
+  <div style="margin-block-start:18px">
+    <span class="gt">تقدّم المراجعة</span>
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0;border-block-end:1px solid var(--line)">
+      <span>روجعت</span><span class="num">10</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0">
+      <span>باقية</span><span class="num">4</span></div>
+  </div>
+`);
+
+const SCREENS = { today, create, newdoc, guided, quick, list, inv, detail, bank, report, aging, coa, form, states, short, login };
 
 const SCREEN_CAPS = {
   create: ["شاشة الإنشاء", "كل ما يمكن إنشاؤه، مرتّب بالعمل لا بالوحدات البرمجية.", "كل بلاطة تقول ماذا يحدث بعد الحفظ"],
@@ -712,6 +839,7 @@ const SCREEN_CAPS = {
   list:   ["قائمة المستندات", "قوائم مسمّاة بدل شرائح الحالة، وعوامل تصفية مكتوبة على الشاشة.", "أكثر بدائية استخدامًا — ٦٢ شاشة"],
   inv:    ["فاتورة مبيعات — تحرير", "جدول كثيف بدل كروت البنود، والعمود الحيّ عند نهاية القراءة.", "الرهان الأساسي"],
   detail: ["تفاصيل مستند", "دورة الحياة كاملة، ولكل حالة زر ظاهر ينقلها.", "القيد المحاسبي بجانب الحالة"],
+  bank:   ["مراجعة البنك والمطابقة", "طابِق / جديدة / استبعد — بلا كلمة مدين أو دائن.", "الفرق يجب أن يصل إلى صفر"],
   report: ["ميزان المراجعة", "أرقام كثيفة، نزول للحساب، والأداة نفسها تحكم على التوازن.", "٣٣ تقريرًا ترث هذا الشكل"],
   aging:  ["أعمار الديون", "المصفوفة — واختبار نظام الترقيم الموحّد.", "مطابقة الدفتر المساعد بالمراقب"],
   coa:    ["دليل الحسابات", "شجرة بأربعة مستويات وأرصدة محاذاة.", "الحساب المراقب مقابل دفتره"],

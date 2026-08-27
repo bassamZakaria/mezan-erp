@@ -11,7 +11,7 @@ import { cn } from "../lib/cn";
 export type ControlSize = "sm" | "md";
 
 const CONTROL_BASE =
-  "rounded-md border bg-surface text-ink outline-none transition-colors placeholder:text-ink-faint hover:border-border-strong focus:border-brand disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-ink-faint disabled:hover:border-border";
+  "rounded-md border border-border-strong bg-surface text-ink outline-none transition-colors placeholder:text-ink-faint hover:border-border-strong focus:border-brand disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-ink-faint disabled:border-border disabled:hover:border-border";
 
 // `cn` concatenates without resolving Tailwind conflicts, so the default
 // `w-full` is only applied when the caller has not sized the control itself.

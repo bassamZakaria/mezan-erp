@@ -226,10 +226,93 @@ tfoot td{border-block-start:2px solid var(--line-2);border-block-end:0;font-weig
 .banner{display:flex;gap:12px;align-items:flex-start;padding:13px 15px;font-size:12.5px;border-radius:var(--r);
         background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn)}
 .banner.bad{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
-.banner b{display:block;margin-block-end:3px}
+.banner div > b:first-child{display:block;margin-block-end:3px}
 
 .states{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px}
 .states .lbl{font-size:11.5px;color:var(--faint);margin-block-end:8px;display:block}
+
+/* ---- borrowed mechanics, rebuilt in our own language --------------------
+   money bar   : QuickBooks — status is a clickable MONEY TOTAL, not a chip
+   late/relative dates : Odoo — "متأخرة 21 يومًا" beats a date a human must subtract
+   record pager: Odoo — walk a filtered list without returning to it
+   related     : Odoo smart buttons — counted links to related records
+   creditbox   : Odoo outstanding credits — apply without leaving the document
+   All of these are generic mechanics. None of them carries Odoo's violet or
+   QuickBooks' green, their card look, their type, or their nav skeleton.      */
+
+.moneybar{display:flex;gap:0;margin-block-end:14px;border:1px solid var(--line-2);
+          background:var(--surface);border-radius:var(--r);overflow:hidden}
+.moneybar .seg{flex:1;min-width:0;font:inherit;text-align:start;cursor:pointer;border:0;
+     background:none;color:inherit;padding:11px 14px;display:flex;flex-direction:column;gap:3px;
+     min-height:70px;border-inline-end:1px solid var(--line);position:relative}
+.moneybar .seg:last-child{border-inline-end:0}
+.moneybar .seg:hover{background:var(--surface-2)}
+.moneybar .seg::before{content:"";position:absolute;inset-block-start:0;inset-inline:0;height:3px;background:var(--muted)}
+.moneybar .seg.bad::before{background:var(--bad)}
+.moneybar .seg.warn::before{background:var(--warn)}
+.moneybar .seg.ok::before{background:var(--ok)}
+.moneybar .seg.mute::before{background:var(--line-2)}
+.moneybar .seg[aria-pressed=true]{background:var(--surface-2);font-weight:600}
+.moneybar .seg .k{font-size:11.5px;color:var(--muted)}
+.moneybar .seg .v{font-size:17px}
+.moneybar .seg .c{font-size:11px;color:var(--faint)}
+
+td .cell.late{color:var(--bad)}
+
+.recpager{display:inline-flex;align-items:center;gap:2px;font-size:12.5px;color:var(--muted);
+          margin-inline-end:8px}
+.recpager .rp{width:32px;height:32px;border:1px solid var(--line-2);background:var(--surface);
+     color:inherit;cursor:pointer;font-size:13px;border-radius:var(--r)}
+.recpager .rp:hover{border-color:var(--ink)}
+.recpager > span{padding-inline:8px;white-space:nowrap}
+
+.related{display:flex;gap:8px;flex-wrap:wrap;margin-block-end:16px}
+.related .rel{font:inherit;cursor:pointer;background:var(--surface);border:1px solid var(--line-2);
+     border-radius:var(--r);padding:8px 14px;min-height:52px;display:flex;flex-direction:column;
+     align-items:flex-start;gap:1px;color:inherit;min-width:88px}
+.related .rel:hover{border-color:var(--ink)}
+.related .rel .n{font-size:16px}
+.related .rel .l{font-size:11.5px;color:var(--muted)}
+
+.creditbox{border:1px solid var(--accent);background:var(--accent-soft);border-radius:var(--r);
+           padding:12px 14px;margin-block-end:16px}
+.creditbox .ch{margin-block-end:10px;font-size:12.5px;color:var(--accent)}
+.creditbox .ch b{display:block;margin-block-end:2px}
+.creditbox .cr{display:flex;align-items:center;gap:12px;font-size:12.5px;padding:7px 0;
+               border-block-start:1px solid color-mix(in srgb, var(--accent) 25%, transparent)}
+
+/* ---- report screen controls -----------------------------------------
+   Borrowed from QuickBooks Online's report header: period presets, a
+   compare-period, the cash/accrual basis toggle, and column splitting —
+   plus the one detail that matters most and that QBO gets right: the
+   applied filters are PRINTED with the report, so a paper copy says how
+   it was computed. Drill path is Odoo/QBO "QuickZoom": figure to account
+   movements to the source document, with no dead end.                    */
+
+.rptbar{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;margin-block-end:12px;
+        padding:12px 14px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r)}
+.rptbar label{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--faint)}
+.rptbar .ctl{display:flex;align-items:center;gap:10px;min-height:var(--h-btn);padding:0 12px;font-size:12.5px;
+     color:var(--ink);background:var(--bg);border:1px solid var(--line-2);border-radius:var(--r)}
+.rptbar .ctl .kbd{color:var(--faint);font-size:11px}
+.rptbar .seg2{display:flex;border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden}
+.rptbar .seg2 button{font:inherit;font-size:12.5px;min-height:var(--h-btn);padding:0 14px;border:0;cursor:pointer;
+     background:var(--bg);color:var(--muted)}
+.rptbar .seg2 button[aria-pressed=true]{background:var(--ink);color:var(--bg);font-weight:600}
+
+.applied{font-size:11.5px;color:var(--faint);margin:0 0 14px;line-height:1.7;
+         padding-inline-start:10px;border-inline-start:2px solid var(--line-2)}
+
+button.drill{font:inherit;font-size:inherit;background:none;border:0;cursor:pointer;color:var(--ink);
+     padding:0;border-block-end:1px dashed var(--line-2)}
+button.drill:hover{border-block-end-style:solid;border-block-end-color:var(--ink)}
+
+td .cell.up{color:var(--ok)}
+td .cell.down{color:var(--bad)}
+
+.drillpath{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11.5px}
+.drillpath span:not(.ar){padding:5px 9px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r)}
+.drillpath .ar{color:var(--faint)}
 
 /* tiles ------------------------------------------------------ */
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tile-w),1fr));gap:var(--tile-gap)}
@@ -312,6 +395,8 @@ tfoot td{border-block-start:2px solid var(--line-2);border-block-end:0;font-weig
 [data-dir="b"] .wl .row + .row{border-block-start:0}
 [data-dir="b"] .wl .row .cnt{color:var(--accent);font-weight:500}
 [data-dir="b"] .tiles{background:var(--line-2);border:1px solid var(--line-2)}
+[data-dir="b"] .moneybar{gap:1px;background:var(--line-2)}
+[data-dir="b"] .moneybar .seg{background:var(--surface);border-inline-end:0}
 [data-dir="b"] .tile{border:0;
   clip-path:polygon(11px 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%,0 11px)}
 [data-dir="b"] .tile.add{background:repeating-linear-gradient(45deg,var(--surface) 0 9px,var(--surface-2) 9px 18px)}
@@ -344,6 +429,10 @@ tfoot td{border-block-start:2px solid var(--line-2);border-block-end:0;font-weig
 [data-dir="c"] .content{border-inline-start:1px solid var(--line)}
 [data-dir="c"] .wl .row .txt{display:flex;align-items:baseline;gap:8px}
 [data-dir="c"] .wl .row .t2{margin:0;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-dir="c"] .rptbar{padding:8px 10px;gap:11px}
+[data-dir="c"] .moneybar .seg{min-height:56px;padding:7px 11px}
+[data-dir="c"] .moneybar .seg .v{font-size:14px}
+[data-dir="c"] .related .rel{min-height:40px;padding:5px 11px}
 [data-dir="c"] .tile{gap:5px}
 [data-dir="c"] .tile .g{font-size:15px}
 [data-dir="c"] .tile .n{font-size:12.5px}
@@ -382,6 +471,7 @@ tfoot td{border-block-start:2px solid var(--line-2);border-block-end:0;font-weig
 [data-dir="d"] tfoot td{border-block-start:2px solid var(--seam)}
 [data-dir="d"] .strip .f + .f{border-inline-start:1px solid var(--seam)}
 [data-dir="d"] .bal .beam{height:2px}
+[data-dir="d"] .moneybar .seg{border-inline-end:1px solid var(--seam)}
 [data-dir="d"] .tiles{gap:0;border:1px solid var(--line-2)}
 [data-dir="d"] .tile{border:0;border-inline-end:1px solid var(--line);border-block-end:1px solid var(--line)}
 [data-dir="d"] .wl{border-radius:0}
@@ -420,6 +510,8 @@ tfoot td{border-block-start:2px solid var(--line-2);border-block-end:0;font-weig
 [data-dir="e"] .wl .row + .row{border-block-start:0}
 [data-dir="e"] .wl .row .cnt{font-family:var(--font-disp);font-weight:var(--fw-disp)}
 [data-dir="e"] .secbar h2{font-size:18px}
+[data-dir="e"] .moneybar{border:0;border-block:1px solid var(--ink);background:none}
+[data-dir="e"] .moneybar .seg .v{font-family:var(--font-disp);font-weight:var(--fw-disp);font-size:22px}
 [data-dir="e"] .tiles{gap:0;border-block-start:1px solid var(--ink)}
 [data-dir="e"] .tile{border:0;border-block-end:1px solid var(--line);border-inline-end:1px solid var(--line);background:none}
 [data-dir="e"] .login .mark{font-size:52px;letter-spacing:-.03em}
@@ -450,3 +542,33 @@ tfoot td{border-block-start:2px solid var(--line-2);border-block-end:0;font-weig
 [data-dir="f"] .wsbar .ws[aria-current]{box-shadow:inset 0 -2px 0 var(--accent)}
 [data-dir="f"] .skel .ln{background:var(--line-2)}
 [data-dir="f"] .login .mark{color:var(--accent)}
+
+/* =================================================================
+   المِشكاة — DARK PALETTE  ·  Lantern, after dark
+   The decision: المِشكاة is the single STRUCTURE (geometry, type,
+   density, notched corners); الظِّل contributes the dark palette's
+   QUALITIES — deep surfaces, one gold action colour, mono figures.
+   Only colour changes between themes. Every geometry and size token
+   below is deliberately absent, because it must NOT change: a theme
+   toggle that moves a button from 44px to 38px is not a theme.
+   ================================================================= */
+[data-dir="b"][data-theme="dark"] .app{
+  --bg:#12100C;--surface:#1A1712;--surface-2:#211D17;--ink:#EFE9DD;--muted:#A79C8A;--faint:#7E7364;
+  --line:#2A251D;--line-2:#3B342A;--th-bg:#211D17;
+  --accent:#E0A93B;--accent-soft:#2F2513;
+  --ok:#6FB98A;--ok-soft:#16301F;--warn:#D9A24C;--warn-soft:#332612;--bad:#E08A76;--bad-soft:#3A1D16;
+  --chrome-bg:#0B0A07;--chrome-ink:#EFE9DD;--chrome-line:rgba(255,255,255,.10);
+  --chrome-field:rgba(255,255,255,.07);
+  color-scheme:dark}
+/* the lapis action colour cannot carry a dark surface — gold does the job
+   الأزرق اللازوردي لا يصمد على سطح داكن، والذهبي يقوم بالدور */
+[data-dir="b"][data-theme="dark"] .btn:not(.sec){background:var(--accent);color:#1B1405}
+[data-dir="b"][data-theme="dark"] .wsbar .ws[aria-current]{background:var(--bg);color:var(--ink)}
+[data-dir="b"][data-theme="dark"] .spine .ic[aria-current]{background:var(--accent);color:#1B1405}
+[data-dir="b"][data-theme="dark"] tbody tr:nth-child(odd){background:var(--surface-2)}
+/* figures take the mono face after dark — الظِّل's one habit worth keeping */
+[data-dir="b"][data-theme="dark"] .num{font-family:"IBM Plex Mono",monospace;font-size:.95em}
+[data-dir="b"][data-theme="dark"] .empty{background:
+  repeating-linear-gradient(45deg,var(--surface) 0 11px,var(--surface-2) 11px 22px)}
+[data-dir="b"][data-theme="dark"] .tile.add{background:
+  repeating-linear-gradient(45deg,var(--surface) 0 9px,var(--surface-2) 9px 18px)}

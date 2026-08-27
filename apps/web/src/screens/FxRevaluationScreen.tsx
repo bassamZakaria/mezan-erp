@@ -129,9 +129,9 @@ export function FxRevaluationScreen() {
         </div>
         <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
           <span className="text-[12px] text-ink-muted">{t("fx.currencies")}</span>
-          <Chip active={selected.length === 0} onClick={() => setSelected([])}>{t("common.all")}</Chip>
+          <Chip toggle active={selected.length === 0} onClick={() => setSelected([])}>{t("common.all")}</Chip>
           {currencyCodes.map((c) => (
-            <Chip key={c} active={selected.includes(c)} onClick={() => toggleCurrency(c)}>{c}</Chip>
+            <Chip key={c} toggle active={selected.includes(c)} onClick={() => toggleCurrency(c)}>{c}</Chip>
           ))}
         </div>
       </div>

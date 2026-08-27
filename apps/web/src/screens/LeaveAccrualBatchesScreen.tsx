@@ -110,7 +110,7 @@ export function LeaveAccrualBatchesScreen() {
         </div>
       ) : null}
 
-      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("leaveAccrual.runType")}>
+      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="radiogroup" aria-label={t("leaveAccrual.runType")}>
         {RUN_TYPE_FILTERS.map((filter) => (
           <Chip
             key={filter.key}

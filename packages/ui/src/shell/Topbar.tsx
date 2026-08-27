@@ -256,7 +256,20 @@ function UtilityMenu({ groups, activeNavKey }: { groups: readonly NavGroup[]; ac
   );
 }
 
-/** Topbar — the branch/warehouse scope selectors, then the tenant chip, the persistent command bar, the settings/system gear menu, language and appearance toggles, notifications and the user menu, all on the dark chrome. */
+/**
+ * ── SUPERSEDED, like `Sidebar` — nothing renders this any more ─────────────
+ *
+ * `AppShell` draws row one of the two-row bar itself. The three controls this
+ * file owned that had nowhere else to live — the language switcher, the
+ * appearance toggle and the settings/system gear — were carried over to
+ * `ChromeActions.tsx`, whose gear keeps this one's section handling: الإعدادات
+ * holds all but one of its screens in sections, so listing `items` alone hides
+ * fifteen of them.
+ *
+ * `TopbarScopeOption` and `ShellNotification` are still live types (`AppShell`,
+ * `ScopeSwitcher` and `apps/web`'s notification hooks import them); the
+ * component below is not. Delete it with its export and its test.
+ */
 export function Topbar({
   commandItems = [],
   searchPlaceholder,
@@ -368,7 +381,7 @@ export function Topbar({
               type="button"
               className="flex items-center gap-[9px] rounded-pill border border-chrome-border bg-chrome-hover py-[5px] pe-[12px] ps-[6px] transition-colors hover:border-chrome-accent"
             >
-              <span className="flex h-[28px] w-[28px] flex-none items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong font-display text-[11px] font-extrabold text-[color:var(--chrome-2)]">
+              <span className="flex h-[28px] w-[28px] flex-none items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong font-display text-[11px] font-extrabold text-accent-ink">
                 {user.initials}
               </span>
               <span className="text-start">

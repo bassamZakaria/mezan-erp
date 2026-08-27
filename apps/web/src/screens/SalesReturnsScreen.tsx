@@ -629,6 +629,7 @@ export function SalesReturnsScreen() {
             <TextInput numeric type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} aria-label={t("common.fromDate")} />
             <TextInput numeric type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} aria-label={t("common.toDate")} />
             <Chip
+              toggle
               active={awaitingOnly}
               onClick={() => {
                 setAwaitingOnly((on) => !on);

@@ -10,7 +10,11 @@ import { DisclosureChevron } from "../primitives/DisclosureChevron";
 export interface SidebarProps {
   activeKey?: string;
   topItem: NavItem;
-  /** Rows pinned directly under the top item, outside every group — the approvals inbox. */
+  /**
+   * System rows shown directly under the top item, outside every group — the
+   * approvals inbox. NOT user pinning: the rail's «مثبّت» block and its pin
+   * toggles were removed, so nothing here is user-configurable.
+   */
   pinnedItems?: readonly NavItem[];
   /** Screens this user opened most recently, newest first. Supplied by the app, which owns the history. */
   recentItems?: readonly NavItem[];
@@ -54,38 +58,9 @@ function persistRailCollapsed(collapsed: boolean): void {
   }
 }
 
-const PINS_STORAGE_KEY = "mezan.nav.pins";
 
-function loadPersistedPins(): string[] {
-  const storage = getRailStorage();
-  if (!storage) return [];
-  try {
-    const raw = storage.getItem(PINS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
-function persistPins(keys: readonly string[]): void {
-  const storage = getRailStorage();
-  if (!storage) return;
-  try {
-    storage.setItem(PINS_STORAGE_KEY, JSON.stringify(keys));
-  } catch {
-    // Ignore write failures — pins still hold for this session.
-  }
-}
 
-function PinIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg aria-hidden viewBox="0 0 20 20" className="h-[13px] w-[13px]" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6">
-      <path d="M12.2 2.8 17.2 7.8l-2.6.7-3.1 3.1.5 3.2-1.5 1.5-3.6-3.6-3.7 3.7 3.7-3.7-3.6-3.6L4.8 7.6l3.2.5 3.1-3.1z" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function RailBlockLabel({ children }: { children: string }) {
   return <div className="font-sig px-[10px] pb-[5px] pt-[14px] text-xs font-semibold tracking-[0.04em] text-chrome-ink-muted">{children}</div>;
@@ -269,7 +244,6 @@ export function Sidebar({
     return initial;
   });
   const [railCollapsed, setRailCollapsed] = useState(loadPersistedRailCollapsed);
-  const [pinnedKeys, setPinnedKeys] = useState<string[]>(loadPersistedPins);
   const [query, setQuery] = useState("");
 
   const itemByKey = useMemo(() => {
@@ -280,14 +254,10 @@ export function Sidebar({
     return map;
   }, [groups, topItem, pinnedItems]);
 
-  const userPinned = useMemo(
-    () => pinnedKeys.map((key) => itemByKey.get(key)).filter((item): item is NavItem => item !== undefined),
-    [pinnedKeys, itemByKey],
-  );
 
   const recentUnpinned = useMemo(
-    () => recentItems.filter((item) => !pinnedKeys.includes(item.key) && item.key !== activeKey).slice(0, 4),
-    [recentItems, pinnedKeys, activeKey],
+    () => recentItems.filter((item) => item.key !== activeKey).slice(0, 4),
+    [recentItems, activeKey],
   );
 
   const trimmedQuery = query.trim();
@@ -305,33 +275,7 @@ export function Sidebar({
     return found.slice(0, 12);
   }, [trimmedQuery, itemByKey]);
 
-  function togglePin(key: string) {
-    setPinnedKeys((prev) => {
-      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-      persistPins(next);
-      return next;
-    });
-  }
 
-  function pinButton(item: NavItem) {
-    const isPinned = pinnedKeys.includes(item.key);
-    const label = t(isPinned ? "shell.rail.unpin" : "shell.rail.pin", { screen: item.label });
-    return (
-      <button
-        type="button"
-        onClick={() => togglePin(item.key)}
-        aria-pressed={isPinned}
-        aria-label={label}
-        title={label}
-        className={cn(
-          "flex h-[44px] w-[36px] flex-none items-center justify-center rounded-md transition-colors",
-          isPinned ? "text-chrome-accent hover:text-chrome-ink" : "text-chrome-ink-muted hover:bg-chrome-hover hover:text-chrome-ink",
-        )}
-      >
-        <PinIcon filled={isPinned} />
-      </button>
-    );
-  }
 
   const activeGroupKey = useMemo(
     () => groups.find((group) => navGroupItems(group).some((item) => item.key === activeKey))?.key ?? null,
@@ -443,27 +387,10 @@ export function Sidebar({
             ) : (
               <ul className="flex flex-col gap-[1px] pt-[8px]">
                 {searchResults.map((item) => (
-                  <NavRow
-                    key={item.key}
-                    item={item}
-                    active={activeKey === item.key}
-                    showLabel
-                    trailing={pinButton(item)}
-                  />
+                  <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel />
                 ))}
               </ul>
             )}
-          </div>
-        ) : null}
-
-        {expanded && trimmedQuery === "" && userPinned.length > 0 ? (
-          <div>
-            <RailBlockLabel>{t("shell.rail.pinned")}</RailBlockLabel>
-            <ul className="flex flex-col gap-[1px]">
-              {userPinned.map((item) => (
-                <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel trailing={pinButton(item)} />
-              ))}
-            </ul>
           </div>
         ) : null}
 
@@ -472,7 +399,7 @@ export function Sidebar({
             <RailBlockLabel>{t("shell.rail.recent")}</RailBlockLabel>
             <ul className="flex flex-col gap-[1px]">
               {recentUnpinned.map((item) => (
-                <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel trailing={pinButton(item)} />
+                <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel />
               ))}
             </ul>
           </div>

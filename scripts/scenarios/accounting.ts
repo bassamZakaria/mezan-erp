@@ -78,9 +78,9 @@ export async function run(ctx: Ctx): Promise<void> {
       `/financial-reports/income-statement?${qs({ periodFrom: "2026-07-01", periodTo: "2026-07-31", compareTo: "previous" })}`,
     );
     ctx.check(
-      "NEW DEFECT — /financial-reports/income-statement's comparative column is always zero: it bounds its GL query to [periodFrom, periodTo] " +
-        "(financial-reports-routes.ts's loadGlContext), so comparativeRange's prior window — which always starts before periodFrom — finds no entries to sum, " +
-        "regardless of real prior-period activity. July 2026 has real activity (see the direct-run amount in the detail), so August's priorAmount should equal it, not 0.",
+      "the income statement's comparative column reports real prior-period activity (D-comparative). loadGlContext used to bound the GL query to " +
+        "[periodFrom, periodTo], so comparativeRange's prior window — which always starts before periodFrom — summed an empty set and the column was always zero. " +
+        "July 2026 has real activity, so August's priorAmount must equal it.",
       Math.abs(ctx.n(august.body?.grandTotals?.priorAmount) - ctx.n(july.body?.grandTotals?.amount)) <= 0.005,
       `August priorAmount=${august.body?.grandTotals?.priorAmount} vs direct July amount=${july.body?.grandTotals?.amount}`,
     );

@@ -55,13 +55,20 @@ same shape, and both were fixed rather than left on the list (F117, F118).
 
 And a closed register is not the same as a clean product: it means the ones
 found and written down are closed. The next one gets found the way these were —
-by driving a seeded app and comparing two numbers that must agree. Two things
-are open by DECISION rather than by patch, and stay listed so nobody re-files
-them:
+by driving a seeded app and comparing two numbers that must agree. One thing is
+open by DECISION rather than by patch, and stays listed so nobody re-files it:
 
-- workflow `minAmount` is configurable but never enforced (`DocumentWorkflowInput`
-  carries no amount to compare)
-- email and WhatsApp notification channels are modelled but unimplemented
+- outbound notification channels do not deliver. `notifications/engine.ts` stamps
+  every channel but `in_app` as `"queued"` and nothing drains the queue.
+  **Corrected 2026-08-27:** the channel type is `"in_app" | "email" | "push"` —
+  there is **no WhatsApp channel**, so the earlier wording here was wrong. An SMTP
+  transport now exists (`packages/api/src/smtp-client.ts`, used by the settings
+  test-send), so email is a delivery/retry decision for a product that is normally
+  offline, not a missing transport.
+
+The second item listed here — workflow `minAmount` configurable but never enforced
+— is gone: the field no longer exists anywhere in the repo (DEC-1, closed
+2026-08-27).
 
 D1's last residue is closed too: the invoice screen's collect action creates and
 confirms a REAL collection voucher and allocates it, which is what the reference

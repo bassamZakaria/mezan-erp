@@ -363,7 +363,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- 4. Trying to skip a gate: double-invoicing an already-invoiced receipt (DEFECT) ---
   await scenario(
-    "purchases: DEFECT — a second purchase invoice from an already-invoiced receipt (GRN-DEMO-1) is accepted, not refused",
+    "purchases: a second purchase invoice from an already-invoiced receipt (GRN-DEMO-1) is refused",
     async () => {
       const receipt = await req("GET", "/purchases/receipts/GRN-DEMO-1");
       check("GRN-DEMO-1 is confirmed and already invoiced (precondition)", receipt.body?.status === "confirmed" && receipt.body?.invoiced === true, JSON.stringify(receipt.body).slice(0, 150));
@@ -379,13 +379,12 @@ export async function run(ctx: Ctx): Promise<void> {
         warehouseId: WAREHOUSE_ID,
         receiptId: "GRN-DEMO-1",
       });
-      // createPurchaseInvoice (packages/domain/src/purchasing/purchase-invoice.ts)
-      // only checks receipt.status === "confirmed" — it never checks receipt.invoiced.
-      // markGoodsReceiptInvoiced() on confirm silently no-ops (`if (receipt.invoiced) return;`)
-      // instead of throwing, so nothing anywhere blocks a second invoice against the
-      // same receipt claiming the same goods a second time.
+      // createPurchaseInvoice must check receipt.invoiced, not only receipt.status ===
+      // "confirmed": without it a second invoice claims the same goods twice, and
+      // markGoodsReceiptInvoiced() on confirm no-ops rather than throwing, so nothing
+      // downstream catches it either.
       check(
-        "EXPECTED (but broken): create should refuse a 2nd invoice against an already-invoiced receipt",
+        "create refuses a 2nd invoice against an already-invoiced receipt",
         dupe.status >= 400,
         `create actually returned ${dupe.status}: ${JSON.stringify(dupe.body).slice(0, 150)}`,
       );

@@ -23,26 +23,6 @@ each other.
 
 ## OPEN
 
-### DEC-1 — Workflow `minAmount` is configurable but never read
-
-`/settings/workflow` stores and edits a minimum-amount threshold per gated
-action, and the UI presents it as enforced. Nothing reads it at confirm time:
-`DocumentWorkflowInput` (the shared type every gated document passes to
-`workflow/gate.ts`) carries no amount field, so the gate cannot see the value it
-is meant to compare against.
-
-Fixing it means extending that port, which touches **every** gated document type
-— sales invoices, sales/purchase returns, landed costs, vouchers.
-
-| Option | Cost | Risk |
-|---|---|---|
-| Add an optional `amount` to `DocumentWorkflowInput` | Smallest change; every existing caller keeps compiling | Silently unenforced for whichever types forget to pass it — the same failure being fixed |
-| Make it required | A change at each call site | None; the gap cannot reappear |
-| Resolve the amount inside the gate from the document id | Callers untouched | Gives the gate a repository dependency it does not have, weakening its purity |
-
-Until this is decided, the threshold field should be labelled as not yet
-enforced rather than presented as active.
-
 ### DEC-2 — The gate expects role codes; two routes pass permission codes
 
 `GateStep.role` is a **role code** — `gate.ts`'s own doc comment, its tests, and
@@ -123,3 +103,15 @@ conversion mechanism, projects progress billing (مستخلصات), and a third 
 | — | **Promotions persisted onto documents** as a value snapshot, not a foreign key, so a campaign edited later cannot retroactively change what a historical invoice says it granted. Evaluated server-side at confirm against the invoice's real lines. | 2026-08-25 |
 | — | **`AuditEvent` carries `branchId`**, recorded from the scope the shell already sends and filterable in the viewer. Historical rows stay null: the table is append-only by trigger, so a back-fill is impossible by design and a default would fabricate evidence. | 2026-08-25 |
 | — | **Automated business-logic test execution is disabled** in favour of live verification against a seeded backend. Reversible; the reasoning and the replacement are in `testing-policy.md`. | 2026-08-23 |
+
+### DEC-1 — Workflow `minAmount` — CLOSED 2026-08-27, moot
+
+Resolved by removal rather than by decision. `minAmount` no longer exists anywhere in the
+repo — not in `/settings/workflow`, not in the workflow config, not in
+`DocumentWorkflowInput`. The threshold the UI once presented as enforced is gone, so there
+is no longer a gap between what the screen promises and what the gate reads, and none of
+the three options below were taken.
+
+Kept as a record because the failure shape recurs: a configurable field that no code path
+reads looks identical, on screen, to one that is enforced.
+

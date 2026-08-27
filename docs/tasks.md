@@ -186,13 +186,14 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [x] shown per row on the movements and receipts tabs, joined on the movement's own reference — joining on the timestamp reported one station on every row whenever two actions landed in the same millisecond
 - [x] **R7.1–R7.6** ETA: readiness meter, general settings, credentials with test-connection, item mapping, unit mapping with suggestions, submissions queue with exclude
 - [x] **R11.1–R11.8** Split settings into the policy tabs and make each toggle actually change document behaviour:
-  - [ ] credit control mode (warn vs block)
-  - [ ] sell-from-another-warehouse, show other-warehouse stock, backorders, negative stock, aging write-down provision, auto batch numbers
-  - [ ] require PO before GRN, require GRN before purchase invoice
-  - [ ] block negative cash balances (drawers only, not banks)
-  - [ ] VAT enable / default rate / inclusive vs exclusive / depreciation in month of acquisition
-  - [ ] email SMTP + test send + template
-  - [ ] multi-currency enable, allowed currencies, missing-rate policy, numeral system, fiscal-year start
+  - [x] credit control mode (warn vs block) — `creditControlEnabled` / `creditControlMode`
+  - [x] sell-from-another-warehouse, show other-warehouse stock, backorders, negative stock, aging write-down provision, auto batch numbers — `allowCrossWarehouseSales`, `showOtherWarehouseStock`, `allowBackorder`, `allowNegativeStock`, `agingWritedownEnabled` + months + rate, `autoGenerateBatchNumbers`
+  - [x] require PO before GRN, require GRN before purchase invoice — `requirePoForGrn`, `requireGrnForInvoice`
+  - [x] block negative cash balances (drawers only, not banks) — `preventNegativeCashBalance` + `allowNegativeTreasury`, both reaching `VoucherService.cashPolicy()` through the `vouchers:` options (D19)
+  - [x] VAT enable / default rate / inclusive vs exclusive / depreciation in month of acquisition — `taxEnabled`, `defaultTaxRate`, `taxCalculation`, `depreciationProrate`
+  - [x] email SMTP + test send + template — `smtpEnabled` and the rest, with a real `sendTestEmail` in `packages/api/src/smtp-client.ts`
+  - [x] multi-currency enable, allowed currencies, missing-rate policy, numeral system, fiscal-year start — `multiCurrencyEnabled`, `secondaryCurrencies`, `fxRateMissingPolicy`, `dateNumerals`, `fiscalYearStartMonth`
+  - Ticked 2026-08-27 after checking all three levels rather than the checkbox: each flag is read by the document logic (not merely stored), `pnpm scenarios` flips every one of them and asserts the document behaviour changes with it, and all eight policy tabs were driven live on the seeded tenant
 - [x] **R12.1** Approvals: inbox / my requests / my actions, with the document-type filter (R14.1)
 - [x] **R3.8** Customer form advanced options — the form splits into everyday fields and «خيارات متقدمة» (tax + commercial registration, tax-exempt, entity type, contact person, address, logo). The logo is chosen from the customer's own attachments, so the bytes live in the attachments resource and the record holds only the id. `priceListId` was a free TEXT field storing whatever was typed; it is now a picker over `/price-lists`, and the routes refuse an id that names no list
 - [x] **R3.9** Sales return: a reason PER LINE, a derived awaiting-refund state, and «استرداد للعميل» that creates and confirms a real رد مبلغ لعميل voucher (Dr AR 1105 / Cr the till, one balanced entry). What may still be refunded is recomputed server-side from the posted return and the vouchers already posted against it; `awaitingRefund` is derived from those vouchers rather than stored, so reversing one restores the ledger AND the awaiting state in a single act. `POST /sales-returns/from-invoice` existed in the domain and was mounted nowhere — it is now the shape the screen sends
@@ -227,25 +228,11 @@ HR dashboard charts (**R10.1**), asset status chips.
 
 # 2. Open now
 
-Everything below is unblocked. Nothing else in this document is.
+**Re-verified 2026-08-27.** This section previously listed nine open items. Seven of them
+were finished work whose boxes were never ticked, one described a field that no longer
+exists, and one was half wrong. What is genuinely open is below.
 
-## 2.1 Settings policy toggles — R11.1–R11.8
-
-The tabs exist and the settings persist; what is open is each toggle actually
-changing what a document may do. Each item is done when the toggle is driven live
-and the document behaviour changes with it, in both locales.
-
-- [ ] credit control mode (warn vs block)
-- [ ] sell-from-another-warehouse, show other-warehouse stock, backorders, negative stock,
-      aging write-down provision, auto batch numbers
-- [ ] require PO before GRN, require GRN before purchase invoice
-- [ ] block negative cash balances (drawers only, not banks)
-- [ ] VAT enable / default rate / inclusive vs exclusive / depreciation in month of acquisition
-- [ ] email SMTP + test send + template
-- [ ] multi-currency enable, allowed currencies, missing-rate policy, numeral system,
-      fiscal-year start
-
-## 2.2 Row menus on the remaining 17 list screens — R1.3
+## 2.1 Row menus on the remaining 17 list screens — R1.3
 
 - [ ] The 17 remaining `DocumentList` screens are read-only report surfaces (audit log, stock
       balance, cost-centre P&L, reconciliation, FX revaluation, leave balances and accruals,
@@ -253,17 +240,25 @@ and the document behaviour changes with it, in both locales.
       job titles, holidays, asset categories, leave policies, payroll components, pipeline
       stages, item specifications, product templates). None carries a lifecycle, so a
       state-dependent menu there would hold a single entry. **Settle against the running
-      reference before adding one.**
+      reference before adding one** — this is a question, not a backlog item.
 
-## 2.3 Open by decision, not by patch
+## 2.2 Outbound notification channels
 
-Listed so nobody re-files them as defects. Both are in `decisions.md`.
+- [ ] `packages/domain/src/notifications/engine.ts` delivers **in-app only**: every other
+      channel is stamped `"queued"` and nothing drains the queue. The channel type is
+      `"in_app" | "email" | "push"` — there is no WhatsApp channel, modelled or otherwise, so
+      earlier notes claiming one are wrong. An SMTP transport now exists
+      (`packages/api/src/smtp-client.ts`, used by the settings test-send), so wiring email is
+      no longer a missing-transport problem — it is a delivery/retry decision: what happens to
+      a queued mail when the shop is offline, which is the normal case for this product.
 
-- [ ] workflow `minAmount` is configurable but never enforced (`DocumentWorkflowInput` carries
-      no amount to compare)
-- [ ] email and WhatsApp notification channels are modelled but unimplemented
+## 2.3 Settled since this list was written
 
----
+| Was listed open | Actually |
+|---|---|
+| R11.1–R11.8, the seven settings-policy toggles | Done and verified at three levels — see §1 P5 |
+| workflow `minAmount` configurable but never enforced (DEC-1) | The field does not exist anywhere in the repo. The decision is moot; DEC-1 is closed in `decisions.md` |
+| WhatsApp channel modelled but unimplemented | Never modelled. Only the email/push halves of §2.2 are real |
 
 # 3. Deferred by decision
 

@@ -309,9 +309,9 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const recon = ctx.rows((await req("GET", "/reconciliation")).body).find((r: any) => r.key === "ap");
     checkEq(
-      "NEW DEFECT — paying a supplier de-reconciles AP: the GL control account 2100 falls by the payment while the AP sub-ledger does not move at all. " +
-        "Root cause: packages/backend/src/create-backend.ts's resolveReconciliationControls() builds the AP sub-ledger figure from confirmed purchase-invoice totals " +
-        "(minus returns, plus landed costs) and never subtracts allocations or treasury payments — the AP twin of D1, invisible until a scenario actually paid a supplier",
+      "paying a supplier keeps AP reconciled: GL control account 2100 and the AP sub-ledger fall together, so the gap is exactly what it was. " +
+        "resolveReconciliationControls() in packages/backend/src/create-backend.ts must keep subtracting allocations and treasury payments — building the sub-ledger figure " +
+        "from confirmed purchase-invoice totals alone (minus returns, plus landed costs) was the AP twin of D1, invisible until a scenario actually paid a supplier",
       n(recon?.subLedgerBalance) - n(recon?.glBalance),
       apReconBefore,
     );
@@ -378,7 +378,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X5 — the خزنة cannot go negative; the bank can. Driven by a LIVE setting.
   // ---------------------------------------------------------------------------
-  await scenario("x5 · the خزنة cannot be overdrawn — but the tenant setting that is supposed to govern that is not wired to the guard", async () => {
+  await scenario("x5 · the خزنة cannot be overdrawn, and the tenant setting that governs it is wired to the guard", async () => {
     const settings = (await req("GET", "/settings")).body;
     check("the tenant setting that is meant to drive the guard reads true by default", settings?.preventNegativeCashBalance === true, JSON.stringify(settings?.preventNegativeCashBalance));
 
@@ -404,9 +404,9 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const retry = await req("POST", "/vouchers/SCN-X-NEG-1/confirm", {});
     check(
-      "NEW DEFECT — the negative-cash guard ignores the tenant setting entirely: with منع الرصيد السالب للحسابات النقدية switched OFF the same voucher is still refused CASH_BALANCE_NEGATIVE. " +
-        "Root cause: packages/backend/src/create-backend.ts's `vouchers:` options object (feeding createVouchersRoutes) never passes `settings`, and VoucherService.cashPolicy() " +
-        "returns a hardcoded `true` whenever `deps.settings` is absent — so both preventNegativeCashBalance and allowNegativeTreasury are dead switches on the settings screen.",
+      "the negative-cash guard honours the tenant setting: with منع الرصيد السالب للحسابات النقدية switched OFF the same voucher confirms (D19). " +
+        "The `vouchers:` options object in create-backend.ts must keep passing `settings` — without it VoucherService.cashPolicy() falls back to a hardcoded `true` and both " +
+        "preventNegativeCashBalance and allowNegativeTreasury become dead switches on the settings screen.",
       retry.status === 200 && retry.body?.status === "confirmed",
       `status ${retry.status} body ${JSON.stringify(retry.body).slice(0, 200)}`,
     );
@@ -919,15 +919,15 @@ export async function run(ctx: Ctx): Promise<void> {
       check(
         `confirming ${label} into a closed period is refused with a period error, not a crash` +
           (label === "a purchase invoice"
-            ? " — NEW DEFECT: this one answers 500 Internal Server Error. packages/api/src/purchases-routes.ts's confirm handler does not map PeriodNotOpenForPostingError (thrown by the GL port inside confirmPurchaseInvoice), unlike the sales, voucher and journal routes which all return 422"
+            ? " — packages/api/src/purchases-routes.ts's confirm handler must keep mapping PeriodNotOpenForPostingError (thrown by the GL port inside confirmPurchaseInvoice) the way the sales, voucher and journal routes do; unmapped it answered 500"
             : ""),
         res.status === 422 || res.status === 409,
         `status ${res.status} body ${JSON.stringify(res.body).slice(0, 200)}`,
       );
     }
     checkEq(
-      "NEW DEFECT — the crashed purchase-invoice confirm is not atomic: it moved stock IN before the GL refused the closed period, so the inventory sub-ledger is left running ahead of GL 1200 " +
-        "by exactly the blocked line's value with no document to explain it",
+      "the refused purchase-invoice confirm is atomic: the inventory sub-ledger is exactly where it was. Moving stock IN before the GL refused the closed period left inventory " +
+        "running ahead of GL 1200 by the blocked line's value with no document to explain it",
       (await ctx.invariants()).inventory,
       inventoryReconBefore,
     );
@@ -1274,9 +1274,9 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("importing history moves NO stock — the goods were consumed before go-live", (await stock(itemId)).onHand - stockBefore.onHand, 0);
     checkEq("and adds no inventory value", (await gl(INVENTORY)) - invBefore, 0);
     checkEq(
-      "NEW DEFECT — AP should rise by the outstanding 250 (and by nothing for the settled document), and instead rises by nothing at all: a business that migrates in owes its suppliers " +
-        "on paper and owes them zero in the ledger. The domain does post the opening entry (`if (!archive.settled && deps.gl && deps.accounts)` in packages/domain/src/purchasing/historical-import.ts), " +
-        "but packages/backend/src/create-backend.ts wires `historicalImport: { archives }` only — no `gl`, no `accounts` — so the branch never runs. Same under-wired-options failure as D19.",
+      "importing history raises AP by the outstanding 250, and by nothing for the settled document — a business that migrates in owes its suppliers the same on paper and in the ledger. " +
+        "The opening entry comes from `if (!archive.settled && deps.gl && deps.accounts)` in packages/domain/src/purchasing/historical-import.ts, so create-backend.ts must keep wiring " +
+        "`gl` and `accounts` into `historicalImport` rather than `{ archives }` alone — the under-wired-options failure of D19.",
       (await creditBalance(AP)) - apBefore,
       250,
     );

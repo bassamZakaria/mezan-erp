@@ -2,7 +2,7 @@
 
 Round 3 of the parity audit, run through the UI with the `site-feature-audit`
 method. Each requirement below was **observed in a running screen**, not inferred
-from prose. Screenshots are in `screenshots/`; the read API contract is in
+from prose. Reference screenshots have been deleted; the read API contract is in
 `API-SURFACE.md`; what was *not* seen is in `COVERAGE.md`.
 
 Requirements are written as behaviour to build, in our own terms. No markup, CSS,

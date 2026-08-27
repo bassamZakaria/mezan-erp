@@ -20,3 +20,7 @@ mezan.db-*
 
 # Agent worktrees, not source
 .claude/worktrees/
+
+# Reference-product captures must never be committed (third-party UI)
+docs/reference-parity/audit/screenshots/ref-*
+.claude/stakeholders/screenshots/ref-*

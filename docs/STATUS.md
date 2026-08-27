@@ -35,7 +35,7 @@ was ever performed, and only `GET` traffic was observed.
 | `docs/reference-parity/audit/API-SURFACE.md` | 201 GET endpoints with their query contracts, grouped by domain |
 | `docs/reference-parity/audit/ACTIONS.md` | Every control, its effect, and the modal or menu it opens |
 | `docs/reference-parity/audit/COVERAGE.md` | What was **not** seen — read this before planning a sprint |
-| `docs/reference-parity/audit/screenshots/` | 28 captured screens |
+| `docs/reference-parity/audit/screenshots/` | Mezan's own screens only — reference captures were removed |
 | `docs/reference-parity/gap-inventory.md` | The screen-by-screen diff |
 | `docs/tasks.md` §1 | The ordered work list, P0 → P6 |
 | `docs/scenarios/10-reference-parity.md` | The scenarios that verify each phase |

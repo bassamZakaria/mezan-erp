@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ما نأخذه وما نتجنّبه — Odoo و QuickBooks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Reem+Kufi:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:#0F0F11;color:#D4D4D8;font-family:"IBM Plex Sans Arabic",sans-serif;
+     line-height:1.85;font-size:14px}
+.wrap{max-width:1000px;margin:0 auto;padding:46px 24px 80px}
+h1{font-family:"Reem Kufi",sans-serif;font-size:29px;margin:0 0 10px;color:#FAFAFA}
+.lede{color:#A1A1AA;font-size:14px;margin:0 0 8px;max-width:76ch}
+.back{display:inline-block;color:#A1A1AA;font-size:12.5px;text-decoration:none;
+      padding:6px 11px;border:1px solid #3F3F46;border-radius:4px;margin-block-end:26px}
+.back:hover{color:#FAFAFA;border-color:#71717A}
+h2{font-family:"Reem Kufi",sans-serif;font-size:20px;color:#FAFAFA;margin:44px 0 6px}
+h2 .src{font-size:12px;color:#71717A;font-family:"IBM Plex Sans Arabic",sans-serif;font-weight:400}
+.sub{color:#71717A;font-size:12.5px;margin:0 0 18px}
+
+.item{border:1px solid #27272A;border-radius:6px;background:#18181B;padding:16px 18px;margin-block-end:12px}
+.item.take{border-inline-start:3px solid #86B48F}
+.item.avoid{border-inline-start:3px solid #D08A7A}
+.item h3{margin:0 0 6px;font-size:15px;color:#FAFAFA;font-weight:600}
+.item h3 .tag{font-size:11px;font-weight:400;color:#71717A;margin-inline-start:8px}
+.item p{margin:0 0 7px;color:#A1A1AA;font-size:13px}
+.item p:last-child{margin-block-end:0}
+.item .ours{color:#86B48F;font-size:12.5px}
+.item .ours b{color:#A8CDB0;font-weight:600}
+.item .no{color:#D08A7A;font-size:12.5px}
+
+table{width:100%;border-collapse:collapse;font-size:13px;margin-block:14px 0}
+th,td{text-align:start;padding:9px 12px;border-block-end:1px solid #27272A;vertical-align:top}
+th{color:#71717A;font-size:11.5px;font-weight:600;background:#131316}
+td.them{color:#A1A1AA}
+td.us{color:#D4D4D8}
+.num{font-family:"IBM Plex Mono",monospace;direction:ltr;unicode-bidi:isolate;display:inline-block}
+
+.note{border:1px solid #3F3F46;background:#131316;border-radius:6px;padding:16px 18px;margin-block-start:26px;
+      color:#A1A1AA;font-size:13px}
+.note b{color:#FAFAFA}
+.srcs{margin-block-start:40px;font-size:11.5px;color:#52525B;line-height:1.9}
+.srcs a{color:#71717A}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="index.html">↩ كل قرارات التصميم</a>
+
+<h1>ما نأخذه وما نتجنّبه</h1>
+<p class="lede">فُحص Odoo على نسخته التجريبية الحيّة، و QuickBooks Online من وثائق Intuit
+ومراجعات المستخدمين. القاعدة الفاصلة بسيطة: <b style="color:#FAFAFA">الآليات تُؤخذ، والتوقيع البصري يُتجنّب.</b>
+الآلية شيء يستخدمه الجميع ولا يملكه أحد؛ التوقيع البصري هو ما يجعل الشاشة تُقرأ فورًا
+على أنها «Odoo» أو «QuickBooks».</p>
+<p class="sub">كل ما هو أخضر أدناه صار مبنيًّا فعلًا في النماذج، لا مجرد ملاحظة.</p>
+
+<h2>آليات أخذناها <span class="src">— مبنيّة في النماذج</span></h2>
+
+<div class="item take">
+  <h3>شريط المبالغ حسب الحالة <span class="tag">QuickBooks — Money Bar</span></h3>
+  <p>الحالة ليست شريحة تصفية، بل <b style="color:#D4D4D8">مبلغًا تضغط عليه</b>: «متأخرة —
+  <span class="num">10,600.00</span> — فاتورتان». المستخدم لا يفكّر في «فلتر»، بل يرى كم من ماله في كل حالة.</p>
+  <p class="ours"><b>عندنا:</b> أعلى «قائمة المستندات» في الاتجاهات الستة، بأربع خانات ملوّنة من الأعلى فقط —
+  لا أقراص خضراء وبرتقالية كما في الأصل.</p>
+</div>
+
+<div class="item take">
+  <h3>التواريخ نسبية لا مطلقة <span class="tag">Odoo</span></h3>
+  <p>عمود الاستحقاق يكتب «متأخرة ٢١ يومًا» و«خلال ٤ أيام» بدل تاريخ يطرحه المستخدم ذهنيًا.
+  أكبر مكسب لمستخدم غير متخصص مقابل أرخص تكلفة تنفيذ في القائمة كلها.</p>
+  <p class="ours"><b>عندنا:</b> عمود «الاستحقاق»، والمتأخر بلون التحذير <em>مع كلمة «متأخرة»</em> —
+  لأن اللون وحده ممنوع بقواعدنا.</p>
+</div>
+
+<div class="item take">
+  <h3>مؤشّر التنقّل بين السجلات داخل المستند <span class="tag">Odoo</span></h3>
+  <p>داخل الفاتورة نفسها: «<span class="num">2</span> من <span class="num">10</span>» مع سهمين.
+  تفتح قائمة مُصفّاة ثم تمشي عليها كلها دون الرجوع للقائمة ولا مرة.</p>
+  <p class="ours"><b>عندنا:</b> في رأس «تفاصيل مستند»، وهو ما طلبه المحاسب ومكتب المحاسبة تحديدًا لمراجعة المتأخرات.</p>
+</div>
+
+<div class="item take">
+  <h3>عدّادات السجلات المرتبطة <span class="tag">Odoo — Smart Buttons</span></h3>
+  <p>صناديق صغيرة أعلى المستند: «<span class="num">3</span> أذون صرف»، «<span class="num">2</span> دفعات».
+  تلخّص وتربط في آن واحد، فلا يحتاج المستخدم أن يعرف أين تعيش تلك السجلات.</p>
+  <p class="ours"><b>عندنا:</b> شريط «مرتبط» أسفل رأس المستند مباشرة. أخذنا الفكرة لا شكل الصندوق.</p>
+</div>
+
+<div class="item take">
+  <h3>الرصيد الدائن يُطبَّق من داخل الفاتورة <span class="tag">Odoo — Outstanding credits</span></h3>
+  <p>أفضل ما رأيته في النسخة الحيّة: إشعارات الخصم والدفعات المقدّمة غير المطبَّقة معروضة
+  <b style="color:#D4D4D8">على الفاتورة نفسها</b> مع زر «Add» لكل منها.</p>
+  <p class="ours"><b>عندنا:</b> صندوق «لهذا العميل رصيد دائن غير مُطبَّق» فوق البنود، وزر «طبّق» لكل سطر.
+  هذا نفس منطق «العمود الحيّ»: الحقيقة المقابلة تُعرض حيث يقع القرار.</p>
+</div>
+
+<div class="item take">
+  <h3>ثلاثة أزرار للبنك: طابِق / جديدة / استبعد <span class="tag">QuickBooks — Add · Match · Exclude</span></h3>
+  <p>أذكى خدعة في QuickBooks كلها. الحركة النازلة من البنك لا تُسأل عنها بلغة محاسبية إطلاقًا —
+  فقط: هل هي جديدة على الدفاتر، أم تطابق مستندًا مسجّلًا، أم ليست لنا؟ القيد يُبنى خلف الستار.</p>
+  <p class="ours"><b>عندنا:</b> شاشة «مراجعة البنك والمطابقة» الجديدة، مع اقتراح النظام لكل سطر
+  والزر المُرجَّح مميّزًا بصريًا عن البديلين.</p>
+</div>
+
+<div class="item take">
+  <h3>المطابقة هدفها أن يصل الفرق إلى صفر <span class="tag">QuickBooks</span></h3>
+  <p>المستخدم يُدخل ثلاثة أرقام يقرأها من كشف البنك، ثم يرى فرقًا حيًّا يجب أن يصير
+  <span class="num">0.00</span>. لا كلمة «مدين» ولا «دائن» في الشاشة كلها.
+  وعند التعثّر: «يمكننا مساعدتك» ← تقرير الفروق.</p>
+  <p class="ours"><b>عندنا:</b> هذه <em>بالضبط</em> أداة الميزان التي نبنيها أصلًا — طرفان وحكم و«أين الفرق؟».
+  الفرق أن أداتنا واحدة تخدم البنك والخزينة وحد الائتمان وميزان المراجعة والجرد، بينما هي عندهم شاشة واحدة معزولة.</p>
+</div>
+
+<div class="item take">
+  <h3>قائمة الإعداد القابلة للتخطّي والعودة <span class="tag">QuickBooks</span></h3>
+  <p>مهام قصيرة بعلامات صح، أي منها يُتخطّى ويُستكمل لاحقًا، وبلا معالج خطّي إجباري،
+  وبلا سؤال محاسبي واحد قبل أن يُدخل المستخدم أول حركة حقيقية.</p>
+  <p class="ours"><b>عندنا:</b> يخدم مباشرة زمن الوصول لأول قيمة عند التركيب لدى العميل.</p>
+</div>
+
+<div class="item take">
+  <h3>اختيار الأعمدة، والتصفية المعروضة كوسوم <span class="tag">Odoo</span></h3>
+  <p>زر يختار أعمدة الجدول ويحفظ الاختيار للمستخدم؛ وعوامل التصفية المطبَّقة تظهر كوسوم قابلة للإزالة
+  بدل لوحة تصفية مخفية.</p>
+  <p class="ours"><b>عندنا:</b> الوسوم موجودة منذ البداية؛ أضفنا زر «الأعمدة» — وسيُحفظ على الخادم لا محليًا،
+  لأن الدعم يجب أن يرى ما يراه المستخدم.</p>
+</div>
+
+<h2>مفردات QuickBooks — الدرس الأهم <span class="src">وأين نختلف عنه عمدًا</span></h2>
+<p class="sub">QuickBooks يخفي القيد المزدوج عمّن لم يدرس المحاسبة. نحن نريد الوصول نفسه — لكن
+مع <b style="color:#D4D4D8">تعليم المصطلح بدل إخفائه للأبد</b>، لأن مستخدمنا يعمل مع محاسب ومصلحة ضرائب
+يستخدمان المصطلح الرسمي.</p>
+<table>
+  <thead><tr><th style="width:26%">المصطلح المحاسبي</th><th style="width:37%">QuickBooks يقول</th><th>نحن نقول</th></tr></thead>
+  <tbody>
+    <tr><td>ذمم مدينة</td><td class="them">"what customers owe you"، وقائمة مبيعات غير مدفوعة</td>
+        <td class="us">«اللي عليّ أحصّله» في القائمة، و«ذمم العملاء» في التقرير — الاثنان مربوطان</td></tr>
+    <tr><td>ذمم دائنة</td><td class="them">"bills you owe" تحت Vendors → Pay bills</td>
+        <td class="us">«اللي عليّ أدفعه»، والمصطلح الرسمي بجانبه</td></tr>
+    <tr><td>قيد يومية</td><td class="them">مخفي تمامًا، آخر عنصر في قائمة الإنشاء كمخرج للمتقدّمين</td>
+        <td class="us">لا يُخفى: يظهر كعدّاد «قيد يومية» على المستند، ويُفتح بنقرة. المحاسب يحتاجه يوميًا</td></tr>
+    <tr><td>إشعار خصم</td><td class="them">Credit memo، ومنفصل عن Delayed credit</td>
+        <td class="us">«إشعار خصم» — مصطلح مستقر في السوق المصري ولا يحتاج ترجمة ودّية</td></tr>
+    <tr><td>دليل الحسابات</td><td class="them">أُعيدت تسميته "Categories"، وأرقام الحسابات مخفية</td>
+        <td class="us">«دليل الحسابات» بأكواده كاملة — محاسبونا يحفظون الأكواد ويطلبونها بالرقم</td></tr>
+  </tbody>
+</table>
+<div class="note"><b>الخلاصة:</b> نأخذ من QuickBooks <em>ترتيب الأسئلة</em> (اسأل عن الشيء البشري أولًا،
+واشتقّ القيد خلف الستار) ولا نأخذ <em>إخفاء المفردات</em>. تدفّقاتنا الموجّهة تعرض المصطلح الرسمي
+بجانب اللغة الدارجة: «تحصيل فلوس من عميل» ثم «المصطلح الرسمي: سند قبض».</div>
+
+<h2>توقيعات بصرية نتجنّبها</h2>
+
+<div class="item avoid">
+  <h3>البنفسجي، وشبكة البطاقات المسطّحة، ومسار التنقّل بالشرطات المائلة <span class="tag">Odoo</span></h3>
+  <p class="no">اللون البنفسجي/الأرجواني في الأزرار الأساسية والعلامة، مع شبكة تطبيقات مربّعة
+  ومسار <span class="num">Sales / Quotations / S00012</span> رمادي رفيع — هذا المزيج يُقرأ «Odoo» من لمحة واحدة.</p>
+</div>
+
+<div class="item avoid">
+  <h3>الأخضر المشبع، والبطاقات البيضاء، والخط الودود الدائري <span class="tag">QuickBooks</span></h3>
+  <p class="no">أخضر + أبيض + رمادي، مع خط ذي ارتفاع سيني كبير وحروف لينة فوق أرقام مالية.
+  وأقراص «Money Bar» الملوّنة نفسها — <b style="color:#D08A7A">نأخذ الآلية بلا شكل القرص.</b></p>
+</div>
+
+<div class="item avoid">
+  <h3>الهيكل المشترك للفئة كلها <span class="tag">QuickBooks · Xero · FreshBooks</span></h3>
+  <p class="no">عمود أيقونات جانبي + زر «+» في وسط الأعلى + عنقود ترس/جرس/بحث أعلى الطرف الآخر.
+  هذا صار <em>هيكل الفئة</em> لا هوية شركة، وإعادة تلوينه لا تكفي.</p>
+  <p class="ours"><b>عندنا:</b> خيارات الإطار ٣ و٤ و٥ و٦ تفارق هذا الهيكل بنيويًا لا لونيًا.</p>
+</div>
+
+<div class="item avoid">
+  <h3>إخفاء الفرق بين «قابل للتعديل» و«للقراءة فقط» <span class="tag">Odoo — عيب موثّق</span></h3>
+  <p class="no">بعد إدخال الحفظ التلقائي أُزيلت المؤشّرات البصرية لحالة الحقل، فصار المستخدم
+  لا يعرف ما الذي يمكن تعديله إلا بالضغط عليه. عيب نتجنّبه صراحةً في نماذجنا.</p>
+</div>
+
+<div class="item avoid">
+  <h3>الـRTL كطبقة مُركَّبة فوق نظام لاتيني <span class="tag">Odoo — عيب موثّق</span></h3>
+  <p class="no">الاتجاه من اليمين لليسار في Odoo اختياري ومرهون بالإعداد، ويعمل في الواجهة الخلفية
+  ويتعطّل في الموقع، وبعض العناصر لم تُعكس أصلًا منذ سنوات.
+  عندنا العربية هي الأصل لا الترجمة — وهذا في ذاته ميزة تنافسية بنيوية.</p>
+</div>
+
+<div class="item avoid">
+  <h3>إعادة ترتيب التنقّل بين الإصدارات <span class="tag">QuickBooks — شكوى متكرّرة</span></h3>
+  <p class="no">تحريك الروابط بين الإصدارات يكسر الذاكرة العضلية ويولّد موجة مكالمات دعم.
+  قاعدة عندنا: مكان الزر الأساسي لا يتغيّر، والتخصيص يخصّ المستخدم لا الإصدار.</p>
+</div>
+
+<div class="note">
+<b>ما لم نجده في أيٍّ منهما:</b> ولا واحد من الاثنين يملك أداة واحدة مُعمَّمة تقول
+«هذان طرفان يجب أن يتطابقا، وهذا هو الحكم، ومن هنا تبحث عن الفرق».
+QuickBooks يملكها في شاشة المطابقة فقط، و Odoo لا يملكها أصلًا.
+هذه هي المساحة التي طلبتها ست شخصيات مستقلة، وهي أوضح فرصة تميّز أمامنا —
+ليست تزيينًا، بل الشيء الذي يجعل غير المتخصص يفهم القيد المزدوج دون أن يدرسه.
+</div>
+
+<div class="srcs">
+المصادر التي فُحصت: نسخة Odoo التجريبية الحيّة (المحاسبة، قائمة الفواتير، نموذج الفاتورة) ·
+odoo.com/documentation (البحث والتصفية، بنية العروض، Chatter) ·
+مسائل RTL المفتوحة على مستودع Odoo ومنتداه ·
+quickbooks.intuit.com/learn-support (مطابقة البنك، التسوية، إشعارات الخصم، تخصيص الصفحة الرئيسية) ·
+design.intuit.com (الألوان والخطوط) · مراجعات NerdWallet و FitSmallBusiness ومنتدى مستخدمي QuickBooks.
+</div>
+
+</div>
+</body>
+</html>

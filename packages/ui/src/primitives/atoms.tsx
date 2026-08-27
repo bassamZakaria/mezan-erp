@@ -23,9 +23,11 @@ const buttonVariantClass: Record<ButtonVariant, string> = {
   "danger-outline": "border-danger bg-transparent text-danger-ink hover:bg-danger-soft",
 };
 
+/** Every size keeps a 44px minimum in its smallest dimension (ground rule §2.1) —
+ *  padding alone made `sm` ~31px and `md` ~36px tall, so height is now explicit. */
 const buttonSizeClass: Record<ButtonSize, string> = {
-  sm: "px-[11px] py-[7px] text-xs",
-  md: "px-[15px] py-[9px] text-[13px]",
+  sm: "min-h-[44px] px-[11px] py-[7px] text-xs",
+  md: "min-h-[44px] px-[15px] py-[9px] text-[13px]",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -64,7 +66,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
     <button
       ref={ref}
       className={cn(
-        "relative flex h-[37px] w-[37px] flex-none items-center justify-center rounded-md border border-transparent text-ink-muted transition-colors hover:border-border hover:bg-surface-2 hover:text-ink",
+        // 44px minimum in both dimensions — ground rule §2.1 (was 37px).
+        "relative flex h-[44px] w-[44px] flex-none items-center justify-center rounded-md border border-transparent text-ink-muted transition-colors hover:border-border hover:bg-surface-2 hover:text-ink",
         className,
       )}
       {...props}
@@ -130,13 +133,33 @@ export function StatusPill({ label, tone = "neutral", className }: StatusPillPro
 export interface ChipProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   active?: boolean;
   count?: number;
+  /**
+   * Most Chip rows are one mutually-exclusive choice (status, year, line
+   * kind, …), so the default ARIA is `role="radio"` + `aria-checked` — the
+   * caller wraps the row in `role="radiogroup"`, same contract as
+   * `Segmented`. Pass `toggle` for a chip that is its own independent
+   * on/off filter or one tag in a multi-select set (no mutual exclusion,
+   * no group role needed): it gets `aria-pressed` instead.
+   */
+  toggle?: boolean;
 }
 
-export function Chip({ active, count, className, children, ...props }: ChipProps) {
+/** Selected state is colour PLUS a check mark, never colour alone (ground rule §2.2). */
+function ChipCheck() {
+  return (
+    <svg aria-hidden viewBox="0 0 20 20" className="h-[12px] w-[12px] flex-none fill-current">
+      <path d="M8.2 13.2 4.9 9.9l1.4-1.4 1.9 1.9 5.5-5.5 1.4 1.4z" />
+    </svg>
+  );
+}
+
+export function Chip({ active, count, toggle = false, className, children, ...props }: ChipProps) {
   return (
     <button
       type="button"
-      aria-pressed={active}
+      role={toggle ? undefined : "radio"}
+      aria-checked={toggle ? undefined : Boolean(active)}
+      aria-pressed={toggle ? Boolean(active) : undefined}
       className={cn(
         "inline-flex min-h-[44px] items-center gap-[7px] rounded-pill border px-[16px] py-[10px] text-[12.5px] font-semibold transition-colors",
         active
@@ -146,6 +169,7 @@ export function Chip({ active, count, className, children, ...props }: ChipProps
       )}
       {...props}
     >
+      {active ? <ChipCheck /> : null}
       {children}
       {count !== undefined ? <span className="mz-num font-mono text-[11px] opacity-90">{count}</span> : null}
     </button>
@@ -303,6 +327,16 @@ export interface EmptyStateProps {
  * to `DocumentList`'s `emptyState` prop; a caller with nothing to create yet
  * (a read-only feed, a report with no matches) omits `action` and gets the
  * plain message.
+ *
+ * `action` is left optional rather than required: dozens of existing callers
+ * legitimately have none — a `no-results` variant (a search/filter matched
+ * nothing) and read-only feeds (e.g. the audit log) have no create action to
+ * offer, and making the prop required would force every one of those call
+ * sites to fabricate one. It is nonetheless STRONGLY ENCOURAGED for every
+ * `variant="empty"` instance: that variant means the underlying data set is
+ * genuinely empty, not filtered, and R1.10 requires the button that creates
+ * the first row. Reach for `variant="no-results"` (or omit `action`
+ * deliberately) only when there is truly nothing to create from this screen.
  */
 export function EmptyState({ title, description, action, icon, className, variant = "empty" }: EmptyStateProps) {
   const { t } = useUiTranslation();

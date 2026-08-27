@@ -45,17 +45,33 @@ action colour and so does dark.
 
 ### 1.2 Type
 
-Display: **Zain**. UI and body: **Readex Pro**. Figures: Readex Pro tabular in
-light, IBM Plex Mono in dark. Latin: IBM Plex Sans.
+Display: **Zain**. UI and body: **Readex Pro**. Figures: **IBM Plex Mono in both
+themes**. Latin: IBM Plex Sans.
+
+An earlier draft of this section said "Readex Pro in light, IBM Plex Mono in dark".
+That was a contradiction of §1.1 — a typeface that changes on theme toggle is
+precisely what the colour-only rule forbids, and the lint rule written to enforce
+§1.1 rejects it. Figures use one face in both themes.
 
 All faces ship as subsetted `woff2` inside `packages/ui/src/assets/fonts/` with
 local `@font-face`. The remote `@import` in `tokens/fonts.css` is deleted.
 
-**This closes a live defect, not a preference.** The repository contains zero font
-files today and loads Noto over `https://fonts.googleapis.com`, so the offline
-desktop edition falls back to `Segoe UI, Tahoma` on every screen. The figure face
-must carry Arabic-Indic tabular digits or ground rule §2.3 (one numeral system per
-user) cannot be honoured.
+**Correction of record.** An earlier draft of this spec claimed the repository
+contained zero font files and loaded fonts over `https://fonts.googleapis.com`.
+That was true when the design audit ran, and was fixed independently in commit
+`daa7291` before implementation began — fonts were already self-hosted via
+`@fontsource/*` npm packages. What this section changes is therefore the *choice of
+faces*, not the hosting: `@fontsource` carries Tajawal / Reem Kufi / IBM Plex Sans
+Arabic, and the identity needs Zain / Readex Pro. Vendored woff2 replaces the
+npm dependency; the now-unused `@fontsource/*` packages must be removed from
+`packages/ui/package.json`.
+
+**Verified constraint — the figure face.** IBM Plex Mono contains **no Arabic-Indic
+digits** (U+0660–0669); this was confirmed by cmap inspection, not assumed. Readex
+Pro's Arabic subset carries all ten. Ground rule §2.3 requires one numeral system
+per user, so `--font-mono` must keep Readex Pro in its fallback chain and that
+fallback is load-bearing: if a user selects Arabic-Indic numerals, dark-theme
+figures fall through to Readex Pro rather than rendering nothing. Do not trim it.
 
 ### 1.3 The shell
 
@@ -75,6 +91,19 @@ away behind كل الشاشات, unfiltered by personalisation.
 Rejected: the current 56px wordless icon spine (meaning lives in a tooltip, which
 ground rule §2.5 forbids), and role-differentiated navigation (already rejected in
 the parent spec §5, and for the same reason).
+
+### 1.3b Already landed before implementation
+
+Two defects this spec was written to fix were closed independently in `daa7291`
+and are recorded here so nobody re-opens them: `SidePanel` now moves focus into
+itself on open and traps Tab with a working Escape, and the sidebar `<nav>` now
+carries an accessible name. `.mz-eyebrow` no longer applies `text-transform` and
+scopes `letter-spacing` to the Latin path only. The lesson is worth keeping: a
+design audit's defect list has a shelf life, and every item must be re-verified
+against HEAD immediately before it is worked, not when it was written.
+
+Still open at the time of writing: `ExpenseDonut` and `TopItems` remain mounted on
+`DashboardScreen`, contrary to the parent spec §3.2.
 
 ### 1.4 Personalisation persists server-side
 

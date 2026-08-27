@@ -398,7 +398,7 @@ export function Sidebar({
           )}
           title={expanded ? undefined : scopeLabel ? `${tenantName} · ${scopeLabel}` : tenantName}
         >
-          <span className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[7px] bg-gradient-to-br from-accent to-accent-strong text-[13px] font-extrabold text-[color:var(--chrome-2)]">
+          <span className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[7px] bg-gradient-to-br from-accent to-accent-strong text-[13px] font-extrabold text-accent-ink">
             {firstGlyph(tenantName)}
           </span>
           {expanded ? (

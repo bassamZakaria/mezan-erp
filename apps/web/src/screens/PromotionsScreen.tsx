@@ -443,6 +443,7 @@ export function PromotionsScreen() {
         filterBarExtra={
           <div className="flex flex-wrap items-center gap-[8px]">
             <Chip
+              toggle
               active={couponOnly}
               onClick={() => {
                 setCouponOnly((on) => !on);
@@ -452,6 +453,7 @@ export function PromotionsScreen() {
               {t("promotions.filter.couponOnly")}
             </Chip>
             <Chip
+              toggle
               active={cappedOnly}
               onClick={() => {
                 setCappedOnly((on) => !on);

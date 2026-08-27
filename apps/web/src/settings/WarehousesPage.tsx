@@ -106,7 +106,7 @@ export function WarehousesPage() {
           { label: t("warehouses.stat.branches"), value: <span className="mz-num">{new Set(warehouses.map((w) => w.branchId)).size}</span> },
         ]}
         filterBarExtra={
-          <div className="flex flex-wrap gap-[8px]">
+          <div className="flex flex-wrap gap-[8px]" role="radiogroup" aria-label={t("warehouses.allTypes")}>
             <Chip active={typeFilter === "all"} onClick={() => setTypeFilter("all")}>
               {t("warehouses.allTypes")}
             </Chip>

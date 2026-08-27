@@ -94,7 +94,7 @@ function EventsChecklist({
             <h4 className="mb-[8px] text-[11px] font-bold uppercase tracking-[0.4px] text-ink-faint">{t(CATEGORY_KEYS[category])}</h4>
             <div className="flex flex-wrap gap-[8px]">
               {events.map((e) => (
-                <Chip key={e.code} type="button" active={selected.has(e.code)} onClick={() => onToggle(e.code)}>
+                <Chip key={e.code} type="button" toggle active={selected.has(e.code)} onClick={() => onToggle(e.code)}>
                   {eventLabel(e, t)}
                 </Chip>
               ))}
@@ -161,7 +161,7 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
             <SectionCard title={t("webhooks.subscribedEvents")}>
               <div className="col-span-full flex flex-wrap gap-[8px]">
                 {webhook.events.map((code) => (
-                  <Chip key={code} active>
+                  <Chip key={code} toggle active>
                     {eventLabelByCode(code, t) ?? code}
                   </Chip>
                 ))}

@@ -124,7 +124,7 @@ export function LeaveBalancesScreen() {
         </Card>
       ) : null}
 
-      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("leaveBalances.year")}>
+      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="radiogroup" aria-label={t("leaveBalances.year")}>
         {YEAR_OPTIONS.map((y) => (
           <Chip
             key={y}

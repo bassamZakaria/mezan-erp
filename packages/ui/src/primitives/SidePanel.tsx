@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { IconButton } from "./atoms";
 import { useUiTranslation } from "../i18n";
@@ -24,6 +24,7 @@ const PANEL_FOCUSABLE =
 
 export function SidePanel({ open, onClose, title, description, children, className }: SidePanelProps) {
   const { t } = useUiTranslation();
+  const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   // `aria-hidden` is driven by this state (not directly by `open`) so closing
@@ -107,7 +108,7 @@ export function SidePanel({ open, onClose, title, description, children, classNa
         role="dialog"
         aria-modal="true"
         tabIndex={-1}
-        aria-label={typeof title === "string" ? title : undefined}
+        aria-labelledby={titleId}
         aria-hidden={ariaHidden}
         className={cn(
           "fixed inset-y-0 end-0 z-[61] w-[430px] max-w-[92vw] overflow-y-auto border-s border-border bg-surface shadow-2 transition-transform duration-200 ease-[cubic-bezier(.4,0,.2,1)]",
@@ -120,7 +121,9 @@ export function SidePanel({ open, onClose, title, description, children, classNa
       >
         <div className="sticky top-0 z-[2] flex items-start justify-between gap-[10px] border-b border-border bg-surface px-[21px] py-[19px]">
           <div>
-            <h2 className="text-[15.5px] font-bold text-ink">{title}</h2>
+            <h2 id={titleId} className="text-[15.5px] font-bold text-ink">
+              {title}
+            </h2>
             {description ? <p className="mt-1 text-[12px] text-ink-muted">{description}</p> : null}
           </div>
           <IconButton aria-label={t("ui.sidePanel.close")} onClick={onClose}>

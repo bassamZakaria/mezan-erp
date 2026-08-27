@@ -172,7 +172,7 @@ export function HolidaysScreen() {
         </div>
       ) : null}
 
-      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("holidays.year")}>
+      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="radiogroup" aria-label={t("holidays.year")}>
         {YEAR_OPTIONS.map((y) => (
           <Chip
             key={y}

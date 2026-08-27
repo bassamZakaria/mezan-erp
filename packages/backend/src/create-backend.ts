@@ -133,6 +133,7 @@ import {
   createDataMigrationTransactor,
   createSqliteApiKeyStore,
   createSqliteBarcodeConfigStore,
+  createSqliteUserPreferencesStore,
   createSqliteAuditSink,
   createSqliteLabelLayoutStore,
   createSqliteSequenceConfigStore,
@@ -156,6 +157,7 @@ import {
 } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
+import { createPreferencesRoutes } from "./preferences-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
@@ -510,6 +512,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const auditSink = createSqliteAuditSink(sqlite);
   const apiKeys = createSqliteApiKeyStore(sqlite);
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
+  const userPreferences = createSqliteUserPreferencesStore(sqlite);
   const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
   const webhookStores = createSqliteWebhookStores(sqlite);
   const labelLayouts = createSqliteLabelLayoutStore(sqlite);
@@ -1849,6 +1852,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       uow,
     }),
   );
+  // Unconditional: a route mounted only when an optional dep happens to be
+  // supplied is how four inventory-ops routes 404'd live while their files
+  // existed. The store is created above, always.
+  app.route("/preferences", createPreferencesRoutes({ store: userPreferences, uow }));
 
   const closers = [
     uow,
@@ -1918,6 +1925,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     auditSink,
     apiKeys,
     barcodeConfig,
+    userPreferences,
     webhookStores,
     labelLayouts,
   ];

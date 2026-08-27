@@ -394,7 +394,7 @@ export function VanTripsScreen() {
         filterBarCollapsible
         activeFilterCount={activeFilterCount}
         filterBarExtra={
-          <div className="flex flex-wrap gap-[8px]">
+          <div className="flex flex-wrap gap-[8px]" role="radiogroup">
             {(
               [
                 ["all", t("common.all")],

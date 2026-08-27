@@ -12,7 +12,7 @@
     "scenarios": "tsx scripts/run-scenarios.ts",
     "trails": "node scripts/build-trail-pack.mjs",
     "test:vitest:disabled": "vitest run",
-    "lint": "eslint . && pnpm run lint:rtl && pnpm run lint:tokens && pnpm run lint:controls",
+    "lint": "eslint . && pnpm run lint:rtl && pnpm run lint:tokens && pnpm run lint:controls && pnpm --filter @mezan/ui lint:theme",
     "lint:eslint": "eslint .",
     "lint:rtl": "node scripts/check-logical-css.mjs",
     "lint:tokens": "node scripts/check-color-tokens.mjs",

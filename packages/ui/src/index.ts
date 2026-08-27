@@ -279,3 +279,11 @@ export {
 export { createSampleInvoiceDocument } from "./print/sample-invoice";
 
 export { ReportChart, type ReportChartProps, type ReportChartPoint, type ReportChartView } from "./primitives/ReportChart";
+export {
+  Balance,
+  type BalanceProps,
+  type BalanceEqualProps,
+  type BalanceCeilingProps,
+  type BalanceMode,
+  type BalanceSide,
+} from "./primitives/Balance";

@@ -175,7 +175,7 @@ export function ExchangeRatesScreen() {
         activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex w-full flex-col gap-[10px]">
-            <div className="flex flex-wrap gap-[8px]">
+            <div className="flex flex-wrap gap-[8px]" role="radiogroup" aria-label={t("common.status")}>
               {([["all", t("common.all")], ["pending", t("fxRates.awaitingApproval")], ["approved", t("fxRates.approved")], ["locked", t("fxRates.locked")]] as const).map(([value, label]) => (
                 <Chip
                   key={value}

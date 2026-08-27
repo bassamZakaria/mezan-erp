@@ -165,7 +165,7 @@ export function MultiChipField({ label, hint, options, value, onChange }: MultiC
     <Field label={label} hint={hint}>
       <div className="flex flex-wrap gap-[8px]">
         {options.map((opt) => (
-          <Chip key={opt.value} type="button" active={value.includes(opt.value)} onClick={() => toggle(opt.value)}>
+          <Chip key={opt.value} type="button" toggle active={value.includes(opt.value)} onClick={() => toggle(opt.value)}>
             {opt.label}
           </Chip>
         ))}

@@ -368,7 +368,7 @@ export function Topbar({
               type="button"
               className="flex items-center gap-[9px] rounded-pill border border-chrome-border bg-chrome-hover py-[5px] pe-[12px] ps-[6px] transition-colors hover:border-chrome-accent"
             >
-              <span className="flex h-[28px] w-[28px] flex-none items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong font-display text-[11px] font-extrabold text-[color:var(--chrome-2)]">
+              <span className="flex h-[28px] w-[28px] flex-none items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong font-display text-[11px] font-extrabold text-accent-ink">
                 {user.initials}
               </span>
               <span className="text-start">

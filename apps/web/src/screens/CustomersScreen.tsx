@@ -1053,6 +1053,7 @@ export function CustomersScreen() {
         filterBarExtra={
           <div className="flex flex-wrap items-center gap-[10px]">
             <Chip
+              toggle
               active={overLimitOnly}
               onClick={() => {
                 setOverLimitOnly((on) => !on);

@@ -411,6 +411,7 @@ export function PriceListsScreen() {
         filterBarExtra={
           <div className="flex flex-wrap items-center gap-[8px]">
             <Chip
+              toggle
               active={baseOnly}
               onClick={() => {
                 setBaseOnly((on) => !on);

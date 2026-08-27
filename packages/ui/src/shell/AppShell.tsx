@@ -19,8 +19,6 @@ const MAIN_ID = "mz-main";
 export interface AppShellProps {
   /** Opens the main dashboard — the logo and wordmark are one link to it. */
   onNavigateHome?: () => void;
-  /** The six workspaces, as the vertical list in the workspace column. */
-  workspaces?: readonly NavItem[];
   /**
    * Single destinations that are NOT workspaces — الموافقات. A workspace row
    * promises a row two; these have exactly one screen behind them, so they sit
@@ -30,9 +28,9 @@ export interface AppShellProps {
    */
   directNavItems?: readonly NavItem[];
   /**
-   * The same workspaces as full nav groups — what ROW TWO renders: the active
-   * one's hub and first-section screens as chips, its remaining sections as
-   * dropdowns. Without it row two carries only «كل الشاشات».
+   * The workspaces as full nav groups. The COLUMN renders their names; ROW TWO
+   * renders the active one's hub as a chip and each of its sections as a
+   * dropdown. Without it there is nothing to navigate.
    */
   workspaceGroups?: readonly NavGroup[];
   activeWorkspaceKey?: string;
@@ -78,14 +76,15 @@ export interface AppShellProps {
 
 /**
  * AppShell — design direction ب (`design/directions/nav-level.html`): the six
- * workspaces live in a 172px column, not in the top bar.
+ * workspaces live in a 200px column, not in the top bar.
  *
  *   ┌───────────────────────────────────────────────────────┐
  *   │ row one   logo · الموافقات ·········· ⌘K scope ع ☀ ⚙ 🔔 م │  chrome
  *   ├──────────┬────────────────────────────────────────────┤
- *   │ مساحات   │ row two  hub · daily chips · [section ▾] +N │  the active
+ *   │ مساحات   │ row two  hub · [اليومي ▾] [التقارير ▾] · +N │  the active
  *   │ العمل    ├──────────────────────────────┬─────────────┤   workspace's
  *   │          │            main              │   gutter    │   own screens
+ *   │          │                              │             │
  *   │ ☰ كل الشاشات                              │             │
  *   └──────────┴──────────────────────────────┴─────────────┘
  *
@@ -112,7 +111,6 @@ export interface AppShellProps {
  */
 export function AppShell({
   onNavigateHome,
-  workspaces = [],
   directNavItems = [],
   workspaceGroups = [],
   activeWorkspaceKey,
@@ -151,7 +149,13 @@ export function AppShell({
   useEffect(() => {
     if (activeWorkspaceKey) setLastWorkspaceKey(activeWorkspaceKey);
   }, [activeWorkspaceKey]);
-  const rowTwoKey = activeWorkspaceKey ?? lastWorkspaceKey;
+  /**
+   * A workspace with no hub of its own navigates nowhere when it is clicked,
+   * so `activeWorkspaceKey` never moves to it — without this the column would
+   * refuse to open the very workspace the user just asked for.
+   */
+  const [clickedWorkspaceKey, setClickedWorkspaceKey] = useState<string | undefined>(undefined);
+  const rowTwoKey = activeWorkspaceKey ?? clickedWorkspaceKey ?? lastWorkspaceKey;
   const activeGroup = workspaceGroups.find((group) => group.key === rowTwoKey) ?? workspaceGroups[0] ?? null;
 
   const canBrowse = allScreensGroups.length > 0;
@@ -178,6 +182,7 @@ export function AppShell({
    */
   const handleWorkspaceChange = useCallback(
     (key: string) => {
+      setClickedWorkspaceKey(key);
       const opened = onWorkspaceChange?.(key);
       if (opened === false) openAllScreens(key);
     },
@@ -362,7 +367,7 @@ export function AppShell({
 
       <div className="flex min-h-0 flex-1 items-stretch">
         <WorkspaceRail
-          items={workspaces}
+          groups={workspaceGroups}
           activeKey={activeWorkspaceKey}
           onChange={handleWorkspaceChange}
           heading={t("shell.bar.workspaces")}

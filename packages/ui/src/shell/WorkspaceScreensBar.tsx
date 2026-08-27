@@ -12,19 +12,13 @@ import type { NavGroup, NavItem, NavSection } from "./types";
  * what that job contains and changes with it. This is what makes ~118
  * destinations browsable instead of recallable: nothing here has to be typed.
  *
- * A workspace holds 12–25 screens, so they cannot all be chips. The shape:
+ *   [hub] [اليومي ▾] [البيانات الأساسية ▾] [التقارير ▾] [الإعدادات ▾]   [+٣]
  *
- *   [hub] [اليومي] chip chip chip … | [البيانات الأساسية ▾] [التقارير ▾] …
- *
- * — the workspace's own hub and its FIRST section (the daily work) as direct
- * chips, every later section as a labelled dropdown. Worst case (المخزون) is
- * one hub + five chips + four menus, and every screen is at most two clicks
- * from here.
- *
- * "First section" is derived from the nav config's own order, never matched by
- * name: `sell`, `daily`, `staff` and `access` all mean "the daily work" in
- * their own workspace, and a fifth name will be added by someone who never
- * reads this file.
+ * — the workspace's own hub as a chip (it belongs to no section), then ONE
+ * DROPDOWN PER SECTION, in the nav config's own order. The column stays a flat
+ * list of the six jobs the business does, and the shelves inside a job open
+ * from the bar: a workspace of 25 screens is four menus wide either way, and
+ * every screen is at most two clicks from here.
  *
  * OVERFLOW — truncate to a «+٣» menu, never scroll. Ground rule §2.9 (125%
  * zoom, no sideways scroll) rules out growing the row, `flex-wrap` would eat
@@ -32,6 +26,7 @@ import type { NavGroup, NavItem, NavSection } from "./types";
  * invisible in an app that hides every scrollbar — and is where browsers still
  * disagree about the sign of `scrollLeft` in RTL.
  */
+
 
 /**
  * IN RTL THE ARROW KEYS INVERT. The physical key does not move — its meaning
@@ -56,7 +51,6 @@ const CHIP_IDLE = "border-border-strong bg-bg text-ink hover:bg-surface-2";
 const CHIP_ACTIVE = "border-accent bg-accent-soft font-semibold text-accent";
 /** A section dropdown reads as a container, not a destination — hence the recessed fill. */
 const CHIP_SECTION = "border-border-strong bg-surface-2 text-ink hover:bg-surface-3";
-const SECTION_LABEL = "flex-none whitespace-nowrap ps-[8px] pe-[2px] text-2xs text-ink-faint";
 
 function Caret() {
   return (
@@ -65,14 +59,12 @@ function Caret() {
     </svg>
   );
 }
-
 type Cell =
-  | { kind: "label"; id: string; text: string }
   | { kind: "screen"; id: string; item: NavItem; active: boolean }
   | { kind: "section"; id: string; section: NavSection; active: boolean };
 
 export interface WorkspaceScreensBarProps {
-  /** The active workspace. Its direct items lead, then its sections. */
+  /** The active workspace. Its direct items (the hub) lead the row. */
   group?: NavGroup | null;
   /** The screen currently on display — its chip, or its section's menu, is marked. */
   activeKey?: string;
@@ -246,23 +238,20 @@ export function WorkspaceScreensBar({
 
   const cells = useMemo<Cell[]>(() => {
     if (!group) return [];
-    const out: Cell[] = [];
-    for (const item of group.items) {
-      out.push({ kind: "screen", id: `item:${item.key}`, item, active: item.key === activeKey });
-    }
-    const sections = group.sections ?? [];
-    const [daily, ...rest] = sections;
-    if (daily) {
-      out.push({ kind: "label", id: `label:${daily.key}`, text: daily.label });
-      for (const item of daily.items) {
-        out.push({ kind: "screen", id: `item:${daily.key}:${item.key}`, item, active: item.key === activeKey });
-      }
-    }
-    for (const section of rest) {
+    const out: Cell[] = group.items.map((item) => ({
+      kind: "screen" as const,
+      id: `item:${item.key}`,
+      item,
+      active: item.key === activeKey,
+    }));
+    for (const section of group.sections ?? []) {
       out.push({
         kind: "section",
         id: `section:${section.key}`,
         section,
+        // The menu carries the mark when the open screen is one of its rows —
+        // otherwise a screen reached from a dropdown leaves the bar showing
+        // nothing as current.
         active: section.items.some((item) => item.key === activeKey),
       });
     }
@@ -319,12 +308,9 @@ export function WorkspaceScreensBar({
     return () => observer.disconnect();
   }, [recalculate]);
 
-  // A section label with nothing left under it is noise — drop it with its group.
-  let shown = Math.min(visibleCount, cells.length);
-  while (shown > 0 && cells[shown - 1]?.kind === "label") shown -= 1;
-
+  const shown = Math.min(visibleCount, cells.length);
   const visibleCells = cells.slice(0, shown);
-  const hiddenCells = cells.slice(shown).filter((cell) => cell.kind !== "label");
+  const hiddenCells = cells.slice(shown);
   const hiddenScreens = hiddenCells.filter((cell): cell is Extract<Cell, { kind: "screen" }> => cell.kind === "screen");
   const hiddenSections = hiddenCells.filter((cell): cell is Extract<Cell, { kind: "section" }> => cell.kind === "section");
   const hiddenCount = hiddenScreens.length + hiddenSections.reduce((sum, cell) => sum + cell.section.items.length, 0);
@@ -335,33 +321,23 @@ export function WorkspaceScreensBar({
    * put ten presses between the bar and the page it names.
    */
   const cellRefs = useRef<(HTMLElement | null)[]>([]);
-  const activeCellIndex = visibleCells.findIndex((cell) => cell.kind !== "label" && cell.active);
-  const firstCellIndex = visibleCells.findIndex((cell) => cell.kind !== "label");
-  const rovingIndex = activeCellIndex >= 0 ? activeCellIndex : firstCellIndex;
-
-  function focusCell(index: number) {
-    const stops = visibleCells.map((cell, at) => (cell.kind === "label" ? -1 : at)).filter((at) => at >= 0);
-    if (stops.length === 0) return;
-    const current = stops.indexOf(index);
-    const wrapped = ((current % stops.length) + stops.length) % stops.length;
-    cellRefs.current[stops[wrapped] ?? 0]?.focus();
-  }
+  const activeCellIndex = visibleCells.findIndex((cell) => cell.active);
+  const rovingIndex = activeCellIndex >= 0 ? activeCellIndex : 0;
 
   function onStripKeyDown(event: React.KeyboardEvent<HTMLUListElement>) {
-    const stops = visibleCells.map((cell, at) => (cell.kind === "label" ? -1 : at)).filter((at) => at >= 0);
-    if (stops.length === 0) return;
+    const count = visibleCells.length;
+    if (count === 0) return;
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      cellRefs.current[(event.key === "Home" ? stops[0] : stops[stops.length - 1]) ?? 0]?.focus();
+      cellRefs.current[event.key === "Home" ? 0 : count - 1]?.focus();
       return;
     }
     const delta = step(event.key, rtl);
     if (delta === 0) return;
     event.preventDefault();
     const at = cellRefs.current.findIndex((el) => el === document.activeElement);
-    const from = stops.indexOf(at >= 0 ? at : (rovingIndex ?? stops[0] ?? 0));
-    const next = ((from + delta) % stops.length + stops.length) % stops.length;
-    cellRefs.current[stops[next] ?? 0]?.focus();
+    const from = at >= 0 ? at : rovingIndex;
+    cellRefs.current[((from + delta) % count + count) % count]?.focus();
   }
 
   function renderCell(cell: Cell, index: number) {
@@ -369,13 +345,6 @@ export function WorkspaceScreensBar({
       cellRefs.current[index] = el;
     };
     const tabIndex = index === rovingIndex ? 0 : -1;
-    if (cell.kind === "label") {
-      return (
-        <li key={cell.id} className={SECTION_LABEL}>
-          {cell.text}
-        </li>
-      );
-    }
     if (cell.kind === "section") {
       return (
         <li key={cell.id} className="flex">
@@ -480,11 +449,7 @@ export function WorkspaceScreensBar({
         className="pointer-events-none invisible absolute top-0 start-0 flex w-max items-center gap-[6px]"
       >
         {cells.map((cell) =>
-          cell.kind === "label" ? (
-            <span key={cell.id} className={SECTION_LABEL}>
-              {cell.text}
-            </span>
-          ) : cell.kind === "section" ? (
+          cell.kind === "section" ? (
             <span key={cell.id} className={cn(CHIP_BASE, cell.active ? CHIP_ACTIVE : CHIP_SECTION)}>
               {cell.section.label}
               <Caret />

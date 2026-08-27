@@ -527,11 +527,6 @@ export function App() {
     [groups],
   );
 
-  const workspaces: NavItem[] = useMemo(
-    () => workspaceGroups.map((group) => ({ key: group.key, label: group.label })),
-    [workspaceGroups],
-  );
-
   /**
    * Undefined when the screen on display belongs to no workspace tab —
    * الموافقات and every الإعدادات screen do. No tab is then marked current;
@@ -539,7 +534,7 @@ export function App() {
    * silently swap to البيع the moment either is opened.
    */
   const resolvedWorkspaceKey = groupKeyForScreen(activeScreen);
-  const activeWorkspaceKey = workspaces.some((w) => w.key === resolvedWorkspaceKey) ? (resolvedWorkspaceKey ?? undefined) : undefined;
+  const activeWorkspaceKey = workspaceGroups.some((g) => g.key === resolvedWorkspaceKey) ? (resolvedWorkspaceKey ?? undefined) : undefined;
 
   /**
    * Each workspace tab opens that workspace's hub. `hubScreenForGroup` resolves
@@ -728,7 +723,6 @@ export function App() {
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
       onNavigateHome={() => navigate("dashboard")}
-      workspaces={workspaces}
       directNavItems={directNavItems}
       activeWorkspaceKey={activeWorkspaceKey}
       onWorkspaceChange={onWorkspaceChange}

@@ -3,18 +3,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { AppShell } from "./AppShell";
 import type { TopbarScopeOption } from "./Topbar";
-import type { CommandItem, NavGroup, NavItem, ShellUser } from "./types";
+import type { CommandItem, NavGroup, ShellUser } from "./types";
 
 const user: ShellUser = { name: "محمد الشهابي", role: "Company Admin", initials: "م.ش" };
 
-const workspaces: NavItem[] = [
-  { key: "sell", label: "البيع والتحصيل" },
-  { key: "buy", label: "الشراء والتوريد" },
-  { key: "stock", label: "المخزون والتصنيع" },
-];
-
-/** Two sections apiece: the first becomes chips, the rest become dropdowns. */
+/**
+ * The column carries the workspace names only; row two carries the active
+ * workspace's hub as a chip and each of its sections as a dropdown.
+ */
 const workspaceGroups: NavGroup[] = [
+  {
+    key: "sell",
+    label: "البيع والتحصيل",
+    items: [{ key: "sales-hub", label: "لوحة المبيعات" }],
+    sections: [{ key: "daily", label: "الشغل اليومي", items: [{ key: "quotes", label: "عروض الأسعار" }] }],
+  },
   {
     key: "buy",
     label: "الشراء والتوريد",
@@ -29,7 +32,7 @@ const workspaceGroups: NavGroup[] = [
 
 function renderShell(props: Partial<React.ComponentProps<typeof AppShell>> = {}) {
   return render(
-    <AppShell user={user} workspaces={workspaces} workspaceGroups={workspaceGroups} activeWorkspaceKey="buy" {...props}>
+    <AppShell user={user} workspaceGroups={workspaceGroups} activeWorkspaceKey="buy" {...props}>
       <div>محتوى الصفحة</div>
     </AppShell>,
   );
@@ -46,7 +49,7 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(screen.getByText("ميزان")).toBeInTheDocument();
     expect(screen.getByText("محتوى الصفحة")).toBeInTheDocument();
     const names = screen.getAllByRole("navigation").map((nav) => nav.getAttribute("aria-label"));
-    expect(names).toEqual(["روابط مباشرة", "شاشات مساحة العمل — الشراء والتوريد", "التنقل بين مساحات العمل"]);
+    expect(names).toEqual(["روابط مباشرة", "التنقل بين مساحات العمل", "شاشات مساحة العمل — الشراء والتوريد"]);
     // Every name distinct — three landmarks called the same thing name none.
     expect(new Set(names).size).toBe(3);
   });
@@ -82,7 +85,7 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     // Off-workspace (an approvals or settings screen): no tab is current, and
     // row two must NOT silently swap to the first workspace.
     rerender(
-      <AppShell user={user} workspaces={workspaces} workspaceGroups={workspaceGroups} activeNavKey="approvals">
+      <AppShell user={user} workspaceGroups={workspaceGroups} activeNavKey="approvals">
         <div>محتوى الصفحة</div>
       </AppShell>,
     );
@@ -112,25 +115,42 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(document.getElementById("mz-main")?.tagName).toBe("MAIN");
   });
 
-  it("renders row two as the ACTIVE workspace's screens: hub + first section as chips, later sections as menus", () => {
+  it("renders row two as the ACTIVE workspace's hub plus ONE DROPDOWN PER SECTION", () => {
     renderShell();
     const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
     expect(within(rowTwo).getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();
-    expect(within(rowTwo).getByRole("button", { name: "أوامر الشراء" })).toBeInTheDocument();
-    // The second section is a dropdown, so its screens are not chips…
-    expect(within(rowTwo).queryByRole("button", { name: "أعمار الموردين" })).toBeNull();
-    const menu = within(rowTwo).getByRole("button", { name: "التقارير" });
-    expect(menu).toHaveAttribute("aria-haspopup", "menu");
-    // …until it is opened.
-    fireEvent.click(menu);
+    // Every section is a dropdown — no section's screens sit on the bar as chips…
+    expect(within(rowTwo).queryByRole("button", { name: "أوامر الشراء" })).toBeNull();
+    expect(within(rowTwo).getByRole("button", { name: "الشغل اليومي" })).toHaveAttribute("aria-haspopup", "menu");
+    const reports = within(rowTwo).getByRole("button", { name: "التقارير" });
+    expect(reports).toHaveAttribute("aria-haspopup", "menu");
+    // …until one is opened.
+    fireEvent.click(reports);
     expect(screen.getByRole("menuitem", { name: "أعمار الموردين" })).toBeInTheDocument();
+  });
+
+  it("keeps the sections OUT of the column — it lists workspaces only", () => {
+    renderShell();
+    const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    expect(within(rail).queryByRole("button", { name: "التقارير" })).toBeNull();
+    expect(within(rail).queryByRole("button", { name: "الشغل اليومي" })).toBeNull();
+    expect(within(rail).getByRole("button", { name: "الشراء والتوريد" })).toBeInTheDocument();
+  });
+
+  it("marks the section's own menu when the open screen is one of its rows", () => {
+    renderShell({ activeNavKey: "report-aging-suppliers" });
+    const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
+    const reports = within(rowTwo).getByRole("button", { name: "التقارير" });
+    expect(reports).toHaveAttribute("tabindex", "0");
+    fireEvent.click(reports);
+    expect(screen.getByRole("menuitem", { name: "أعمار الموردين" })).toHaveAttribute("aria-current", "page");
   });
 
   it("re-renders row two when the workspace changes", () => {
     const { rerender } = renderShell();
     expect(screen.getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();
     rerender(
-      <AppShell user={user} workspaces={workspaces} workspaceGroups={workspaceGroups} activeWorkspaceKey="stock">
+      <AppShell user={user} workspaceGroups={workspaceGroups} activeWorkspaceKey="stock">
         <div>محتوى الصفحة</div>
       </AppShell>,
     );
@@ -182,7 +202,7 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     renderShell();
     const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
     const hub = within(rowTwo).getByRole("button", { name: "لوحة المشتريات" });
-    const daily = within(rowTwo).getByRole("button", { name: "أوامر الشراء" });
+    const daily = within(rowTwo).getByRole("button", { name: "الشغل اليومي" });
     const reports = within(rowTwo).getByRole("button", { name: "التقارير" });
     hub.focus();
 
@@ -203,8 +223,9 @@ describe("AppShell — workspace column plus a two-row bar", () => {
   it("does NOT invert the arrow keys in the workspace column — a vertical list reads the same in both directions", () => {
     renderShell();
     const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
-    const [sell, buy, stock] = workspaces.map((w) => within(rail).getByRole("button", { name: w.label }));
-    if (!sell || !buy || !stock) throw new Error("the three workspaces must render");
+    const sell = within(rail).getByRole("button", { name: "البيع والتحصيل" });
+    const buy = within(rail).getByRole("button", { name: "الشراء والتوريد" });
+    const stock = within(rail).getByRole("button", { name: "المخزون والتصنيع" });
     buy.focus();
 
     fireEvent.keyDown(buy, { key: "ArrowDown" });
@@ -227,7 +248,7 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(within(rail).getByRole("button", { name: "البيع والتحصيل" })).toHaveAttribute("tabindex", "-1");
     const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
     expect(within(rowTwo).getByRole("button", { name: "لوحة المشتريات" })).toHaveAttribute("tabindex", "0");
-    expect(within(rowTwo).getByRole("button", { name: "أوامر الشراء" })).toHaveAttribute("tabindex", "-1");
+    expect(within(rowTwo).getByRole("button", { name: "الشغل اليومي" })).toHaveAttribute("tabindex", "-1");
   });
 
   it("opens the command palette from row one's command bar", () => {

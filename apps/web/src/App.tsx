@@ -1,130 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AppShell, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
+import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { AppShell, SkeletonTable, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
 import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
-import { DashboardScreen } from "./dashboard/DashboardScreen";
-import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
-import { ItemsScreen } from "./screens/ItemsScreen";
-import { BomsScreen } from "./screens/BomsScreen";
-import { WorkOrdersScreen } from "./screens/WorkOrdersScreen";
-import { ConfigurableProductsScreen } from "./screens/ConfigurableProductsScreen";
-import { ConfigInstancesScreen } from "./screens/ConfigInstancesScreen";
-import { SalesInvoicesScreen } from "./screens/SalesInvoicesScreen";
-import { CustomersScreen } from "./screens/CustomersScreen";
-import { SuppliersScreen } from "./screens/SuppliersScreen";
-import { RfqsScreen } from "./screens/RfqsScreen";
-import { PurchaseOrdersScreen } from "./screens/PurchaseOrdersScreen";
-import { GoodsReceiptsScreen } from "./screens/GoodsReceiptsScreen";
-import { PurchaseInvoicesScreen } from "./screens/PurchaseInvoicesScreen";
-import { TaxesScreen } from "./screens/TaxesScreen";
-import { CostCentersScreen } from "./screens/CostCentersScreen";
-import { TreasuryAccountsScreen } from "./screens/TreasuryAccountsScreen";
-import { TreasuryVouchersScreen } from "./screens/TreasuryVouchersScreen";
-import { BankReconciliationScreen } from "./screens/BankReconciliationScreen";
-import { ChequesScreen } from "./screens/ChequesScreen";
-import { TrialBalanceReportScreen } from "./screens/TrialBalanceReportScreen";
-import { FinancialReportsScreen } from "./screens/FinancialReportsScreen";
-import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
-import { JournalsScreen } from "./screens/JournalsScreen";
-import { SalesReturnsScreen } from "./screens/SalesReturnsScreen";
-import { PurchaseReturnsScreen } from "./screens/PurchaseReturnsScreen";
-import { LandedCostsScreen } from "./screens/LandedCostsScreen";
-import { InstallmentPlansScreen } from "./screens/InstallmentPlansScreen";
-import { InstallmentFollowUpsScreen } from "./screens/InstallmentFollowUpsScreen";
-import { SalesQuotesScreen } from "./screens/sales-quotes";
-import { PriceListsScreen } from "./screens/PriceListsScreen";
-import { PromotionsScreen } from "./screens/PromotionsScreen";
-import { CostCenterPnLScreen } from "./screens/CostCenterPnLScreen";
-import { ExchangeRatesScreen } from "./screens/ExchangeRatesScreen";
-import { FxRevaluationScreen } from "./screens/FxRevaluationScreen";
-import { ReconciliationScreen } from "./screens/ReconciliationScreen";
-import { EtaScreen } from "./screens/EtaScreen";
-import {
-  SalesByPeriodReportScreen,
-  SalesByItemReportScreen,
-  SalesByCustomerReportScreen,
-  SalesBySalespersonReportScreen,
-  TopProductsReportScreen,
-} from "./screens/reports/SalesReportsScreens";
-import {
-  PurchasesByPeriodReportScreen,
-  PurchasesBySupplierReportScreen,
-  PurchasesByItemReportScreen,
-} from "./screens/reports/PurchasesReportsScreens";
-import {
-  InventoryStockLevelsReportScreen,
-  InventoryMovementReportScreen,
-  InventoryLedgerReportScreen,
-  InventoryValuationReportScreen,
-  InventoryAgingReportScreen,
-  InventoryExpiringReportScreen,
-  InventorySlowMovingReportScreen,
-  InventoryDriftReportScreen,
-} from "./screens/reports/InventoryReportsScreens";
-import { AgingCustomersReportScreen, AgingSuppliersReportScreen } from "./screens/reports/AgingReportsScreens";
-import { InstallmentsOverviewReportScreen, InstallmentsOverdueReportScreen } from "./screens/reports/InstallmentsReportsScreens";
-import { VanSalesReportScreen } from "./screens/reports/FieldSalesReportsScreens";
-import { MakeVsBuyReportScreen } from "./screens/reports/ManufacturingReportsScreens";
-import { LeadsScreen } from "./screens/LeadsScreen";
-import { OpportunitiesScreen } from "./screens/OpportunitiesScreen";
-import { PipelineScreen } from "./screens/PipelineScreen";
-import { PipelineStagesScreen } from "./screens/PipelineStagesScreen";
-import { ActivitiesScreen } from "./screens/ActivitiesScreen";
-import { ProjectsScreen } from "./screens/ProjectsScreen";
-import { HrDashboardScreen } from "./screens/HrDashboardScreen";
-import { EmployeesScreen } from "./screens/EmployeesScreen";
-import { DepartmentsScreen } from "./screens/DepartmentsScreen";
-import { JobTitlesScreen } from "./screens/JobTitlesScreen";
-import { ContractsScreen } from "./screens/ContractsScreen";
-import { HolidaysScreen } from "./screens/HolidaysScreen";
-import { MyLeaveScreen } from "./screens/MyLeaveScreen";
-import { AttendanceScreen } from "./screens/AttendanceScreen";
-import { PayrollRunsScreen } from "./screens/PayrollRunsScreen";
-import { PayrollComponentsScreen } from "./screens/PayrollComponentsScreen";
-import { EmployeeAdvancesScreen } from "./screens/EmployeeAdvancesScreen";
-import { LeaveRequestsScreen } from "./screens/LeaveRequestsScreen";
-import { LeavePoliciesScreen } from "./screens/LeavePoliciesScreen";
-import { LeaveBalancesScreen } from "./screens/LeaveBalancesScreen";
-import { LeaveAccrualBatchesScreen } from "./screens/LeaveAccrualBatchesScreen";
-import { AssetCategoriesScreen } from "./screens/AssetCategoriesScreen";
-import { AssetRegisterScreen } from "./screens/AssetRegisterScreen";
-import { DepreciationRunsScreen } from "./screens/DepreciationRunsScreen";
-import { VanTripsScreen } from "./screens/VanTripsScreen";
-import { StockAdjustmentsScreen } from "./screens/StockAdjustmentsScreen";
-import { StockTransfersScreen } from "./screens/StockTransfersScreen";
-import { PhysicalCountsScreen } from "./screens/PhysicalCountsScreen";
-import { StockBalanceScreen } from "./screens/StockBalanceScreen";
-import { WritedownRunsScreen } from "./screens/WritedownRunsScreen";
-import { ProductTemplatesScreen } from "./screens/ProductTemplatesScreen";
-import { ItemSpecificationsScreen } from "./screens/ItemSpecificationsScreen";
-import { LabelPrintingScreen } from "./screens/LabelPrintingScreen";
-import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { TenantPreferences } from "./settings/TenantPreferences";
-import { BranchesPage } from "./settings/BranchesPage";
-import { WarehousesPage } from "./settings/WarehousesPage";
-import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
-import { NotificationRulesPage } from "./settings/NotificationRulesPage";
 import { useNotificationsBell } from "./notifications/NotificationsBell";
-import { DataMigrationPage } from "./settings/DataMigrationPage";
-import { WorkflowConfigPage } from "./settings/WorkflowConfigPage";
-import { ApprovalsInboxScreen } from "./screens/ApprovalsInboxScreen";
-import { AuditLogScreen } from "./screens/AuditLogScreen";
-import { SequencesPage } from "./settings/SequencesPage";
-import { BarcodeConfigPage } from "./settings/BarcodeConfigPage";
-import { ProfilePage } from "./settings/ProfilePage";
-import { ApiKeysPage } from "./settings/ApiKeysPage";
-import { WebhooksPage } from "./settings/WebhooksPage";
-import { SalesHubScreen } from "./screens/hubs/SalesHubScreen";
-import { PurchasesHubScreen } from "./screens/hubs/PurchasesHubScreen";
-import { InventoryHubScreen } from "./screens/hubs/InventoryHubScreen";
-import { AccountingHubScreen } from "./screens/hubs/AccountingHubScreen";
-import { TreasuryHubScreen } from "./screens/hubs/TreasuryHubScreen";
-import { CrmHubScreen } from "./screens/hubs/CrmHubScreen";
-import { AssetsHubScreen } from "./screens/hubs/AssetsHubScreen";
-import { ManufacturingHubScreen } from "./screens/hubs/ManufacturingHubScreen";
-import { ProductionDashboardScreen } from "./screens/hubs/ProductionDashboardScreen";
-import { SystemStatusScreen } from "./screens/hubs/SystemStatusScreen";
-import { NotificationsScreen } from "./screens/NotificationsScreen";
 import { useScopeSelector } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
@@ -158,6 +37,147 @@ import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
 import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
 
 /** Every nav-item key this shell routes to. A key here without a nav entry is unreachable; a nav entry without a key here is a dead click. */
+/**
+ * Every routable screen is its own chunk.
+ *
+ * All 117 were static imports, so opening the login page parsed the entire ERP
+ * — every report, every settings tab, every module the user may never touch —
+ * as one 4.7MB bundle. They are reached exclusively through ROUTABLE_SCREENS
+ * below, which is a lazy boundary by construction: nothing else references
+ * them, so nothing else can drag one back into the entry chunk.
+ *
+ * The desktop edition loads from file:// (apps/desktop/src/main/window.ts uses
+ * loadFile), where a chunk is fetched as a module script — that needs Vite's
+ * `base: "./"` and, in Electron, a custom protocol rather than raw file://.
+ * See docs/tasks.md.
+ */
+const AccountingHubScreen = lazy(() => import("./screens/hubs/AccountingHubScreen").then((m) => ({ default: m.AccountingHubScreen })));
+const ActivitiesScreen = lazy(() => import("./screens/ActivitiesScreen").then((m) => ({ default: m.ActivitiesScreen })));
+const ApiKeysPage = lazy(() => import("./settings/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage })));
+const ApprovalsInboxScreen = lazy(() => import("./screens/ApprovalsInboxScreen").then((m) => ({ default: m.ApprovalsInboxScreen })));
+const AssetCategoriesScreen = lazy(() => import("./screens/AssetCategoriesScreen").then((m) => ({ default: m.AssetCategoriesScreen })));
+const AssetRegisterScreen = lazy(() => import("./screens/AssetRegisterScreen").then((m) => ({ default: m.AssetRegisterScreen })));
+const AssetsHubScreen = lazy(() => import("./screens/hubs/AssetsHubScreen").then((m) => ({ default: m.AssetsHubScreen })));
+const AttendanceScreen = lazy(() => import("./screens/AttendanceScreen").then((m) => ({ default: m.AttendanceScreen })));
+const AuditLogScreen = lazy(() => import("./screens/AuditLogScreen").then((m) => ({ default: m.AuditLogScreen })));
+const BankReconciliationScreen = lazy(() => import("./screens/BankReconciliationScreen").then((m) => ({ default: m.BankReconciliationScreen })));
+const BarcodeConfigPage = lazy(() => import("./settings/BarcodeConfigPage").then((m) => ({ default: m.BarcodeConfigPage })));
+const BomsScreen = lazy(() => import("./screens/BomsScreen").then((m) => ({ default: m.BomsScreen })));
+const BranchesPage = lazy(() => import("./settings/BranchesPage").then((m) => ({ default: m.BranchesPage })));
+const ChartOfAccountsScreen = lazy(() => import("./screens/ChartOfAccountsScreen").then((m) => ({ default: m.ChartOfAccountsScreen })));
+const ChequesScreen = lazy(() => import("./screens/ChequesScreen").then((m) => ({ default: m.ChequesScreen })));
+const ConfigInstancesScreen = lazy(() => import("./screens/ConfigInstancesScreen").then((m) => ({ default: m.ConfigInstancesScreen })));
+const ConfigurableProductsScreen = lazy(() => import("./screens/ConfigurableProductsScreen").then((m) => ({ default: m.ConfigurableProductsScreen })));
+const ContractsScreen = lazy(() => import("./screens/ContractsScreen").then((m) => ({ default: m.ContractsScreen })));
+const CostCenterPnLScreen = lazy(() => import("./screens/CostCenterPnLScreen").then((m) => ({ default: m.CostCenterPnLScreen })));
+const CostCentersScreen = lazy(() => import("./screens/CostCentersScreen").then((m) => ({ default: m.CostCentersScreen })));
+const CrmHubScreen = lazy(() => import("./screens/hubs/CrmHubScreen").then((m) => ({ default: m.CrmHubScreen })));
+const CustomersScreen = lazy(() => import("./screens/CustomersScreen").then((m) => ({ default: m.CustomersScreen })));
+const DashboardScreen = lazy(() => import("./dashboard/DashboardScreen").then((m) => ({ default: m.DashboardScreen })));
+const DataMigrationPage = lazy(() => import("./settings/DataMigrationPage").then((m) => ({ default: m.DataMigrationPage })));
+const DepartmentsScreen = lazy(() => import("./screens/DepartmentsScreen").then((m) => ({ default: m.DepartmentsScreen })));
+const DepreciationRunsScreen = lazy(() => import("./screens/DepreciationRunsScreen").then((m) => ({ default: m.DepreciationRunsScreen })));
+const EmployeeAdvancesScreen = lazy(() => import("./screens/EmployeeAdvancesScreen").then((m) => ({ default: m.EmployeeAdvancesScreen })));
+const EmployeesScreen = lazy(() => import("./screens/EmployeesScreen").then((m) => ({ default: m.EmployeesScreen })));
+const EtaScreen = lazy(() => import("./screens/EtaScreen").then((m) => ({ default: m.EtaScreen })));
+const ExchangeRatesScreen = lazy(() => import("./screens/ExchangeRatesScreen").then((m) => ({ default: m.ExchangeRatesScreen })));
+const FinancialReportsScreen = lazy(() => import("./screens/FinancialReportsScreen").then((m) => ({ default: m.FinancialReportsScreen })));
+const FiscalPeriodsScreen = lazy(() => import("./screens/FiscalPeriodsScreen").then((m) => ({ default: m.FiscalPeriodsScreen })));
+const FxRevaluationScreen = lazy(() => import("./screens/FxRevaluationScreen").then((m) => ({ default: m.FxRevaluationScreen })));
+const GoodsReceiptsScreen = lazy(() => import("./screens/GoodsReceiptsScreen").then((m) => ({ default: m.GoodsReceiptsScreen })));
+const HolidaysScreen = lazy(() => import("./screens/HolidaysScreen").then((m) => ({ default: m.HolidaysScreen })));
+const HrDashboardScreen = lazy(() => import("./screens/HrDashboardScreen").then((m) => ({ default: m.HrDashboardScreen })));
+const InstallmentFollowUpsScreen = lazy(() => import("./screens/InstallmentFollowUpsScreen").then((m) => ({ default: m.InstallmentFollowUpsScreen })));
+const InstallmentPlansScreen = lazy(() => import("./screens/InstallmentPlansScreen").then((m) => ({ default: m.InstallmentPlansScreen })));
+const InventoryAgingReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryAgingReportScreen })));
+const InventoryDriftReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryDriftReportScreen })));
+const InventoryExpiringReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryExpiringReportScreen })));
+const InventoryHubScreen = lazy(() => import("./screens/hubs/InventoryHubScreen").then((m) => ({ default: m.InventoryHubScreen })));
+const InventoryLedgerReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryLedgerReportScreen })));
+const InventoryMovementReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryMovementReportScreen })));
+const InventorySlowMovingReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventorySlowMovingReportScreen })));
+const InventoryStockLevelsReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryStockLevelsReportScreen })));
+const InventoryValuationReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryValuationReportScreen })));
+const ItemSpecificationsScreen = lazy(() => import("./screens/ItemSpecificationsScreen").then((m) => ({ default: m.ItemSpecificationsScreen })));
+const ItemsScreen = lazy(() => import("./screens/ItemsScreen").then((m) => ({ default: m.ItemsScreen })));
+const JobTitlesScreen = lazy(() => import("./screens/JobTitlesScreen").then((m) => ({ default: m.JobTitlesScreen })));
+const JournalsScreen = lazy(() => import("./screens/JournalsScreen").then((m) => ({ default: m.JournalsScreen })));
+const LabelPrintingScreen = lazy(() => import("./screens/LabelPrintingScreen").then((m) => ({ default: m.LabelPrintingScreen })));
+const LandedCostsScreen = lazy(() => import("./screens/LandedCostsScreen").then((m) => ({ default: m.LandedCostsScreen })));
+const LeadsScreen = lazy(() => import("./screens/LeadsScreen").then((m) => ({ default: m.LeadsScreen })));
+const LeaveAccrualBatchesScreen = lazy(() => import("./screens/LeaveAccrualBatchesScreen").then((m) => ({ default: m.LeaveAccrualBatchesScreen })));
+const LeaveBalancesScreen = lazy(() => import("./screens/LeaveBalancesScreen").then((m) => ({ default: m.LeaveBalancesScreen })));
+const LeavePoliciesScreen = lazy(() => import("./screens/LeavePoliciesScreen").then((m) => ({ default: m.LeavePoliciesScreen })));
+const LeaveRequestsScreen = lazy(() => import("./screens/LeaveRequestsScreen").then((m) => ({ default: m.LeaveRequestsScreen })));
+const MakeVsBuyReportScreen = lazy(() => import("./screens/reports/ManufacturingReportsScreens").then((m) => ({ default: m.MakeVsBuyReportScreen })));
+const ManufacturingHubScreen = lazy(() => import("./screens/hubs/ManufacturingHubScreen").then((m) => ({ default: m.ManufacturingHubScreen })));
+const MyLeaveScreen = lazy(() => import("./screens/MyLeaveScreen").then((m) => ({ default: m.MyLeaveScreen })));
+const NotificationRulesPage = lazy(() => import("./settings/NotificationRulesPage").then((m) => ({ default: m.NotificationRulesPage })));
+const NotificationsScreen = lazy(() => import("./screens/NotificationsScreen").then((m) => ({ default: m.NotificationsScreen })));
+const OpportunitiesScreen = lazy(() => import("./screens/OpportunitiesScreen").then((m) => ({ default: m.OpportunitiesScreen })));
+const PayrollComponentsScreen = lazy(() => import("./screens/PayrollComponentsScreen").then((m) => ({ default: m.PayrollComponentsScreen })));
+const PayrollRunsScreen = lazy(() => import("./screens/PayrollRunsScreen").then((m) => ({ default: m.PayrollRunsScreen })));
+const PhysicalCountsScreen = lazy(() => import("./screens/PhysicalCountsScreen").then((m) => ({ default: m.PhysicalCountsScreen })));
+const PipelineScreen = lazy(() => import("./screens/PipelineScreen").then((m) => ({ default: m.PipelineScreen })));
+const PipelineStagesScreen = lazy(() => import("./screens/PipelineStagesScreen").then((m) => ({ default: m.PipelineStagesScreen })));
+const PriceListsScreen = lazy(() => import("./screens/PriceListsScreen").then((m) => ({ default: m.PriceListsScreen })));
+const PrintTemplatesPage = lazy(() => import("./settings/PrintTemplatesPage").then((m) => ({ default: m.PrintTemplatesPage })));
+const ProductTemplatesScreen = lazy(() => import("./screens/ProductTemplatesScreen").then((m) => ({ default: m.ProductTemplatesScreen })));
+const ProductionDashboardScreen = lazy(() => import("./screens/hubs/ProductionDashboardScreen").then((m) => ({ default: m.ProductionDashboardScreen })));
+const ProfilePage = lazy(() => import("./settings/ProfilePage").then((m) => ({ default: m.ProfilePage })));
+const ProjectsScreen = lazy(() => import("./screens/ProjectsScreen").then((m) => ({ default: m.ProjectsScreen })));
+const PromotionsScreen = lazy(() => import("./screens/PromotionsScreen").then((m) => ({ default: m.PromotionsScreen })));
+const PurchaseInvoicesScreen = lazy(() => import("./screens/PurchaseInvoicesScreen").then((m) => ({ default: m.PurchaseInvoicesScreen })));
+const PurchaseOrdersScreen = lazy(() => import("./screens/PurchaseOrdersScreen").then((m) => ({ default: m.PurchaseOrdersScreen })));
+const PurchaseReturnsScreen = lazy(() => import("./screens/PurchaseReturnsScreen").then((m) => ({ default: m.PurchaseReturnsScreen })));
+const PurchasesByItemReportScreen = lazy(() => import("./screens/reports/PurchasesReportsScreens").then((m) => ({ default: m.PurchasesByItemReportScreen })));
+const PurchasesByPeriodReportScreen = lazy(() => import("./screens/reports/PurchasesReportsScreens").then((m) => ({ default: m.PurchasesByPeriodReportScreen })));
+const PurchasesBySupplierReportScreen = lazy(() => import("./screens/reports/PurchasesReportsScreens").then((m) => ({ default: m.PurchasesBySupplierReportScreen })));
+const PurchasesHubScreen = lazy(() => import("./screens/hubs/PurchasesHubScreen").then((m) => ({ default: m.PurchasesHubScreen })));
+const ReconciliationScreen = lazy(() => import("./screens/ReconciliationScreen").then((m) => ({ default: m.ReconciliationScreen })));
+const RfqsScreen = lazy(() => import("./screens/RfqsScreen").then((m) => ({ default: m.RfqsScreen })));
+const SalesByCustomerReportScreen = lazy(() => import("./screens/reports/SalesReportsScreens").then((m) => ({ default: m.SalesByCustomerReportScreen })));
+const SalesByItemReportScreen = lazy(() => import("./screens/reports/SalesReportsScreens").then((m) => ({ default: m.SalesByItemReportScreen })));
+const SalesByPeriodReportScreen = lazy(() => import("./screens/reports/SalesReportsScreens").then((m) => ({ default: m.SalesByPeriodReportScreen })));
+const SalesBySalespersonReportScreen = lazy(() => import("./screens/reports/SalesReportsScreens").then((m) => ({ default: m.SalesBySalespersonReportScreen })));
+const SalesHubScreen = lazy(() => import("./screens/hubs/SalesHubScreen").then((m) => ({ default: m.SalesHubScreen })));
+const SalesInvoicesScreen = lazy(() => import("./screens/SalesInvoicesScreen").then((m) => ({ default: m.SalesInvoicesScreen })));
+const SalesQuotesScreen = lazy(() => import("./screens/sales-quotes").then((m) => ({ default: m.SalesQuotesScreen })));
+const SalesReturnsScreen = lazy(() => import("./screens/SalesReturnsScreen").then((m) => ({ default: m.SalesReturnsScreen })));
+const SequencesPage = lazy(() => import("./settings/SequencesPage").then((m) => ({ default: m.SequencesPage })));
+const SettingsGeneral = lazy(() => import("./settings/SettingsGeneral").then((m) => ({ default: m.SettingsGeneral })));
+const StockAdjustmentsScreen = lazy(() => import("./screens/StockAdjustmentsScreen").then((m) => ({ default: m.StockAdjustmentsScreen })));
+const StockBalanceScreen = lazy(() => import("./screens/StockBalanceScreen").then((m) => ({ default: m.StockBalanceScreen })));
+const StockTransfersScreen = lazy(() => import("./screens/StockTransfersScreen").then((m) => ({ default: m.StockTransfersScreen })));
+const SuppliersScreen = lazy(() => import("./screens/SuppliersScreen").then((m) => ({ default: m.SuppliersScreen })));
+const SystemStatusScreen = lazy(() => import("./screens/hubs/SystemStatusScreen").then((m) => ({ default: m.SystemStatusScreen })));
+const TaxesScreen = lazy(() => import("./screens/TaxesScreen").then((m) => ({ default: m.TaxesScreen })));
+const TopProductsReportScreen = lazy(() => import("./screens/reports/SalesReportsScreens").then((m) => ({ default: m.TopProductsReportScreen })));
+const TreasuryAccountsScreen = lazy(() => import("./screens/TreasuryAccountsScreen").then((m) => ({ default: m.TreasuryAccountsScreen })));
+const TreasuryHubScreen = lazy(() => import("./screens/hubs/TreasuryHubScreen").then((m) => ({ default: m.TreasuryHubScreen })));
+const TreasuryVouchersScreen = lazy(() => import("./screens/TreasuryVouchersScreen").then((m) => ({ default: m.TreasuryVouchersScreen })));
+const TrialBalanceReportScreen = lazy(() => import("./screens/TrialBalanceReportScreen").then((m) => ({ default: m.TrialBalanceReportScreen })));
+const VanSalesReportScreen = lazy(() => import("./screens/reports/FieldSalesReportsScreens").then((m) => ({ default: m.VanSalesReportScreen })));
+const VanTripsScreen = lazy(() => import("./screens/VanTripsScreen").then((m) => ({ default: m.VanTripsScreen })));
+const WarehousesPage = lazy(() => import("./settings/WarehousesPage").then((m) => ({ default: m.WarehousesPage })));
+const WebhooksPage = lazy(() => import("./settings/WebhooksPage").then((m) => ({ default: m.WebhooksPage })));
+const WorkOrdersScreen = lazy(() => import("./screens/WorkOrdersScreen").then((m) => ({ default: m.WorkOrdersScreen })));
+const WorkflowConfigPage = lazy(() => import("./settings/WorkflowConfigPage").then((m) => ({ default: m.WorkflowConfigPage })));
+const WritedownRunsScreen = lazy(() => import("./screens/WritedownRunsScreen").then((m) => ({ default: m.WritedownRunsScreen })));
+
+const AgingCustomersReportScreen = lazy(() => import("./screens/reports/AgingReportsScreens").then((m) => ({ default: m.AgingCustomersReportScreen })));
+const AgingSuppliersReportScreen = lazy(() => import("./screens/reports/AgingReportsScreens").then((m) => ({ default: m.AgingSuppliersReportScreen })));
+const InstallmentsOverviewReportScreen = lazy(() => import("./screens/reports/InstallmentsReportsScreens").then((m) => ({ default: m.InstallmentsOverviewReportScreen })));
+const InstallmentsOverdueReportScreen = lazy(() => import("./screens/reports/InstallmentsReportsScreens").then((m) => ({ default: m.InstallmentsOverdueReportScreen })));
+
+function ScreenLoading() {
+  return (
+    <div className="p-[24px]">
+      <SkeletonTable rows={6} columns={5} />
+    </div>
+  );
+}
+
 const ROUTABLE_SCREENS = {
   dashboard: DashboardScreen,
   "sales-hub": SalesHubScreen,
@@ -359,7 +379,19 @@ export function App() {
   const [intentTargets, setIntentTargets] = useState(0);
 
   useEffect(() => {
-    const onHashChange = () => setRoute(parseHash(window.location.hash, "dashboard"));
+    /**
+     * The route swap is a transition, not synchronous input.
+     *
+     * Every screen is a lazy chunk, so this setState can suspend. Left
+     * synchronous, React tears the CURRENT screen down and shows the fallback
+     * the instant a nav item is clicked — the user watches their populated
+     * list flash to a skeleton before the next screen arrives. Inside a
+     * transition, React keeps the current screen on display until the new
+     * chunk resolves, and only falls back if that takes long enough to be
+     * worth telling the user about.
+     */
+    const onHashChange = () =>
+      startTransition(() => setRoute(parseHash(window.location.hash, "dashboard")));
     window.addEventListener("hashchange", onHashChange);
     // Stamp the opening address so the first screen is linkable too.
     if (window.location.hash === "") window.location.replace(hashForRoute("dashboard"));
@@ -687,7 +719,14 @@ export function App() {
       onSelectWarehouse={setWarehouse}
     >
       <Breadcrumbs screen={activeScreen} />
-      {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
+      {ActiveRoutableScreen ? (
+        // Each screen is a separate chunk, so switching screens can suspend.
+        // The fallback is a skeleton rather than a spinner: the page frame is
+        // already on screen and only the content area is waiting.
+        <Suspense fallback={<ScreenLoading />}>
+          <ActiveRoutableScreen />
+        </Suspense>
+      ) : null}
 
       {activeScreen === "users" ? (
         <UsersPage

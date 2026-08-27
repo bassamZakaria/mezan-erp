@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mezan Element Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">
+
+<style>
+  :root {
+    --ground: #eceee9; --surface: #fbfcfa; --surface-2: #f2f4ef; --surface-3: #e4e8e1;
+    --rule: #d5dbd3; --rule-strong: #b4bfb6;
+    --ink: #0e1714; --ink-2: #4a574f; --ink-3: #728177;
+    --teal: #0c463e; --teal-on: #ffffff;
+    --gold: #9d7726; --gold-soft: #f0e6cc;
+    --danger: #ab3d2d; --danger-soft: #f7e3de;
+    --warn: #a4732a; --warn-soft: #f6ead2;
+    --ok: #2b7d55; --ok-soft: #dcefe4;
+    --shadow: 0 1px 2px rgba(14,30,24,.06), 0 8px 24px -16px rgba(14,30,24,.22);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #090f0d; --surface: #111815; --surface-2: #17201c; --surface-3: #1e2925;
+      --rule: #24312b; --rule-strong: #3a4d45;
+      --ink: #e9efec; --ink-2: #a2b2a9; --ink-3: #7b8c83;
+      --teal: #4fb69d; --teal-on: #04211c;
+      --gold: #d7ab55; --gold-soft: #2b2517;
+      --danger: #e0705c; --danger-soft: #331d19;
+      --warn: #d4a355; --warn-soft: #2b2416;
+      --ok: #5cbb87; --ok-soft: #14291f;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -18px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #090f0d; --surface: #111815; --surface-2: #17201c; --surface-3: #1e2925;
+    --rule: #24312b; --rule-strong: #3a4d45;
+    --ink: #e9efec; --ink-2: #a2b2a9; --ink-3: #7b8c83;
+    --teal: #4fb69d; --teal-on: #04211c;
+    --gold: #d7ab55; --gold-soft: #2b2517;
+    --danger: #e0705c; --danger-soft: #331d19;
+    --warn: #d4a355; --warn-soft: #2b2416;
+    --ok: #5cbb87; --ok-soft: #14291f;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -18px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: "IBM Plex Sans Arabic", "Segoe UI", system-ui, sans-serif;
+    font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin-inline: auto; padding-inline: 24px; }
+  h1, h2, h3, h4 { margin: 0; font-weight: 600; text-wrap: balance; letter-spacing: -.01em; }
+  p { margin: 0; }
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  code { font-size: .86em; background: var(--surface-3); padding: 1px 5px; border-radius: 3px; direction: ltr; display: inline-block; }
+  .eyebrow {
+    font-family: "IBM Plex Sans Condensed", sans-serif; font-weight: 700; font-size: 12px;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .beam { display: flex; align-items: center; margin-block-end: 20px; }
+  .beam::before { content: ""; height: 1px; width: 44px; background: var(--gold); }
+  .beam::after { content: ""; height: 1px; flex: 1; background: var(--rule); }
+
+  header.masthead { background: var(--surface); border-block-end: 1px solid var(--rule); padding-block: 52px 40px; }
+  .mark { display: flex; align-items: center; gap: 10px; color: var(--teal); margin-block-end: 18px; }
+  .mark svg { width: 24px; height: 24px; }
+  .mark span { font-family: "IBM Plex Sans Condensed", sans-serif; font-weight: 700; font-size: 12px; letter-spacing: .2em; text-transform: uppercase; }
+  h1 { font-size: clamp(32px, 4.6vw, 46px); line-height: 1.1; letter-spacing: -.025em; }
+  .lede { margin-block-start: 16px; max-width: 64ch; color: var(--ink-2); font-size: 16.5px; }
+
+  .score { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; margin-block-start: 36px; }
+  .score div { background: var(--surface); padding: 15px 16px; }
+  .score b { display: block; font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-size: 30px; font-weight: 500; line-height: 1.05; }
+  .score i { display: block; font-style: normal; font-size: 12.5px; color: var(--ink-3); margin-block-start: 5px; line-height: 1.35; }
+  .score .ok b { color: var(--ok); } .score .bad b { color: var(--danger); } .score .warn b { color: var(--warn); }
+
+  section { padding-block: 60px; border-block-end: 1px solid var(--rule); }
+  section:last-of-type { border-block-end: 0; }
+  .sec-head { margin-block-end: 30px; }
+  .sec-head h2 { font-size: clamp(23px, 3vw, 30px); margin-block-start: 8px; }
+  .sec-head .sub { margin-block-start: 12px; color: var(--ink-2); max-width: 70ch; }
+
+  /* root causes */
+  .causes { display: grid; gap: 14px; }
+  .cause { background: var(--surface); border: 1px solid var(--rule); border-inline-start: 3px solid var(--danger); border-radius: 4px; padding: 18px 20px; display: grid; gap: 8px; }
+  .cause.warn { border-inline-start-color: var(--warn); }
+  .cause.ok { border-inline-start-color: var(--ok); }
+  .cause .top { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+  .cause h3 { font-size: 17px; flex: 1; min-width: 240px; }
+  .blast { font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--danger); background: var(--danger-soft); border-radius: 2px; padding: 3px 8px; white-space: nowrap; }
+  .cause.warn .blast { color: var(--warn); background: var(--warn-soft); }
+  .cause.ok .blast { color: var(--ok); background: var(--ok-soft); }
+  .cause p { color: var(--ink-2); font-size: 14.5px; }
+  .cause .fix { font-size: 14.5px; color: var(--ink); border-block-start: 1px solid var(--rule); padding-block-start: 8px; }
+  .cause .fix b { color: var(--gold); font-weight: 600; }
+
+  /* filters + table */
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-block-end: 16px; }
+  .controls .lbl { font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin-inline-end: 4px; }
+  .fbtn {
+    font: inherit; font-size: 13.5px; color: var(--ink-2); background: var(--surface);
+    border: 1px solid var(--rule-strong); border-radius: 3px; padding: 7px 13px; cursor: pointer;
+    display: inline-flex; gap: 7px; align-items: center;
+  }
+  .fbtn:hover { border-color: var(--ink-3); color: var(--ink); }
+  .fbtn[aria-pressed="true"] { background: var(--teal); border-color: var(--teal); color: var(--teal-on); font-weight: 600; }
+  .fbtn .n { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; opacity: .8; }
+  .fbtn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  .tablewrap { border: 1px solid var(--rule); border-radius: 4px; overflow-x: auto; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 780px; }
+  th { text-align: start; font-size: 11.5px; font-family: "IBM Plex Sans Condensed", sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); background: var(--surface-2); padding: 10px 14px; border-block-end: 1px solid var(--rule); position: sticky; top: 0; z-index: 2; }
+  td { padding: 13px 14px; border-block-end: 1px solid var(--rule); vertical-align: top; font-size: 14.5px; }
+  tr:last-child td { border-block-end: 0; }
+  tbody tr:hover td { background: var(--surface-2); }
+  .el { font-weight: 600; white-space: nowrap; }
+  .el .fam { display: block; font-weight: 400; font-size: 11.5px; color: var(--ink-3); letter-spacing: .04em; }
+  .vd { font-family: "IBM Plex Sans Condensed", sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-radius: 2px; padding: 3px 8px; white-space: nowrap; }
+  .vd.keep { color: var(--ok); background: var(--ok-soft); }
+  .vd.fix { color: var(--warn); background: var(--warn-soft); }
+  .pr { font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .pr.P1 { color: var(--danger); } .pr.P2 { color: var(--warn); } .pr.P3 { color: var(--ink-3); }
+  td.find { color: var(--ink-2); }
+  td.find .src { display: block; font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--ink-3); margin-block-start: 3px; direction: ltr; }
+  td.fixcol { color: var(--ink); }
+  .clean { color: var(--ok); font-style: italic; }
+  .eff { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink-3); }
+  .empty-row td { text-align: center; color: var(--ink-3); padding-block: 30px; }
+
+  /* waves */
+  .waves { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+  .wave { background: var(--surface); padding: 18px 20px; display: grid; grid-template-columns: 130px 1fr; gap: 20px; }
+  .wave .w { font-family: "IBM Plex Sans Condensed", sans-serif; font-weight: 700; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); }
+  .wave h4 { font-size: 15.5px; margin-block-end: 5px; }
+  .wave p { font-size: 14px; color: var(--ink-2); }
+  .wave .yield { font-size: 13px; color: var(--ink); margin-block-start: 7px; }
+  .wave .yield b { color: var(--ok); font-weight: 600; }
+
+  .note { background: var(--gold-soft); border: 1px solid var(--gold); border-inline-start-width: 3px; border-radius: 3px; padding: 14px 18px; font-size: 14.5px; margin-block-end: 26px; }
+  .closing { padding-block: 50px 60px; }
+  .closing p { color: var(--ink-2); max-width: 70ch; }
+  .closing p + p { margin-block-start: 14px; }
+
+  @media (max-width: 720px) {
+    .wave { grid-template-columns: 1fr; gap: 6px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap">
+    <div class="mark">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <path d="M16 5v22M9 27h14"></path><path d="M5 10h22"></path>
+        <path d="M2.5 18a4.5 4.5 0 0 0 9 0l-4.5-8z"></path><path d="M20.5 18a4.5 4.5 0 0 0 9 0l-4.5-8z"></path>
+      </svg>
+      <span>Mezan ERP · Element Audit</span>
+    </div>
+    <h1>Every element, judged against the person who uses it</h1>
+    <p class="lede">
+      Fifty-six elements — every primitive, shell part, overlay and print component the product renders through —
+      audited across four lenses: visual design, information design, accessibility, and the everyday operator.
+      Every finding cites the line it was read from, and the load-bearing ones were re-verified by hand.
+    </p>
+
+    <div class="score" id="score"></div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section>
+    <div class="sec-head">
+      <div class="beam"></div>
+      <p class="eyebrow">What the audit actually found</p>
+      <h2>Thirty-odd findings, seven causes</h2>
+      <p class="sub">
+        Almost nothing here is a one-off mistake. The individual findings collapse into a handful of root causes,
+        and fixing a cause fixes every element downstream of it — which is why the fix plan is much shorter than
+        the finding list.
+      </p>
+    </div>
+
+    <div class="causes">
+      <div class="cause">
+        <div class="top">
+          <h3>One constant sets nearly every control below the touch minimum</h3>
+          <span class="blast">40 of 48 controls on one screen</span>
+        </div>
+        <p>
+          <code>CONTROL_SIZE.md</code> is <code>min-h-[38px]</code> (<code>form.tsx:20-23</code>), and it is the base
+          that <code>TextInput</code>, <code>Select</code> and <code>SearchInput</code> all inherit. Around it sit
+          independently-sized controls that never got the memo: <code>Button</code> md ≈36px, <code>IconButton</code>
+          37×37, <code>ChromeIconButton</code> 36×36 (which backs five topbar controls), <code>RowMenu</code> 28×28,
+          <code>QtyInput</code> steppers 26×26, <code>Checkbox</code> 17×17, <code>AccountTree</code>'s expander 18×18.
+          Measured live: <b>40 of 48</b> controls on the invoice list and <b>27 of 34</b> on the dashboard are under 44px.
+        </p>
+        <p class="fix"><b>Fix:</b> raise the shared constant, then sweep the eight controls that size themselves independently. One change carries most of the app; the sweep is mechanical.</p>
+      </div>
+
+      <div class="cause">
+        <div class="top">
+          <h3>Three overlays claim to be modal and aren't</h3>
+          <span class="blast">62 screens</span>
+        </div>
+        <p>
+          <code>SidePanel</code> sets <code>role="dialog" aria-modal="true"</code> but never moves focus into itself,
+          never traps Tab, and never hides the page behind it from a screen reader
+          (<code>SidePanel.tsx:41-53</code>). <code>CommandPalette</code> and <code>NotificationsPanel</code> have the
+          same shape of gap. A keyboard user tabs straight out of an open dialog into the dimmed page underneath.
+        </p>
+        <p class="fix"><b>Fix:</b> <code>ConfirmDialog</code> — built yesterday — already does all three correctly, including focusing Cancel rather than Confirm on destructive actions. Copy it into the other three. This is not new design work.</p>
+      </div>
+
+      <div class="cause">
+        <div class="top">
+          <h3>The numeral system splits down the middle of every form</h3>
+          <span class="blast">Every money and quantity field</span>
+        </div>
+        <p>
+          Read-only figures go through <code>useFormat()</code> and honour the tenant's chosen numeral system.
+          The <em>inputs</em> do not: <code>MoneyInput</code> calls <code>formatMoney(value)</code> bare
+          (<code>MoneyInput.tsx:47</code>) and <code>QtyInput</code> renders <code>String(value)</code>
+          (<code>QtyInput.tsx:75</code>), while <code>formatNumber</code> defaults to
+          <code>numerals = "western"</code> (<code>lib/format.ts:40</code>). Pick Arabic-Indic numerals and the label
+          reads ٤٤٬٢٠٠ while the box beneath it reads 44,200. Live, the dashboard already has
+          <b>15 components</b> mixing both systems.
+        </p>
+        <p class="fix"><b>Fix:</b> route both inputs through the shared numerals context, the same way <code>Money</code> and <code>Qty</code> already do.</p>
+      </div>
+
+      <div class="cause">
+        <div class="top">
+          <h3>The busiest control in the product is invisible until you hover</h3>
+          <span class="blast">64 list screens</span>
+        </div>
+        <p>
+          The row-action cell in <code>DocumentList</code> is <code>opacity-0</code> until
+          <code>group-hover/row</code> (<code>DocumentList.tsx:461</code>). It is the only hover-only reveal in the
+          entire codebase — and it is on every row of every list. Underneath it sits a 28×28px
+          <code>RowMenu</code> trigger, so the control is both hidden and tiny.
+        </p>
+        <p class="fix"><b>Fix:</b> one line. Give the cell a resting visible state instead of zero opacity, and grow the trigger.</p>
+      </div>
+
+      <div class="cause warn">
+        <div class="top">
+          <h3>Charts encode meaning in hue alone — and one drops a minus sign</h3>
+          <span class="blast">Reports and dashboard</span>
+        </div>
+        <p>
+          <code>DonutChart</code> wedges and legend swatches are identically-shaped colour dots
+          (<code>charts.tsx:283-307</code>); <code>TrendChart</code> separates series by stroke colour only
+          (<code>charts.tsx:150-187</code>). Worse than styling: <code>ReportChart</code>'s pie view feeds
+          <code>Math.abs(point.value)</code> into the donut (<code>ReportChart.tsx:121</code>), so a refund renders
+          identical to a sale — the same figure the bar and table views show correctly with its sign.
+        </p>
+        <p class="fix"><b>Fix:</b> the sign-dropping is a correctness bug, not a design one — fix it first. Then give each series a shape, dash or marker so identity survives without colour.</p>
+      </div>
+
+      <div class="cause warn">
+        <div class="top">
+          <h3>Copy that describes the codebase, on the product surface</h3>
+          <span class="blast">4 architecture strings, 6 state diagrams</span>
+        </div>
+        <p>
+          The sales-invoice subtitle naming its own service class was one instance of a habit. Still shipping:
+          «سجل القيود المحاسبية — مسودة ← بانتظار الموافقة ← مرحل ← معكوس، على المحرك المحاسبي الحقيقي» and
+          «سندات القبض والصرف والتحويل — مستند موحّد بـ11 نوعاً على إطار المستندات». Refusals state the rule without
+          the remedy: «لا يمكن تسجيل دفعة في حالة الفاتورة الحالية» never says "confirm the invoice first". And
+          <code>(queued)</code> sits in English inside an Arabic sentence.
+        </p>
+        <p class="fix"><b>Fix:</b> rewrite ten strings. A page subtitle says what the screen is for; a refusal says what to do next.</p>
+      </div>
+
+      <div class="cause warn">
+        <div class="top">
+          <h3>The POS receipt is fully configurable and wired to nothing</h3>
+          <span class="blast">Silent</span>
+        </div>
+        <p>
+          <code>posReceipt</code> is defined in <code>types.ts:103,152</code> and fully editable in Settings —
+          title, tax number, customer name, thank-you text (<code>PrintTemplatesPage.tsx:321-324</code>). No renderer
+          reads it. A shop owner configures their receipt and nothing they change ever reaches paper. Alongside it:
+          printed invoices carry no e-invoice QR or UUID, the company logo loads from a remote URL in an
+          offline-first product, and <code>printToPdf</code> has no <code>.catch</code>, so a failed save is silent.
+        </p>
+        <p class="fix"><b>Fix:</b> build the narrow-receipt renderer that consumes the config, or remove the settings tab. Shipping a control that does nothing is worse than not shipping it.</p>
+      </div>
+
+      <div class="cause ok">
+        <div class="top">
+          <h3>What came back clean</h3>
+          <span class="blast">19 elements, no findings</span>
+        </div>
+        <p>
+          No colour literals anywhere — every utility resolves to a real token in both themes. No page scrolls
+          sideways at 125% zoom. Wide tables scroll inside their own container with a sticky header and a sticky
+          totals row. <code>DisclosureChevron</code> mirrors via <code>[dir="rtl"]</code> rather than a hardcoded
+          transform. <code>Kbd</code> isolates Latin so an Arabic screen reader doesn't try to pronounce "Ctrl+K".
+          <code>StatusPill</code> pairs a dot with a word. <code>ConfirmDialog</code> is a model implementation.
+        </p>
+        <p class="fix"><b>Read this as:</b> the foundations are sound. What's wrong is concentrated and mechanical, not architectural.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <div class="beam"></div>
+      <p class="eyebrow">Element by element</p>
+      <h2>All 56, with the evidence</h2>
+      <p class="sub">
+        Filter by verdict or priority. P1 means it blocks a non-technical, keyboard or screen-reader user from
+        doing their job; effort is S / M / L against the shared primitive, not per screen.
+      </p>
+    </div>
+
+    <div class="controls" id="filters"></div>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Element</th>
+            <th scope="col">Verdict</th>
+            <th scope="col">What's wrong</th>
+            <th scope="col">Enhancement</th>
+            <th scope="col">Effort</th>
+            <th scope="col">Priority</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <div class="beam"></div>
+      <p class="eyebrow">The plan</p>
+      <h2>Four waves, cheapest leverage first</h2>
+      <p class="sub">
+        Ordered by how much of the product each wave moves per unit of work, not by where the findings happened
+        to be listed.
+      </p>
+    </div>
+
+    <div class="note">
+      Wave 1 is roughly a day and repairs the majority of the P1 list, because almost all of it lives in shared
+      primitives rather than in the ~90 screens that render through them.
+    </div>
+
+    <div class="waves">
+      <div class="wave">
+        <div class="w">Wave 1 · Touch</div>
+        <div>
+          <h4>Raise the size floor once, then sweep the strays</h4>
+          <p>
+            <code>CONTROL_SIZE.md</code> to 44px, which carries <code>TextInput</code>, <code>Select</code> and
+            <code>SearchInput</code> with it. Then the eight controls that size themselves: <code>Button</code>,
+            <code>IconButton</code>, <code>ChromeIconButton</code>, <code>RowMenu</code>, <code>QtyInput</code>
+            steppers, <code>Checkbox</code>, <code>AccountTree</code>'s expander, <code>DateRangeFilter</code>
+            presets — plus my own pin button, which is 44 tall and 36 wide and fails the rule I wrote.
+          </p>
+          <p class="yield"><b>Moves:</b> every screen in the product, in one commit.</p>
+        </div>
+      </div>
+
+      <div class="wave">
+        <div class="w">Wave 2 · Truth</div>
+        <div>
+          <h4>Fix what misstates a number or hides a control</h4>
+          <p>
+            The <code>Math.abs</code> sign-drop in the pie view. The numerals split between display and input.
+            The hover-hidden row action. These are correctness, not polish — a report that quietly turns a refund
+            into a sale costs more trust than every styling defect on this page combined.
+          </p>
+          <p class="yield"><b>Moves:</b> 64 list screens and every report with a pie view.</p>
+        </div>
+      </div>
+
+      <div class="wave">
+        <div class="w">Wave 3 · Focus</div>
+        <div>
+          <h4>Make the three fake modals real</h4>
+          <p>
+            Port <code>ConfirmDialog</code>'s focus trap, focus-on-open and focus-restore into
+            <code>SidePanel</code>, <code>CommandPalette</code> and <code>NotificationsPanel</code>. Give
+            <code>TopbarMenu</code> either real arrow-key menu semantics or an honest non-menu role, and add
+            <code>tabIndex={-1}</code> to combobox options so Tab stops walking into the listbox.
+          </p>
+          <p class="yield"><b>Moves:</b> 62 drawer screens plus the whole shell, for keyboard-first data entry.</p>
+        </div>
+      </div>
+
+      <div class="wave">
+        <div class="w">Wave 4 · Words &amp; paper</div>
+        <div>
+          <h4>Say what the screen does; make the printer honest</h4>
+          <p>
+            Rewrite the ten worst strings — subtitles that describe the code, refusals with no remedy, the English
+            leaking into Arabic. Then print: build the receipt renderer that consumes <code>posReceipt</code> or
+            drop the settings tab, embed the logo as a data URI so it survives offline, add the e-invoice QR, and
+            catch the PDF failure instead of swallowing it.
+          </p>
+          <p class="yield"><b>Moves:</b> the first impression, and the one artefact the customer keeps.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="closing">
+    <div class="beam"></div>
+    <p>
+      The headline is not that 37 elements need work. It is that <b>19 came back clean</b>, no element needs
+      replacing, and every remaining defect traces to seven causes — one shared constant, one copied focus
+      pattern, one formatting context, one line of CSS, one <code>Math.abs</code>, ten strings, and one config
+      object nothing reads.
+    </p>
+    <p>
+      That is a good result for a product this size. It means the work ahead is a sweep, not a rebuild — and that
+      the ground rules can be enforced by review from here on, because there is nothing structural standing in
+      their way.
+    </p>
+  </div>
+</main>
+
+<script>
+  var DATA = [
+    // family: form
+    { el: "Button", fam: "Atoms", v: "fix", p: "P1", e: "M", f: "sm/md heights compute to ~30/36px — under the 44px floor for every button in the app", src: "atoms.tsx:26-29", fix: "Raise md to min-h-[44px]; keep sm for dense inline table controls only, never a screen's primary action." },
+    { el: "IconButton", fam: "Atoms", v: "fix", p: "P1", e: "M", f: "Fixed 37×37px, and carries no visible word — only aria-label, so a sighted first-timer gets shape alone", src: "atoms.tsx:55-57,67", fix: "Grow to 44×44 and pair the glyph with a persistent visible caption rather than a hover title." },
+    { el: "TextInput", fam: "Form", v: "fix", p: "P1", e: "M", f: "controlClassName md is min-h-[38px] — the base every text field, Select trigger and SearchInput inherits", src: "form.tsx:20-23", fix: "Raise md to 44px in controlClassName; the fix cascades to three controls at once." },
+    { el: "SearchInput", fam: "Form", v: "fix", p: "P1", e: "S", f: "Inherits the same sub-44px height from CONTROL_SIZE", src: "form.tsx:228", fix: "Resolved automatically by the controlClassName fix." },
+    { el: "Select", fam: "Form", v: "fix", p: "P1", e: "M", f: "Sub-44px trigger, and the chrome variant has outline-none with no focus-visible rule — keyboard focus is invisible in the rail", src: "Select.tsx:49-52,372,380", fix: "Raise SIZE_CLASS.md to 44px; add focus-visible:border-chrome-accent to the chrome branch." },
+    { el: "Switch", fam: "Form", v: "fix", p: "P1", e: "M", f: "22×38px toggle, and label only sets aria-label — a sighted user gets colour and shape but no word", src: "form.tsx:190,195", fix: "Pad the hit area to 44×44 without growing the thumb; require a visible on/off word at the call site." },
+    { el: "MoneyInput", fam: "Form", v: "fix", p: "P1", e: "M", f: "No min-h (~34-36px), no invalid prop, and formats via bare formatMoney so it ignores the tenant's numeral system", src: "MoneyInput.tsx:47,60-62", fix: "Add min-h-[44px] and an invalid prop; read numerals from useFormat() as Money already does." },
+    { el: "QtyInput", fam: "Form", v: "fix", p: "P1", e: "M", f: "26×26px steppers — the smallest target in the set, used on every line item; no focus indicator; renders String(value), bypassing numerals and formatQty", src: "QtyInput.tsx:64,75,79,88", fix: "44×44 steppers, focus-within:border-brand on the wrapper, and format through the shared numerals context." },
+    { el: "EntityPicker", fam: "Form", v: "fix", p: "P1", e: "M", f: "Sub-44px, no invalid prop, and no chevron or search icon — it reads as a plain text box, the exact confusion this control exists to prevent", src: "EntityPicker.tsx:86-111", fix: "Add min-h-[44px], a trailing picker affordance, and an invalid prop wired to border-danger." },
+    { el: "DateRangeFilter", fam: "Form", v: "fix", p: "P1", e: "S", f: "Preset buttons ~28px tall — and Segmented was modelled on this very pattern, got the 44px fix, and it was never propagated back", src: "DateRangeFilter.tsx:42-45", fix: "Copy Segmented's min-h-[44px] sizing onto the presets." },
+    { el: "Checkbox", fam: "Form", v: "fix", p: "P2", e: "S", f: "17×17px native box; the label only extends the hit area when a label prop is actually passed", src: "form.tsx:125,132", fix: "Pad the target to 44×44 whether or not a label is supplied." },
+    { el: "Chip", fam: "Atoms", v: "keep", p: "", e: "", f: "", src: "atoms.tsx:135-153", fix: "" },
+    { el: "Segmented", fam: "Atoms", v: "keep", p: "", e: "", f: "", src: "atoms.tsx:173-197", fix: "" },
+    { el: "Card", fam: "Atoms", v: "keep", p: "", e: "", f: "", src: "atoms.tsx:81-88", fix: "" },
+    { el: "StatCard", fam: "Atoms", v: "keep", p: "", e: "", f: "", src: "atoms.tsx:238-277", fix: "" },
+    { el: "StatusPill", fam: "Atoms", v: "keep", p: "", e: "", f: "", src: "atoms.tsx:104-124", fix: "" },
+    { el: "Money", fam: "Atoms", v: "keep", p: "", e: "", f: "", src: "atoms.tsx:212-220", fix: "" },
+    { el: "Qty", fam: "Atoms", v: "keep", p: "", e: "", f: "", src: "atoms.tsx:229-232", fix: "" },
+    { el: "MicroBeam", fam: "Atoms", v: "keep", p: "", e: "", f: "", src: "beams.tsx:38", fix: "" },
+    { el: "Field", fam: "Form", v: "keep", p: "", e: "", f: "", src: "form.tsx:56-57", fix: "" },
+    { el: "TextArea", fam: "Form", v: "keep", p: "", e: "", f: "", src: "form.tsx:91-96", fix: "" },
+
+    // family: data
+    { el: "DocumentList", fam: "Data", v: "fix", p: "P1", e: "M", f: "Row action is opacity-0 until hover — the only hover-only reveal in the codebase, on every row of 64 screens; row-action and pager buttons under 44px; no sticky identifying column", src: "DocumentList.tsx:383,461,471,548", fix: "Give the action cell a resting visible state; raise both button sizes to 44px; make the first column sticky." },
+    { el: "RowMenu", fam: "Data", v: "fix", p: "P1", e: "S", f: "28×28px trigger — the one exposed per-row control in most lists — and it sits inside the hover-hidden cell above", src: "RowMenu.tsx:98", fix: "Grow the hit area to 44×44 while keeping the 15px glyph." },
+    { el: "AccountTree", fam: "Data", v: "fix", p: "P1", e: "S", f: "The expand/collapse toggle — the control the chart-of-accounts screen exists for — is an 18×18px target", src: "AccountTree.tsx:66,108", fix: "Wrap the 9px chevron in a 44×44 button and sticky the first column." },
+    { el: "ReportChart", fam: "Data", v: "fix", p: "P2", e: "M", f: "Pie view feeds Math.abs(point.value) into the donut, so a refund renders identical to a sale; toggles ~20px tall", src: "ReportChart.tsx:72-86,121", fix: "Keep the sign — hide or badge negatives rather than silently absolutising; raise toggles to 44px." },
+    { el: "DonutChart", fam: "Data", v: "fix", p: "P2", e: "M", f: "Wedges and legend swatches are identically-shaped colour dots — a colour-blind reader cannot map segment to legend", src: "charts.tsx:283-307", fix: "Add a per-wedge hatch or numbered badge so identity survives without hue." },
+    { el: "TrendChart", fam: "Data", v: "fix", p: "P2", e: "M", f: "Series separated by stroke colour only; markers are identical circles and the one dash pattern encodes something else", src: "charts.tsx:150-187", fix: "Give each series a distinct dash or marker shape." },
+    { el: "ReportRunner", fam: "Data", v: "fix", p: "P2", e: "S", f: "Quick-period chips ~24px tall despite being the main way to set a report's date range; no sticky first column", src: "ReportRunner.tsx:414-419,518", fix: "Raise chips to 44px; sticky the first column of the results table." },
+    { el: "PermissionMatrix", fam: "Data", v: "fix", p: "P2", e: "M", f: "Renders raw Latin dot-notation codes (sales.invoices.create) as product-surface text; module select-all is a bare 17px checkbox", src: "PermissionMatrix.tsx:128,217,220", fix: "Lead with the Arabic permission name and demote the code to a mono subtitle; make the whole module header row clickable." },
+    { el: "DocumentDetail", fam: "Data", v: "fix", p: "P2", e: "S", f: "Tab buttons ~40px tall — the screen's primary content-switching control sits just under the floor", src: "DocumentDetail.tsx:141-146", fix: "Add min-h-[44px] and rebalance the vertical padding." },
+    { el: "ListViews", fam: "Data", v: "keep", p: "", e: "", f: "", src: "ListViews.tsx:45", fix: "" },
+    { el: "AppliedFilters", fam: "Data", v: "keep", p: "", e: "", f: "", src: "ListViews.tsx:98", fix: "" },
+    { el: "DocumentStatusStepper", fam: "Data", v: "keep", p: "", e: "", f: "", src: "DocumentStatusStepper.tsx", fix: "" },
+    { el: "EmptyState", fam: "Data", v: "keep", p: "", e: "", f: "", src: "atoms.tsx:304-323", fix: "" },
+    { el: "Skeleton", fam: "Data", v: "keep", p: "", e: "", f: "", src: "feedback.tsx:365-414", fix: "" },
+    { el: "SkeletonTable", fam: "Data", v: "keep", p: "", e: "", f: "", src: "feedback.tsx:365-414", fix: "" },
+    { el: "VarianceBeam", fam: "Data", v: "keep", p: "", e: "", f: "", src: "charts.tsx", fix: "" },
+
+    // family: shell
+    { el: "SidePanel", fam: "Shell", v: "fix", p: "P1", e: "M", f: "Declares role=dialog aria-modal but never focuses into itself, never traps Tab, and never aria-hides the page behind — across 62 screens", src: "SidePanel.tsx:32-53", fix: "Port ConfirmDialog's trap, focus-on-open and background aria-hidden verbatim." },
+    { el: "CommandPalette", fam: "Shell", v: "fix", p: "P1", e: "M", f: "No Tab trap at all, focus never restored to the opener, and option rows are independently tabbable inside an arrow-key widget", src: "CommandPalette.tsx:70-118", fix: "Add the previousFocusRef + Tab-wrap pattern; give options tabIndex={-1}." },
+    { el: "NotificationsPanel", fam: "Shell", v: "fix", p: "P1", e: "M", f: "Modal role with Escape only — no trap, no focus in or out; the الكل/غير مقروء pair behaves as tabs with no tab semantics", src: "NotificationsPanel.tsx:55-101", fix: "Same focus fix; make the pair a real tablist with arrow-key switching." },
+    { el: "Topbar", fam: "Shell", v: "fix", p: "P2", e: "S", f: "ChromeIconButton is fixed at 36×36 and backs five controls users hit constantly — language, theme, bell, gear, user", src: "Topbar.tsx:53-61", fix: "Raise to 44×44, or pad the hit area with a transparent border." },
+    { el: "TopbarMenu", fam: "Shell", v: "fix", p: "P2", e: "M", f: "Uses role=menu/menuitem but implements no arrow-key navigation and never focuses the first item — it contradicts what a screen reader announces", src: "TopbarMenu.tsx:54-78", fix: "Either implement real roving-focus menu semantics or downgrade to role=group with plain buttons." },
+    { el: "CommandBar", fam: "Shell", v: "fix", p: "P2", e: "S", f: "Listbox options lack tabIndex={-1}, so Tab lands in the list and undermines the aria-activedescendant pattern the widget otherwise implements correctly", src: "CommandBar.tsx:135-154", fix: "Add tabIndex={-1} to each option so focus stays on the input." },
+    { el: "Sidebar", fam: "Shell", v: "fix", p: "P2", e: "S", f: "Rail toggle is 30×30, and the new pin button is 44 tall but only 36 wide — failing the rule this very revamp introduced", src: "Sidebar.tsx:320-333,381-390", fix: "Both to 44×44. The rest of the rail already clears the bar." },
+    { el: "ScopeSwitchers", fam: "Shell", v: "fix", p: "P2", e: "S", f: "Collapsed-rail trigger is forced to 30×30 by an arbitrary-variant override", src: "ScopeSwitcher.tsx:22-44", fix: "Raise the collapsed trigger to 44×44." },
+    { el: "ToastProvider", fam: "Shell", v: "fix", p: "P3", e: "S", f: "The inline تراجع (undo) action is a bare text button with no min-height, unlike the dismiss button beside it", src: "feedback.tsx:130-139", fix: "Give undo the same 44px treatment as dismiss." },
+    { el: "ConfirmDialog", fam: "Shell", v: "keep", p: "", e: "", f: "", src: "feedback.tsx:285-322", fix: "" },
+    { el: "AppShell", fam: "Shell", v: "keep", p: "", e: "", f: "", src: "AppShell.tsx", fix: "" },
+    { el: "BrandMark", fam: "Shell", v: "keep", p: "", e: "", f: "", src: "Sidebar.tsx:372-374", fix: "" },
+    { el: "Kbd", fam: "Shell", v: "keep", p: "", e: "", f: "", src: "Kbd.tsx:28-41", fix: "" },
+    { el: "DisclosureChevron", fam: "Shell", v: "keep", p: "", e: "", f: "", src: "tokens.css:323-329", fix: "" },
+
+    // family: print
+    { el: "PrintView", fam: "Print", v: "fix", p: "P1", e: "M", f: "No e-invoice QR or UUID anywhere in the print model, despite the app shipping an ETA screen; and the logo loads from a remote URL in an offline-first product", src: "types.ts:235-251; PrintView.tsx:95-106", fix: "Add a qrPayload/eInvoiceUuid block near the totals; store the logo as an uploaded data URI." },
+    { el: "PrintToolbar", fam: "Print", v: "fix", p: "P1", e: "M", f: "The whole posReceipt config is editable in Settings and read by no renderer; and printToPdf has no .catch, so a failed save is completely silent", src: "PrintView.tsx:36; PrintToolbar.tsx:23-25", fix: "Build the narrow-receipt renderer that consumes posReceipt — or remove the tab — and surface print failures as a toast." },
+    { el: "Barcode128", fam: "Print", v: "fix", p: "P2", e: "S", f: "Returns null for any character outside 32-126, so a label prints with a blank hole where the scan code should be", src: "Barcode128.tsx:51-56,87", fix: "Render a visible dashed box reading «باركود غير صالح» instead of nothing." },
+    { el: "LabelSheetView", fam: "Print", v: "fix", p: "P2", e: "S", f: "An entry missing a price or barcode is silently skipped mid-sheet — discovered only after 40 labels are cut", src: "LabelSheetView.tsx:110-178", fix: "Flag incomplete entries on screen before the print button is enabled." },
+    { el: "useElectronPrintToPdf", fam: "Print", v: "keep", p: "P3", e: "S", f: "", src: "useElectronPrintToPdf.ts:44-47", fix: "" }
+  ];
+
+  var state = { v: "all", p: "all" };
+
+  function counts() {
+    var c = { total: DATA.length, keep: 0, fix: 0, P1: 0, P2: 0, P3: 0 };
+    DATA.forEach(function (d) {
+      if (d.v === "keep") c.keep += 1; else c.fix += 1;
+      if (d.p) c[d.p] += 1;
+    });
+    return c;
+  }
+
+  function renderScore() {
+    var c = counts();
+    document.getElementById("score").innerHTML =
+      '<div><b>' + c.total + '</b><i>elements audited across four lenses</i></div>' +
+      '<div class="ok"><b>' + c.keep + '</b><i>came back clean, no findings</i></div>' +
+      '<div class="warn"><b>' + c.fix + '</b><i>need work — none need replacing</i></div>' +
+      '<div class="bad"><b>' + c.P1 + '</b><i>P1: blocks someone from doing their job</i></div>' +
+      '<div><b>7</b><i>root causes behind all of it</i></div>';
+  }
+
+  function renderFilters() {
+    var c = counts();
+    var groups = [
+      { key: "v", label: "Verdict", opts: [["all", "All", c.total], ["fix", "Needs work", c.fix], ["keep", "Clean", c.keep]] },
+      { key: "p", label: "Priority", opts: [["all", "Any", ""], ["P1", "P1", c.P1], ["P2", "P2", c.P2], ["P3", "P3", c.P3]] }
+    ];
+    var html = "";
+    groups.forEach(function (g) {
+      html += '<span class="lbl">' + g.label + '</span>';
+      g.opts.forEach(function (o) {
+        html += '<button type="button" class="fbtn" data-group="' + g.key + '" data-value="' + o[0] + '" aria-pressed="' +
+          (state[g.key] === o[0]) + '">' + o[1] + (o[2] !== "" ? ' <span class="n">' + o[2] + '</span>' : '') + '</button>';
+      });
+    });
+    document.getElementById("filters").innerHTML = html;
+  }
+
+  function renderRows() {
+    var rows = DATA.filter(function (d) {
+      if (state.v !== "all" && d.v !== state.v) return false;
+      if (state.p !== "all" && d.p !== state.p) return false;
+      return true;
+    });
+    var order = { P1: 0, P2: 1, P3: 2, "": 3 };
+    rows.sort(function (a, b) { return (order[a.p] - order[b.p]) || a.el.localeCompare(b.el); });
+
+    if (!rows.length) {
+      document.getElementById("rows").innerHTML = '<tr class="empty-row"><td colspan="6">Nothing matches that combination.</td></tr>';
+      return;
+    }
+    document.getElementById("rows").innerHTML = rows.map(function (d) {
+      return '<tr>' +
+        '<td class="el">' + d.el + '<span class="fam">' + d.fam + '</span></td>' +
+        '<td><span class="vd ' + d.v + '">' + (d.v === "keep" ? "Clean" : "Fix") + '</span></td>' +
+        '<td class="find">' + (d.f ? d.f : '<span class="clean">No findings.</span>') +
+          '<span class="src">' + d.src + '</span></td>' +
+        '<td class="fixcol">' + (d.fix || '<span class="clean">—</span>') + '</td>' +
+        '<td class="eff">' + (d.e || "—") + '</td>' +
+        '<td class="pr ' + d.p + '">' + (d.p || "—") + '</td>' +
+        '</tr>';
+    }).join("");
+  }
+
+  document.getElementById("filters").addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".fbtn");
+    if (!btn) return;
+    state[btn.getAttribute("data-group")] = btn.getAttribute("data-value");
+    renderFilters();
+    renderRows();
+  });
+
+  renderScore();
+  renderFilters();
+  renderRows();
+</script>
+
+</body>
+</html>

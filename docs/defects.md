@@ -39,10 +39,22 @@ through as "oh, that's the known one".
 
 ## Open
 
-**Nothing is open.** Every defect filed — D1 through D58 — is in the Fixed table
-below, and `pnpm scenarios` passes 3740 assertions with all four invariants at
-exactly zero on the seeded tenant: trial balance, inventory vs GL 1200, AP vs
-GL 2100, AR vs GL 1105.
+**One cosmetic defect is open** (D62): a matched statement line labels its entry
+with the raw journal-entry UUID («القيد: 13364877-c819-4a98-…»), truncated, where
+the entry NUMBER belongs. The picker that chooses the entry shows JE-000038 and
+its memo; the line that results from choosing it does not, because
+`StatementLine` stores only `matchedEntryId` and the reconciliation module has no
+port that resolves an entry number. Cosmetic — the stored id is the real entry's
+id, and matching, unmatching and finalizing are unaffected. Fixing it properly
+means giving `TreasuryLedgerReader` (or the line serializer) a way to read entry
+numbers; the shortcut — dropping the "already matched" exclusion from
+`/candidates` so the client can build a label map — would trade a server-side
+guard for a label, so it was not taken.
+
+Everything else filed — D1 through D61 — is in the Fixed table below, and
+`pnpm scenarios` passes 3740 assertions with all four invariants at exactly zero
+on the seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs
+GL 1105.
 
 This table used to carry 23 rows that the Fixed table ALSO carried — a defect
 was moved without being removed, so the register said 32 open while its own
@@ -191,6 +203,10 @@ hears about.
 checks every colour utility against the compiled stylesheet.
 | F117 | **Every operational report rendered the Arabic name of an item, customer or supplier unconditionally** (D57). D46 had given the three financial statements a `nameEn`; the ~20 operational reports were not touched, so the whole reports section printed Arabic names in the English UI. Each affected row type now carries the English name its record stores, and `ReportScreen` swaps the pair over in ONE place rather than in twenty column definitions the server owns. Two reports build from invoice LINES, which store only the Arabic snapshot they were written with, so those take the English name from the item/customer catalogue the route now passes. Found while fixing: the table renders `groups[].rows`, not `rows`, so swapping only the top level left the chart in English and the table beneath it in Arabic. Verified live: "Sales by item" chart and table both read White Rice 5kg / Black Tea 500g, and the dashboard's top-sellers and reorder tile with them | this commit |
 | F118 | **A warehouse had no English name at all** (D58) — the record carried one `name`, so there was nothing to read, exactly as D51 for treasury accounts. `nameEn` added end to end: domain type and create input, SQLite column, wire contract, the warehouse form and its search, and the four seeded warehouses. Every warehouse label — the pickers, the document-effects sentence, and the top bar's scope selector — now reads it. Verified live: the scope selector lists Main Warehouse / Goods in Transit / Delivery Van 1 | this commit |
+| F119 | **Year-end close had no screen** (D59) — `closeFiscalYear`, `POST /gl/year-end-close` and the permission gate were all in place and nothing in the UI ever called them, so the entry that states the year's result could only be posted from outside the product. The close steps 1–4 (close / reopen / lock a period) had screens; step 5 did not. `YearEndCloseCard` on الفترات المالية now previews what the entry would post — through the SAME `planYearEndClose` the close runs, so the preview cannot disagree with the entry — takes a picked الأرباح المرحلة account (defaulting to 3900 but never assuming it), warns about periods still open, and posts behind a confirm. Once posted it shows the entry instead of the button, because the close is idempotent by `YEAR-CLOSE:<year>` and that entry's existence IS the closed flag. Verified live on the seeded tenant: 44,200.00 revenue and 194,779.36 expenses swept across 14 accounts, JE-000057 dated 2026-12-31, debits = credits = 195,377.36, every P&L account flat afterwards, the state surviving a reload, and a second close refused with «السنة المالية 2026 مقفلة بالفعل» | this commit |
+| F120 | **Bank reconciliation had never run end to end** (D60) — screen, routes and engine all existed and `/bank-statements` returned an empty list on every seeded tenant, so nothing in import → match → review → finalize had been exercised once, and the surface was not even in `scripts/smoke.ts`'s path list for `check:seed` to catch. `demo-seed/treasury.ts` now imports a August-2026 statement DERIVED from the bank GL account's own posted movements, with three deliberate differences so the reconciliation is one: two movements carry the bank's value date two days late (matched through the ±5-day tolerance, not trivially), two charges the books never saw stay unmatched, and the last book movement is left off the statement. Seeded state: 7 lines, 5 auto-matched, 71%, قيد التسوية. Verified live: auto-match, manual match, unmatch, finalize, and a second finalize refused with 409 | this commit |
+| F121 | **Manual match asked the user to TYPE a journal-entry id** (D61) — a free-text box on a field naming a domain entity, the same shape as D38's item id: any typo matched a statement line to an entry that does not exist, and no route checked. `GET /bank-statements/:id/candidates` now serves the account's own GL movements over the statement period (widened 10 days, because manual matching exists for what the ±5-day auto window could not reach), excluding entries already matched to a line of that statement, and the row picks from them. Found while fixing: those movements had NO description — `accountLedger` read only the LINE memo, and a voucher carries its description on the ENTRY, so the picker would have listed raw UUIDs; it now reads `COALESCE(jl.memo, je.memo)` and each candidate carries its entry number | this commit |
+| F122 | **The reconciliation list reported 0% matched for a statement that was 71% matched.** The list endpoint returned statements without their lines, so the match rate was known only for the statement open in the detail panel — and the code's own comment said an honest "—" was better than a fabricated aggregate while the tile printed `?? 0` → 0%, which is a number, not an absence. One grouped `lineCounts` query (not one per row) now carries a real `matchSummary` on every list row; the header tile is lines-matched over lines-seen across the list, so a 200-line statement is not weighed like a 3-line one, and it reads "—" when there is nothing to divide. Invisible until F120 gave the screen a row | this commit |
 
 
 `pnpm scenarios` asserts the FIXED behaviour throughout, so a regression in any

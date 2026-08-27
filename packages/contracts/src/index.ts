@@ -314,6 +314,9 @@ export {
   glJournalLineSchema,
   createGlJournalEntrySchema,
   closeFiscalYearSchema,
+  closeFiscalYearResultSchema,
+  yearEndClosePreviewLineSchema,
+  yearEndClosePreviewSchema,
   recordVatFilingSchema,
   amendVatFilingSchema,
   reverseGlJournalEntrySchema,
@@ -324,6 +327,10 @@ export {
   type JournalEntryStatusDTO,
   type GlJournalLineDTO,
   type CreateGlJournalEntryDTO,
+  type CloseFiscalYearDTO,
+  type CloseFiscalYearResultDTO,
+  type YearEndClosePreviewLineDTO,
+  type YearEndClosePreviewDTO,
   type ReverseGlJournalEntryDTO,
   type GlJournalListQueryDTO,
 } from "./gl.js";
@@ -939,6 +946,8 @@ export {
   matchStatementLineSchema,
   addManualLineSchema,
   matchSummarySchema,
+  matchCandidateSchema,
+  bankStatementListItemSchema,
   bankStatementListQuerySchema,
   type BankStatementStatusDTO,
   type StatementLineStatusDTO,
@@ -951,6 +960,8 @@ export {
   type MatchStatementLineDTO,
   type AddManualLineDTO,
   type MatchSummaryDTO,
+  type MatchCandidateDTO,
+  type BankStatementListItemDTO,
   type BankStatementListQueryDTO,
 } from "./bank-reconciliation.js";
 

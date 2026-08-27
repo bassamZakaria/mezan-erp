@@ -19,7 +19,7 @@ function line(overrides: Partial<StatementLine> = {}): StatementLine {
 }
 
 function candidate(overrides: Partial<TreasuryLedgerCandidate> = {}): TreasuryLedgerCandidate {
-  return { entryId: "je-1", date: "2026-08-10", amount: Money.fromMajor("100"), description: "voucher", ...overrides };
+  return { entryId: "je-1", entryNo: "JE-1", date: "2026-08-10", amount: Money.fromMajor("100"), description: "voucher", ...overrides };
 }
 
 describe("suggestMatches", () => {

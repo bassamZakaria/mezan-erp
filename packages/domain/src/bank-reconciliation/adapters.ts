@@ -17,6 +17,7 @@ export interface TreasuryLedgerReaderDeps {
 function toCandidate(line: AccountLedgerLine): TreasuryLedgerCandidate {
   return {
     entryId: line.entryId,
+    entryNo: line.entryNo,
     date: line.date,
     // Treasury (cash/bank) accounts are debit-natural: a debit is money IN.
     amount: line.debit.add(line.credit.negate()),

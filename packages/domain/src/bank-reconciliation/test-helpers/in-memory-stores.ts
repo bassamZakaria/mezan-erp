@@ -45,6 +45,14 @@ export class InMemoryBankStatementRepository implements BankStatementRepository 
   async listLines(statementId: string): Promise<readonly StatementLine[]> {
     return [...this.lines.values()].filter((l) => l.statementId === statementId).sort((a, b) => a.id.localeCompare(b.id));
   }
+  async lineCounts(statementIds: readonly string[]): Promise<ReadonlyMap<string, { total: number; matched: number }>> {
+    const counts = new Map<string, { total: number; matched: number }>();
+    for (const id of statementIds) {
+      const lines = [...this.lines.values()].filter((l) => l.statementId === id);
+      counts.set(id, { total: lines.length, matched: lines.filter((l) => l.status === "matched").length });
+    }
+    return counts;
+  }
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     return fn();
   }

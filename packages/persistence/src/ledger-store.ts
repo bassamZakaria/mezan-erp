@@ -270,8 +270,11 @@ class SqliteLedgerRepository implements LedgerRepository {
     }
     const rows = this.sqlite
       .prepare(
+        // A voucher/invoice posting carries its description on the ENTRY, not on
+        // the line, so a line-only memo reads blank for most of the ledger — and
+        // a bank-reconciliation picker offering blank rows is a picker of UUIDs.
         `SELECT je.id AS entry_id, je.entry_no AS entry_no, je.date AS date,
-                jl.memo AS memo, jl.debit AS debit, jl.credit AS credit
+                COALESCE(jl.memo, je.memo) AS memo, jl.debit AS debit, jl.credit AS credit
            FROM journal_line jl
            JOIN journal_entry je ON je.id = jl.entry_id
           WHERE jl.account_id = ?

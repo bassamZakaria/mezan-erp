@@ -78,6 +78,12 @@ export interface BankStatementRepository {
   updateLine(line: StatementLine): Promise<void>;
   findLineById(id: string): Promise<StatementLine | null>;
   listLines(statementId: string): Promise<readonly StatementLine[]>;
+  /**
+   * Matched/total line counts for many statements at once. The list screen shows
+   * a match rate per row, and loading every line of every statement to count
+   * them is one query per row.
+   */
+  lineCounts(statementIds: readonly string[]): Promise<ReadonlyMap<string, { total: number; matched: number }>>;
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }
 

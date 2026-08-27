@@ -5,6 +5,7 @@ import {
   DocumentList,
   EmptyState,
   EntityPicker,
+  formatMoney,
   Money as MoneyDisplay,
   RowMenu,
   SidePanel,
@@ -15,7 +16,13 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import { BANK_STATEMENT_STATUS_DEFINITIONS, getBankStatementStatusLabel, parseCsv } from "@mezan/domain";
-import type { BankStatementDTO, BankStatementStatusDTO, StatementDateFormatDTO, StatementLineDTO } from "@mezan/contracts";
+import type {
+  BankStatementListItemDTO,
+  BankStatementStatusDTO,
+  MatchCandidateDTO,
+  StatementDateFormatDTO,
+  StatementLineDTO,
+} from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import {
   useAutoMatchStatement,
@@ -25,6 +32,7 @@ import {
   useImportBankStatement,
   useMatchStatementLine,
   useStatementColumnMapping,
+  useStatementMatchCandidates,
   useTreasuryAccounts,
   useUnmatchStatementLine,
 } from "../data/hooks";
@@ -115,19 +123,26 @@ export function BankReconciliationScreen() {
   }, [statements]);
 
   /**
-   * The list endpoint returns statements without their lines, so the overall
-   * match rate is only known for the statement currently open in the detail
-   * panel — showing a fabricated aggregate instead would be worse than an
-   * honest per-statement "—".
+   * The rate across every listed statement — lines matched over lines seen, not
+   * an average of per-statement rates, so a 200-line statement is not weighed
+   * the same as a 3-line one. It reads "—" while there is nothing to divide.
    */
-  const openMatchRate = detail.data?.matchSummary.matchRate ?? 0;
+  const overall = useMemo(() => {
+    let total = 0;
+    let matched = 0;
+    for (const s of statements) {
+      total += s.matchSummary.total;
+      matched += s.matchSummary.matched;
+    }
+    return total === 0 ? null : matched / total;
+  }, [statements]);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: counts.all },
     ...BANK_STATEMENT_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: d.labelAr, count: counts[d.code] })),
   ];
 
-  const columns: DocumentListColumn<BankStatementDTO>[] = [
+  const columns: DocumentListColumn<BankStatementListItemDTO>[] = [
     {
       key: "account",
       header: t("bankRec.account"),
@@ -154,7 +169,9 @@ export function BankReconciliationScreen() {
       header: t("bankRec.matched"),
       align: "end",
       render: (s) => (
-        <span className="mz-num text-ink-muted">{s.id === openStatementId ? formatPercent(openMatchRate) : "—"}</span>
+        <span className="mz-num text-ink-muted">
+          {s.matchSummary.total === 0 ? "—" : `${formatPercent(s.matchSummary.matchRate)} (${s.matchSummary.matched}/${s.matchSummary.total})`}
+        </span>
       ),
     },
     { key: "status", header: t("common.status"), render: (s) => <StatusPill label={getBankStatementStatusLabel(s.status)} tone={STATUS_TONE[s.status]} /> },
@@ -162,7 +179,7 @@ export function BankReconciliationScreen() {
 
   return (
     <div className="w-full">
-      <DocumentList<BankStatementDTO>
+      <DocumentList<BankStatementListItemDTO>
         title={t("bankRec.bankReconciliation")}
         description={t("bankRec.importBankStatementsAndMatch")}
         actions={
@@ -176,7 +193,7 @@ export function BankReconciliationScreen() {
           { label: t("bankRec.totalStatements"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("bankRec.beingReconciled"), value: <span className="mz-num">{counts.in_progress}</span> },
           { label: t("bankRec.finished"), value: <span className="mz-num">{counts.completed}</span> },
-          { label: t("bankRec.matched"), value: <span className="mz-num">{formatPercent(openMatchRate)}</span> },
+          { label: t("bankRec.matched"), value: <span className="mz-num">{overall === null ? "—" : formatPercent(overall)}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -558,6 +575,8 @@ function StatementMatchingPanel({
   const unmatchLine = useUnmatchStatementLine();
   const finalize = useFinalizeBankStatement();
 
+  const candidates = useStatementMatchCandidates(statementId);
+
   const [error, setError] = useState<string | null>(null);
   const [pendingLineId, setPendingLineId] = useState<string | null>(null);
   const [entryIdDraft, setEntryIdDraft] = useState<Record<string, string>>({});
@@ -655,6 +674,7 @@ function StatementMatchingPanel({
                   line={line}
                   locked={locked}
                   pending={pendingLineId === line.id}
+                  candidates={candidates.data ?? []}
                   entryIdDraft={entryIdDraft[line.id] ?? ""}
                   onEntryIdChange={(v) => setEntryIdDraft((prev) => ({ ...prev, [line.id]: v }))}
                   onMatch={() =>
@@ -677,6 +697,7 @@ function StatementLineRow({
   line,
   locked,
   pending,
+  candidates,
   entryIdDraft,
   onEntryIdChange,
   onMatch,
@@ -685,6 +706,7 @@ function StatementLineRow({
   line: StatementLineDTO;
   locked: boolean;
   pending: boolean;
+  candidates: readonly MatchCandidateDTO[];
   entryIdDraft: string;
   onEntryIdChange: (value: string) => void;
   onMatch: () => void;
@@ -692,6 +714,26 @@ function StatementLineRow({
 }) {
   const { t } = useAppTranslation();
   const matched = line.status === "matched";
+
+  /**
+   * The same-amount movements come first: manual matching exists for the lines
+   * auto-match could not reach, and on a real statement that is nearly always a
+   * date gap rather than an amount gap, so the right entry is the one whose
+   * amount already agrees.
+   */
+  const options: EntityPickerOption[] = useMemo(() => {
+    const lineAmount = line.amount;
+    return [...candidates]
+      .sort((a, b) => {
+        const exact = Number(b.amount === lineAmount) - Number(a.amount === lineAmount);
+        return exact !== 0 ? exact : a.date.localeCompare(b.date);
+      })
+      .map((candidate) => ({
+        id: candidate.entryId,
+        label: candidate.description ?? candidate.entryNo ?? candidate.entryId,
+        sublabel: `${candidate.date} · ${formatMoney(Number(candidate.amount))}${candidate.entryNo ? ` · ${candidate.entryNo}` : ""}`,
+      }));
+  }, [candidates, line.amount]);
   return (
     <div className="flex flex-col gap-2 rounded-[10px] border border-border p-3">
       <div className="flex items-start justify-between gap-2">
@@ -720,7 +762,15 @@ function StatementLineRow({
       ) : (
         <div className="flex items-end gap-2">
           <div className="flex-1">
-            <TextField label={t("bankRec.entryId")} value={entryIdDraft} onChange={onEntryIdChange} disabled={locked} />
+            <EntityPicker
+              label={t("bankRec.matchAgainstEntry")}
+              value={options.find((option) => option.id === entryIdDraft) ?? null}
+              onChange={(option) => onEntryIdChange(option?.id ?? "")}
+              options={options}
+              disabled={locked}
+              placeholder={t("bankRec.chooseATreasuryMovement")}
+              emptyMessage={t("bankRec.noMatchableMovements")}
+            />
           </div>
           <Button size="sm" variant="primary" disabled={locked || pending || entryIdDraft.trim() === ""} onClick={onMatch}>
             {t("bankRec.match")}

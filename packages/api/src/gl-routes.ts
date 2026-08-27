@@ -30,6 +30,7 @@ import {
   type GlEventPublisher,
   journalSourceModule,
   closeFiscalYear,
+  planYearEndClose,
   YearAlreadyClosedError,
   NothingToCloseError,
   recordVatFiling,
@@ -330,6 +331,46 @@ export function createGlRoutes(
     try {
       const filing = await amendVatFiling(c.req.param("id"), parsed.data.reason, { filings: deps.vatFilings });
       return c.json(serializeFiling(filing));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  /**
+   * What closing the year WOULD post, without posting it. The screen shows this
+   * before the button is pressed, and it runs the same `planYearEndClose` the
+   * close itself runs — so a preview that disagreed with the entry is not a
+   * shape this can take. A year already closed answers 409 here too, which is
+   * how the screen knows to show the posted entry instead of the button.
+   */
+  app.get("/year-end-close/:year/preview", gate("accounting.period.close"), async (c) => {
+    const year = Number(c.req.param("year"));
+    if (!Number.isInteger(year) || year < 1900 || year > 9999) {
+      return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
+    }
+    try {
+      const plan = await planYearEndClose(
+        // The preview never posts, so the retained-earnings account it would
+        // credit is irrelevant to the figures — the P&L side is the whole plan.
+        { year, retainedEarningsAccountId: "" },
+        { ...postingDeps(c), ledger: deps.ledger, accounts: deps.accounts },
+      );
+      return c.json({
+        year: plan.year,
+        entryId: plan.entryId,
+        date: plan.date,
+        netResult: plan.netResult.toString(),
+        revenueClosed: plan.revenueClosed.toString(),
+        expensesClosed: plan.expensesClosed.toString(),
+        lines: plan.lines.map((line) => ({
+          accountId: line.accountId,
+          accountCode: line.accountCode,
+          accountNameAr: line.accountNameAr,
+          accountType: line.accountType,
+          debit: line.debit.toString(),
+          credit: line.credit.toString(),
+        })),
+      });
     } catch (err) {
       return handleDomainError(c, err);
     }

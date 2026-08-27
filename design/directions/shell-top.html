@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>الشريط العلوي والعمود — أين تبدأ كل حافة؟</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Readex+Pro:wght@300;400;500;600&family=Zain:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="directions.css">
+<style>
+.wrapx{max-width:1520px;margin:0 auto;padding:34px 20px 120px}
+.wrapx > h1{font-family:"Zain",sans-serif;font-size:26px;margin:0 0 4px;color:#FAFAFA}
+.wrapx > h2{font-family:"Zain",sans-serif;font-size:19px;margin:40px 0 6px;color:#FAFAFA;
+   padding-block-start:26px;border-block-start:1px solid #27272A}
+.lede{color:#A1A1AA;font-size:13.5px;margin:0 0 4px;max-width:104ch;line-height:1.8}
+.lede b{color:#FAFAFA}
+.lede code{font-family:"IBM Plex Mono",monospace;font-size:12px;color:#D4D4D8;background:#18181B;
+  padding:1px 5px;border-radius:3px;direction:ltr;display:inline-block}
+.back{display:inline-block;color:#A1A1AA;font-size:12.5px;text-decoration:none;
+      padding:6px 11px;border:1px solid #3F3F46;border-radius:4px;margin-block-end:18px}
+
+/* ---- findings ---- */
+.finds{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;margin-block-start:16px}
+.find{border:1px solid #27272A;border-radius:8px;background:#131316;padding:13px 15px}
+.find .n{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:#71717A;direction:ltr}
+.find b{display:block;color:#FAFAFA;font-size:13.5px;margin:3px 0 5px;font-weight:600}
+.find p{margin:0;color:#A1A1AA;font-size:12.5px;line-height:1.75}
+.find .ev{margin-block-start:7px;font-family:"IBM Plex Mono",monospace;font-size:11px;
+  color:#86B48F;direction:ltr;text-align:start}
+.find.sev-hi{border-inline-start:3px solid #D08A7A}
+.find.sev-md{border-inline-start:3px solid #C8A96B}
+.find.sev-lo{border-inline-start:3px solid #3F3F46}
+
+/* ---- option cards ---- */
+.opts{display:grid;gap:14px;margin-block-start:14px}
+.opt{border:1px solid #27272A;border-radius:8px;overflow:hidden;background:#131316;
+     transition:border-color .12s,box-shadow .12s}
+.opt.picked{border-color:#86B48F;box-shadow:0 0 0 1px #86B48F inset}
+.opt > .hd{padding:13px 18px;border-block-end:1px solid #27272A;background:#18181B;
+  display:flex;align-items:flex-start;gap:14px;cursor:pointer}
+.opt > .hd .code{font-family:"IBM Plex Mono",monospace;font-size:11px;color:#FAFAFA;
+  border:1px solid #3F3F46;border-radius:4px;padding:4px 8px;flex:none;direction:ltr}
+.opt.picked > .hd .code{background:#86B48F;color:#0B0B0D;border-color:#86B48F}
+.opt > .hd .tx{min-width:0}
+.opt > .hd b{color:#FAFAFA;font-size:15px;display:block;margin-block-end:5px}
+.opt .why{color:#A1A1AA;font-size:12.5px;line-height:1.8;max-width:114ch}
+.opt .why b{color:#D4D4D8;font-weight:600;display:inline}
+.opt .m{display:flex;gap:16px;flex-wrap:wrap;margin-block-start:9px;font-size:11.5px}
+.opt .m span{color:#71717A;border:1px solid #27272A;padding:4px 9px;border-radius:4px}
+.opt .m b{color:#D4D4D8;font-weight:600;display:inline}
+.opt .m .good{color:#86B48F;border-color:#2F5137}
+.opt .m .bad{color:#D08A7A;border-color:#5A322A}
+.opt .app{min-height:0}
+.rec{font-size:10.5px;color:#86B48F;border:1px solid #2F5137;border-radius:999px;
+  padding:2px 8px;margin-inline-start:8px;vertical-align:middle}
+
+/* ---- shared chrome bits (from nav-level.html) ---- */
+.tb{background:var(--chrome-bg);color:var(--chrome-ink)}
+.tb .r{display:flex;align-items:center;gap:2px;padding-inline:6px}
+.tb .brand{display:flex;align-items:center;gap:8px;padding:0 12px;font-family:var(--font-disp);
+  font-weight:var(--fw-disp);font-size:16px;min-height:46px}
+.tb .brand .mk{width:26px;height:26px;flex:none}
+.tb .appr{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;font-size:12.5px;
+  border:1px solid var(--chrome-line);background:var(--chrome-field);color:inherit;margin-inline-start:6px}
+.tb .appr .n{background:var(--danger);color:#fff;border-radius:999px;padding:0 5px;font-size:10.5px}
+.tb .sp{margin-inline-start:auto;display:flex;align-items:center;gap:8px;padding-inline-end:10px;font-size:12.5px}
+.tb .ic{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--chrome-line);
+  background:var(--chrome-field);color:inherit;font-size:13px}
+.r2{display:flex;align-items:center;gap:6px;padding:7px 12px;background:var(--surface);
+  border-block:1px solid var(--line);color:var(--ink);flex-wrap:nowrap;overflow:hidden}
+.r2 .chip{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;font-size:12.5px;
+  background:var(--bg);border:1px solid var(--line-2);white-space:nowrap;color:inherit}
+.r2 .chip[aria-current]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.r2 .menu{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;font-size:12.5px;
+  background:none;border:1px solid transparent;color:var(--muted);white-space:nowrap}
+.r2 .sep{width:1px;height:22px;background:var(--line-2);margin-inline:4px;flex:none}
+.r2 .lbl{font-size:11px;color:var(--faint);font-weight:600;padding-inline:4px;white-space:nowrap}
+
+.sb{width:172px;flex:0 0 172px;background:var(--surface);border-inline-end:1px solid var(--line-2);padding-block:8px}
+.sb .it{display:flex;align-items:center;gap:9px;min-height:44px;padding:0 14px;font-size:13px;cursor:pointer}
+.sb .it[aria-current]{font-weight:600;background:var(--surface-2);box-shadow:inset 2px 0 0 var(--accent)}
+.sb .hd{padding:8px 14px 4px;font-size:11px;color:var(--faint);font-weight:600}
+.sb .sep{height:1px;background:var(--line);margin:8px 12px}
+/* the rail carrying the brand at its head, when it starts at the top */
+.sb.tall{background:var(--surface)}
+.sb .brandhd{display:flex;align-items:center;gap:8px;min-height:46px;padding:0 14px;
+  font-family:var(--font-disp);font-weight:var(--fw-disp);font-size:16px;color:var(--ink);
+  background:var(--chrome-bg);color:var(--chrome-ink)}
+.sb .brandhd .mk{width:24px;height:24px;flex:none}
+
+.body2{display:flex;align-items:stretch;min-height:230px}
+.mainx{flex:1;min-width:0;padding:16px 20px;background:var(--bg)}
+.gutx{width:268px;flex:0 0 268px;background:var(--surface);border-inline-start:1px solid var(--line-2);padding:14px}
+
+/* layout scaffolds for the four options */
+.appx{display:flex;align-items:stretch;min-height:300px}
+.colx{flex:1;min-width:0;display:flex;flex-direction:column}
+.colx .body2{flex:1}
+/* the inset variants */
+.inset-pad .tb .r{padding-inline:22px}
+.inset-pad .r2{padding-inline:26px}
+.inset-float{padding:10px 12px 0;background:var(--bg)}
+.inset-float .tb{border-radius:8px;overflow:hidden}
+.inset-gutter .tb .r{padding-inline-start:20px}
+.inset-gutter .r2{padding-inline-start:20px}
+
+/* the edge marker — what actually differs between the options */
+.mark{position:relative}
+.mark::after{content:"";position:absolute;inset-block-start:0;inset-inline:0;height:2px;
+  background:#86B48F;box-shadow:0 0 0 1px rgba(134,180,143,.35)}
+.legend{display:flex;align-items:center;gap:8px;font-size:11.5px;color:#71717A;margin-block-start:10px}
+.legend i{width:22px;height:2px;background:#86B48F;display:block;flex:none}
+
+/* the figure that shows the mechanism, not the option list */
+.fig{border:1px solid #27272A;border-radius:8px;background:#131316;padding:18px;margin-block-start:16px}
+.fig{direction:ltr}
+.fig svg{width:100%;height:auto;display:block;min-width:760px}
+.figwrap{overflow-x:auto}
+.fig figcaption{color:#71717A;font-size:12px;margin-block-start:10px;line-height:1.7}
+
+.card{background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);padding:16px 18px}
+.lb{font-size:12px;font-weight:600;display:block;margin-block-end:6px;color:var(--ink)}
+.tag.loud{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* picks tray */
+.tray{position:fixed;inset-block-end:0;inset-inline:0;background:#18181B;border-block-start:1px solid #3F3F46;
+  padding:11px 20px;display:flex;align-items:center;gap:14px;z-index:20}
+.tray .t{font-size:12px;color:#A1A1AA}
+.tray .codes{font-family:"IBM Plex Mono",monospace;font-size:13px;color:#86B48F;direction:ltr;font-weight:600}
+.tray button{margin-inline-start:auto;font-size:12px;background:#27272A;color:#FAFAFA;
+  border:1px solid #3F3F46;border-radius:4px;padding:6px 12px;cursor:pointer;font-family:inherit}
+</style>
+</head>
+<body>
+<div class="wrapx">
+<a class="back" dir="rtl" href="index.html">↩ كل قرارات التصميم</a>
+
+<h1>The shell, raised — where does each edge start?</h1>
+<p class="lede">
+Direction <b>ب</b> put the six workspaces in a column (<code>nav-level.html</code>), and the build
+followed it literally: the column was placed <b>inside the body</b>, below both header rows. Reading
+down the page you now meet the workspace's <b>screens</b> before you meet the <b>workspace</b> —
+level two above level one. That is what "the sidebar should be at the top with the main header" is
+pointing at. Everything below was measured in the running app at
+<code>localhost:5173</code>, light theme, Arabic RTL, viewport <code>2560</code>.
+</p>
+
+<h2>What the audit found</h2>
+<p class="lede">Nine findings, ordered by how much they cost. The first four are the shell; the rest
+are the screen the settings page happens to be the clearest example of.</p>
+
+<div class="finds" id="finds"></div>
+
+<div class="fig">
+  <div class="figwrap"><svg viewBox="0 0 980 250" role="img" aria-label="The rail's top edge in each option">
+    <defs>
+      <style>
+        .bx{fill:#1C1C20;stroke:#3F3F46;stroke-width:1}
+        .chrome{fill:#2A2A31}
+        .rail{fill:#26312A;stroke:#86B48F;stroke-width:1.5}
+        .r2b{fill:#232329}
+        .lb{fill:#A1A1AA;font:11px "Readex Pro",sans-serif}
+        .lb2{fill:#71717A;font:10px "IBM Plex Mono",monospace}
+        .edge{stroke:#86B48F;stroke-width:2;stroke-dasharray:4 3}
+      </style>
+    </defs>
+
+    <!-- current -->
+    <text class="lb2" x="10" y="14">CURRENT</text>
+    <rect class="bx chrome" x="10" y="22" width="210" height="20"/>
+    <rect class="bx r2b"    x="10" y="42" width="210" height="22"/>
+    <rect class="bx rail"   x="158" y="64" width="62" height="120"/>
+    <rect class="bx"        x="10" y="64" width="148" height="120"/>
+    <line class="edge" x1="152" y1="64" x2="228" y2="64"/>
+    <text class="lb" x="10" y="204">rail top = 98px</text>
+    <text class="lb" x="10" y="220">level 1 sits below level 2</text>
+
+    <!-- A -->
+    <text class="lb2" x="265" y="14">A · FULL HEIGHT</text>
+    <rect class="bx rail"   x="413" y="22" width="62" height="162"/>
+    <rect class="bx chrome" x="265" y="22" width="148" height="20"/>
+    <rect class="bx r2b"    x="265" y="42" width="148" height="22"/>
+    <rect class="bx"        x="265" y="64" width="148" height="120"/>
+    <line class="edge" x1="407" y1="22" x2="483" y2="22"/>
+    <text class="lb" x="265" y="204">rail top = 0px</text>
+    <text class="lb" x="265" y="220">brand moves into the rail</text>
+
+    <!-- B -->
+    <text class="lb2" x="520" y="14">B · UNDER ROW ONE</text>
+    <rect class="bx chrome" x="520" y="22" width="210" height="20"/>
+    <rect class="bx rail"   x="668" y="42" width="62" height="142"/>
+    <rect class="bx r2b"    x="520" y="42" width="148" height="22"/>
+    <rect class="bx"        x="520" y="64" width="148" height="120"/>
+    <line class="edge" x1="662" y1="42" x2="738" y2="42"/>
+    <text class="lb" x="520" y="204">rail top = 44px</text>
+    <text class="lb" x="520" y="220">rail and its screens share an edge</text>
+
+    <!-- C -->
+    <text class="lb2" x="775" y="14">C · TABS GO INSIDE</text>
+    <rect class="bx rail"   x="923" y="22" width="62" height="162"/>
+    <rect class="bx chrome" x="775" y="22" width="148" height="20"/>
+    <rect class="bx"        x="775" y="42" width="148" height="142"/>
+    <rect class="bx r2b"    x="783" y="50" width="132" height="18"/>
+    <line class="edge" x1="917" y1="22" x2="985" y2="22"/>
+    <text class="lb" x="775" y="204">rail top = 0px</text>
+    <text class="lb" x="775" y="220">screens bar becomes page tabs</text>
+  </svg></div>
+  <figcaption>
+    The dashed green line is the rail's top edge — the only thing that moves. Content width is
+    identical in all four (172 rail + 268 gutter), so this is a decision about reading order and
+    hierarchy, not about pixels gained.
+  </figcaption>
+</div>
+
+<h2>Decision 1 · where the rail's top edge sits</h2>
+<div class="opts" id="d1"></div>
+
+<h2>Decision 2 · how far the chrome sits from the window edge</h2>
+<p class="lede">
+Today the header runs <code>0 → 2560</code> with <code>padding-inline: 6px</code>, while page content
+is inset <code>24px</code>. The bar touches the glass and the content does not, so the chrome reads as
+the browser's, not the product's. Three ways to move it "a little bit inside".
+</p>
+<div class="opts" id="d2"></div>
+
+<h2>Decision 3 · which row is taller</h2>
+<p class="lede">
+Row one — brand, search, scope, the user — is <code>44px</code>. Row two, the workspace's screens, is
+<code>54px</code>. The secondary row is <b>10px taller</b> than the primary one, which is why the eye
+lands on the chips first. Two ways to put that back the right way up.
+</p>
+<div class="opts" id="d3"></div>
+
+<h2>Decision 4 · the settings form, as the worst case</h2>
+<p class="lede">
+On a <code>2560</code> viewport every label sits at one inline edge and its control at the other —
+"تفعيل تعدد العملات" and its toggle are <b>1,400px apart</b>. The commit button «حفظ الإعدادات» is
+grey-on-cream at the far corner and reads as disabled, while nine <b>filled navy</b> currency chips
+carry more weight than it does. Two ways to fix the density.
+</p>
+<div class="opts" id="d4"></div>
+
+<div class="legend"><i></i> the edge that moves in each option</div>
+</div>
+
+<div class="tray">
+  <span class="t">Your picks</span>
+  <span class="codes" id="codes">— none yet —</span>
+  <button type="button" id="clear">Clear</button>
+</div>
+
+<script>
+const MARK = `<svg class="mk" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+  <path d="M12 4v14M6 18h12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M4 9h16M4 9l-2.2 4.4a3.2 3.2 0 0 0 4.4 0L4 9Zm16 0-2.2 4.4a3.2 3.2 0 0 0 4.4 0L20 9Z"
+        stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+
+const WS = [["البيع والتحصيل",1],["الشراء والتوريد",0],["المخزون والتصنيع",0],
+            ["المالية والإقفال",0],["الأشخاص والأصول",0],["الإعداد والصلاحيات",0]];
+
+const RAIL_ITEMS = WS.map(w=>`<div class="it" ${w[1]?'aria-current="true"':''}>${w[0]}</div>`).join("")
+  + `<div class="sep"></div><div class="it">☰ كل الشاشات</div>`;
+
+const ROW2 = `
+  <span class="lbl">الشغل اليومي</span>
+  <button class="chip">◧ لوحة البيع</button>
+  <span class="sep"></span>
+  <button class="chip" aria-current="true">🧾 فواتير المبيعات</button>
+  <button class="chip">📄 عروض الأسعار</button>
+  <button class="chip">↩ مرتجعات المبيعات</button>
+  <button class="chip">🚚 رحلات البيع</button>
+  <span class="sep"></span>
+  <button class="menu">البيانات الأساسية <span style="opacity:.55">▾</span></button>
+  <button class="menu">التقارير <span style="opacity:.55">▾</span></button>`;
+
+const TOOLS = `
+  <div class="sp">
+    <button class="cmdk">⌘K &nbsp;ابحث أو نفّذ أمرًا</button>
+    <span style="font-size:12px;opacity:.75">كل الفروع</span>
+    <span style="font-size:12px;opacity:.75">كل المخازن</span>
+    <button class="ic" title="اللغة">ع</button>
+    <button class="ic" title="المظهر">☀</button>
+    <button class="ic" title="الإعدادات">⚙</button>
+    <button class="ic" title="التنبيهات">◔</button>
+    <button class="ic" title="المستخدم">م</button>
+  </div>`;
+
+const CONTENT = `
+  <div class="phead"><div><h1 style="font-size:18px">فواتير المبيعات</h1>
+    <div class="sub"><span class="num">342</span> فاتورة · الفرع الرئيسي</div></div>
+    <div class="acts"><button class="btn sec sm">تصدير</button><button class="btn sm">فاتورة جديدة</button></div></div>
+  <table><thead><tr><th>الرقم</th><th>العميل</th><th class="e">الإجمالي</th><th>الحالة</th></tr></thead>
+  <tbody>
+    <tr><td><span class="cell num">INV-2026-0342</span></td><td><span class="cell">شركة الأمل للتجارة</span></td>
+      <td class="e"><span class="cell num">9,621.60</span></td>
+      <td><span class="cell"><span class="chip mute">◷ مسودة</span></span></td></tr>
+    <tr><td><span class="cell num">INV-2026-0339</span></td><td><span class="cell">مجموعة الفجر التجارية</span></td>
+      <td class="e"><span class="cell num">7,480.00</span></td>
+      <td><span class="cell"><span class="chip bad">▲ متأخرة</span></span></td></tr>
+  </tbody></table>`;
+
+const GUT = `<span class="gt">شركة الأمل للتجارة</span>
+  <div class="bal"><div class="side"><span>الحد المسموح</span><span class="v num">50,000.00</span></div>
+    <div class="beam"><i style="inline-size:56%"></i></div>
+    <div class="side"><span>الرصيد بعد الترحيل</span><span class="v num">28,021.60</span></div></div>`;
+
+/* ---------- the four shell layouts ---------- */
+
+const CURRENT = `
+<div class="app">
+  <div class="tb">
+    <div class="r"><span class="brand">${MARK}ميزان</span>
+      <button class="appr">✓ الموافقات <span class="n num">1</span></button>${TOOLS}</div>
+    <div class="r2">${ROW2}</div>
+  </div>
+  <div class="body2">
+    <div class="sb mark"><div class="hd">مساحات العمل</div>${RAIL_ITEMS}</div>
+    <div class="mainx">${CONTENT}</div><aside class="gutx">${GUT}</aside>
+  </div>
+</div>`;
+
+const OPT_A = `
+<div class="app appx">
+  <div class="sb tall mark">
+    <div class="brandhd">${MARK}ميزان</div>
+    <div class="hd">مساحات العمل</div>${RAIL_ITEMS}
+  </div>
+  <div class="colx">
+    <div class="tb"><div class="r">
+      <button class="appr">✓ الموافقات <span class="n num">1</span></button>${TOOLS}</div></div>
+    <div class="r2">${ROW2}</div>
+    <div class="body2"><div class="mainx">${CONTENT}</div><aside class="gutx">${GUT}</aside></div>
+  </div>
+</div>`;
+
+const OPT_B = `
+<div class="app">
+  <div class="tb"><div class="r"><span class="brand">${MARK}ميزان</span>
+    <button class="appr">✓ الموافقات <span class="n num">1</span></button>${TOOLS}</div></div>
+  <div class="appx">
+    <div class="sb mark"><div class="hd">مساحات العمل</div>${RAIL_ITEMS}</div>
+    <div class="colx">
+      <div class="r2">${ROW2}</div>
+      <div class="body2"><div class="mainx">${CONTENT}</div><aside class="gutx">${GUT}</aside></div>
+    </div>
+  </div>
+</div>`;
+
+const OPT_C = `
+<div class="app appx">
+  <div class="sb tall mark">
+    <div class="brandhd">${MARK}ميزان</div>
+    <div class="hd">مساحات العمل</div>${RAIL_ITEMS}
+  </div>
+  <div class="colx">
+    <div class="tb"><div class="r">
+      <button class="appr">✓ الموافقات <span class="n num">1</span></button>${TOOLS}</div></div>
+    <div class="body2">
+      <div class="mainx" style="padding-block-start:0">
+        <div class="r2" style="border-block-start:0;background:transparent;margin-inline:-20px;padding-inline:20px">${ROW2}</div>
+        <div style="padding-block-start:14px">${CONTENT}</div>
+      </div>
+      <aside class="gutx">${GUT}</aside>
+    </div>
+  </div>
+</div>`;
+
+/* ---------- inset variants (built on the picked shell shape: A) ---------- */
+
+function insetShell(cls){
+  return `<div class="${cls}"><div class="app appx">
+    <div class="sb tall"><div class="brandhd">${MARK}ميزان</div><div class="hd">مساحات العمل</div>${RAIL_ITEMS}</div>
+    <div class="colx">
+      <div class="tb"><div class="r">
+        <button class="appr">✓ الموافقات <span class="n num">1</span></button>${TOOLS}</div></div>
+      <div class="r2">${ROW2}</div>
+      <div class="body2"><div class="mainx">${CONTENT}</div></div>
+    </div>
+  </div></div>`;
+}
+
+/* ---------- row-height variants ---------- */
+
+function heights(rowOne, rowTwo){
+  return `<div class="app">
+    <div class="tb"><div class="r" style="min-height:${rowOne}px">
+      <span class="brand" style="min-height:${rowOne}px">${MARK}ميزان</span>
+      <button class="appr">✓ الموافقات <span class="n num">1</span></button>${TOOLS}</div></div>
+    <div class="r2" style="padding-block:${(rowTwo-36)/2}px">${ROW2}</div>
+    <div class="body2"><div class="mainx">${CONTENT}</div></div>
+  </div>`;
+}
+
+/* ---------- settings-form variants ---------- */
+
+const CURRENCIES = ["SAR","AED","QAR","KWD","BHD","OMR","JOD","USD","EUR","GBP"];
+const chips = (loud) => CURRENCIES.map(c=>`<span class="tag${loud?" loud":""}">✓ ${c}</span>`).join("");
+
+const FORM_NOW = `<div class="app"><div class="mainx" style="padding:18px 20px">
+  <div class="phead"><div><h1 style="font-size:18px">الإعدادات</h1>
+    <div class="sub">الإعدادات العامة للمنشأة، الفوترة، والسياسات التشغيلية</div></div>
+    <div class="acts"><button class="btn sec sm">حفظ الإعدادات</button></div></div>
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:20px">
+      <span class="lb" style="margin:0">العملة الافتراضية</span>
+      <div class="field" style="inline-size:620px"><div class="in">EGP</div></div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;margin-block-start:14px">
+      <div><span class="lb" style="margin:0">تفعيل تعدد العملات</span>
+        <div class="sub" style="font-size:11.5px">عند إيقافه لا يقبل أي مستند عملة غير الأساسية</div></div>
+      <div style="inline-size:620px;text-align:end"><span class="chip ok">مُفعّل</span></div>
+    </div>
+    <div style="margin-block-start:16px"><span class="lb">العملات الإضافية</span>
+      <div class="tags">${chips(true)}</div></div>
+  </div>
+</div></div>`;
+
+const FORM_PAIRED = `<div class="app"><div class="mainx" style="padding:18px 20px">
+  <div class="phead"><div><h1 style="font-size:18px">الإعدادات</h1>
+    <div class="sub">الإعدادات العامة للمنشأة، الفوترة، والسياسات التشغيلية</div></div>
+    <div class="acts"><button class="btn sm">حفظ الإعدادات</button></div></div>
+  <div class="card" style="max-inline-size:760px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+      <div><span class="lb">العملة الافتراضية</span>
+        <div class="field" style="inline-size:130px"><div class="in">EGP</div></div></div>
+      <div><span class="lb">تفعيل تعدد العملات</span>
+        <span class="chip ok">مُفعّل</span>
+        <div class="sub" style="font-size:11.5px;margin-block-start:6px">عند إيقافه لا يقبل أي مستند عملة غير الأساسية</div></div>
+    </div>
+    <div style="margin-block-start:18px"><span class="lb">العملات الإضافية</span>
+      <div class="tags">${chips(false)}</div>
+      <div class="sub" style="font-size:11.5px">العملات التي يجوز للمستندات استخدامها إلى جانب الأساسية</div></div>
+  </div>
+</div></div>`;
+
+const SETTINGS_TABS = ["عام","بيانات المنشأة","الضريبية","الرقابة الائتمانية","سياسة المخزون",
+                       "التحكم في المشتريات","سياسة الخزينة","البريد الإلكتروني"];
+
+const FORM_SPLIT = `<div class="app"><div class="body2">
+  <div class="sb" style="width:190px;flex-basis:190px"><div class="hd">الإعدادات</div>
+    ${SETTINGS_TABS.map((s,i)=>`<div class="it" ${i===0?'aria-current="true"':''}>${s}</div>`).join("")}</div>
+  <div class="mainx" style="padding:18px 20px">
+    <div class="phead"><div><h1 style="font-size:18px">عام</h1>
+      <div class="sub">العملة، اللغة، التاريخ وبداية السنة المالية</div></div>
+      <div class="acts"><button class="btn sm">حفظ</button></div></div>
+    <div class="card" style="max-inline-size:620px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+        <div><span class="lb">العملة الافتراضية</span>
+          <div class="field" style="inline-size:130px"><div class="in">EGP</div></div></div>
+        <div><span class="lb">تفعيل تعدد العملات</span><span class="chip ok">مُفعّل</span></div>
+      </div>
+      <div style="margin-block-start:18px"><span class="lb">العملات الإضافية</span>
+        <div class="tags">${chips(false)}</div></div>
+    </div>
+  </div>
+</div></div>`;
+
+/* ---------- findings ---------- */
+
+const FINDINGS = [
+ {n:"F1",sev:"hi",t:"Level one of the navigation is drawn last",
+  p:"The workspace column is the first choice a user makes, and it is the third thing the layout presents — below the global chrome and below the workspace's own screens. Reading order contradicts the hierarchy.",
+  ev:"rail top = 98px · row two top = 44px"},
+ {n:"F2",sev:"hi",t:"The secondary row outweighs the primary one",
+  p:"Row two (the open workspace's screens) is taller than row one (brand, search, scope, user), so the eye lands on the chips before the chrome. Nothing else marks which row ranks higher.",
+  ev:"row one 44px · row two 54px"},
+ {n:"F3",sev:"md",t:"The chrome touches the glass, the content does not",
+  p:"The header runs edge to edge behind 6px of padding while page content is inset 24px. The bar reads as part of the browser window rather than part of the product.",
+  ev:"header padding-inline 6px vs main 24px"},
+ {n:"F4",sev:"md",t:"A group label is dressed as a disabled tab",
+  p:"«الشغل اليومي» and «المستخدمون والصلاحيات» are section captions sitting inline among interactive chips at the same size and colour. They look like tabs that cannot be clicked.",
+  ev:"row two, first child"},
+ {n:"F5",sev:"hi",t:"The commit button reads as disabled",
+  p:"«حفظ الإعدادات» is a low-contrast grey block in the far corner. It is the only destructive-if-missed control on the page and it is the quietest thing on it.",
+  ev:"settings · secondary style on a primary action"},
+ {n:"F6",sev:"md",t:"Ten filled navy chips outrank the save button",
+  p:"The additional-currency multi-select renders every choice as a solid accent pill. A set of toggles should never carry more visual weight than the action that commits them.",
+  ev:"settings · 10 × filled .tag"},
+ {n:"F7",sev:"md",t:"Label and control are a screen apart",
+  p:"Each settings row pins its label to one inline edge and its control to the other. At 2560 the multi-currency toggle sits 1,400px from the words that name it, so the pair no longer reads as a pair.",
+  ev:"label x≈1430 · control x≈30"},
+ {n:"F8",sev:"lo",t:"Fields are sized to the row, not the value",
+  p:"A three-letter currency code, a month number and a date pattern each get a ~700px input. Width stops carrying any information about what belongs in the box.",
+  ev:"EGP in a 700px field"},
+ {n:"F9",sev:"lo",t:"A settings deep link lands on the dashboard",
+  p:"Loading #/settings/general directly renders the dashboard; only #/setup/settings-general resolves. Any bookmark or shared link to the older path silently goes to the wrong screen.",
+  ev:"#/settings/general → dashboard"},
+];
+
+const D1 = [
+ {code:"A1",t:"Keep it as built — rail below both rows",rec:false,
+  why:"The literal reading of direction <b>ب</b>. Row one and row two both span the full width, and the column starts under them. Nothing to build; the cost is the finding above — level one is drawn last, and the rail's heading «مساحات العمل» is the fourth heading down the page.",
+  m:['<span>content <b>1000</b>px</span>','<span class="good">no work</span>','<span class="bad">level 1 below level 2</span>','<span class="bad">three stacked bands before content</span>'],
+  body:CURRENT},
+ {code:"A2",t:"Rail runs the full height, brand moves into its head",rec:true,
+  why:"The column starts at <code>y=0</code> and the brand lockup sits at its top, so the workspace list is the first thing on the page and the two chrome rows begin after it. This is the shape every user already knows from the tools they run beside this one, and it is the closest reading of «the sidebar should be at the top with the main header». Cost: row one loses 172px of width, and the brand no longer sits above the chrome tools it used to anchor.",
+  m:['<span>content <b>1000</b>px</span>','<span class="good">level 1 read first</span>','<span class="good">one clear vertical axis</span>','<span class="bad">row one narrows by <b>172</b>px</span>'],
+  body:OPT_A},
+ {code:"A3",t:"Rail starts under row one, level with the screens bar",rec:false,
+  why:"Row one stays a true global bar — brand, search, scope, user — full width across the top. The rail then starts at <code>y=44</code>, sharing its top edge with row two, so the workspace and the workspace's screens visibly belong to each other and the global chrome stays above both. Cost: the rail still is not at the very top, so if the ask was literal this only half answers it.",
+  m:['<span>content <b>1000</b>px</span>','<span class="good">global bar stays global</span>','<span class="good">rail and its screens align</span>','<span class="bad">rail top still <b>44</b>px down</span>'],
+  body:OPT_B},
+ {code:"A4",t:"Rail full height, and the screens bar moves inside the page",rec:false,
+  why:"The rail rises to the top as in <b>A2</b>, and row two stops being chrome altogether — it becomes a tab strip belonging to the page, sitting above the page heading inside the content area. Two navigation bands instead of three. Cost: the biggest change of the four, and the screens bar loses its sticky position, so it scrolls away with the content.",
+  m:['<span>content <b>1000</b>px</span>','<span class="good">two bands, not three</span>','<span class="good">chrome is genuinely thin</span>','<span class="bad">screens bar scrolls away</span>'],
+  body:OPT_C},
+];
+
+const D2 = [
+ {code:"B1",t:"Pad the chrome — bar still spans edge to edge",rec:true,
+  why:"The bar keeps its full-width fill, and its contents move in to <code>22px</code>, matching the page gutter. The brand, the chips and the page heading below them all line up on one inline axis. Cheapest of the three and the only one that changes nothing structural.",
+  m:['<span class="good">one inline axis with content</span>','<span class="good">no layout change</span>','<span>bar still meets the glass</span>'],
+  body:insetShell("inset-pad")},
+ {code:"B2",t:"Float the bar — margin on all sides, rounded",rec:false,
+  why:"The chrome becomes a card with <code>10px</code> of page background around it. The strongest reading of «moved a little bit inside», and it makes the app feel like a window rather than a browser tab. Cost: it breaks the sticky header's full-bleed on scroll, and the desktop build's frameless window makes the top margin read as dead space.",
+  m:['<span class="good">reads as a product surface</span>','<span class="bad">wastes <b>10px</b> of vertical</span>','<span class="bad">awkward in the frameless desktop shell</span>'],
+  body:insetShell("inset-float")},
+ {code:"B3",t:"Inset the start edge only",rec:false,
+  why:"Only the inline-start padding grows, so the brand aligns with the page content and everything at the inline end stays where it is. Minimal, and it fixes the alignment that actually reads wrong; the end edge keeps its tight grouping of tool buttons.",
+  m:['<span class="good">smallest change</span>','<span class="good">brand aligns with content</span>','<span>end edge unchanged</span>'],
+  body:insetShell("inset-gutter")},
+];
+
+const D3 = [
+ {code:"C1",t:"Raise row one to 52, drop row two to 44",rec:true,
+  why:"The primary row becomes the taller of the two and the screens bar tightens. Nothing moves horizontally; only the two heights swap rank.",
+  m:['<span class="good">hierarchy matches weight</span>','<span class="good">net <b>+2</b>px of chrome only</span>'],
+  body:heights(52,44)},
+ {code:"C2",t:"Leave the heights, separate by surface instead",rec:false,
+  why:"Both rows stay as they are, and row two loses its border and takes the page background so it reads as a lighter band belonging to the content rather than a second bar of chrome. Weight comes from colour, not size.",
+  m:['<span class="good">no size change</span>','<span class="bad">two 44/54 bands still stack</span>'],
+  body:heights(44,54)},
+];
+
+const D4 = [
+ {code:"D1",t:"Leave it — full-width rows, label at one edge",rec:false,
+  why:"Today's screen, for comparison. Every row spans the content width with its label pinned to the start and its control to the end.",
+  m:['<span class="bad">label <b>1,400</b>px from its control</span>','<span class="bad">save reads as disabled</span>'],
+  body:FORM_NOW},
+ {code:"D2",t:"Cap the form and pair label to control",rec:true,
+  why:"The card stops at <code>760px</code>, labels sit directly above their controls, fields are sized to the value they hold, the currency chips lose their filled treatment, and «حفظ» becomes the only filled button on the page. Nothing is removed — the same fields, read as pairs.",
+  m:['<span class="good">label touches its control</span>','<span class="good">one primary action</span>','<span class="good">field width means something</span>'],
+  body:FORM_PAIRED},
+ {code:"D3",t:"Cap the form and move the tabs to a settings rail",rec:false,
+  why:"Everything in <b>D2</b>, plus the eleven settings tabs leave row two for a column of their own beside the form. Settings stops borrowing the workspace screens bar, which is what made the tab row eleven items long. Cost: a second rail on this screen, next to the workspace rail.",
+  m:['<span class="good">tabs stop overflowing</span>','<span class="good">deep settings get room</span>','<span class="bad">two rails on one screen</span>'],
+  body:FORM_SPLIT},
+];
+
+/* ---------- render ---------- */
+
+document.getElementById("finds").innerHTML = FINDINGS.map(f=>`
+  <div class="find sev-${f.sev}">
+    <span class="n">${f.n}</span><b>${f.t}</b><p>${f.p}</p><div class="ev">${f.ev}</div>
+  </div>`).join("");
+
+function renderOpts(id, list){
+  document.getElementById(id).innerHTML = list.map(o=>`
+    <section class="opt" data-code="${o.code}" data-group="${id}">
+      <div class="hd">
+        <span class="code">${o.code}</span>
+        <span class="tx"><b>${o.t}${o.rec?'<span class="rec">recommended</span>':''}</b>
+          <div class="why">${o.why}</div><div class="m">${o.m.join("")}</div></span>
+      </div>
+      <div dir="rtl" lang="ar" data-dir="b" data-theme="light">${o.body}</div>
+    </section>`).join("");
+}
+renderOpts("d1", D1); renderOpts("d2", D2); renderOpts("d3", D3); renderOpts("d4", D4);
+
+const picks = new Map();
+function paint(){
+  const v = [...picks.values()];
+  document.getElementById("codes").textContent = v.length ? v.join(" · ") : "— none yet —";
+}
+document.querySelectorAll(".opt > .hd").forEach(hd=>{
+  hd.addEventListener("click", ()=>{
+    const sec = hd.parentElement, group = sec.dataset.group, code = sec.dataset.code;
+    document.querySelectorAll(`.opt[data-group="${group}"]`).forEach(s=>s.classList.remove("picked"));
+    if (picks.get(group) === code) picks.delete(group);
+    else { picks.set(group, code); sec.classList.add("picked"); }
+    paint();
+  });
+});
+document.getElementById("clear").addEventListener("click", ()=>{
+  picks.clear(); document.querySelectorAll(".opt").forEach(s=>s.classList.remove("picked")); paint();
+});
+</script>
+</body>
+</html>

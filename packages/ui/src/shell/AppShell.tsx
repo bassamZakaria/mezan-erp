@@ -82,17 +82,23 @@ export interface AppShellProps {
  *
  *   ┌───────────────────────────────────────────────────────┐
  *   │ row one   logo · الموافقات ·········· ⌘K scope ع ☀ ⚙ 🔔 م │  chrome
- *   ├───────────────────────────────────────────────────────┤
- *   │ row two   hub · daily chips ······ [section ▾] … [+N]  │  the active
- *   ├──────────┬──────────────────────────────┬─────────────┤   workspace's
- *   │ مساحات   │            main              │   gutter    │   own screens
- *   │ العمل    │                              │             │
- *   │ ☰ كل الشاشات                                            │
+ *   ├──────────┬────────────────────────────────────────────┤
+ *   │ مساحات   │ row two  hub · daily chips · [section ▾] +N │  the active
+ *   │ العمل    ├──────────────────────────────┬─────────────┤   workspace's
+ *   │          │            main              │   gutter    │   own screens
+ *   │ ☰ كل الشاشات                              │             │
  *   └──────────┴──────────────────────────────┴─────────────┘
  *
  * Taking the workspaces out of row one is what lets the chrome's own controls —
  * language, appearance, settings, notifications, the user menu — all stay
  * visible as themselves instead of collapsing into a «⋯» nobody opens.
+ *
+ * The column and row two SHARE A TOP EDGE, both starting where row one ends.
+ * Row one is the only full-width band, because it is the only one that is
+ * global: brand, search, scope, the user. Everything below it belongs to the
+ * open workspace, so the workspace (the column) and the workspace's screens
+ * (row two) are drawn as one block rather than as two stacked bands with the
+ * screens on top of the thing they belong to.
  *
  * THREE navigation landmarks, each with its own Arabic name: the workspace
  * column, row one's direct links, and row two. A skip link to `<main>` is the
@@ -352,16 +358,6 @@ export function AppShell({
           </div>
         </div>
 
-        {/* Row two spans the FULL width, above the column — it names the
-            workspace the column has selected, so it cannot sit inside it. */}
-        <WorkspaceScreensBar
-          group={activeGroup}
-          activeKey={activeNavKey}
-          ariaLabel={
-            activeGroup ? `${t("shell.bar.workspaceScreens")} — ${activeGroup.label}` : t("shell.bar.workspaceScreens")
-          }
-          overflowLabel={t("shell.bar.overflow")}
-        />
       </header>
 
       <div className="flex min-h-0 flex-1 items-stretch">
@@ -373,13 +369,36 @@ export function AppShell({
           ariaLabel={t("shell.bar.workspacesLandmark")}
           allScreensLabel={t("shell.rail.all")}
           onOpenAllScreens={() => openAllScreens(null)}
+          // The column and row two start on the same line, so they need the
+          // same rule under the chrome or the seam breaks at the column's edge.
+          className="border-t border-border"
         />
 
-        <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 px-[24px] pb-[64px] pt-[20px]">
-          {children}
-        </main>
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Row two no longer spans the full width — it starts where the
+              column does, because it lists the screens OF the workspace that
+              column has selected. It sticks under row one rather than with it:
+              row one is `top-0`, and row one's height is exactly `--h-btn`
+              (its tallest child sets it, and it carries no block padding), so
+              the offset stays correct if that control scale ever changes. */}
+          <WorkspaceScreensBar
+            className="sticky top-[var(--h-btn)] z-30"
+            group={activeGroup}
+            activeKey={activeNavKey}
+            ariaLabel={
+              activeGroup ? `${t("shell.bar.workspaceScreens")} — ${activeGroup.label}` : t("shell.bar.workspaceScreens")
+            }
+            overflowLabel={t("shell.bar.overflow")}
+          />
 
-        {gutter}
+          <div className="flex min-h-0 flex-1 items-stretch">
+            <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 px-[24px] pb-[64px] pt-[20px]">
+              {children}
+            </main>
+
+            {gutter}
+          </div>
+        </div>
       </div>
 
       <AllScreensPanel

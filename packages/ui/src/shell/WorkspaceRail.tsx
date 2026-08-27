@@ -65,69 +65,78 @@ export function WorkspaceRail({
   return (
     <nav
       aria-label={ariaLabel}
-      className={cn("flex w-[172px] flex-none flex-col border-e border-border-strong bg-surface py-[8px] text-ink", className)}
+      className={cn("flex w-[172px] flex-none flex-col border-e border-border-strong bg-surface text-ink", className)}
     >
-      <div className="flex-none px-[14px] pb-[4px] pt-[8px] text-2xs font-semibold text-ink-faint">{heading}</div>
+      {/*
+        The column stretches so its border runs the whole page, but its CONTENTS
+        stick under row one: the column and the workspace-screens bar share a top
+        edge (see `AppShell`), and a rail that scrolled away would leave that
+        shared edge attached to a blank 172px strip. `--h-btn` is row one's own
+        height — its tallest child sets it and the row carries no block padding.
+      */}
+      <div className="sticky top-[var(--h-btn)] flex flex-col py-[8px]">
+        <div className="flex-none px-[14px] pb-[4px] pt-[8px] text-2xs font-semibold text-ink-faint">{heading}</div>
 
-      <ul onKeyDown={onKeyDown}>
-        {items.map((item, index) => {
-          const active = item.key === activeKey;
-          const setRef = (el: HTMLElement | null) => {
-            refs.current[index] = el;
-          };
-          const activate = () => {
-            item.onClick?.();
-            onChange?.(item.key);
-          };
-          const classes = cn(ROW, active ? "bg-surface-2 font-semibold text-ink" : "text-ink");
-          const content = (
-            <>
-              {/* Never colour alone: the open workspace also carries this
-                  inline-start bar, the recessed fill and a heavier weight. */}
-              {active ? <span aria-hidden className="absolute bottom-0 start-0 top-0 w-[2px] bg-accent" /> : null}
-              {item.icon ? <span className="flex-none">{item.icon}</span> : null}
-              <span className="truncate">{item.label}</span>
-            </>
-          );
+        <ul onKeyDown={onKeyDown}>
+          {items.map((item, index) => {
+            const active = item.key === activeKey;
+            const setRef = (el: HTMLElement | null) => {
+              refs.current[index] = el;
+            };
+            const activate = () => {
+              item.onClick?.();
+              onChange?.(item.key);
+            };
+            const classes = cn(ROW, active ? "bg-surface-2 font-semibold text-ink" : "text-ink");
+            const content = (
+              <>
+                {/* Never colour alone: the open workspace also carries this
+                    inline-start bar, the recessed fill and a heavier weight. */}
+                {active ? <span aria-hidden className="absolute bottom-0 start-0 top-0 w-[2px] bg-accent" /> : null}
+                {item.icon ? <span className="flex-none">{item.icon}</span> : null}
+                <span className="truncate">{item.label}</span>
+              </>
+            );
 
-          return (
-            <li key={item.key} className="flex">
-              {item.href ? (
-                <a
-                  ref={setRef}
-                  href={item.href}
-                  tabIndex={index === rovingIndex ? 0 : -1}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(classes, "no-underline")}
-                  onClick={activate}
-                >
-                  {content}
-                </a>
-              ) : (
-                <button
-                  ref={setRef}
-                  type="button"
-                  tabIndex={index === rovingIndex ? 0 : -1}
-                  aria-current={active ? "page" : undefined}
-                  className={classes}
-                  onClick={activate}
-                >
-                  {content}
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+            return (
+              <li key={item.key} className="flex">
+                {item.href ? (
+                  <a
+                    ref={setRef}
+                    href={item.href}
+                    tabIndex={index === rovingIndex ? 0 : -1}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(classes, "no-underline")}
+                    onClick={activate}
+                  >
+                    {content}
+                  </a>
+                ) : (
+                  <button
+                    ref={setRef}
+                    type="button"
+                    tabIndex={index === rovingIndex ? 0 : -1}
+                    aria-current={active ? "page" : undefined}
+                    className={classes}
+                    onClick={activate}
+                  >
+                    {content}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
 
-      <div aria-hidden className="mx-[12px] my-[8px] h-px flex-none bg-border" />
+        <div aria-hidden className="mx-[12px] my-[8px] h-px flex-none bg-border" />
 
-      <button type="button" onClick={onOpenAllScreens} className={cn(ROW, "text-ink-muted hover:text-ink")}>
-        <span aria-hidden className="flex-none">
-          ☰
-        </span>
-        <span className="truncate">{allScreensLabel}</span>
-      </button>
+        <button type="button" onClick={onOpenAllScreens} className={cn(ROW, "text-ink-muted hover:text-ink")}>
+          <span aria-hidden className="flex-none">
+            ☰
+          </span>
+          <span className="truncate">{allScreensLabel}</span>
+        </button>
+      </div>
     </nav>
   );
 }

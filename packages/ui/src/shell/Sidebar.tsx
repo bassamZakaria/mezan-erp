@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
 import { BrandMark } from "./BrandMark";
@@ -12,6 +12,8 @@ export interface SidebarProps {
   topItem: NavItem;
   /** Rows pinned directly under the top item, outside every group — the approvals inbox. */
   pinnedItems?: readonly NavItem[];
+  /** Screens this user opened most recently, newest first. Supplied by the app, which owns the history. */
+  recentItems?: readonly NavItem[];
   groups: NavGroup[];
   brandName?: string;
   brandSub?: string;
@@ -52,6 +54,43 @@ function persistRailCollapsed(collapsed: boolean): void {
   }
 }
 
+const PINS_STORAGE_KEY = "mezan.nav.pins";
+
+function loadPersistedPins(): string[] {
+  const storage = getRailStorage();
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(PINS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistPins(keys: readonly string[]): void {
+  const storage = getRailStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(PINS_STORAGE_KEY, JSON.stringify(keys));
+  } catch {
+    // Ignore write failures — pins still hold for this session.
+  }
+}
+
+function PinIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg aria-hidden viewBox="0 0 20 20" className="h-[13px] w-[13px]" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6">
+      <path d="M12.2 2.8 17.2 7.8l-2.6.7-3.1 3.1.5 3.2-1.5 1.5-3.6-3.6-3.7 3.7 3.7-3.7-3.6-3.6L4.8 7.6l3.2.5 3.1-3.1z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function RailBlockLabel({ children }: { children: string }) {
+  return <div className="font-sig px-[10px] pb-[5px] pt-[14px] text-xs font-semibold tracking-[0.04em] text-chrome-ink-muted">{children}</div>;
+}
+
 function firstGlyph(label: string): string {
   return [...label.trim()][0] ?? "•";
 }
@@ -77,9 +116,19 @@ function NavGlyph({ item }: { item: NavItem }) {
   );
 }
 
-function NavRow({ item, active, showLabel }: { item: NavItem; active: boolean; showLabel: boolean }) {
+function NavRow({
+  item,
+  active,
+  showLabel,
+  trailing,
+}: {
+  item: NavItem;
+  active: boolean;
+  showLabel: boolean;
+  trailing?: ReactNode;
+}) {
   const className = cn(
-    "relative flex w-full items-center gap-[11px] rounded-md py-[9px] text-start text-md font-medium transition-colors duration-150",
+    "relative flex min-h-[44px] w-full items-center gap-[11px] rounded-md py-[10px] text-start text-md font-medium transition-colors duration-150",
     showLabel ? "px-[11px]" : "justify-center px-0",
     active ? "bg-chrome-active font-semibold text-chrome-ink" : "text-chrome-ink-muted hover:bg-chrome-hover hover:text-chrome-ink",
   );
@@ -108,7 +157,7 @@ function NavRow({ item, active, showLabel }: { item: NavItem; active: boolean; s
   );
 
   return (
-    <li className="relative">
+    <li className="relative flex items-center">
       {active ? (
         <span aria-hidden="true" className="absolute inset-y-[6px] start-[-12px] w-[3px] rounded-e-[3px] bg-chrome-accent" />
       ) : null}
@@ -133,6 +182,7 @@ function NavRow({ item, active, showLabel }: { item: NavItem; active: boolean; s
           {content}
         </button>
       )}
+      {trailing}
     </li>
   );
 }
@@ -195,6 +245,7 @@ export function Sidebar({
   activeKey,
   topItem,
   pinnedItems = [],
+  recentItems = [],
   groups,
   brandName,
   brandSub = "Mezan ERP",
@@ -218,6 +269,69 @@ export function Sidebar({
     return initial;
   });
   const [railCollapsed, setRailCollapsed] = useState(loadPersistedRailCollapsed);
+  const [pinnedKeys, setPinnedKeys] = useState<string[]>(loadPersistedPins);
+  const [query, setQuery] = useState("");
+
+  const itemByKey = useMemo(() => {
+    const map = new Map<string, NavItem>();
+    for (const group of groups) for (const item of navGroupItems(group)) map.set(item.key, item);
+    map.set(topItem.key, topItem);
+    for (const item of pinnedItems) map.set(item.key, item);
+    return map;
+  }, [groups, topItem, pinnedItems]);
+
+  const userPinned = useMemo(
+    () => pinnedKeys.map((key) => itemByKey.get(key)).filter((item): item is NavItem => item !== undefined),
+    [pinnedKeys, itemByKey],
+  );
+
+  const recentUnpinned = useMemo(
+    () => recentItems.filter((item) => !pinnedKeys.includes(item.key) && item.key !== activeKey).slice(0, 4),
+    [recentItems, pinnedKeys, activeKey],
+  );
+
+  const trimmedQuery = query.trim();
+  const searchResults = useMemo(() => {
+    if (trimmedQuery === "") return [];
+    const needle = trimmedQuery.toLocaleLowerCase();
+    const seen = new Set<string>();
+    const found: NavItem[] = [];
+    for (const item of itemByKey.values()) {
+      if (seen.has(item.key)) continue;
+      if (!item.label.toLocaleLowerCase().includes(needle)) continue;
+      seen.add(item.key);
+      found.push(item);
+    }
+    return found.slice(0, 12);
+  }, [trimmedQuery, itemByKey]);
+
+  function togglePin(key: string) {
+    setPinnedKeys((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      persistPins(next);
+      return next;
+    });
+  }
+
+  function pinButton(item: NavItem) {
+    const isPinned = pinnedKeys.includes(item.key);
+    const label = t(isPinned ? "shell.rail.unpin" : "shell.rail.pin", { screen: item.label });
+    return (
+      <button
+        type="button"
+        onClick={() => togglePin(item.key)}
+        aria-pressed={isPinned}
+        aria-label={label}
+        title={label}
+        className={cn(
+          "flex h-[44px] w-[36px] flex-none items-center justify-center rounded-md transition-colors",
+          isPinned ? "text-chrome-accent hover:text-chrome-ink" : "text-chrome-ink-muted hover:bg-chrome-hover hover:text-chrome-ink",
+        )}
+      >
+        <PinIcon filled={isPinned} />
+      </button>
+    );
+  }
 
   const activeGroupKey = useMemo(
     () => groups.find((group) => navGroupItems(group).some((item) => item.key === activeKey))?.key ?? null,
@@ -297,6 +411,19 @@ export function Sidebar({
       ) : null}
 
       <nav className="flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]">
+        {expanded ? (
+          <div className="relative pb-[6px]">
+            <input /* native-control-allow: SearchInput paints from surface/ink tokens, which are light in light mode; the rail is dark teal in BOTH themes and must use the independent chrome-* set (see tokens.css). */
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              aria-label={t("shell.rail.searchLabel")}
+              placeholder={t("shell.rail.search")}
+              className="h-[44px] w-full rounded-md border border-chrome-border bg-chrome-hover px-[11px] text-md text-chrome-ink outline-none placeholder:text-chrome-ink-muted focus-visible:border-chrome-accent"
+            />
+          </div>
+        ) : null}
+
         <ul>
           <NavRow item={topItem} active={activeKey === topItem.key} showLabel={expanded} />
           {pinnedItems.map((item) => (
@@ -304,7 +431,53 @@ export function Sidebar({
           ))}
         </ul>
 
-        {groups.map((group) => {
+        {expanded && trimmedQuery !== "" ? (
+          <div>
+            {searchResults.length === 0 ? (
+              <p className="px-[10px] py-[16px] text-md text-chrome-ink-muted">{t("shell.rail.noResults")}</p>
+            ) : (
+              <ul className="flex flex-col gap-[1px] pt-[8px]">
+                {searchResults.map((item) => (
+                  <NavRow
+                    key={item.key}
+                    item={item}
+                    active={activeKey === item.key}
+                    showLabel
+                    trailing={pinButton(item)}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
+
+        {expanded && trimmedQuery === "" && userPinned.length > 0 ? (
+          <div>
+            <RailBlockLabel>{t("shell.rail.pinned")}</RailBlockLabel>
+            <ul className="flex flex-col gap-[1px]">
+              {userPinned.map((item) => (
+                <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel trailing={pinButton(item)} />
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {expanded && trimmedQuery === "" && recentUnpinned.length > 0 ? (
+          <div>
+            <RailBlockLabel>{t("shell.rail.recent")}</RailBlockLabel>
+            <ul className="flex flex-col gap-[1px]">
+              {recentUnpinned.map((item) => (
+                <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel trailing={pinButton(item)} />
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {expanded && trimmedQuery === "" ? <RailBlockLabel>{t("shell.rail.all")}</RailBlockLabel> : null}
+
+        {trimmedQuery !== "" && expanded
+          ? null
+          : groups.map((group) => {
           const groupCollapsed = collapsedGroups[group.key] ?? false;
           const groupIsActive = activeGroupKey === group.key;
           return (
@@ -361,8 +534,8 @@ export function Sidebar({
                 </>
               )}
             </div>
-          );
-        })}
+              );
+            })}
       </nav>
     </aside>
   );

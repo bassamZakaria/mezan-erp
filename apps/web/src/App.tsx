@@ -67,7 +67,6 @@ const BranchesPage = lazy(() => import("./settings/BranchesPage").then((m) => ({
 const ChartOfAccountsScreen = lazy(() => import("./screens/ChartOfAccountsScreen").then((m) => ({ default: m.ChartOfAccountsScreen })));
 const ChequesScreen = lazy(() => import("./screens/ChequesScreen").then((m) => ({ default: m.ChequesScreen })));
 const ConfigInstancesScreen = lazy(() => import("./screens/ConfigInstancesScreen").then((m) => ({ default: m.ConfigInstancesScreen })));
-const ConfigurableProductsScreen = lazy(() => import("./screens/ConfigurableProductsScreen").then((m) => ({ default: m.ConfigurableProductsScreen })));
 const ContractsScreen = lazy(() => import("./screens/ContractsScreen").then((m) => ({ default: m.ContractsScreen })));
 const CostCenterPnLScreen = lazy(() => import("./screens/CostCenterPnLScreen").then((m) => ({ default: m.CostCenterPnLScreen })));
 const CostCentersScreen = lazy(() => import("./screens/CostCentersScreen").then((m) => ({ default: m.CostCentersScreen })));
@@ -90,16 +89,11 @@ const HrDashboardScreen = lazy(() => import("./screens/HrDashboardScreen").then(
 const InstallmentFollowUpsScreen = lazy(() => import("./screens/InstallmentFollowUpsScreen").then((m) => ({ default: m.InstallmentFollowUpsScreen })));
 const InstallmentPlansScreen = lazy(() => import("./screens/InstallmentPlansScreen").then((m) => ({ default: m.InstallmentPlansScreen })));
 const InventoryAgingReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryAgingReportScreen })));
-const InventoryDriftReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryDriftReportScreen })));
-const InventoryExpiringReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryExpiringReportScreen })));
 const InventoryHubScreen = lazy(() => import("./screens/hubs/InventoryHubScreen").then((m) => ({ default: m.InventoryHubScreen })));
 const InventoryLedgerReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryLedgerReportScreen })));
-const InventoryMovementReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryMovementReportScreen })));
-const InventorySlowMovingReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventorySlowMovingReportScreen })));
 const InventoryStockLevelsReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryStockLevelsReportScreen })));
 const InventoryValuationReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryValuationReportScreen })));
-const ItemSpecificationsScreen = lazy(() => import("./screens/ItemSpecificationsScreen").then((m) => ({ default: m.ItemSpecificationsScreen })));
-const ItemsScreen = lazy(() => import("./screens/ItemsScreen").then((m) => ({ default: m.ItemsScreen })));
+const ItemsWorkspaceScreen = lazy(() => import("./screens/ItemsWorkspaceScreen").then((m) => ({ default: m.ItemsWorkspaceScreen })));
 const JobTitlesScreen = lazy(() => import("./screens/JobTitlesScreen").then((m) => ({ default: m.JobTitlesScreen })));
 const JournalsScreen = lazy(() => import("./screens/JournalsScreen").then((m) => ({ default: m.JournalsScreen })));
 const LabelPrintingScreen = lazy(() => import("./screens/LabelPrintingScreen").then((m) => ({ default: m.LabelPrintingScreen })));
@@ -110,7 +104,6 @@ const LeaveBalancesScreen = lazy(() => import("./screens/LeaveBalancesScreen").t
 const LeavePoliciesScreen = lazy(() => import("./screens/LeavePoliciesScreen").then((m) => ({ default: m.LeavePoliciesScreen })));
 const LeaveRequestsScreen = lazy(() => import("./screens/LeaveRequestsScreen").then((m) => ({ default: m.LeaveRequestsScreen })));
 const MakeVsBuyReportScreen = lazy(() => import("./screens/reports/ManufacturingReportsScreens").then((m) => ({ default: m.MakeVsBuyReportScreen })));
-const ManufacturingHubScreen = lazy(() => import("./screens/hubs/ManufacturingHubScreen").then((m) => ({ default: m.ManufacturingHubScreen })));
 const MyLeaveScreen = lazy(() => import("./screens/MyLeaveScreen").then((m) => ({ default: m.MyLeaveScreen })));
 const NotificationRulesPage = lazy(() => import("./settings/NotificationRulesPage").then((m) => ({ default: m.NotificationRulesPage })));
 const NotificationsScreen = lazy(() => import("./screens/NotificationsScreen").then((m) => ({ default: m.NotificationsScreen })));
@@ -122,7 +115,6 @@ const PipelineScreen = lazy(() => import("./screens/PipelineScreen").then((m) =>
 const PipelineStagesScreen = lazy(() => import("./screens/PipelineStagesScreen").then((m) => ({ default: m.PipelineStagesScreen })));
 const PriceListsScreen = lazy(() => import("./screens/PriceListsScreen").then((m) => ({ default: m.PriceListsScreen })));
 const PrintTemplatesPage = lazy(() => import("./settings/PrintTemplatesPage").then((m) => ({ default: m.PrintTemplatesPage })));
-const ProductTemplatesScreen = lazy(() => import("./screens/ProductTemplatesScreen").then((m) => ({ default: m.ProductTemplatesScreen })));
 const ProductionDashboardScreen = lazy(() => import("./screens/hubs/ProductionDashboardScreen").then((m) => ({ default: m.ProductionDashboardScreen })));
 const ProfilePage = lazy(() => import("./settings/ProfilePage").then((m) => ({ default: m.ProfilePage })));
 const ProjectsScreen = lazy(() => import("./screens/ProjectsScreen").then((m) => ({ default: m.ProjectsScreen })));
@@ -147,7 +139,6 @@ const SalesReturnsScreen = lazy(() => import("./screens/SalesReturnsScreen").the
 const SequencesPage = lazy(() => import("./settings/SequencesPage").then((m) => ({ default: m.SequencesPage })));
 const SettingsGeneral = lazy(() => import("./settings/SettingsGeneral").then((m) => ({ default: m.SettingsGeneral })));
 const StockAdjustmentsScreen = lazy(() => import("./screens/StockAdjustmentsScreen").then((m) => ({ default: m.StockAdjustmentsScreen })));
-const StockBalanceScreen = lazy(() => import("./screens/StockBalanceScreen").then((m) => ({ default: m.StockBalanceScreen })));
 const StockTransfersScreen = lazy(() => import("./screens/StockTransfersScreen").then((m) => ({ default: m.StockTransfersScreen })));
 const SuppliersScreen = lazy(() => import("./screens/SuppliersScreen").then((m) => ({ default: m.SuppliersScreen })));
 const SystemStatusScreen = lazy(() => import("./screens/hubs/SystemStatusScreen").then((m) => ({ default: m.SystemStatusScreen })));
@@ -187,8 +178,10 @@ const ROUTABLE_SCREENS = {
   "treasury-hub": TreasuryHubScreen,
   "crm-hub": CrmHubScreen,
   "assets-hub": AssetsHubScreen,
-  "manufacturing-hub": ManufacturingHubScreen,
-  "production-dashboard": ProductionDashboardScreen,
+  // التصنيع's hub IS the production dashboard: both rendered the same
+  // `/manufacturing/dashboard` figures, one as a teaser above a link to the
+  // other, so a workspace of five screens opened onto two landing pages.
+  "manufacturing-hub": ProductionDashboardScreen,
   status: SystemStatusScreen,
   notifications: NotificationsScreen,
   "sales-invoices": SalesInvoicesScreen,
@@ -208,17 +201,13 @@ const ROUTABLE_SCREENS = {
   "landed-costs": LandedCostsScreen,
   "installment-plans": InstallmentPlansScreen,
   "installment-follow-ups": InstallmentFollowUpsScreen,
-  items: ItemsScreen,
+  items: ItemsWorkspaceScreen,
   "work-orders": WorkOrdersScreen,
   boms: BomsScreen,
   "custom-manufacturing": ConfigInstancesScreen,
-  "configurable-products": ConfigurableProductsScreen,
-  "stock-balance": StockBalanceScreen,
   "stock-transfers": StockTransfersScreen,
   "stock-adjustments": StockAdjustmentsScreen,
   "physical-counts": PhysicalCountsScreen,
-  "product-templates": ProductTemplatesScreen,
-  "item-specifications": ItemSpecificationsScreen,
   labels: LabelPrintingScreen,
   "writedown-runs": WritedownRunsScreen,
   "cost-centers": CostCentersScreen,
@@ -243,13 +232,9 @@ const ROUTABLE_SCREENS = {
   "report-purchases-by-supplier": PurchasesBySupplierReportScreen,
   "report-purchases-by-item": PurchasesByItemReportScreen,
   "report-inventory-stock-levels": InventoryStockLevelsReportScreen,
-  "report-inventory-movement": InventoryMovementReportScreen,
   "report-inventory-ledger": InventoryLedgerReportScreen,
   "report-inventory-valuation": InventoryValuationReportScreen,
   "report-inventory-aging": InventoryAgingReportScreen,
-  "report-inventory-expiring": InventoryExpiringReportScreen,
-  "report-inventory-slow-moving": InventorySlowMovingReportScreen,
-  "report-inventory-drift": InventoryDriftReportScreen,
   "report-aging-customers": AgingCustomersReportScreen,
   "report-aging-suppliers": AgingSuppliersReportScreen,
   "report-installments-overview": InstallmentsOverviewReportScreen,

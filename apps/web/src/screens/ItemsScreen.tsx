@@ -648,7 +648,7 @@ function ItemCostLayersTab({ itemId }: { itemId: string }) {
 export function ItemsScreen() {
   const { t } = useAppTranslation();
   const nameOf = useEntityName();
-  const { openScreenAt } = useNavigation();
+  const { openScreenAt, navigate } = useNavigation();
   const brands = useItemBrands().data ?? [];
   const suppliers = useSuppliers().data ?? [];
   const seasons = useItemSeasons().data ?? [];
@@ -1436,9 +1436,15 @@ export function ItemsScreen() {
         title={t("items.items")}
         description={t("items.theMasterCatalogueOfProducts")}
         actions={
-          <Button variant="primary" onClick={openCreateForm}>
-            {t("items.addItem")}
-          </Button>
+          <>
+            {/* Label printing is an action ON items, not a shelf of the
+                workspace — it is how the list reaches `#/labels`, which no
+                longer carries a nav row of its own. */}
+            <Button onClick={() => navigate("labels")}>{t("items.printLabels")}</Button>
+            <Button variant="primary" onClick={openCreateForm}>
+              {t("items.addItem")}
+            </Button>
+          </>
         }
         listKey="items"
         statsCollapsible

@@ -96,35 +96,34 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
       },
     ],
   },
+  /**
+   * الأصناف is master data for المخزون، البيع and الشراء alike, so it is a
+   * SHELF of المخزون rather than a workspace of its own — and its four screens
+   * (الأصناف، القوالب، المنتجات القابلة للتهيئة، المواصفات) are four tabs of
+   * ONE page, the way QuickBooks keeps a single «Products and services» list
+   * with a type on the item. Likewise أرصدة المخزون, which answered the same
+   * question as the hub, is now the hub's own table, and the eight inventory
+   * reports are four: كل تقرير هنا يحمل عروضه بداخله (الحركة داخل السجل،
+   * الفروق داخل التقييم، الصلاحية والبطيئة داخل الأعمار).
+   */
   {
     key: "stock",
     defaultCollapsed: true,
-    itemKeys: ["inventory-hub"],
+    // الأصناف sits beside the hub rather than in a shelf of its own: a section
+    // holding one screen renders as a dropdown wrapping a single row.
+    itemKeys: ["inventory-hub", "items"],
     sections: [
-      { key: "daily", itemKeys: ["stock-balance", "stock-transfers", "stock-adjustments", "physical-counts", "writedown-runs"] },
+      { key: "daily", itemKeys: ["stock-transfers", "stock-adjustments", "physical-counts", "writedown-runs"] },
       {
         key: "reports",
         defaultCollapsed: true,
         itemKeys: [
           "report-inventory-stock-levels",
-          "report-inventory-movement",
           "report-inventory-ledger",
           "report-inventory-valuation",
           "report-inventory-aging",
-          "report-inventory-expiring",
-          "report-inventory-slow-moving",
-          "report-inventory-drift",
         ],
       },
-    ],
-  },
-  {
-    key: "items",
-    defaultCollapsed: true,
-    itemKeys: ["items"],
-    sections: [
-      { key: "master", itemKeys: ["product-templates", "configurable-products", "item-specifications"] },
-      { key: "config", defaultCollapsed: true, itemKeys: ["labels"] },
     ],
   },
   {
@@ -132,7 +131,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     defaultCollapsed: true,
     itemKeys: ["manufacturing-hub"],
     sections: [
-      { key: "daily", itemKeys: ["production-dashboard", "work-orders", "custom-manufacturing", "boms"] },
+      { key: "daily", itemKeys: ["work-orders", "custom-manufacturing", "boms"] },
       { key: "reports", defaultCollapsed: true, itemKeys: ["report-make-vs-buy"] },
     ],
   },

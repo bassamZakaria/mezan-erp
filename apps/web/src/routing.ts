@@ -33,7 +33,10 @@ for (const group of navGroupSpecs) {
   }
 }
 // Screens the nav tree does not list: they address as their own bare key.
-for (const key of ["users", "roles", "role-editor", "dashboard", "notifications"]) {
+// `labels` is reached from الأصناف's own «طباعة الملصقات» action rather than
+// from a nav row of its own — a print builder is a thing you do TO an item,
+// not a shelf of the workspace — so it needs its address stated here.
+for (const key of ["users", "roles", "role-editor", "dashboard", "notifications", "labels"]) {
   if (!PATH_BY_SCREEN.has(key)) {
     PATH_BY_SCREEN.set(key, key);
     SCREEN_BY_PATH.set(key, key);

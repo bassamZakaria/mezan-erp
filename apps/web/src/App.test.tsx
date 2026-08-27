@@ -114,15 +114,16 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "الموافقات" })).toBeInTheDocument();
   });
 
-  it("keeps التقارير on the rail and routes to a report that lives in a section", async () => {
+  it("routes to a report that lives in a section, from row two's own dropdown", async () => {
     renderWithProviders(<App />, { transport: appTransport() });
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
-    // التقارير carries every one of its screens in sections and none directly;
-    // a rail that counts only direct items drops the whole group.
+    // A section is a MENU on row two, not a row in the column: التقارير carries
+    // every one of its screens in sections and none directly, so a bar that
+    // listed only direct items would drop the whole shelf.
     fireEvent.click(screen.getByRole("button", { name: "التقارير" }));
-    fireEvent.click(screen.getByRole("button", { name: "المبيعات حسب الفترة" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "المبيعات حسب الفترة" }));
     expect(await screen.findByRole("heading", { name: "المبيعات حسب الفترة" })).toBeInTheDocument();
   });
 

@@ -6,19 +6,23 @@ import { useReport } from "../../data/reports-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { StockBalanceScreen } from "../StockBalanceScreen";
 
 /**
- * المخزون hub — item counts from `/items`, and stock value + at-risk items
- * from the REAL `/reports/inventory/stock-levels` engine (the same one
+ * المخزون hub — item counts from `/items`, and stock value from the REAL
+ * `/reports/inventory/stock-levels` engine (the same one
  * `InventoryStockLevelsReportScreen` runs) rather than re-deriving valuation
- * client-side. No qty/timestamp field exists on `ItemDTO` itself, so the
- * "needs attention" list below is sourced from that report's rows, not a
- * fabricated "recent items" ordering.
+ * client-side.
+ *
+ * THE BALANCES TABLE IS THIS PAGE. أرصدة المخزون used to be a sibling nav
+ * entry answering the hub's own question — how much of what, and where — so
+ * the hub carried a five-row «needs attention» teaser above a link to the real
+ * list. The list is now rendered here, and its own stat strip counts total /
+ * low / out across the same rows, which is what that teaser was approximating.
  */
 
 const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
   { label: "inventoryHub.action.newItem", screen: "items" },
-  { label: "inventoryHub.action.balances", screen: "stock-balance" },
   { label: "inventoryHub.action.transfer", screen: "stock-transfers" },
   { label: "inventoryHub.action.count", screen: "physical-counts" },
 ];
@@ -39,7 +43,6 @@ export function InventoryHubScreen() {
   const activeItems = useMemo(() => items.filter((i) => i.status === "active").length, [items]);
   const rows = stockLevelsQuery.data?.rows ?? [];
   const inventoryValue = stockLevelsQuery.data?.grandTotals.value ?? 0;
-  const needsAttention = useMemo(() => rows.filter((r) => r.status !== "normal").slice(0, 5), [rows]);
   const needsAttentionCount = useMemo(() => rows.filter((r) => r.status !== "normal").length, [rows]);
 
   const isLoading = itemsQuery.isLoading || stockLevelsQuery.isLoading;
@@ -79,27 +82,7 @@ export function InventoryHubScreen() {
         />
       </div>
 
-      <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("inventoryHub.stat.attention")}</h3>
-        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("inventoryHub.attentionSub")}</div>
-        {needsAttention.length > 0 ? (
-          <ul className="flex flex-col gap-[10px]">
-            {needsAttention.map((row) => (
-              <li key={row.itemId} className="flex items-center justify-between gap-[10px]">
-                <div>
-                  <div className="text-[12.5px] text-ink">{row.itemNameAr}</div>
-                  <div className="mt-[1px] text-[11px] text-ink-faint">
-                    <span className="mz-lat">{row.sku}</span> · {t("inventoryHub.remaining")} <span className="mz-num">{row.onHand}</span>
-                  </div>
-                </div>
-                <span className="text-[11.5px] font-semibold text-danger-ink">{row.status === "out" ? t("inventoryHub.out") : t("inventoryHub.low")}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[12.5px] text-ink-muted">{t("inventoryHub.empty")}</p>
-        )}
-      </Card>
+      <StockBalanceScreen />
     </div>
   );
 }

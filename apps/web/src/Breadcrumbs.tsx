@@ -9,6 +9,30 @@ interface Crumb {
 }
 
 /**
+ * A screen whose first segment names a TAB (`#/stock/items/templates`) would
+ * otherwise print that key raw in an Arabic breadcrumb. Document ids and
+ * numbers still print as themselves — they are already the name of the thing.
+ */
+const SEGMENT_LABEL_KEY: Record<string, AppTranslationKey> = {
+  new: "breadcrumb.new",
+  templates: "items.tabs.templates",
+  configurable: "items.tabs.configurable",
+  specs: "items.tabs.specs",
+  ledger: "inventoryReports.view.ledger",
+  movement: "inventoryReports.view.movement",
+  valuation: "inventoryReports.view.valuation",
+  drift: "inventoryReports.view.drift",
+  aging: "inventoryReports.view.aging",
+  expiring: "inventoryReports.view.expiring",
+  "slow-moving": "inventoryReports.view.slowMoving",
+};
+
+function segmentLabel(segment: string, t: (key: AppTranslationKey) => string): string {
+  const key = SEGMENT_LABEL_KEY[segment];
+  return key ? t(key) : segment;
+}
+
+/**
  * The path back. Rendered by the shell above every screen, so a sub-page —
  * `#/sales/quotes/new`, `#/sales/quotes/QT-000004` — is never a place you can
  * only leave by pressing the browser's Back button. Each crumb but the last is
@@ -44,7 +68,7 @@ export function Breadcrumbs({ screen }: { screen: ScreenKey }) {
     // number. Anything after `new` is a prefill parameter — a reason code, an
     // item id — and printing it puts a raw enum in the Arabic breadcrumb.
     if (i > 0 && segments[0] === "new") break;
-    crumbs.push({ label: segment === "new" ? t("breadcrumb.new") : segment, onClick: undefined });
+    crumbs.push({ label: segmentLabel(segment, t), onClick: undefined });
     if (i > 0) break;
   }
 

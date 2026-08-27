@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { Card } from "@mezan/ui";
 import {
   createInventoryStockLevelsReport,
   createInventoryMovementReport,
@@ -7,11 +9,27 @@ import {
   createInventoryExpiringReport,
   createInventorySlowMovingReport,
   createInventoryDriftReport,
+  type InventoryDriftRow,
 } from "@mezan/domain";
 import { ReportScreen } from "./ReportScreen";
+import { ScreenTabs } from "../ScreenTabs";
+import { useReport } from "../../data/reports-hooks";
+import { useAppTranslation } from "../../i18n";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
-/** المخزون — Inventory reports (docs/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/inventory/*`. */
+/**
+ * المخزون — Inventory reports (docs/catalog/08-reports.md), each a thin
+ * `ReportScreen` over `/reports/inventory/*`.
+ *
+ * FOUR ENTRIES, EIGHT REPORTS. The nav used to list all eight side by side,
+ * which read as eight subjects when it is four: the ledger and the movement
+ * list are the same `StockMovement` rows (the ledger adds a running balance
+ * and no date bound); valuation and its drift are a figure and the check on
+ * that figure; ageing, expiry and slow-moving are three questions about old
+ * stock. Each surviving screen carries the others as VIEWS, so nothing was
+ * dropped and no report lost its own filters — see `ScreenTabs`, which puts
+ * the open view in the URL.
+ */
 
 const TODAY = todayIso();
 const MONTH_START = monthStartIso();
@@ -20,30 +38,103 @@ export function InventoryStockLevelsReportScreen() {
   return <ReportScreen definition={createInventoryStockLevelsReport()} apiPath="/inventory/stock-levels" />;
 }
 
-export function InventoryMovementReportScreen() {
-  return <ReportScreen definition={createInventoryMovementReport(MONTH_START, TODAY)} apiPath="/inventory/movement" />;
-}
-
+/** السجل والحركة — the running-balance ledger, and the same rows as a flat in/out list. */
 export function InventoryLedgerReportScreen() {
-  return <ReportScreen definition={createInventoryLedgerReport()} apiPath="/inventory/ledger" />;
+  const { t } = useAppTranslation();
+  return (
+    <ScreenTabs
+      ariaLabel={t("inventoryReports.views.ledger")}
+      tabs={[
+        {
+          key: "ledger",
+          label: t("inventoryReports.view.ledger"),
+          render: () => <ReportScreen definition={createInventoryLedgerReport()} apiPath="/inventory/ledger" />,
+        },
+        {
+          key: "movement",
+          label: t("inventoryReports.view.movement"),
+          render: () => (
+            <ReportScreen definition={createInventoryMovementReport(MONTH_START, TODAY)} apiPath="/inventory/movement" />
+          ),
+        },
+      ]}
+    />
+  );
 }
 
+const DRIFT_PARAMS = {};
+
+/**
+ * التقييم — the valuation, with its own reconciliation check beside it.
+ *
+ * The drift report is not a second opinion on the valuation: it is the
+ * sub-ledger-versus-control-account test on it (كل صنف يخالف فيه متوسط تكلفته
+ * قيمة طبقاته). A valuation figure shown with no indication that N items fail
+ * that test is the figure this app must never present, so the banner is part
+ * of the valuation view rather than a separate nav entry someone has to know
+ * to open.
+ */
 export function InventoryValuationReportScreen() {
-  return <ReportScreen definition={createInventoryValuationReport()} apiPath="/inventory/valuation" />;
+  const { t } = useAppTranslation();
+  const driftQuery = useReport<InventoryDriftRow>("inventory.drift", "/inventory/drift", DRIFT_PARAMS);
+  const driftCount = useMemo(() => driftQuery.data?.rows.length ?? 0, [driftQuery.data]);
+
+  return (
+    <ScreenTabs
+      ariaLabel={t("inventoryReports.views.valuation")}
+      tabs={[
+        {
+          key: "valuation",
+          label: t("inventoryReports.view.valuation"),
+          render: () => (
+            <div className="flex flex-col gap-[14px]">
+              {driftCount > 0 ? (
+                <Card className="border-warning bg-warning-soft p-[14px_18px]">
+                  <p className="text-[12.5px] font-semibold text-ink">
+                    {t("inventoryReports.driftBanner", { count: driftCount })}
+                  </p>
+                  <p className="mt-[3px] text-[11.5px] text-ink-muted">{t("inventoryReports.driftBannerHint")}</p>
+                </Card>
+              ) : null}
+              <ReportScreen definition={createInventoryValuationReport()} apiPath="/inventory/valuation" />
+            </div>
+          ),
+        },
+        {
+          key: "drift",
+          label: t("inventoryReports.view.drift"),
+          render: () => <ReportScreen definition={createInventoryDriftReport()} apiPath="/inventory/drift" />,
+        },
+      ]}
+    />
+  );
 }
 
+/** الأعمار — how old the stock is, when it expires, and what stopped selling. */
 export function InventoryAgingReportScreen() {
-  return <ReportScreen definition={createInventoryAgingReport(TODAY)} apiPath="/inventory/aging" />;
-}
-
-export function InventoryExpiringReportScreen() {
-  return <ReportScreen definition={createInventoryExpiringReport(TODAY)} apiPath="/inventory/expiring" />;
-}
-
-export function InventorySlowMovingReportScreen() {
-  return <ReportScreen definition={createInventorySlowMovingReport(TODAY)} apiPath="/inventory/slow-moving" />;
-}
-
-export function InventoryDriftReportScreen() {
-  return <ReportScreen definition={createInventoryDriftReport()} apiPath="/inventory/drift" />;
+  const { t } = useAppTranslation();
+  return (
+    <ScreenTabs
+      ariaLabel={t("inventoryReports.views.aging")}
+      tabs={[
+        {
+          key: "aging",
+          label: t("inventoryReports.view.aging"),
+          render: () => <ReportScreen definition={createInventoryAgingReport(TODAY)} apiPath="/inventory/aging" />,
+        },
+        {
+          key: "expiring",
+          label: t("inventoryReports.view.expiring"),
+          render: () => <ReportScreen definition={createInventoryExpiringReport(TODAY)} apiPath="/inventory/expiring" />,
+        },
+        {
+          key: "slow-moving",
+          label: t("inventoryReports.view.slowMoving"),
+          render: () => (
+            <ReportScreen definition={createInventorySlowMovingReport(TODAY)} apiPath="/inventory/slow-moving" />
+          ),
+        },
+      ]}
+    />
+  );
 }

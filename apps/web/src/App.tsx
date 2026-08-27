@@ -281,6 +281,27 @@ const ROUTABLE_SCREENS = {
 type RoutableKey = keyof typeof ROUTABLE_SCREENS;
 
 /** Where ⌘N goes when the screen on display has no create flow of its own. */
+const RECENT_SCREENS_KEY = "mezan.nav.recent";
+
+function loadRecentScreens(): string[] {
+  try {
+    const raw = window.localStorage.getItem(RECENT_SCREENS_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentScreens(keys: readonly string[]): void {
+  try {
+    window.localStorage.setItem(RECENT_SCREENS_KEY, JSON.stringify(keys));
+  } catch {
+    // Ignore write failures — recents still hold for this session.
+  }
+}
+
 const DEFAULT_CREATE_SCREEN = "sales-invoices" satisfies RoutableKey;
 
 /**
@@ -457,12 +478,30 @@ export function App() {
         .filter((group) => navGroupItems(group).length > 0),
     [groups],
   );
+  // The rail opens on what this person actually uses. History belongs to the
+  // app, not the shell, so the rail is handed the resolved items.
+  const [recentKeys, setRecentKeys] = useState<string[]>(loadRecentScreens);
+  useEffect(() => {
+    if (!isRoutable(activeScreen) || activeScreen === "dashboard") return;
+    setRecentKeys((prev) => {
+      const next = [activeScreen, ...prev.filter((key) => key !== activeScreen)].slice(0, 8);
+      if (next.length === prev.length && next.every((key, at) => key === prev[at])) return prev;
+      persistRecentScreens(next);
+      return next;
+    });
+  }, [activeScreen]);
+
+  const recentNavItems = useMemo(() => {
+    const byKey = new Map(groups.flatMap((group) => navGroupItems(group)).map((item) => [item.key, item]));
+    return recentKeys.map((key) => byKey.get(key)).filter((item): item is NavItem => item !== undefined);
+  }, [groups, recentKeys]);
+
   const utilityGroups = useMemo(
     () =>
       groups
         .filter((group) => UTILITY_GROUP_KEYS.has(group.key))
         .map((group) =>
-          group.key === "system"
+          group.key === "setup"
             ? {
                 ...group,
                 items: [
@@ -631,6 +670,7 @@ export function App() {
       navGroups={railGroups}
       utilityGroups={utilityGroups}
       pinnedNavItems={pinnedNavItems}
+      recentNavItems={recentNavItems}
       user={shellUser}
       commandItems={routedCommandItems}
       tenantName={session.tenantName}

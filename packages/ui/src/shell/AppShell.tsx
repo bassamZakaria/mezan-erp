@@ -15,6 +15,8 @@ export interface AppShellProps {
   headerNavItems?: NavItem[];
   /** Rail rows pinned above every group — the approvals inbox. */
   pinnedNavItems?: NavItem[];
+  /** Screens this user opened most recently, newest first — the rail surfaces them above the tree. */
+  recentNavItems?: NavItem[];
   user: ShellUser;
   commandItems?: CommandItem[];
   tenantName?: string;
@@ -49,6 +51,7 @@ export function AppShell({
   utilityGroups,
   headerNavItems,
   pinnedNavItems,
+  recentNavItems,
   user,
   commandItems = [],
   tenantName,
@@ -76,6 +79,7 @@ export function AppShell({
         activeKey={activeNavKey}
         topItem={topNavItem}
         pinnedItems={pinnedNavItems}
+        recentItems={recentNavItems}
         groups={navGroups}
         brandName={brandName}
         brandSub={brandSub}
@@ -102,7 +106,9 @@ export function AppShell({
           onSelectBranch={onSelectBranch}
           onSelectWarehouse={onSelectWarehouse}
         />
-        <main className="flex-1 px-[30px] pb-[72px] pt-[28px]">{children}</main>
+        <main className="flex-1 px-[30px] pb-[72px] pt-[28px]">
+          <div className="ms-auto me-auto w-full max-w-[1320px]">{children}</div>
+        </main>
       </div>
     </div>
   );

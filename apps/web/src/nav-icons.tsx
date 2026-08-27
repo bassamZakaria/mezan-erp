@@ -259,6 +259,12 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
 
 const navGroupIcons: Readonly<Record<string, LucideIcon>> = {
   workflow: Workflow,
+  sell: Store,
+  buy: ShoppingCart,
+  stock: Warehouse,
+  money: Landmark,
+  people: UsersRound,
+  setup: Settings,
   sales: Store,
   purchases: ShoppingCart,
   inventory: Warehouse,

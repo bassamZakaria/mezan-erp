@@ -171,6 +171,41 @@ const uiAr = {
   "ui.list.statsCollapse": "إخفاء التفاصيل",
   "ui.list.statsExpand": "عرض التفاصيل",
   "ui.list.filters": "تصفية النتائج",
+
+  // Revamp — shared feedback system
+  "ui.feedback.dismiss": "إغلاق",
+  "ui.feedback.undo": "تراجع",
+  "ui.feedback.saved": "تم الحفظ",
+  "ui.feedback.region": "رسائل النظام",
+  "ui.confirm.cancel": "رجوع",
+  "ui.confirm.title": "تأكيد الإجراء",
+  "ui.loading": "جارٍ التحميل…",
+  "ui.empty.title": "لا يوجد شيء هنا بعد",
+  "ui.empty.searchTitle": "لا توجد نتائج مطابقة",
+  "ui.empty.searchHint": "جرّب كلمة أقصر أو امسح التصفية.",
+  "ui.empty.clearFilters": "مسح التصفية",
+
+  // Revamp — named views and applied filters
+  "ui.views.label": "العرض",
+  "ui.views.all": "الكل",
+  "ui.filters.applied": "معروض:",
+  "ui.filters.remove": "إزالة {filter}",
+  "ui.filters.clearAll": "مسح الكل",
+  "ui.filters.add": "أضف تصفية",
+
+  // Revamp — page header
+  "ui.page.moreActions": "إجراءات أخرى",
+
+  // Revamp — the rail learns what this person uses
+  "shell.rail.search": "اكتب اسم الشاشة أو الشغلة اللي عايزها…",
+  "shell.rail.searchLabel": "بحث في الشاشات",
+  "shell.rail.pinned": "المثبّتة",
+  "shell.rail.recent": "آخر ما فتحت",
+  "shell.rail.all": "كل الشاشات",
+  "shell.rail.pin": "تثبيت {screen} في الأعلى",
+  "shell.rail.unpin": "إلغاء تثبيت {screen}",
+  "shell.rail.noResults": "مفيش شاشة بالاسم ده",
+  "shell.rail.clearSearch": "مسح البحث",
 } as const;
 
 export type UiTranslationKey = keyof typeof uiAr;
@@ -341,6 +376,41 @@ const uiEn: Record<UiTranslationKey, string> = {
   "ui.list.statsCollapse": "Hide details",
   "ui.list.statsExpand": "Show details",
   "ui.list.filters": "Filter results",
+
+  // Revamp — shared feedback system
+  "ui.feedback.dismiss": "Dismiss",
+  "ui.feedback.undo": "Undo",
+  "ui.feedback.saved": "Saved",
+  "ui.feedback.region": "System messages",
+  "ui.confirm.cancel": "Go back",
+  "ui.confirm.title": "Confirm this action",
+  "ui.loading": "Loading…",
+  "ui.empty.title": "Nothing here yet",
+  "ui.empty.searchTitle": "No matching results",
+  "ui.empty.searchHint": "Try a shorter word, or clear the filters.",
+  "ui.empty.clearFilters": "Clear filters",
+
+  // Revamp — named views and applied filters
+  "ui.views.label": "View",
+  "ui.views.all": "All",
+  "ui.filters.applied": "Showing:",
+  "ui.filters.remove": "Remove {filter}",
+  "ui.filters.clearAll": "Clear all",
+  "ui.filters.add": "Add a filter",
+
+  // Revamp — page header
+  "ui.page.moreActions": "More actions",
+
+  // Revamp — the rail learns what this person uses
+  "shell.rail.search": "Type the screen or the job you want…",
+  "shell.rail.searchLabel": "Search screens",
+  "shell.rail.pinned": "Pinned",
+  "shell.rail.recent": "Recently opened",
+  "shell.rail.all": "All screens",
+  "shell.rail.pin": "Pin {screen} to the top",
+  "shell.rail.unpin": "Unpin {screen}",
+  "shell.rail.noResults": "No screen by that name",
+  "shell.rail.clearSearch": "Clear search",
 };
 
 export const uiCatalogs: LocaleCatalogs = { ar: uiAr, en: uiEn };

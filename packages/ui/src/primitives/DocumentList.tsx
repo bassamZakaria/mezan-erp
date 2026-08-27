@@ -2,9 +2,10 @@ import { Fragment, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
-import { Card, Chip, StatCard } from "./atoms";
+import { Card, StatCard } from "./atoms";
 import { SearchInput } from "./form";
 import { Select } from "./Select";
+import { ListViews, AppliedFilters, type ListView, type AppliedFilter } from "./ListViews";
 
 /**
  * DocumentList — the reusable list-page pattern (KPI strip + status chips +
@@ -73,6 +74,17 @@ export interface DocumentListProps<Row> {
   statusChips?: DocumentListStatusChip[];
   activeStatusKey?: string;
   onStatusChange?: (key: string) => void;
+  /**
+   * The single-select view control shown above the filter bar. Takes
+   * precedence over `statusChips` when supplied — both drive the same
+   * `activeStatusKey`/`onStatusChange` pair, so a screen can upgrade to
+   * `description`/`alwaysShow` per view without touching its handlers.
+   */
+  views?: ListView[];
+  /** Removable tags summarising the filters currently narrowing this list. */
+  appliedFilters?: AppliedFilter[];
+  /** Wired to `AppliedFilters`' "مسح الكل" action. Renders only when more than one filter is applied. */
+  onClearAllFilters?: () => void;
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
@@ -194,6 +206,9 @@ export function DocumentList<Row>({
   statusChips,
   activeStatusKey,
   onStatusChange,
+  views,
+  appliedFilters,
+  onClearAllFilters,
   searchValue,
   onSearchChange,
   searchPlaceholder,
@@ -224,12 +239,20 @@ export function DocumentList<Row>({
   const { t } = useUiTranslation();
   const searchLabel = searchPlaceholder ?? t("ui.search.placeholder");
   const showRowAction = Boolean(rowAction ?? onRowClick);
+  const viewItems: ListView[] | undefined = views ?? statusChips;
   const footerColumns = columns.filter((col) => col.total);
   const totalLabelIndex = columns.findIndex((col) => !col.total);
   const statsStorageKey = listKey ? `mezan.list.stats.${listKey}` : null;
   const filtersStorageKey = listKey ? `mezan.list.filters.${listKey}` : null;
+  // The filter bar defaults OPEN whenever the screen has filters to show —
+  // hiding useful filters behind a closed toggle is worse than an open one a
+  // reader can dismiss. `loadPersistedOpen` still wins once the reader has
+  // made their own choice.
+  const filtersDefaultOpen = Boolean(filterBarExtra);
   const [statsOpen, setStatsOpen] = useState(() => (statsStorageKey ? loadPersistedOpen(statsStorageKey, true) : true));
-  const [filtersOpen, setFiltersOpen] = useState(() => (filtersStorageKey ? loadPersistedOpen(filtersStorageKey, false) : false));
+  const [filtersOpen, setFiltersOpen] = useState(() =>
+    filtersStorageKey ? loadPersistedOpen(filtersStorageKey, filtersDefaultOpen) : filtersDefaultOpen,
+  );
   const toggleStatsOpen = () => {
     setStatsOpen((open) => {
       const next = !open;
@@ -301,20 +324,14 @@ export function DocumentList<Row>({
         </div>
       ) : null}
 
-      {statusChips && statusChips.length > 0 ? (
-        <div className="mb-[16px] flex flex-wrap gap-[8px]" role="tablist" aria-label={t("ui.list.statusFilter")}>
-          {statusChips.map((chip) => (
-            <Chip
-              key={chip.key}
-              role="tab"
-              aria-selected={activeStatusKey === chip.key}
-              active={activeStatusKey === chip.key}
-              count={chip.count}
-              onClick={() => onStatusChange?.(chip.key)}
-            >
-              {chip.label}
-            </Chip>
-          ))}
+      {viewItems && viewItems.length > 0 ? (
+        <div className="mb-[16px]">
+          <ListViews
+            views={viewItems}
+            activeKey={activeStatusKey ?? ""}
+            onChange={(key) => onStatusChange?.(key)}
+            aria-label={t("ui.list.statusFilter")}
+          />
         </div>
       ) : null}
 
@@ -353,6 +370,12 @@ export function DocumentList<Row>({
             ) : null}
           </div>
           {filterBarExtra && (!filterBarCollapsible || filtersOpen) ? filterBarExtra : null}
+        </div>
+      ) : null}
+
+      {appliedFilters && appliedFilters.length > 0 ? (
+        <div className="mb-[14px]">
+          <AppliedFilters filters={appliedFilters} onClearAll={onClearAllFilters} />
         </div>
       ) : null}
 

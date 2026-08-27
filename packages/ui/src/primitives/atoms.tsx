@@ -1,6 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useFormat } from "../hooks/useFormat";
+import { useUiTranslation } from "../i18n";
 import { MicroBeam } from "./beams";
 
 /* ------------------------------------------------------------------ */
@@ -137,7 +138,7 @@ export function Chip({ active, count, className, children, ...props }: ChipProps
       type="button"
       aria-pressed={active}
       className={cn(
-        "inline-flex items-center gap-[7px] rounded-pill border px-[14px] py-[7px] text-[12.5px] font-semibold transition-colors",
+        "inline-flex min-h-[44px] items-center gap-[7px] rounded-pill border px-[16px] py-[10px] text-[12.5px] font-semibold transition-colors",
         active
           ? "border-brand bg-brand text-brand-ink"
           : "border-border bg-surface text-ink-muted hover:border-border-strong hover:text-ink",
@@ -148,6 +149,50 @@ export function Chip({ active, count, className, children, ...props }: ChipProps
       {children}
       {count !== undefined ? <span className="mz-num font-mono text-[11px] opacity-90">{count}</span> : null}
     </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Segmented — single-select switch (matches DateRangeFilter's preset) */
+/* ------------------------------------------------------------------ */
+
+export interface SegmentedOption {
+  key: string;
+  label: string;
+}
+
+export interface SegmentedProps {
+  options: SegmentedOption[];
+  value: string;
+  onChange: (key: string) => void;
+  "aria-label"?: string;
+  className?: string;
+}
+
+/** Single-select `role="radiogroup"` switch for a screen keeping a status toggle instead of view tabs. */
+export function Segmented({ options, value, onChange, className, ...props }: SegmentedProps) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={props["aria-label"]}
+      className={cn("inline-flex flex-wrap gap-[2px] rounded-md border border-border bg-surface-2 p-[3px]", className)}
+    >
+      {options.map((option) => (
+        <button
+          key={option.key}
+          type="button"
+          role="radio"
+          aria-checked={value === option.key}
+          onClick={() => onChange(option.key)}
+          className={cn(
+            "inline-flex min-h-[44px] items-center justify-center rounded-[6px] px-[14px] text-[12.5px] font-semibold text-ink-muted transition-colors",
+            value === option.key && "bg-surface text-ink shadow-1",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -235,9 +280,14 @@ export function StatCard({ label, value, sub, subTone = "neutral", valueTone = "
 /* Empty state                                                         */
 /* ------------------------------------------------------------------ */
 
+export type EmptyStateVariant = "empty" | "no-results";
+
 export interface EmptyStateProps {
-  title: string;
+  /** Omit to take the variant's own wording — never render a bare blank box. */
+  title?: string;
   description?: string;
+  /** `no-results` is a search or filter that matched nothing, not a screen with no data yet. */
+  variant?: EmptyStateVariant;
   /** The SAME action the list's own toolbar offers — an empty state is not a second, disconnected button (R1.10). */
   action?: { label: string; onClick: () => void };
   icon?: ReactNode;
@@ -251,7 +301,10 @@ export interface EmptyStateProps {
  * (a read-only feed, a report with no matches) omits `action` and gets the
  * plain message.
  */
-export function EmptyState({ title, description, action, icon, className }: EmptyStateProps) {
+export function EmptyState({ title, description, action, icon, className, variant = "empty" }: EmptyStateProps) {
+  const { t } = useUiTranslation();
+  const resolvedTitle = title ?? t(variant === "no-results" ? "ui.empty.searchTitle" : "ui.empty.title");
+  const resolvedDescription = description ?? (variant === "no-results" ? t("ui.empty.searchHint") : undefined);
   return (
     <div className={cn("flex flex-col items-center gap-[10px] px-[24px] py-[36px] text-center", className)}>
       {icon ? (
@@ -259,8 +312,8 @@ export function EmptyState({ title, description, action, icon, className }: Empt
           {icon}
         </div>
       ) : null}
-      <p className="text-[13px] font-semibold text-ink">{title}</p>
-      {description ? <p className="max-w-[42ch] text-[12px] text-ink-muted">{description}</p> : null}
+      <p className="text-[13px] font-semibold text-ink">{resolvedTitle}</p>
+      {resolvedDescription ? <p className="max-w-[42ch] text-[12px] text-ink-muted">{resolvedDescription}</p> : null}
       {action ? (
         <Button variant="primary" size="sm" className="mt-[4px]" onClick={action.onClick}>
           {action.label}

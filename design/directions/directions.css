@@ -1,0 +1,452 @@
+/* ============================================================
+   PAGE CHROME — deliberately neutral. Not part of any design.
+   ============================================================ */
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:#18181B;font-family:"IBM Plex Sans Arabic",system-ui,sans-serif}
+
+.top{position:sticky;top:0;z-index:60;background:#18181B;color:#E4E4E7;
+     border-block-end:1px solid #3F3F46;padding:11px 20px;
+     display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.top .home{font-size:12.5px;color:#A1A1AA;text-decoration:none;padding:6px 10px;border:1px solid #3F3F46;border-radius:4px}
+.top .home:hover{color:#FAFAFA;border-color:#71717A}
+.top b{font-size:15px;font-weight:600}
+.top .grp{display:flex;gap:4px;background:#27272A;padding:3px;border-radius:6px;margin-inline-start:auto}
+.top button{font:inherit;font-size:12.5px;color:#A1A1AA;background:none;border:0;
+     padding:7px 13px;border-radius:4px;cursor:pointer;min-height:32px}
+.top button[aria-pressed=true]{background:#3F3F46;color:#FAFAFA}
+
+.thesis{padding:18px 22px;font-size:13px;line-height:1.8;color:#A1A1AA;background:#0F0F11;
+        border-block-end:1px solid #27272A;max-width:120ch}
+.thesis strong{color:#FAFAFA;font-weight:600}
+.thesis em{color:#D4D4D8;font-style:normal}
+
+.jump{position:sticky;top:53px;z-index:55;background:#0F0F11;border-block-end:1px solid #27272A;
+      padding:9px 20px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.jump span{color:#52525B;font-size:11.5px;margin-inline-end:6px}
+.jump a{color:#A1A1AA;font-size:12px;text-decoration:none;padding:5px 10px;border:1px solid #27272A;border-radius:4px}
+.jump a:hover{color:#FAFAFA;border-color:#52525B}
+
+.slab{border-block-end:12px solid #18181B;scroll-margin-block-start:104px}
+.slab > .cap{background:#18181B;color:#A1A1AA;font-size:12px;padding:10px 20px;
+     display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.slab > .cap b{color:#FAFAFA;font-size:13px;font-weight:600}
+.slab > .cap span{color:#71717A}
+.slab > .cap i{color:#52525B;font-style:normal;margin-inline-start:auto;font-size:11px}
+
+/* ============================================================
+   SHARED COMPONENTS
+   Written ONLY against the token names below, so a direction is a
+   value swap plus a few structural overrides — never a rewrite.
+   Every direction must define every token.
+   ============================================================ */
+.num{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate;display:inline-block}
+
+.app{min-height:60vh;background:var(--bg);color:var(--ink);font-size:var(--fs);line-height:var(--lh)}
+
+/* shell ------------------------------------------------------ */
+.wsbar{display:flex;align-items:center;gap:2px;background:var(--chrome-bg);color:var(--chrome-ink);
+       border-block-end:1px solid var(--chrome-line)}
+.wsbar .ws{padding:0 16px;height:var(--h-ws);display:flex;align-items:center;font-size:13.5px;
+           cursor:pointer;border:0;background:none;font-family:inherit;color:inherit;opacity:.62}
+.wsbar .ws[aria-current]{opacity:1;font-weight:600}
+.wsbar .sp{margin-inline-start:auto;display:flex;align-items:center;gap:10px;padding-inline-end:16px;font-size:12.5px}
+.cmdk{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;font-size:12.5px;
+      cursor:pointer;border:1px solid var(--chrome-line);font-family:inherit;
+      background:var(--chrome-field);color:var(--chrome-ink);opacity:.75;border-radius:var(--r)}
+
+.body{display:flex;align-items:stretch;min-height:56vh}
+.spine{width:var(--w-spine);flex:0 0 var(--w-spine);display:flex;flex-direction:column;align-items:center;
+       gap:3px;padding-block:10px;background:var(--surface);border-inline-end:1px solid var(--line)}
+.spine .ic{width:calc(var(--w-spine) - 16px);height:calc(var(--w-spine) - 16px);display:grid;place-items:center;
+           font-size:16px;cursor:pointer;border:0;background:none;color:inherit;border-radius:var(--r)}
+.spine .ic[aria-current]{background:var(--bg);box-shadow:inset 2px 0 0 var(--ink)}
+.main{flex:1;min-width:0;display:flex;align-items:stretch}
+.content{flex:1;min-width:0;padding:var(--pad);background:var(--bg)}
+.gutter{width:var(--w-gut);flex:0 0 var(--w-gut);padding:18px 16px;background:var(--surface);
+        border-inline-start:1px solid var(--line-2)}
+
+/* page header ------------------------------------------------ */
+.phead{display:flex;align-items:flex-start;gap:16px;margin-block-end:16px}
+.phead h1{margin:0;font-size:var(--fs-h1);line-height:1.35;font-family:var(--font-disp);font-weight:var(--fw-disp)}
+.phead .sub{font-size:12.5px;margin-block-start:4px;color:var(--muted)}
+.phead .acts{margin-inline-start:auto;display:flex;gap:8px;align-items:center}
+
+.btn{font:inherit;font-size:13px;min-height:var(--h-btn);padding:0 18px;cursor:pointer;
+     border:1px solid transparent;display:inline-flex;align-items:center;justify-content:center;gap:7px;
+     background:var(--ink);color:var(--bg);border-radius:var(--r)}
+.btn.sec{background:var(--surface);color:var(--ink);border-color:var(--line-2)}
+.btn.sec:hover{border-color:var(--ink)}
+.btn.danger{background:var(--bad);color:#fff}
+.btn.sm{min-height:36px;padding:0 12px;font-size:12.5px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.block{width:100%}
+
+.gt{font-size:11px;margin-block-end:9px;display:block;font-weight:600;color:var(--faint)}
+
+/* tables ----------------------------------------------------- */
+table{width:100%;border-collapse:collapse;font-size:var(--fs-tbl)}
+th{text-align:start;font-weight:600;font-size:11.5px;padding:var(--pad-th);white-space:nowrap;
+   color:var(--faint);background:var(--th-bg);border-block-end:1px solid var(--line-2)}
+td{padding:0;height:var(--h-row);vertical-align:middle;border-block-end:1px solid var(--line)}
+td .cell{padding:var(--pad-td);display:flex;align-items:center;height:100%;gap:8px}
+td.e .cell{justify-content:flex-end}
+tbody tr:hover{background:var(--surface-2)}
+tfoot td{border-block-start:2px solid var(--line-2);border-block-end:0;font-weight:600}
+
+/* list views + filters --------------------------------------- */
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-block-end:12px}
+.views{display:flex;gap:2px;background:var(--surface-2);padding:3px;border-radius:var(--r);border:1px solid var(--line-2)}
+.views button{font:inherit;font-size:12.5px;min-height:var(--h-btn);padding:0 14px;border:0;cursor:pointer;
+              background:none;color:var(--muted);border-radius:var(--r)}
+.views button[aria-pressed=true]{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px var(--line-2)}
+.views button .n{font-size:11px;opacity:.65;margin-inline-start:7px;padding-inline-start:7px;border-inline-start:1px solid currentColor}
+.search{display:flex;align-items:center;gap:8px;min-height:var(--h-btn);padding:0 12px;font-size:13px;
+        background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);color:var(--faint);min-width:230px}
+.tags{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-block-end:12px}
+.tag{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:0 8px 0 12px;font-size:12px;
+     background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);border-radius:var(--r)}
+.tag .x{width:22px;height:22px;display:grid;place-items:center;border:0;background:none;color:inherit;cursor:pointer;font-size:13px}
+.tags .more{min-height:34px;padding:0 12px;font-size:12px;background:none;border:1px dashed var(--line-2);
+            color:var(--muted);border-radius:var(--r);cursor:pointer}
+
+.bulk{display:flex;align-items:center;gap:12px;padding:10px 14px;margin-block-end:12px;font-size:12.5px;
+      background:var(--accent-soft);border:1px solid var(--accent);border-radius:var(--r);color:var(--accent)}
+.bulk .sp{margin-inline-start:auto;display:flex;gap:8px}
+
+.pager{display:flex;align-items:center;gap:10px;margin-block-start:14px;font-size:12.5px;color:var(--muted)}
+.pager .sp{margin-inline-start:auto;display:flex;gap:6px}
+.rowmenu{width:32px;height:32px;display:grid;place-items:center;border:1px solid transparent;background:none;
+         cursor:pointer;color:var(--muted);border-radius:var(--r)}
+.rowmenu:hover{border-color:var(--line-2);color:var(--ink)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;font-size:11.5px;border-radius:var(--r);
+      border:1px solid currentColor}
+.chip.ok{color:var(--ok);background:var(--ok-soft)}
+.chip.warn{color:var(--warn);background:var(--warn-soft)}
+.chip.bad{color:var(--bad);background:var(--bad-soft)}
+.chip.mute{color:var(--muted);background:var(--surface-2)}
+
+/* worklist --------------------------------------------------- */
+.wl{display:flex;flex-direction:column;border:1px solid var(--line-2);background:var(--surface);border-radius:var(--r)}
+.wl .row{display:flex;align-items:center;gap:14px;padding:var(--pad-wl);min-height:var(--h-wl)}
+.wl .row + .row{border-block-start:1px solid var(--line)}
+.wl .row .cnt{font-size:var(--fs-cnt);min-width:48px;text-align:center;color:var(--ink)}
+.wl .row.urgent .cnt{color:var(--bad)}
+.wl .row .txt{flex:1;min-width:0}
+.wl .row .t1{font-size:var(--fs-t1)}
+.wl .row .t2{font-size:12px;margin-block-start:2px;color:var(--muted)}
+.wl .drag{width:32px;height:32px;display:grid;place-items:center;font-size:13px;cursor:grab;
+          border:0;background:none;color:inherit;opacity:.5}
+
+.strip{display:flex;margin-block-end:18px;border:1px solid var(--line-2);background:var(--surface);border-radius:var(--r)}
+.strip .f{flex:1;padding:var(--pad-strip)}
+.strip .f + .f{border-inline-start:1px solid var(--line)}
+.strip .f .k{font-size:11px;margin-block-end:5px;color:var(--faint)}
+.strip .f .v{font-size:var(--fs-strip)}
+
+/* THE SIGNATURE INSTRUMENT ----------------------------------- */
+.bal{padding:12px 0}
+.bal .side{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;font-size:12.5px;
+           border-block-end:1px solid var(--line)}
+.bal .side:last-of-type{border-block-end:0}
+.bal .side .v{font-size:14px}
+.bal .beam{height:3px;margin:11px 0;position:relative;background:var(--line-2)}
+.bal .beam i{position:absolute;inset-block:0;inset-inline-start:0;display:block;background:var(--ok)}
+.bal .verdict{display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:13px;margin-block-start:10px;
+              background:var(--ok-soft);color:var(--ok);border-radius:var(--r)}
+.bal .verdict .sym{font-size:15px}
+.bal.short .beam i{background:var(--bad)}
+.bal.short .verdict{background:var(--bad-soft);color:var(--bad)}
+
+/* status lifecycle ------------------------------------------- */
+.stepper{display:flex;align-items:center;gap:0;margin-block-end:18px;flex-wrap:wrap}
+.stepper .st{display:flex;align-items:center;gap:8px;padding:8px 14px;font-size:12.5px;
+             color:var(--faint);background:var(--surface-2);border:1px solid var(--line)}
+.stepper .st .d{width:18px;height:18px;border-radius:var(--r-pill);display:grid;place-items:center;
+                font-size:10px;border:1px solid currentColor}
+.stepper .st.done{color:var(--ok);background:var(--ok-soft);border-color:var(--ok)}
+.stepper .st.now{color:var(--ink);background:var(--surface);border-color:var(--ink);font-weight:600}
+.stepper .st.next{opacity:.55}
+.stepper .sep{width:16px;height:1px;background:var(--line-2)}
+
+/* tree ------------------------------------------------------- */
+.tree{border:1px solid var(--line-2);background:var(--surface);border-radius:var(--r)}
+.tree .tr{display:flex;align-items:center;gap:10px;min-height:var(--h-tree);padding:0 12px;
+          border-block-end:1px solid var(--line);font-size:var(--fs-tbl)}
+.tree .tr:last-child{border-block-end:0}
+.tree .tr:hover{background:var(--surface-2)}
+.tree .tw{width:22px;height:22px;display:grid;place-items:center;border:0;background:none;cursor:pointer;
+          color:var(--muted);font-size:10px}
+.tree .code{color:var(--faint);min-width:74px}
+.tree .nm{flex:1;min-width:0}
+.tree .amt{min-width:120px;text-align:end}
+.tree .lvl1{font-weight:600}
+.tree .lvl2{padding-inline-start:34px}
+.tree .lvl3{padding-inline-start:60px;color:var(--muted)}
+
+/* forms ------------------------------------------------------ */
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px 18px;max-width:760px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field.wide{grid-column:1/-1}
+.field label{font-size:12.5px;color:var(--muted)}
+.field label .req{color:var(--bad);margin-inline-start:3px}
+.field .in{min-height:var(--h-btn);display:flex;align-items:center;padding:0 12px;font-size:13px;
+           background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);color:var(--ink)}
+.field .in.ph{color:var(--faint)}
+.field .in.pick{justify-content:space-between}
+.field .in.pick .kbd{font-size:11px;color:var(--faint)}
+.field .hint{font-size:11.5px;color:var(--faint)}
+.field.err .in{border-color:var(--bad);background:var(--bad-soft)}
+.field.err .hint{color:var(--bad)}
+
+/* feedback --------------------------------------------------- */
+.toast{display:flex;align-items:center;gap:12px;padding:13px 15px;font-size:13px;max-width:460px;
+       background:var(--surface);border:1px solid var(--line-2);border-inline-start:3px solid var(--ok);
+       border-radius:var(--r);box-shadow:var(--shadow)}
+.toast.bad{border-inline-start-color:var(--bad)}
+.toast .sp{margin-inline-start:auto;display:flex;gap:8px;align-items:center}
+.toast .undo{font:inherit;font-size:12.5px;background:none;border:0;color:var(--accent);cursor:pointer;
+             text-decoration:underline;min-height:32px;padding:0 6px}
+
+.dialog{max-width:470px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);
+        padding:20px;box-shadow:var(--shadow)}
+.dialog h3{margin:0 0 8px;font-size:16px;font-family:var(--font-disp);font-weight:var(--fw-disp)}
+.dialog p{margin:0 0 16px;font-size:13px;color:var(--muted);line-height:1.75}
+.dialog .acts{display:flex;gap:8px;justify-content:flex-start}
+
+.skel{border:1px solid var(--line-2);background:var(--surface);padding:14px;border-radius:var(--r)}
+.skel .ln{height:11px;background:var(--line);margin-block-end:10px;border-radius:var(--r)}
+.skel .ln:last-child{margin-block-end:0}
+
+.empty{border:1px dashed var(--line-2);background:var(--surface-2);padding:30px 22px;text-align:center;border-radius:var(--r)}
+.empty .g{font-size:26px;margin-block-end:10px}
+.empty h3{margin:0 0 6px;font-size:15px;font-family:var(--font-disp);font-weight:var(--fw-disp)}
+.empty p{margin:0 0 16px;font-size:12.5px;color:var(--muted)}
+
+.banner{display:flex;gap:12px;align-items:flex-start;padding:13px 15px;font-size:12.5px;border-radius:var(--r);
+        background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn)}
+.banner.bad{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
+.banner b{display:block;margin-block-end:3px}
+
+.states{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px}
+.states .lbl{font-size:11.5px;color:var(--faint);margin-block-end:8px;display:block}
+
+/* tiles ------------------------------------------------------ */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tile-w),1fr));gap:var(--tile-gap)}
+.tile{min-height:var(--tile-h);padding:14px;display:flex;flex-direction:column;gap:8px;cursor:pointer;
+      font:inherit;text-align:start;color:inherit;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r)}
+.tile:hover{border-color:var(--ink)}
+.tile .g{font-size:21px;line-height:1}
+.tile .n{font-size:13.5px;line-height:1.45}
+.tile .m{font-size:11.5px;margin-block-start:auto;color:var(--faint)}
+.tile.add{align-items:center;justify-content:center;text-align:center;border-style:dashed;
+          background:none;color:var(--muted)}
+
+.secbar{display:flex;align-items:center;gap:10px;margin-block:20px 12px}
+.secbar h2{margin:0;font-size:14px;font-family:var(--font-disp);font-weight:var(--fw-disp)}
+.secbar .rst{margin-inline-start:auto}
+
+/* login ------------------------------------------------------ */
+.login{min-height:56vh;display:grid;place-items:center;background:var(--bg);padding:40px 20px}
+.login .card{width:min(400px,100%);background:var(--surface);border:1px solid var(--line-2);
+             padding:32px 30px;border-radius:var(--r)}
+.login .mark{font-family:var(--font-disp);font-weight:var(--fw-disp);font-size:30px;margin-block-end:6px}
+.login .tl{font-size:12.5px;color:var(--muted);margin-block-end:24px}
+.login .form{grid-template-columns:1fr;max-width:none}
+.login .foot{margin-block-start:18px;font-size:11.5px;color:var(--faint);display:flex;gap:10px;align-items:center}
+
+/* =================================================================
+   DIRECTION A — المِيزان · Instrument
+   Paper and ink. The accent colour appears ONLY in a verdict, so
+   colour on this screen always means "this is the judgement".
+   ================================================================= */
+[data-dir="a"] .app{
+  --bg:#FBFAF7;--surface:#FFFFFF;--surface-2:#F6F4EE;--ink:#1A1A17;--muted:#6B6B62;--faint:#8C8C82;
+  --line:#E4E1D9;--line-2:#C8C4B7;--th-bg:transparent;
+  --accent:#0F5C4A;--accent-soft:#EAF2EF;
+  --ok:#0F5C4A;--ok-soft:#EAF2EF;--warn:#8A6420;--warn-soft:#F7F0DF;--bad:#B4341F;--bad-soft:#FBEEEB;
+  --chrome-bg:#FFFFFF;--chrome-ink:#1A1A17;--chrome-line:#C8C4B7;--chrome-field:#FBFAF7;
+  --font-disp:"Reem Kufi",sans-serif;--fw-disp:600;
+  --r:3px;--r-pill:999px;--shadow:none;
+  --fs:14px;--lh:1.7;--fs-tbl:13px;--fs-h1:21px;--fs-t1:14px;--fs-cnt:19px;--fs-strip:17px;
+  --h-ws:46px;--h-btn:44px;--h-row:34px;--h-wl:60px;--h-tree:40px;--w-spine:56px;--w-gut:262px;
+  --pad:22px 26px;--pad-th:9px 10px;--pad-td:0 10px;--pad-wl:13px 14px;--pad-strip:12px 14px;
+  --tile-w:178px;--tile-h:104px;--tile-gap:12px;
+  font-family:"IBM Plex Sans Arabic",sans-serif}
+[data-dir="a"] .num{font-family:"IBM Plex Sans Arabic",sans-serif;font-weight:500}
+[data-dir="a"] .wsbar .ws{border-block-end:2px solid transparent;margin-block-end:-1px}
+[data-dir="a"] .wsbar .ws[aria-current]{border-block-end-color:var(--ink)}
+[data-dir="a"] .btn:not(.sec){color:#FBFAF7}
+[data-dir="a"] .stepper .st{border-radius:var(--r)}
+[data-dir="a"] .stepper .st + .st{margin-inline-start:6px}
+
+/* =================================================================
+   DIRECTION B — المِشكاة · Lantern
+   Islamic geometry as structure. Panels tile edge to edge; the grid
+   is the ornament; corners are cut instead of drawn.
+   ================================================================= */
+[data-dir="b"] .app{
+  --bg:#F8F4EC;--surface:#F1EBE0;--surface-2:#EDE6D9;--ink:#22201A;--muted:#6E6558;--faint:#8B8173;
+  --line:#DED5C4;--line-2:#D0C5B0;--th-bg:#EDE6D9;
+  --accent:#2E3A8C;--accent-soft:#E4E5F2;
+  --ok:#2E3A8C;--ok-soft:#E4E5F2;--warn:#8A5A1E;--warn-soft:#F0E6D6;--bad:#9B3024;--bad-soft:#F4E2DE;
+  --chrome-bg:#22201A;--chrome-ink:#F8F4EC;--chrome-line:rgba(255,255,255,.12);--chrome-field:rgba(255,255,255,.1);
+  --font-disp:"Zain",sans-serif;--fw-disp:700;
+  --r:0px;--r-pill:999px;--shadow:none;
+  --fs:13.5px;--lh:1.75;--fs-tbl:13px;--fs-h1:26px;--fs-t1:14px;--fs-cnt:19px;--fs-strip:18px;
+  --h-ws:46px;--h-btn:44px;--h-row:36px;--h-wl:62px;--h-tree:42px;--w-spine:56px;--w-gut:262px;
+  --pad:26px 30px;--pad-th:10px 12px;--pad-td:0 12px;--pad-wl:14px 16px;--pad-strip:13px 15px;
+  --tile-w:178px;--tile-h:106px;--tile-gap:1px;
+  font-family:"Readex Pro",sans-serif;font-weight:300}
+[data-dir="b"] .num{font-family:"Readex Pro",sans-serif;font-weight:400}
+[data-dir="b"] .wsbar .ws[aria-current]{background:var(--bg);color:var(--ink)}
+[data-dir="b"] .spine .ic[aria-current]{background:var(--accent);color:var(--bg);box-shadow:none}
+[data-dir="b"] .btn:not(.sec){color:var(--bg);
+  clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px)}
+[data-dir="b"] .btn.sec{clip-path:none}
+[data-dir="b"] tbody tr:nth-child(odd){background:var(--surface-2)}
+[data-dir="b"] .strip{gap:1px;background:var(--line-2)}
+[data-dir="b"] .strip .f{background:var(--surface);border:0}
+[data-dir="b"] .wl{gap:1px;background:var(--line-2)}
+[data-dir="b"] .wl .row{background:var(--surface)}
+[data-dir="b"] .wl .row + .row{border-block-start:0}
+[data-dir="b"] .wl .row .cnt{color:var(--accent);font-weight:500}
+[data-dir="b"] .tiles{background:var(--line-2);border:1px solid var(--line-2)}
+[data-dir="b"] .tile{border:0;
+  clip-path:polygon(11px 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%,0 11px)}
+[data-dir="b"] .tile.add{background:repeating-linear-gradient(45deg,var(--surface) 0 9px,var(--surface-2) 9px 18px)}
+[data-dir="b"] .dialog,[data-dir="b"] .toast{
+  clip-path:polygon(13px 0,100% 0,100% calc(100% - 13px),calc(100% - 13px) 100%,0 100%,0 13px)}
+[data-dir="b"] .empty{background:repeating-linear-gradient(45deg,var(--surface) 0 11px,var(--surface-2) 11px 22px);
+  border-style:solid}
+
+/* =================================================================
+   DIRECTION C — الشُبّاك · Counter
+   A trading terminal. Colour is reserved for deltas and states;
+   nothing branded carries colour at all.
+   ================================================================= */
+[data-dir="c"] .app{
+  --bg:#FFFFFF;--surface:#FFFFFF;--surface-2:#FAFAFA;--ink:#111113;--muted:#71717A;--faint:#A1A1AA;
+  --line:#E4E4E7;--line-2:#D4D4D8;--th-bg:#FAFAFA;
+  --accent:#111113;--accent-soft:#F4F4F5;
+  --ok:#15803D;--ok-soft:#DCFCE7;--warn:#A16207;--warn-soft:#FEF9C3;--bad:#B91C1C;--bad-soft:#FEE2E2;
+  --chrome-bg:#FFFFFF;--chrome-ink:#111113;--chrome-line:#D4D4D8;--chrome-field:#F4F4F5;
+  --font-disp:"Vazirmatn",sans-serif;--fw-disp:600;
+  --r:0px;--r-pill:0px;--shadow:none;
+  --fs:13px;--lh:1.55;--fs-tbl:12.5px;--fs-h1:17px;--fs-t1:12.5px;--fs-cnt:14px;--fs-strip:15px;
+  --h-ws:38px;--h-btn:30px;--h-row:28px;--h-wl:34px;--h-tree:28px;--w-spine:44px;--w-gut:230px;
+  --pad:14px 16px;--pad-th:5px 8px;--pad-td:0 8px;--pad-wl:5px 10px;--pad-strip:8px 11px;
+  --tile-w:150px;--tile-h:78px;--tile-gap:8px;
+  font-family:"Vazirmatn",sans-serif}
+[data-dir="c"] .num{font-family:"IBM Plex Mono",monospace;font-weight:500;font-size:.94em}
+[data-dir="c"] .wsbar .ws[aria-current]{background:var(--surface-2);box-shadow:inset 0 -2px 0 var(--ink)}
+[data-dir="c"] .btn:not(.sec){color:#fff}
+[data-dir="c"] .content{border-inline-start:1px solid var(--line)}
+[data-dir="c"] .wl .row .txt{display:flex;align-items:baseline;gap:8px}
+[data-dir="c"] .wl .row .t2{margin:0;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-dir="c"] .tile{gap:5px}
+[data-dir="c"] .tile .g{font-size:15px}
+[data-dir="c"] .tile .n{font-size:12.5px}
+/* C is the only direction where the primary control drops under 44px.
+   That is the density trade the direction is FOR — flagged, not hidden. */
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* =================================================================
+   DIRECTION D — الدَّفْتَر · Ledger
+   The ruled accounting book the bookkeeper already trusts. Every row
+   is a ruled line; the money column is separated by a real red rule —
+   the RTL "figure seam" made structural rather than decorative.
+   ================================================================= */
+[data-dir="d"] .app{
+  --bg:#FCF8EE;--surface:#FFFDF6;--surface-2:#F6F0DF;--ink:#1C1A14;--muted:#5F5A49;--faint:#857F6B;
+  --line:#E6DFC8;--line-2:#CFC5A4;--th-bg:#F6F0DF;
+  --accent:#1F4E79;--accent-soft:#E4EDF5;
+  --ok:#1F5E3C;--ok-soft:#E3EFE7;--warn:#8A6420;--warn-soft:#F6EEDA;--bad:#9E2B1C;--bad-soft:#F7E6E2;
+  --seam:#B03A2B;
+  --chrome-bg:#1C1A14;--chrome-ink:#FCF8EE;--chrome-line:rgba(255,255,255,.14);--chrome-field:rgba(255,255,255,.08);
+  --font-disp:"Amiri",serif;--fw-disp:700;
+  --r:2px;--r-pill:999px;--shadow:none;
+  --fs:14px;--lh:1.8;--fs-tbl:13.5px;--fs-h1:25px;--fs-t1:14px;--fs-cnt:19px;--fs-strip:18px;
+  --h-ws:46px;--h-btn:44px;--h-row:36px;--h-wl:60px;--h-tree:40px;--w-spine:56px;--w-gut:262px;
+  --pad:24px 28px;--pad-th:9px 12px;--pad-td:0 12px;--pad-wl:13px 15px;--pad-strip:12px 15px;
+  --tile-w:178px;--tile-h:104px;--tile-gap:0px;
+  font-family:"IBM Plex Sans Arabic",sans-serif}
+[data-dir="d"] .num{font-family:"IBM Plex Sans Arabic",sans-serif;font-weight:500}
+[data-dir="d"] .btn:not(.sec){color:var(--bg)}
+[data-dir="d"] table{border:1px solid var(--line-2)}
+[data-dir="d"] td{border-block-end:1px solid var(--line)}
+/* the figure seam: money columns sit on the far side of a red rule */
+[data-dir="d"] th.e,[data-dir="d"] td.e{border-inline-start:1px solid var(--seam)}
+[data-dir="d"] th.e ~ th.e,[data-dir="d"] td.e ~ td.e{border-inline-start:1px solid var(--line)}
+[data-dir="d"] tfoot td{border-block-start:2px solid var(--seam)}
+[data-dir="d"] .strip .f + .f{border-inline-start:1px solid var(--seam)}
+[data-dir="d"] .bal .beam{height:2px}
+[data-dir="d"] .tiles{gap:0;border:1px solid var(--line-2)}
+[data-dir="d"] .tile{border:0;border-inline-end:1px solid var(--line);border-block-end:1px solid var(--line)}
+[data-dir="d"] .wl{border-radius:0}
+[data-dir="d"] .login .mark{font-size:38px;letter-spacing:.02em}
+
+/* =================================================================
+   DIRECTION E — الطِّراز · Editorial
+   Type-led. Identity carried almost entirely by a distinctive Arabic
+   display face at dramatic scale; the UI recedes to hairlines and air.
+   ================================================================= */
+[data-dir="e"] .app{
+  --bg:#FFFFFF;--surface:#FCFCFB;--surface-2:#F5F5F3;--ink:#16151A;--muted:#65636E;--faint:#8E8C98;
+  --line:#EBEAEF;--line-2:#D7D5DE;--th-bg:transparent;
+  --accent:#4A2A6B;--accent-soft:#EFE9F5;
+  --ok:#1F5E3C;--ok-soft:#E6F1EB;--warn:#8A6420;--warn-soft:#F7F0DE;--bad:#A32B2B;--bad-soft:#F8E7E7;
+  --chrome-bg:#FFFFFF;--chrome-ink:#16151A;--chrome-line:#EBEAEF;--chrome-field:#F5F5F3;
+  --font-disp:"Alexandria",sans-serif;--fw-disp:600;
+  --r:0px;--r-pill:999px;--shadow:none;
+  --fs:14px;--lh:1.85;--fs-tbl:13.5px;--fs-h1:34px;--fs-t1:15px;--fs-cnt:26px;--fs-strip:24px;
+  --h-ws:52px;--h-btn:46px;--h-row:44px;--h-wl:72px;--h-tree:46px;--w-spine:56px;--w-gut:290px;
+  --pad:36px 44px;--pad-th:12px 14px;--pad-td:0 14px;--pad-wl:18px 18px;--pad-strip:18px 18px;
+  --tile-w:200px;--tile-h:120px;--tile-gap:0px;
+  font-family:"IBM Plex Sans Arabic",sans-serif}
+[data-dir="e"] .num{font-family:"IBM Plex Sans Arabic",sans-serif;font-weight:500}
+[data-dir="e"] .phead{margin-block-end:28px}
+[data-dir="e"] .phead h1{letter-spacing:-.02em;line-height:1.2}
+[data-dir="e"] .btn:not(.sec){color:#fff}
+[data-dir="e"] .btn.sec{background:none}
+[data-dir="e"] th{text-transform:none;font-size:11px;color:var(--faint);border-block-end:1px solid var(--ink)}
+[data-dir="e"] td{border-block-end:1px solid var(--line)}
+[data-dir="e"] .strip{border:0;border-block:1px solid var(--ink);background:none}
+[data-dir="e"] .strip .f + .f{border-inline-start:1px solid var(--line)}
+[data-dir="e"] .strip .f .v{font-family:var(--font-disp);font-weight:var(--fw-disp)}
+[data-dir="e"] .wl{border:0;background:none}
+[data-dir="e"] .wl .row{border-block-end:1px solid var(--line);padding-inline:0}
+[data-dir="e"] .wl .row + .row{border-block-start:0}
+[data-dir="e"] .wl .row .cnt{font-family:var(--font-disp);font-weight:var(--fw-disp)}
+[data-dir="e"] .secbar h2{font-size:18px}
+[data-dir="e"] .tiles{gap:0;border-block-start:1px solid var(--ink)}
+[data-dir="e"] .tile{border:0;border-block-end:1px solid var(--line);border-inline-end:1px solid var(--line);background:none}
+[data-dir="e"] .login .mark{font-size:52px;letter-spacing:-.03em}
+
+/* =================================================================
+   DIRECTION F — الظِّل · Nightdesk
+   Dark by default, designed dark-first rather than inverted.
+   NOTE: this contradicts the standing "light is the default theme"
+   agreement — it is offered so that rule can be re-decided knowingly.
+   ================================================================= */
+[data-dir="f"] .app{
+  --bg:#0D1014;--surface:#141920;--surface-2:#1A2029;--ink:#E8EDF2;--muted:#94A0AE;--faint:#6E7B8A;
+  --line:#232C36;--line-2:#33404E;--th-bg:#1A2029;
+  --accent:#E0A93B;--accent-soft:#2A2213;
+  --ok:#4BB07C;--ok-soft:#12301F;--warn:#D9A24C;--warn-soft:#302411;--bad:#E3705C;--bad-soft:#361813;
+  --chrome-bg:#080B0E;--chrome-ink:#E8EDF2;--chrome-line:#1E262F;--chrome-field:#141920;
+  --font-disp:"Vazirmatn",sans-serif;--fw-disp:600;
+  --r:4px;--r-pill:999px;--shadow:0 18px 40px -20px rgba(0,0,0,.8);
+  --fs:13.5px;--lh:1.65;--fs-tbl:13px;--fs-h1:19px;--fs-t1:13.5px;--fs-cnt:17px;--fs-strip:17px;
+  --h-ws:42px;--h-btn:38px;--h-row:32px;--h-wl:48px;--h-tree:34px;--w-spine:50px;--w-gut:250px;
+  --pad:18px 22px;--pad-th:7px 10px;--pad-td:0 10px;--pad-wl:9px 12px;--pad-strip:11px 13px;
+  --tile-w:168px;--tile-h:96px;--tile-gap:10px;
+  font-family:"Vazirmatn",sans-serif}
+[data-dir="f"] .num{font-family:"IBM Plex Mono",monospace;font-weight:500;font-size:.94em}
+[data-dir="f"] .btn:not(.sec){background:var(--accent);color:#1A1405}
+[data-dir="f"] .btn.sec{background:var(--surface-2);color:var(--ink);border-color:var(--line-2)}
+[data-dir="f"] .spine .ic[aria-current]{background:var(--surface-2);box-shadow:inset 2px 0 0 var(--accent)}
+[data-dir="f"] .wsbar .ws[aria-current]{box-shadow:inset 0 -2px 0 var(--accent)}
+[data-dir="f"] .skel .ln{background:var(--line-2)}
+[data-dir="f"] .login .mark{color:var(--accent)}

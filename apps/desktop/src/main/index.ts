@@ -7,7 +7,8 @@ import { registerHonoOverIpc, registerPrintToPdfOverIpc } from "./ipc.js";
 import { createWindow } from "./window.js";
 import { initAutoUpdater } from "./updater.js";
 import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
-import { defaultDbPath, isDev } from "./env.js";
+import { defaultDbPath, isDev, rendererRoot } from "./env.js";
+import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./renderer-protocol.js";
 import { resolveDesktopEntitlements } from "./entitlements.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
 
@@ -34,7 +35,14 @@ let backupConn: Database.Database | undefined;
 let disposeBackupSchedule: (() => void) | undefined;
 let lanHost: LanHostHandle | undefined;
 
+// Before whenReady, not inside it: Chromium reads the scheme registry once
+// during startup, and `app://` registered later would have no origin — the
+// exact failure this scheme exists to avoid.
+registerRendererScheme();
+
 app.whenReady().then(async () => {
+  if (shouldServeRenderer()) serveRenderer(rendererRoot());
+
   const dbPath = isDev() ? ":memory:" : defaultDbPath();
   uow = createSqliteUnitOfWork(dbPath);
 

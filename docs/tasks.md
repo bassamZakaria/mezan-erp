@@ -252,6 +252,27 @@ exists, and one was half wrong. What is genuinely open is below.
       no longer a missing-transport problem — it is a delivery/retry decision: what happens to
       a queued mail when the shop is offline, which is the normal case for this product.
 
+## 2.3 Desktop packaging — closed 2026-08-27
+
+The renderer used to load over `file://` (`loadFile`). Chromium gives every
+`file://` document an opaque origin, so a `<script type="module">` was refused
+as cross-origin, `import()` of a route chunk was refused with it, and Vite's
+absolute `/assets/*` paths resolved against the filesystem root. Three
+different symptoms, one cause; none had ever been hit because packaging is
+deferred and nobody had run the packaged build.
+
+Closed by serving the renderer from a real origin: `main/renderer-protocol.ts`
+registers `app://` as a standard, secure scheme before `whenReady` and streams
+the bundle out of `resources/web`. `main/renderer-paths.ts` holds the path
+resolution — kept free of any Electron import so it is unit-testable headlessly,
+which matters because it is the security boundary: it runs with the user's full
+filesystem rights and must refuse anything that escapes the renderer root.
+Eight cases cover it (`renderer-paths.test.ts`), including the percent-encoded
+traversal and the sibling directory that shares the root's prefix.
+
+The hash stays for now, but `app://` supports `history.pushState`, so dropping
+it is a decision rather than a constraint from here.
+
 ## 2.3 Settled since this list was written
 
 | Was listed open | Actually |

@@ -1,5 +1,6 @@
 import { app } from "electron";
 import path from "node:path";
+import { RENDERER_ENTRY_URL } from "./renderer-protocol.js";
 
 /**
  * Small environment/paths helpers, kept in one place so the rest of the main
@@ -29,16 +30,23 @@ export function preloadPath(): string {
 }
 
 /**
- * The URL/file the main window loads. Dev: the Vite dev server (overridable
- * via MEZAN_WEB_DEV_SERVER_URL for a non-default port). Production: the
- * `web` bundle that electron-builder copies into `resources/web` via
- * `extraResources` (see electron-builder.yml).
+ * The URL the main window loads. Dev: the Vite dev server (overridable via
+ * MEZAN_WEB_DEV_SERVER_URL for a non-default port). Production: the `app://`
+ * origin backed by the `web` bundle electron-builder copies into
+ * `resources/web` via `extraResources` (see electron-builder.yml).
  */
-export function rendererEntry(): { url: string } | { file: string } {
+export function rendererEntry(): { url: string } {
   if (isDev()) {
     return { url: process.env["MEZAN_WEB_DEV_SERVER_URL"] ?? "http://localhost:5173" };
   }
-  return { file: path.join(process.resourcesPath, "web", "index.html") };
+  // Production is served over the custom `app://` scheme, never file:// —
+  // see main/renderer-protocol.ts for why file:// cannot carry this renderer.
+  return { url: RENDERER_ENTRY_URL };
+}
+
+/** Directory electron-builder copies the built web bundle into. */
+export function rendererRoot(): string {
+  return path.join(process.resourcesPath, "web");
 }
 
 /**

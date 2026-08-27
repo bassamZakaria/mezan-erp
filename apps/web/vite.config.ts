@@ -10,6 +10,18 @@ import react from "@vitejs/plugin-react";
 const apiTarget = process.env.MEZAN_API_URL ?? "http://127.0.0.1:3000";
 
 export default defineConfig({
+  /*
+   * Absolute asset paths, served from a real origin.
+   *
+   * The desktop edition used to load the built bundle over file://, where "/"
+   * is the FILESYSTEM ROOT and every /assets/* request 404s. The fix is not a
+   * relative base — a relative base breaks the moment a route has depth
+   * (`/sell/quotes` would resolve `./assets/x.js` to `/sell/assets/x.js`) —
+   * it is serving the renderer from an origin. main/renderer-protocol.ts
+   * registers `app://` for exactly that, so "/" means the bundle root in both
+   * editions and code-split chunks resolve the same way in each.
+   */
+  base: "/",
   plugins: [react()],
   server: {
     proxy: {

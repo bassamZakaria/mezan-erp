@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>خيارات التنقّل — ستة بدائل للشريط الجانبي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Reem+Kufi:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="directions.css">
+<style>
+/* nav-comparison chrome only */
+.opt{border-block-end:12px solid #18181B}
+.opt .app{min-height:0}
+.opt .body{min-height:0}
+.opt .cap{background:#18181B;color:#A1A1AA;font-size:12px;padding:12px 20px}
+.opt .cap b{color:#FAFAFA;font-size:14px;font-weight:600;display:block;margin-block-end:5px}
+.opt .cap .pro{color:#86B48F}
+.opt .cap .con{color:#D08A7A}
+.opt .cap .line{display:block;margin-block-start:3px;line-height:1.7}
+
+/* ---- shared bits used by the variants, on top of directions.css ---- */
+[data-dir] .navdemo{display:flex;align-items:stretch;min-height:340px}
+[data-dir] .fake{flex:1;min-width:0;padding:20px 24px;background:var(--bg)}
+
+/* full labelled rail */
+.rail{width:248px;flex:0 0 248px;background:var(--surface);border-inline-end:1px solid var(--line-2);
+      padding-block:10px;overflow:hidden}
+.rail .grp{padding:9px 16px;font-size:13.5px;display:flex;align-items:center;gap:10px;cursor:pointer;min-height:44px}
+.rail .grp[aria-current]{font-weight:600;box-shadow:inset 2px 0 0 var(--ink)}
+.rail .sub{padding:7px 16px 7px 16px;padding-inline-start:44px;font-size:12.5px;color:var(--muted);
+           cursor:pointer;min-height:38px;display:flex;align-items:center}
+.rail .sub:hover{background:var(--surface-2)}
+.rail .hd{padding:14px 16px 6px;font-size:11px;color:var(--faint);font-weight:600}
+
+/* two-column */
+.col1{width:96px;flex:0 0 96px;background:var(--surface-2);border-inline-end:1px solid var(--line-2);padding-block:8px}
+.col1 .w{padding:11px 6px;text-align:center;font-size:11.5px;line-height:1.4;cursor:pointer;min-height:64px;
+         display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px}
+.col1 .w .g{font-size:18px}
+.col1 .w[aria-current]{background:var(--surface);font-weight:600;box-shadow:inset 2px 0 0 var(--ink)}
+.col2{width:200px;flex:0 0 200px;background:var(--surface);border-inline-end:1px solid var(--line);padding-block:10px}
+.col2 .hd{padding:10px 14px 6px;font-size:11px;color:var(--faint);font-weight:600}
+.col2 .it{padding:8px 14px;font-size:12.5px;cursor:pointer;min-height:40px;display:flex;align-items:center}
+.col2 .it[aria-current]{background:var(--surface-2);font-weight:600}
+.col2 .it:hover{background:var(--surface-2)}
+
+/* personal rail */
+.prail{width:248px;flex:0 0 248px;background:var(--surface);border-inline-end:1px solid var(--line-2);padding:12px 0}
+.prail .sbox{margin:0 12px 12px;min-height:44px;display:flex;align-items:center;gap:8px;padding:0 12px;
+             font-size:12.5px;color:var(--faint);background:var(--bg);border:1px solid var(--line-2);border-radius:var(--r)}
+.prail .hd{padding:10px 16px 5px;font-size:11px;color:var(--faint);font-weight:600}
+.prail .it{padding:8px 16px;font-size:13px;cursor:pointer;min-height:42px;display:flex;align-items:center;gap:9px}
+.prail .it:hover{background:var(--surface-2)}
+.prail .all{margin:12px;min-height:44px}
+
+/* collapsible */
+.crail{width:248px;flex:0 0 248px;background:var(--surface);border-inline-end:1px solid var(--line-2);padding-block:8px}
+.crail .tgl{margin:0 12px 8px;min-height:40px;width:calc(100% - 24px)}
+.crail .it{padding:8px 16px;font-size:13px;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:11px}
+.crail .it[aria-current]{font-weight:600;box-shadow:inset 2px 0 0 var(--ink)}
+.crail.mini{width:60px;flex-basis:60px}
+.crail.mini .it{justify-content:center;padding:8px 0}
+.crail.mini .it .lbl{display:none}
+.crail.mini .tgl{margin:0 10px 8px;width:40px;padding:0}
+
+.wsonly{display:flex;align-items:center;gap:2px;background:var(--chrome-bg);color:var(--chrome-ink);
+        border-block-end:1px solid var(--chrome-line);padding-inline:4px}
+.hubgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-block-start:14px}
+.hubgrid a{display:block;padding:12px;font-size:12.5px;text-decoration:none;color:inherit;
+           background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);min-height:44px}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <a class="home" href="index.html">↩ كل الاتجاهات</a>
+  <b>خيارات التنقّل · ستة بدائل للشريط الجانبي</b>
+  <div class="grp" id="nums">
+    <button data-n="west" aria-pressed="true">أرقام غربية</button>
+    <button data-n="east" aria-pressed="false">أرقام عربية</button>
+  </div>
+</div>
+
+<div class="thesis">
+كل البدائل معروضة بنفس الهوية (<strong>المِيزان</strong>) وبنفس المحتوى، لكي يكون المتغيّر الوحيد
+هو <em>التنقّل نفسه</em>. الشيء الثابت في الستة: <em>١٢٠ وجهة</em> موزّعة على ٦ مساحات عمل،
+وكلها تظل قابلة للوصول عبر البحث و<span class="num">⌘K</span> و«كل الشاشات» مهما كان الشكل.
+<br>البديل الأول هو الموجود حاليًا في النماذج — وهو الذي لم يعجبك.
+</div>
+
+<div id="stage"></div>
+
+<script>
+const I = v => `<span class="num">${v}</span>`;
+
+const WS = ["البيع والتحصيل","الشراء والتوريد","المخزون والتصنيع","المالية والإقفال","الأشخاص والأصول","الإعداد والصلاحيات"];
+const SELL = ["لوحة البيع","عروض الأسعار","فواتير المبيعات","مرتجعات المبيعات","العملاء","تحصيلات ومتابعة","تقارير المبيعات"];
+
+const fake = `
+  <div class="phead">
+    <div><h1>فواتير المبيعات</h1><div class="sub">${I(342)} فاتورة · الفرع الرئيسي</div></div>
+    <div class="acts"><button class="btn sec">تصدير</button><button class="btn">فاتورة جديدة</button></div>
+  </div>
+  <table>
+    <thead><tr><th>الرقم</th><th>العميل</th><th class="e">الإجمالي</th><th>الحالة</th></tr></thead>
+    <tbody>
+      <tr><td><span class="cell num">INV-2026-0342</span></td><td><span class="cell">شركة الأمل للتجارة</span></td>
+          <td class="e"><span class="cell num">9,621.60</span></td><td><span class="cell"><span class="chip mute">مسودة</span></span></td></tr>
+      <tr><td><span class="cell num">INV-2026-0341</span></td><td><span class="cell">مؤسسة النور للمقاولات</span></td>
+          <td class="e"><span class="cell num">41,250.00</span></td><td><span class="cell"><span class="chip ok">مؤكدة</span></span></td></tr>
+      <tr><td><span class="cell num">INV-2026-0339</span></td><td><span class="cell">مجموعة الفجر التجارية</span></td>
+          <td class="e"><span class="cell num">7,480.00</span></td><td><span class="cell"><span class="chip bad">متأخرة</span></span></td></tr>
+    </tbody>
+  </table>`;
+
+const topbar = (labels=true) => `
+  <div class="wsbar">
+    ${WS.map((w,i)=>`<button class="ws" ${i===0?'aria-current="true"':''}>${w}</button>`).join("")}
+    <div class="sp"><button class="cmdk">⌘K &nbsp;ابحث أو نفّذ أمرًا</button><span>الفرع الرئيسي</span></div>
+  </div>`;
+
+const OPTIONS = [
+  {
+    id:"spine",
+    name:"١ · الشريط الأيقوني + شريط المساحات (الحالي)",
+    desc:"عمود أيقونات ٥٦ بكسل بلا كلمات، والمساحات الست في شريط علوي.",
+    pro:"أقل مساحة مهدرة؛ صورة ظلية مختلفة تمامًا عن أي ERP عربي آخر.",
+    con:"الأيقونات بلا كلمات = تخمين. لا شيء يقول أين أنت داخل المساحة. مخالف لقاعدة «لا شيء يظهر عند المرور فقط» عمليًا، لأن المعنى في الـtooltip.",
+    html: topbar() + `
+      <div class="navdemo">
+        <div class="spine">
+          <button class="ic" aria-current="true" title="لوحة اليوم">◫</button>
+          <button class="ic" title="اختصاراتي">✦</button>
+          <button class="ic" title="كل الشاشات">☰</button>
+          <button class="ic" title="الموافقات">✓</button>
+          <button class="ic" title="التنبيهات">◔</button>
+        </div>
+        <div class="fake">${fake}</div>
+      </div>`
+  },
+  {
+    id:"rail",
+    name:"٢ · الشريط الكامل المُسمّى",
+    desc:"عمود ٢٤٨ بكسل بالكلمات: المساحة المفتوحة تعرض شاشاتها، والباقي مطوي.",
+    pro:"لا تخمين، ولا تدريب: الموظف الجديد يقرأ. أسهل مكالمة دعم على الإطلاق — «الصف الثالث من فوق».",
+    con:"هذه هي الصورة الظلية التي تشبه المنافس. تحتاج الهوية أن تحمل التمييز كله وحدها.",
+    html: `
+      <div class="navdemo">
+        <div class="rail">
+          <div class="hd">مساحات العمل</div>
+          <div class="grp" aria-current="true">▾ البيع والتحصيل</div>
+          ${SELL.map((x,i)=>`<div class="sub" ${i===2?'style="font-weight:600;color:var(--ink)"':''}>${x}</div>`).join("")}
+          <div class="grp">▸ الشراء والتوريد</div>
+          <div class="grp">▸ المخزون والتصنيع</div>
+          <div class="grp">▸ المالية والإقفال</div>
+          <div class="grp">▸ الأشخاص والأصول</div>
+          <div class="grp">▸ الإعداد والصلاحيات</div>
+        </div>
+        <div class="fake">${fake}</div>
+      </div>`
+  },
+  {
+    id:"twocol",
+    name:"٣ · عمودان: مساحات + شاشاتها",
+    desc:"عمود ضيّق بالأيقونة والكلمة للمساحات الست، وبجانبه عمود يعرض شاشات المساحة المختارة.",
+    pro:"تعرف دائمًا أين أنت على المستويين. التبديل بين مساحتين نقرة واحدة، لا طيّ وفتح.",
+    con:"يأكل ~٣٠٠ بكسل من العرض — ثمن حقيقي في جدول فاتورة بعشرة أعمدة على شاشة لابتوب.",
+    html: `
+      <div class="navdemo">
+        <div class="col1">
+          ${[["◧","البيع"],["◨","الشراء"],["▣","المخزون"],["₤","المالية"],["◑","الأشخاص"],["⚙","الإعداد"]]
+            .map((w,i)=>`<div class="w" ${i===0?'aria-current="true"':''}><span class="g">${w[0]}</span>${w[1]}</div>`).join("")}
+        </div>
+        <div class="col2">
+          <div class="hd">البيع والتحصيل</div>
+          ${SELL.map((x,i)=>`<div class="it" ${i===2?'aria-current="true"':''}>${x}</div>`).join("")}
+        </div>
+        <div class="fake">${fake}</div>
+      </div>`
+  },
+  {
+    id:"none",
+    name:"٤ · بلا شريط جانبي إطلاقًا",
+    desc:"شريط المساحات في الأعلى فقط؛ كل مساحة تفتح صفحة «مركز» تعرض شاشاتها كبلاطات.",
+    pro:"أوسع مساحة محتوى من أي بديل — الجداول العريضة والتقارير تتنفّس. صورة ظلية لا تشبه أي ERP.",
+    con:"كل انتقال بين شاشتين في مساحتين مختلفتين يمر بصفحة وسيطة. مؤلم لمن يقفز كثيرًا طوال اليوم.",
+    html: topbar() + `
+      <div class="navdemo">
+        <div class="fake">
+          ${fake}
+          <div class="secbar"><h2>باقي شاشات البيع والتحصيل</h2></div>
+          <div class="hubgrid">${SELL.map(x=>`<a href="#">${x}</a>`).join("")}</div>
+        </div>
+      </div>`
+  },
+  {
+    id:"collapse",
+    name:"٥ · شريط مُسمّى قابل للطي",
+    desc:"مُسمّى بالكامل افتراضيًا، وزر واحد يطويه إلى أيقونات. الاختيار يُحفظ لك على الخادم.",
+    pro:"يرضي الاثنين: الموظف الجديد يقرأ، والمُدخِل المحترف يطوي ويكسب العرض. البديل الوحيد الذي لا يفرض مقايضة واحدة على الجميع.",
+    con:"حالتان يجب تصميمهما واختبارهما بدل واحدة، ومكالمة الدعم تبدأ بسؤال: «الشريط عندك مفتوح ولا مطوي؟»",
+    html: `
+      <div class="navdemo">
+        <div class="crail">
+          <button class="btn sec sm tgl">⟨ اطوِ الشريط</button>
+          ${[["◧","لوحة اليوم"],["✦","اختصاراتي"],["◧","البيع والتحصيل"],["◨","الشراء والتوريد"],
+             ["▣","المخزون والتصنيع"],["₤","المالية والإقفال"],["◑","الأشخاص والأصول"],["⚙","الإعداد والصلاحيات"]]
+            .map((x,i)=>`<div class="it" ${i===2?'aria-current="true"':''}><span>${x[0]}</span><span class="lbl">${x[1]}</span></div>`).join("")}
+        </div>
+        <div class="crail mini" style="border-inline-start:1px dashed var(--line-2)">
+          <button class="btn sec sm tgl">⟩</button>
+          ${["◧","✦","◧","◨","▣","₤","◑","⚙"].map((x,i)=>`<div class="it" ${i===2?'aria-current="true"':''}><span>${x}</span></div>`).join("")}
+        </div>
+        <div class="fake">${fake}
+          <p style="color:var(--faint);font-size:12px;margin-block-start:16px">
+            الحالتان معروضتان جنبًا إلى جنب هنا للمقارنة فقط — في المنتج واحدة في كل مرة.</p>
+        </div>
+      </div>`
+  },
+  {
+    id:"personal",
+    name:"٦ · شريط شخصي: بحث + مثبّتات + آخر ما فُتح",
+    desc:"لا شجرة أصلًا. مربع بحث، ثم ما ثبّته أنت، ثم ما فتحته حديثًا، وزر «كل الشاشات» للشجرة الكاملة.",
+    pro:"الشريط يعرض شغلك أنت، لا خريطة البرنامج. يختصر رحلة العشرة شاشات اليومية إلى نقرة واحدة.",
+    con:"الموظف الجديد يفتح شريطًا شبه فارغ. والدعم لا يستطيع قول «الصف الثالث» لأن لا شريطين متشابهان — يحتاج «استعادة الوضع الافتراضي» ظاهرًا.",
+    html: topbar() + `
+      <div class="navdemo">
+        <div class="prail">
+          <div class="sbox">🔍 ابحث في ${I(120)} شاشة…</div>
+          <div class="hd">مثبّت</div>
+          <div class="it">🧾 فواتير المبيعات</div>
+          <div class="it">💵 سندات القبض</div>
+          <div class="it">📦 الرصيد المخزني</div>
+          <div class="hd">آخر ما فتحته</div>
+          <div class="it">↺ شركة الأمل للتجارة</div>
+          <div class="it">↺ ميزان المراجعة</div>
+          <button class="btn sec sm all">☰ كل الشاشات</button>
+        </div>
+        <div class="fake">${fake}</div>
+      </div>`
+  },
+];
+
+document.getElementById("stage").innerHTML = OPTIONS.map(o=>`
+  <section class="opt">
+    <div class="cap">
+      <b>${o.name}</b>
+      <span class="line">${o.desc}</span>
+      <span class="line pro">+ ${o.pro}</span>
+      <span class="line con">− ${o.con}</span>
+    </div>
+    <div data-dir="a"><div class="app">${o.html}</div></div>
+  </section>`).join("");
+
+const EAST = "٠١٢٣٤٥٦٧٨٩";
+let numeral = "west";
+function applyNumerals(){
+  document.querySelectorAll(".num").forEach(el=>{
+    const src = el.dataset.raw ?? (el.dataset.raw = el.textContent);
+    el.textContent = numeral === "east" ? src.replace(/[0-9]/g, c => EAST[+c]) : src;
+  });
+}
+document.getElementById("nums").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  numeral = b.dataset.n;
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+  applyNumerals();
+});
+applyNumerals();
+</script>
+</body>
+</html>

@@ -23,12 +23,10 @@ export function createWindow(): BrowserWindow {
 
   win.once("ready-to-show", () => win.show());
 
-  const entry = rendererEntry();
-  if ("url" in entry) {
-    void win.loadURL(entry.url);
-  } else {
-    void win.loadFile(entry.file);
-  }
+  // Always a URL now: dev is the Vite server, production is the `app://`
+  // origin. loadFile() is deliberately not used — it yields a file:// document,
+  // whose opaque origin refuses module scripts and route chunks.
+  void win.loadURL(rendererEntry().url);
 
   return win;
 }

@@ -15,6 +15,7 @@ import type {
   AssetCategoryDTO,
   AssetDTO,
   BankStatementDTO,
+  BankStatementListItemDTO,
   BankStatementStatusDTO,
   BootstrapAdminRequestDTO,
   BootstrapSeedResultDTO,
@@ -32,6 +33,8 @@ import type {
   ChequeDirectionDTO,
   ChequeDTO,
   ChequeStatusDTO,
+  CloseFiscalYearDTO,
+  CloseFiscalYearResultDTO,
   CollectChequeDTO,
   CollectionFollowUpDTO,
   CompleteFollowUpDTO,
@@ -140,6 +143,7 @@ import type {
   LandedCostDocumentDTO,
   LeadDTO,
   LoginRequestDTO,
+  MatchCandidateDTO,
   MatchSummaryDTO,
   MaterialFormulaDTO,
   MoveOpportunityStageDTO,
@@ -267,6 +271,7 @@ import type {
   RunLeaveAccrualDTO,
   HrDashboardSummaryDTO,
   WritedownRunDTO,
+  YearEndClosePreviewDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
@@ -1558,10 +1563,10 @@ export interface BankStatementListFilters {
   readonly toDate?: string;
 }
 
-export function useBankStatements(filters: BankStatementListFilters = {}): UseQueryResult<BankStatementDTO[], ApiError> {
+export function useBankStatements(filters: BankStatementListFilters = {}): UseQueryResult<BankStatementListItemDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  return useQuery<BankStatementDTO[], ApiError>({
+  return useQuery<BankStatementListItemDTO[], ApiError>({
     queryKey: ["bank-statements", filters],
     enabled: session !== null,
     queryFn: async () => {
@@ -1573,7 +1578,7 @@ export function useBankStatements(filters: BankStatementListFilters = {}): UseQu
       const qs = params.toString();
       const res = await request(`/bank-statements${qs === "" ? "" : `?${qs}`}`);
       if (!res.ok) throw new ApiError(res.status, t("api.bankStatementsCouldNotBe"));
-      return res.json<BankStatementDTO[]>();
+      return res.json<BankStatementListItemDTO[]>();
     },
   });
 }
@@ -1608,6 +1613,24 @@ export function useStatementColumnMapping(treasuryAccountId: string | null): Use
       if (res.status === 404) return null;
       if (!res.ok) throw new ApiError(res.status, t("api.theColumnMappingCouldNot"));
       return res.json<StatementColumnMappingDTO>();
+    },
+  });
+}
+
+/**
+ * The treasury movements a statement's lines can be matched to. Manual match
+ * picks from these — it never asks the user to type a journal-entry id.
+ */
+export function useStatementMatchCandidates(statementId: string | null): UseQueryResult<MatchCandidateDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<MatchCandidateDTO[], ApiError>({
+    queryKey: ["bank-statements", "candidates", statementId],
+    enabled: session !== null && statementId !== null,
+    queryFn: async () => {
+      const res = await request(`/bank-statements/${statementId}/candidates`);
+      if (!res.ok) throw new ApiError(res.status, t("api.theMatchableEntriesCouldNot"));
+      return res.json<MatchCandidateDTO[]>();
     },
   });
 }
@@ -3862,6 +3885,76 @@ export function useReopenPeriod() {
 export function useLockPeriod() {
   const { t } = useAppTranslation();
   return useFiscalPeriodTransition("lock", t("api.thePeriodCouldNotBe3"));
+}
+
+/**
+ * ما سيُرحَّل عند إقفال السنة — the closing entry the year WOULD post.
+ *
+ * A year that is already closed answers 409, and a year with nothing to close
+ * answers 422; both are states the screen renders rather than errors, so they
+ * resolve to `null` with the server's own Arabic message carried alongside.
+ */
+export function useYearEndClosePreview(year: number | null): UseQueryResult<YearEndClosePreviewDTO | null, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<YearEndClosePreviewDTO | null, ApiError>({
+    queryKey: ["gl", "year-end-close", year],
+    enabled: session !== null && year !== null,
+    queryFn: async () => {
+      const res = await request(`/gl/year-end-close/${year}/preview`);
+      if (res.status === 409 || res.status === 422) return null;
+      if (!res.ok) throw new ApiError(res.status, t("api.theYearEndCloseCouldNot"));
+      return res.json<YearEndClosePreviewDTO>();
+    },
+  });
+}
+
+/**
+ * قيد إقفال السنة، إن كان قد رُحِّل — the posted closing entry for a year, or
+ * `null` when the year has not been closed. The close is idempotent by this id
+ * (`YEAR-CLOSE:<year>`), so its presence IS the "closed" flag; there is no
+ * separate status field that could disagree with the ledger.
+ */
+export function useYearEndCloseEntry(year: number | null): UseQueryResult<JournalEntryDTO | null, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<JournalEntryDTO | null, ApiError>({
+    queryKey: ["journal-entries", "detail", year === null ? null : `YEAR-CLOSE:${year}`],
+    enabled: session !== null && year !== null,
+    queryFn: async () => {
+      const res = await request(`/gl/journal-entries/${encodeURIComponent(`YEAR-CLOSE:${year}`)}`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new ApiError(res.status, t("api.theJournalEntryCouldNot"));
+      return res.json<JournalEntryDTO>();
+    },
+  });
+}
+
+/**
+ * إقفال السنة المالية — posts the closing entry that sweeps every revenue and
+ * expense balance into retained earnings, dated the last day of the year.
+ *
+ * It is an ordinary journal entry, so it invalidates the ledger-derived queries
+ * too: the trial balance, the financial statements and the journal all change
+ * the moment it posts.
+ */
+export function useCloseFiscalYear() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CloseFiscalYearResultDTO, ApiError, CloseFiscalYearDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/gl/year-end-close", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFinancialYearCouldNot")));
+      return res.json<CloseFiscalYearResultDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["gl", "year-end-close"] });
+      queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["financial-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
 }
 
 /** الضرائب (docs/catalog/04) — list, create, edit. */

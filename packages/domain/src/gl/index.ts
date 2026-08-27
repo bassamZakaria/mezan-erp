@@ -45,9 +45,12 @@ export {
 
 export {
   closeFiscalYear,
+  planYearEndClose,
   YearAlreadyClosedError,
   NothingToCloseError,
   type CloseYearCommand,
   type CloseYearDeps,
   type CloseYearResult,
+  type YearEndClosePlan,
+  type YearEndClosePlanLine,
 } from "./year-end-close.js";

@@ -8,6 +8,8 @@ import type { StatementLine } from "./bank-statement.js";
  */
 export interface TreasuryLedgerCandidate {
   readonly entryId: string;
+  /** The entry's human number, when it has been assigned one — what the picker shows beside the memo. */
+  readonly entryNo: string | null;
   readonly date: string;
   readonly amount: Money;
   readonly description: string | null;

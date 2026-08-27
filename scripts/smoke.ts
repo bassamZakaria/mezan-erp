@@ -57,6 +57,7 @@ const READ_PATHS = [
   "/treasury-accounts/stats",
   "/fiscal-periods",
   "/exchange-rates",
+  "/bank-statements",
   "/reconciliation",
   "/eta/config",
   "/eta/submissions",

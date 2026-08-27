@@ -235,6 +235,23 @@ class SqliteBankStatementRepository implements BankStatementRepository {
   async listLines(statementId: string): Promise<readonly StatementLine[]> {
     return (this.selectLinesByStatement.all(statementId) as LineRow[]).map(toLine);
   }
+  async lineCounts(statementIds: readonly string[]): Promise<ReadonlyMap<string, { total: number; matched: number }>> {
+    const counts = new Map<string, { total: number; matched: number }>();
+    if (statementIds.length === 0) return counts;
+    const placeholders = statementIds.map(() => "?").join(",");
+    const rows = this.sqlite
+      .prepare(
+        `SELECT statement_id,
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END) AS matched
+           FROM statement_line
+          WHERE statement_id IN (${placeholders})
+          GROUP BY statement_id`,
+      )
+      .all(...statementIds) as Array<{ statement_id: string; total: number; matched: number }>;
+    for (const row of rows) counts.set(row.statement_id, { total: Number(row.total), matched: Number(row.matched) });
+    return counts;
+  }
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     return withSqliteTransaction(this.sqlite, fn, "BEGIN");
   }

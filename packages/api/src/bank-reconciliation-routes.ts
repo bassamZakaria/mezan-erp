@@ -77,6 +77,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  *   GET  /bank-statements                          list                       reconciliation.view
  *   GET  /bank-statements/:id                       one + lines + match summary reconciliation.view
  *   GET  /bank-statements/column-mapping/:accountId the account's saved mapping reconciliation.view
+ *   GET  /bank-statements/:id/candidates            matchable GL movements     reconciliation.view
  *   POST /bank-statements/import                    import a CSV statement     reconciliation.import
  *   POST /bank-statements/:id/auto-match             auto-suggest & apply       reconciliation.match
  *   POST /bank-statements/:id/lines/:lineId/match    manual match               reconciliation.match
@@ -103,14 +104,37 @@ export function createBankReconciliationRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const statements = await service.list(parsed.data);
-    return c.json(statements.map(serializeStatement));
+    const rows = await service.listWithSummaries(parsed.data);
+    return c.json(rows.map(({ statement, summary }) => ({ ...serializeStatement(statement), matchSummary: summary })));
   });
 
   app.get("/column-mapping/:treasuryAccountId", gate("treasury.reconciliation.view"), async (c) => {
     const mapping = await service.getColumnMapping(c.req.param("treasuryAccountId"));
     if (!mapping) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(mapping);
+  });
+
+  /**
+   * The treasury movements this statement's lines can be matched against.
+   * Without it the manual-match control was a free-text box asking the user to
+   * TYPE a journal-entry id: a field naming a domain entity that bound to no
+   * entity, so a typo matched a line to an id that does not exist.
+   */
+  app.get("/:id/candidates", gate("treasury.reconciliation.view"), async (c) => {
+    try {
+      const candidates = await service.matchCandidates(c.req.param("id"));
+      return c.json(
+        candidates.map((candidate) => ({
+          entryId: candidate.entryId,
+          entryNo: candidate.entryNo,
+          date: candidate.date,
+          amount: candidate.amount.toString(),
+          description: candidate.description,
+        })),
+      );
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.get("/:id", gate("treasury.reconciliation.view"), async (c) => {

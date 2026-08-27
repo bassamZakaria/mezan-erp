@@ -22,6 +22,7 @@ import {
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { YearEndCloseCard } from "./YearEndCloseCard";
 
 /**
  * الفترات المالية (Fiscal Periods) — docs/catalog/04 §"الفترات المالية".
@@ -224,6 +225,8 @@ export function FiscalPeriodsScreen() {
           ) : null}
         </div>
       ) : null}
+
+      <YearEndCloseCard year={selectedYear} periodsInYear={periodsInYear} />
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface p-[14px_16px]">

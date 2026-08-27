@@ -50,6 +50,41 @@ export const closeFiscalYearSchema = z.object({
 });
 export type CloseFiscalYearDTO = z.infer<typeof closeFiscalYearSchema>;
 
+/** What إقفال السنة المالية would post, before it is posted (`GET /gl/year-end-close/:year/preview`). */
+export const yearEndClosePreviewLineSchema = z.object({
+  accountId: z.string(),
+  accountCode: z.string(),
+  accountNameAr: z.string(),
+  accountType: z.enum(["revenue", "expense"]),
+  debit: z.string(),
+  credit: z.string(),
+});
+
+export const yearEndClosePreviewSchema = z.object({
+  year: z.number().int(),
+  entryId: z.string(),
+  date: z.string(),
+  netResult: z.string(),
+  revenueClosed: z.string(),
+  expensesClosed: z.string(),
+  lines: z.array(yearEndClosePreviewLineSchema),
+});
+
+export type YearEndClosePreviewLineDTO = z.infer<typeof yearEndClosePreviewLineSchema>;
+export type YearEndClosePreviewDTO = z.infer<typeof yearEndClosePreviewSchema>;
+
+/** The result of a posted year-end close. */
+export const closeFiscalYearResultSchema = z.object({
+  journalEntryId: z.string(),
+  year: z.number().int(),
+  netResult: z.string(),
+  revenueClosed: z.string(),
+  expensesClosed: z.string(),
+  accountsClosed: z.number().int().nonnegative(),
+});
+
+export type CloseFiscalYearResultDTO = z.infer<typeof closeFiscalYearResultSchema>;
+
 export const createGlJournalEntrySchema = z.object({
   id: z.string().min(1),
   date: z.string().min(1),

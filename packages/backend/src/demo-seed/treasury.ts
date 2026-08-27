@@ -504,6 +504,124 @@ async function seedVatFiling(app: App): Promise<void> {
   });
 }
 
+const STATEMENT_PERIOD_START = "2026-08-01";
+const STATEMENT_PERIOD_END = "2026-08-31";
+
+/** The bank's own wording for a movement — a real statement never repeats the voucher's memo. */
+function bankNarrative(index: number, moneyIn: boolean): string {
+  const inbound = ["إيداع نقدي بالفرع", "تحويل وارد", "إيداع شيك محصّل", "تحويل وارد - انستاباي"];
+  const outbound = ["تحويل صادر", "سحب نقدي", "شيك مصروف", "تحويل صادر - انستاباي"];
+  const pool = moneyIn ? inbound : outbound;
+  return pool[index % pool.length]!;
+}
+
+interface LedgerLineRow {
+  readonly entryId: string;
+  readonly date: string;
+  readonly debit: string;
+  readonly credit: string;
+}
+
+/**
+ * كشف حساب بنكي واحد لشهر أغسطس ٢٠٢٦ — the bank-reconciliation workflow had a
+ * screen, routes and an engine and no data at all: `/bank-statements` returned
+ * an empty list on every seeded tenant, so import → match → finalize had never
+ * once run end to end.
+ *
+ * The statement is DERIVED from the bank GL account's own posted movements, not
+ * invented, so auto-match has real entries to find. Three deliberate differences
+ * make the reconciliation a reconciliation rather than a formality:
+ *
+ *   - two movements carry the bank's value date, two days after the book date,
+ *     so they match through the ±5-day tolerance rather than trivially;
+ *   - two charges the books have never seen (service fee, transfer fee) stay
+ *     unmatched — the "شوف الفروقات" step needs something to show;
+ *   - the last book movement is left OFF the statement, the uncleared-payment
+ *     side of the same difference.
+ */
+async function seedBankStatement(app: App): Promise<void> {
+  const ledger = (await step(app, "GET", `/gl/accounts/${ACCOUNTS.bank}/ledger?asOf=${STATEMENT_PERIOD_END}`)) as {
+    lines: LedgerLineRow[];
+  };
+  const inPeriod = ledger.lines
+    .filter((line) => line.date >= STATEMENT_PERIOD_START && line.date <= STATEMENT_PERIOD_END)
+    // Ordered by date then amount, NOT by entryId: most entries here carry a
+    // generated uuid, so an id tiebreak would pick a different movement to leave
+    // off the statement on every seed and the demo would reconcile differently
+    // each run.
+    .sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        toCents(a.debit) - toCents(a.credit) - (toCents(b.debit) - toCents(b.credit)) ||
+        a.entryId.localeCompare(b.entryId),
+    );
+
+  // The seed's own bank vouchers and cheque collections post here; if that ever
+  // stops being true the statement would silently become a file of two fees, so
+  // refuse rather than seed a statement with nothing to reconcile against.
+  if (inPeriod.length < 3) {
+    throw new Error(
+      `[demo-seed] GL ${ACCOUNTS.bank} has only ${inPeriod.length} movement(s) in ${STATEMENT_PERIOD_START}..${STATEMENT_PERIOD_END}; a bank statement seeded against it would have nothing to match.`,
+    );
+  }
+
+  const onStatement = inPeriod.slice(0, -1);
+  const lagged = new Set(onStatement.slice(-2).map((line) => line.entryId));
+
+  const rows = onStatement.map((line, index) => {
+    const moneyIn = toCents(line.debit) > 0;
+    const amount = moneyIn ? line.debit : line.credit;
+    return {
+      date: lagged.has(line.entryId) ? addDays(line.date, 2) : line.date,
+      description: bankNarrative(index, moneyIn),
+      debit: moneyIn ? "" : amount,
+      credit: moneyIn ? amount : "",
+      reference: `TRX${String(index + 1).padStart(6, "0")}`,
+    };
+  });
+
+  const CHARGES = [
+    { date: "2026-08-28", description: "مصاريف خدمات بنكية", amount: "85.00", reference: "FEE000041" },
+    { date: "2026-08-30", description: "رسوم تحويل", amount: "40.00", reference: "FEE000042" },
+  ];
+  for (const charge of CHARGES) {
+    rows.push({ date: charge.date, description: charge.description, debit: charge.amount, credit: "", reference: charge.reference });
+  }
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+
+  const openingCents = ledger.lines
+    .filter((line) => line.date < STATEMENT_PERIOD_START)
+    .reduce((sum, line) => sum + toCents(line.debit) - toCents(line.credit), 0);
+  const closingCents = rows.reduce((sum, row) => sum + toCents(row.credit || "0") - toCents(row.debit || "0"), openingCents);
+
+  const header = "التاريخ,البيان,مدين,دائن,المرجع";
+  const rawCsv = [header, ...rows.map((r) => `${r.date},${r.description},${r.debit},${r.credit},${r.reference}`)].join("\n");
+
+  await step(app, "POST", "/bank-statements/import", {
+    id: "BSTMT-DEMO-1",
+    treasuryAccountId: BANK_TREASURY_ID,
+    statementNumber: "BS-2026-08",
+    rawCsv,
+    mapping: {
+      dateColumn: "التاريخ",
+      descriptionColumn: "البيان",
+      debitColumn: "مدين",
+      creditColumn: "دائن",
+      referenceColumn: "المرجع",
+      dateFormat: "YYYY-MM-DD",
+    },
+    periodStart: STATEMENT_PERIOD_START,
+    periodEnd: STATEMENT_PERIOD_END,
+    openingBalance: money(openingCents),
+    closingBalance: money(closingCents),
+  });
+
+  // Left at "قيد التسوية" with the two fees outstanding, not finalized: a
+  // statement seeded as منتهية would leave the match/unmatch/finalize controls
+  // with nothing to act on, which is the state this seed exists to end.
+  await step(app, "POST", "/bank-statements/BSTMT-DEMO-1/auto-match", {});
+}
+
 export async function seedTreasury(app: App): Promise<void> {
   await seedGlAccounts(app);
   await seedTreasuryAccountAndWarehouse(app);
@@ -513,4 +631,5 @@ export async function seedTreasury(app: App): Promise<void> {
   await seedInstallmentPlan(app);
   await seedFieldSales(app);
   await seedVatFiling(app);
+  await seedBankStatement(app);
 }

@@ -21,7 +21,7 @@ import type {
   StatementLine,
 } from "./bank-statement.js";
 import { mapCsvRows, parseCsv } from "./csv.js";
-import { suggestMatches, type TreasuryLedgerReader } from "./matching.js";
+import { suggestMatches, type TreasuryLedgerCandidate, type TreasuryLedgerReader } from "./matching.js";
 import {
   BankStatementNotFoundError,
   LineAlreadyMatchedError,
@@ -64,6 +64,14 @@ export interface BankReconciliationServiceDeps {
   readonly mappings: StatementColumnMappingRepository;
   readonly ledgerReader: TreasuryLedgerReader;
   readonly now?: () => string;
+}
+
+const MANUAL_MATCH_SLACK_DAYS = 10;
+
+function shiftDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 export class BankReconciliationService {
@@ -200,6 +208,27 @@ export class BankReconciliationService {
     return { total, matched, unmatched: total - matched, matchRate: total === 0 ? 0 : matched / total };
   }
 
+  /**
+   * The treasury-side movements a human can manually match this statement's
+   * lines against — the account's own GL ledger over the statement period,
+   * widened by `MANUAL_MATCH_SLACK_DAYS` because manual matching exists
+   * precisely for the movements auto-match's ±5-day window could not reach.
+   *
+   * Entries already matched to a line of THIS statement are excluded, so the
+   * picker cannot offer the same entry to two lines.
+   */
+  async matchCandidates(statementId: string): Promise<readonly TreasuryLedgerCandidate[]> {
+    const statement = await this.require(statementId);
+    const lines = await this.deps.statements.listLines(statementId);
+    const taken = new Set(lines.map((l) => l.matchedEntryId).filter((id): id is string => id !== null));
+    const candidates = await this.deps.ledgerReader.entriesForTreasuryAccount(
+      statement.treasuryAccountId,
+      shiftDays(statement.periodStart, -MANUAL_MATCH_SLACK_DAYS),
+      shiftDays(statement.periodEnd, MANUAL_MATCH_SLACK_DAYS),
+    );
+    return candidates.filter((c) => !taken.has(c.entryId));
+  }
+
   async findById(id: string): Promise<BankStatement | null> {
     return this.deps.statements.findById(id);
   }
@@ -210,6 +239,26 @@ export class BankReconciliationService {
 
   async list(filter?: BankStatementListFilter): Promise<readonly BankStatement[]> {
     return this.deps.statements.list(filter);
+  }
+
+  /**
+   * The list plus each statement's match summary, counted in ONE query rather
+   * than one per statement. The list screen judges which statement still needs
+   * work by its match rate, and a rate it cannot compute reads as 0% — which is
+   * a number, not an absence.
+   */
+  async listWithSummaries(
+    filter?: BankStatementListFilter,
+  ): Promise<readonly { statement: BankStatement; summary: MatchSummary }[]> {
+    const statements = await this.deps.statements.list(filter);
+    const counts = await this.deps.statements.lineCounts(statements.map((s) => s.id));
+    return statements.map((statement) => {
+      const { total, matched } = counts.get(statement.id) ?? { total: 0, matched: 0 };
+      return {
+        statement,
+        summary: { total, matched, unmatched: total - matched, matchRate: total === 0 ? 0 : matched / total },
+      };
+    });
   }
 
   private assertNotFinalized(statement: BankStatement): void {

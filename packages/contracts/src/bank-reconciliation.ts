@@ -90,6 +90,20 @@ export const matchSummarySchema = z.object({
   matchRate: z.number().min(0).max(1),
 });
 
+/** A list row: the statement plus how much of it is matched, so the list can show a real rate. */
+export const bankStatementListItemSchema = bankStatementSchema.extend({
+  matchSummary: matchSummarySchema,
+});
+
+/** One treasury movement a statement line may be matched to (`GET /bank-statements/:id/candidates`). */
+export const matchCandidateSchema = z.object({
+  entryId: z.string(),
+  entryNo: z.string().nullable(),
+  date: z.string(),
+  amount: z.string(),
+  description: z.string().nullable(),
+});
+
 export const bankStatementListQuerySchema = z.object({
   treasuryAccountId: z.string().optional(),
   status: bankStatementStatusSchema.optional(),
@@ -108,4 +122,6 @@ export type ImportBankStatementDTO = z.infer<typeof importBankStatementSchema>;
 export type MatchStatementLineDTO = z.infer<typeof matchStatementLineSchema>;
 export type AddManualLineDTO = z.infer<typeof addManualLineSchema>;
 export type MatchSummaryDTO = z.infer<typeof matchSummarySchema>;
+export type MatchCandidateDTO = z.infer<typeof matchCandidateSchema>;
+export type BankStatementListItemDTO = z.infer<typeof bankStatementListItemSchema>;
 export type BankStatementListQueryDTO = z.infer<typeof bankStatementListQuerySchema>;

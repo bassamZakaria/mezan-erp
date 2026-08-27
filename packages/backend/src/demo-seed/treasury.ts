@@ -504,6 +504,59 @@ async function seedVatFiling(app: App): Promise<void> {
   });
 }
 
+/**
+ * One imported August bank statement for `TR-DEMO-BANK`, left at `imported`
+ * so the reconciliation screen has something to actually reconcile.
+ *
+ * The six dated rows below are the real August movements this seed already
+ * posts to the bank GL account (ACCOUNTS.bank) — the supplier payment, the
+ * treasury transfer, the withheld-tax payment, the unallocated payment and
+ * the two cheque collections. They carry the exact amount and date of those
+ * postings so `POST /:id/auto-match` (exact amount within 5 days) matches
+ * them, which is the only way the auto-match step can be demonstrated at all.
+ *
+ * The last two rows are deliberately bank-only — service charges and credit
+ * interest the books have not recorded yet. They are what makes the flow
+ * worth showing: they stay unmatched, they are exactly what the accountant
+ * has to go and post, and they are why the statement's closing balance
+ * (137,891.00) differs from the book balance (137,956.00) by 65.00.
+ *
+ * Amount sign follows `StatementLine.amount`: positive = money IN.
+ * Kept `imported` rather than finalized — a finalized statement is a
+ * read-only record and would leave the screen with nothing to act on.
+ */
+async function seedBankStatement(app: App): Promise<void> {
+  const rows = [
+    ["2026-08-11", "سداد لمصنع الوادي الأخضر", "TRF-88431", "-29754.00"],
+    ["2026-08-14", "تحويل وارد من الخزينة الرئيسية", "DEP-11207", "2000.00"],
+    ["2026-08-19", "سداد لمورد خدمات", "TRF-88502", "-1940.00"],
+    ["2026-08-23", "دفعة لشركة سياج للصناعات", "TRF-88617", "-1500.00"],
+    ["2026-08-27", "تحصيل شيك رقم 0451237", "CHQ-0451237", "3100.00"],
+    ["2026-08-27", "شيك مرتد رقم 9002014", "CHQ-9002014", "-4200.00"],
+    ["2026-08-25", "مصاريف خدمات بنكية", "FEE-08-2026", "-150.00"],
+    ["2026-08-31", "عائد دائن على الرصيد", "INT-08-2026", "85.00"],
+  ];
+  const rawCsv = ["date,description,reference,amount", ...rows.map((r) => r.join(","))].join("\n");
+
+  await step(app, "POST", "/bank-statements/import", {
+    id: "BSTMT-DEMO-1",
+    treasuryAccountId: BANK_TREASURY_ID,
+    statementNumber: "NBE-2026-08",
+    periodStart: "2026-08-01",
+    periodEnd: "2026-08-31",
+    openingBalance: "170250.00",
+    closingBalance: "137891.00",
+    rawCsv,
+    mapping: {
+      dateColumn: "date",
+      descriptionColumn: "description",
+      referenceColumn: "reference",
+      amountColumn: "amount",
+      dateFormat: "YYYY-MM-DD",
+    },
+  });
+}
+
 export async function seedTreasury(app: App): Promise<void> {
   await seedGlAccounts(app);
   await seedTreasuryAccountAndWarehouse(app);
@@ -513,4 +566,5 @@ export async function seedTreasury(app: App): Promise<void> {
   await seedInstallmentPlan(app);
   await seedFieldSales(app);
   await seedVatFiling(app);
+  await seedBankStatement(app);
 }

@@ -24,7 +24,7 @@ const webAr = {
   // Six workspaces (revamp §3.1) — named after the work, not the module.
   "nav.group.sell": "البيع والتحصيل",
   "nav.group.buy": "الشراء والتوريد",
-  "nav.group.stock": "المخزون والتصنيع",
+  "nav.group.stock": "المخزون",
   "nav.group.money": "المالية والإقفال",
   "nav.group.people": "الأشخاص والأصول",
   "nav.group.setup": "الإعداد والصلاحيات",
@@ -6941,7 +6941,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "nav.section.assets.config": "Settings",
   "nav.group.sell": "Selling & collecting",
   "nav.group.buy": "Buying & supply",
-  "nav.group.stock": "Stock & manufacturing",
+  "nav.group.stock": "Stock",
   "nav.group.money": "Finance & closing",
   "nav.group.people": "People & assets",
   "nav.group.setup": "Setup & permissions",

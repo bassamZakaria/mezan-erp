@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { childRowsByParent } from "./list-query.js";
 import {
   Money,
   NextNumberService,
@@ -232,7 +233,17 @@ class SqliteLedgerRepository implements LedgerRepository {
     const rows = this.sqlite
       .prepare(`SELECT * FROM journal_entry ${where} ORDER BY date, id`)
       .all(...params) as EntryRow[];
-    return rows.map((row) => this.hydrate(row));
+    // One query for the whole page's lines, not one per entry: a list of 500
+    // entries used to issue 501 synchronous round trips on the UI thread.
+    const linesByEntry = childRowsByParent<LineRow & { entry_id: string }>(this.sqlite, {
+      table: "journal_line",
+      parentColumn: "entry_id",
+      parentIds: rows.map((row) => row.id),
+      orderBy: "entry_id, line_no",
+      columns: "entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent",
+      safeIntegers: true,
+    });
+    return rows.map((row) => this.hydrate(row, linesByEntry.get(row.id) ?? []));
   }
 
   async accountBalance(accountId: string, asOfDate?: string): Promise<AccountBalance> {
@@ -364,8 +375,8 @@ class SqliteLedgerRepository implements LedgerRepository {
     return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
   }
 
-  private hydrate(row: EntryRow): JournalEntry {
-    const lineRows = this.selectLines.all(row.id) as LineRow[];
+  private hydrate(row: EntryRow, preloadedLines?: readonly LineRow[]): JournalEntry {
+    const lineRows = preloadedLines ?? (this.selectLines.all(row.id) as LineRow[]);
     const lines: JournalLine[] = lineRows.map((l) => ({
       accountId: l.account_id,
       debit: Money.fromScaled(l.debit),

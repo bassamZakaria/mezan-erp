@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { childRowsByParent } from "./list-query.js";
 import { Money, Qty, type PriceList, type PriceListLine, type PriceListRepository } from "@mezan/domain";
 
 /**
@@ -149,7 +150,16 @@ class SqlitePriceListRepository implements PriceListRepository {
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.sqlite.prepare(`SELECT * FROM price_list ${where} ORDER BY created_at`).all(...params) as PriceListRow[];
-    return rows.map((row) => this.hydrate(row));
+    // One query for the whole page's children, not one per parent row.
+    const linesByList = childRowsByParent<PriceListLineRow & { price_list_id: string }>(this.sqlite, {
+      table: "price_list_line",
+      parentColumn: "price_list_id",
+      parentIds: rows.map((row) => row.id),
+      orderBy: "price_list_id, item_id, min_qty, line_no",
+      columns: "price_list_id, item_id, price, min_qty, unit_code",
+      safeIntegers: true,
+    });
+    return rows.map((row) => this.hydrate(row, linesByList.get(row.id) ?? []));
   }
 
   private insertLines(priceList: PriceList): void {
@@ -165,8 +175,8 @@ class SqlitePriceListRepository implements PriceListRepository {
     });
   }
 
-  private hydrate(row: PriceListRow): PriceList {
-    const lineRows = this.selectLines.all(row.id) as PriceListLineRow[];
+  private hydrate(row: PriceListRow, preloadedLines?: readonly PriceListLineRow[]): PriceList {
+    const lineRows = preloadedLines ?? (this.selectLines.all(row.id) as PriceListLineRow[]);
     return {
       id: row.id,
       code: row.code,

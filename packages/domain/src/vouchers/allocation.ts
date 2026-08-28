@@ -72,6 +72,13 @@ export interface AllocatableInvoiceRepository {
   save(invoice: AllocatableInvoice): Promise<void>;
   /** Open invoices (outstanding > 0) for a party, optionally filtered by kind. */
   listOpen(filter: { kind?: AllocationInvoiceKind; partyId?: string }): Promise<readonly AllocatableInvoice[]>;
+  /**
+   * How much of each of these invoices the allocation sub-ledger records as
+   * settled. Exists so a report over N documents costs ONE lookup rather than
+   * an awaited `findById` per row inside a loop — an id with no sub-ledger row
+   * is simply absent from the map.
+   */
+  allocatedByIds(ids: readonly string[]): Promise<ReadonlyMap<string, Money>>;
 }
 
 /** Sum of ACTIVE allocation amounts. */

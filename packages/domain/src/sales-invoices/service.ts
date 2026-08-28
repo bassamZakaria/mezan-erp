@@ -230,8 +230,20 @@ export class SalesInvoiceService {
     return this.deps.repo.findById(id);
   }
 
+  /**
+   * The document number, which is what a deep link carries. Falls back to the
+   * id so `GET /:id` keeps answering for both.
+   */
+  async findByIdOrDocNo(idOrDocNo: string): Promise<SalesInvoice | null> {
+    return (await this.deps.repo.findById(idOrDocNo)) ?? (await this.deps.repo.findByDocNo(idOrDocNo));
+  }
+
   async list(filter?: SalesInvoiceListFilter): Promise<readonly SalesInvoice[]> {
     return this.deps.repo.list(filter);
+  }
+
+  async count(filter?: SalesInvoiceListFilter): Promise<number> {
+    return this.deps.repo.count(filter);
   }
 
   /** Open a new مسودة (draft): validated and persisted, not numbered or posted. */

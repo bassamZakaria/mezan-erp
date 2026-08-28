@@ -55,7 +55,7 @@ import {
 } from "@mezan/contracts";
 import type { CurrencyCheck } from "./currency-policy.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
-import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, headerAuthContextResolver, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, headerAuthContextResolver, warehouseScopeOf } from "./permission-gate.js";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -457,6 +457,8 @@ export function createSalesInvoicesRoutes(
       branchId: c.req.query("branchId"),
       warehouseId: c.req.query("warehouseId"),
       search: c.req.query("search"),
+      page: c.req.query("page"),
+      pageSize: c.req.query("pageSize"),
     });
   }
 
@@ -467,10 +469,11 @@ export function createSalesInvoicesRoutes(
    * over everything the server had sent, so applying a branch changed the
    * rows and left the KPIs alone.
    *
-   * `branchId`/`warehouseId`/`search` are narrowed here rather than in the
-   * repository because they are presentation filters over an already-scoped
-   * set — the branch SCOPE (what this user may see at all) is still enforced
-   * by `withinScope` below, and no query parameter can widen it.
+   * Every one of them now reaches SQL. The branch SCOPE — what this user may
+   * see at all — comes from the resolved session and is a separate field from
+   * the branch the user picked in the header, so no query parameter can widen
+   * it, and an empty scope narrows to nothing rather than falling through to
+   * everything.
    */
   interface FilteredInvoices {
     readonly rows: readonly SalesInvoice[];
@@ -480,58 +483,69 @@ export function createSalesInvoicesRoutes(
 
   const DERIVED_FILTER_KEYS = new Set(["all", "open", "overdue"]);
 
+  /**
+   * A `view_own` caller with no resolved user id may see nothing. Filtering on
+   * a sentinel is deliberate: dropping the clause would widen the list to the
+   * whole tenant, which is the exact failure the tier exists to prevent.
+   */
+  const NO_SUCH_ACTOR = "\u0000no-actor";
+
   function isOpen(invoice: SalesInvoice, remaining: Money): boolean {
     return (invoice.status === "confirmed" || invoice.status === "partially_paid") && remaining.scaled > 0n;
+  }
+
+  /**
+   * Everything the repository can answer in SQL, so a list is a page rather
+   * than the whole table read into memory and sliced.
+   *
+   * BOTH scopes travel, not just the branch (R1.14): an invoice issues stock
+   * from a warehouse, so a user scoped to one warehouse was still seeing every
+   * other warehouse's invoices. Own-visibility travels too (D31) — a
+   * `view_own` salesperson whose rows are narrowed but whose KPI strip totals
+   * the whole tenant is being told the figure they may not see.
+   */
+  function repoFilterFor(c: Context, filter: SalesInvoiceListQueryDTO, page?: { limit: number; offset: number }) {
+    const { branchId, warehouseId, search, status, ...dateFilter } = filter;
+    return {
+      ...dateFilter,
+      // `open`/`overdue`/`all` are not stored statuses, so they must not reach
+      // the repository — it would match none of them and return nothing.
+      ...(status && !DERIVED_FILTER_KEYS.has(status) ? { status } : {}),
+      branchScope: branchScopeOf(c),
+      warehouseScope: warehouseScopeOf(c),
+      branchId,
+      warehouseId,
+      search,
+      ...(ownVisibilityOnly(c) ? { salespersonId: actorOf(c) ?? NO_SUCH_ACTOR } : {}),
+      ...(page ? { limit: page.limit, offset: page.offset } : {}),
+    } as Parameters<SalesInvoiceService["list"]>[0];
   }
 
   async function listFiltered(
     svc: SalesInvoiceService,
     c: Context,
     filter: SalesInvoiceListQueryDTO,
+    page?: { limit: number; offset: number },
   ): Promise<FilteredInvoices> {
-    const { branchId, warehouseId, search, status, ...dateFilter } = filter;
-    // `open`/`overdue`/`all` are not stored statuses, so they must not reach
-    // the repository — it would match none of them and return nothing.
-    const repoFilter = status && !DERIVED_FILTER_KEYS.has(status) ? { ...dateFilter, status } : dateFilter;
-    /**
-     * BOTH scopes, not just the branch (R1.14). An invoice issues stock from a
-     * warehouse, so a user scoped to one warehouse was still seeing every
-     * other warehouse's invoices — the header selector relabelled the chrome
-     * and changed nothing on screen.
-     */
-    let rows = withinScope(
-      withinScope(
-        await svc.list(repoFilter as Parameters<SalesInvoiceService["list"]>[0]),
-        branchScopeOf(c),
-        (inv) => inv.branchId,
-      ),
-      warehouseScopeOf(c),
-      (inv) => inv.warehouseId,
-    );
-    // Applied HERE rather than on the rows route alone (D31): a `view_own`
-    // salesperson whose list is narrowed but whose KPI strip still totalled the
-    // whole tenant would be told the figure they are not allowed to see.
-    if (ownVisibilityOnly(c)) rows = rows.filter((inv) => inv.salespersonId === actorOf(c));
-    if (branchId) rows = rows.filter((inv) => inv.branchId === branchId);
-    if (warehouseId) rows = rows.filter((inv) => inv.warehouseId === warehouseId);
-    const term = search?.trim().toLowerCase();
-    if (term) {
-      rows = rows.filter(
-        (inv) =>
-          (inv.docNo ?? "").toLowerCase().includes(term) || (inv.customerNameAr ?? "").toLowerCase().includes(term),
-      );
-    }
+    const { status } = filter;
+    // A derived status is a function of the remaining balance, which no column
+    // holds — so those two chips still resolve over the filtered set and are
+    // paged after the fact. Every other filter is already SQL by this point,
+    // so what is loaded is the chip's own set, not the table.
+    const derived = status === "open" || status === "overdue";
+    let rows = await svc.list(repoFilterFor(c, filter, derived ? undefined : page));
 
     const credits = await returnCredits();
     const allocations = await allocatedByInvoice(rows.map((inv) => inv.id));
 
-    if (status === "open" || status === "overdue") {
+    if (derived) {
       const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
       rows = rows.filter((inv) => {
         const remaining = remainingOf(inv, totalsFor(svc, inv), credits.get(inv.id));
         if (!isOpen(inv, remaining)) return false;
         return status === "open" || (inv.dueDate !== null && inv.dueDate < today);
       });
+      if (page) rows = rows.slice(page.offset, page.offset + page.limit);
     }
     return { rows, credits, allocations };
   }
@@ -550,7 +564,10 @@ export function createSalesInvoicesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const svc = service(c);
-    const { rows: invoices, credits, allocations } = await listFiltered(svc, c, parsed.data);
+    const { page, pageSize } = parsed.data;
+    const window =
+      pageSize === undefined ? undefined : { limit: pageSize, offset: ((page ?? 1) - 1) * pageSize };
+    const { rows: invoices, credits, allocations } = await listFiltered(svc, c, parsed.data, window);
     const costs = maySeeCost(c);
     return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id), costs)));
   });
@@ -631,7 +648,10 @@ export function createSalesInvoicesRoutes(
 
   app.get("/:id", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
     const svc = service(c);
-    const invoice = await svc.findById(c.req.param("id"));
+    // By id OR by document number: a deep link carries the number, and now
+    // that the list is a page the screen can no longer resolve one from the
+    // rows it happens to hold.
+    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
     if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
     // A `view_own` holder gets 404, not 403: whether an invoice they may not
     // see exists at all is itself information.

@@ -53,6 +53,7 @@ import {
   useSalesQuotes,
   useRecordSalesInvoicePayment,
   useInstallmentPlans,
+  useSalesInvoice,
   useSalesInvoices,
   useSalesInvoiceCounts,
   useSalesInvoiceStats,
@@ -1668,6 +1669,8 @@ export function SalesInvoicesScreen() {
    * rows and left the totals alone.
    */
   const debouncedSearch = useDebounced(search);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const listFilter: SalesInvoiceListQueryDTO = useMemo(
     () => ({
       ...(statusFilter === "all" ? {} : { status: statusFilter }),
@@ -1677,16 +1680,25 @@ export function SalesInvoicesScreen() {
       ...(branchFilter ? { branchId: branchFilter } : {}),
       ...(warehouseFilter ? { warehouseId: warehouseFilter } : {}),
       ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
+      page,
+      pageSize,
     }),
-    [statusFilter, customerFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch],
+    [statusFilter, customerFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch, page, pageSize],
   );
 
+  // The rows are ONE page from the server; the counts and the KPI strip are
+  // computed over the whole filtered set and strip the page out again, so the
+  // total the pager needs is the «الكل» chip rather than the rows on screen.
   const query = useSalesInvoices(listFilter);
   const invoices = query.data ?? [];
   const counts = useSalesInvoiceCounts(listFilter).data ?? {};
   const stats = useSalesInvoiceStats(listFilter).data ?? null;
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+
+  // A filter that changes the result set must not leave the pager on a page
+  // that no longer exists — the server would answer with nothing at all.
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, customerFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch]);
   const listBranches = useBranches().data ?? [];
   const listWarehouses = useWarehouses().data ?? [];
   const listCustomers = useCustomers().data ?? [];
@@ -1718,10 +1730,12 @@ export function SalesInvoicesScreen() {
   }
 
   const [firstSegment] = subPage.segments;
-  const selected =
-    firstSegment !== undefined && firstSegment !== "new"
-      ? (invoices.find((inv) => inv.id === firstSegment || inv.docNo === firstSegment) ?? null)
-      : null;
+  // Fetched by id or document number rather than searched for in `invoices`:
+  // the list is one page now, so a deep link into a document on any later page
+  // would otherwise read as "not found".
+  const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
+  const selectedQuery = useSalesInvoice(selectedId);
+  const selected = selectedQuery.data ?? null;
 
 
   /**
@@ -1742,7 +1756,6 @@ export function SalesInvoicesScreen() {
     remaining: majorOf(stats?.remaining),
   };
 
-  const filtered = invoices;
 
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) +
@@ -1752,9 +1765,10 @@ export function SalesInvoicesScreen() {
     (fromDate ? 1 : 0) +
     (toDate ? 1 : 0);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const totalRows = counts[statusFilter] ?? counts.all ?? invoices.length;
+  const pageCount = Math.max(1, Math.ceil(totalRows / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageRows = invoices;
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: counts.all ?? 0 },
@@ -2000,7 +2014,7 @@ export function SalesInvoicesScreen() {
               <span className="flex flex-wrap items-center gap-[10px]">
                 <span>
                   {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")}{" "}
-                  <span className="mz-num">{filtered.length}</span> {t("salesInvoices.showingSuffix")}
+                  <span className="mz-num">{totalRows}</span> {t("salesInvoices.showingSuffix")}
                 </span>
                 <span className="flex items-center gap-[6px] text-[12px] text-ink-muted">
                   {t("salesInvoices.rowsPerPage")}

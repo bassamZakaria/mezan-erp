@@ -14,7 +14,16 @@ export interface SalesInvoiceRepository {
   save(invoice: SalesInvoice): Promise<void>;
   update(invoice: SalesInvoice): Promise<void>;
   findById(id: string): Promise<SalesInvoice | null>;
+  /**
+   * The document NUMBER, which is what a URL carries — `#/sell/sales-invoices/
+   * INV-000001`. Once the list is a page rather than the whole table, a deep
+   * link can no longer be resolved by searching the rows that happen to be
+   * loaded.
+   */
+  findByDocNo(docNo: string): Promise<SalesInvoice | null>;
   list(filter?: SalesInvoiceListFilter): Promise<readonly SalesInvoice[]>;
+  /** How many invoices the same filter matches, ignoring `limit`/`offset`. */
+  count(filter?: SalesInvoiceListFilter): Promise<number>;
   /** Run `fn` in one atomic transaction. In-memory implementations may just call `fn`. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }
@@ -24,6 +33,25 @@ export interface SalesInvoiceListFilter {
   readonly customerId?: string;
   readonly fromDate?: string;
   readonly toDate?: string;
+  /**
+   * The caller's SCOPE — the branches and warehouses they may see at all,
+   * absent meaning all of them. Only a resolved session may populate these,
+   * and an EMPTY array means "nothing", never "everything".
+   *
+   * A row with no id on the scoping dimension is not attributable, so it stays
+   * visible under a narrowed scope; that is the rule `withinScope` has always
+   * applied and it is why scope is separate from the filters below.
+   */
+  readonly branchScope?: readonly string[];
+  readonly warehouseScope?: readonly string[];
+  /** Presentation filters the user picked. Strict equality — a null does not match. */
+  readonly branchId?: string;
+  readonly warehouseId?: string;
+  readonly salespersonId?: string;
+  /** Substring of the document number or the customer name. */
+  readonly search?: string;
+  readonly limit?: number;
+  readonly offset?: number;
 }
 
 /** One line of stock to issue OUT on confirm. */

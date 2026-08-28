@@ -2387,7 +2387,28 @@ function salesInvoiceParams(filter: SalesInvoiceListQueryDTO): URLSearchParams {
   if (filter.branchId) params.set("branchId", filter.branchId);
   if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
   if (filter.search) params.set("search", filter.search);
+  if (filter.page) params.set("page", String(filter.page));
+  if (filter.pageSize) params.set("pageSize", String(filter.pageSize));
   return params;
+}
+
+/**
+ * One invoice, by id OR by document number — which is what the URL carries.
+ * The list is a server-side page now, so a deep link into a document on any
+ * page but the first can no longer be resolved from the rows on screen.
+ */
+export function useSalesInvoice(idOrDocNo: string | null): UseQueryResult<SalesInvoiceDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<SalesInvoiceDTO, ApiError>({
+    queryKey: ["sales-invoices", "one", idOrDocNo],
+    enabled: session !== null && idOrDocNo !== null,
+    queryFn: async () => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(idOrDocNo ?? "")}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
+      return res.json<SalesInvoiceDTO>();
+    },
+  });
 }
 
 /**
@@ -2397,7 +2418,9 @@ function salesInvoiceParams(filter: SalesInvoiceListQueryDTO): URLSearchParams {
 export function useSalesInvoiceCounts(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  const { status: _status, ...rest } = filter;
+  // Every chip counts the WHOLE filtered set, so neither the active status nor
+  // the page may travel.
+  const { status: _status, page: _page, pageSize: _pageSize, ...rest } = filter;
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["sales-invoices", "counts", rest],
     enabled: session !== null,
@@ -2414,11 +2437,13 @@ export function useSalesInvoiceCounts(filter: SalesInvoiceListQueryDTO = {}): Us
 export function useSalesInvoiceStats(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<SalesInvoiceStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  // The KPI strip totals the WHOLE filtered set, so the page must not travel.
+  const { page: _page, pageSize: _pageSize, ...rest } = filter;
   return useQuery<SalesInvoiceStatsDTO, ApiError>({
-    queryKey: ["sales-invoices", "stats", filter],
+    queryKey: ["sales-invoices", "stats", rest],
     enabled: session !== null,
     queryFn: async () => {
-      const qs = salesInvoiceParams(filter).toString();
+      const qs = salesInvoiceParams(rest).toString();
       const res = await request(`/sales-invoices/stats${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
       return res.json<SalesInvoiceStatsDTO>();

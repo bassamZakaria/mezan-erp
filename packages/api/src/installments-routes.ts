@@ -24,7 +24,7 @@ import {
   createFollowUpSchema,
   completeFollowUpSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { type AuthContextResolver, callerUserId, createPermissionGate, headerAuthContextResolver } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 
 function serializePlanLine(l: InstallmentLine) {
@@ -256,7 +256,7 @@ export function createInstallmentsRoutes(
   // create permission.
   plans.post("/:id/confirm", gate("installments.plan.create"), async (c) => {
     try {
-      const result = await deps.plans.confirm(c.req.param("id"), { actor: c.req.header("x-user-id") ?? undefined });
+      const result = await deps.plans.confirm(c.req.param("id"), { actor: callerUserId(c) });
       return c.json({ document: serializePlan(result.document), held: result.held });
     } catch (err) {
       return handleDocumentError(c, err);

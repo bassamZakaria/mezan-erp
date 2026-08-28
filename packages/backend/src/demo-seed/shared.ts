@@ -11,14 +11,51 @@ import type { App } from "@mezan/api";
  * balanced postings. Nothing here is a fixture the UI reads directly.
  */
 
-export const ADMIN_HEADERS = {
+/**
+ * The seed drives the app over the same authenticated routes a user's clicks
+ * hit, so it needs a real session — declaring `x-permissions: *` stopped being
+ * enough the moment the server started resolving callers from its own session
+ * registry rather than from headers. `setSeedSessionToken` is called once,
+ * before any module runs, with a token minted for a synthetic admin grant.
+ */
+export const ADMIN_HEADERS: Record<string, string> = {
   "content-type": "application/json",
-  "x-user-id": "SEED-ADMIN",
-  "x-permissions": "*",
-  "x-role-codes": "*",
   "x-branch-scope": "*",
   "x-warehouse-scope": "*",
 };
+
+/**
+ * Mints a session for an arbitrary identity.
+ *
+ * The seed does not only act as an admin: HR leave requests derive the employee
+ * from the CALLER, and the workflow scenarios need named non-admin actors whose
+ * roles decide whether a gate holds. That used to be a matter of writing a
+ * different `x-user-id`; now each identity needs its own session, because that
+ * is precisely the impersonation the server stopped accepting.
+ */
+export type SeedSessionMinter = (grant: {
+  userId: string;
+  permissions: readonly string[];
+  roleCode: string | null;
+}) => string;
+
+let mintSeedSession: SeedSessionMinter | null = null;
+
+export function setSeedSessionToken(token: string, minter: SeedSessionMinter): void {
+  ADMIN_HEADERS.authorization = `Bearer ${token}`;
+  mintSeedSession = minter;
+}
+
+/** Headers that act as `userId`, with exactly the permissions and roles given. */
+export function seedActorHeaders(userId: string, permissions: readonly string[] = [], roleCode: string | null = null): Record<string, string> {
+  if (!mintSeedSession) throw new Error("[demo-seed] no session minter — setSeedSessionToken was never called");
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${mintSeedSession({ userId, permissions, roleCode })}`,
+    "x-branch-scope": "*",
+    "x-warehouse-scope": "*",
+  };
+}
 
 export const BRANCH_ID = "BR-MAIN";
 export const WAREHOUSE_ID = "WH-MAIN";

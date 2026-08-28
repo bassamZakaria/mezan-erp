@@ -1,4 +1,5 @@
 import { createBackend } from "../packages/backend/src/create-backend.js";
+import { SEED_ADMIN_NAME, SEED_ADMIN_PIN } from "../packages/backend/src/seed.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,16 +12,30 @@ import { join } from "node:path";
  * here rather than being discovered as an untestable screen three phases later.
  */
 
-const HEADERS = {
+/**
+ * Coverage signs in as the seeded admin, the way a user does — declaring
+ * `x-permissions: "*"` stopped being believed once the server started
+ * resolving callers from its own sessions. `/profile` returns the CALLER's
+ * record, so the session has to belong to a real seeded user.
+ */
+const SCOPE_HEADERS = {
   "content-type": "application/json",
-  // A real seeded user: /profile returns the CALLER's record, so a made-up id
-  // 404s and looks like a broken route.
-  "x-user-id": "USER-ADMIN",
-  "x-permissions": "*",
-  "x-role-codes": "*",
   "x-branch-scope": "*",
   "x-warehouse-scope": "*",
 };
+
+async function signIn(app: { fetch: (r: Request) => Promise<Response> }): Promise<Record<string, string>> {
+  const res = await app.fetch(
+    new Request("http://coverage/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: SEED_ADMIN_NAME, pin: SEED_ADMIN_PIN }),
+    }),
+  );
+  if (!res.ok) throw new Error(`coverage could not sign in: ${res.status} ${(await res.text()).slice(0, 200)}`);
+  const session = (await res.json()) as { token: string };
+  return { ...SCOPE_HEADERS, authorization: `Bearer ${session.token}` };
+}
 
 /** Surfaces that need query parameters, so a bare GET is correctly rejected. */
 const NEEDS_PARAMS = new Set(["/inventory/drift"]);
@@ -49,6 +64,7 @@ function countOf(body: unknown): number | null {
 async function main() {
   const dir = mkdtempSync(join(tmpdir(), "mezan-coverage-"));
   const { app } = await createBackend({ dbPath: join(dir, "coverage.db"), seedDemoData: true });
+  const HEADERS = await signIn(app);
 
   const source = await (await import("node:fs/promises")).readFile(new URL("./smoke.ts", import.meta.url), "utf8");
   const paths = [...new Set([...source.matchAll(/"(\/[a-z0-9/_-]+)"/g)].map((m) => m[1]!))].sort();

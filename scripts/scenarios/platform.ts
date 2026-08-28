@@ -28,6 +28,51 @@ export async function run(ctx: Ctx): Promise<void> {
   const { req, rows, check } = ctx;
 
   // ---------------------------------------------------------------------
+  // The identity a request carries is the SERVER's, not the caller's.
+  // Every route used to fall back to a resolver that read `x-permissions`
+  // off the request, so a client declared its own authority — and the LAN
+  // mount binds 0.0.0.0, which put that on the shop wifi.
+  // ---------------------------------------------------------------------
+  await ctx.scenario("a request cannot declare its own permissions", async () => {
+    const forged = await ctx.app.fetch(
+      new Request("http://scenario/settings", { headers: { "x-permissions": "*", "x-user-id": "attacker" } }),
+    );
+    check("declaring x-permissions: * is refused", forged.status === 403, `status ${forged.status}`);
+
+    const bare = await ctx.app.fetch(new Request("http://scenario/settings"));
+    check("and so is no credential at all", bare.status === 403, `status ${bare.status}`);
+
+    const forgedToken = await ctx.app.fetch(
+      new Request("http://scenario/settings", { headers: { authorization: `Bearer ${"A".repeat(43)}` } }),
+    );
+    check("a token that was never issued is refused", forgedToken.status === 403, `status ${forgedToken.status}`);
+
+    const login = await ctx.app.fetch(
+      new Request("http://scenario/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "محمد الشهابي", pin: "1234" }),
+      }),
+    );
+    check("a real sign-in succeeds", login.status === 200, `status ${login.status}`);
+    const session = (await login.json()) as { token?: string };
+    check("and returns an opaque token", typeof session.token === "string" && session.token.length > 30, String(session.token).slice(0, 12));
+
+    const allowed = await ctx.app.fetch(
+      new Request("http://scenario/settings", { headers: { authorization: `Bearer ${session.token}` } }),
+    );
+    check("which does open the route", allowed.status === 200, `status ${allowed.status}`);
+
+    await ctx.app.fetch(
+      new Request("http://scenario/auth/logout", { method: "POST", headers: { authorization: `Bearer ${session.token}` } }),
+    );
+    const afterLogout = await ctx.app.fetch(
+      new Request("http://scenario/settings", { headers: { authorization: `Bearer ${session.token}` } }),
+    );
+    check("and stops opening it after sign-out", afterLogout.status === 403, `status ${afterLogout.status}`);
+  });
+
+  // ---------------------------------------------------------------------
   // Setup — a real non-admin submitter and a real non-admin approver, plus
   // a dedicated workflow chain on SALES_RETURN_CONFIRM (the seed only
   // configures SALES_INVOICE_CONFIRM / PURCHASE_INVOICE_CONFIRM, and — see

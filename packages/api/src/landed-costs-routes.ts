@@ -11,7 +11,7 @@ import {
   type LandedCostService,
 } from "@mezan/domain";
 import { createLandedCostSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { type AuthContextResolver, callerUserId, createPermissionGate, headerAuthContextResolver } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 
 function serializeLine(l: LandedCostLine) {
@@ -113,7 +113,7 @@ export function createLandedCostsRoutes(
 
   app.post("/:id/confirm", gate("purchases.landed_cost.confirm"), async (c) => {
     try {
-      const result = await landedCostService.confirm(c.req.param("id"), { actor: c.req.header("x-user-id") ?? undefined });
+      const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c) });
       return c.json({ document: serialize(result.document), held: result.held });
     } catch (err) {
       return handleDocumentError(c, err);

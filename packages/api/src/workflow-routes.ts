@@ -20,7 +20,7 @@ import {
   type WorkflowConfigRepository,
 } from "@mezan/domain";
 import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, headerAuthContextResolver } from "./permission-gate.js";
 
 /**
  * Acts on the DOCUMENT behind an approval request once a decision is recorded.
@@ -102,15 +102,7 @@ function configErrorResponse(c: Context, err: unknown) {
  * one assigned role carries). A tenant admin (`"*"` in `x-permissions`)
  * bypasses every gate exactly as `gate.ts`'s `hasAdminRole` does.
  */
-function actorRoles(c: Context): string[] {
-  const permissions = (c.req.header("x-permissions") ?? "").split(",").map((s) => s.trim());
-  if (permissions.includes("*")) return ["*"];
-  const header = c.req.header("x-role-codes") ?? c.req.header("x-role-code") ?? "";
-  return header
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+const actorRoles = callerRoleCodes;
 
 /**
  * إعدادات الموافقات + الموافقات — the workflow-config chain-builder and the

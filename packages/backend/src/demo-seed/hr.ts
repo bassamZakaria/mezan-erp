@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { ADMIN_HEADERS, BRANCH_ID, CORE, step } from "./shared.js";
+import { ADMIN_HEADERS, BRANCH_ID, CORE, seedActorHeaders, step } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -562,7 +562,7 @@ async function stepAs(app: App, userId: string, method: string, path: string, bo
   const res = await app.fetch(
     new Request(`http://demo-seed${path}`, {
       method,
-      headers: { ...ADMIN_HEADERS, "x-user-id": userId },
+      headers: seedActorHeaders(userId, ["*"]),
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   );

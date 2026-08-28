@@ -9,13 +9,7 @@ import {
   type PurchaseReturnLine,
 } from "@mezan/domain";
 import { createPurchaseReturnSchema } from "@mezan/contracts";
-import {
-  createPermissionGate,
-  headerAuthContextResolver,
-  warehouseScopeOf,
-  withinScope,
-  type AuthContextResolver,
-} from "./permission-gate.js";
+import { type AuthContextResolver, callerUserId, createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 
 function serializeLine(l: PurchaseReturnLine) {
@@ -211,7 +205,7 @@ export function createPurchaseReturnsRoutes(
 
   app.post("/:id/confirm", gate("purchases.return.confirm"), async (c) => {
     try {
-      const result = await service.confirm(c.req.param("id"), { actor: c.req.header("x-user-id") ?? undefined });
+      const result = await service.confirm(c.req.param("id"), { actor: callerUserId(c) });
       return c.json({ document: serialize(result.document), held: result.held });
     } catch (err) {
       return handleDocumentError(c, err);

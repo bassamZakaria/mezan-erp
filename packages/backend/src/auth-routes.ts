@@ -10,6 +10,7 @@ import {
   type User,
 } from "@mezan/domain";
 import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from "@mezan/contracts";
+import { readSessionToken, type SessionRegistry } from "@mezan/api";
 import { SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
 export interface AuthRoutesDeps {
@@ -17,6 +18,8 @@ export interface AuthRoutesDeps {
   readonly hasher: SecretHasher;
   readonly settings: SettingsRepository;
   readonly seedStores: SeedStores;
+  /** Where a successful login's grant is recorded; the token is the only thing the client gets back. */
+  readonly sessions: SessionRegistry;
 }
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
@@ -46,6 +49,17 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
     branchScope: user.branchScope === ALL_SCOPE ? "*" : [...user.branchScope],
     warehouseScope: user.warehouseScope === ALL_SCOPE ? "*" : [...user.warehouseScope],
     tenantName: await tenantName(deps.settings),
+    // The client gets a token and nothing else it could forge with. The
+    // permissions travel too, but only so the UI can hide what the user cannot
+    // do — the server re-reads them from this session on every request and
+    // never from what comes back.
+    token: deps.sessions.issue({
+      userId: user.id,
+      permissions,
+      roleCode,
+      branchScope: user.branchScope,
+      warehouseScope: user.warehouseScope,
+    }),
   };
 }
 
@@ -80,6 +94,13 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     return c.json(await toSession(user, deps));
+  });
+
+  /** Ends the session server-side. Without this a token stayed valid until it idled out. */
+  app.post("/auth/logout", (c) => {
+    const token = readSessionToken(c);
+    if (token) deps.sessions.revoke(token);
+    return c.json({ ok: true });
   });
 
   /** Pre-login tenant identity for the login screen / first-run wizard header. */

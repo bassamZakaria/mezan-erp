@@ -55,15 +55,7 @@ import {
 } from "@mezan/contracts";
 import type { CurrencyCheck } from "./currency-policy.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
-import {
-  createAnyPermissionGate,
-  createPermissionGate,
-  getAuthContext,
-  headerAuthContextResolver,
-  type AuthContextResolver,
-  branchScopeOf,
-  warehouseScopeOf,
-  withinScope,} from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, headerAuthContextResolver, warehouseScopeOf, withinScope } from "./permission-gate.js";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -328,14 +320,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  * wildcard still short-circuits, but a role-gated step is otherwise satisfied
  * only by a caller who actually holds that role.
  */
-function gateActorRoles(c: Context): string[] {
-  const permissions = (c.req.header("x-permissions") ?? "").split(",").map((s) => s.trim());
-  if (permissions.includes("*")) return ["*"];
-  return (c.req.header("x-role-codes") ?? c.req.header("x-role-code") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+const gateActorRoles = callerRoleCodes;
 
 export function createSalesInvoicesRoutes(
   deps: SalesInvoiceRoutesDeps,

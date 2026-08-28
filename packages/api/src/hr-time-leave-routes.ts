@@ -63,7 +63,7 @@ import {
   updateLeavePolicySchema,
   upsertLeaveBalanceSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, headerAuthContextResolver } from "./permission-gate.js";
 
 /**
  * HR time & leave routes — الحضور والانصراف, سياسات الإجازات, أرصدة الإجازات,
@@ -205,14 +205,7 @@ function handleTimeLeaveError(c: Context, err: unknown): Response {
  * approver ROLE, not a permission code. Same resolution `workflow-routes.ts`
  * uses; a tenant admin (`"*"`) bypasses every gate.
  */
-function actorRoles(c: Context): string[] {
-  const permissions = (c.req.header("x-permissions") ?? "").split(",").map((s) => s.trim());
-  if (permissions.includes("*")) return ["*"];
-  return (c.req.header("x-role-codes") ?? c.req.header("x-role-code") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+const actorRoles = callerRoleCodes;
 
 export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuthContext: AuthContextResolver = headerAuthContextResolver): Hono {
   const app = new Hono();

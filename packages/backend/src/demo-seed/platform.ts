@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { step, WAREHOUSE_ID, CORE, VAT_PERCENT } from "./shared.js";
+import { CORE, VAT_PERCENT, WAREHOUSE_ID, seedActorHeaders, step } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -24,14 +24,9 @@ interface ActorOptions {
 }
 
 function actorHeaders({ userId, permissions = "", roles = "" }: ActorOptions): Record<string, string> {
-  return {
-    "content-type": "application/json",
-    "x-user-id": userId,
-    "x-permissions": permissions,
-    "x-role-codes": roles,
-    "x-branch-scope": "*",
-    "x-warehouse-scope": "*",
-  };
+  const codes = permissions.split(",").map((s) => s.trim()).filter(Boolean);
+  const role = roles.split(",").map((s) => s.trim()).filter(Boolean)[0] ?? null;
+  return seedActorHeaders(userId, codes, role);
 }
 
 /**

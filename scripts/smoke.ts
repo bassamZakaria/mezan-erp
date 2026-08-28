@@ -1,4 +1,4 @@
-import { createBackend } from "@mezan/backend";
+import { createBackend, SEED_ADMIN_NAME, SEED_ADMIN_PIN } from "@mezan/backend";
 
 /**
  * Smoke check — "does the code still run?", not "is the business logic right?".
@@ -12,15 +12,32 @@ import { createBackend } from "@mezan/backend";
  * Run with `pnpm smoke`. See docs/testing-policy.md.
  */
 
-const HEADERS = {
-  // "USER-ADMIN" is the fixed id of the seeded first admin (packages/backend/src/seed.ts) —
-  // used (not "smoke") so self-service reads like GET /profile, which look the caller
-  // up by id, hit a real user instead of a spurious 404.
-  "x-user-id": "USER-ADMIN",
-  "x-permissions": "*",
+/**
+ * Smoke signs in the way a user does.
+ *
+ * It used to declare `x-permissions: "*"` and be believed. Once the server
+ * started resolving callers from its own sessions, that header stopped meaning
+ * anything — and because this script only failed on 5xx and 404, all 193 read
+ * surfaces answered 403 and it still reported a pass. An unauthenticated smoke
+ * run proves nothing, so 401 and 403 are failures here now.
+ */
+const SCOPE_HEADERS = {
   "x-branch-scope": "*",
   "x-warehouse-scope": "*",
 };
+
+async function signIn(app: { fetch: (r: Request) => Promise<Response> }): Promise<Record<string, string>> {
+  const res = await app.fetch(
+    new Request("http://smoke/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: SEED_ADMIN_NAME, pin: SEED_ADMIN_PIN }),
+    }),
+  );
+  if (!res.ok) throw new Error(`smoke could not sign in: ${res.status} ${(await res.text()).slice(0, 200)}`);
+  const session = (await res.json()) as { token: string };
+  return { ...SCOPE_HEADERS, authorization: `Bearer ${session.token}` };
+}
 
 /** Read surfaces the web app calls. A 404 here means a route is not mounted. */
 const READ_PATHS = [
@@ -236,14 +253,17 @@ async function main(): Promise<void> {
   process.stdout.write("booting backend with the demo seed…\n");
   const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
   process.stdout.write("boot + seed OK\n\n");
+  const headers = await signIn(handle.app);
 
   for (const path of READ_PATHS) {
     try {
-      const res = await handle.app.fetch(new Request(`http://smoke${path}`, { headers: HEADERS }));
+      const res = await handle.app.fetch(new Request(`http://smoke${path}`, { headers }));
       if (res.status >= 500) {
         failures.push({ path, detail: `${res.status} ${(await res.text()).slice(0, 200)}` });
       } else if (res.status === 404) {
         failures.push({ path, detail: "404 — route not mounted" });
+      } else if (res.status === 401 || res.status === 403) {
+        failures.push({ path, detail: `${res.status} — signed in as the seeded admin and still refused` });
       } else {
         process.stdout.write(`  ok  ${res.status}  ${path}\n`);
       }

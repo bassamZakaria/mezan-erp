@@ -1,4 +1,5 @@
 import { createBackend } from "../../packages/backend/src/create-backend.js";
+import { ALL_SCOPE } from "../../packages/domain/src/index.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,21 +27,50 @@ export interface Res {
 
 export async function boot() {
   const dir = mkdtempSync(join(tmpdir(), "mezan-scn-"));
-  const { app } = await createBackend({ dbPath: join(dir, "s.db"), seedDemoData: true });
+  const { app, sessions } = await createBackend({ dbPath: join(dir, "s.db"), seedDemoData: true });
+
+  /**
+   * A scenario acts as an identity by minting a session for it, not by writing
+   * `x-user-id` — that header stopped being believed when the server started
+   * resolving callers from its own registry, which is the whole point of the
+   * change. The `over` shape stays the same so every existing scenario reads
+   * unchanged: the auth-ish keys are translated here into a real token.
+   */
+  const tokens = new Map<string, string>();
+  function tokenFor(userId: string, permissions: string, roleCodes: string): string {
+    const key = `${userId}|${permissions}|${roleCodes}`;
+    let token = tokens.get(key);
+    if (!token) {
+      token = sessions.issue({
+        userId,
+        permissions: permissions.split(",").map((s) => s.trim()).filter(Boolean),
+        roleCode: roleCodes.split(",").map((s) => s.trim()).filter(Boolean)[0] ?? null,
+        branchScope: ALL_SCOPE,
+        warehouseScope: ALL_SCOPE,
+      });
+      tokens.set(key, token);
+    }
+    return token;
+  }
 
   const passes: string[] = [];
   const failures: string[] = [];
   let current = "";
 
   function headers(over: Record<string, string> = {}) {
+    const {
+      "x-user-id": userId = "USER-ADMIN",
+      "x-permissions": permissions = "*",
+      "x-role-codes": roleCodes = permissions === "*" ? "*" : "",
+      "x-role-code": legacyRole,
+      ...rest
+    } = over;
     return {
       "content-type": "application/json",
-      "x-user-id": "USER-ADMIN",
-      "x-permissions": "*",
-      "x-role-codes": "*",
+      authorization: `Bearer ${tokenFor(userId, permissions, roleCodes || legacyRole || "")}`,
       "x-branch-scope": "*",
       "x-warehouse-scope": "*",
-      ...over,
+      ...rest,
     };
   }
 

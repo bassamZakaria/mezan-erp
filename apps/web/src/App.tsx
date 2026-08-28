@@ -378,7 +378,7 @@ function initialsFor(fullName: string, unknown: string): string {
 }
 
 export function App() {
-  const { session, setSession } = useApi();
+  const { session, setSession, request } = useApi();
   const { t } = useAppTranslation();
   const [showWizard, setShowWizard] = useState(false);
   // The URL is the source of truth for which screen and sub-page is on display.
@@ -615,12 +615,15 @@ export function App() {
         label: t("shell.menu.signOut"),
         tone: "danger",
         onSelect: () => {
+          // Revoke server-side first: clearing the client's copy alone left the
+          // token valid until it idled out, so a copied token outlived sign-out.
+          void request("/auth/logout", { method: "POST" }).catch(() => undefined);
           setActiveScreen("dashboard");
           setSession(null);
         },
       },
     ],
-    [navigate, setSession, t],
+    [navigate, request, setSession, t],
   );
 
   const routedTopNavItem = useMemo(() => {

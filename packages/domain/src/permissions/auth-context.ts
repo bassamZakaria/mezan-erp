@@ -24,6 +24,13 @@ export interface AuthContextInput {
   readonly userId: string;
   /** Raw granted permission codes (pre dependency-resolution). `"*"` = admin. */
   readonly permissions: Iterable<string>;
+  /**
+   * The custom roles the caller holds. A workflow gate step names an approver
+   * ROLE, not a permission, so this is what decides who may approve — and it
+   * therefore has to come from the same resolved identity as the permissions,
+   * never from a header the caller writes.
+   */
+  readonly roleCodes?: Iterable<string>;
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
 }
@@ -32,6 +39,8 @@ export interface AuthContext {
   readonly userId: string;
   /** Dependency-resolved effective permission set. */
   readonly permissions: ReadonlySet<string>;
+  /** Custom-role codes the caller holds — what a workflow step's approver role is matched against. */
+  readonly roleCodes: ReadonlySet<string>;
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
 }
@@ -49,6 +58,7 @@ export function createAuthContext(input: AuthContextInput): AuthContext {
   return {
     userId: input.userId,
     permissions: resolvePermissions(input.permissions),
+    roleCodes: new Set(input.roleCodes ?? []),
     branchScope: input.branchScope,
     warehouseScope: input.warehouseScope,
   };

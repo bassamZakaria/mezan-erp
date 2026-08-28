@@ -101,9 +101,13 @@ export function authHeaders(session: Session | null, selection?: ScopeSelection)
       ? selection.warehouseId
       : scope(session.warehouseScope);
   return {
-    "x-user-id": session.userId,
-    "x-permissions": session.permissions.join(","),
-    "x-role-code": session.roleCode ?? "",
+    // The token IS the identity. `x-permissions`, `x-user-id` and `x-role-code`
+    // used to travel here and the server believed them, so the client decided
+    // what it was allowed to do — on the LAN mount, from any device on the shop
+    // wifi. The scope headers stay because they are a NARROWING the user chose
+    // in the topbar; the server clamps them to the session's own grant and can
+    // never be widened by them.
+    authorization: `Bearer ${session.token}`,
     "x-branch-scope": branchScope,
     "x-warehouse-scope": warehouseScope,
   };

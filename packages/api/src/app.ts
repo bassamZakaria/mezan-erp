@@ -110,7 +110,7 @@ import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import type { EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
-import type { AuthContextResolver } from "./permission-gate.js";
+import { headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
@@ -798,19 +798,31 @@ function fxRatesUnder(source: FxRateSource | undefined, settingsStore: SettingsR
  * Routes carry no business logic — they validate, call the domain, serialize.
  */
 export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
+  /**
+   * One resolver for every route on this app.
+   *
+   * Each mount used to take its own optional resolver and fall back to
+   * `headerAuthContextResolver` when none was supplied — and none ever was, so
+   * every route on every edition read the caller's permissions out of a header
+   * the caller wrote. A composition that supplies `resolveAuthContext` now
+   * governs the whole app; one that does not still gets the header resolver,
+   * which is what the route-level unit tests rely on.
+   */
+  const resolveAuth = options.resolveAuthContext ?? headerAuthContextResolver;
+
   const resolveEntitlements = options.resolveEntitlements ?? defaultEntitlementsResolver();
   const hasher = options.hasher ?? createScryptHasher();
 
   const app = new Hono();
 
   if (options.settingsStore) {
-    app.route("/settings", createSettingsRoutes(options.settingsStore, options.resolveAuthContext));
+    app.route("/settings", createSettingsRoutes(options.settingsStore, resolveAuth));
   }
   if (options.branchStore) {
-    app.route("/branches", createBranchesRoutes(options.branchStore, options.resolveAuthContext));
+    app.route("/branches", createBranchesRoutes(options.branchStore, resolveAuth));
   }
   if (options.warehouseStore) {
-    app.route("/warehouses", createWarehousesRoutes(options.warehouseStore, options.resolveAuthContext));
+    app.route("/warehouses", createWarehousesRoutes(options.warehouseStore, resolveAuth));
   }
   /**
    * What each customer still owes, for the customers list's own KPI strip and
@@ -895,7 +907,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "/customers",
       createCustomersRouter(
         options.customerStore,
-        options.resolveAuthContext,
+        resolveAuth,
         options.auditSink,
         options.priceListRepo,
         customerReceivables,
@@ -903,62 +915,62 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.supplierStore) {
-    app.route("/suppliers", createSuppliersRouter(options.supplierStore, options.resolveAuthContext, supplierPayables));
+    app.route("/suppliers", createSuppliersRouter(options.supplierStore, resolveAuth, supplierPayables));
   }
 
   if (options.accounts) {
-    app.route("/accounts", createAccountsRouter(options.accounts.repo, options.accounts.resolveAuthContext));
+    app.route("/accounts", createAccountsRouter(options.accounts.repo, (options.accounts.resolveAuthContext ?? resolveAuth)));
   }
   if (options.taxRateRepo) {
-    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, options.resolveAuthContext));
+    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth));
     if (options.taxGroupRepo) {
-      app.route("/tax-groups", createTaxGroupsRoutes(options.taxGroupRepo, options.taxRateRepo, options.resolveAuthContext));
+      app.route("/tax-groups", createTaxGroupsRoutes(options.taxGroupRepo, options.taxRateRepo, resolveAuth));
     }
   }
   if (options.costCenterRepo) {
     app.route(
       "/cost-centers",
-      createCostCentersRoutes(options.costCenterRepo, options.resolveAuthContext, options.hr?.departments),
+      createCostCentersRoutes(options.costCenterRepo, resolveAuth, options.hr?.departments),
     );
   }
   if (options.treasuryAccountRepo) {
-    app.route("/treasury-accounts", createTreasuryAccountsRoutes(options.treasuryAccountRepo, options.resolveAuthContext, options.gl?.ledger));
+    app.route("/treasury-accounts", createTreasuryAccountsRoutes(options.treasuryAccountRepo, resolveAuth, options.gl?.ledger));
   }
   if (options.fiscalPeriodRepo) {
-    app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, options.resolveAuthContext));
+    app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, resolveAuth));
   }
   if (options.gl) {
-    app.route("/gl", createGlRoutes(options.gl, options.resolveAuthContext));
+    app.route("/gl", createGlRoutes(options.gl, resolveAuth));
   }
   if (options.vouchers) {
-    app.route("/vouchers", createVouchersRoutes(options.vouchers, options.resolveAuthContext));
-    app.route("/", createAllocationRoutes(options.vouchers, options.resolveAuthContext));
+    app.route("/vouchers", createVouchersRoutes(options.vouchers, resolveAuth));
+    app.route("/", createAllocationRoutes(options.vouchers, resolveAuth));
   }
   if (options.cheques) {
-    app.route("/cheques", createChequesRoutes(options.cheques, options.resolveAuthContext));
+    app.route("/cheques", createChequesRoutes(options.cheques, resolveAuth));
   }
   if (options.bankReconciliation) {
-    app.route("/bank-statements", createBankReconciliationRoutes(options.bankReconciliation, options.resolveAuthContext));
+    app.route("/bank-statements", createBankReconciliationRoutes(options.bankReconciliation, resolveAuth));
   }
   if (options.crm) {
-    app.route("/crm", createCrmRoutes(options.crm, options.resolveAuthContext));
+    app.route("/crm", createCrmRoutes(options.crm, resolveAuth));
   }
   if (options.hr) {
-    app.route("/hr", createHrRoutes(options.hr, options.resolveAuthContext));
+    app.route("/hr", createHrRoutes(options.hr, resolveAuth));
   }
   if (options.projects) {
-    app.route("/projects", createProjectsRoutes(options.projects, options.resolveAuthContext));
+    app.route("/projects", createProjectsRoutes(options.projects, resolveAuth));
   }
   if (options.fixedAssets) {
-    app.route("/assets", createFixedAssetsRoutes(options.fixedAssets, options.resolveAuthContext));
+    app.route("/assets", createFixedAssetsRoutes(options.fixedAssets, resolveAuth));
   }
   if (options.fieldSales) {
-    app.route("/field/van-trips", createFieldSalesRoutes(options.fieldSales, options.resolveAuthContext));
+    app.route("/field/van-trips", createFieldSalesRoutes(options.fieldSales, resolveAuth));
     // Mounted from the SAME deps, so a composition that supplies a registry
     // gets both the list the trip form picks from and the cascade the trip
     // route enforces — never one without the other.
     if (options.fieldSales.vans) {
-      app.route("/field/vans", createVansRoutes(options.fieldSales.vans, options.resolveAuthContext));
+      app.route("/field/vans", createVansRoutes(options.fieldSales.vans, resolveAuth));
     }
   }
   if (options.salesInvoices) {
@@ -1025,7 +1037,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
                 }
               : undefined),
         },
-        options.resolveAuthContext,
+        resolveAuth,
       ),
     );
   }
@@ -1034,17 +1046,17 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "/sales/historical-import",
       createSalesHistoricalImportRoutes(
         options.salesHistoricalImport,
-        options.salesHistoricalImport.resolveAuthContext ?? options.resolveAuthContext,
+        (options.salesHistoricalImport.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
       ),
     );
   }
   if (options.priceListRepo) {
-    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, options.resolveAuthContext, options.customerStore));
+    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, resolveAuth, options.customerStore));
   }
   if (options.promotionRepo) {
     app.route(
       "/promotions",
-      createPromotionsRoutes(options.promotionRepo, options.resolveAuthContext, {
+      createPromotionsRoutes(options.promotionRepo, resolveAuth, {
         salesInvoices: options.salesInvoices?.repo,
         salesReturns: options.salesReturns?.service,
       }),
@@ -1053,11 +1065,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.notificationRuleRepo) {
     app.route(
       "/notification-rules",
-      createNotificationRulesRoutes(options.notificationRuleRepo, options.resolveAuthContext, options.emittedEventCodes),
+      createNotificationRulesRoutes(options.notificationRuleRepo, resolveAuth, options.emittedEventCodes),
     );
   }
   if (options.notificationRepo) {
-    app.route("/notifications", createNotificationsRoutes(options.notificationRepo, options.resolveAuthContext));
+    app.route("/notifications", createNotificationsRoutes(options.notificationRepo, resolveAuth));
   }
   if (options.salesQuotes) {
     const salesQuotes = options.salesQuotes;
@@ -1073,14 +1085,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
             stock: options.salesInvoices.stock,
           }
         : undefined);
-    app.route("/sales-quotes", createSalesQuotesRoutes({ ...salesQuotes, invoice }, options.resolveAuthContext));
+    app.route("/sales-quotes", createSalesQuotesRoutes({ ...salesQuotes, invoice }, resolveAuth));
   }
   if (options.salesReturns) {
     app.route(
       "/sales-returns",
       createSalesReturnsRoutes(
         options.salesReturns.service,
-        options.salesReturns.resolveAuthContext,
+        (options.salesReturns.resolveAuthContext ?? resolveAuth),
         options.salesReturns.invoices,
         options.salesReturns.refunds,
       ),
@@ -1089,86 +1101,86 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.purchaseReturns) {
     app.route(
       "/purchase-returns",
-      createPurchaseReturnsRoutes(options.purchaseReturns.service, options.purchaseReturns.resolveAuthContext, options.purchaseReturns.invoices),
+      createPurchaseReturnsRoutes(options.purchaseReturns.service, (options.purchaseReturns.resolveAuthContext ?? resolveAuth), options.purchaseReturns.invoices),
     );
   }
   if (options.landedCosts) {
     app.route(
       "/landed-costs",
-      createLandedCostsRoutes(options.landedCosts.documents, options.landedCosts.service, options.landedCosts.resolveAuthContext),
+      createLandedCostsRoutes(options.landedCosts.documents, options.landedCosts.service, (options.landedCosts.resolveAuthContext ?? resolveAuth)),
     );
   }
   if (options.installments) {
-    app.route("/installments", createInstallmentsRoutes(options.installments, options.installments.resolveAuthContext));
+    app.route("/installments", createInstallmentsRoutes(options.installments, (options.installments.resolveAuthContext ?? resolveAuth)));
   }
   if (options.exchangeRateRepo) {
-    app.route("/exchange-rates", createExchangeRatesRoutes(options.exchangeRateRepo, options.resolveAuthContext));
+    app.route("/exchange-rates", createExchangeRatesRoutes(options.exchangeRateRepo, resolveAuth));
   }
   if (options.costCenterPl) {
-    app.route("/cost-center-pl", createCostCenterPnLRoutes(options.costCenterPl, options.resolveAuthContext));
+    app.route("/cost-center-pl", createCostCenterPnLRoutes(options.costCenterPl, resolveAuth));
   }
   if (options.fxRevaluation) {
-    app.route("/revaluation", createFxRevaluationRoutes(options.fxRevaluation, options.resolveAuthContext));
+    app.route("/revaluation", createFxRevaluationRoutes(options.fxRevaluation, resolveAuth));
   }
   if (options.reconciliation) {
-    app.route("/reconciliation", createReconciliationRoutes(options.reconciliation, options.resolveAuthContext));
+    app.route("/reconciliation", createReconciliationRoutes(options.reconciliation, resolveAuth));
   }
   if (options.eta) {
-    app.route("/eta", createEtaRoutes(options.eta, options.resolveAuthContext));
+    app.route("/eta", createEtaRoutes(options.eta, resolveAuth));
   }
   // Generic document framework (docs/plan.md §3): read-only type
   // registry + pure effects computation. No persistence, so always mounted.
-  app.route("/documents", createDocumentsRoutes(options.resolveAuthContext));
+  app.route("/documents", createDocumentsRoutes(resolveAuth));
 
   if (options.items) {
     app.route(
       "/items",
-      createItemsRouter(options.items.repo, options.items.resolveAuthContext, options.items.snapshots, options.settingsStore, options.auditSink),
+      createItemsRouter(options.items.repo, (options.items.resolveAuthContext ?? resolveAuth), options.items.snapshots, options.settingsStore, options.auditSink),
     );
   }
   if (options.accountRouting) {
     app.route(
       "/accounting/account-routing",
-      createAccountRoutingRoutes(options.accountRouting.repo, options.accountRouting.resolveAuthContext),
+      createAccountRoutingRoutes(options.accountRouting.repo, (options.accountRouting.resolveAuthContext ?? resolveAuth)),
     );
   }
   if (options.itemCatalog) {
-    app.route("/item-units", createItemUnitsRoutes(options.itemCatalog.units, options.itemCatalog.resolveAuthContext));
+    app.route("/item-units", createItemUnitsRoutes(options.itemCatalog.units, (options.itemCatalog.resolveAuthContext ?? resolveAuth)));
     app.route(
       "/item-categories",
-      createItemCategoriesRoutes(options.itemCatalog.categories, options.itemCatalog.resolveAuthContext),
+      createItemCategoriesRoutes(options.itemCatalog.categories, (options.itemCatalog.resolveAuthContext ?? resolveAuth)),
     );
     if (options.itemCatalog.brands) {
-      app.route("/item-brands", createItemBrandsRoutes(options.itemCatalog.brands, options.itemCatalog.resolveAuthContext));
+      app.route("/item-brands", createItemBrandsRoutes(options.itemCatalog.brands, (options.itemCatalog.resolveAuthContext ?? resolveAuth)));
     }
     if (options.itemCatalog.seasons) {
-      app.route("/item-seasons", createItemSeasonsRoutes(options.itemCatalog.seasons, options.itemCatalog.resolveAuthContext));
+      app.route("/item-seasons", createItemSeasonsRoutes(options.itemCatalog.seasons, (options.itemCatalog.resolveAuthContext ?? resolveAuth)));
     }
   }
   if (options.itemSpecifications) {
     app.route(
       "/item-specifications",
-      createItemSpecificationsRoutes(options.itemSpecifications, options.itemSpecifications.resolveAuthContext ?? options.resolveAuthContext),
+      createItemSpecificationsRoutes(options.itemSpecifications, (options.itemSpecifications.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
     );
   }
   if (options.barcodeConfigStore) {
-    app.route("/barcode-config", createBarcodeConfigRoutes({ store: options.barcodeConfigStore }, options.resolveAuthContext));
+    app.route("/barcode-config", createBarcodeConfigRoutes({ store: options.barcodeConfigStore }, resolveAuth));
   }
   if (options.sequences) {
-    app.route("/sequences", createSequencesRoutes(options.sequences, options.sequences.resolveAuthContext));
+    app.route("/sequences", createSequencesRoutes(options.sequences, (options.sequences.resolveAuthContext ?? resolveAuth)));
   }
   if (options.audit) {
-    app.route("/audit", createAuditRoutes(options.audit.store, options.audit.resolveAuthContext));
+    app.route("/audit", createAuditRoutes(options.audit.store, (options.audit.resolveAuthContext ?? resolveAuth)));
   }
   if (options.labelLayouts) {
-    app.route("/label-layouts", createLabelLayoutsRouter(options.labelLayouts.repo, options.labelLayouts.resolveAuthContext));
+    app.route("/label-layouts", createLabelLayoutsRouter(options.labelLayouts.repo, (options.labelLayouts.resolveAuthContext ?? resolveAuth)));
   }
   if (options.inventory) {
     app.route(
       "/inventory",
       createInventoryRoutes(
         options.inventory.service,
-        options.inventory.resolveAuthContext,
+        (options.inventory.resolveAuthContext ?? resolveAuth),
         options.inventory.reservations,
         options.accountRouting?.repo,
         options.settingsStore,
@@ -1183,7 +1195,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "/purchases/historical-import",
       createHistoricalImportRoutes(
         options.historicalImport,
-        options.historicalImport.resolveAuthContext ?? options.resolveAuthContext,
+        (options.historicalImport.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
       ),
     );
   }
@@ -1275,7 +1287,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           audit: purchases.audit ?? options.auditSink,
           now: purchases.now,
         },
-        purchases.resolveAuthContext ?? options.resolveAuthContext,
+        purchases.resolveAuthContext ?? resolveAuth,
       ),
     );
   }
@@ -1330,7 +1342,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           resolveUnitCost: mfg.resolveUnitCost,
           now: mfg.now,
         },
-        mfg.resolveAuthContext ?? options.resolveAuthContext,
+        mfg.resolveAuthContext ?? resolveAuth,
       ),
     );
   }
@@ -1338,44 +1350,44 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.rfq) {
     app.route(
       "/rfqs",
-      createRfqRoutes(options.rfq, options.rfq.resolveAuthContext ?? options.resolveAuthContext),
+      createRfqRoutes(options.rfq, (options.rfq.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
     );
   }
 
   if (options.reports) {
-    app.route("/reports", createReportsRoutes(options.reports, options.resolveAuthContext));
+    app.route("/reports", createReportsRoutes(options.reports, resolveAuth));
   }
   if (options.financialReports) {
-    app.route("/financial-reports", createFinancialReportsRoutes(options.financialReports, options.resolveAuthContext));
+    app.route("/financial-reports", createFinancialReportsRoutes(options.financialReports, resolveAuth));
   }
   if (options.stockAdjustments) {
     app.route(
       "/inventory/stock-adjustments",
-      createStockAdjustmentsRoutes(options.stockAdjustments.service, options.stockAdjustments.resolveAuthContext),
+      createStockAdjustmentsRoutes(options.stockAdjustments.service, (options.stockAdjustments.resolveAuthContext ?? resolveAuth)),
     );
   }
   if (options.stockTransfers) {
     app.route(
       "/inventory/stock-transfers",
-      createStockTransfersRoutes(options.stockTransfers.service, options.stockTransfers.resolveAuthContext),
+      createStockTransfersRoutes(options.stockTransfers.service, (options.stockTransfers.resolveAuthContext ?? resolveAuth)),
     );
   }
   if (options.physicalCounts) {
     app.route(
       "/inventory/physical-counts",
-      createPhysicalCountsRoutes(options.physicalCounts.service, options.physicalCounts.resolveAuthContext),
+      createPhysicalCountsRoutes(options.physicalCounts.service, (options.physicalCounts.resolveAuthContext ?? resolveAuth)),
     );
   }
   if (options.inventoryWritedown) {
     app.route(
       "/inventory/writedown-runs",
-      createInventoryWritedownRoutes(options.inventoryWritedown, options.resolveAuthContext),
+      createInventoryWritedownRoutes(options.inventoryWritedown, resolveAuth),
     );
   }
   if (options.productTemplates) {
     app.route(
       "/inventory/product-templates",
-      createProductTemplatesRoutes(options.productTemplates, options.resolveAuthContext),
+      createProductTemplatesRoutes(options.productTemplates, resolveAuth),
     );
   }
 
@@ -1390,13 +1402,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     return c.json(entitlements);
   });
 
-  app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));
-  app.route("/users", createUsersRoutes(uow, hasher, options.resolveAuthContext));
-  app.route("/profile", createProfileRoutes(uow, hasher, options.resolveAuthContext, options.auditSink));
+  app.route("/roles", createRolesRoutes(uow, resolveEntitlements, resolveAuth));
+  app.route("/users", createUsersRoutes(uow, hasher, resolveAuth));
+  app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink));
   if (options.apiKeys) {
     app.route(
       "/api-keys",
-      createApiKeysRoutes(options.apiKeys.repo, hasher, options.apiKeys.resolveAuthContext ?? options.resolveAuthContext, options.auditSink),
+      createApiKeysRoutes(options.apiKeys.repo, hasher, (options.apiKeys.resolveAuthContext ?? resolveAuth) ?? resolveAuth, options.auditSink),
     );
   }
   if (options.webhooks) {
@@ -1408,7 +1420,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           deliveries: options.webhooks.deliveries,
           emittedEventCodes: options.emittedEventCodes,
         },
-        options.webhooks.resolveAuthContext ?? options.resolveAuthContext,
+        (options.webhooks.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
         options.auditSink,
       ),
     );
@@ -1466,13 +1478,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.printTemplateConfig) {
     app.route(
       "/print-template-config",
-      createPrintTemplateConfigRoutes(options.printTemplateConfig, options.printTemplateConfig.resolveAuthContext ?? options.resolveAuthContext),
+      createPrintTemplateConfigRoutes(options.printTemplateConfig, (options.printTemplateConfig.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
     );
   }
   if (options.dataMigration) {
     app.route(
       "/data-migration",
-      createDataMigrationRoutes(options.dataMigration, options.dataMigration.resolveAuthContext ?? options.resolveAuthContext),
+      createDataMigrationRoutes(options.dataMigration, (options.dataMigration.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
     );
   }
 
@@ -1493,7 +1505,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "/workflow",
       createWorkflowRoutes(
         { ...options.workflow, heldDocuments: options.workflow.heldDocuments ?? buildHeldDocumentResolver(options) },
-        options.resolveAuthContext,
+        resolveAuth,
       ),
     );
   }
@@ -1501,7 +1513,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.attachments) {
     app.route(
       "/attachments",
-      createAttachmentsRoutes(options.attachments, options.attachments.resolveAuthContext ?? options.resolveAuthContext),
+      createAttachmentsRoutes(options.attachments, (options.attachments.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
     );
   }
 

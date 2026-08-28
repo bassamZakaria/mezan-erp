@@ -92,6 +92,35 @@ export function getAuthContext(c: Context): AuthContext | undefined {
 }
 
 /**
+ * The user this request is FROM, for stamping a document's actor and the
+ * workflow gate's `submittedBy`.
+ *
+ * Read off the resolved context, never `x-user-id`. Recording an actor the
+ * caller named makes the audit trail and the approval chain fiction: a clerk
+ * could submit as somebody else and, holding the approver role, approve it.
+ */
+export function callerUserId(c: Context): string | undefined {
+  const id = getAuthContext(c)?.userId;
+  return id && id !== "anonymous" ? id : undefined;
+}
+
+/**
+ * The custom roles the caller holds, for matching a workflow step's approver
+ * role.
+ *
+ * Read off the RESOLVED context the gate stashed, never off `x-role-codes`.
+ * The header form let any caller name any role, so the approval chain was a
+ * suggestion: a clerk could send the finance manager's role code and approve
+ * their own payment. A tenant admin (`"*"`) still satisfies every step.
+ */
+export function callerRoleCodes(c: Context): string[] {
+  const ctx = getAuthContext(c);
+  if (!ctx) return [];
+  if (ctx.permissions.has("*")) return ["*"];
+  return [...ctx.roleCodes];
+}
+
+/**
  * The warehouses this request may see, or `undefined` for all of them.
  *
  * The shell's warehouse selector sends `x-warehouse-scope`, and

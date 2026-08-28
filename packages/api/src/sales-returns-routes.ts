@@ -21,13 +21,7 @@ import {
   createSalesReturnSchema,
   refundSalesReturnSchema,
 } from "@mezan/contracts";
-import {
-  createPermissionGate,
-  headerAuthContextResolver,
-  warehouseScopeOf,
-  withinScope,
-  type AuthContextResolver,
-} from "./permission-gate.js";
+import { type AuthContextResolver, callerUserId, createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 
 function serializeLine(l: SalesReturnLine) {
@@ -335,7 +329,7 @@ export function createSalesReturnsRoutes(
   app.post("/:id/confirm", gate("sales.return.confirm"), async (c) => {
     try {
       const result = await service.confirm(c.req.param("id"), {
-        actor: c.req.header("x-user-id") ?? undefined,
+        actor: callerUserId(c),
       });
       return c.json({
         document: serialize(result.document, await refundsOf(result.document.id)),
@@ -390,7 +384,7 @@ export function createSalesReturnsRoutes(
         date: parsed.data.date ?? doc.date,
         memo: parsed.data.notes ?? `استرداد على المرتجع ${doc.docNo ?? doc.id}`,
         referenceNo: parsed.data.referenceNo ?? null,
-        actor: c.req.header("x-user-id") ?? undefined,
+        actor: callerUserId(c),
       });
       const settled = (await service.findById(id)) ?? doc;
       return c.json({

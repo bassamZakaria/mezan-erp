@@ -43,13 +43,7 @@ import {
   voucherListQuerySchema,
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
-import {
-  createPermissionGate,
-  getAuthContext,
-  headerAuthContextResolver,
-  type AuthContextResolver,
-  branchScopeOf,
-  withinScope,} from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createPermissionGate, getAuthContext, headerAuthContextResolver, withinScope } from "./permission-gate.js";
 
 /**
  * Everything the voucher routes bind the {@link VoucherService} to. Numbering
@@ -181,14 +175,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  * wildcard still short-circuits, but a role-gated step is otherwise satisfied
  * only by a caller who actually holds that role.
  */
-function gateActorRoles(c: Context): string[] {
-  const permissions = (c.req.header("x-permissions") ?? "").split(",").map((s) => s.trim());
-  if (permissions.includes("*")) return ["*"];
-  return (c.req.header("x-role-codes") ?? c.req.header("x-role-code") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+const gateActorRoles = callerRoleCodes;
 
 export function createVouchersRoutes(
   deps: VoucherRoutesDeps,

@@ -62,6 +62,7 @@ export const testAdminSession: Session = {
   branchScope: "*",
   warehouseScope: "*",
   tenantName: "Cyag",
+  token: "TEST-SESSION-TOKEN",
 };
 
 export function renderWithProviders(

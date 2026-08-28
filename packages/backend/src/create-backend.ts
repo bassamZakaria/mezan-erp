@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { createApp, type App } from "@mezan/api";
 import {
+  createApp,
+  createSessionAuthContextResolver,
+  createSessionRegistry,
+  type App,
+  type SessionRegistry,
+} from "@mezan/api";
+import {
+  ALL_SCOPE,
   StockLedgerService,
   applyAllocatedSettlement,
   InvalidSalesInvoicePaymentError,
@@ -448,6 +455,16 @@ function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]):
 
 export interface BackendHandle {
   readonly app: App;
+  /**
+   * The live session registry.
+   *
+   * Exposed so a caller can END sessions — an admin who changes a user's role
+   * or deactivates them must not leave that user's open tabs holding the old
+   * grant — and so the scenario harness can act as a named identity, which it
+   * used to do by writing `x-user-id` and is exactly what the server no longer
+   * accepts from a client.
+   */
+  readonly sessions: SessionRegistry;
   close(): void;
 }
 
@@ -1126,7 +1143,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     await vanTripVoucherService.confirmVoucher(id);
   }
 
+  /**
+   * Sessions live here, and the resolver below is what every gated route on
+   * this app reads its caller from. Before this the routes fell back to the
+   * header resolver, so a request declared its own permissions.
+   */
+  const sessions = createSessionRegistry();
+  const resolveAuthContext = createSessionAuthContextResolver(sessions);
+
   const app = createApp(uow, {
+    resolveAuthContext,
     settingsStore: settings,
     branchStore: branches,
     warehouseStore: warehouses,
@@ -1849,7 +1875,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores }));
+  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions }));
   app.route(
     "/",
     createDashboardRoutes({
@@ -1859,12 +1885,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       countSuppliers: async () => (await suppliers.findAll()).length,
       countItems: async () => (await items.list()).length,
       uow,
-    }),
+    }, resolveAuthContext),
   );
   // Unconditional: a route mounted only when an optional dep happens to be
   // supplied is how four inventory-ops routes 404'd live while their files
   // existed. The store is created above, always.
-  app.route("/preferences", createPreferencesRoutes({ store: userPreferences, uow }));
+  app.route("/preferences", createPreferencesRoutes({ store: userPreferences, uow }, resolveAuthContext));
 
   const closers = [
     uow,
@@ -1940,11 +1966,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   ];
 
   if (options.seedDemoData) {
-    await seedDemoTenant(app);
+    await seedDemoTenant(app, {
+      token: sessions.issue({
+        userId: "SEED-ADMIN",
+        permissions: ["*"],
+        roleCode: null,
+        branchScope: ALL_SCOPE,
+        warehouseScope: ALL_SCOPE,
+      }),
+      mint: ({ userId, permissions, roleCode }) =>
+        sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }),
+    });
   }
 
   return {
     app,
+    sessions,
     close() {
       // Before the connection goes: retries waiting on a backoff pause would
       // otherwise wake up against a closed store and throw while recording.

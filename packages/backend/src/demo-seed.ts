@@ -1,6 +1,6 @@
 import type { App } from "@mezan/api";
 import { SUPPORTED_CURRENCY_CODES } from "@mezan/domain";
-import { assertLocalOrTest } from "./demo-seed/shared.js";
+import { ADMIN_HEADERS, assertLocalOrTest, setSeedSessionToken, type SeedSessionMinter } from "./demo-seed/shared.js";
 import { seedHr } from "./demo-seed/hr.js";
 import { seedCrm } from "./demo-seed/crm.js";
 import { seedInventoryOps } from "./demo-seed/inventory-ops.js";
@@ -23,14 +23,6 @@ import { seedAttachments } from "./demo-seed/attachments.js";
  * cost, and the general ledger receives balanced postings. Nothing here is a
  * fixture the UI reads directly.
  */
-
-const ADMIN_HEADERS = {
-  "content-type": "application/json",
-  "x-user-id": "SEED-ADMIN",
-  "x-permissions": "*",
-  "x-branch-scope": "*",
-  "x-warehouse-scope": "*",
-};
 
 const BRANCH_ID = "BR-MAIN";
 const WAREHOUSE_ID = "WH-MAIN";
@@ -429,8 +421,11 @@ async function alreadySeeded(app: App): Promise<boolean> {
   return res.ok;
 }
 
-export async function seedDemoTenant(app: App): Promise<void> {
+export async function seedDemoTenant(app: App, session: { token: string; mint: SeedSessionMinter }): Promise<void> {
   assertLocalOrTest();
+  // Every module below calls the real routes, and those routes now resolve
+  // their caller from the server's session registry rather than from headers.
+  setSeedSessionToken(session.token, session.mint);
   if (await alreadySeeded(app)) return;
 
   // The demo tenant imports in USD and EUR and holds rates for both, so it is a

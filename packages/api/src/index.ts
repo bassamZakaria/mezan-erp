@@ -54,3 +54,10 @@ export { createItemUnitsRoutes, createItemCategoriesRoutes } from "./item-catalo
 export { createItemSpecificationsRoutes, type ItemSpecificationsRoutesDeps } from "./item-specifications-routes.js";
 export { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
 export { createAttachmentsRoutes, type AttachmentsRoutesDeps } from "./attachments-routes.js";
+export {
+  createSessionRegistry,
+  createSessionAuthContextResolver,
+  readSessionToken,
+  type SessionGrant,
+  type SessionRegistry,
+} from "./session-auth.js";

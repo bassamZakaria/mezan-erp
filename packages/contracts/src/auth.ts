@@ -33,6 +33,13 @@ export const sessionSchema = z.object({
   branchScope: scopeSelectionSchema,
   warehouseScope: scopeSelectionSchema,
   tenantName: z.string(),
+  /**
+   * The opaque session token. Every subsequent request carries it, and the
+   * server resolves the caller's permissions from ITS copy of the grant — the
+   * `permissions` above are for hiding UI the user cannot use, never for
+   * deciding what a request is allowed to do.
+   */
+  token: z.string(),
 });
 
 export const loginResponseSchema = sessionSchema;

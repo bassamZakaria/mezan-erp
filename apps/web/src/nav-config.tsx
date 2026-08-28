@@ -141,11 +141,13 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "manufacturing",
     defaultCollapsed: true,
-    itemKeys: ["manufacturing-hub"],
+    // Two documents do not need a shelf: «الحركة اليومية» put a click in front
+    // of the only two things this workspace does. They sit on the bar beside
+    // the hub, and only التقارير stays folded.
+    // قائمة المواد is a tab of الأصناف, the way QuickBooks keeps the recipe on
+    // the assembly item rather than in a list of its own.
+    itemKeys: ["manufacturing-hub", "work-orders", "custom-manufacturing"],
     sections: [
-      // قائمة المواد is a tab of الأصناف now, the way QuickBooks keeps the
-      // recipe on the assembly item rather than in a list of its own.
-      { key: "daily", itemKeys: ["work-orders", "custom-manufacturing"] },
       { key: "reports", defaultCollapsed: true, itemKeys: ["report-make-vs-buy"] },
     ],
   },

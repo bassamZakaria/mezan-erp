@@ -1,10 +1,11 @@
-import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import {
   BrandMark,
   Button,
   TextInput,
 } from "@mezan/ui";
 import { useLogin } from "../data/hooks";
+import { clearSessionExpired, sessionExpiredPending } from "../data/session";
 import { useAppTranslation } from "../i18n";
 
 const PIN_LENGTH = 4;
@@ -31,6 +32,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const login = useLogin();
   const [username, setUsername] = useState(DEFAULT_USERNAME);
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
+  // Pure read at mount, cleared in the effect below — see `session.ts` for why
+  // the two are not one call.
+  const [expired] = useState(sessionExpiredPending);
+  useEffect(() => clearSessionExpired(), []);
   const [error, setError] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -81,6 +86,15 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         <form onSubmit={handleSubmit} className="w-full max-w-[372px]" noValidate>
           <h2 className="font-display text-[22px] font-bold text-ink">{t("login.title")}</h2>
           <p className="mb-[22px] mt-[6px] text-[12.5px] text-ink-muted">{t("login.subtitle")}</p>
+
+          {expired && error === null ? (
+            <div
+              role="status"
+              className="mb-[16px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-[12.5px] text-warning-ink"
+            >
+              {t("login.sessionExpired")}
+            </div>
+          ) : null}
 
           <label className="flex flex-col gap-[6px]">
             <span className="text-[12.5px] font-semibold text-ink">{t("login.email")}</span>

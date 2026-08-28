@@ -125,6 +125,9 @@ const ANONYMOUS: AuthContext = createAuthContext({
   permissions: [],
   branchScope: [],
   warehouseScope: [],
+  // Nobody. The gate answers 401 for this, not 403 — "sign in again" and
+  // "you may not do that" are different answers and need different screens.
+  authenticated: false,
 });
 
 /**

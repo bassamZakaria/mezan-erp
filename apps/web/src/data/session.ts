@@ -45,6 +45,49 @@ export interface ScopeSelection {
   readonly warehouseId: string | null;
 }
 
+/**
+ * Set when the server rejected a request because it no longer knows the
+ * session, and read once by the login screen so the person is told WHY they
+ * are being asked to sign in again.
+ *
+ * In sessionStorage rather than a module variable: the commonest way to meet a
+ * dead token is to RELOAD a tab that was left open, and a module variable is
+ * already gone by the time the login screen renders — the person would be
+ * bounced to sign-in with no explanation, which is the exact case this exists
+ * for. Per tab, and gone when the tab closes: the lifetime of the fact.
+ */
+const SESSION_EXPIRED_KEY = "mezan.sessionExpired";
+
+function getTabStorage(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+export function markSessionExpired(): void {
+  getTabStorage()?.setItem(SESSION_EXPIRED_KEY, "1");
+}
+
+/**
+ * Reading and clearing are SEPARATE on purpose.
+ *
+ * A single `consume()` in a `useState` initializer looks tidy and is wrong:
+ * StrictMode invokes an initializer twice in development, so the first call
+ * cleared the flag and the second returned false — and false is the value
+ * React keeps. The notice never rendered. A pure read is safe to repeat; the
+ * clear belongs in an effect, where running twice is also harmless.
+ */
+export function sessionExpiredPending(): boolean {
+  return getTabStorage()?.getItem(SESSION_EXPIRED_KEY) === "1";
+}
+
+/** Clears the flag so the notice shows once, not on every later visit. */
+export function clearSessionExpired(): void {
+  getTabStorage()?.removeItem(SESSION_EXPIRED_KEY);
+}
+
 export const NO_SCOPE_SELECTION: ScopeSelection = { branchId: null, warehouseId: null };
 
 const SCOPE_SELECTION_STORAGE_KEY = "mezan.scopeSelection";

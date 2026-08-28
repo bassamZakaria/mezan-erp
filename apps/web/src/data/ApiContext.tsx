@@ -4,6 +4,7 @@ import {
   authHeaders,
   loadPersistedScopeSelection,
   loadPersistedSession,
+  markSessionExpired,
   NO_SCOPE_SELECTION,
   persistScopeSelection,
   persistSession,
@@ -86,14 +87,38 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
       setSession,
       scopeSelection,
       setScopeSelection,
-      request(path, init) {
+      async request(path, init) {
         const headers = new Headers(init?.headers);
         for (const [k, v] of Object.entries(authHeaders(session, scopeSelection))) headers.set(k, v);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-        return resolvedTransport(path, { ...init, headers });
+        const response = await resolvedTransport(path, { ...init, headers });
+
+        /*
+         * 401 means the server does not know this session any more — it
+         * restarted, the token idled out, or someone signed out elsewhere.
+         *
+         * Handled HERE because `request` is the one door every call goes
+         * through: without it each screen decided for itself, and a list whose
+         * query is simply disabled without a session rendered «0 rows» — a
+         * number, indistinguishable from a tenant that genuinely has none.
+         *
+         * 403 is deliberately NOT treated this way: that is a signed-in person
+         * meeting a permission they do not hold, and signing them out would be
+         * a worse answer than the refusal they should see.
+         *
+         * The login POST is excluded — a wrong PIN is a 401 the login screen
+         * reports itself, not a session that expired.
+         */
+        if (response.status === 401 && session !== null && !path.startsWith("/auth/login")) {
+          markSessionExpired();
+          setSession(null);
+          // Every cached answer was read as someone who is no longer signed in.
+          queryClient.clear();
+        }
+        return response;
       },
     }),
-    [session, setSession, scopeSelection, setScopeSelection, resolvedTransport],
+    [session, setSession, scopeSelection, setScopeSelection, resolvedTransport, queryClient],
   );
 
   return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;

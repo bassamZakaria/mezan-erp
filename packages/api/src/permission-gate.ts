@@ -37,10 +37,26 @@ const AUTH_CONTEXT_KEY = "authContext";
  *   const gate = createPermissionGate(headerAuthContextResolver);
  *   app.get("/accounts", gate("accounting.coa.view"), handler);
  */
+/**
+ * The refusal for a caller the server cannot identify.
+ *
+ * 401, not 403: the client's only correct response is to send the person back
+ * to sign in, and it cannot know that from a 403 — which also means "you are
+ * signed in and this particular thing is not yours". A screen that guesses
+ * shows an empty list instead, which reads as data.
+ */
+function unauthenticated(c: Parameters<MiddlewareHandler>[0]) {
+  return c.json(
+    { error: "SESSION_EXPIRED", message: "انتهت الجلسة. سجّل الدخول من جديد." },
+    401,
+  );
+}
+
 export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
   return function gate(permission: string): MiddlewareHandler {
     return async function permissionGate(c, next) {
       const ctx = await resolveAuthContext(c);
+      if (!ctx.authenticated) return unauthenticated(c);
       if (!can(ctx, permission)) {
         return c.json(
           {
@@ -70,6 +86,7 @@ export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver)
   return function gateAny(...permissions: string[]): MiddlewareHandler {
     return async function anyPermissionGate(c, next) {
       const ctx = await resolveAuthContext(c);
+      if (!ctx.authenticated) return unauthenticated(c);
       if (!permissions.some((permission) => can(ctx, permission))) {
         return c.json(
           {

@@ -33,6 +33,16 @@ export interface AuthContextInput {
   readonly roleCodes?: Iterable<string>;
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
+  /**
+   * False when the request carried no session the server recognises.
+   *
+   * Distinct from holding no permissions: a signed-in user with an empty role
+   * is FORBIDDEN, and a caller whose token the server has never heard of (or
+   * has forgotten) is UNAUTHENTICATED. Collapsing the two made every expired
+   * session look like a permissions problem, so the client could only render
+   * an empty screen where it should have asked the person to sign in again.
+   */
+  readonly authenticated?: boolean;
 }
 
 export interface AuthContext {
@@ -43,6 +53,8 @@ export interface AuthContext {
   readonly roleCodes: ReadonlySet<string>;
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
+  /** False only for a caller the server could not identify at all. */
+  readonly authenticated: boolean;
 }
 
 export interface ScopeQuery {
@@ -61,6 +73,9 @@ export function createAuthContext(input: AuthContextInput): AuthContext {
     roleCodes: new Set(input.roleCodes ?? []),
     branchScope: input.branchScope,
     warehouseScope: input.warehouseScope,
+    // Defaults to true so every existing caller — the header resolver, the
+    // seed's minted grants, every test fake — keeps meaning "this is someone".
+    authenticated: input.authenticated ?? true,
   };
 }
 

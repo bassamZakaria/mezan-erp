@@ -37,15 +37,22 @@ export async function run(ctx: Ctx): Promise<void> {
     const forged = await ctx.app.fetch(
       new Request("http://scenario/settings", { headers: { "x-permissions": "*", "x-user-id": "attacker" } }),
     );
-    check("declaring x-permissions: * is refused", forged.status === 403, `status ${forged.status}`);
+    check("declaring x-permissions: * is refused", forged.status === 401, `status ${forged.status}`);
 
     const bare = await ctx.app.fetch(new Request("http://scenario/settings"));
-    check("and so is no credential at all", bare.status === 403, `status ${bare.status}`);
+    check("and so is no credential at all", bare.status === 401, `status ${bare.status}`);
 
     const forgedToken = await ctx.app.fetch(
       new Request("http://scenario/settings", { headers: { authorization: `Bearer ${"A".repeat(43)}` } }),
     );
-    check("a token that was never issued is refused", forgedToken.status === 403, `status ${forgedToken.status}`);
+    // 401, not 403. A caller the server cannot identify has to be told apart
+    // from a signed-in one meeting a permission they do not hold — the client's
+    // only correct answer to the first is "sign in again", and it cannot know
+    // that from a 403. Collapsing the two made an expired session render an
+    // empty list, which reads as data.
+    check("a token that was never issued is refused as UNAUTHENTICATED", forgedToken.status === 401, `status ${forgedToken.status}`);
+    const forgedBody = (await forgedToken.json()) as { error?: string };
+    check("and says so by name, so the client can act on it", forgedBody.error === "SESSION_EXPIRED", JSON.stringify(forgedBody));
 
     const login = await ctx.app.fetch(
       new Request("http://scenario/auth/login", {
@@ -69,7 +76,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const afterLogout = await ctx.app.fetch(
       new Request("http://scenario/settings", { headers: { authorization: `Bearer ${session.token}` } }),
     );
-    check("and stops opening it after sign-out", afterLogout.status === 403, `status ${afterLogout.status}`);
+    check("and stops opening it after sign-out", afterLogout.status === 401, `status ${afterLogout.status}`);
   });
 
   // ---------------------------------------------------------------------

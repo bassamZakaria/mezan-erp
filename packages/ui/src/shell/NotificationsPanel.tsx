@@ -103,7 +103,10 @@ export function NotificationsPanel({
               onClick={() => onTabChange(key)}
               className={cn(
                 "rounded-pill px-[11px] py-[5px] text-[12px] font-semibold transition-colors",
-                tab === key ? "bg-brand text-brand-ink" : "bg-surface-2 text-ink-muted hover:text-ink",
+                // The selected tab is a "current" state, so it is gold like every
+                // other one in the shell. The unread badge and the action links
+                // below stay teal — they are actions, not selection.
+                tab === key ? "bg-accent text-accent-ink" : "bg-surface-2 text-ink-muted hover:text-ink",
               )}
             >
               {key === "all" ? t("notifications.tabAll") : unreadCount > 0 ? t("notifications.tabUnreadWithCount", { count: String(unreadCount) }) : t("notifications.tabUnread")}

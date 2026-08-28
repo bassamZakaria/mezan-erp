@@ -143,7 +143,10 @@ export function CommandBar({ items, placeholder, className }: CommandBarProps) {
                       onClick={() => run(item)}
                       className={cn(
                         "flex w-full items-center gap-[10px] rounded-sm px-[10px] py-[9px] text-start text-sm transition-colors",
-                        index === highlight ? "bg-brand-soft text-brand" : "text-ink hover:bg-surface-2",
+                        // Gold marks "current" on every other surface — the screens
+                        // bar, «كل الشاشات», the breadcrumb. Teal here made one state
+                        // two colours depending on which control you were looking at.
+                        index === highlight ? "bg-accent-soft text-accent" : "text-ink hover:bg-surface-2",
                       )}
                     >
                       {item.icon ? <span className="flex-none text-ink-faint">{item.icon}</span> : null}

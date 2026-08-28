@@ -74,11 +74,16 @@ export interface WorkspaceScreensBarProps {
   className?: string;
 }
 
+/**
+ * Ground rule §2 — never colour alone — is met by the WEIGHT, not by a bar.
+ * The active chip used to carry a 3px edge marker as well; against a chip that
+ * is already gold-bordered, gold-filled, gold-inked and semibold it read as a
+ * stray rule down one side rather than as a signal, and it fell on the visual
+ * left of a right-to-left row.
+ */
 function chipContent(item: NavItem, active: boolean): ReactNode {
   return (
     <>
-      {/* Never colour alone: the current chip also carries this edge bar and a heavier weight. */}
-      {active ? <span aria-hidden className="absolute bottom-0 start-0 top-0 w-[3px] bg-accent" /> : null}
       {item.icon ? <span className="flex-none">{item.icon}</span> : null}
       {item.label}
       {item.tag ? (
@@ -356,7 +361,6 @@ export function WorkspaceScreensBar({
             triggerClassName={cn(CHIP_BASE, cell.active ? CHIP_ACTIVE : CHIP_SECTION)}
             triggerContent={
               <>
-                {cell.active ? <span aria-hidden className="absolute bottom-0 start-0 top-0 w-[3px] bg-accent" /> : null}
                 {cell.section.label}
                 <Caret />
               </>

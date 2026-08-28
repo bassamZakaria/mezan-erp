@@ -25,6 +25,7 @@ import {
 } from "./test-helpers.js";
 
 const RAW = "RAW-WH";
+const WIP = "WIP-WH";
 const FG = "FG-WH";
 const cost: Record<string, Money> = { m1: Money.fromMajor("50"), m2: Money.fromMajor("5") };
 const resolveUnitCost = (id: string) => cost[id] ?? Money.zero();
@@ -80,6 +81,7 @@ describe("custom manufacturing order (config instance)", () => {
         qty: Qty.fromMajor("2"),
         customerId: "cust-1",
         sourceWarehouseId: RAW,
+        wipWarehouseId: WIP,
         destinationWarehouseId: FG,
         scheduledStartDate: "2026-08-22",
       },
@@ -123,6 +125,7 @@ describe("custom manufacturing order (config instance)", () => {
         spec: { width: "10", height: "20" },
         qty: Qty.fromMajor("2"),
         sourceWarehouseId: RAW,
+        wipWarehouseId: WIP,
         destinationWarehouseId: FG,
         scheduledStartDate: "2026-08-22",
       },

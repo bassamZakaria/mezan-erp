@@ -41,6 +41,15 @@ export const SEED_ADMIN_PIN = "1234";
 const SEED_ADMIN_PASSWORD = "change-me-on-first-login";
 const SEED_MAIN_BRANCH_ID = "BR-MAIN";
 const SEED_MAIN_WAREHOUSE_ID = "WH-MAIN";
+/**
+ * مستودع التشغيل — the production floor. Seeded for EVERY tenant, not only
+ * manufacturing ones: a work order cannot be created without a WIP warehouse
+ * (that is what makes issued material countable rather than a value on the
+ * order), and a shop that has to go and invent one in Settings before it can
+ * write its first أمر تصنيع will instead conclude the module is broken. A
+ * tenant that never manufactures can deactivate it.
+ */
+const SEED_WIP_WAREHOUSE_ID = "WH-WIP";
 
 export interface SeedStores {
   readonly accounts: AccountRepository;
@@ -140,6 +149,18 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
       branchId: SEED_MAIN_BRANCH_ID,
       type: "MAIN",
       isDefault: true,
+      active: true,
+    }),
+  );
+  await stores.warehouses.save(
+    createWarehouse({
+      id: SEED_WIP_WAREHOUSE_ID,
+      code: "WH-WIP",
+      name: "صالة التشغيل",
+      nameEn: "Production Floor",
+      branchId: SEED_MAIN_BRANCH_ID,
+      type: "PRODUCTION",
+      isDefault: false,
       active: true,
     }),
   );

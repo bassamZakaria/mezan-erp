@@ -124,6 +124,15 @@ export interface ManufacturingRoutesDeps {
   readonly operators?: { findById(id: string): Promise<{ id: string; fullName: string } | null> };
   readonly configurableProducts: ConfigurableProductRepository;
   readonly configInstances: ConfigInstanceRepository;
+  /**
+   * المستودعات — the registry a work order's three warehouse ids are resolved
+   * against. Optional in the same way `operators` is NOT: when it is absent the
+   * ids go through unchecked, which is the pre-existing behaviour, so wiring it
+   * only ever tightens the route. Every caller in this repo wires it.
+   */
+  readonly warehouses?: {
+    findById(id: string): Promise<{ id: string; name: string; active: boolean } | null>;
+  };
   readonly numbering: NextNumberService;
   readonly stock: ManufacturingStockPort;
   /**
@@ -211,6 +220,7 @@ function serializeWorkOrder(o: WorkOrder, onHand?: ReadonlyMap<string, number>) 
     plannedQty: num(o.plannedQty),
     producedQty: num(o.producedQty),
     sourceWarehouseId: o.sourceWarehouseId,
+    wipWarehouseId: o.wipWarehouseId,
     destinationWarehouseId: o.destinationWarehouseId,
     priority: o.priority,
     scheduledStartDate: o.scheduledStartDate,
@@ -227,6 +237,17 @@ function serializeWorkOrder(o: WorkOrder, onHand?: ReadonlyMap<string, number>) 
       returnedQty: num(m.returnedQty),
       netQty: num(m.issuedQty.subtract(m.returnedQty)),
       availableQty: onHand ? String(onHand.get(`${m.itemId} ${o.sourceWarehouseId}`) ?? 0) : null,
+      /**
+       * What مستودع التشغيل actually holds of this item, ACROSS EVERY ORDER —
+       * the floor is one warehouse and several runs stand on it at once. This
+       * is the number a walk-the-floor count is reconciled against; `netQty`
+       * above is this one order's claim on it, and the two are equal only when
+       * this order is the floor's sole occupant.
+       */
+      wipOnHandQty:
+        onHand && o.wipWarehouseId !== ""
+          ? String(onHand.get(`${m.itemId} ${o.wipWarehouseId}`) ?? 0)
+          : null,
       shortageQty: onHand
         ? String(
             Math.max(
@@ -348,6 +369,29 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   throw err;
+}
+
+/**
+ * Resolve a work order's warehouse ids against the real registry.
+ *
+ * A warehouse id is an ENTITY reference, and an unchecked one is how an order
+ * ends up naming a floor that does not exist — the stock ledger will happily
+ * open a position for any string. Returns the refusal reasons, empty when all
+ * three resolve (or when no registry is wired).
+ */
+async function warehouseRefusals(
+  deps: ManufacturingRoutesDeps,
+  ids: { readonly label: string; readonly id: string }[],
+): Promise<string[]> {
+  const registry = deps.warehouses;
+  if (!registry) return [];
+  const reasons: string[] = [];
+  for (const { label, id } of ids) {
+    const warehouse = await registry.findById(id);
+    if (!warehouse) reasons.push(`${label} "${id}" is not a warehouse`);
+    else if (!warehouse.active) reasons.push(`${label} "${warehouse.name}" is inactive`);
+  }
+  return reasons;
 }
 
 export function createManufacturingRoutes(
@@ -621,7 +665,11 @@ export function createManufacturingRoutes(
   app.get("/work-orders/:id", gate("manufacturing.wo.view"), async (c) => {
     const order = await deps.workOrders.findById(c.req.param("id"));
     if (!order) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serializeWorkOrder(order));
+    // With the same on-hand map the LIST route uses. Without it the detail
+    // page — the only screen that renders the materials tab — reported every
+    // available, shortage and on-the-floor cell as "—" while the list behind
+    // it had the real numbers.
+    return c.json(serializeWorkOrder(order, await onHandByPosition()));
   });
 
   /**
@@ -684,12 +732,19 @@ export function createManufacturingRoutes(
     const parsed = createWorkOrderSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
+      const refusals = await warehouseRefusals(deps, [
+        { label: "raw-material warehouse", id: parsed.data.sourceWarehouseId },
+        { label: "work-in-process warehouse", id: parsed.data.wipWarehouseId },
+        { label: "finished-goods warehouse", id: parsed.data.destinationWarehouseId },
+      ]);
+      if (refusals.length > 0) throw new InvalidManufacturingDocumentError(refusals);
       const order = await createWorkOrder(
         {
           id: parsed.data.id,
           bomId: parsed.data.bomId,
           plannedQty: Qty.fromMajor(parsed.data.plannedQty),
           sourceWarehouseId: parsed.data.sourceWarehouseId,
+          wipWarehouseId: parsed.data.wipWarehouseId,
           destinationWarehouseId: parsed.data.destinationWarehouseId,
           priority: parsed.data.priority,
           scheduledStartDate: parsed.data.scheduledStartDate,
@@ -915,6 +970,12 @@ export function createManufacturingRoutes(
       const product = await deps.configurableProducts.findById(parsed.data.configurableProductId);
       if (!product) throw new ConfigurableProductNotFoundError(parsed.data.configurableProductId);
       const map = await costMap(product.materials.map((m) => m.itemId));
+      const refusals = await warehouseRefusals(deps, [
+        { label: "raw-material warehouse", id: parsed.data.sourceWarehouseId },
+        { label: "work-in-process warehouse", id: parsed.data.wipWarehouseId },
+        { label: "finished-goods warehouse", id: parsed.data.destinationWarehouseId },
+      ]);
+      if (refusals.length > 0) throw new InvalidManufacturingDocumentError(refusals);
       const { instance } = await createConfigInstance(
         {
           id: parsed.data.id,
@@ -925,6 +986,7 @@ export function createManufacturingRoutes(
           sellUnitPrice: parsed.data.sellUnitPrice ? Money.fromMajor(parsed.data.sellUnitPrice) : undefined,
           notes: parsed.data.notes,
           sourceWarehouseId: parsed.data.sourceWarehouseId,
+          wipWarehouseId: parsed.data.wipWarehouseId,
           destinationWarehouseId: parsed.data.destinationWarehouseId,
           scheduledStartDate: parsed.data.scheduledStartDate,
           scheduledEndDate: parsed.data.scheduledEndDate,

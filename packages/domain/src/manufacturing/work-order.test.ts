@@ -25,6 +25,7 @@ import {
 } from "./test-helpers.js";
 
 const RAW = "RAW-WH";
+const WIP = "WIP-WH";
 const FG = "FG-WH";
 const ACCOUNTS: WorkOrderGlAccounts = {
   finishedGoodsAccountId: "1310-fg",
@@ -75,6 +76,7 @@ async function setup() {
       bomId: bom.id,
       plannedQty: Qty.fromMajor("10"),
       sourceWarehouseId: RAW,
+      wipWarehouseId: WIP,
       destinationWarehouseId: FG,
       scheduledStartDate: "2026-08-22",
     },
@@ -106,12 +108,17 @@ describe("work order — 4-stage stock + GL + WIP costing", () => {
     expect(cur.status).toBe("in_progress");
     expect(cur.stage).toBe("started");
 
-    // 2. صرف المواد — raw stock OUT at moving average; material WIP captured.
+    // 2. صرف المواد — material TRANSFERS to مستودع التشغيل at moving average.
     cur = await issueWorkOrderMaterials(wo.id, deps);
     expect(cur.stage).toBe("materials_issued");
     expect(cur.materialCost.toString()).toBe("250.000000"); // 20×10 + 10×5
     expect((await stock.getBalance("m1", RAW)).toString()).toBe("80.000000");
     expect((await stock.getBalance("m2", RAW)).toString()).toBe("90.000000");
+    // Guards D63: the issued material has an ADDRESS and a quantity a floor
+    // count can be held against, not just a figure on the order.
+    expect((await stock.getBalance("m1", WIP)).toString()).toBe("20.000000");
+    expect((await stock.getBalance("m2", WIP)).toString()).toBe("10.000000");
+    expect((await stock.getBalanceDetail("m1", WIP)).totalValue.toString()).toBe("200.000000");
 
     // WIP capitalises labour + overhead too.
     expect(workOrderWipTotal(cur).toString()).toBe("300.000000");
@@ -120,6 +127,9 @@ describe("work order — 4-stage stock + GL + WIP costing", () => {
     cur = await receiveWorkOrderProduct(wo.id, Qty.fromMajor("10"), deps);
     expect(cur.stage).toBe("product_received");
     expect(cur.producedQty.toString()).toBe("10.000000");
+    // مستودع التشغيل is emptied by the receipt — the material is now the product.
+    expect((await stock.getBalance("m1", WIP)).toString()).toBe("0.000000");
+    expect((await stock.getBalance("m2", WIP)).toString()).toBe("0.000000");
     const fg = await stock.getBalanceDetail("FG", FG);
     expect(fg.onHand.toString()).toBe("10.000000");
     expect(fg.totalValue.toString()).toBe("300.000000");
@@ -180,9 +190,10 @@ describe("work order — 4-stage stock + GL + WIP costing", () => {
       [{ itemId: "m1", qty: Qty.fromMajor("5") }],
       deps,
     );
-    // 5 of m1 (issued @10) returns → material WIP 250 − 50 = 200.
+    // 5 of m1 (issued @10) walks back off the floor → material WIP 250 − 50 = 200.
     expect(after.materialCost.toString()).toBe("200.000000");
     expect((await stock.getBalance("m1", RAW)).toString()).toBe("85.000000");
+    expect((await stock.getBalance("m1", WIP)).toString()).toBe("15.000000");
   });
 });
 

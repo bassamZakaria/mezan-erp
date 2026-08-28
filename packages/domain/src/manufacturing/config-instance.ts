@@ -83,6 +83,7 @@ export interface CreateConfigInstanceCommand {
   readonly sellUnitPrice?: Money | null;
   readonly notes?: string | null;
   readonly sourceWarehouseId: string;
+  readonly wipWarehouseId: string;
   readonly destinationWarehouseId: string;
   readonly scheduledStartDate: string;
   readonly scheduledEndDate?: string | null;
@@ -162,6 +163,7 @@ export async function createConfigInstance(
       bomId: bom.id,
       plannedQty: command.qty,
       sourceWarehouseId: command.sourceWarehouseId,
+      wipWarehouseId: command.wipWarehouseId,
       destinationWarehouseId: command.destinationWarehouseId,
       scheduledStartDate: command.scheduledStartDate,
       scheduledEndDate: command.scheduledEndDate ?? null,

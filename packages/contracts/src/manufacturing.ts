@@ -95,6 +95,12 @@ export const createWorkOrderSchema = z.object({
   bomId: z.string().min(1),
   plannedQty: positiveDecimalString,
   sourceWarehouseId: z.string().min(1),
+  /**
+   * مستودع التشغيل — the warehouse issued material physically stands in while
+   * it is worked on. Required: without it صرف المواد has nowhere to put the
+   * goods and a shop-floor count has no system quantity to reconcile against.
+   */
+  wipWarehouseId: z.string().min(1),
   destinationWarehouseId: z.string().min(1),
   priority: workOrderPrioritySchema.optional(),
   scheduledStartDate: isoDate,
@@ -215,6 +221,7 @@ export const createConfigInstanceSchema = z.object({
   sellUnitPrice: positiveDecimalString.nullable().optional(),
   notes: z.string().nullable().optional(),
   sourceWarehouseId: z.string().min(1),
+  wipWarehouseId: z.string().min(1),
   destinationWarehouseId: z.string().min(1),
   scheduledStartDate: isoDate,
   scheduledEndDate: z.string().nullable().optional(),

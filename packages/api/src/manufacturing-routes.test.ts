@@ -16,6 +16,7 @@ afterEach(() => {
 });
 
 const RAW = "RAW-WH";
+const WIP = "WIP-WH";
 const FG = "FG-WH";
 const ADMIN = "*";
 
@@ -167,6 +168,7 @@ describe("manufacturing-routes — full 4-stage work order (stock + GL + WIP)", 
           bomId: "bom-1",
           plannedQty: "10",
           sourceWarehouseId: RAW,
+          wipWarehouseId: WIP,
           destinationWarehouseId: FG,
           scheduledStartDate: "2026-08-22",
           scheduledEndDate: "2026-08-25",
@@ -279,6 +281,7 @@ describe("manufacturing-routes — configurable products + custom manufacturing"
           spec: { width: "10", height: "20" },
           qty: "2",
           sourceWarehouseId: RAW,
+          wipWarehouseId: WIP,
           destinationWarehouseId: FG,
           scheduledStartDate: "2026-08-22",
         }),
@@ -309,6 +312,7 @@ describe("manufacturing-routes — production dashboard", () => {
           bomId: "bom-1",
           plannedQty: "10",
           sourceWarehouseId: RAW,
+          wipWarehouseId: WIP,
           destinationWarehouseId: FG,
           scheduledStartDate: "2026-08-01",
           scheduledEndDate: "2026-08-10",

@@ -12,7 +12,13 @@
  */
 
 import type { Money } from "../money/index.js";
-import type { PostIssueCommand, PostIssueResult, PostReceiptCommand } from "../inventory/index.js";
+import type {
+  PostIssueCommand,
+  PostIssueResult,
+  PostReceiptCommand,
+  PostTransferCommand,
+  PostTransferResult,
+} from "../inventory/index.js";
 
 /** Activation state shared by BOMs and configurable products (docs/catalog/07). */
 export type ActivationStatus = "active" | "inactive";
@@ -52,16 +58,24 @@ export type ItemPolicy = "per_order" | "per_spec";
 // --- Stock ports (satisfied structurally by StockLedgerService) ------------
 
 /**
- * The stock hooks a work order uses across its stages: OUT on material issue
- * (returning the moving-average cost of goods issued — the WIP material cost),
- * and IN on finished-product receipt (at the computed WIP unit cost). Both are
- * called stock-only (no `gl` on the command): the GL is driven separately by
- * the completion posting, exactly as the purchase chain drives receipt vs.
- * invoice separately.
+ * The stock hooks a work order uses across its stages. All three are called
+ * stock-only (no `gl` on the command): the GL is driven separately by the
+ * completion posting, exactly as the purchase chain drives receipt vs. invoice
+ * separately.
+ *
+ * `postTransfer` is what gives الإنتاج تحت التشغيل a PHYSICAL address. Issuing
+ * raw material used to post a bare OUT of the raw warehouse, so the goods left
+ * the system entirely and re-appeared only as a money figure on the order:
+ * nobody could walk the shop floor, count what was sitting there, and compare
+ * it with a system quantity — there was no system quantity to compare with, and
+ * for the whole length of the run the stock sub-ledger sat BELOW GL 1200 by the
+ * issued value. Issue is now a transfer (raw → WIP warehouse), and the material
+ * only leaves stock when the finished product absorbs it.
  */
 export interface ManufacturingStockPort {
   postIssue(command: PostIssueCommand): Promise<PostIssueResult>;
   postReceipt(command: PostReceiptCommand): Promise<void>;
+  postTransfer(command: PostTransferCommand): Promise<PostTransferResult>;
 }
 
 // --- GL posting hook (no import of the accounting module) -------------------

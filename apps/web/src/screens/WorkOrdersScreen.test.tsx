@@ -73,6 +73,7 @@ function workOrder(overrides: Partial<WorkOrderRecord> = {}): WorkOrderRecord {
     plannedQty: "10",
     producedQty: "0",
     sourceWarehouseId: "wh-raw",
+    wipWarehouseId: "wh-wip",
     destinationWarehouseId: "wh-fg",
     priority: "normal",
     scheduledStartDate: "2026-08-10",
@@ -81,7 +82,7 @@ function workOrder(overrides: Partial<WorkOrderRecord> = {}): WorkOrderRecord {
     status: "planned",
     stage: "not_started",
     materials: [
-      { itemId: "item-table", requiredQty: "40", wastePercent: 5, optional: false, issuedQty: "0", returnedQty: "0", netQty: "0", availableQty: null, shortageQty: null, issuedUnitCost: "0" },
+      { itemId: "item-table", requiredQty: "40", wastePercent: 5, optional: false, issuedQty: "0", returnedQty: "0", netQty: "0", availableQty: null, shortageQty: null, wipOnHandQty: null, issuedUnitCost: "0" },
     ],
     materialCost: "0",
     laborCost: "50",

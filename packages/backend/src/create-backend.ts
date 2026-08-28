@@ -1534,6 +1534,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           return { id: employee.id, fullName: arabic || `${employee.firstName} ${employee.lastName}`.trim() };
         },
       },
+      /** المستودعات — a work order's three warehouse ids are resolved against the real registry. */
+      warehouses: {
+        findById: async (id: string) => {
+          const warehouse = await warehouses.findById(id);
+          return warehouse ? { id: warehouse.id, name: warehouse.name, active: warehouse.active } : null;
+        },
+      },
       numbering: ledger.numbering,
       stock: stockService,
       /** Feeds the materials tab's available/shortage columns (R9.2). */

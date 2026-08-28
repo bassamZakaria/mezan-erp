@@ -13,6 +13,8 @@ import { ACCOUNTS, BRANCH_ID, VAT_PERCENT, WAREHOUSE_ID, step } from "./shared.j
 
 const GIZA_WAREHOUSE_ID = "WH-DEMO-2";
 const TRANSIT_WAREHOUSE_ID = "WH-DEMO-TRANSIT";
+/** مستودع التشغيل — seeded for every tenant by the base seed (seed.ts). */
+const WIP_WAREHOUSE_ID = "WH-WIP";
 
 /**
  * Inventory shrinkage/overage counterpart. The standard COA has no dedicated
@@ -466,6 +468,7 @@ export async function seedInventoryOps(app: App): Promise<void> {
       bomId: order.bomId,
       plannedQty: order.plannedQty,
       sourceWarehouseId: WAREHOUSE_ID,
+      wipWarehouseId: WIP_WAREHOUSE_ID,
       destinationWarehouseId: WAREHOUSE_ID,
       priority: order.priority,
       scheduledStartDate: order.scheduledStartDate,

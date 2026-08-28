@@ -39,7 +39,7 @@ through as "oh, that's the known one".
 
 ## Open
 
-**One cosmetic defect is open** (D62): a matched statement line labels its entry
+**Two defects are open** (D62, D64). The first is cosmetic: a matched statement line labels its entry
 with the raw journal-entry UUID («القيد: 13364877-c819-4a98-…»), truncated, where
 the entry NUMBER belongs. The picker that chooses the entry shows JE-000038 and
 its memo; the line that results from choosing it does not, because
@@ -51,8 +51,24 @@ numbers; the shortcut — dropping the "already matched" exclusion from
 `/candidates` so the client can build a label map — would trade a server-side
 guard for a label, so it was not taken.
 
-Everything else filed — D1 through D61 — is in the Fixed table below, and
-`pnpm scenarios` passes 3740 assertions with all four invariants at exactly zero
+**D64 — تسجيل فاقد moves no stock.** `logWorkOrderWaste` writes a quantity into
+`wasteLog` and touches neither the stock ledger nor the WIP cost, so material
+recorded as scrapped is still standing in مستودع التشغيل as far as the system is
+concerned. This mattered less while WIP had no location at all (D63); now that a
+floor count has a system quantity to be held against, waste logged mid-run is the
+one thing that can still put the two apart, by exactly the wasted quantity. It
+closes itself at استلام المنتج — the receipt consumes ALL outstanding material,
+scrap included, so the scrap's cost is absorbed into the finished product exactly
+as the BOM's `wastePercent` already assumes — so the gap exists only between
+logging the waste and receiving the product. Deliberately NOT fixed in the same
+pass as D63, because making waste move stock is a real accounting choice, not a
+patch: normal scrap absorbed into product cost (materialCost unchanged, quantity
+out) and abnormal scrap expensed (a new scrap account, a posting at waste time)
+give different unit costs and different P&Ls, and that is the product owner's
+call. Filed rather than assumed.
+
+Everything else filed — D1 through D63 — is in the Fixed table below, and
+`pnpm scenarios` passes 3770 assertions with all four invariants at exactly zero
 on the seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs
 GL 1105.
 
@@ -207,10 +223,15 @@ checks every colour utility against the compiled stylesheet.
 | F120 | **Bank reconciliation had never run end to end** (D60) — screen, routes and engine all existed and `/bank-statements` returned an empty list on every seeded tenant, so nothing in import → match → review → finalize had been exercised once, and the surface was not even in `scripts/smoke.ts`'s path list for `check:seed` to catch. `demo-seed/treasury.ts` now imports a August-2026 statement DERIVED from the bank GL account's own posted movements, with three deliberate differences so the reconciliation is one: two movements carry the bank's value date two days late (matched through the ±5-day tolerance, not trivially), two charges the books never saw stay unmatched, and the last book movement is left off the statement. Seeded state: 7 lines, 5 auto-matched, 71%, قيد التسوية. Verified live: auto-match, manual match, unmatch, finalize, and a second finalize refused with 409 | this commit |
 | F121 | **Manual match asked the user to TYPE a journal-entry id** (D61) — a free-text box on a field naming a domain entity, the same shape as D38's item id: any typo matched a statement line to an entry that does not exist, and no route checked. `GET /bank-statements/:id/candidates` now serves the account's own GL movements over the statement period (widened 10 days, because manual matching exists for what the ±5-day auto window could not reach), excluding entries already matched to a line of that statement, and the row picks from them. Found while fixing: those movements had NO description — `accountLedger` read only the LINE memo, and a voucher carries its description on the ENTRY, so the picker would have listed raw UUIDs; it now reads `COALESCE(jl.memo, je.memo)` and each candidate carries its entry number | this commit |
 | F122 | **The reconciliation list reported 0% matched for a statement that was 71% matched.** The list endpoint returned statements without their lines, so the match rate was known only for the statement open in the detail panel — and the code's own comment said an honest "—" was better than a fabricated aggregate while the tile printed `?? 0` → 0%, which is a number, not an absence. One grouped `lineCounts` query (not one per row) now carries a real `matchSummary` on every list row; the header tile is lines-matched over lines-seen across the list, so a 200-line statement is not weighed like a 3-line one, and it reads "—" when there is nothing to divide. Invisible until F120 gave the screen a row | this commit |
+| F123 | **The chart of accounts had no keyboard path to an account's ledger.** The row's only primary action was `<tr onClick>`; a keyboard-only user could reach the edit icon (a real button) and rename an account, but nothing focusable opened it. Measured after the fix: Tab reaches «ذمم مدينة», Enter opens 1100 on its حركات الحساب tab | this commit |
+| F124 | **`EntityPicker` — the item/customer/account combobox used across the ERP — never told assistive tech which option the arrow keys had highlighted**: no `aria-activedescendant`, and the options carried no id to point at. Each option was also a `<button>` nested inside `role="option"`, which is not exposed as an option at all, and ArrowDown from a closed list opened it on the SECOND option. Measured after the fix: focus reports `aria-activedescendant=":r50:-0"`, two ArrowDowns move it to `-2` (سكر أبيض), Enter binds it | this commit |
+| F125 | **صرف المواد deleted the material instead of moving it** (D63) — issuing a work order's components posted a bare stock OUT of the raw warehouse and nothing anywhere posted an IN, so the goods left the system entirely and survived only as `materialCost`, a money figure on the order. A supervisor could walk the shop floor, count what was standing on it, and have no system quantity to compare the count with. The same hole moved the stock sub-ledger BELOW GL 1200 for the whole length of a run, because the balancing entry is not posted until إكمال أمر العمل. A work order now names a third warehouse, `wipWarehouseId` (مستودع التشغيل, seeded for every tenant as WH-WIP / صالة التشغيل, type PRODUCTION), and صرف المواد, صرف إضافي and إرجاع مواد are TRANSFERS in and out of it — valuation-neutral, so the sub-ledger and the GL agree at every moment of the run rather than only at its end. استلام المنتج consumes the material standing on the floor (a stock OUT of مستودع التشغيل, keyed as a child of the receipt id so the shop-floor station and operator still join onto it) and then receives the finished product; `materialCost` is reset to what that consume actually removed from inventory, because the completion posting credits raw inventory by that figure and the two parting company is the D3 shape. Domain refuses an order whose WIP warehouse is empty, equal to the raw store or equal to the finished-goods store, and the route now resolves all three ids against the warehouse registry instead of trusting the client. Measured live on the seeded tenant, mid-run with WO-0003's material issued: مستودع التشغيل holds 7.500000 + 7.500000 valued at exactly 1,781.253788 — the order's own `materialCost` — while inventory-vs-GL-1200, AP, AR and the trial balance all read 0.000000; before, that 1,781.253788 was inventory value with no location and the sub-ledger sat that far below 1200 until the order closed. A full run driven from the screen (WO-0006, created → started → built) posts six movements: two OUT of المستودع الرئيسي, two IN to صالة التشغيل at the same cost, two OUT of صالة التشغيل on receipt | this commit |
+| F126 | **The work-order detail page reported every available, shortage and on-the-floor cell as "—"** while the list behind it had the real numbers: `GET /work-orders/:id` called `serializeWorkOrder(order)` without the on-hand map that `GET /work-orders` passes, and the materials tab is rendered ONLY on the detail page. Found because the new on-the-floor column was blank on a screen whose list route filled it | this commit |
+| F127 | **Warehouse names stayed in the language of first render.** `WorkOrdersScreen`'s `warehouseName` map was memoised on `[warehouses]` while the name it stored came from the locale-dependent `nameOf`, so switching to Arabic left the summary card reading "Main Warehouse / Production Floor". Measured after the fix: the same card reads المستودع الرئيسي / صالة التشغيل | this commit |
 
 
 `pnpm scenarios` asserts the FIXED behaviour throughout, so a regression in any
-of these turns it red. It passes 3740 assertions with 0 failures, and no
+of these turns it red. It passes 3770 assertions with 0 failures, and no
 assertion documents a still-broken behaviour any more: scenario x46 used to
 assert the VAT return's blended rate to record D28 and now asserts the fix, as
 deltas, because the buckets are tenant-wide.

@@ -3248,6 +3248,8 @@ export interface WorkOrderMaterialRecord {
   /** What the source warehouse holds, and what is still missing (R9.2). Null when unknown. */
   readonly availableQty: string | null;
   readonly shortageQty: string | null;
+  /** What مستودع التشغيل actually holds — the figure a floor count is held against. */
+  readonly wipOnHandQty: string | null;
   readonly issuedUnitCost: string;
 }
 
@@ -3263,6 +3265,7 @@ export interface WorkOrderRecord {
   readonly plannedQty: string;
   readonly producedQty: string;
   readonly sourceWarehouseId: string;
+  readonly wipWarehouseId: string;
   readonly destinationWarehouseId: string;
   readonly priority: "low" | "normal" | "high";
   readonly scheduledStartDate: string;

@@ -6,10 +6,23 @@
  *   استلام المنتج (receive finished product, stock IN) → إكمال أمر العمل
  *   (complete — auto-posts the GL chain).
  *
- * WIP costing: raw materials issue OUT at their moving-average cost (accumulated
- * as the work order's material WIP), while standard labour and overhead from the
- * BOM capitalise into WIP too. On product receipt the whole WIP (materials +
- * labour + overhead + any logged extra cost) is capitalised into finished-goods
+ * WIP HAS A PHYSICAL ADDRESS. Every work order names a third warehouse —
+ * `wipWarehouseId`, مستودع التشغيل, conventionally of type PRODUCTION — and
+ * صرف المواد is a TRANSFER into it, not a disappearance out of the raw store.
+ * Material issued to the floor is therefore still stock: it has a warehouse, a
+ * quantity, a batch and a value, so a supervisor can walk the floor, count what
+ * is sitting on it and reconcile that count against a system quantity. Before
+ * this, issue posted a bare OUT and the goods survived only as `materialCost`,
+ * a value-only bucket on the order; a floor count had nothing to be compared
+ * with, and for the entire length of the run the stock sub-ledger sat BELOW GL
+ * 1200 by the issued value, because the balancing GL entry is not posted until
+ * completion.
+ *
+ * WIP costing: raw materials transfer into مستودع التشغيل at their moving-average
+ * cost (accumulated as the work order's material WIP), while standard labour and
+ * overhead from the BOM capitalise into WIP too. On product receipt the material
+ * standing in مستودع التشغيل is CONSUMED (stock OUT) and the whole WIP (materials
+ * + labour + overhead + any logged extra cost) is capitalised into finished-goods
  * inventory at the computed unit cost — so COGS is recognised only on the later
  * sale, never here. Stock moves are posted stock-only (no GL); the single
  * completion posting drives the ledger, mirroring the purchase chain's split of
@@ -105,6 +118,13 @@ export interface WorkOrder {
   readonly plannedQty: Qty;
   readonly producedQty: Qty;
   readonly sourceWarehouseId: string;
+  /**
+   * مستودع التشغيل — where issued material physically stands while it is being
+   * worked on. Empty ONLY on orders written before WIP had a location; every
+   * stage that moves stock refuses such an order rather than silently falling
+   * back to the old vanishing issue.
+   */
+  readonly wipWarehouseId: string;
   readonly destinationWarehouseId: string;
   readonly priority: WorkOrderPriority;
   readonly scheduledStartDate: string;
@@ -170,6 +190,7 @@ export interface CreateWorkOrderCommand {
   readonly bomId: string;
   readonly plannedQty: Qty;
   readonly sourceWarehouseId: string;
+  readonly wipWarehouseId: string;
   readonly destinationWarehouseId: string;
   readonly priority?: WorkOrderPriority;
   readonly scheduledStartDate: string;
@@ -201,6 +222,16 @@ export async function createWorkOrder(
   }
   if (command.sourceWarehouseId.trim() === "") reasons.push("a raw-material warehouse is required");
   if (command.destinationWarehouseId.trim() === "") reasons.push("a finished-goods warehouse is required");
+  // مستودع التشغيل must be its OWN location. Pointing it at the raw store would
+  // leave issued material indistinguishable from material still on the shelf,
+  // and at the finished-goods store it would mix components with product — in
+  // both cases the floor count this warehouse exists to make possible is lost.
+  if (command.wipWarehouseId.trim() === "") reasons.push("a work-in-process warehouse is required");
+  else if (command.wipWarehouseId === command.sourceWarehouseId) {
+    reasons.push("the work-in-process warehouse must differ from the raw-material warehouse");
+  } else if (command.wipWarehouseId === command.destinationWarehouseId) {
+    reasons.push("the work-in-process warehouse must differ from the finished-goods warehouse");
+  }
   if (reasons.length > 0) throw new InvalidManufacturingDocumentError(reasons);
 
   const bom = await deps.boms.findById(command.bomId);
@@ -236,6 +267,7 @@ export async function createWorkOrder(
     plannedQty: command.plannedQty,
     producedQty: Qty.zero(),
     sourceWarehouseId: command.sourceWarehouseId,
+    wipWarehouseId: command.wipWarehouseId,
     destinationWarehouseId: command.destinationWarehouseId,
     priority: command.priority ?? "normal",
     scheduledStartDate: command.scheduledStartDate,
@@ -291,6 +323,29 @@ export interface WorkOrderStockDeps {
 }
 
 /**
+ * Refuse to move a gram of stock for an order that names no مستودع التشغيل.
+ *
+ * Orders written before WIP had a location carry an empty one. Falling back to
+ * the old behaviour for them — issuing straight out of the raw store — would
+ * quietly keep the defect alive on exactly the rows nobody is watching, so the
+ * order is refused instead and the operator re-plans it against a real WIP
+ * warehouse.
+ */
+function wipWarehouseOf(order: WorkOrder): string {
+  if (order.wipWarehouseId.trim() === "") {
+    throw new InvalidManufacturingDocumentError([
+      `work order "${order.number}" names no work-in-process warehouse`,
+    ]);
+  }
+  return order.wipWarehouseId;
+}
+
+/** Material still standing in مستودع التشغيل for this order: issued − returned. */
+export function workOrderWipQty(m: Pick<WorkOrderMaterial, "issuedQty" | "returnedQty">): Qty {
+  return m.issuedQty.subtract(m.returnedQty);
+}
+
+/**
  * Who did it and where (R9.1). The station and the operator are ids the caller
  * supplies; the API resolves both against their own registries before handing
  * them here, so a shop-floor entry can never name a station that does not
@@ -317,10 +372,16 @@ function shopFloorEntry(
 }
 
 /**
- * صرف المواد (Issue materials): stage started → materials_issued. Posts stock
- * OUT for every non-optional material at its required quantity (stock-only —
- * no GL), captures the moving-average cost as the material WIP, and records the
- * per-item issue unit cost so returns can reverse at the same cost.
+ * صرف المواد (Issue materials): stage started → materials_issued. TRANSFERS
+ * every non-optional material at its required quantity from the raw store into
+ * مستودع التشغيل (stock-only — no GL), captures the moving-average cost as the
+ * material WIP, and records the per-item issue unit cost.
+ *
+ * The transfer is valuation-neutral, which is the point: total inventory value
+ * does not move, so the stock sub-ledger and GL 1200 stay in agreement for the
+ * whole run rather than diverging by the issued value until completion. What
+ * moves is the LOCATION — and that is the quantity a floor count reconciles
+ * against.
  */
 export async function issueWorkOrderMaterials(
   id: string,
@@ -329,18 +390,20 @@ export async function issueWorkOrderMaterials(
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "started") throw new WorkOrderStageError("issue", order.stage);
+  const wipWarehouseId = wipWarehouseOf(order);
 
   const toIssue = order.materials.filter((m) => !m.optional && m.requiredQty.scaled > 0n);
   if (toIssue.length === 0) throw new InvalidManufacturingDocumentError(["no materials to issue"]);
 
   const occurredAt = nowIso(deps);
   const issueId = `WO-ISSUE:${order.id}`;
-  const result = await deps.stock.postIssue({
-    issueId,
+  const result = await deps.stock.postTransfer({
+    transferId: issueId,
     sourceDocType: "WORK_ORDER",
     sourceDocId: order.id,
-    sourceDocNumber: order.number,
-    warehouseId: order.sourceWarehouseId,
+    transferNumber: order.number,
+    fromWarehouseId: order.sourceWarehouseId,
+    toWarehouseId: wipWarehouseId,
     lines: toIssue.map((m) => ({ itemId: m.itemId, qty: m.requiredQty })),
     occurredAt,
   });
@@ -375,8 +438,9 @@ export interface IssueMoreLine {
 }
 
 /**
- * صرف إضافي (Extra issue): additional stock OUT after the initial issue, adding
- * to the issued quantities and the material WIP.
+ * صرف إضافي (Extra issue): a further transfer from the raw store into مستودع
+ * التشغيل after the initial issue, adding to the issued quantities and the
+ * material WIP.
  */
 export async function extraIssueWorkOrderMaterials(
   id: string,
@@ -386,16 +450,18 @@ export async function extraIssueWorkOrderMaterials(
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("extra-issue", order.stage);
+  const wipWarehouseId = wipWarehouseOf(order);
   if (lines.length === 0) throw new InvalidManufacturingDocumentError(["no materials to issue"]);
 
   const occurredAt = nowIso(deps);
   const issueId = `WO-XISSUE:${order.id}:${occurredAt}`;
-  const result = await deps.stock.postIssue({
-    issueId,
+  const result = await deps.stock.postTransfer({
+    transferId: issueId,
     sourceDocType: "WORK_ORDER",
     sourceDocId: order.id,
-    sourceDocNumber: order.number,
-    warehouseId: order.sourceWarehouseId,
+    transferNumber: order.number,
+    fromWarehouseId: order.sourceWarehouseId,
+    toWarehouseId: wipWarehouseId,
     lines: lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
     occurredAt,
   });
@@ -448,9 +514,16 @@ function mergeIssuedMaterials(
 }
 
 /**
- * إرجاع مواد (Return materials): unused issued material goes back to the source
- * warehouse (stock IN) at the recorded issue unit cost, reducing the material
- * WIP by the same value.
+ * إرجاع مواد (Return materials): unused material walks back off the floor —
+ * a transfer out of مستودع التشغيل into the raw store, reducing the material WIP
+ * by the value that actually left.
+ *
+ * The returnable quantity is recomputed HERE from the order's own issued and
+ * returned totals; it is never read from the request. And the value credited
+ * back to WIP is the value the ledger says left مستودع التشغيل, not a figure
+ * re-derived from the issue-time unit cost: those two differ the moment a second
+ * issue lands at a different moving average, and re-deriving would leave the
+ * order's `materialCost` claiming stock that مستودع التشغيل does not hold.
  */
 export async function returnWorkOrderMaterials(
   id: string,
@@ -460,48 +533,47 @@ export async function returnWorkOrderMaterials(
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("return", order.stage);
+  const wipWarehouseId = wipWarehouseOf(order);
   if (lines.length === 0) throw new InvalidManufacturingDocumentError(["no materials to return"]);
 
   const byItem = new Map(order.materials.map((m) => [m.itemId, m]));
-  const receiptLines = lines.map((l) => {
+  for (const l of lines) {
     const mat = byItem.get(l.itemId);
-    const unitCost = mat?.issuedUnitCost ?? Money.zero();
-    const outstanding = mat ? mat.issuedQty.subtract(mat.returnedQty) : Qty.zero();
+    const outstanding = mat ? workOrderWipQty(mat) : Qty.zero();
     if (!mat || l.qty.compare(outstanding) > 0) {
       throw new InvalidManufacturingDocumentError([
         `cannot return ${l.qty.toString()} of "${l.itemId}"; only ${outstanding.toString()} outstanding`,
       ]);
     }
-    return { itemId: l.itemId, qty: l.qty, unitCost };
-  });
+  }
 
   const occurredAt = nowIso(deps);
-  const receiptId = `WO-RETURN:${order.id}:${occurredAt}`;
-  await deps.stock.postReceipt({
-    receiptId,
-    sourceDocId: order.id,
-    receiptNumber: order.number,
-    warehouseId: order.sourceWarehouseId,
+  const returnId = `WO-RETURN:${order.id}:${occurredAt}`;
+  const result = await deps.stock.postTransfer({
+    transferId: returnId,
     sourceDocType: "WORK_ORDER",
-    lines: receiptLines,
+    sourceDocId: order.id,
+    transferNumber: order.number,
+    fromWarehouseId: wipWarehouseId,
+    toWarehouseId: order.sourceWarehouseId,
+    lines: lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
     occurredAt,
   });
 
-  let returnedValue = Money.zero();
+  const returnedQtyByItem = new Map<string, Qty>();
+  for (const l of lines) {
+    returnedQtyByItem.set(l.itemId, (returnedQtyByItem.get(l.itemId) ?? Qty.zero()).add(l.qty));
+  }
   const materials = order.materials.map<WorkOrderMaterial>((m) => {
-    const ret = lines.find((l) => l.itemId === m.itemId);
-    if (!ret) return m;
-    returnedValue = returnedValue.add(
-      Money.fromScaled(mulDivRoundHalfUp(ret.qty.scaled, m.issuedUnitCost.scaled, 1_000_000n)),
-    );
-    return { ...m, returnedQty: m.returnedQty.add(ret.qty) };
+    const ret = returnedQtyByItem.get(m.itemId);
+    return ret ? { ...m, returnedQty: m.returnedQty.add(ret) } : m;
   });
 
   const updated: WorkOrder = {
     ...order,
     materials,
-    materialCost: order.materialCost.add(returnedValue.negate()),
-    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("return", attribution, occurredAt, receiptId)],
+    materialCost: order.materialCost.add(result.totalCost.negate()),
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("return", attribution, occurredAt, returnId)],
   };
   await deps.workOrders.update(updated);
   return updated;
@@ -563,8 +635,24 @@ export async function logWorkOrderCost(
 
 /**
  * استلام المنتج (Receive product): stage materials_issued → product_received.
- * Capitalises the whole WIP into finished-goods inventory — the finished product
- * enters stock (stock IN, no GL) at unit cost = WIP total ÷ produced quantity.
+ *
+ * Two stock moves, in this order:
+ *
+ *   1. CONSUME — every material still standing in مستودع التشغيل leaves stock.
+ *      This is where raw material is finally used up; until now it had merely
+ *      changed address. Anything not consumed by the product must be returned
+ *      to the raw store first, which is why the whole outstanding quantity goes.
+ *   2. RECEIVE — the finished product enters the finished-goods warehouse at
+ *      unit cost = WIP total ÷ produced quantity.
+ *
+ * `materialCost` is then RESET to what the consume leg actually removed from
+ * inventory, not left at the sum of the issues. The completion posting credits
+ * raw inventory by `materialCost`, so if the two ever differ the GL and the
+ * stock sub-ledger part company by the difference — the D3 failure shape. They
+ * differ in practice as soon as مستودع التشغيل holds the same item for two
+ * orders at once and its moving average blends them.
+ *
+ * Both moves are stock-only (no GL); إكمال أمر العمل posts the ledger.
  */
 export async function receiveWorkOrderProduct(
   id: string,
@@ -574,14 +662,39 @@ export async function receiveWorkOrderProduct(
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("receive", order.stage);
+  const wipWarehouseId = wipWarehouseOf(order);
   if (producedQty.isZero() || producedQty.isNegative()) {
     throw new InvalidManufacturingDocumentError(["produced quantity must be positive"]);
   }
 
-  const wip = workOrderWipTotal(order);
-  const unitCost = unitCostOf(wip, producedQty);
   const occurredAt = nowIso(deps);
+  const consumeLines = order.materials
+    .map((m) => ({ itemId: m.itemId, qty: workOrderWipQty(m) }))
+    .filter((l) => l.qty.scaled > 0n);
+
   const receiptId = `WO-RECEIVE:${order.id}`;
+  let consumedCost = Money.zero();
+  if (consumeLines.length > 0) {
+    const consumed = await deps.stock.postIssue({
+      // Deliberately a CHILD of the receipt id, not an id of its own. The
+      // consume and the finished-goods receipt are one shop-floor action, and
+      // the activity feed joins a station and an operator onto a movement by
+      // the `<ref>:…` prefix of the action that produced it — an id starting
+      // anywhere else would report both consume movements as performed by
+      // nobody, at no station.
+      issueId: `${receiptId}:consume`,
+      sourceDocType: "WORK_ORDER",
+      sourceDocId: order.id,
+      sourceDocNumber: order.number,
+      warehouseId: wipWarehouseId,
+      lines: consumeLines,
+      occurredAt,
+    });
+    consumedCost = consumed.totalCost;
+  }
+
+  const wip = workOrderWipTotal({ ...order, materialCost: consumedCost });
+  const unitCost = unitCostOf(wip, producedQty);
   await deps.stock.postReceipt({
     receiptId,
     sourceDocId: order.id,
@@ -596,6 +709,7 @@ export async function receiveWorkOrderProduct(
     ...order,
     stage: "product_received",
     producedQty,
+    materialCost: consumedCost,
     receivedAt: occurredAt,
     shopFloorLog: [...order.shopFloorLog, shopFloorEntry("receive", attribution, occurredAt, receiptId)],
   };

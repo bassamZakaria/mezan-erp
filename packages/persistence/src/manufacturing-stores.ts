@@ -186,6 +186,7 @@ CREATE TABLE IF NOT EXISTS work_order (
   planned_qty             TEXT NOT NULL,
   produced_qty            TEXT NOT NULL,
   source_warehouse_id     TEXT NOT NULL,
+  wip_warehouse_id        TEXT NOT NULL DEFAULT '',
   destination_warehouse_id TEXT NOT NULL,
   priority                TEXT NOT NULL,
   scheduled_start_date    TEXT NOT NULL,
@@ -223,6 +224,7 @@ interface WoRow {
   planned_qty: string;
   produced_qty: string;
   source_warehouse_id: string;
+  wip_warehouse_id: string | null;
   destination_warehouse_id: string;
   priority: string;
   scheduled_start_date: string;
@@ -297,6 +299,9 @@ function woToDomain(row: WoRow): WorkOrder {
     plannedQty: Qty.fromMajor(row.planned_qty),
     producedQty: Qty.fromMajor(row.produced_qty),
     sourceWarehouseId: row.source_warehouse_id,
+    // Rows written before WIP had a location carry none; every stock-moving
+    // stage refuses such an order rather than issuing into thin air.
+    wipWarehouseId: row.wip_warehouse_id ?? "",
     destinationWarehouseId: row.destination_warehouse_id,
     priority: row.priority as WorkOrderPriority,
     scheduledStartDate: row.scheduled_start_date,
@@ -331,11 +336,12 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO work_order (id, number, bom_id, bom_version, product_item_id, planned_qty, produced_qty, source_warehouse_id, destination_warehouse_id, priority, scheduled_start_date, scheduled_end_date, notes, status, stage, materials, material_cost, labor_cost, overhead_cost, extra_cost, cost_log, waste_log, shop_floor_log, config_instance_id, gl_posted, created_by, created_at, started_at, issued_at, received_at, completed_at)
-      VALUES (@id, @number, @bom_id, @bom_version, @product_item_id, @planned_qty, @produced_qty, @source_warehouse_id, @destination_warehouse_id, @priority, @scheduled_start_date, @scheduled_end_date, @notes, @status, @stage, @materials, @material_cost, @labor_cost, @overhead_cost, @extra_cost, @cost_log, @waste_log, @shop_floor_log, @config_instance_id, @gl_posted, @created_by, @created_at, @started_at, @issued_at, @received_at, @completed_at)
+      INSERT INTO work_order (id, number, bom_id, bom_version, product_item_id, planned_qty, produced_qty, source_warehouse_id, wip_warehouse_id, destination_warehouse_id, priority, scheduled_start_date, scheduled_end_date, notes, status, stage, materials, material_cost, labor_cost, overhead_cost, extra_cost, cost_log, waste_log, shop_floor_log, config_instance_id, gl_posted, created_by, created_at, started_at, issued_at, received_at, completed_at)
+      VALUES (@id, @number, @bom_id, @bom_version, @product_item_id, @planned_qty, @produced_qty, @source_warehouse_id, @wip_warehouse_id, @destination_warehouse_id, @priority, @scheduled_start_date, @scheduled_end_date, @notes, @status, @stage, @materials, @material_cost, @labor_cost, @overhead_cost, @extra_cost, @cost_log, @waste_log, @shop_floor_log, @config_instance_id, @gl_posted, @created_by, @created_at, @started_at, @issued_at, @received_at, @completed_at)
       ON CONFLICT(id) DO UPDATE SET
         planned_qty = excluded.planned_qty, produced_qty = excluded.produced_qty,
-        source_warehouse_id = excluded.source_warehouse_id, destination_warehouse_id = excluded.destination_warehouse_id,
+        source_warehouse_id = excluded.source_warehouse_id, wip_warehouse_id = excluded.wip_warehouse_id,
+        destination_warehouse_id = excluded.destination_warehouse_id,
         priority = excluded.priority, scheduled_start_date = excluded.scheduled_start_date,
         scheduled_end_date = excluded.scheduled_end_date, notes = excluded.notes,
         status = excluded.status, stage = excluded.stage, materials = excluded.materials,
@@ -373,6 +379,7 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
       planned_qty: o.plannedQty.toString(),
       produced_qty: o.producedQty.toString(),
       source_warehouse_id: o.sourceWarehouseId,
+      wip_warehouse_id: o.wipWarehouseId,
       destination_warehouse_id: o.destinationWarehouseId,
       priority: o.priority,
       scheduled_start_date: o.scheduledStartDate,
@@ -811,6 +818,13 @@ export function createSqliteManufacturingStores(path: SqliteConnectionInput = ":
   const woColumns = sqlite.prepare(`PRAGMA table_info(work_order)`).all() as { name: string }[];
   if (!woColumns.some((c) => c.name === "shop_floor_log")) {
     sqlite.exec(`ALTER TABLE work_order ADD COLUMN shop_floor_log TEXT NOT NULL DEFAULT '[]'`);
+  }
+  // `wip_warehouse_id` likewise. It is deliberately NOT backfilled from
+  // source_warehouse_id: issuing into the warehouse the goods came from is the
+  // same non-move as having no WIP location at all, and it would pass the
+  // "is it set?" check while leaving the floor count exactly as unreconcilable.
+  if (!woColumns.some((c) => c.name === "wip_warehouse_id")) {
+    sqlite.exec(`ALTER TABLE work_order ADD COLUMN wip_warehouse_id TEXT NOT NULL DEFAULT ''`);
   }
   return {
     boms: new SqliteBomStore(sqlite),

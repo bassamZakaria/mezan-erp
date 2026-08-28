@@ -698,6 +698,7 @@ async function seedConfigurableProduct(app: App): Promise<void> {
     customerId: "CUST-DEMO-1",
     notes: "طلب خاص لمعرض رمضان",
     sourceWarehouseId: WAREHOUSE_ID,
+    wipWarehouseId: "WH-WIP",
     destinationWarehouseId: WAREHOUSE_ID,
     scheduledStartDate: "2026-08-24",
   });

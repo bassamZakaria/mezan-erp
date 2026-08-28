@@ -73,6 +73,7 @@ export {
   cancelWorkOrder,
   buildWorkOrderGlPosting,
   workOrderWipTotal,
+  workOrderWipQty,
   workOrderProgress,
   type WorkOrder,
   type WorkOrderMaterial,

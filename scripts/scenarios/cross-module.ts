@@ -810,20 +810,43 @@ export async function run(ctx: Ctx): Promise<void> {
       bomId: "SCN-X-BOM-1",
       plannedQty: "10",
       sourceWarehouseId: WH,
+      wipWarehouseId: "WH-WIP",
       destinationWarehouseId: WH,
       scheduledStartDate: TODAY,
     });
     check("the work order opens", wo.status === 201, `status ${wo.status} ${JSON.stringify(wo.body).slice(0, 250)}`);
     await req("POST", "/manufacturing/work-orders/SCN-X-WO-1/start", {});
+    const inventoryGlBeforeIssue = await gl(INVENTORY);
     const issued = await req("POST", "/manufacturing/work-orders/SCN-X-WO-1/issue", { lines: [{ itemId: rawId, qty: "20" }] });
     check("raw material is issued to the floor", issued.status === 200, `status ${issued.status} ${JSON.stringify(issued.body).slice(0, 250)}`);
     checkEq("the raw material genuinely leaves the warehouse", rawBefore.onHand - (await stock(rawId)).onHand, 20);
+
+    // D63 — "the floor" is a real warehouse, not a figure on the order. The 20
+    // units are somewhere a supervisor can walk to and count, and the order's
+    // own materials tab reports the same quantity from the stock ledger.
+    const onFloor = await stock(rawId, "WH-WIP");
+    checkEq("and lands in مستودع التشغيل, where a floor count can find it", onFloor.onHand, 20);
+    checkEq("carrying its cost with it — the transfer moved location, not value", onFloor.totalValue, 500);
+    const midRun = await req("GET", "/manufacturing/work-orders/SCN-X-WO-1");
+    const midRunLine = (midRun.body?.materials ?? []).find((m: any) => m.itemId === rawId);
+    checkEq(
+      "and the materials tab reports the floor's own stock-ledger quantity beside the order's claim on it — the pair a floor count is settled with (equal here because this run is the only one standing on WH-WIP)",
+      n(midRunLine?.wipOnHandQty),
+      n(midRunLine?.netQty),
+    );
+    checkEq(
+      "and the issue moved NO value out of inventory, so the sub-ledger and GL 1200 stay reconciled mid-run instead of diverging until completion",
+      (await gl(INVENTORY)) - inventoryGlBeforeIssue,
+      0,
+    );
+    checkEq("the mid-run reconciliation confirms it", (await ctx.invariants()).inventory, 0);
 
     const received = await req("POST", "/manufacturing/work-orders/SCN-X-WO-1/receive", { producedQty: "10" });
     check("the finished goods are received", received.status === 200, `status ${received.status} ${JSON.stringify(received.body).slice(0, 250)}`);
     const completed = await req("POST", "/manufacturing/work-orders/SCN-X-WO-1/complete", {});
     check("the work order completes", completed.status === 200, `status ${completed.status} ${JSON.stringify(completed.body).slice(0, 250)}`);
 
+    checkEq("receiving the product empties مستودع التشغيل — the material is now the product", (await stock(rawId, "WH-WIP")).onHand, 0);
     const fg = await stock(finishedId);
     checkEq("10 finished units exist", fg.onHand, 10);
     checkEq("each carries the 2 × 25 of material it consumed — value moved, it was not invented", fg.averageCost, 50);

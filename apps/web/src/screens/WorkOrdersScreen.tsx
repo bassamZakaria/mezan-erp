@@ -308,12 +308,13 @@ function WorkOrderDetail({
         { label: t("workOrders.plannedQuantity"), value: <span className="mz-num">{order.plannedQty}</span> },
         { label: t("workOrders.quantityProduced"), value: <span className="mz-num">{order.producedQty}</span> },
         { label: t("workOrders.rawMaterialsWarehouse"), value: warehouseName(order.sourceWarehouseId) },
+        { label: t("workOrders.wipWarehouse"), value: order.wipWarehouseId === "" ? "—" : warehouseName(order.wipWarehouseId) },
         { label: t("workOrders.finishedGoodsWarehouse"), value: warehouseName(order.destinationWarehouseId) },
         { label: t("workOrders.priority"), value: priorityLabel(order.priority, t) },
         { label: t("workOrders.workInProgressValue"), value: <MoneyValue value={num(order.wipTotal)} /> },
       ]}
       effects={[
-        t("workOrders.issuingMaterialsReducesRawStock"),
+        t("workOrders.issuingMaterialsMovesRawStockToWip"),
         t("workOrders.costMaterialsLabourAndOverhead"),
         t("workOrders.theFinishedProductOnlyEnters"),
       ]}
@@ -342,6 +343,7 @@ function WorkOrderDetail({
                     <th className="px-[12px] py-[9px] text-end">{t("workOrders.issued")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("workOrders.returned")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("workOrders.net")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("workOrders.onTheFloor")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("workOrders.shortage")}</th>
                   </tr>
                 </thead>
@@ -354,6 +356,15 @@ function WorkOrderDetail({
                       <td className="mz-num px-[12px] py-[10px] text-end">{m.issuedQty}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{m.returnedQty}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{m.netQty}</td>
+                      {/* The WAREHOUSE's total for this component, deliberately not
+                          styled as a mismatch against this order's `netQty`: مستودع
+                          التشغيل is shared, so the figure a floor count settles
+                          against is the sum of every open order's claim, not one
+                          order's. Presenting them as a matching pair reported a
+                          just-created order as 0 against another order's 7.5. */}
+                      <td className="mz-num px-[12px] py-[10px] text-end text-ink-muted">
+                        {m.wipOnHandQty ?? "—"}
+                      </td>
                       <td className={`mz-num px-[12px] py-[10px] text-end ${Number(m.shortageQty ?? 0) > 0 ? "font-bold text-danger-ink" : "text-ink-faint"}`}>
                         {m.shortageQty ?? "—"}
                       </td>
@@ -388,7 +399,10 @@ function WorkOrderDetail({
             <ActivityTable
               head={[
                 t("common.item"),
-                t("workOrders.rawMaterialsWarehouse"),
+                // Not "components warehouse": an issue is a transfer, so this
+                // column carries the raw store on the OUT leg and مستودع التشغيل
+                // on the IN leg of the very same row pair.
+                t("common.warehouse"),
                 t("workOrders.direction.in"),
                 t("common.qty"),
                 t("workOrders.materialCost"),
@@ -415,7 +429,7 @@ function WorkOrderDetail({
             <ActivityTable
               head={[
                 t("common.item"),
-                t("workOrders.finishedGoodsWarehouse"),
+                t("common.warehouse"),
                 t("common.qty"),
                 t("workOrders.materialCost"),
                 t("workOrders.station"),
@@ -495,10 +509,22 @@ export function WorkOrdersScreen() {
   }, [items]);
   const bomOptions: EntityPickerOption[] = boms.map((b) => ({ id: b.id, label: `${b.number} — ${itemName(b.productItemId)}`, sublabel: `v${b.version}` }));
   const warehouseOptions: EntityPickerOption[] = warehouses.map((w) => ({ id: w.id, label: nameOf(w), sublabel: w.code }));
+  /**
+   * مستودع التشغيل defaults to the shop's PRODUCTION warehouse when it has one.
+   * A shop normally has exactly one floor, and making the operator pick it on
+   * every order is how they end up pointing it at the raw store.
+   */
+  const defaultWipWarehouse = useMemo(() => {
+    const production = warehouses.find((w) => w.type === "PRODUCTION" && w.active);
+    return production ? { id: production.id, label: nameOf(production), sublabel: production.code } : null;
+  }, [warehouses, nameOf]);
+  // `nameOf` is locale-dependent, so it belongs in the dependency list: without
+  // it the map was built once at the locale of first render and kept serving
+  // English warehouse names after a switch to Arabic.
   const warehouseName = useMemo(() => {
     const map = new Map(warehouses.map((w) => [w.id, nameOf(w)]));
     return (id: string) => map.get(id) ?? id;
-  }, [warehouses]);
+  }, [warehouses, nameOf]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<WorkOrderStatusRecord | "all">("all");
@@ -511,6 +537,7 @@ export function WorkOrdersScreen() {
   const [bom, setBom] = useState<EntityPickerOption | null>(null);
   const [plannedQty, setPlannedQty] = useState(1);
   const [sourceWarehouse, setSourceWarehouse] = useState<EntityPickerOption | null>(null);
+  const [wipWarehouse, setWipWarehouse] = useState<EntityPickerOption | null>(null);
   const [destinationWarehouse, setDestinationWarehouse] = useState<EntityPickerOption | null>(null);
   const [priority, setPriority] = useState<"low" | "normal" | "high">("normal");
   const [scheduledStartDate, setScheduledStartDate] = useState(today());
@@ -581,6 +608,7 @@ export function WorkOrdersScreen() {
     setBom(null);
     setPlannedQty(1);
     setSourceWarehouse(null);
+    setWipWarehouse(defaultWipWarehouse);
     setDestinationWarehouse(null);
     setPriority("normal");
     setScheduledStartDate(today());
@@ -590,10 +618,15 @@ export function WorkOrdersScreen() {
     setPanelOpen(true);
   }
 
-  const canSave = bom !== null && sourceWarehouse !== null && destinationWarehouse !== null && plannedQty > 0;
+  const canSave =
+    bom !== null &&
+    sourceWarehouse !== null &&
+    wipWarehouse !== null &&
+    destinationWarehouse !== null &&
+    plannedQty > 0;
 
   async function save() {
-    if (!bom || !sourceWarehouse || !destinationWarehouse) return;
+    if (!bom || !sourceWarehouse || !wipWarehouse || !destinationWarehouse) return;
     setFormError(null);
     try {
       await createOrder.mutateAsync({
@@ -601,6 +634,7 @@ export function WorkOrdersScreen() {
         bomId: bom.id,
         plannedQty: String(plannedQty),
         sourceWarehouseId: sourceWarehouse.id,
+        wipWarehouseId: wipWarehouse.id,
         destinationWarehouseId: destinationWarehouse.id,
         priority,
         scheduledStartDate,
@@ -680,6 +714,13 @@ export function WorkOrdersScreen() {
         <EntityPicker label={t("workOrders.billOfMaterials")} value={bom} onChange={setBom} options={bomOptions} placeholder={t("workOrders.chooseABillOfMaterials")} />
         <NumberField label={t("workOrders.plannedQuantity")} value={plannedQty} min={0} onChange={setPlannedQty} />
         <EntityPicker label={t("workOrders.rawMaterialsWarehouse2")} value={sourceWarehouse} onChange={setSourceWarehouse} options={warehouseOptions} placeholder={t("workOrders.chooseAWarehouse")} />
+        <EntityPicker
+          label={t("workOrders.wipWarehouse2")}
+          value={wipWarehouse}
+          onChange={setWipWarehouse}
+          options={warehouseOptions}
+          placeholder={t("workOrders.chooseAWarehouse")}
+        />
         <EntityPicker
           label={t("workOrders.finishedGoodsWarehouse2")}
           value={destinationWarehouse}

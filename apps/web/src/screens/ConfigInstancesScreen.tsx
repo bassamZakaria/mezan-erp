@@ -207,6 +207,11 @@ export function ConfigInstancesScreen() {
   const productOptions: EntityPickerOption[] = products.map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code }));
   const customerOptions: EntityPickerOption[] = customers.map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code }));
   const warehouseOptions: EntityPickerOption[] = warehouses.map((w) => ({ id: w.id, label: nameOf(w), sublabel: w.code }));
+  /** مستودع التشغيل defaults to the shop's PRODUCTION warehouse when it has one. */
+  const defaultWipWarehouse = useMemo(() => {
+    const production = warehouses.find((w) => w.type === "PRODUCTION" && w.active);
+    return production ? { id: production.id, label: nameOf(production), sublabel: production.code } : null;
+  }, [warehouses, nameOf]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
@@ -222,6 +227,7 @@ export function ConfigInstancesScreen() {
   const [sellUnitPrice, setSellUnitPrice] = useState<number | null>(null);
   const [notesText, setNotesText] = useState("");
   const [sourceWarehouse, setSourceWarehouse] = useState<EntityPickerOption | null>(null);
+  const [wipWarehouse, setWipWarehouse] = useState<EntityPickerOption | null>(null);
   const [destinationWarehouse, setDestinationWarehouse] = useState<EntityPickerOption | null>(null);
   const [scheduledStartDate, setScheduledStartDate] = useState(today());
   const [scheduledEndDate, setScheduledEndDate] = useState("");
@@ -293,6 +299,7 @@ export function ConfigInstancesScreen() {
     setSellUnitPrice(null);
     setNotesText("");
     setSourceWarehouse(null);
+    setWipWarehouse(defaultWipWarehouse);
     setDestinationWarehouse(null);
     setScheduledStartDate(today());
     setScheduledEndDate("");
@@ -304,12 +311,13 @@ export function ConfigInstancesScreen() {
   const canSave =
     product !== null &&
     sourceWarehouse !== null &&
+    wipWarehouse !== null &&
     destinationWarehouse !== null &&
     qty > 0 &&
     (selectedProduct?.inputs.every((i) => (spec[i.id] ?? "").trim() !== "") ?? false);
 
   async function save() {
-    if (!product || !sourceWarehouse || !destinationWarehouse) return;
+    if (!product || !sourceWarehouse || !wipWarehouse || !destinationWarehouse) return;
     setFormError(null);
     try {
       await createInstance.mutateAsync({
@@ -321,6 +329,7 @@ export function ConfigInstancesScreen() {
         sellUnitPrice: sellUnitPrice !== null && sellUnitPrice > 0 ? String(sellUnitPrice) : null,
         notes: notesText.trim() === "" ? null : notesText.trim(),
         sourceWarehouseId: sourceWarehouse.id,
+        wipWarehouseId: wipWarehouse.id,
         destinationWarehouseId: destinationWarehouse.id,
         scheduledStartDate,
         scheduledEndDate: scheduledEndDate.trim() === "" ? null : scheduledEndDate,
@@ -407,6 +416,13 @@ export function ConfigInstancesScreen() {
         <EntityPicker label={t("common.customer")} value={customer} onChange={setCustomer} options={customerOptions} placeholder={t("customOrders.noCustomer")} />
         <TextField label={t("common.notes")} value={notesText} onChange={setNotesText} />
         <EntityPicker label={t("customOrders.rawMaterialsWarehouse")} value={sourceWarehouse} onChange={setSourceWarehouse} options={warehouseOptions} placeholder={t("customOrders.chooseAWarehouse")} />
+        <EntityPicker
+          label={t("customOrders.wipWarehouse")}
+          value={wipWarehouse}
+          onChange={setWipWarehouse}
+          options={warehouseOptions}
+          placeholder={t("customOrders.chooseAWarehouse")}
+        />
         <EntityPicker
           label={t("customOrders.finishedGoodsWarehouse")}
           value={destinationWarehouse}

@@ -588,6 +588,8 @@ export interface CreateAppOptions {
     readonly workStations: WorkStationRepository;
     /** المشغّلون — the employee registry an operator id on a shop-floor action is resolved against. */
     readonly operators?: { findById(id: string): Promise<{ id: string; fullName: string } | null> };
+    /** المستودعات — the registry a work order's raw / WIP / finished-goods ids are resolved against. */
+    readonly warehouses?: ManufacturingRoutesDeps["warehouses"];
     readonly numbering: NextNumberService;
     readonly stock: StockLedgerService;
     /** On-hand per (item, warehouse) for the materials tab's available/shortage columns (R9.2). */
@@ -1316,6 +1318,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           configInstances: mfg.configInstances,
           workStations: mfg.workStations,
           operators: mfg.operators,
+          warehouses: mfg.warehouses,
           numbering: mfg.numbering,
           stock: mfg.stock,
           positions: mfg.positions,

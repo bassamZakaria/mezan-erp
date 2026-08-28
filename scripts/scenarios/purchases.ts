@@ -1090,8 +1090,15 @@ export async function run(ctx: Ctx): Promise<void> {
       // The seeded run issued at خط الخلط and returned at خط التعبئة, within the
       // same millisecond. Joining the attribution on the timestamp reported the
       // LAST station on every row; the join is on the movement's own reference.
-      const issued = movements.filter((m: any) => m.direction.toUpperCase() === "OUT");
-      const returned = movements.filter((m: any) => m.direction.toUpperCase() === "IN");
+      //
+      // Partitioned by that reference, NOT by direction: since D63 gave WIP a
+      // physical address an issue is a transfer and produces two legs — an OUT
+      // of the raw store and an IN to مستودع التشغيل — so "OUT" no longer means
+      // "issue" and "IN" no longer means "return".
+      const startingWith = (...prefixes: string[]) =>
+        movements.filter((m: any) => prefixes.some((p) => m.id.startsWith(p)));
+      const issued = startingWith("WO-ISSUE:WO-DEMO-4", "WO-XISSUE:WO-DEMO-4");
+      const returned = startingWith("WO-RETURN:WO-DEMO-4");
       check(
         "the issues are attributed to the station they were actually made at (WST-DEMO-1), not to whichever action happened to be logged last",
         issued.length > 0 && issued.every((m: any) => m.stationId === "WST-DEMO-1" && m.operatorId === "EMP-DEMO-3"),
@@ -1101,6 +1108,22 @@ export async function run(ctx: Ctx): Promise<void> {
         "and the return to its own station (WST-DEMO-2) and operator — two actions one millisecond apart keep two attributions",
         returned.length > 0 && returned.every((m: any) => m.stationId === "WST-DEMO-2" && m.operatorId === "EMP-DEMO-4"),
         returned.map((m: any) => `${m.id}=${m.stationId}/${m.operatorId}`).join(" · "),
+      );
+
+      // D63 — issuing material moves it to a PLACE, it does not delete it. Every
+      // issue leg leaves WH-MAIN and lands in WH-WIP, so the quantity standing on
+      // the floor is something a stock count can be held against.
+      const issueOut = issued.filter((m: any) => m.direction.toUpperCase() === "OUT");
+      const issueIn = issued.filter((m: any) => m.direction.toUpperCase() === "IN");
+      check(
+        "issuing material is a TRANSFER: every OUT of the raw store has a matching IN to مستودع التشغيل",
+        issueOut.length > 0 && issueOut.length === issueIn.length,
+        `${issueOut.length} out / ${issueIn.length} in`,
+      );
+      check(
+        "and the IN leg lands in the work order's WIP warehouse, not back where it came from",
+        issueIn.length > 0 && issueIn.every((m: any) => m.warehouseId === "WH-WIP"),
+        issueIn.map((m: any) => `${m.id}@${m.warehouseId}`).join(" · "),
       );
 
       // The ids are checked against their registries, not trusted.

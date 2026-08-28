@@ -347,6 +347,7 @@ async function completingAWorkOrderPostsToGl1200_D3(ctx: Ctx): Promise<void> {
     bomId: "BOM-DEMO-1",
     plannedQty: "10",
     sourceWarehouseId: "WH-MAIN",
+    wipWarehouseId: "WH-WIP",
     destinationWarehouseId: "WH-MAIN",
     scheduledStartDate: "2026-08-24",
   });

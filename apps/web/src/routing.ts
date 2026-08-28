@@ -46,7 +46,6 @@ const UNLISTED_SCREEN_GROUP: Record<string, string> = {
   "product-templates": "stock",
   "configurable-products": "stock",
   "item-specifications": "stock",
-  "stock-balance": "stock",
   "report-inventory-movement": "stock",
   "report-inventory-expiring": "stock",
   "report-inventory-slow-moving": "stock",

@@ -123,9 +123,19 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "stock",
     defaultCollapsed: true,
-    itemKeys: ["inventory-hub"],
+    // Same treatment as التصنيع: the bar carries the destinations, so the
+    // shelf goes and the overview keeps no buttons of its own. أرصدة المخزون
+    // joins them — it was reachable only from a quick action on the overview,
+    // which is the screen it answers the question OF.
+    itemKeys: [
+      "inventory-hub",
+      "stock-balance",
+      "stock-transfers",
+      "stock-adjustments",
+      "physical-counts",
+      "writedown-runs",
+    ],
     sections: [
-      { key: "daily", itemKeys: ["stock-transfers", "stock-adjustments", "physical-counts", "writedown-runs"] },
       {
         key: "reports",
         defaultCollapsed: true,

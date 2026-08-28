@@ -16,12 +16,15 @@ import { useAppTranslation, type AppTranslationKey } from "../../i18n";
  * fabricated "recent items" ordering.
  */
 
-const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
-  { label: "inventoryHub.action.newItem", screen: "items" },
-  { label: "inventoryHub.action.balances", screen: "stock-balance" },
-  { label: "inventoryHub.action.transfer", screen: "stock-transfers" },
-  { label: "inventoryHub.action.count", screen: "physical-counts" },
-];
+/**
+ * NO QUICK ACTIONS. Every destination this overview used to repeat is a chip
+ * on the bar above it — أرصدة المخزون، تحويلات، تسويات، الجرد الفعلي — and a
+ * button that opens the same screen as a chip two centimetres away is a second
+ * name for one place. «صنف جديد» went too: creating an item belongs to
+ * الأصناف, which owns the form and its validation, and it is a workspace of
+ * its own now.
+ */
+const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [];
 
 const STOCK_LEVELS_PARAMS = { warehouseId: "", search: "" };
 

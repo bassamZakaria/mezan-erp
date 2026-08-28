@@ -1300,7 +1300,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       post: async (posting: ManufacturingGlPosting) => {
         await postJournalEntry(
           {
-            id: `WO-JE:${posting.sourceDocId}`,
+            id: posting.entryRef ?? `WO-JE:${posting.sourceDocId}`,
             date: posting.date,
             memo: posting.memo,
             source: "system",

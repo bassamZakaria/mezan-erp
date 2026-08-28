@@ -131,6 +131,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "5121", code: "5121", nameAr: "بدلات ومزايا العاملين", nameEn: "Staff Allowances & Benefits", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5200", code: "5200", nameAr: "مصروفات الشحن والنقل", nameEn: "Freight & Shipping Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5210", code: "5210", nameAr: "المصاريف المحمّلة", nameEn: "Overhead Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5220", code: "5220", nameAr: "فاقد التصنيع غير الطبيعي", nameEn: "Abnormal Manufacturing Scrap", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5400", code: "5400", nameAr: "إهلاك الأصول", nameEn: "Depreciation Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5450", code: "5450", nameAr: "خسارة بيع الأصول", nameEn: "Loss on Asset Disposal", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   // Likewise distinct from 5900 عجز الصندوق: rent paid, maintenance, utilities.

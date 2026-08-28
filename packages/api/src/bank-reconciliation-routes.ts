@@ -13,6 +13,7 @@ import {
   StatementLineNotFoundError,
   type BankStatement,
   type BankReconciliationServiceDeps,
+  type MatchedStatementLine,
   type StatementLine,
 } from "@mezan/domain";
 import {
@@ -44,7 +45,7 @@ function serializeStatement(s: BankStatement) {
   };
 }
 
-function serializeLine(l: StatementLine) {
+function serializeLine(l: MatchedStatementLine) {
   return {
     id: l.id,
     statementId: l.statementId,
@@ -54,6 +55,7 @@ function serializeLine(l: StatementLine) {
     amount: l.amount.toString(),
     status: l.status,
     matchedEntryId: l.matchedEntryId,
+    matchedEntryNo: l.matchedEntryNo,
     matchedAt: l.matchedAt,
   };
 }
@@ -93,6 +95,14 @@ export function createBankReconciliationRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
   const service = new BankReconciliationService(deps);
+
+  /**
+   * Resolve one line's matched entry number. The routes that return a SINGLE
+   * line carry it too, so the screen shows «القيد: JE-000038» the moment a
+   * match is made rather than a UUID until the next full refetch.
+   */
+  const one = async (line: StatementLine): Promise<MatchedStatementLine> =>
+    (await service.withEntryNumbers([line]))[0] as MatchedStatementLine;
 
   app.get("/", gate("treasury.reconciliation.view"), async (c) => {
     const parsed = bankStatementListQuerySchema.safeParse({
@@ -140,7 +150,7 @@ export function createBankReconciliationRoutes(
   app.get("/:id", gate("treasury.reconciliation.view"), async (c) => {
     const statement = await service.findById(c.req.param("id"));
     if (!statement) return c.json({ error: "NOT_FOUND" }, 404);
-    const lines = await service.listLines(statement.id);
+    const lines = await service.listLinesWithEntryNumbers(statement.id);
     const summary = await service.matchSummary(statement.id);
     return c.json({ ...serializeStatement(statement), lines: lines.map(serializeLine), matchSummary: summary });
   });
@@ -171,7 +181,8 @@ export function createBankReconciliationRoutes(
         closingBalance: Money.fromMajor(d.closingBalance),
         statementNumber: d.statementNumber ?? null,
       });
-      return c.json({ ...serializeStatement(statement), lines: lines.map(serializeLine) }, 201);
+      const withNumbers = await service.withEntryNumbers(lines);
+      return c.json({ ...serializeStatement(statement), lines: withNumbers.map(serializeLine) }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -193,7 +204,7 @@ export function createBankReconciliationRoutes(
     }
     try {
       const line = await service.matchLine(c.req.param("id"), c.req.param("lineId"), parsed.data.entryId);
-      return c.json(serializeLine(line));
+      return c.json(serializeLine(await one(line)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -202,7 +213,7 @@ export function createBankReconciliationRoutes(
   app.post("/:id/lines/:lineId/unmatch", gate("treasury.reconciliation.match"), async (c) => {
     try {
       const line = await service.unmatchLine(c.req.param("id"), c.req.param("lineId"));
-      return c.json(serializeLine(line));
+      return c.json(serializeLine(await one(line)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -223,7 +234,7 @@ export function createBankReconciliationRoutes(
         reference: d.reference ?? null,
         amount: Money.fromMajor(d.amount),
       });
-      return c.json(serializeLine(line), 201);
+      return c.json(serializeLine(await one(line)), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

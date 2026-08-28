@@ -55,6 +55,12 @@ export const statementLineSchema = z.object({
   amount: z.string(),
   status: statementLineStatusSchema,
   matchedEntryId: z.string().nullable(),
+  /**
+   * The matched entry's human number (JE-000038). Null when the line is
+   * unmatched, and also when the entry carries no number of its own — the
+   * screen decides what to show then; the server never substitutes the id.
+   */
+  matchedEntryNo: z.string().nullable(),
   matchedAt: z.string().nullable(),
 });
 

@@ -29,10 +29,10 @@
  * receipt (stock) vs. invoice (GL).
  */
 
-import { Money, Qty } from "../money/index.js";
+import { Money, Qty, allocate } from "../money/index.js";
 import { unitCostOf } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
-import { type Bom, type BomRepository, bomLineEffectiveQty } from "./bom.js";
+import { type Bom, type BomRepository, bomLineEffectiveQty, wasteAllowanceOf } from "./bom.js";
 import {
   type ManufacturingGlPosting,
   type ManufacturingGlPostingLine,
@@ -92,7 +92,9 @@ export interface WorkOrderCostLogEntry {
  * movement it produced is `<ref>:<lineIndex>` — that is the join key the
  * activity feed uses. It is deliberately NOT the timestamp: several actions on
  * one order can share a millisecond, and keying on `at` silently reported the
- * last one's station on all of them. `null` for a waste log, which moves no stock.
+ * last one's station on all of them. It is `null` only on waste entries written
+ * before scrap moved stock at all (D64); scrap now carries its own issue ref
+ * like every other movement.
  */
 export interface WorkOrderShopFloorEntry {
   readonly kind: "issue" | "extra_issue" | "return" | "waste" | "receive";
@@ -102,11 +104,33 @@ export interface WorkOrderShopFloorEntry {
   readonly at: string;
 }
 
+/**
+ * One تسجيل فاقد line.
+ *
+ * `qty` is what was scrapped. It is split against the BOM's own waste
+ * allowance: `normalQty` is loss the BOM planned for, whose cost stays
+ * capitalised in the order and reaches the finished product; `abnormalQty` is
+ * loss beyond the allowance, expensed the day it happened (EAS/IAS 2).
+ *
+ * `stockMoved` is false ONLY on entries written before waste moved stock at
+ * all (D64). Those rows are left exactly as they were — their quantity is
+ * still standing in مستودع التشغيل and is still consumed at receipt — because
+ * retro-moving stock for a run that has already closed would restate books
+ * nobody asked us to restate. They contribute nothing to the WIP quantity or
+ * to either waste cost.
+ */
 export interface WorkOrderWasteEntry {
   readonly itemId: string;
   readonly qty: Qty;
   readonly notes: string | null;
   readonly at: string;
+  readonly stockMoved: boolean;
+  readonly normalQty: Qty;
+  readonly abnormalQty: Qty;
+  /** Cost of `normalQty` at the moving average it left مستودع التشغيل at. */
+  readonly normalCost: Money;
+  /** Cost of `abnormalQty` — the amount posted to the scrap expense account. */
+  readonly abnormalCost: Money;
 }
 
 export interface WorkOrder {
@@ -340,9 +364,30 @@ function wipWarehouseOf(order: WorkOrder): string {
   return order.wipWarehouseId;
 }
 
-/** Material still standing in مستودع التشغيل for this order: issued − returned. */
-export function workOrderWipQty(m: Pick<WorkOrderMaterial, "issuedQty" | "returnedQty">): Qty {
-  return m.issuedQty.subtract(m.returnedQty);
+/**
+ * Quantity scrapped OUT of مستودع التشغيل for one item — the waste entries that
+ * actually moved stock. Legacy entries (`stockMoved: false`) count zero: their
+ * material is still physically represented in WIP.
+ */
+export function workOrderWastedQty(order: Pick<WorkOrder, "wasteLog">, itemId: string): Qty {
+  return order.wasteLog
+    .filter((w) => w.stockMoved && w.itemId === itemId)
+    .reduce((sum, w) => sum.add(w.qty), Qty.zero());
+}
+
+/** Normal (allowed) scrap cost still capitalised in this order — it reaches the product. */
+export function workOrderNormalWasteCost(order: Pick<WorkOrder, "wasteLog">): Money {
+  return Money.sum(order.wasteLog.map((w) => w.normalCost));
+}
+
+/** Abnormal scrap cost already expensed — never part of the product's cost. */
+export function workOrderAbnormalWasteCost(order: Pick<WorkOrder, "wasteLog">): Money {
+  return Money.sum(order.wasteLog.map((w) => w.abnormalCost));
+}
+
+/** Material still standing in مستودع التشغيل for this order: issued − returned − scrapped. */
+export function workOrderWipQty(order: Pick<WorkOrder, "wasteLog">, m: Pick<WorkOrderMaterial, "itemId" | "issuedQty" | "returnedQty">): Qty {
+  return m.issuedQty.subtract(m.returnedQty).subtract(workOrderWastedQty(order, m.itemId));
 }
 
 /**
@@ -539,7 +584,7 @@ export async function returnWorkOrderMaterials(
   const byItem = new Map(order.materials.map((m) => [m.itemId, m]));
   for (const l of lines) {
     const mat = byItem.get(l.itemId);
-    const outstanding = mat ? workOrderWipQty(mat) : Qty.zero();
+    const outstanding = mat ? workOrderWipQty(order, mat) : Qty.zero();
     if (!mat || l.qty.compare(outstanding) > 0) {
       throw new InvalidManufacturingDocumentError([
         `cannot return ${l.qty.toString()} of "${l.itemId}"; only ${outstanding.toString()} outstanding`,
@@ -579,26 +624,173 @@ export async function returnWorkOrderMaterials(
   return updated;
 }
 
-/** تسجيل فاقد (Log waste): record wasted material (informational — no stock effect). */
+/** What تسجيل فاقد needs beyond the order itself: the stock ledger and a GL to expense abnormal loss into. */
+export interface WorkOrderWasteDeps extends WorkOrderStockDeps {
+  readonly gl: ManufacturingGlPostingPort;
+  readonly accounts: WorkOrderWasteAccounts;
+}
+
+/** The accounts a scrap posting touches. */
+export interface WorkOrderWasteAccounts {
+  /** Credited for ALL scrap that left مستودع التشغيل — the control account the stock ledger moves value through. */
+  readonly rawInventoryAccountId: string;
+  /** Debited for scrap beyond the BOM allowance — a loss of this period. */
+  readonly abnormalScrapAccountId: string;
+  /** Debited for scrap within the allowance — still an asset, waiting for the product that absorbs it. */
+  readonly wipAccountId: string;
+}
+
+/**
+ * تسجيل فاقد (Log waste): material is destroyed on the floor, so it leaves
+ * مستودع التشغيل — and its cost is split against what the BOM planned for.
+ *
+ * This used to write a row into `wasteLog` and move nothing (D64), so a floor
+ * count disagreed with the system by exactly the scrapped quantity from the
+ * moment it was logged until the product was received.
+ *
+ * The split is the accounting standard, not a preference:
+ *   - up to the BOM's own waste allowance the loss is NORMAL. Its cost stays
+ *     capitalised in the order and reaches the finished product, which is what
+ *     `wastePercent` grossing up the required quantity already assumed. No GL
+ *     entry now — the completion posting credits inventory for it along with
+ *     everything else consumed.
+ *   - beyond the allowance the loss is ABNORMAL and belongs to the period it
+ *     happened in: Dr فاقد التصنيع غير الطبيعي / Cr المخزون, posted here, and
+ *     deliberately NOT added to `materialCost` so it never reaches the product.
+ *
+ * The allowance is consumed across the whole run, not per entry: scrapping 3%
+ * twice against a 5% allowance makes the second entry 2% normal and 1%
+ * abnormal. The value split uses the cost the ledger says actually left, and
+ * `allocate` so the two parts sum to it EXACTLY.
+ */
 export async function logWorkOrderWaste(
   id: string,
   entries: readonly { itemId: string; qty: Qty; notes?: string | null }[],
-  deps: { workOrders: WorkOrderRepository; now?: () => string },
+  deps: WorkOrderWasteDeps,
   attribution?: ShopFloorAttribution,
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "materials_issued" && order.stage !== "product_received") {
     throw new WorkOrderStageError("log-waste", order.stage);
   }
+  const wipWarehouseId = wipWarehouseOf(order);
+  if (entries.length === 0) throw new InvalidManufacturingDocumentError(["no waste to log"]);
+
+  // Aggregate per item first: two lines for the same item in one call must be
+  // checked against the outstanding quantity TOGETHER, or each passes alone
+  // and the pair scraps more than the floor holds.
+  const wantedByItem = new Map<string, Qty>();
+  for (const e of entries) {
+    if (e.qty.isZero() || e.qty.isNegative()) {
+      throw new InvalidManufacturingDocumentError([`wasted quantity for "${e.itemId}" must be positive`]);
+    }
+    wantedByItem.set(e.itemId, (wantedByItem.get(e.itemId) ?? Qty.zero()).add(e.qty));
+  }
+
+  const byItem = new Map(order.materials.map((m) => [m.itemId, m]));
+  for (const [itemId, qty] of wantedByItem) {
+    const mat = byItem.get(itemId);
+    const outstanding = mat ? workOrderWipQty(order, mat) : Qty.zero();
+    if (!mat || qty.compare(outstanding) > 0) {
+      throw new InvalidManufacturingDocumentError([
+        `cannot scrap ${qty.toString()} of "${itemId}"; only ${outstanding.toString()} standing in مستودع التشغيل`,
+      ]);
+    }
+  }
+
   const at = nowIso(deps);
-  const wasteLog = [
-    ...order.wasteLog,
-    ...entries.map((e) => ({ itemId: e.itemId, qty: e.qty, notes: e.notes ?? null, at })),
-  ];
+  const wasteId = `WO-WASTE:${order.id}:${at}`;
+  const issueLines = [...wantedByItem].map(([itemId, qty]) => ({ itemId, qty }));
+  // No `gl` on the command: the normal half is credited to inventory later, by
+  // the completion posting, and the abnormal half is posted here. Letting
+  // postIssue post the whole cost would double-count the normal part.
+  const issued = await deps.stock.postIssue({
+    issueId: wasteId,
+    sourceDocType: "WORK_ORDER",
+    sourceDocId: order.id,
+    sourceDocNumber: order.number,
+    warehouseId: wipWarehouseId,
+    lines: issueLines,
+    occurredAt: at,
+  });
+
+  const costByItem = new Map<string, Money>();
+  for (const l of issued.lines) {
+    costByItem.set(l.itemId, (costByItem.get(l.itemId) ?? Money.zero()).add(l.cost));
+  }
+
+  // Allowance left per item, after everything already scrapped as normal.
+  const allowanceLeft = new Map<string, Qty>();
+  for (const [itemId, mat] of byItem) {
+    const used = order.wasteLog
+      .filter((w) => w.itemId === itemId)
+      .reduce((sum, w) => sum.add(w.normalQty), Qty.zero());
+    const total = wasteAllowanceOf(mat.requiredQty, mat.wastePercent);
+    allowanceLeft.set(itemId, total.compare(used) > 0 ? total.subtract(used) : Qty.zero());
+  }
+
+  const newEntries: WorkOrderWasteEntry[] = [];
+  for (const e of entries) {
+    const left = allowanceLeft.get(e.itemId) ?? Qty.zero();
+    const normalQty = left.compare(e.qty) >= 0 ? e.qty : left;
+    const abnormalQty = e.qty.subtract(normalQty);
+    allowanceLeft.set(e.itemId, left.subtract(normalQty));
+
+    // The item's whole cost this call, shared out across ITS entries by
+    // quantity, then split normal/abnormal — both with largest-remainder, so
+    // nothing is created or lost by rounding.
+    const itemTotalQty = wantedByItem.get(e.itemId) ?? e.qty;
+    const itemCost = costByItem.get(e.itemId) ?? Money.zero();
+    const [entryCost] = allocate(itemCost, [e.qty.scaled, itemTotalQty.scaled - e.qty.scaled]);
+    const [normalCost, abnormalCost] = allocate(entryCost ?? Money.zero(), [normalQty.scaled, abnormalQty.scaled]);
+
+    newEntries.push({
+      itemId: e.itemId,
+      qty: e.qty,
+      notes: e.notes ?? null,
+      at,
+      stockMoved: true,
+      normalQty,
+      abnormalQty,
+      normalCost: normalCost ?? Money.zero(),
+      abnormalCost: abnormalCost ?? Money.zero(),
+    });
+  }
+
+  // ALL of it leaves inventory, because all of it is physically gone — so GL
+  // 1200 falls by exactly what the sub-ledger just lost, and the two never
+  // drift mid-run. Where the value goes is what the split decides: the normal
+  // part is still an asset and parks in إنتاج تحت التشغيل until the product
+  // that absorbs it is received; the abnormal part is a loss of this period.
+  const normalTotal = Money.sum(newEntries.map((e) => e.normalCost));
+  const abnormalTotal = Money.sum(newEntries.map((e) => e.abnormalCost));
+  const scrapTotal = normalTotal.add(abnormalTotal);
+  if (scrapTotal.scaled !== 0n) {
+    const glLines: ManufacturingGlPostingLine[] = [];
+    if (abnormalTotal.scaled !== 0n) {
+      glLines.push({ accountId: deps.accounts.abnormalScrapAccountId, debit: abnormalTotal, credit: Money.zero() });
+    }
+    if (normalTotal.scaled !== 0n) {
+      glLines.push({ accountId: deps.accounts.wipAccountId, debit: normalTotal, credit: Money.zero() });
+    }
+    glLines.push({ accountId: deps.accounts.rawInventoryAccountId, debit: Money.zero(), credit: scrapTotal });
+    await deps.gl.post({
+      sourceDocType: "WORK_ORDER",
+      sourceDocId: order.id,
+      sourceDocNumber: order.number,
+      date: at,
+      memo: `فاقد أمر التصنيع ${order.number}`,
+      // Scrap can be logged many times on one order, so the ref carries the
+      // waste id (which is already unique per call) rather than the order's.
+      entryRef: `WO-WASTE-JE:${wasteId}`,
+      lines: glLines,
+    });
+  }
+
   const updated: WorkOrder = {
     ...order,
-    wasteLog,
-    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("waste", attribution, at, null)],
+    wasteLog: [...order.wasteLog, ...newEntries],
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("waste", attribution, at, wasteId)],
   };
   await deps.workOrders.update(updated);
   return updated;
@@ -654,10 +846,15 @@ export async function logWorkOrderCost(
  *
  * Both moves are stock-only (no GL); إكمال أمر العمل posts the ledger.
  */
+export interface WorkOrderReceiveDeps extends WorkOrderStockDeps {
+  readonly gl: ManufacturingGlPostingPort;
+  readonly accounts: Pick<WorkOrderWasteAccounts, "rawInventoryAccountId" | "wipAccountId">;
+}
+
 export async function receiveWorkOrderProduct(
   id: string,
   producedQty: Qty,
-  deps: WorkOrderStockDeps,
+  deps: WorkOrderReceiveDeps,
   attribution?: ShopFloorAttribution,
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
@@ -669,7 +866,7 @@ export async function receiveWorkOrderProduct(
 
   const occurredAt = nowIso(deps);
   const consumeLines = order.materials
-    .map((m) => ({ itemId: m.itemId, qty: workOrderWipQty(m) }))
+    .map((m) => ({ itemId: m.itemId, qty: workOrderWipQty(order, m) }))
     .filter((l) => l.qty.scaled > 0n);
 
   const receiptId = `WO-RECEIVE:${order.id}`;
@@ -693,7 +890,13 @@ export async function receiveWorkOrderProduct(
     consumedCost = consumed.totalCost;
   }
 
-  const wip = workOrderWipTotal({ ...order, materialCost: consumedCost });
+  // Normal scrap left مستودع التشغيل earlier but its cost is still the
+  // product's — `consumedCost` covers only what was standing at receipt, so
+  // adding it back is what keeps the unit cost the same as it was before waste
+  // moved stock at all. Abnormal scrap is deliberately absent: it was expensed
+  // the day it happened and must never reach the product.
+  const materialCost = consumedCost.add(workOrderNormalWasteCost(order));
+  const wip = workOrderWipTotal({ ...order, materialCost });
   const unitCost = unitCostOf(wip, producedQty);
   await deps.stock.postReceipt({
     receiptId,
@@ -705,11 +908,32 @@ export async function receiveWorkOrderProduct(
     occurredAt,
   });
 
+  // The normal scrap parked in إنتاج تحت التشغيل is now inside the finished
+  // goods the stock ledger just valued at `unitCost`, so it comes back to the
+  // inventory control account and 1250 returns to zero for this order. Without
+  // this the sub-ledger would rise by the scrap's value and GL 1200 would not.
+  const parkedWaste = workOrderNormalWasteCost(order);
+  if (parkedWaste.scaled !== 0n) {
+    await deps.gl.post({
+      sourceDocType: "WORK_ORDER",
+      sourceDocId: order.id,
+      sourceDocNumber: order.number,
+      date: occurredAt,
+      memo: `تحميل الفاقد الطبيعي على المنتج — أمر التصنيع ${order.number}`,
+      // Once per order: the stage guard admits exactly one receipt.
+      entryRef: `WO-RECEIVE-JE:${order.id}`,
+      lines: [
+        { accountId: deps.accounts.rawInventoryAccountId, debit: parkedWaste, credit: Money.zero() },
+        { accountId: deps.accounts.wipAccountId, debit: Money.zero(), credit: parkedWaste },
+      ],
+    });
+  }
+
   const updated: WorkOrder = {
     ...order,
     stage: "product_received",
     producedQty,
-    materialCost: consumedCost,
+    materialCost,
     receivedAt: occurredAt,
     shopFloorLog: [...order.shopFloorLog, shopFloorEntry("receive", attribution, occurredAt, receiptId)],
   };

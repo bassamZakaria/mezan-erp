@@ -88,6 +88,8 @@ async function newApp() {
         rawInventoryAccountId: "1300-raw",
         laborAppliedAccountId: "5100-labor",
         overheadAppliedAccountId: "5200-oh",
+  abnormalScrapAccountId: "5220",
+  wipAccountId: "1250",
       },
       resolveUnitCost: async (id) => (await stock.getBalanceDetail(id, RAW)).averageCost,
       now: () => "2026-08-22T00:00:00.000Z",

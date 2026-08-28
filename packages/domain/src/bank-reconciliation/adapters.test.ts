@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 import { Money } from "../money/index.js";
 import { createTreasuryLedgerReader } from "./adapters.js";
 import type { AccountLedgerLine, LedgerRepository } from "../gl/ledger.js";
+import type { JournalEntry } from "../journal.js";
 import type { TreasuryAccount, TreasuryAccountRepository } from "../treasury-accounts/treasury-account.js";
 
-function fakeLedger(lines: AccountLedgerLine[]): Pick<LedgerRepository, "accountLedger"> {
+function fakeLedger(lines: AccountLedgerLine[]): Pick<LedgerRepository, "accountLedger" | "findById"> {
   return {
     async accountLedger(accountId, asOfDate) {
       return lines.filter((l) => (asOfDate ? l.date <= asOfDate : true));
+    },
+    async findById(id) {
+      const line = lines.find((l) => l.entryId === id);
+      return line ? ({ id: line.entryId, entryNo: line.entryNo } as unknown as JournalEntry) : null;
     },
   };
 }

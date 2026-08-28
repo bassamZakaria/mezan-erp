@@ -47,6 +47,7 @@ function line(overrides: Partial<StatementLineDTO> = {}): StatementLineDTO {
     amount: "1000.000000",
     status: "unmatched",
     matchedEntryId: null,
+    matchedEntryNo: null,
     matchedAt: null,
     ...overrides,
   };

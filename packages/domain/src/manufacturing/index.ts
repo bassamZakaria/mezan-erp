@@ -47,6 +47,7 @@ export {
   createBomVersion,
   deactivateBom,
   grossUpForWaste,
+  wasteAllowanceOf,
   bomLineEffectiveQty,
   bomMaterialCost,
   bomCostEstimate,

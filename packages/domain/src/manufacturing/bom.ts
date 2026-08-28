@@ -105,6 +105,26 @@ export function grossUpForWaste(qty: Qty, wastePercent: number): Qty {
   return Qty.fromScaled(qty.scaled + extra);
 }
 
+/**
+ * The waste ALLOWANCE already baked into a grossed-up quantity — the inverse
+ * reading of {@link grossUpForWaste}.
+ *
+ * `requiredQty` is net × (1 + p/100), so the allowance inside it is
+ * requiredQty × p / (100 + p), rounded HALF_UP at scale 1e-6. This is the line
+ * between normal and abnormal loss: scrap up to the allowance is what the BOM
+ * planned for and belongs in the product's cost; scrap beyond it is a loss of
+ * the period (EAS/IAS 2).
+ */
+export function wasteAllowanceOf(requiredQty: Qty, wastePercent: number): Qty {
+  if (wastePercent <= 0) return Qty.zero();
+  const wasteMicro = BigInt(Math.round(wastePercent * 1_000_000)); // waste% × 1e6
+  const denom = 100_000_000n + wasteMicro; // (100 + waste%) × 1e6
+  const num = requiredQty.scaled * wasteMicro;
+  const q = num / denom;
+  const rem = num % denom;
+  return Qty.fromScaled(rem * 2n >= denom ? q + 1n : q);
+}
+
 /** Effective (post-waste) required quantity for one BOM line. */
 export function bomLineEffectiveQty(line: Pick<BomLine, "qty" | "wastePercent">): Qty {
   return grossUpForWaste(line.qty, line.wastePercent);

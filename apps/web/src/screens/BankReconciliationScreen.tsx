@@ -754,7 +754,15 @@ function StatementLineRow({
 
       {matched ? (
         <div className="flex items-center justify-between gap-2">
-          <span className="mz-num truncate text-[11.5px] text-ink-muted">{t("bankRec.entry")} {line.matchedEntryId}</span>
+          {/*
+            The entry NUMBER, and the id only when the entry has no number yet
+            — a draft. Printing the raw UUID where JE-000038 belongs told the
+            operator nothing they could look up, and the picker they chose it
+            from had shown them the number a moment earlier.
+          */}
+          <span className="mz-num truncate text-[11.5px] text-ink-muted">
+            {t("bankRec.entry")} {line.matchedEntryNo ?? line.matchedEntryId}
+          </span>
           <Button size="sm" variant="danger-outline" disabled={locked || pending} onClick={onUnmatch}>
             {t("bankRec.unmatch")}
           </Button>

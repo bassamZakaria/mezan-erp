@@ -22,6 +22,17 @@ export interface TreasuryLedgerReader {
     fromDate: string,
     toDate: string,
   ): Promise<readonly TreasuryLedgerCandidate[]>;
+  /**
+   * The human entry NUMBER for each of `entryIds`, keyed by id; an id with no
+   * entry, or an entry that never got a number, is simply absent.
+   *
+   * A matched line stores only `matchedEntryId`, so without this the screen
+   * that shows the match has nothing but a UUID to print — and the candidate
+   * list cannot supply the number either, because `matchCandidates` excludes
+   * the entries that are already matched. The number has to be readable
+   * independently of the picker.
+   */
+  entryNumbersByIds(entryIds: readonly string[]): Promise<ReadonlyMap<string, string>>;
 }
 
 export interface MatchSuggestion {

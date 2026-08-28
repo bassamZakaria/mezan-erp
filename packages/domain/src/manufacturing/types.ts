@@ -103,6 +103,15 @@ export interface ManufacturingGlPosting {
   readonly date: string;
   readonly memo: string;
   readonly lines: readonly ManufacturingGlPostingLine[];
+  /**
+   * The journal entry's own id — what makes the posting idempotent.
+   *
+   * Omitted, it falls back to one id per work order, which is right only while
+   * an order posts ONCE. An order now also posts when scrap is logged and when
+   * the product absorbs it, so each of those names its own ref; sharing the
+   * completion id made the second posting fail as a duplicate.
+   */
+  readonly entryRef?: string;
 }
 
 export interface ManufacturingGlPostingPort {
@@ -118,4 +127,16 @@ export interface WorkOrderGlAccounts {
   readonly rawInventoryAccountId: string;
   readonly laborAppliedAccountId: string;
   readonly overheadAppliedAccountId: string;
+  /** Debited for scrap beyond the BOM's waste allowance, at the moment it is logged. */
+  readonly abnormalScrapAccountId: string;
+  /**
+   * إنتاج تحت التشغيل — parks the value of NORMAL scrap between the moment it
+   * is destroyed and the moment the product that absorbs it is received.
+   *
+   * Without it the material's value would be nowhere: the stock ledger has
+   * lost it (the material is gone) while the product carrying it does not
+   * exist yet, so the inventory sub-ledger would sit below GL 1200 for the
+   * rest of the run — the exact divergence class this system refuses.
+   */
+  readonly wipAccountId: string;
 }

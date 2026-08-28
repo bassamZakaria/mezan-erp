@@ -34,6 +34,8 @@ const ACCOUNTS: WorkOrderGlAccounts = {
   rawInventoryAccountId: "1300",
   laborAppliedAccountId: "5100",
   overheadAppliedAccountId: "5200",
+  abnormalScrapAccountId: "5220",
+  wipAccountId: "1250",
 };
 
 async function setup() {
@@ -132,7 +134,7 @@ describe("custom manufacturing order (config instance)", () => {
       { instances, boms, workOrders, products, numbering, resolveUnitCost, now },
     );
 
-    const woDeps = { workOrders, stock, now };
+    const woDeps = { workOrders, stock, now, gl, accounts: ACCOUNTS };
     await startWorkOrder(workOrder.id, woDeps);
     await issueWorkOrderMaterials(workOrder.id, woDeps);
     await receiveWorkOrderProduct(workOrder.id, Qty.fromMajor("2"), woDeps);

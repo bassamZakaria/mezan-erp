@@ -3235,6 +3235,12 @@ export interface WorkOrderWasteLogEntry {
   readonly qty: string;
   readonly notes: string | null;
   readonly at: string;
+  /** False on rows written before scrap moved stock (D64) — they are history, not a movement. */
+  readonly stockMoved: boolean;
+  readonly normalQty: string;
+  readonly abnormalQty: string;
+  readonly normalCost: string;
+  readonly abnormalCost: string;
 }
 
 export interface WorkOrderMaterialRecord {

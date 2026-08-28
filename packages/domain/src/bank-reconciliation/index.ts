@@ -41,5 +41,6 @@ export {
   type AddManualLineCommand,
   type BankReconciliationServiceDeps,
   type ImportStatementCommand,
+  type MatchedStatementLine,
   type MatchSummary,
 } from "./reconciliation-service.js";

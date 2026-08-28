@@ -234,6 +234,11 @@ const MANUFACTURING_GL_ACCOUNTS = {
   rawInventoryAccountId: "1200",
   laborAppliedAccountId: "5110",
   overheadAppliedAccountId: "5210",
+  // Scrap beyond the BOM's waste allowance is a loss of the period, not part
+  // of what the product cost to make (EAS/IAS 2), so it gets its own leaf
+  // rather than sharing 5070 with damaged stock in a warehouse.
+  abnormalScrapAccountId: "5220",
+  wipAccountId: "1250",
 };
 
 /**

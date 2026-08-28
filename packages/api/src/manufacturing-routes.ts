@@ -268,7 +268,17 @@ function serializeWorkOrder(o: WorkOrder, onHand?: ReadonlyMap<string, number>) 
     unitCost: num(unitCost),
     progress: workOrderProgress(o),
     costLog: o.costLog.map((c) => ({ kind: c.kind, amount: num(c.amount), notes: c.notes, at: c.at })),
-    wasteLog: o.wasteLog.map((w) => ({ itemId: w.itemId, qty: num(w.qty), notes: w.notes, at: w.at })),
+    wasteLog: o.wasteLog.map((w) => ({
+      itemId: w.itemId,
+      qty: num(w.qty),
+      notes: w.notes,
+      at: w.at,
+      stockMoved: w.stockMoved,
+      normalQty: num(w.normalQty),
+      abnormalQty: num(w.abnormalQty),
+      normalCost: num(w.normalCost),
+      abnormalCost: num(w.abnormalCost),
+    })),
     shopFloorLog: o.shopFloorLog.map((e) => ({ kind: e.kind, stationId: e.stationId, operatorId: e.operatorId, ref: e.ref, at: e.at })),
     configInstanceId: o.configInstanceId,
     glPosted: o.glPosted,
@@ -761,6 +771,8 @@ export function createManufacturingRoutes(
   });
 
   const stockDeps = () => ({ workOrders: deps.workOrders, stock: deps.stock, now: deps.now });
+  /** Stock deps plus the ledger — every stage that can move scrap value needs both. */
+  const stockGlDeps = () => ({ ...stockDeps(), gl: deps.gl, accounts: deps.accounts });
 
   app.post("/work-orders/:id/start", gate("manufacturing.wo.execute"), async (c) => {
     try {
@@ -820,7 +832,7 @@ export function createManufacturingRoutes(
       const order = await logWorkOrderWaste(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty), notes: l.notes })),
-        { workOrders: deps.workOrders, now: deps.now },
+        stockGlDeps(),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
@@ -851,7 +863,7 @@ export function createManufacturingRoutes(
       const order = await receiveWorkOrderProduct(
         c.req.param("id"),
         Qty.fromMajor(parsed.data.producedQty),
-        stockDeps(),
+        stockGlDeps(),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));

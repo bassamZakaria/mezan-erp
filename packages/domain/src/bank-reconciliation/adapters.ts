@@ -11,7 +11,7 @@ import type { TreasuryLedgerCandidate, TreasuryLedgerReader } from "./matching.j
 
 export interface TreasuryLedgerReaderDeps {
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
-  readonly ledger: Pick<LedgerRepository, "accountLedger">;
+  readonly ledger: Pick<LedgerRepository, "accountLedger" | "findById">;
 }
 
 function toCandidate(line: AccountLedgerLine): TreasuryLedgerCandidate {
@@ -33,6 +33,16 @@ export function createTreasuryLedgerReader(deps: TreasuryLedgerReaderDeps): Trea
       if (!account?.glAccountId) return [];
       const lines = await deps.ledger.accountLedger(account.glAccountId, toDate);
       return lines.filter((l) => l.date >= fromDate).map(toCandidate);
+    },
+
+    async entryNumbersByIds(entryIds) {
+      const unique = [...new Set(entryIds)];
+      const entries = await Promise.all(unique.map((id) => deps.ledger.findById(id)));
+      const byId = new Map<string, string>();
+      for (const entry of entries) {
+        if (entry?.entryNo) byId.set(entry.id, entry.entryNo);
+      }
+      return byId;
     },
   };
 }

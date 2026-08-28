@@ -75,4 +75,20 @@ export class FakeTreasuryLedgerReader implements TreasuryLedgerReader {
   async entriesForTreasuryAccount(treasuryAccountId: string, fromDate: string, toDate: string): Promise<readonly TreasuryLedgerCandidate[]> {
     return (this.candidatesByAccount.get(treasuryAccountId) ?? []).filter((c) => c.date >= fromDate && c.date <= toDate);
   }
+
+  /**
+   * Resolves over EVERY scripted candidate, not just the ones a period filter
+   * would return — a matched entry keeps its number after it drops out of the
+   * candidate list, which is the whole reason the port has this method.
+   */
+  async entryNumbersByIds(entryIds: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    const wanted = new Set(entryIds);
+    const byId = new Map<string, string>();
+    for (const candidates of this.candidatesByAccount.values()) {
+      for (const c of candidates) {
+        if (c.entryNo && wanted.has(c.entryId)) byId.set(c.entryId, c.entryNo);
+      }
+    }
+    return byId;
+  }
 }

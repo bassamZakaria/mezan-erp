@@ -279,16 +279,30 @@ function woToDomain(row: WoRow): WorkOrder {
     notes: c.notes,
     at: c.at,
   }));
+  // Rows written before waste moved stock (D64) carry only itemId/qty/notes/at.
+  // They stay legacy: `stockMoved` false, no split, no cost — their material is
+  // still standing in مستودع التشغيل and is still consumed at receipt, exactly
+  // as it was when they were written. Restating a closed run is not a migration.
   const wasteLog = (JSON.parse(row.waste_log) as {
     itemId: string;
     qty: string;
     notes: string | null;
     at: string;
+    stockMoved?: boolean;
+    normalQty?: string;
+    abnormalQty?: string;
+    normalCost?: string;
+    abnormalCost?: string;
   }[]).map<WorkOrderWasteEntry>((w) => ({
     itemId: w.itemId,
     qty: Qty.fromMajor(w.qty),
     notes: w.notes,
     at: w.at,
+    stockMoved: w.stockMoved ?? false,
+    normalQty: w.normalQty === undefined ? Qty.zero() : Qty.fromMajor(w.normalQty),
+    abnormalQty: w.abnormalQty === undefined ? Qty.zero() : Qty.fromMajor(w.abnormalQty),
+    normalCost: w.normalCost === undefined ? Money.zero() : Money.fromMajor(w.normalCost),
+    abnormalCost: w.abnormalCost === undefined ? Money.zero() : Money.fromMajor(w.abnormalCost),
   }));
   return {
     id: row.id,
@@ -406,7 +420,17 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
         o.costLog.map((c) => ({ kind: c.kind, amount: c.amount.toString(), notes: c.notes, at: c.at })),
       ),
       waste_log: JSON.stringify(
-        o.wasteLog.map((w) => ({ itemId: w.itemId, qty: w.qty.toString(), notes: w.notes, at: w.at })),
+        o.wasteLog.map((w) => ({
+          itemId: w.itemId,
+          qty: w.qty.toString(),
+          notes: w.notes,
+          at: w.at,
+          stockMoved: w.stockMoved,
+          normalQty: w.normalQty.toString(),
+          abnormalQty: w.abnormalQty.toString(),
+          normalCost: w.normalCost.toString(),
+          abnormalCost: w.abnormalCost.toString(),
+        })),
       ),
       shop_floor_log: JSON.stringify(o.shopFloorLog),
       config_instance_id: o.configInstanceId,

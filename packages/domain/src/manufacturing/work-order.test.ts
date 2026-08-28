@@ -32,6 +32,8 @@ const ACCOUNTS: WorkOrderGlAccounts = {
   rawInventoryAccountId: "1300-raw",
   laborAppliedAccountId: "5100-labor",
   overheadAppliedAccountId: "5200-oh",
+  abnormalScrapAccountId: "5220",
+  wipAccountId: "1250",
 };
 
 async function seedStock(stock: StockLedgerService) {
@@ -101,7 +103,7 @@ describe("work order — creation snapshot", () => {
 describe("work order — 4-stage stock + GL + WIP costing", () => {
   it("drives start → issue → receive → complete, moving stock and posting the WIP chain", async () => {
     const { workOrders, stock, gl, now, wo } = await setup();
-    const deps = { workOrders, stock, now };
+    const deps = { workOrders, stock, now, gl: { async post() {} }, accounts: { rawInventoryAccountId: "1200", abnormalScrapAccountId: "5220", wipAccountId: "1250" } };
 
     // 1. بدء العمل
     let cur: WorkOrder = await startWorkOrder(wo.id, deps);
@@ -166,7 +168,7 @@ describe("work order — 4-stage stock + GL + WIP costing", () => {
 
   it("capitalises a logged extra cost into the finished-goods unit cost", async () => {
     const { workOrders, stock, gl, now, wo } = await setup();
-    const deps = { workOrders, stock, now };
+    const deps = { workOrders, stock, now, gl: { async post() {} }, accounts: { rawInventoryAccountId: "1200", abnormalScrapAccountId: "5220", wipAccountId: "1250" } };
     await startWorkOrder(wo.id, deps);
     await issueWorkOrderMaterials(wo.id, deps);
     // log 100 overhead → WIP 400 → unit cost 40.
@@ -182,7 +184,7 @@ describe("work order — 4-stage stock + GL + WIP costing", () => {
 
   it("returns unused material back to stock and reduces the WIP", async () => {
     const { workOrders, stock, now, wo } = await setup();
-    const deps = { workOrders, stock, now };
+    const deps = { workOrders, stock, now, gl: { async post() {} }, accounts: { rawInventoryAccountId: "1200", abnormalScrapAccountId: "5220", wipAccountId: "1250" } };
     await startWorkOrder(wo.id, deps);
     await issueWorkOrderMaterials(wo.id, deps);
     const after = await returnWorkOrderMaterials(
@@ -207,7 +209,7 @@ describe("work order — stage guards", () => {
 
   it("rejects completing before receiving the product", async () => {
     const { workOrders, stock, gl, now, wo } = await setup();
-    const deps = { workOrders, stock, now };
+    const deps = { workOrders, stock, now, gl: { async post() {} }, accounts: { rawInventoryAccountId: "1200", abnormalScrapAccountId: "5220", wipAccountId: "1250" } };
     await startWorkOrder(wo.id, deps);
     await issueWorkOrderMaterials(wo.id, deps);
     await expect(

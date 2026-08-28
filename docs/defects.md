@@ -39,52 +39,23 @@ through as "oh, that's the known one".
 
 ## Open
 
-**Two defects are open** (D62, D64). The first is cosmetic: a matched statement line labels its entry
-with the raw journal-entry UUID («القيد: 13364877-c819-4a98-…»), truncated, where
-the entry NUMBER belongs. The picker that chooses the entry shows JE-000038 and
-its memo; the line that results from choosing it does not, because
-`StatementLine` stores only `matchedEntryId` and the reconciliation module has no
-port that resolves an entry number. Cosmetic — the stored id is the real entry's
-id, and matching, unmatching and finalizing are unaffected. Fixing it properly
-means giving `TreasuryLedgerReader` (or the line serializer) a way to read entry
-numbers; the shortcut — dropping the "already matched" exclusion from
-`/candidates` so the client can build a label map — would trade a server-side
-guard for a label, so it was not taken.
+**No defects are open.** D62 and D64 — the last two — were closed in this pass as
+F131 and F132, and both are guarded by `pnpm scenarios` (x22 and the new x13b).
 
-**D64 — تسجيل فاقد moves no stock.** `logWorkOrderWaste` writes a quantity into
-`wasteLog` and touches neither the stock ledger nor the WIP cost, so material
-recorded as scrapped is still standing in مستودع التشغيل as far as the system is
-concerned. This mattered less while WIP had no location at all (D63); now that a
-floor count has a system quantity to be held against, waste logged mid-run is the
-one thing that can still put the two apart, by exactly the wasted quantity. It
-closes itself at استلام المنتج — the receipt consumes ALL outstanding material,
-scrap included, so the scrap's cost is absorbed into the finished product exactly
-as the BOM's `wastePercent` already assumes — so the gap exists only between
-logging the waste and receiving the product. Deliberately NOT fixed in the same
-pass as D63, because making waste move stock is a real accounting choice, not a
-patch: normal scrap absorbed into product cost (materialCost unchanged, quantity
-out) and abnormal scrap expensed (a new scrap account, a posting at waste time)
-give different unit costs and different P&Ls, and that is the product owner's
-call. Filed rather than assumed.
-
-Everything else filed — D1 through D63 — is in the Fixed table below, and
-`pnpm scenarios` passes 3770 assertions with all four invariants at exactly zero
-on the seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs
+Everything filed — D1 through D64 — is in the Fixed table below, and `pnpm
+scenarios` passes 3793 assertions with all four invariants at exactly zero on
+the seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs
 GL 1105.
 
 This table used to carry 23 rows that the Fixed table ALSO carried — a defect
 was moved without being removed, so the register said 32 open while its own
 prose said four. Those rows are gone; a defect now appears exactly once.
 
-D57 and D58 were filed and closed inside this same pass: the i18n fixes were
-verified by driving the seeded app in English, that surfaced two more of the
-same shape, and both were fixed rather than left on the list (F117, F118).
-
-
 And a closed register is not the same as a clean product: it means the ones
 found and written down are closed. The next one gets found the way these were —
-by driving a seeded app and comparing two numbers that must agree. One thing is
-open by DECISION rather than by patch, and stays listed so nobody re-files it:
+by driving a seeded app and comparing two numbers that must agree. Two things
+are open by DECISION rather than by patch, and stay listed so nobody re-files
+them:
 
 - outbound notification channels do not deliver. `notifications/engine.ts` stamps
   every channel but `in_app` as `"queued"` and nothing drains the queue.
@@ -94,9 +65,16 @@ open by DECISION rather than by patch, and stays listed so nobody re-files it:
   test-send), so email is a delivery/retry decision for a product that is normally
   offline, not a missing transport.
 
-The second item listed here — workflow `minAmount` configurable but never enforced
-— is gone: the field no longer exists anywhere in the repo (DEC-1, closed
-2026-08-27).
+- the API-key and webhook **backend** — `packages/domain/src/api-keys`,
+  `packages/domain/src/webhooks`, their contracts and their routes — has no
+  consumer. The two screens that drove it were deleted (F129) because a
+  desktop, offline-first v1 has nothing to call them; API keys are not used for
+  request auth either. Removing the rest reaches into the webhook dispatcher
+  that document events run through, which is a wider change than deleting a
+  screen, so it is filed rather than done.
+
+The workflow `minAmount` item that used to sit here is gone: the field no longer
+exists anywhere in the repo (DEC-1, closed 2026-08-27).
 
 D1's last residue is closed too: the invoice screen's collect action creates and
 confirms a REAL collection voucher and allocates it, which is what the reference
@@ -231,12 +209,14 @@ checks every colour utility against the compiled stylesheet.
 | F128 | **Two settings fields rendered twice, on two tabs, behind one save button.** «الإعدادات» had eight tabs; `taxRegistrationNumber` had a control on «بيانات المنشأة» AND on «الضريبة», and `weekendDays` on «عام» AND on «بيانات المنشأة». Both controls wrote the same draft key, so whichever tab was touched last silently overwrote the other edit with no warning. Five tabs now, and every field has exactly one control — guarded by a test that visits every tab and asserts `getAllByLabelText` returns one node | this commit |
 | F129 | **~615 lines of settings UI were unreachable by clicking.** `settings-api-keys`, `settings-webhooks` and `status` had routes, icons and screen-map entries but no nav row and no link from anywhere — URL-only. حالة النظام is now a row in the setup bar; the API-key and webhook pages are deleted with their now-orphaned hooks, since a desktop, offline-first v1 has no consumer for an outbound webhook or a public API key (the backend, domain and contracts for both are untouched and still dead — a separate sweep) | this commit |
 | F130 | **The permission matrix showed Latin identifiers in an Arabic-first app.** `permissionLabel` translated the action verb and pasted the raw code segment for the entity, so all ~281 checkboxes read «عرض — invoice» under headings like «Price list». All 89 entities are now named in Arabic and English. Found the last two (`customer360`, `supplier360`) only from a browser console warning — a static scan missed them because its regex excluded digits — so `scripts/check-permission-labels.mjs` now fails `pnpm lint` on a missing, single-locale or stale `perm.entity.*` key | this commit |
+| F131 | **A matched bank-statement line named its journal entry by uuid** (D62). The line stores only `matchedEntryId`, and the candidate picker that shows JE-000038 excludes already-matched entries by design, so after matching there was nothing left to read the number from — the screen printed «القيد: 13364877-c819-…». `TreasuryLedgerReader` gained `entryNumbersByIds`, one ledger read per statement, and every route returning a line carries `matchedEntryNo`. Measured after the fix: the seeded statement's five matched lines read JE-000035/37/38/40/43, and a line matched live shows its number without a refetch | this commit |
+| F132 | **تسجيل فاقد moved no stock** (D64). `logWorkOrderWaste` wrote a row into `wasteLog` and touched neither the stock ledger nor the GL, so material recorded as scrapped was still standing in مستودع التشغيل and a floor count disagreed by exactly the scrapped quantity until the product was received. Scrap now leaves the floor when it is logged, and its cost splits at the BOM's own waste allowance (EAS/IAS 2): within the allowance it is normal loss that parks in 1250 إنتاج تحت التشغيل and is released into the product at receipt; beyond it, it is abnormal loss expensed the same day to the new 5220 فاقد التصنيع غير الطبيعي. Inventory is credited for ALL of it at waste time, so the stock sub-ledger and GL 1200 never drift mid-run. Measured (x13b): 22 issued against a 10% allowance, 3 scrapped → 2 normal @ 50.00, 1 abnormal @ 25.00, WIP stock 22→19, GL 1200 −75, unit cost (19×25+50)/10 = 52.50. Driven in the browser too: 2 units scrapped on WO-0003 left WH-WIP (7.5→5.5) and posted JE-000057 Dr 5220 410.00 / Cr 1200 410.00 | this commit |
 
 
 `pnpm scenarios` asserts the FIXED behaviour throughout, so a regression in any
 of these turns it red. F130 is guarded by `pnpm lint` instead, because no
 scenario can see a label: the permission codes were always correct and it was
-only the words beside them that were wrong. It passes 3770 assertions with 0 failures, and no
+only the words beside them that were wrong. It passes 3793 assertions with 0 failures, and no
 assertion documents a still-broken behaviour any more: scenario x46 used to
 assert the VAT return's blended rate to record D28 and now asserts the fix, as
 deltas, because the buckets are tenant-wide.

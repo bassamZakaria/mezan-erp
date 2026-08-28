@@ -206,6 +206,45 @@ function ShopFloorPanel({ order, itemName }: { order: WorkOrderRecord; itemName:
         </div>
       </div>
 
+      {/*
+        Scrap now leaves مستودع التشغيل and, past the BOM allowance, hits the
+        P&L — so it has to be readable. A movement that costs money and shows
+        nowhere is the same defect as one that shows and costs nothing.
+      */}
+      <div className="rounded-lg border border-border p-[14px]">
+        <div className="mb-[10px] text-[12.5px] font-semibold text-ink">{t("workOrders.wasteLog")}</div>
+        {order.wasteLog.length === 0 ? (
+          <p className="text-[12px] text-ink-muted">{t("workOrders.wasteLog.empty")}</p>
+        ) : (
+          <ul className="flex flex-col gap-[8px]">
+            {order.wasteLog.map((w, i) => (
+              <li key={`${w.itemId}-${w.at}-${i}`} className="flex flex-wrap items-baseline justify-between gap-[8px] border-b border-border pb-[7px] last:border-0 last:pb-0">
+                <span className="text-[12.5px] text-ink">
+                  {itemName(w.itemId)} · <span className="mz-num">{w.qty}</span>
+                </span>
+                {w.stockMoved ? (
+                  <span className="flex flex-wrap items-baseline gap-[10px] text-[11.5px]">
+                    <span className="text-ink-muted">
+                      {t("workOrders.wasteLog.normal")} <span className="mz-num">{w.normalQty}</span> ·{" "}
+                      <MoneyValue value={Number(w.normalCost)} />
+                    </span>
+                    {Number(w.abnormalQty) > 0 ? (
+                      <span className="text-danger-ink">
+                        {t("workOrders.wasteLog.abnormal")} <span className="mz-num">{w.abnormalQty}</span> ·{" "}
+                        <MoneyValue value={Number(w.abnormalCost)} />
+                      </span>
+                    ) : null}
+                  </span>
+                ) : (
+                  <span className="text-[11.5px] text-ink-faint">{t("workOrders.wasteLog.legacy")}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-[8px] text-[11.5px] leading-[1.9] text-ink-muted">{t("workOrders.wasteLog.hint")}</p>
+      </div>
+
       <div className="rounded-lg border border-border p-[14px]">
         <div className="grid gap-[10px] sm:grid-cols-2">
           <SelectField

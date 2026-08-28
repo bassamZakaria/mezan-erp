@@ -43,6 +43,16 @@ export interface ImportStatementCommand {
   readonly statementNumber?: string | null;
 }
 
+/**
+ * A statement line plus the NUMBER of the journal entry it is matched to.
+ *
+ * The line itself stores only `matchedEntryId`, because the id is what makes
+ * the match; the number is only a label, resolved on read.
+ */
+export interface MatchedStatementLine extends StatementLine {
+  readonly matchedEntryNo: string | null;
+}
+
 export interface AddManualLineCommand {
   readonly id: string;
   readonly statementId: string;
@@ -235,6 +245,29 @@ export class BankReconciliationService {
 
   async listLines(statementId: string): Promise<readonly StatementLine[]> {
     return this.deps.statements.listLines(statementId);
+  }
+
+  /**
+   * The statement's lines, each matched one carrying the entry NUMBER it was
+   * matched to. One ledger read for the whole statement, not one per line.
+   *
+   * `matchedEntryNo` is null when the line is unmatched, and also when the
+   * entry it points at carries no number of its own (a draft) — rendering the
+   * id in that case is the caller's choice, not a silent substitution here.
+   */
+  async listLinesWithEntryNumbers(statementId: string): Promise<readonly MatchedStatementLine[]> {
+    const lines = await this.deps.statements.listLines(statementId);
+    return this.withEntryNumbers(lines);
+  }
+
+  /** Same enrichment for a handful of lines — what the match/unmatch routes return. */
+  async withEntryNumbers(lines: readonly StatementLine[]): Promise<readonly MatchedStatementLine[]> {
+    const ids = lines.map((l) => l.matchedEntryId).filter((id): id is string => id !== null);
+    const numbers = ids.length === 0 ? new Map<string, string>() : await this.deps.ledgerReader.entryNumbersByIds(ids);
+    return lines.map((line) => ({
+      ...line,
+      matchedEntryNo: line.matchedEntryId === null ? null : (numbers.get(line.matchedEntryId) ?? null),
+    }));
   }
 
   async list(filter?: BankStatementListFilter): Promise<readonly BankStatement[]> {

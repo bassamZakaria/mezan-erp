@@ -1263,8 +1263,99 @@ export async function run(ctx: Ctx): Promise<void> {
       JSON.stringify(lines.map((l) => ({ ref: l.reference, status: l.status }))),
     );
 
+    // D62: a matched line used to carry only the entry's UUID, so the screen
+    // printed «القيد: 13364877-c819-…» where JE-000038 belongs. The number has
+    // to survive the match — the candidate list cannot supply it afterwards,
+    // because matched entries are excluded from it by design.
+    const matchedLines = lines.filter((l) => l.status === "matched");
+    check(
+      "a matched line names the journal entry by its NUMBER, not by its uuid",
+      matchedLines.length > 0 && matchedLines.every((l) => typeof l.matchedEntryNo === "string" && /^JE-/.test(l.matchedEntryNo)),
+      JSON.stringify(matchedLines.map((l) => ({ id: l.matchedEntryId, no: l.matchedEntryNo }))),
+    );
+    check(
+      "and an unmatched line names none",
+      unmatched.every((l) => l.matchedEntryNo === null),
+      JSON.stringify(unmatched.map((l) => ({ ref: l.reference, no: l.matchedEntryNo }))),
+    );
+
     checkEq("importing and matching a statement moves no money — the bank balance is untouched", await gl(BANK), bankBefore);
     checkEq("and posts nothing: the trial balance is exactly as it was", (await ctx.invariants()).tb, tbBefore);
+  });
+
+  // ---------------------------------------------------------------------------
+  // X13b — scrap on the floor (D64)
+  // ---------------------------------------------------------------------------
+  await scenario("x13b · scrapped material leaves مستودع التشغيل when it is logged, and its cost splits at the BOM's own waste allowance", async () => {
+    const rawId = "SCN-X-RAW-2";
+    const finishedId = "SCN-X-FG-2";
+    const SCRAP = "5220";
+    const WIP_ACCOUNT = "1250";
+    await makeItem(rawId, "SCN-X-RAW2", "خامة فاقد");
+    await makeItem(finishedId, "SCN-X-FG2", "منتج فاقد");
+    await openStock(rawId, "100", "25", "SCN-X-ADJ-RAW2");
+
+    // 2 per unit grossed up by a 10% allowance = 2.2 per unit; 10 units = 22
+    // required, of which exactly 2 is the allowance the BOM planned to lose.
+    const bom = await req("POST", "/manufacturing/boms", {
+      id: "SCN-X-BOM-2",
+      productItemId: finishedId,
+      standardQty: "1",
+      unit: "PCS",
+      lines: [{ itemId: rawId, qty: "2", wastePercent: 10 }],
+    });
+    check("a bill of materials with a 10% waste allowance is defined", bom.status === 201, `status ${bom.status} ${JSON.stringify(bom.body).slice(0, 250)}`);
+    if (bom.status !== 201) return;
+
+    const wo = await req("POST", "/manufacturing/work-orders", {
+      id: "SCN-X-WO-2",
+      bomId: "SCN-X-BOM-2",
+      plannedQty: "10",
+      sourceWarehouseId: WH,
+      wipWarehouseId: "WH-WIP",
+      destinationWarehouseId: WH,
+      scheduledStartDate: TODAY,
+    });
+    check("the work order opens", wo.status === 201, `status ${wo.status} ${JSON.stringify(wo.body).slice(0, 250)}`);
+    await req("POST", "/manufacturing/work-orders/SCN-X-WO-2/start", {});
+    await req("POST", "/manufacturing/work-orders/SCN-X-WO-2/issue", { lines: [{ itemId: rawId, qty: "22" }] });
+    checkEq("22 units of raw material stand on the floor", (await stock(rawId, "WH-WIP")).onHand, 22);
+
+    const scrapBefore = await gl(SCRAP);
+    const invBefore = await gl(INVENTORY);
+    const wipAccBefore = await gl(WIP_ACCOUNT);
+
+    // 3 scrapped against a 2-unit allowance: 2 normal @25 = 50, 1 abnormal @25 = 25.
+    const waste = await req("POST", "/manufacturing/work-orders/SCN-X-WO-2/log-waste", {
+      lines: [{ itemId: rawId, qty: "3" }],
+    });
+    check("the scrap is logged", waste.status === 200, `status ${waste.status} ${JSON.stringify(waste.body).slice(0, 250)}`);
+
+    // D64: this used to write a log row and move nothing, so a floor count
+    // disagreed with the system by exactly the scrapped quantity.
+    checkEq("the scrapped material actually leaves مستودع التشغيل, so a floor count agrees", (await stock(rawId, "WH-WIP")).onHand, 19);
+
+    const entry = (waste.body?.wasteLog ?? [])[0];
+    checkEq("2 of the 3 are within the BOM allowance", n(entry?.normalQty), 2);
+    checkEq("and 1 is beyond it", n(entry?.abnormalQty), 1);
+    checkEq("the allowed part keeps its 2 × 25 of value for the product", n(entry?.normalCost), 50);
+    checkEq("the excess is 1 × 25", n(entry?.abnormalCost), 25);
+
+    checkEq("only the excess hits the P&L, the day it happened", (await gl(SCRAP)) - scrapBefore, 25);
+    checkEq("the allowed part parks in إنتاج تحت التشغيل — still an asset, not yet a product", (await gl(WIP_ACCOUNT)) - wipAccBefore, 50);
+    checkEq("and inventory falls by everything that physically left: 3 × 25", (await gl(INVENTORY)) - invBefore, -75);
+    checkEq("so the stock sub-ledger and GL 1200 stay reconciled mid-run", (await ctx.invariants()).inventory, 0);
+
+    const received = await req("POST", "/manufacturing/work-orders/SCN-X-WO-2/receive", { producedQty: "10" });
+    check("the product is received", received.status === 200, `status ${received.status} ${JSON.stringify(received.body).slice(0, 250)}`);
+    await req("POST", "/manufacturing/work-orders/SCN-X-WO-2/complete", {});
+
+    checkEq("إنتاج تحت التشغيل empties — the allowed scrap is inside the product now", await gl(WIP_ACCOUNT), wipAccBefore);
+    const fg = await stock(finishedId);
+    checkEq("10 finished units exist", fg.onHand, 10);
+    // 19 consumed × 25 = 475, plus the 50 of allowed scrap = 525 over 10 units.
+    checkEq("each unit carries the allowed scrap but not the excess: (19 × 25 + 50) / 10", fg.averageCost, 52.5);
+    checkEq("and the books close reconciled", (await ctx.invariants()).inventory, 0);
   });
 
   // ---------------------------------------------------------------------------

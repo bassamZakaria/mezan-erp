@@ -119,9 +119,13 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "stock",
     defaultCollapsed: true,
-    itemKeys: ["inventory-hub", "items"],
+    // NO SHELVES on the daily work. A shelf earns its dropdown when it holds
+    // more than the bar can carry; three documents behind «الحركة اليومية»
+    // just put a click in front of the three things this workspace exists to
+    // do. They sit beside الأصناف as chips, and only التقارير — five of them,
+    // read occasionally — stays folded.
+    itemKeys: ["inventory-hub", "items", "stock-transfers", "stock-adjustments", "work-orders"],
     sections: [
-      { key: "daily", itemKeys: ["stock-transfers", "stock-adjustments", "work-orders"] },
       {
         key: "reports",
         defaultCollapsed: true,

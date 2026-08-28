@@ -214,11 +214,20 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     itemKeys: ["settings-general"],
     sections: [
       { key: "access", itemKeys: ["users", "roles", "settings-profile", "audit"] },
-      { key: "structure", defaultCollapsed: true, itemKeys: ["settings-branches", "settings-warehouses"] },
       { key: "workflow", defaultCollapsed: true, itemKeys: ["settings-workflow", "notification-rules"] },
       { key: "documents", defaultCollapsed: true, itemKeys: ["settings-print", "settings-sequences", "settings-barcode"] },
-      { key: "integrations", defaultCollapsed: true, itemKeys: ["settings-api-keys", "settings-webhooks", "settings-data-migration"] },
-      { key: "system", defaultCollapsed: true, itemKeys: ["status"] },
+      /**
+       * التكاملات and النظام left the tree. مفاتيح الواجهة، الويب هوك and
+       * حالة النظام are administrator surfaces nobody configures twice, and
+       * they sat beside the settings a business actually edits.
+       *
+       * نقل البيانات did NOT go with them. It is filed under "integrations"
+       * but it is the import wizard a new tenant needs on day one — the only
+       * door to the opening-balance and master-data importers — so it moves to
+       * the shelf where a company is set up rather than being hidden with the
+       * API keys.
+       */
+      { key: "structure", defaultCollapsed: true, itemKeys: ["settings-branches", "settings-warehouses", "settings-data-migration"] },
     ],
   },
 ];

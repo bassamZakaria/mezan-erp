@@ -43,6 +43,11 @@ for (const group of navGroupSpecs) {
  */
 const UNLISTED_SCREEN_GROUP: Record<string, string> = {
   labels: "items",
+  // التكاملات and النظام are off the tree; the screens stay addressable at the
+  // paths they already had, so a saved link or a support instruction still works.
+  "settings-api-keys": "setup",
+  "settings-webhooks": "setup",
+  status: "setup",
   "report-inventory-movement": "stock",
   "report-inventory-expiring": "stock",
   "report-inventory-slow-moving": "stock",

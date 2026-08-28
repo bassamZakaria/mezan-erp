@@ -158,6 +158,18 @@ export function AppShell({
   const [clickedWorkspaceKey, setClickedWorkspaceKey] = useState<string | undefined>(undefined);
   const rowTwoKey = activeWorkspaceKey ?? clickedWorkspaceKey ?? lastWorkspaceKey;
   const activeGroup = workspaceGroups.find((group) => group.key === rowTwoKey) ?? workspaceGroups[0] ?? null;
+  /**
+   * NO BAR when the open screen belongs to no workspace — الموافقات, the
+   * dashboard. The bar's whole claim is "these are the screens of the
+   * workspace you are in", and on those screens the user is in none: showing
+   * the last one's chips offers a row of destinations that have nothing to do
+   * with what is on the page, and marks none of them current. An honest empty
+   * is better than a confident wrong one.
+   *
+   * `clickedWorkspaceKey` still counts: a workspace with no hub navigates
+   * nowhere, and its bar is the only thing that opens after the click.
+   */
+  const showScreensBar = (activeWorkspaceKey ?? clickedWorkspaceKey) !== undefined && activeGroup !== null;
 
   const canBrowse = allScreensGroups.length > 0;
   const [allScreensOpen, setAllScreensOpen] = useState(false);
@@ -370,15 +382,17 @@ export function AppShell({
               row one is `top-0`, and row one's height is exactly `--h-btn`
               (its tallest child sets it, and it carries no block padding), so
               the offset stays correct if that control scale ever changes. */}
-          <WorkspaceScreensBar
-            className="sticky top-[var(--h-topbar)] z-30"
-            group={activeGroup}
-            activeKey={activeNavKey}
-            ariaLabel={
-              activeGroup ? `${t("shell.bar.workspaceScreens")} — ${activeGroup.label}` : t("shell.bar.workspaceScreens")
-            }
-            overflowLabel={t("shell.bar.overflow")}
-          />
+          {showScreensBar ? (
+            <WorkspaceScreensBar
+              className="sticky top-[var(--h-topbar)] z-30"
+              group={activeGroup}
+              activeKey={activeNavKey}
+              ariaLabel={
+                activeGroup ? `${t("shell.bar.workspaceScreens")} — ${activeGroup.label}` : t("shell.bar.workspaceScreens")
+              }
+              overflowLabel={t("shell.bar.overflow")}
+            />
+          ) : null}
 
           <div className="flex min-h-0 flex-1 items-stretch">
             <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 px-[24px] pb-[64px] pt-[20px]">

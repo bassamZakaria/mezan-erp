@@ -400,8 +400,18 @@ export async function run(ctx: Ctx): Promise<void> {
     ctx.check("the draft voucher creates", create.status === 201, `status ${create.status}`);
 
     // x-permissions deliberately omits "*" so the voucher route's own gateActorRoles() reads x-role-codes instead of bypassing as admin.
-    const financeHeaders = { "x-permissions": "treasury.cash_voucher.confirm", "x-role-codes": "FINANCE_MANAGER" };
-    const confirm = await ctx.req("POST", `/vouchers/${voucherId}/confirm`, {}, financeHeaders);
+    // The SUBMITTER and the APPROVER are two named people, because they have to
+    // be: فصل المهام means the person who raised the request may not decide it,
+    // and this scenario used to have USER-ADMIN do both.
+    // The clerk holds the approval permissions AND the step's role — the exact
+    // "one person can do both" shape the separation check exists to refuse.
+    const clerkHeaders = {
+      "x-user-id": "SCN-USER-CLERK",
+      "x-permissions": "treasury.cash_voucher.confirm,workflow.view,workflow.approve,workflow.reject",
+      "x-role-codes": "FINANCE_MANAGER",
+    };
+    const managerHeaders = { "x-user-id": "SCN-USER-MANAGER", "x-permissions": "workflow.view,workflow.approve,workflow.reject", "x-role-codes": "FINANCE_MANAGER" };
+    const confirm = await ctx.req("POST", `/vouchers/${voucherId}/confirm`, {}, clerkHeaders);
     ctx.check(
       "a configured TREASURY_VOUCHER_CONFIRM chain holds a non-admin's confirm بانتظار الموافقة instead of posting it",
       confirm.status === 200 && confirm.body?.held === true && confirm.body?.status === "pending",
@@ -413,8 +423,38 @@ export async function run(ctx: Ctx): Promise<void> {
     const inbox = await ctx.req("GET", "/workflow/requests");
     ctx.check("the held voucher's request reaches the approvals inbox", ctx.rows(inbox.body).some((r: any) => r.id === requestId), requestId);
 
-    const decide = await ctx.req("POST", `/workflow/requests/${requestId}/decide`, { decision: "approve", comment: "SCN — approved" });
-    ctx.check("approving the request succeeds", decide.status === 200 && decide.body?.status === "approved", `status ${decide.status} body ${JSON.stringify(decide.body)}`);
+    // The control this whole gate exists for: one person holding both the
+    // permission and the step role must not be able to approve their own
+    // payment. The admin bypass does not lift it either — a bypass skips the
+    // ROLE a step names, not the separation the step is there to enforce.
+    const selfApprove = await ctx.req("POST", `/workflow/requests/${requestId}/decide`, { decision: "approve", comment: "SCN — self" }, clerkHeaders);
+    ctx.check(
+      "the submitter cannot approve their own request, even holding the step's role",
+      selfApprove.status === 409 && selfApprove.body?.error === "SELF_APPROVAL",
+      `status ${selfApprove.status} body ${JSON.stringify(selfApprove.body)}`,
+    );
+    ctx.check(
+      "and the refusal reaches the Arabic approvals inbox in Arabic",
+      typeof selfApprove.body?.message === "string" && /[\u0600-\u06FF]/.test(selfApprove.body.message),
+      String(selfApprove.body?.message),
+    );
+    const selfReject = await ctx.req("POST", `/workflow/requests/${requestId}/decide`, { decision: "reject", comment: "SCN — self" }, clerkHeaders);
+    ctx.check(
+      "nor withdraw it by rejecting it, which would name them the approver of their own document",
+      selfReject.status === 409 && selfReject.body?.error === "SELF_APPROVAL",
+      `status ${selfReject.status} body ${JSON.stringify(selfReject.body)}`,
+    );
+    const stillPending = await ctx.req("GET", `/vouchers/${voucherId}`);
+    ctx.check("and the refused self-decision left the voucher held, not posted", stillPending.body?.status === "pending", JSON.stringify(stillPending.body?.status));
+    const adminSelf = await ctx.req("POST", `/workflow/requests/${requestId}/decide`, { decision: "approve" }, { "x-user-id": "SCN-USER-CLERK" });
+    ctx.check(
+      "and the admin bypass does not lift it — the same person with \"*\" is still the submitter",
+      adminSelf.status === 409 && adminSelf.body?.error === "SELF_APPROVAL",
+      `status ${adminSelf.status} body ${JSON.stringify(adminSelf.body)}`,
+    );
+
+    const decide = await ctx.req("POST", `/workflow/requests/${requestId}/decide`, { decision: "approve", comment: "SCN — approved" }, managerHeaders);
+    ctx.check("a DIFFERENT holder of the step's role approves it", decide.status === 200 && decide.body?.status === "approved", `status ${decide.status} body ${JSON.stringify(decide.body)}`);
 
     const after = await ctx.req("GET", `/vouchers/${voucherId}`);
     ctx.check("approving the request POSTS the held voucher", after.body?.status === "confirmed", JSON.stringify(after.body?.status));

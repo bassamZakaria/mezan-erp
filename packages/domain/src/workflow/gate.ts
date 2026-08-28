@@ -82,6 +82,7 @@ export class WorkflowError extends Error {
     readonly code:
       | "NOT_PENDING"
       | "WRONG_APPROVER"
+      | "SELF_APPROVAL"
       | "NOT_MODIFIABLE"
       | "EMPTY_ACTION_TYPE_MISMATCH",
     message: string,
@@ -179,6 +180,31 @@ export function decide(
     throw new WorkflowError(
       "NOT_PENDING",
       `Request ${request.id} is ${request.status}, not pending`,
+    );
+  }
+
+  /**
+   * فصل المهام — segregation of duties. The person who raised the request may
+   * never be the person who decides it, and the ADMIN BYPASS DOES NOT LIFT
+   * THIS: a bypass is a shortcut past the role a step names, not past the
+   * separation the step exists for. One user holding both the permission and
+   * the step role was otherwise able to create and approve the same payment,
+   * which no amount of configuration could prevent.
+   *
+   * `startApproval` already grants an admin submitter's own request outright,
+   * so a pending request was raised by someone who needed approval. A
+   * self-decision here is therefore always the thing this check is for.
+   *
+   * Rejecting and requesting modification are covered too. A submitter who can
+   * withdraw their own request by "rejecting" it is a smaller hole than
+   * self-approval, but it is the same hole: the decision log would name them as
+   * the approver of their own document.
+   */
+  if (input.actorId === request.submittedBy) {
+    // Arabic, because this message reaches the approvals inbox verbatim.
+    throw new WorkflowError(
+      "SELF_APPROVAL",
+      "لا يمكن لمن قدّم الطلب أن يبتّ فيه — يلزم شخص آخر للموافقة أو الرفض.",
     );
   }
 

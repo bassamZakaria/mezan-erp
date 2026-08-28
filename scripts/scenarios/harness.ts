@@ -91,7 +91,7 @@ export async function boot() {
   /** Rows out of whatever envelope a route happens to use. */
   function rows(body: any): any[] {
     if (Array.isArray(body)) return body;
-    for (const k of ["items", "rows", "data", "entries", "requests", "results", "records", "list"]) {
+    for (const k of ["items", "rows", "data", "entries", "events", "requests", "results", "records", "list"]) {
       if (Array.isArray(body?.[k])) return body[k];
     }
     return [];

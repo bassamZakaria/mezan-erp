@@ -6,11 +6,13 @@ import {
   DuplicateTreasuryAccountCodeError,
   NegativeCashBalanceError,
   TreasuryAccountNotFoundError,
+  type AuditSink,
   type TreasuryAccount,
   type TreasuryAccountRepository,
 } from "@mezan/domain";
 import { createTreasuryAccountSchema, updateTreasuryAccountSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 
 function serialize(account: TreasuryAccount) {
   return {
@@ -58,9 +60,35 @@ export function createTreasuryAccountsRoutes(
    * omitted rather than approximated when no ledger is wired.
    */
   ledger?: { accountBalance(accountId: string, asOfDate?: string): Promise<{ balance: Money }> },
+  /**
+   * Which GL account a till or bank posts to is what decides where cash lands.
+   * Repointing one silently is the treasury twin of raising a credit limit.
+   */
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  function auditAccount(
+    c: Context,
+    account: TreasuryAccount,
+    action: "CREATE" | "UPDATE",
+    before?: TreasuryAccount | null,
+  ) {
+    return recordAdminEvent(audit, c, {
+      module: "treasury",
+      entityType: "TREASURY_ACCOUNT",
+      entityId: account.id,
+      action,
+      severity: before && before.glAccountId !== account.glAccountId ? "WARNING" : "INFO",
+      details: {
+        code: account.code,
+        name: account.name,
+        glAccountId: account.glAccountId,
+        ...(before ? { previousGlAccountId: before.glAccountId, previousCode: before.code } : {}),
+      },
+    });
+  }
 
   /**
    * The list's one chip axis mixes status with type — الكل / نشط / نقدية /
@@ -196,6 +224,7 @@ export function createTreasuryAccountsRoutes(
     }
     try {
       const account = await createTreasuryAccount(parsed.data, repo);
+      await auditAccount(c, account, "CREATE");
       return c.json(serialize(account), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -208,7 +237,9 @@ export function createTreasuryAccountsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
+      const before = await repo.findById(c.req.param("id"));
       const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo);
+      await auditAccount(c, account, "UPDATE", before);
       return c.json(serialize(account));
     } catch (err) {
       return handleDomainError(c, err);

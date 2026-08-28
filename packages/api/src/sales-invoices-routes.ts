@@ -79,6 +79,12 @@ export interface SalesInvoiceRoutesDeps {
   readonly itemCheck?: ItemCatalogCheck;
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
+  /**
+   * The tenant's discount ceiling (settings §"الرقابة الائتمانية"). Optional
+   * for the same reason every cross-aggregate check here is: a caller that does
+   * not wire it gets the giveaway guard only, never a route that cannot mount.
+   */
+  readonly discountPolicy?: () => Promise<{ readonly maxLineDiscountPercent: number }>;
   /** Refuses a document currency the tenant has not enabled (settings §"عام"). */
   readonly currencyCheck?: CurrencyCheck;
   /**
@@ -438,6 +444,8 @@ export function createSalesInvoicesRoutes(
     };
     const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));
     if (refusal) return refusal;
+    const discountRefusal = await refuseUnapprovedDiscount(c, d);
+    if (discountRefusal) return discountRefusal;
 
     const svc = service(c);
     try {
@@ -447,6 +455,79 @@ export function createSalesInvoicesRoutes(
       return handleDomainError(c, err);
     }
   });
+
+  interface LineInput {
+    readonly qty: string;
+    readonly unitPrice: string;
+    readonly discountType?: "percent" | "amount";
+    readonly discountPercent?: number;
+    readonly discountAmount?: string;
+  }
+  type DiscountInput = { readonly type: "percent"; readonly percent: number } | { readonly type: "amount"; readonly amount: string };
+
+  /**
+   * `sales.price.override` and `pos.discount.approve` were catalogue
+   * permissions enforced NOWHERE: a user holding plain `sales.invoice.create`
+   * could zero a unit price or discount a line to nothing, with no ceiling and
+   * no elevated permission. That is the invoice-side twin of the credit limit,
+   * and it is the shape a kickback takes.
+   *
+   * Two separate controls, because they are two separate acts:
+   *   - a GIVEAWAY — a zero unit price, or a discount that takes the whole
+   *     line — needs `sales.price.override`. It bites regardless of tenant
+   *     configuration, because there is no reading under which selling for
+   *     nothing is ordinary.
+   *   - a discount ABOVE the tenant's ceiling needs `pos.discount.approve`.
+   *     The ceiling defaults to 100, so a tenant that has never set one is
+   *     refused nothing it used to be allowed.
+   *
+   * An admin (`"*"`) satisfies both, as it does every other permission.
+   */
+  async function refuseUnapprovedDiscount(
+    c: Context,
+    body: { readonly lines: readonly LineInput[]; readonly discount?: DiscountInput },
+  ): Promise<Response | null> {
+    const ctx = getAuthContext(c);
+    const ceiling = (await deps.discountPolicy?.())?.maxLineDiscountPercent ?? 100;
+
+    const giveaway = body.lines.some((line) => {
+      if (Money.fromMajor(line.unitPrice).scaled === 0n) return true;
+      if (line.discountType === "percent" && (line.discountPercent ?? 0) >= 100) return true;
+      if (line.discountType === "amount" && line.discountAmount !== undefined) {
+        // qty and price are both at scale 1e-6, so their product is 1e-12 —
+        // divide once to compare against a 1e-6 discount. A `>=` guard needs no
+        // rounding rule; the exact extension is the totals engine's business.
+        const gross = (Qty.fromMajor(line.qty).scaled * Money.fromMajor(line.unitPrice).scaled) / 1_000_000n;
+        return gross > 0n && Money.fromMajor(line.discountAmount).scaled >= gross;
+      }
+      return false;
+    });
+    if (giveaway && !(ctx && can(ctx, "sales.price.override"))) {
+      return c.json(
+        {
+          error: "PERMISSION_DENIED",
+          permission: "sales.price.override",
+          message: "سعر صفري أو خصم كامل يحتاج صلاحية تعديل السعر.",
+        },
+        403,
+      );
+    }
+
+    const overCeiling =
+      body.lines.some((line) => line.discountType === "percent" && (line.discountPercent ?? 0) > ceiling) ||
+      (body.discount?.type === "percent" && body.discount.percent > ceiling);
+    if (overCeiling && !(ctx && can(ctx, "pos.discount.approve"))) {
+      return c.json(
+        {
+          error: "PERMISSION_DENIED",
+          permission: "pos.discount.approve",
+          message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
+        },
+        403,
+      );
+    }
+    return null;
+  }
 
   function parseListQuery(c: Context) {
     return salesInvoiceListQuerySchema.safeParse({

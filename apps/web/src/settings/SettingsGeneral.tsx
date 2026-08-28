@@ -344,6 +344,15 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                     { value: "BLOCK", label: t("settingsGeneral.blockOutrightBlock") },
                   ]}
                 />
+                <NumberField
+                  label={t("settingsGeneral.maxLineDiscount")}
+                  value={draft.maxLineDiscountPercent}
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  onChange={(v) => patch({ maxLineDiscountPercent: v })}
+                  hint={t("settingsGeneral.maxLineDiscountHint")}
+                />
               </SectionCard>
 
               <SectionCard title={t("settingsGeneral.treasuryPolicy")}>

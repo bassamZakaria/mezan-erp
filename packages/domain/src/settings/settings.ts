@@ -65,6 +65,19 @@ export interface TenantSettings {
   readonly priceListsEnabled: boolean;
   readonly creditControlEnabled: boolean;
   readonly creditControlMode: CreditControlMode;
+  /**
+   * The line discount a salesperson may give unaided, as a percent. Above it
+   * the caller must additionally hold `pos.discount.approve` — the permission
+   * existed in the catalogue and was enforced nowhere, so a rep with plain
+   * invoice-create could discount a line to nothing.
+   *
+   * Defaults to 100: the ceiling ships OFF, because one company's idea of a
+   * safe discount is not another's and a silently-imposed limit would refuse
+   * documents a tenant has always been allowed to raise. What does NOT depend
+   * on it is a giveaway — a 100% discount, or a zero unit price — which always
+   * requires the elevated permission.
+   */
+  readonly maxLineDiscountPercent: number;
 
   // --- سياسة المخزون (Inventory policy) ---
   readonly allowCrossWarehouseSales: boolean;
@@ -154,6 +167,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   priceListsEnabled: true,
   creditControlEnabled: false,
   creditControlMode: "WARNING",
+  maxLineDiscountPercent: 100,
 
   allowCrossWarehouseSales: true,
   showOtherWarehouseStock: true,
@@ -266,6 +280,9 @@ function validate(settings: TenantSettings): string[] {
     settings.agingWritedownMonths > 60
   ) {
     reasons.push("agingWritedownMonths must be an integer in 1..60");
+  }
+  if (settings.maxLineDiscountPercent < 0 || settings.maxLineDiscountPercent > 100) {
+    reasons.push("maxLineDiscountPercent must be in 0..100");
   }
   if (settings.agingWritedownRatePercent < 0 || settings.agingWritedownRatePercent > 100) {
     reasons.push("agingWritedownRatePercent must be in 0..100");

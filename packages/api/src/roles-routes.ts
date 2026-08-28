@@ -8,11 +8,13 @@ import {
   SystemRoleImmutableError,
   RoleNotFoundError,
   RoleInUseError,
+  type AuditSink,
   type Role,
   type UnitOfWork,
 } from "@mezan/domain";
 import { createRoleSchema, updateRoleSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 import type { EntitlementsResolver } from "./module-gate.js";
 
 function serializeRole(role: Role) {
@@ -57,9 +59,36 @@ export function createRolesRoutes(
   uow: UnitOfWork,
   resolveEntitlements: EntitlementsResolver,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /** Who granted which permissions to whom. Without it, self-elevation leaves no trace. */
+  audit?: AuditSink,
 ) {
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
+
+  /**
+   * The permission LIST travels, not just the role name. "Role edited" is not
+   * evidence; "this role gained `workflow.approve`" is.
+   */
+  function auditRole(c: Context, role: Role, action: "CREATE" | "UPDATE", before?: Role | null) {
+    return recordAdminEvent(audit, c, {
+      module: "admin",
+      entityType: "ROLE",
+      entityId: role.id,
+      action,
+      details: {
+        code: role.code,
+        name: role.name,
+        permissions: [...role.permissions],
+        ...(before
+          ? {
+              previousPermissions: [...before.permissions],
+              granted: role.permissions.filter((p) => !before.permissions.includes(p)),
+              revoked: before.permissions.filter((p) => !role.permissions.includes(p)),
+            }
+          : {}),
+      },
+    });
+  }
 
   app.get("/", gate("admin.roles.view"), async (c) => {
     const roles = await uow.roles.list();
@@ -85,6 +114,7 @@ export function createRolesRoutes(
         uow,
         entitlements,
       );
+      await auditRole(c, role, "CREATE");
       return c.json(serializeRole(role), 201);
     } catch (err) {
       return roleErrorResponse(c, err);
@@ -98,12 +128,16 @@ export function createRolesRoutes(
     }
     const entitlements = await resolveEntitlements(c);
     if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);
+    // Read BEFORE the write: an after-only record cannot answer "what did this
+    // role gain?", which is the only question an auditor asks of a role edit.
+    const before = await uow.roles.findById(c.req.param("id"));
     try {
       const role = await saveRole(
         { id: c.req.param("id"), ...parsed.data, createdAt: new Date().toISOString() },
         uow,
         entitlements,
       );
+      await auditRole(c, role, "UPDATE", before);
       return c.json(serializeRole(role));
     } catch (err) {
       return roleErrorResponse(c, err);
@@ -111,8 +145,16 @@ export function createRolesRoutes(
   });
 
   app.delete("/:id", gate("admin.roles.manage"), async (c) => {
+    const before = await uow.roles.findById(c.req.param("id"));
     try {
       await deleteRole(c.req.param("id"), uow);
+      await recordAdminEvent(audit, c, {
+        module: "admin",
+        entityType: "ROLE",
+        entityId: c.req.param("id"),
+        action: "DELETE",
+        details: before ? { code: before.code, name: before.name, permissions: [...before.permissions] } : null,
+      });
       return c.body(null, 204);
     } catch (err) {
       return roleErrorResponse(c, err);

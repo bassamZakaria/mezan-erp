@@ -816,7 +816,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   const app = new Hono();
 
   if (options.settingsStore) {
-    app.route("/settings", createSettingsRoutes(options.settingsStore, resolveAuth));
+    app.route("/settings", createSettingsRoutes(options.settingsStore, resolveAuth, options.auditSink));
   }
   if (options.branchStore) {
     app.route("/branches", createBranchesRoutes(options.branchStore, resolveAuth));
@@ -915,7 +915,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.supplierStore) {
-    app.route("/suppliers", createSuppliersRouter(options.supplierStore, resolveAuth, supplierPayables));
+    app.route("/suppliers", createSuppliersRouter(options.supplierStore, resolveAuth, supplierPayables, options.auditSink));
   }
 
   if (options.accounts) {
@@ -934,10 +934,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.treasuryAccountRepo) {
-    app.route("/treasury-accounts", createTreasuryAccountsRoutes(options.treasuryAccountRepo, resolveAuth, options.gl?.ledger));
+    app.route(
+      "/treasury-accounts",
+      createTreasuryAccountsRoutes(options.treasuryAccountRepo, resolveAuth, options.gl?.ledger, options.auditSink),
+    );
   }
   if (options.fiscalPeriodRepo) {
-    app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, resolveAuth));
+    app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, resolveAuth, options.auditSink));
   }
   if (options.gl) {
     app.route("/gl", createGlRoutes(options.gl, resolveAuth));
@@ -1034,6 +1037,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
                     defaultRatePercent: settings.defaultTaxRate,
                     inclusive: settings.taxCalculation === "INCLUSIVE",
                   };
+                }
+              : undefined),
+          discountPolicy:
+            salesInvoices.discountPolicy ??
+            (options.settingsStore
+              ? async () => {
+                  const settings = (await options.settingsStore!.get()) ?? createDefaultSettings();
+                  return { maxLineDiscountPercent: settings.maxLineDiscountPercent };
                 }
               : undefined),
         },
@@ -1402,10 +1413,16 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     return c.json(entitlements);
   });
 
-  app.route("/roles", createRolesRoutes(uow, resolveEntitlements, resolveAuth));
+  app.route("/roles", createRolesRoutes(uow, resolveEntitlements, resolveAuth, options.auditSink));
   app.route(
     "/users",
-    createUsersRoutes(uow, hasher, resolveAuth, async () => (await options.settingsStore?.get())?.allowedEmailDomains ?? []),
+    createUsersRoutes(
+      uow,
+      hasher,
+      resolveAuth,
+      async () => (await options.settingsStore?.get())?.allowedEmailDomains ?? [],
+      options.auditSink,
+    ),
   );
   app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink));
   if (options.apiKeys) {

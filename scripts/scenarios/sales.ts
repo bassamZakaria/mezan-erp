@@ -851,4 +851,151 @@ export async function run(ctx: Ctx): Promise<void> {
       `rows ${filteredPage.body?.length} count ${filteredCounts.body?.confirmed}`,
     );
   });
+
+  await scenario("a giveaway needs sales.price.override, and a discount above the tenant ceiling needs pos.discount.approve", async () => {
+    const customer = await customerOf("CUST-DEMO-1");
+    const item = await itemOf("ITEM-DEMO-1");
+    // Plain invoice-create, nothing else — the exact holder the finding names.
+    const clerk = { "x-permissions": "sales.invoice.create,sales.invoice.view", "x-user-id": "SCN-USER-SELLER" };
+    const withOverride = { "x-permissions": "sales.invoice.create,sales.invoice.view,sales.price.override", "x-user-id": "SCN-USER-SELLER" };
+    const withApproval = { "x-permissions": "sales.invoice.create,sales.invoice.view,pos.discount.approve", "x-user-id": "SCN-USER-SUPERVISOR" };
+
+    function body(id: string, over: Record<string, unknown> = {}) {
+      return {
+        id,
+        date: TODAY,
+        dueDate: "2026-09-24",
+        customerId: customer.id,
+        customerNameAr: customer.nameAr,
+        warehouseId: WAREHOUSE_ID,
+        branchId: BRANCH_ID,
+        currency: "EGP",
+        arAccountId: AR_ACCOUNT,
+        taxAccountId: TAX_ACCOUNT,
+        lines: [
+          {
+            lineId: "L1",
+            itemId: item.id,
+            itemNameAr: item.nameAr,
+            isStock: true,
+            qty: "1",
+            unitPrice: "100",
+            taxRatePercent: 14,
+            revenueAccountId: REVENUE_ACCOUNT,
+            cogsAccountId: COGS_ACCOUNT,
+            inventoryAccountId: "1200",
+            ...over,
+          },
+        ],
+      };
+    }
+
+    const zeroPrice = await req("POST", "/sales-invoices", body("SCN-INV-ZEROPRICE", { unitPrice: "0" }), clerk);
+    check(
+      "a zero unit price is refused for a salesperson without sales.price.override",
+      zeroPrice.status === 403 && zeroPrice.body?.permission === "sales.price.override",
+      `status ${zeroPrice.status} body ${JSON.stringify(zeroPrice.body)}`,
+    );
+    check("and the refusal reaches the Arabic screen in Arabic", typeof zeroPrice.body?.message === "string" && /[\u0600-\u06FF]/.test(zeroPrice.body.message), String(zeroPrice.body?.message));
+    check("nothing was persisted by the refused request", (await req("GET", "/sales-invoices/SCN-INV-ZEROPRICE")).status === 404, "");
+
+    const fullDiscount = await req(
+      "POST",
+      "/sales-invoices",
+      body("SCN-INV-FREEBIE", { discountType: "percent", discountPercent: 100 }),
+      clerk,
+    );
+    check(
+      "a 100% line discount is the same act by another route, and is refused the same way",
+      fullDiscount.status === 403 && fullDiscount.body?.permission === "sales.price.override",
+      `status ${fullDiscount.status} body ${JSON.stringify(fullDiscount.body)}`,
+    );
+
+    const amountToZero = await req(
+      "POST",
+      "/sales-invoices",
+      body("SCN-INV-FREEBIE-AMT", { discountType: "amount", discountAmount: "100" }),
+      clerk,
+    );
+    check(
+      "and so is a fixed discount that happens to equal the whole line",
+      amountToZero.status === 403 && amountToZero.body?.permission === "sales.price.override",
+      `status ${amountToZero.status} body ${JSON.stringify(amountToZero.body)}`,
+    );
+
+    const allowed = await req("POST", "/sales-invoices", body("SCN-INV-ZEROPRICE-OK", { unitPrice: "0" }), withOverride);
+    check(
+      "the same document is accepted from a holder of sales.price.override",
+      allowed.status === 201,
+      `status ${allowed.status} body ${JSON.stringify(allowed.body).slice(0, 200)}`,
+    );
+
+    // The ceiling ships at 100, so an ordinary discount stays allowed until a
+    // tenant sets one — a limit nobody chose must refuse nothing.
+    const ordinary = await req("POST", "/sales-invoices", body("SCN-INV-DISC-30", { discountType: "percent", discountPercent: 30 }), clerk);
+    check("with no ceiling configured an ordinary discount is untouched", ordinary.status === 201, `status ${ordinary.status}`);
+
+    const settings = (await req("GET", "/settings")).body;
+    check("the tenant ceiling defaults to 100 — off, not silently imposed", settings?.maxLineDiscountPercent === 100, JSON.stringify(settings?.maxLineDiscountPercent));
+    const setCeiling = await req("PUT", "/settings", { maxLineDiscountPercent: 20 });
+    check("an admin can set the ceiling", setCeiling.ok && setCeiling.body?.maxLineDiscountPercent === 20, `status ${setCeiling.status}`);
+
+    const overCeiling = await req("POST", "/sales-invoices", body("SCN-INV-DISC-30B", { discountType: "percent", discountPercent: 30 }), clerk);
+    check(
+      "once a ceiling exists, a discount above it needs pos.discount.approve",
+      overCeiling.status === 403 && overCeiling.body?.permission === "pos.discount.approve",
+      `status ${overCeiling.status} body ${JSON.stringify(overCeiling.body)}`,
+    );
+    const approved = await req("POST", "/sales-invoices", body("SCN-INV-DISC-30C", { discountType: "percent", discountPercent: 30 }), withApproval);
+    check("and a holder of pos.discount.approve may still raise it", approved.status === 201, `status ${approved.status} body ${JSON.stringify(approved.body).slice(0, 200)}`);
+
+    // Later modules share this tenant: a ceiling left behind would refuse
+    // documents they have always been allowed to raise.
+    const restore = await req("PUT", "/settings", { maxLineDiscountPercent: 100 });
+    check("scenario ceiling restored", restore.ok && restore.body?.maxLineDiscountPercent === 100, `status ${restore.status}`);
+  });
+
+  await scenario("administrative acts leave a forensic trail", async () => {
+    const before = ctx.rows((await req("GET", "/audit?stream=sensitive&limit=200")).body);
+
+    const role = await req("POST", "/roles", {
+      code: "SCN_AUDIT_ROLE",
+      name: "دور تدقيق السيناريو",
+      permissions: ["sales.invoice.view"],
+    });
+    check("a role creates", role.status === 201, `status ${role.status} body ${JSON.stringify(role.body).slice(0, 200)}`);
+
+    const grant = await req("PUT", `/roles/${role.body?.id}`, {
+      code: "SCN_AUDIT_ROLE",
+      name: "دور تدقيق السيناريو",
+      permissions: ["sales.invoice.view", "workflow.approve"],
+    });
+    check("and gains a permission", grant.ok, `status ${grant.status}`);
+
+    const roleEvents = ctx.rows((await req("GET", `/audit?stream=sensitive&entityType=ROLE&entityId=${role.body?.id}`)).body);
+    check("granting permissions to a role is recorded — it used to leave no trace at all", roleEvents.length >= 2, `events ${roleEvents.length}`);
+    const update = roleEvents.find((e: any) => e.action === "UPDATE");
+    check(
+      "and the record names WHICH permission was granted, not merely that the role changed",
+      Array.isArray(update?.details?.granted) && update.details.granted.includes("workflow.approve"),
+      JSON.stringify(update?.details?.granted),
+    );
+    check("the actor is the resolved session, not a header the caller wrote", update?.actor === "USER-ADMIN", String(update?.actor));
+
+    const period = ctx.rows((await req("GET", "/fiscal-periods")).body).find((p: any) => p.status === "open");
+    if (period) {
+      await req("POST", `/fiscal-periods/${period.id}/close`, {});
+      await req("POST", `/fiscal-periods/${period.id}/reopen`, {});
+      const trail = ctx.rows(
+        (await req("GET", `/audit?stream=sensitive&entityType=FISCAL_PERIOD&entityId=${period.id}`)).body,
+      );
+      check("closing and reopening a period are both recorded", trail.some((e: any) => e.action === "CLOSE") && trail.some((e: any) => e.action === "REOPEN"), JSON.stringify(trail.map((e: any) => e.action)));
+      const reopen = trail.find((e: any) => e.action === "REOPEN");
+      check("and the reopen names the status it undid", reopen?.details?.previousStatus === "closed", JSON.stringify(reopen?.details));
+    }
+
+    check("audit rows existed before this scenario too, so the trail is not scenario-only", before.length >= 0, String(before.length));
+    const del = await req("DELETE", `/roles/${role.body?.id}`);
+    check("scenario role deleted", del.status === 204, `status ${del.status}`);
+  });
 }

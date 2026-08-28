@@ -3,12 +3,14 @@ import {
   createDefaultSettings,
   updateSettings,
   InvalidSettingsError,
+  type AuditSink,
   type SettingsRepository,
   type TenantSettings,
 } from "@mezan/domain";
 import { updateTenantSettingsSchema, sendTestEmailSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 import { sendTestEmail } from "./smtp-client.js";
+import { changedKeys, recordAdminEvent } from "./admin-audit.js";
 
 /**
  * Settings routes (docs/catalog/09 §"الإعدادات — عام"): a single tenant
@@ -44,6 +46,13 @@ function mergePassword(current: TenantSettings, patch: Partial<TenantSettings>):
 export function createSettingsRoutes(
   store: SettingsRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /**
+   * Who changed which policy. These toggles decide whether a purchase invoice
+   * needs a receipt, whether stock may go negative, and how credit control
+   * behaves — turning one off is the cheapest way past a control, and it wrote
+   * nothing at all.
+   */
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -74,6 +83,21 @@ export function createSettingsRoutes(
       const current = (await store.get()) ?? createDefaultSettings();
       const next = updateSettings(current, mergePassword(current, parsed.data));
       await store.save(next);
+      // The masked copies, so a password change is recorded as having happened
+      // without the log becoming a second place the password lives.
+      const changed = changedKeys(
+        maskSecrets(current) as unknown as Readonly<Record<string, unknown>>,
+        maskSecrets(next) as unknown as Readonly<Record<string, unknown>>,
+      );
+      if (Object.keys(changed).length > 0) {
+        await recordAdminEvent(audit, c, {
+          module: "admin",
+          entityType: "TENANT_SETTINGS",
+          entityId: null,
+          action: "UPDATE",
+          details: { changed },
+        });
+      }
       return c.json(maskSecrets(next));
     } catch (err) {
       if (err instanceof InvalidSettingsError) {

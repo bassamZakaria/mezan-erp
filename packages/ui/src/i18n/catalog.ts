@@ -213,9 +213,7 @@ const uiAr = {
   // Revamp — the two-row top bar that replaced the rail
   "shell.bar.skip": "تخطَّ إلى المحتوى",
   "shell.bar.home": "ميزان — الذهاب إلى لوحة التحكم",
-  "shell.bar.workspaces": "مساحات العمل",
   "shell.bar.workspacesLandmark": "التنقل بين مساحات العمل",
-  "shell.bar.directLinks": "روابط مباشرة",
   "shell.bar.workspaceScreens": "شاشات مساحة العمل",
   "shell.bar.overflow": "شاشات إضافية",
   "shell.bar.chromeActions": "أدوات الواجهة",
@@ -438,9 +436,7 @@ const uiEn: Record<UiTranslationKey, string> = {
   // Revamp — the two-row top bar that replaced the rail
   "shell.bar.skip": "Skip to content",
   "shell.bar.home": "Mezan — go to the dashboard",
-  "shell.bar.workspaces": "Workspaces",
   "shell.bar.workspacesLandmark": "Workspace navigation",
-  "shell.bar.directLinks": "Direct links",
   "shell.bar.workspaceScreens": "Workspace screens",
   "shell.bar.overflow": "More screens",
   "shell.bar.chromeActions": "Interface controls",

@@ -16,7 +16,7 @@ test.describe("Theme toggle", () => {
     // the light `:root` tokens apply (packages/ui/src/tokens/tokens.css).
     await expect(page.locator("html")).not.toHaveAttribute("data-theme", /light|dark/);
     const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(bg).toBe("rgb(237, 241, 238)"); // --bg light token (#edf1ee)
+    expect(bg).toBe("rgb(242, 239, 233)"); // --bg light token (#f2efe9)
 
     // Not fullPage: on this Chromium build, full-page capture reliably
     // repaints with stale (pre-toggle) CSS custom-property values even
@@ -32,7 +32,7 @@ test.describe("Theme toggle", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
     const darkBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(darkBg).toBe("rgb(12, 21, 18)"); // --bg dark token (#0c1512)
+    expect(darkBg).toBe("rgb(10, 19, 16)"); // --bg dark token (#0a1310)
     expect(darkBg).not.toBe(lightBg);
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/dark.png` });

@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent } from "react";
 import { cn } from "../lib/cn";
-import type { NavGroup } from "./types";
+import type { NavGroup, NavItem } from "./types";
 
 /**
  * The workspace column — level one of the navigation (design direction ب,
@@ -19,7 +19,7 @@ import type { NavGroup } from "./types";
  */
 
 const ROW =
-  "relative flex min-h-[var(--h-btn)] w-full items-center gap-[9px] px-[14px] text-start text-[13px] transition-colors hover:bg-surface-2";
+  "relative flex min-h-[var(--h-btn)] w-full items-center gap-[9px] px-[14px] text-start text-[13px] transition-colors hover:bg-chrome-hover";
 
 export interface WorkspaceRailProps {
   /** The workspaces; only their names reach the column. */
@@ -27,8 +27,14 @@ export interface WorkspaceRailProps {
   /** The workspace the open screen belongs to; marked `aria-current`. */
   activeKey?: string;
   onChange?: (key: string) => void;
-  /** «مساحات العمل» — the visible column heading, and the list's own name. */
-  heading: string;
+  /**
+   * Single destinations that are not workspaces — الموافقات is the one — shown
+   * above the list with their own badge. They live here rather than in the
+   * chrome bar so every navigation target is in one column.
+   */
+  pinnedItems?: readonly NavItem[];
+  /** The open SCREEN, for the pinned rows; workspaces use `activeKey`. */
+  activeItemKey?: string;
   ariaLabel: string;
   /** «كل الشاشات» — below the divider, the browse-everything entry point. */
   allScreensLabel: string;
@@ -40,7 +46,8 @@ export function WorkspaceRail({
   groups,
   activeKey,
   onChange,
-  heading,
+  pinnedItems = [],
+  activeItemKey,
   ariaLabel,
   allScreensLabel,
   onOpenAllScreens,
@@ -70,19 +77,59 @@ export function WorkspaceRail({
   return (
     <nav
       aria-label={ariaLabel}
-      className={cn("flex w-[200px] flex-none flex-col border-e border-border-strong bg-surface text-ink", className)}
+      className={cn(
+        "flex w-[200px] flex-none flex-col border-e border-chrome-border text-chrome-ink shadow-chrome",
+        "bg-[linear-gradient(190deg,var(--chrome),var(--chrome-2))]",
+        className,
+      )}
     >
       {/*
         The column stretches so its border runs the whole page, but its CONTENTS
         stick under row one: the column and the workspace-screens bar share a top
         edge (see `AppShell`), and a rail that scrolled away would leave that
-        shared edge attached to a blank 200px strip. `--h-btn` is row one's own
-        height — its tallest child sets it and the row carries no block padding.
+        shared edge attached to a blank 200px strip. `--h-topbar` is row one's own
+        height, which is the button height plus the padding that keeps the chrome
+        controls off its edges.
         The list scrolls inside that sticky box once the open workspace's
         sections push it past the viewport.
       */}
-      <div className="sticky top-[var(--h-btn)] flex max-h-[calc(100vh-var(--h-btn))] flex-col py-[8px]">
-        <div className="flex-none px-[14px] pb-[4px] pt-[8px] text-2xs font-semibold text-ink-faint">{heading}</div>
+      <div className="sticky top-[var(--h-topbar)] flex max-h-[calc(100vh-var(--h-topbar))] flex-col py-[8px]">
+        {pinnedItems.length > 0 ? (
+          <>
+            <ul className="flex-none">
+              {pinnedItems.map((item) => {
+                const active = item.key === activeItemKey;
+                return (
+                  <li key={item.key} className="flex">
+                    <button
+                      type="button"
+                      onClick={item.onClick}
+                      // The badge is a bare number, so the count is spelled out
+                      // in the accessible name.
+                      aria-label={item.tag ? `${item.label} (${item.tag.label})` : undefined}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        ROW,
+                        active ? "bg-chrome-active font-semibold text-chrome-ink" : "text-chrome-ink-muted",
+                      )}
+                    >
+                      {active ? <span aria-hidden className="absolute bottom-0 start-0 top-0 w-[2px] bg-chrome-accent" /> : null}
+                      {item.icon ? <span className="flex-none">{item.icon}</span> : null}
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {item.tag ? (
+                        <span className="mz-num flex-none rounded-pill bg-chrome-accent px-[6px] text-2xs font-bold leading-[16px] text-chrome">
+                          {item.tag.label}
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div aria-hidden className="mx-[12px] my-[8px] h-px flex-none bg-chrome-border" />
+          </>
+        ) : null}
 
         <ul onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto">
           {groups.map((group, index) => {
@@ -96,12 +143,15 @@ export function WorkspaceRail({
                   type="button"
                   tabIndex={index === rovingIndex ? 0 : -1}
                   aria-current={active ? "page" : undefined}
-                  className={cn(ROW, active ? "bg-surface-2 font-semibold text-ink" : "text-ink")}
+                  className={cn(
+                    ROW,
+                    active ? "bg-chrome-active font-semibold text-chrome-ink" : "text-chrome-ink-muted",
+                  )}
                   onClick={() => onChange?.(group.key)}
                 >
                   {/* Never colour alone: the open workspace also carries this
                       inline-start bar, the recessed fill and a heavier weight. */}
-                  {active ? <span aria-hidden className="absolute bottom-0 start-0 top-0 w-[2px] bg-accent" /> : null}
+                  {active ? <span aria-hidden className="absolute bottom-0 start-0 top-0 w-[2px] bg-chrome-accent" /> : null}
                   {group.icon ? <span className="flex-none">{group.icon}</span> : null}
                   <span className="min-w-0 flex-1 truncate">{group.label}</span>
                 </button>
@@ -110,9 +160,9 @@ export function WorkspaceRail({
           })}
         </ul>
 
-        <div aria-hidden className="mx-[12px] my-[8px] h-px flex-none bg-border" />
+        <div aria-hidden className="mx-[12px] my-[8px] h-px flex-none bg-chrome-border" />
 
-        <button type="button" onClick={onOpenAllScreens} className={cn(ROW, "flex-none text-ink-muted hover:text-ink")}>
+        <button type="button" onClick={onOpenAllScreens} className={cn(ROW, "flex-none text-chrome-ink-muted hover:text-chrome-ink")}>
           <span aria-hidden className="flex-none">
             ☰
           </span>

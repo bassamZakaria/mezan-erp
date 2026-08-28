@@ -19,8 +19,12 @@ import type { NavGroup, NavItem } from "./types";
  * the one way this codebase does that.
  */
 
+/* No resting box: the icons sit straight on the chrome. The fill and the
+   brighter ink appear on hover and focus, which is where they carry meaning —
+   a bordered container around every glyph made the bar read as five buttons
+   competing with the workspace column. */
 const CHROME_BUTTON =
-  "flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center border border-chrome-border bg-chrome-hover text-chrome-ink-muted transition-colors hover:bg-chrome-active hover:text-chrome-ink";
+  "flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md border border-transparent bg-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink";
 
 const LANGUAGE_NAME_KEY = { ar: "shell.language.name.ar", en: "shell.language.name.en" } as const;
 

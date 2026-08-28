@@ -205,7 +205,7 @@ export function AppShell({
       </a>
 
       <header className="sticky top-0 z-40 flex-none bg-chrome text-chrome-ink shadow-chrome">
-        <div className="flex items-center gap-[10px] ps-[6px] pe-[12px]">
+        <div className="flex min-h-[var(--h-topbar)] items-center gap-[10px] py-[6px] ps-[14px] pe-[20px]">
           {/* The mark is the app's own balance-beam glyph (`BrandMark`) — there
               is no logo file in the repo — and the whole lockup is one link
               home, which is the convention every user already expects. */}
@@ -219,43 +219,11 @@ export function AppShell({
             <span className="mz-disp text-lg font-bold max-[900px]:hidden">{t("shell.brand.name")}</span>
           </button>
 
-          {/* The one clipped region of row one: the direct links yield first
-              when the viewport narrows, so the controls at the inline end stay
-              put. With the workspaces now in their own column this row has room
-              to spare, and every chrome control below stays visible as itself. */}
-          <nav aria-label={t("shell.bar.directLinks")} className="flex min-w-0 flex-1 items-center gap-[8px] overflow-hidden">
-            {directNavItems.map((item) => {
-              const active = item.key === activeNavKey;
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={item.onClick}
-                  // The label is hidden on a narrow viewport and the badge is a
-                  // bare number, so the name is spelled out here either way.
-                  aria-label={item.tag ? `${item.label} (${item.tag.label})` : item.label}
-                  title={item.label}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "flex min-h-[var(--h-btn)] flex-none items-center gap-[7px] rounded-md border px-[12px] text-xs transition-colors",
-                    // Never colour alone: the open screen also carries a heavier
-                    // weight and the filled chrome, not just the accent border.
-                    active
-                      ? "border-chrome-accent bg-chrome-active font-bold text-chrome-ink"
-                      : "border-chrome-border bg-chrome-hover font-medium text-chrome-ink-muted hover:text-chrome-ink",
-                  )}
-                >
-                  {item.icon ? <span className="flex-none">{item.icon}</span> : null}
-                  <span className="whitespace-nowrap max-[900px]:hidden">{item.label}</span>
-                  {item.tag ? (
-                    <span className="mz-num flex-none rounded-pill bg-accent px-[6px] text-2xs font-bold leading-[16px] text-accent-ink">
-                      {item.tag.label}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </nav>
+          {/* Row one holds the brand and the chrome controls only. The direct
+              links (الموافقات) moved into the workspace column, so every
+              navigation target lives in one place. This spacer is what lets the
+              controls sit at the inline end. */}
+          <div className="min-w-0 flex-1" />
 
           <div className="flex flex-none items-center gap-[8px]">
             <CommandBar
@@ -298,7 +266,7 @@ export function AppShell({
                 aria-label={
                   notificationCount > 0 ? t("shell.notifications.withCount", { count: notificationCount }) : t("shell.notifications")
                 }
-                className="relative flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md border border-chrome-border bg-chrome-hover text-chrome-ink-muted transition-colors hover:bg-chrome-active hover:text-chrome-ink"
+                className="relative flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md border border-transparent bg-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink"
               >
                 <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
                   <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
@@ -370,13 +338,15 @@ export function AppShell({
           groups={workspaceGroups}
           activeKey={activeWorkspaceKey}
           onChange={handleWorkspaceChange}
-          heading={t("shell.bar.workspaces")}
+          pinnedItems={directNavItems}
+          activeItemKey={activeNavKey}
           ariaLabel={t("shell.bar.workspacesLandmark")}
           allScreensLabel={t("shell.rail.all")}
           onOpenAllScreens={() => openAllScreens(null)}
-          // The column and row two start on the same line, so they need the
-          // same rule under the chrome or the seam breaks at the column's edge.
-          className="border-t border-border"
+          // The column and row two start on the same line and need a rule
+          // under the chrome, but the column is a dark panel: a light
+          // `--border` there reads as a bright scar across the teal.
+          className="border-t border-chrome-border"
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -387,7 +357,7 @@ export function AppShell({
               (its tallest child sets it, and it carries no block padding), so
               the offset stays correct if that control scale ever changes. */}
           <WorkspaceScreensBar
-            className="sticky top-[var(--h-btn)] z-30"
+            className="sticky top-[var(--h-topbar)] z-30"
             group={activeGroup}
             activeKey={activeNavKey}
             ariaLabel={

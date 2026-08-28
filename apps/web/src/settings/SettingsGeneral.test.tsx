@@ -23,6 +23,7 @@ const baseSettings: TenantSettingsDTO = {
   taxRegistrationNumber: "300123456700003",
   commercialRegistrationNumber: "",
   phone: "0223456789",
+  allowedEmailDomains: [],
   email: "info@cyag.example",
   address: "القاهرة الجديدة، القاهرة",
   hrContractExpiryWarningDays: 30,

@@ -25,7 +25,7 @@ async function sleep(ms: number): Promise<void> {
 }
 
 export async function run(ctx: Ctx): Promise<void> {
-  const { req, rows, check } = ctx;
+  const { req, rows, check, checkEq } = ctx;
 
   // ---------------------------------------------------------------------
   // The identity a request carries is the SERVER's, not the caller's.
@@ -51,7 +51,7 @@ export async function run(ctx: Ctx): Promise<void> {
       new Request("http://scenario/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: "admin", pin: "1234" }),
+        body: JSON.stringify({ username: "admin@cyag.example", pin: "1234" }),
       }),
     );
     check("a real sign-in succeeds", login.status === 200, `status ${login.status}`);
@@ -75,7 +75,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------
   // The login name is an identifier, not a label
   // ---------------------------------------------------------------------
-  await ctx.scenario("sign-in matches a username or an email, never the display name", async () => {
+  await ctx.scenario("sign-in matches the email, never the display name — and a domain policy gates who may have an account", async () => {
     const attempt = async (username: string) => {
       const res = await ctx.app.fetch(
         new Request("http://scenario/auth/login", {
@@ -87,28 +87,56 @@ export async function run(ctx: Ctx): Promise<void> {
       return res.status;
     };
 
-    check("the username opens the door", (await attempt("admin")) === 200, String(await attempt("admin")));
-    check("and so does it in any case the operator types it", (await attempt("ADMIN")) === 200, String(await attempt("ADMIN")));
-    check("the email does too — it is unique and stable as well", (await attempt("admin@cyag.example")) === 200, String(await attempt("admin@cyag.example")));
+    check("the email opens the door", (await attempt("admin@cyag.example")) === 200, String(await attempt("admin@cyag.example")));
+    check("in any case the operator types it", (await attempt("ADMIN@Cyag.Example")) === 200, String(await attempt("ADMIN@Cyag.Example")));
 
     // The defect: login used to match `fullName`, so "who can sign in" was a
     // property of a field any admin may edit, and two people who share a
     // display name shared the account door.
+    check("the DISPLAY NAME does not — it is neither unique nor stable", (await attempt("محمد الشهابي")) === 401, String(await attempt("محمد الشهابي")));
+    check("nor does a bare name that is not an address", (await attempt("admin")) === 401, String(await attempt("admin")));
+
+    // --- the allowed-domain policy -------------------------------------
+    const newUser = (email: string, id: string) => ({
+      fullName: "مستخدم نطاق",
+      email,
+      phone: null,
+      roleId: null,
+      isCompanyAdmin: true,
+      employeeId: null,
+      branchScope: "*",
+      warehouseScope: "*",
+      status: "active",
+      password: "SCN-password-1",
+      id,
+    });
+
+    const openPolicy = await req("GET", "/settings");
+    checkEq("a fresh tenant restricts no domain — a rollout is not blocked by a rule nobody configured", (openPolicy.body?.allowedEmailDomains ?? []).length, 0);
+
+    const anyDomain = await req("POST", "/users", newUser("free@anywhere.example", "SCN-U-DOMAIN-0"));
+    check("so any domain is accepted while the list is empty", anyDomain.status === 201, `${anyDomain.status}: ${JSON.stringify(anyDomain.body)}`);
+
+    const setPolicy = await req("PUT", "/settings", { ...openPolicy.body, allowedEmailDomains: ["cyag.example", "mezan.com"] });
+    check("the tenant names the domains it allows", setPolicy.status === 200, `${setPolicy.status}: ${JSON.stringify(setPolicy.body).slice(0, 200)}`);
+
+    const outside = await req("POST", "/users", newUser("someone@gmail.com", "SCN-U-DOMAIN-1"));
     check(
-      "the DISPLAY NAME does not — it is neither unique nor stable",
-      (await attempt("محمد الشهابي")) === 401,
-      String(await attempt("محمد الشهابي")),
+      "an address outside them is refused, and the refusal names the domains that would work",
+      outside.status === 422 && outside.body?.error === "EMAIL_DOMAIN_NOT_ALLOWED" && String(outside.body?.message).includes("mezan.com"),
+      `${outside.status}: ${JSON.stringify(outside.body)}`,
     );
 
-    const session = await ctx.app.fetch(
-      new Request("http://scenario/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: "admin", pin: "1234" }),
-      }),
+    const inside = await req("POST", "/users", newUser("Ops@Mezan.COM", "SCN-U-DOMAIN-2"));
+    check("one inside them is accepted", inside.status === 201, `${inside.status}: ${JSON.stringify(inside.body)}`);
+    check(
+      "and is stored normalised, so no case variant can become a second account",
+      inside.body?.email === "ops@mezan.com",
+      String(inside.body?.email),
     );
-    const body = (await session.json()) as { username?: string; fullName?: string };
-    check("and the session names both, separately", body.username === "admin" && body.fullName === "محمد الشهابي", JSON.stringify(body).slice(0, 120));
+
+    // Restore the open policy so later scenarios are not gated by this one.
+    await req("PUT", "/settings", { ...openPolicy.body, allowedEmailDomains: [] });
   });
 
   // ---------------------------------------------------------------------
@@ -134,7 +162,6 @@ export async function run(ctx: Ctx): Promise<void> {
     approverRoleId = role.body?.id ?? "";
 
     const submitter = await req("POST", "/users", {
-      username: "scn-submitter",
       fullName: "SCN Submitter", email: "scn-submitter@example.test", phone: null,
       roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",
@@ -143,7 +170,6 @@ export async function run(ctx: Ctx): Promise<void> {
     submitterUserId = submitter.body?.id ?? "";
 
     const approver = await req("POST", "/users", {
-      username: "scn-approver",
       fullName: "SCN Approver", email: "scn-approver@example.test", phone: null,
       roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",

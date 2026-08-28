@@ -13,17 +13,17 @@ export type UserStatus = "active" | "inactive";
  */
 export interface User {
   readonly id: string;
+  readonly fullName: string;
   /**
-   * The login identifier — stable, unique, and NOT the display name.
+   * The login identifier AND the contact address — one field, one value.
    *
    * Stored already normalised (trimmed, lower-cased) so uniqueness is a plain
-   * index rather than a collation the SQLite file has to agree about. It is
-   * deliberately separate from `fullName`: a display name is neither unique
-   * nor stable — two «محمد أحمد» can work in one shop, and either may be
-   * corrected next week, which would silently change who can log in.
+   * index rather than a collation the SQLite file has to agree about, and so
+   * `Admin@x.com` cannot become a second account beside `admin@x.com`. It is
+   * deliberately not `fullName`: a display name is neither unique nor stable —
+   * two «محمد أحمد» can work in one shop, and either may be corrected next
+   * week, which would silently change who can log in.
    */
-  readonly username: string;
-  readonly fullName: string;
   readonly email: string;
   readonly phone: string | null;
   /** Opaque hash produced by a `SecretHasher` — the domain never sees plaintext. */
@@ -45,9 +45,8 @@ export interface User {
 export interface UserRepository {
   save(user: User): Promise<void>;
   findById(id: string): Promise<User | null>;
+  /** Looks up by the normalised email. Callers pass the raw input; the adapter normalises. */
   findByEmail(email: string): Promise<User | null>;
-  /** Looks up by the normalised username. Callers pass the raw input; the adapter normalises. */
-  findByUsername(username: string): Promise<User | null>;
   list(): Promise<readonly User[]>;
 }
 

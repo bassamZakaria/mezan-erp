@@ -9,12 +9,12 @@ import { useAppTranslation } from "../i18n";
 
 const PIN_LENGTH = 4;
 /**
- * Prefilled login name = the seed admin's USERNAME, not their display name.
- * It used to be «محمد الشهابي», which worked only because login matched the
- * full name — a field any admin can edit, and one two people can share.
- * The PIN is always verified against the real user store.
+ * Prefilled login = the seed admin's EMAIL, not their display name. It used to
+ * be «محمد الشهابي», which worked only because login matched the full name — a
+ * field any admin can edit, and one two people can share. The PIN is always
+ * verified against the real user store.
  */
-const DEFAULT_USERNAME = "admin";
+const DEFAULT_USERNAME = "admin@cyag.example";
 
 export interface LoginScreenProps {
   onStartWizard: () => void;
@@ -83,10 +83,11 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <p className="mb-[22px] mt-[6px] text-[12.5px] text-ink-muted">{t("login.subtitle")}</p>
 
           <label className="flex flex-col gap-[6px]">
-            <span className="text-[12.5px] font-semibold text-ink">{t("login.username")}</span>
+            <span className="text-[12.5px] font-semibold text-ink">{t("login.email")}</span>
             <TextInput
+              type="email"
               value={username}
-              placeholder="admin"
+              placeholder="admin@example.com"
               autoComplete="username"
               className="mz-lat"
               onChange={(e) => setUsername(e.target.value)}

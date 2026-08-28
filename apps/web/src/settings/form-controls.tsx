@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   Chip,
   Field as UiField,
@@ -154,13 +154,53 @@ export interface MultiChipFieldProps {
   options: SelectOption[];
   value: string[];
   onChange: (value: string[]) => void;
+  /**
+   * Let the operator type values that are not in `options`. For a list whose
+   * members cannot be enumerated in advance — email domains are the company's
+   * own, not something the product can offer a menu of.
+   */
+  allowCustom?: boolean;
+  customPlaceholder?: string;
 }
 
-/** Toggleable chip picker — used for weekend days and secondary currencies. */
-export function MultiChipField({ label, hint, options, value, onChange }: MultiChipFieldProps) {
+/** Toggleable chip picker — used for weekend days, secondary currencies and email domains. */
+export function MultiChipField({
+  label,
+  hint,
+  options,
+  value,
+  onChange,
+  allowCustom = false,
+  customPlaceholder,
+}: MultiChipFieldProps) {
+  const [entry, setEntry] = useState("");
+
   function toggle(optValue: string) {
     onChange(value.includes(optValue) ? value.filter((v) => v !== optValue) : [...value, optValue]);
   }
+
+  function commitEntry() {
+    const next = entry.trim().toLowerCase().replace(/^[@.]+/, "");
+    if (next === "" || value.includes(next)) {
+      setEntry("");
+      return;
+    }
+    onChange([...value, next]);
+    setEntry("");
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    // Enter must not reach the form — this adds a chip, it does not save.
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      commitEntry();
+    }
+  }
+
+  // A typed value has no option row to render, so the chips come from the
+  // selected values themselves and clicking one removes it.
+  const customChips = allowCustom ? value.filter((v) => !options.some((o) => o.value === v)) : [];
+
   return (
     <Field label={label} hint={hint}>
       <div className="flex flex-wrap gap-[8px]">
@@ -169,7 +209,24 @@ export function MultiChipField({ label, hint, options, value, onChange }: MultiC
             {opt.label}
           </Chip>
         ))}
+        {customChips.map((v) => (
+          <Chip key={v} type="button" toggle active onClick={() => toggle(v)}>
+            <span className="mz-lat">{v}</span> ×
+          </Chip>
+        ))}
       </div>
+      {allowCustom ? (
+        <div className="mt-[8px]">
+          <TextInput
+            value={entry}
+            placeholder={customPlaceholder}
+            className="mz-lat"
+            onChange={(e) => setEntry(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={commitEntry}
+          />
+        </div>
+      ) : null}
     </Field>
   );
 }

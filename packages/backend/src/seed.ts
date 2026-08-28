@@ -35,7 +35,6 @@ import type { BootstrapSeedResultDTO } from "@mezan/contracts";
  * the seed is never consulted again.
  */
 export const SEED_TENANT_NAME = "Cyag";
-export const SEED_ADMIN_USERNAME = "admin";
 export const SEED_ADMIN_NAME = "محمد الشهابي";
 export const SEED_ADMIN_EMAIL = "admin@cyag.example";
 export const SEED_ADMIN_PIN = "1234";
@@ -195,7 +194,6 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
   await saveUser(
     {
       id: "USER-ADMIN",
-      username: SEED_ADMIN_USERNAME,
       fullName: SEED_ADMIN_NAME,
       email: SEED_ADMIN_EMAIL,
       phone: null,

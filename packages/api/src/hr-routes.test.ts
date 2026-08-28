@@ -26,7 +26,6 @@ function fakeUsers(users: User[]): Pick<UserRepository, "findById"> {
 function fakeUser(overrides: Partial<User> = {}): User {
   return {
     id: "user-1",
-    username: "tester",
     fullName: "Test User",
     email: "test@example.com",
     phone: null,

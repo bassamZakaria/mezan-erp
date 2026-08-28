@@ -1403,7 +1403,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   });
 
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, resolveAuth));
-  app.route("/users", createUsersRoutes(uow, hasher, resolveAuth));
+  app.route(
+    "/users",
+    createUsersRoutes(uow, hasher, resolveAuth, async () => (await options.settingsStore?.get())?.allowedEmailDomains ?? []),
+  );
   app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink));
   if (options.apiKeys) {
     app.route(

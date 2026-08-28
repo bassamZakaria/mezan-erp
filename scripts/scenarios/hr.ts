@@ -44,9 +44,8 @@ async function linkAdmin(ctx: Ctx, employeeId: string | null): Promise<string | 
   const previous = cur.employeeId;
   const res = await ctx.req("PUT", "/users/USER-ADMIN", {
     // A full-replace PUT: every field the schema requires has to be echoed
-    // back, the username included. Omitting one 400s, and the link this helper
-    // exists to make silently does not happen.
-    username: cur.username,
+    // back. Omitting one 400s, and the link this helper exists to make
+    // silently does not happen.
     fullName: cur.fullName,
     email: cur.email,
     phone: cur.phone,

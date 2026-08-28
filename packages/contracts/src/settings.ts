@@ -20,6 +20,19 @@ export const tenantSettingsSchema = z.object({
   commercialRegistrationNumber: z.string(),
   phone: z.string(),
   email: z.string(),
+  /**
+   * Domains a user account's email may belong to. Empty means no restriction.
+   * Normalised on the wire so "@Mezan.COM " and "mezan.com" cannot both be
+   * stored and then disagree about whether one address is allowed.
+   */
+  allowedEmailDomains: z.array(
+    z
+      .string()
+      .trim()
+      .toLowerCase()
+      .transform((d) => d.replace(/^[@.]+/, ""))
+      .refine((d) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d), "Not a domain name"),
+  ),
   address: z.string(),
   hrContractExpiryWarningDays: z.number().int().min(7).max(365),
   overtimeMultiplier: z.number().positive(),

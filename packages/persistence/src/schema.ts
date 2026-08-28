@@ -85,8 +85,6 @@ export const role = sqliteTable("role", {
  */
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
-  /** Login identifier, stored already normalised (trimmed, lower-case). Unique. */
-  username: text("username").notNull(),
   fullName: text("full_name").notNull(),
   email: text("email").notNull(),
   phone: text("phone"),

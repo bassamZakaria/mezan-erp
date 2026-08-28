@@ -99,7 +99,6 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const [licenseKey, setLicenseKey] = useState("");
   const [activateStatus, setActivateStatus] = useState<"idle" | "activating" | "done">("idle");
 
-  const [adminUsername, setAdminUsername] = useState("");
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPin, setAdminPin] = useState("");
@@ -116,10 +115,6 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   }
 
   function handleAdminNext() {
-    if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(adminUsername.trim().toLowerCase())) {
-      setAdminError(t("firstRun.usernameInvalid"));
-      return;
-    }
     if (!adminName.trim() || !adminEmail.trim()) {
       setAdminError(t("firstRun.theFullNameAndThe"));
       return;
@@ -139,12 +134,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
     }
     // Persist the admin for real and establish their session, then advance.
     createAdmin.mutate(
-      {
-        username: adminUsername.trim().toLowerCase(),
-        fullName: adminName.trim(),
-        email: adminEmail.trim(),
-        pin: adminPin,
-      },
+      { fullName: adminName.trim(), email: adminEmail.trim().toLowerCase(), pin: adminPin },
       {
         onSuccess: () => {
           setAdminCreated(true);
@@ -214,21 +204,18 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
             <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("firstRun.thisAccountWillHoldFull")}</p>
             <div className="mt-[14px] grid grid-cols-1 gap-[12px] sm:grid-cols-2">
               <label className="flex flex-col gap-[6px]">
-                <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.username")}</span>
-                <TextInput
-                  value={adminUsername}
-                  placeholder="admin"
-                  onChange={(e) => setAdminUsername(e.target.value.trim().toLowerCase())}
-                />
-                <span className="text-[11px] text-ink-faint">{t("firstRun.usernameHint")}</span>
-              </label>
-              <label className="flex flex-col gap-[6px]">
                 <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.fullName")}</span>
                 <TextInput value={adminName} onChange={(e) => setAdminName(e.target.value)} />
               </label>
               <label className="flex flex-col gap-[6px]">
                 <span className="text-[12.5px] font-semibold text-ink">{t("common.email")}</span>
-                <TextInput type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
+                <TextInput
+                  type="email"
+                  value={adminEmail}
+                  placeholder="admin@example.com"
+                  onChange={(e) => setAdminEmail(e.target.value.trim().toLowerCase())}
+                />
+                <span className="text-[11px] text-ink-faint">{t("firstRun.emailIsTheLoginHint")}</span>
               </label>
               <label className="flex flex-col gap-[6px]">
                 <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.pin4Digits")}</span>

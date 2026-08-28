@@ -1,5 +1,5 @@
 import { createBackend } from "../packages/backend/src/create-backend.js";
-import { SEED_ADMIN_USERNAME, SEED_ADMIN_PIN } from "../packages/backend/src/seed.js";
+import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "../packages/backend/src/seed.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +29,7 @@ async function signIn(app: { fetch: (r: Request) => Promise<Response> }): Promis
     new Request("http://coverage/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: SEED_ADMIN_USERNAME, pin: SEED_ADMIN_PIN }),
+      body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
     }),
   );
   if (!res.ok) throw new Error(`coverage could not sign in: ${res.status} ${(await res.text()).slice(0, 200)}`);

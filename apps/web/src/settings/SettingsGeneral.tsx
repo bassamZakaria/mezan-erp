@@ -376,6 +376,23 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                 />
               </SectionCard>
 
+              {/*
+                Who may hold an account at all. It lives beside the other
+                policies rather than on «بيانات المنشأة», because it governs
+                behaviour — the company's own address is identity.
+              */}
+              <SectionCard title={t("settingsGeneral.userAccounts")}>
+                <MultiChipField
+                  label={t("settingsGeneral.allowedEmailDomains")}
+                  hint={t("settingsGeneral.allowedEmailDomainsHint")}
+                  value={[...draft.allowedEmailDomains]}
+                  onChange={(v) => patch({ allowedEmailDomains: v })}
+                  options={[]}
+                  allowCustom
+                  customPlaceholder={t("settingsGeneral.addDomain")}
+                />
+              </SectionCard>
+
               <SectionCard title={t("settingsGeneral.sharedHrPolicies")} description={t("settingsGeneral.leaveAndAttendanceRelyOn")}>
                 <NumberField
                   label={t("settingsGeneral.contractExpiryWarningWindowDays")}

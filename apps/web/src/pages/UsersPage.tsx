@@ -34,7 +34,6 @@ export interface UsersPageProps {
 }
 
 export interface UserFormDraft {
-  username: string;
   fullName: string;
   email: string;
   phone: string;
@@ -53,7 +52,6 @@ const STATUS_TONE: Record<UserStatusDTO, PillTone> = { active: "success", inacti
 
 function emptyDraft(): UserFormDraft {
   return {
-    username: "",
     fullName: "",
     email: "",
     phone: "",
@@ -74,7 +72,6 @@ function scopeToIds(scope: ScopeSelection, all: string[]): string[] {
 
 function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: string[]): UserFormDraft {
   return {
-    username: user.username,
     fullName: user.fullName,
     email: user.email,
     phone: user.phone ?? "",
@@ -108,12 +105,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     if (statusFilter !== "all") rows = rows.filter((u) => u.status === statusFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
-      rows = rows.filter(
-        (u) =>
-          u.fullName.toLowerCase().includes(q) ||
-          u.username.toLowerCase().includes(q) ||
-          u.email.toLowerCase().includes(q),
-      );
+      rows = rows.filter((u) => u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
     }
     return rows;
   }, [users, statusFilter, search]);
@@ -136,17 +128,6 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
 
   async function handleSave() {
     setFormError(null);
-    const username = draft.username.trim().toLowerCase();
-    if (username === "") {
-      setFormError(t("users.theUsernameIsRequired"));
-      return;
-    }
-    // Same rule the domain enforces. Checked here too so a bad login name is
-    // refused beside the field rather than as a 400 after the round trip.
-    if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)) {
-      setFormError(t("users.theUsernameIsInvalid"));
-      return;
-    }
     if (draft.fullName.trim() === "") {
       setFormError(t("users.theFullNameIsRequired"));
       return;
@@ -180,8 +161,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
           </span>
           <div>
             <div className="font-semibold text-ink">{row.fullName}</div>
-            <div className="mz-lat text-[11px] font-mono text-ink-faint">{row.username}</div>
-            <div className="text-[11px] text-ink-faint">{row.email}</div>
+            <div className="mz-lat text-[11px] text-ink-faint">{row.email}</div>
           </div>
         </div>
       ),
@@ -284,15 +264,15 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
           ) : null}
 
           <FormSection title={t("users.accountDetails")}>
-            <TextField
-              label={t("users.username")}
-              value={draft.username}
-              onChange={(v) => setDraft((d) => ({ ...d, username: v.trim().toLowerCase() }))}
-              placeholder="ahmed.hassan"
-              hint={t("users.usernameHint")}
-            />
             <TextField label={t("users.fullName2")} value={draft.fullName} onChange={(v) => setDraft((d) => ({ ...d, fullName: v }))} />
-            <TextField label={t("users.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
+            <TextField
+              label={t("users.email")}
+              type="email"
+              value={draft.email}
+              onChange={(v) => setDraft((d) => ({ ...d, email: v.trim().toLowerCase() }))}
+              placeholder="ahmed@example.com"
+              hint={t("users.emailIsTheLoginHint")}
+            />
             <TextField label={t("common.phone")} value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} placeholder="+20 1xx xxx xxxx" />
             <TextField
               label={editingId ? t("users.newPasswordLeaveEmptyTo") : t("users.temporaryPasswordAtLeast8")}

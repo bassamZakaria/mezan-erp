@@ -24,7 +24,6 @@ const sampleRole: Role = {
 
 const sampleUser: User = {
   id: "user-1",
-  username: "tester",
   fullName: "محمد الشهابي",
   email: "mohamed@cyag.test",
   phone: "+201000000000",

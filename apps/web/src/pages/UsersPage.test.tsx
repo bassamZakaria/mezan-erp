@@ -19,7 +19,6 @@ const role: RoleDTO = {
 
 const user: UserDTO = {
   id: "user-1",
-  username: "tester",
   fullName: "محمد الشهابي",
   email: "mohamed@cyag.test",
   phone: null,

@@ -41,7 +41,6 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
   }
   return {
     userId: user.id,
-    username: user.username,
     fullName: user.fullName,
     email: user.email,
     isCompanyAdmin: user.isCompanyAdmin,
@@ -83,14 +82,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     }
     const { username, pin } = parsed.data;
     const needle = username.trim().toLowerCase();
-    // Username or email — both are unique and stable. Matching the FULL NAME,
-    // as this did, made "who can log in" a property of a field any admin may
-    // edit, and two people who share a display name shared an account door.
-    const user =
-      (await deps.uow.users.findByUsername(needle)) ??
-      (await deps.uow.users.findByEmail(needle)) ??
-      (await deps.uow.users.list()).find((u) => u.email.trim().toLowerCase() === needle) ??
-      null;
+    // The email, and only the email. Matching the FULL NAME, as this did, made
+    // "who can log in" a property of a field any admin may edit, and two people
+    // who share a display name shared an account door.
+    const user = await deps.uow.users.findByEmail(needle);
     if (!user || user.status !== "active" || !user.pinHash) {
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
@@ -133,7 +128,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       const user = await saveUser(
         {
           id: crypto.randomUUID(),
-          username: parsed.data.username,
           fullName: parsed.data.fullName,
           email: parsed.data.email,
           phone: null,

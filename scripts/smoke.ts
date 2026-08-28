@@ -1,4 +1,4 @@
-import { createBackend, SEED_ADMIN_USERNAME, SEED_ADMIN_PIN } from "@mezan/backend";
+import { createBackend, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "@mezan/backend";
 
 /**
  * Smoke check — "does the code still run?", not "is the business logic right?".
@@ -31,7 +31,7 @@ async function signIn(app: { fetch: (r: Request) => Promise<Response> }): Promis
     new Request("http://smoke/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: SEED_ADMIN_USERNAME, pin: SEED_ADMIN_PIN }),
+      body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
     }),
   );
   if (!res.ok) throw new Error(`smoke could not sign in: ${res.status} ${(await res.text()).slice(0, 200)}`);

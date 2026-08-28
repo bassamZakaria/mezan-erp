@@ -18,11 +18,16 @@ export class DuplicateUserEmailError extends Error {
   }
 }
 
-export class DuplicateUsernameError extends Error {
-  readonly code = "DUPLICATE_USERNAME";
-  constructor(readonly username: string) {
-    super(`اسم المستخدم "${username}" مستخدم بالفعل`);
-    this.name = "DuplicateUsernameError";
+export class EmailDomainNotAllowedError extends Error {
+  readonly code = "EMAIL_DOMAIN_NOT_ALLOWED";
+  constructor(
+    readonly email: string,
+    readonly allowedDomains: readonly string[],
+  ) {
+    super(
+      `نطاق البريد الإلكتروني غير مسموح. النطاقات المسموحة: ${allowedDomains.join("، ")}`,
+    );
+    this.name = "EmailDomainNotAllowedError";
   }
 }
 
@@ -45,25 +50,31 @@ export class UserNotFoundError extends Error {
 const PIN_PATTERN = /^\d{4,6}$/;
 
 /**
- * A login name someone can say over the phone and type on a till keyboard:
- * 3–32 characters, ASCII lower-case letters, digits, dot, underscore or
- * hyphen, starting with a letter or digit.
- *
- * Deliberately narrow. Arabic is the interface language, not the credential —
- * a username that mixes scripts is the one a support call cannot dictate and
- * a bidi-rendered field cannot be read back from with confidence.
+ * Deliberately not RFC 5322. It rejects what an operator actually mistypes —
+ * a bare name, a missing @, a domain with no dot, an embedded space — and
+ * accepts everything a real company address looks like. A stricter pattern
+ * refuses valid addresses; a looser one lets «محمد الشهابي» back in as a login.
  */
-const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 
-/** Trimmed and lower-cased — usernames are compared and stored in this form only. */
-export function normalizeUsername(raw: string): string {
+/** Trimmed and lower-cased — emails are compared, stored and matched in this form only. */
+export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
+}
+
+/** The part after the "@", already normalised. Empty when there is no "@". */
+export function emailDomain(email: string): string {
+  const at = normalizeEmail(email).lastIndexOf("@");
+  return at === -1 ? "" : normalizeEmail(email).slice(at + 1);
+}
+
+/** Trimmed, lower-cased, and with a leading "@" or "." stripped — how domains are stored. */
+export function normalizeEmailDomain(raw: string): string {
+  return raw.trim().toLowerCase().replace(/^[@.]+/, "");
 }
 
 export interface SaveUserCommand {
   readonly id: string;
-  /** The login name. Normalised here; callers may pass whatever the operator typed. */
-  readonly username: string;
   readonly fullName: string;
   readonly email: string;
   readonly phone: string | null;
@@ -97,25 +108,37 @@ function isScopeEmpty(scope: ScopeSelection): boolean {
  * hashed through the injected `SecretHasher` port, never touched in the clear
  * beyond this function's stack frame.
  */
+export interface SaveUserOptions {
+  /**
+   * Domains the email may belong to. Empty (or omitted) means no restriction —
+   * the caller reads this off tenant settings, so the domain stays free of a
+   * settings dependency it would otherwise need only for this one rule.
+   */
+  readonly allowedEmailDomains?: readonly string[];
+}
+
 export async function saveUser(
   cmd: SaveUserCommand,
   uow: UnitOfWork,
   hasher: SecretHasher,
+  opts?: SaveUserOptions,
 ): Promise<User> {
-  const username = normalizeUsername(cmd.username);
-  if (username === "") {
-    throw new InvalidUserError("اسم المستخدم مطلوب.");
-  }
-  if (!USERNAME_PATTERN.test(username)) {
-    throw new InvalidUserError(
-      "اسم المستخدم يجب أن يتكون من 3 إلى 32 حرفاً إنجليزياً صغيراً أو رقماً، ويمكن أن يحتوي على . _ - ويبدأ بحرف أو رقم.",
-    );
-  }
   if (cmd.fullName.trim() === "") {
     throw new InvalidUserError("الاسم الكامل مطلوب.");
   }
-  if (cmd.email.trim() === "") {
+  const email = normalizeEmail(cmd.email);
+  if (email === "") {
     throw new InvalidUserError("البريد الإلكتروني مطلوب.");
+  }
+  if (!EMAIL_PATTERN.test(email)) {
+    throw new InvalidUserError("البريد الإلكتروني غير صالح.");
+  }
+  // An empty allowlist is no policy at all, not a policy that forbids
+  // everyone: a company must not be locked out of creating its first users by
+  // a rule nobody has configured yet.
+  const allowedDomains = (opts?.allowedEmailDomains ?? []).map(normalizeEmailDomain).filter((d) => d !== "");
+  if (allowedDomains.length > 0 && !allowedDomains.includes(emailDomain(email))) {
+    throw new EmailDomainNotAllowedError(email, allowedDomains);
   }
   if (cmd.isCompanyAdmin === (cmd.roleId !== null)) {
     throw new InvalidUserError(
@@ -134,14 +157,9 @@ export async function saveUser(
     if (!role) throw new UnknownRoleError(cmd.roleId);
   }
 
-  const existingByEmail = await uow.users.findByEmail(cmd.email);
+  const existingByEmail = await uow.users.findByEmail(email);
   if (existingByEmail && existingByEmail.id !== cmd.id) {
-    throw new DuplicateUserEmailError(cmd.email);
-  }
-
-  const existingByUsername = await uow.users.findByUsername(username);
-  if (existingByUsername && existingByUsername.id !== cmd.id) {
-    throw new DuplicateUsernameError(username);
+    throw new DuplicateUserEmailError(email);
   }
 
   const prior = await uow.users.findById(cmd.id);
@@ -162,9 +180,8 @@ export async function saveUser(
 
   const user: User = {
     id: cmd.id,
-    username,
     fullName: cmd.fullName,
-    email: cmd.email,
+    email,
     phone: cmd.phone,
     passwordHash,
     pinHash,

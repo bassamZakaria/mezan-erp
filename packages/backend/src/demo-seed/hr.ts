@@ -538,7 +538,6 @@ const PAYROLL_RUNS = [
 ];
 
 interface AdminUser {
-  readonly username: string;
   readonly fullName: string;
   readonly email: string;
   readonly phone: string | null;
@@ -576,9 +575,6 @@ async function stepAs(app: App, userId: string, method: string, path: string, bo
 async function linkSelfServiceUser(app: App, employeeId: string): Promise<void> {
   const user = (await step(app, "GET", `/users/${SELF_SERVICE_USER}`)) as AdminUser;
   await step(app, "PUT", `/users/${SELF_SERVICE_USER}`, {
-    // Round-tripped, not re-derived: a PUT that dropped the username would
-    // rewrite the admin's login name to whatever the schema defaulted to.
-    username: user.username,
     fullName: user.fullName,
     email: user.email,
     phone: user.phone,

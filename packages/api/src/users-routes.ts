@@ -4,7 +4,7 @@ import {
   setUserStatus,
   InvalidUserError,
   DuplicateUserEmailError,
-  DuplicateUsernameError,
+  EmailDomainNotAllowedError,
   UnknownRoleError,
   UserNotFoundError,
   type User,
@@ -17,7 +17,6 @@ import { createPermissionGate, headerAuthContextResolver, type AuthContextResolv
 function serializeUser(user: User) {
   return {
     id: user.id,
-    username: user.username,
     fullName: user.fullName,
     email: user.email,
     phone: user.phone,
@@ -37,8 +36,11 @@ function userErrorResponse(c: Context, err: unknown) {
   if (err instanceof InvalidUserError) {
     return c.json({ error: err.code, message: err.message }, 400);
   }
-  if (err instanceof DuplicateUserEmailError || err instanceof DuplicateUsernameError) {
+  if (err instanceof DuplicateUserEmailError) {
     return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof EmailDomainNotAllowedError) {
+    return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof UnknownRoleError) {
     return c.json({ error: err.code, message: err.message }, 400);
@@ -58,9 +60,16 @@ export function createUsersRoutes(
   uow: UnitOfWork,
   hasher: SecretHasher,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /**
+   * The tenant's allowed email domains, read per request rather than captured
+   * at mount: an admin who adds a domain in الإعدادات must not have to restart
+   * the app before the next account can use it.
+   */
+  readAllowedEmailDomains?: () => Promise<readonly string[]>,
 ) {
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
+  const saveOptions = async () => ({ allowedEmailDomains: (await readAllowedEmailDomains?.()) ?? [] });
 
   app.get("/", gate("admin.users.view"), async (c) => {
     const users = await uow.users.list();
@@ -83,6 +92,7 @@ export function createUsersRoutes(
         { id: crypto.randomUUID(), ...parsed.data, createdAt: new Date().toISOString() },
         uow,
         hasher,
+        await saveOptions(),
       );
       return c.json(serializeUser(user), 201);
     } catch (err) {
@@ -100,6 +110,7 @@ export function createUsersRoutes(
         { id: c.req.param("id"), ...parsed.data, createdAt: new Date().toISOString() },
         uow,
         hasher,
+        await saveOptions(),
       );
       return c.json(serializeUser(user));
     } catch (err) {

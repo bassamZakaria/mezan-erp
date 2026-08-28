@@ -74,7 +74,6 @@ class FakeNotificationRepository implements NotificationRepository {
 function makeUser(overrides: Partial<User> = {}): User {
   return {
     id: overrides.id ?? "user-1",
-    username: overrides.username ?? (overrides.id ?? "user-1"),
     fullName: "مستخدم تجريبي",
     email: `${overrides.id ?? "user-1"}@test.local`,
     phone: null,
@@ -114,7 +113,6 @@ class FakeUserRepository implements UserRepository {
   async findByEmail(): Promise<User | null> {
     return null;
   }
-  async findByUsername() { return null; }
   async list(): Promise<readonly User[]> {
     return this.users;
   }

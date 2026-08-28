@@ -7,11 +7,14 @@ export {
 export {
   saveUser,
   setUserStatus,
-  normalizeUsername,
+  normalizeEmail,
+  normalizeEmailDomain,
+  emailDomain,
   InvalidUserError,
   DuplicateUserEmailError,
-  DuplicateUsernameError,
+  EmailDomainNotAllowedError,
   UnknownRoleError,
   UserNotFoundError,
   type SaveUserCommand,
+  type SaveUserOptions,
 } from "./save-user.js";

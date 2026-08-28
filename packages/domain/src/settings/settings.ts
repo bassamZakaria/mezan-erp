@@ -41,6 +41,15 @@ export interface TenantSettings {
   readonly commercialRegistrationNumber: string;
   readonly phone: string;
   readonly email: string;
+  /**
+   * Domains a user account's email may belong to — the login is the email, so
+   * this is who is allowed to have an account at all.
+   *
+   * EMPTY MEANS NO RESTRICTION, deliberately. A company is not blocked on day
+   * one of a rollout by a policy nobody has configured yet; the owner turns it
+   * on by naming a domain. Stored lower-cased and without a leading "@".
+   */
+  readonly allowedEmailDomains: readonly string[];
   readonly address: string;
   readonly hrContractExpiryWarningDays: number;
   readonly overtimeMultiplier: number;
@@ -131,6 +140,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   commercialRegistrationNumber: "",
   phone: "",
   email: "",
+  allowedEmailDomains: [],
   address: "",
   hrContractExpiryWarningDays: 30,
   overtimeMultiplier: 1.5,
@@ -237,6 +247,11 @@ function validate(settings: TenantSettings): string[] {
 
   if (!Number.isInteger(settings.weekStartDay) || settings.weekStartDay < 0 || settings.weekStartDay > 6) {
     reasons.push("weekStartDay must be an integer in 0..6");
+  }
+  for (const domain of settings.allowedEmailDomains) {
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) {
+      reasons.push(`allowedEmailDomains contains an invalid domain: "${domain}"`);
+    }
   }
   if (settings.multiCurrencyEnabled && settings.secondaryCurrencies.length === 0) {
     reasons.push("multiCurrencyEnabled needs at least one additional currency");

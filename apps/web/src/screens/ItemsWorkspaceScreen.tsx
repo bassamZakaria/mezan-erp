@@ -1,4 +1,3 @@
-import { BomsScreen } from "./BomsScreen";
 import { ConfigurableProductsScreen } from "./ConfigurableProductsScreen";
 import { ItemSpecificationsScreen } from "./ItemSpecificationsScreen";
 import { ItemsScreen } from "./ItemsScreen";
@@ -16,13 +15,11 @@ import { useAppTranslation } from "../i18n";
  * for this shape is QuickBooks' single «Products and services» list, which
  * carries the item's KIND as a field rather than as a menu entry.
  *
- * THE BILL OF MATERIALS BELONGS TO THE ITEM. QuickBooks has no BOM screen at
- * all: the recipe is reached at «Products and services → the item → Edit →
- * View/edit bill of materials», and an edit applies only to manufacturing
- * orders created after it. Mezan already stores it that way — every `Bom`
- * carries a `productItemId`, versioning supersedes rather than mutates, and a
- * manufacturing order snapshots the version it was planned against — so this
- * is only where it is SHOWN.
+ * قائمة المواد was a fifth tab here and is not any more. QuickBooks reaches a
+ * recipe from its assembly item, but QuickBooks has no manufacturing menu to
+ * compete with; ours does, and the person who authors a recipe is the person
+ * releasing the order. It lives on أوامر التصنيع now — see
+ * `ManufacturingWorkspaceScreen`.
  *
  * The tab is the first URL segment (`#/stock/items/templates`), so a tab is
  * linkable and survives a reload. None of the four screens uses sub-pages of
@@ -30,7 +27,7 @@ import { useAppTranslation } from "../i18n";
  * that segment.
  */
 
-const TABS = ["items", "templates", "configurable", "specs", "boms"] as const;
+const TABS = ["items", "templates", "configurable", "specs"] as const;
 export type ItemsTab = (typeof TABS)[number];
 
 export function ItemsWorkspaceScreen() {
@@ -53,7 +50,6 @@ export function ItemsWorkspaceScreen() {
         { key: "templates", label: t("items.tabs.templates"), render: () => <ProductTemplatesScreen /> },
         { key: "configurable", label: t("items.tabs.configurable"), render: () => <ConfigurableProductsScreen /> },
         { key: "specs", label: t("items.tabs.specs"), render: () => <ItemSpecificationsScreen /> },
-        { key: "boms", label: t("items.tabs.boms"), render: () => <BomsScreen /> },
       ]}
     />
   );

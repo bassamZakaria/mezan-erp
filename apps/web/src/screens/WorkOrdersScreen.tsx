@@ -45,6 +45,7 @@ import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
+import { useNavigation } from "../navigation";
 import { todayIso } from "../lib/dates";
 
 const STATUS_KEY: Record<WorkOrderStatusRecord, AppTranslationKey> = {
@@ -471,6 +472,7 @@ function WorkOrderDetail({
 
 export function WorkOrdersScreen() {
   const nameOf = useEntityName();
+  const { navigate } = useNavigation();
   const { t } = useAppTranslation();
   const bomsQuery = useBoms();
   const itemsQuery = useItems();
@@ -912,9 +914,15 @@ export function WorkOrdersScreen() {
         title={t("workOrders.workOrders")}
         description={t("workOrders.runningAProductionCycleAgainst")}
         actions={
-          <Button variant="primary" onClick={openCreate}>
-            {t("workOrders.newWorkOrder")}
-          </Button>
+          <>
+            {/* لوحة الإنتاج is the floor's own screen — buckets, work stations,
+                every active order. It is reached from the orders it is about
+                rather than sitting beside them as a second landing page. */}
+            <Button onClick={() => navigate("production-dashboard")}>{t("workOrders.openProductionFloor")}</Button>
+            <Button variant="primary" onClick={openCreate}>
+              {t("workOrders.newWorkOrder")}
+            </Button>
+          </>
         }
         listKey="work-orders"
         statsCollapsible

@@ -53,6 +53,9 @@ const UNLISTED_SCREEN_GROUP: Record<string, string> = {
   "report-inventory-drift": "stock",
   "production-dashboard": "manufacturing",
   boms: "manufacturing",
+  "manufacturing-hub": "manufacturing",
+  "custom-manufacturing": "manufacturing",
+  "physical-counts": "stock",
 };
 for (const [key, group] of Object.entries(UNLISTED_SCREEN_GROUP)) {
   if (PATH_BY_SCREEN.has(key)) continue;

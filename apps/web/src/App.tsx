@@ -110,6 +110,7 @@ const LeavePoliciesScreen = lazy(() => import("./screens/LeavePoliciesScreen").t
 const LeaveRequestsScreen = lazy(() => import("./screens/LeaveRequestsScreen").then((m) => ({ default: m.LeaveRequestsScreen })));
 const MakeVsBuyReportScreen = lazy(() => import("./screens/reports/ManufacturingReportsScreens").then((m) => ({ default: m.MakeVsBuyReportScreen })));
 const ManufacturingHubScreen = lazy(() => import("./screens/hubs/ManufacturingHubScreen").then((m) => ({ default: m.ManufacturingHubScreen })));
+const ManufacturingWorkspaceScreen = lazy(() => import("./screens/ManufacturingWorkspaceScreen").then((m) => ({ default: m.ManufacturingWorkspaceScreen })));
 const MyLeaveScreen = lazy(() => import("./screens/MyLeaveScreen").then((m) => ({ default: m.MyLeaveScreen })));
 const NotificationRulesPage = lazy(() => import("./settings/NotificationRulesPage").then((m) => ({ default: m.NotificationRulesPage })));
 const NotificationsScreen = lazy(() => import("./screens/NotificationsScreen").then((m) => ({ default: m.NotificationsScreen })));
@@ -227,7 +228,9 @@ const ROUTABLE_SCREENS = {
   "configurable-products": ConfigurableProductsScreen,
   "item-specifications": ItemSpecificationsScreen,
   "stock-balance": StockBalanceScreen,
-  "work-orders": WorkOrdersScreen,
+  // أوامر التصنيع is the orders list plus its two companions as tabs — the
+  // made-to-order variant and the recipes they are raised against.
+  "work-orders": ManufacturingWorkspaceScreen,
   boms: BomsScreen,
   "custom-manufacturing": ConfigInstancesScreen,
   "stock-transfers": StockTransfersScreen,

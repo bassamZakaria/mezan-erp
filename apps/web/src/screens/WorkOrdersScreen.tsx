@@ -45,6 +45,7 @@ import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
+import { useNavigation } from "../navigation";
 import { todayIso } from "../lib/dates";
 
 const STATUS_KEY: Record<WorkOrderStatusRecord, AppTranslationKey> = {
@@ -471,6 +472,7 @@ function WorkOrderDetail({
 
 export function WorkOrdersScreen() {
   const nameOf = useEntityName();
+  const { navigate } = useNavigation();
   const { t } = useAppTranslation();
   const bomsQuery = useBoms();
   const itemsQuery = useItems();
@@ -912,9 +914,16 @@ export function WorkOrdersScreen() {
         title={t("workOrders.workOrders")}
         description={t("workOrders.runningAProductionCycleAgainst")}
         actions={
-          <Button variant="primary" onClick={openCreate}>
-            {t("workOrders.newWorkOrder")}
-          </Button>
+          <>
+            {/* قوائم المواد lives as a tab of الأصناف, and this is the one
+                screen that cannot work without it: «أمر تصنيع جديد» asks for a
+                recipe, so the door to authoring one belongs beside that
+                button, not on a dashboard nobody opens to write a recipe. */}
+            <Button onClick={() => navigate("boms")}>{t("workOrders.openBoms")}</Button>
+            <Button variant="primary" onClick={openCreate}>
+              {t("workOrders.newWorkOrder")}
+            </Button>
+          </>
         }
         listKey="work-orders"
         statsCollapsible

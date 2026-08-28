@@ -146,7 +146,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     // the hub, and only التقارير stays folded.
     // قائمة المواد is a tab of الأصناف, the way QuickBooks keeps the recipe on
     // the assembly item rather than in a list of its own.
-    itemKeys: ["manufacturing-hub", "work-orders", "custom-manufacturing"],
+    itemKeys: ["manufacturing-hub", "production-dashboard", "work-orders", "custom-manufacturing"],
     sections: [
       { key: "reports", defaultCollapsed: true, itemKeys: ["report-make-vs-buy"] },
     ],

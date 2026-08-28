@@ -51,7 +51,6 @@ const UNLISTED_SCREEN_GROUP: Record<string, string> = {
   "report-inventory-expiring": "stock",
   "report-inventory-slow-moving": "stock",
   "report-inventory-drift": "stock",
-  "production-dashboard": "manufacturing",
   boms: "manufacturing",
 };
 for (const [key, group] of Object.entries(UNLISTED_SCREEN_GROUP)) {

@@ -28,12 +28,14 @@ function num(value: string | undefined): number {
   return value ? Number(value) : 0;
 }
 
-const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
-  { label: "manufacturingHub.action.newOrder", screen: "work-orders" },
-  { label: "manufacturingHub.action.dashboard", screen: "production-dashboard" },
-  { label: "manufacturingHub.action.boms", screen: "boms" },
-  { label: "manufacturingHub.action.custom", screen: "custom-manufacturing" },
-];
+/**
+ * NO QUICK ACTIONS. Every destination this overview used to repeat is on the
+ * bar above it — لوحة الإنتاج، أوامر التصنيع، التصنيع المخصص — and a button
+ * that duplicates a chip two centimetres away is a second name for one place.
+ * قوائم المواد moved to the ORDERS screen instead: that is where a recipe is
+ * actually needed, because it is where «أمر تصنيع جديد» asks for one.
+ */
+const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [];
 
 export function ManufacturingHubScreen() {
   const { t } = useAppTranslation();

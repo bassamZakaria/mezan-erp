@@ -1,9 +1,8 @@
 import { useMemo } from "react";
-import { Button, Card, Money, StatCard } from "@mezan/ui";
+import { Money, WorkspaceHub } from "@mezan/ui";
 import type { InventoryStockLevelsRow } from "@mezan/domain";
 import { useItems } from "../../data/hooks";
 import { useReport } from "../../data/reports-hooks";
-import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
@@ -24,13 +23,10 @@ import { useAppTranslation, type AppTranslationKey } from "../../i18n";
  * الأصناف, which owns the form and its validation, and it is a workspace of
  * its own now.
  */
-const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [];
-
 const STOCK_LEVELS_PARAMS = { warehouseId: "", search: "" };
 
 export function InventoryHubScreen() {
   const { t } = useAppTranslation();
-  const { navigate } = useNavigation();
   const itemsQuery = useItems();
   const stockLevelsQuery = useReport<InventoryStockLevelsRow>(
     "inventory.stock-levels",
@@ -49,60 +45,42 @@ export function InventoryHubScreen() {
   const isError = itemsQuery.isError || stockLevelsQuery.isError;
 
   return (
-    <div className="flex flex-col gap-[22px]">
-      <div className="flex flex-wrap items-start justify-between gap-[16px]">
-        <div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("inventoryHub.title")}</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("inventoryHub.description")}</p>
-        </div>
-        <div className="flex flex-wrap gap-[8px]">
-          {quickActions.map((action, index) => (
-            <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
-              {t(action.label)}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {isError ? (
-        <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("inventoryHub.loadFailed")}</p>
-        </Card>
-      ) : null}
-
-      <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label={t("inventoryHub.stat.items")} value={isLoading ? "—" : items.length} sub={t("inventoryHub.stat.itemsSub")} />
-        <StatCard label={t("inventoryHub.stat.active")} value={isLoading ? "—" : activeItems} sub={t("inventoryHub.stat.activeSub")} />
-        <StatCard label={t("inventoryHub.stat.value")} value={<Money value={inventoryValue} />} sub={t("inventoryHub.stat.valueSub")} />
-        <StatCard
-          label={t("inventoryHub.stat.attention")}
-          value={isLoading ? "—" : needsAttentionCount}
-          sub={t("inventoryHub.stat.attentionSub")}
-          subTone={needsAttentionCount > 0 ? "down" : "neutral"}
-        />
-      </div>
-
-      <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("inventoryHub.stat.attention")}</h3>
-        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("inventoryHub.attentionSub")}</div>
-        {needsAttention.length > 0 ? (
-          <ul className="flex flex-col gap-[10px]">
-            {needsAttention.map((row) => (
-              <li key={row.itemId} className="flex items-center justify-between gap-[10px]">
-                <div>
-                  <div className="text-[12.5px] text-ink">{row.itemNameAr}</div>
-                  <div className="mt-[1px] text-[11px] text-ink-faint">
-                    <span className="mz-lat">{row.sku}</span> · {t("inventoryHub.remaining")} <span className="mz-num">{row.onHand}</span>
-                  </div>
-                </div>
-                <span className="text-[11.5px] font-semibold text-danger-ink">{row.status === "out" ? t("inventoryHub.out") : t("inventoryHub.low")}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[12.5px] text-ink-muted">{t("inventoryHub.empty")}</p>
-        )}
-      </Card>
-    </div>
+    <WorkspaceHub
+      title={t("inventoryHub.title")}
+      description={t("inventoryHub.description")}
+      loading={isLoading}
+      error={isError ? t("inventoryHub.loadFailed") : null}
+      stats={[
+        { key: "items", label: t("inventoryHub.stat.items"), value: items.length, sub: t("inventoryHub.stat.itemsSub") },
+        { key: "active", label: t("inventoryHub.stat.active"), value: activeItems, sub: t("inventoryHub.stat.activeSub") },
+        { key: "value", label: t("inventoryHub.stat.value"), value: <Money value={inventoryValue} />, sub: t("inventoryHub.stat.valueSub") },
+        {
+          key: "attention",
+          label: t("inventoryHub.stat.attention"),
+          value: needsAttentionCount,
+          sub: t("inventoryHub.stat.attentionSub"),
+          subTone: needsAttentionCount > 0 ? "down" : "neutral",
+        },
+      ]}
+      list={{
+        title: t("inventoryHub.stat.attention"),
+        sub: t("inventoryHub.attentionSub"),
+        empty: t("inventoryHub.empty"),
+        rows: needsAttention.map((row) => ({
+          key: row.itemId,
+          primary: row.itemNameAr,
+          secondary: (
+            <>
+              <span className="mz-lat">{row.sku}</span> · {t("inventoryHub.remaining")} <span className="mz-num">{row.onHand}</span>
+            </>
+          ),
+          trailing: (
+            <span className="text-2xs font-semibold text-danger-ink">
+              {row.status === "out" ? t("inventoryHub.out") : t("inventoryHub.low")}
+            </span>
+          ),
+        })),
+      }}
+    />
   );
 }

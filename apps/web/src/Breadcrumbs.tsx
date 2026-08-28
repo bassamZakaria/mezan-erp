@@ -45,6 +45,12 @@ export function Breadcrumbs({ screen }: { screen: ScreenKey }) {
   const { navigate, segments, openSubPage } = useNavigation();
 
   if (screen === "dashboard") return null;
+  // A third orientation row that restates the rail and the screens bar is not
+  // orientation, it is repetition: on a top-level screen the crumbs read
+  // exactly «لوحة التحكم · <workspace> · <the chip that is already lit>». It
+  // earns its line only once a sub-page is open, which is the one state the
+  // bar above cannot show.
+  if (segments.length === 0) return null;
 
   const groupKey = groupKeyForScreen(screen);
   const crumbs: Crumb[] = [{ label: t("nav.item.dashboard"), onClick: () => navigate("dashboard") }];
@@ -87,7 +93,9 @@ export function Breadcrumbs({ screen }: { screen: ScreenKey }) {
               <button
                 type="button"
                 onClick={crumb.onClick}
-                className="rounded-[4px] px-[2px] font-semibold text-ink-muted underline-offset-2 hover:text-brand hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+                // Gold is what marks "current" everywhere else in the shell — the screens
+                // bar, «كل الشاشات». Teal here made the same state two colours.
+                className="rounded-[4px] px-[2px] font-semibold text-ink-muted underline-offset-2 hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
               >
                 {crumb.label}
               </button>

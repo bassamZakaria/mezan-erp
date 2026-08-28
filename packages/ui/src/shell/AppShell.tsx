@@ -52,7 +52,6 @@ export interface AppShellProps {
   /** Only consulted when `allScreensGroups` is empty. */
   onOpenAllScreens?: () => void;
   /** Settings and system, behind row one's gear. Omit to drop the gear. */
-  utilityGroups?: readonly NavGroup[];
   /** Opens the shortcuts sheet from the chrome. */
   onShowHelp?: () => void;
   /** Marks the matching row-two chip (and utility row) `aria-current="page"`. */
@@ -121,7 +120,6 @@ export function AppShell({
   gutter,
   allScreensGroups = [],
   onOpenAllScreens,
-  utilityGroups = [],
   onShowHelp,
   activeNavKey,
   user,
@@ -282,9 +280,7 @@ export function AppShell({
                 gear. They belonged to the retired `Topbar`; dropping it took
                 them off the screen entirely. */}
             <ChromeActions
-              utilityGroups={utilityGroups}
               onShowHelp={onShowHelp}
-              activeNavKey={activeNavKey}
               theme={theme}
               onToggleTheme={toggleTheme}
             />

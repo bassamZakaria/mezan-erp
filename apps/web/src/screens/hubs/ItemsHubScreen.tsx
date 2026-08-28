@@ -1,4 +1,4 @@
-import { Card, StatCard } from "@mezan/ui";
+import { Card, WorkspaceHub } from "@mezan/ui";
 import { useBoms, useConfigurableProducts, useItemCounts, useItems, useProductTemplates } from "../../data/hooks";
 import { useItemSpecifications } from "../../data/item-catalog-hooks";
 import { useNavigation } from "../../navigation";
@@ -72,28 +72,21 @@ export function ItemsHubScreen() {
   ];
 
   return (
-    <div className="flex flex-col gap-[22px]">
-      <div>
-        <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("itemsHub.title")}</h1>
-        <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("itemsHub.description")}</p>
-      </div>
-
-      {isError ? (
-        <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("itemsHub.loadFailed")}</p>
-        </Card>
-      ) : null}
-
-      <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label={t("itemsHub.stat.items")} value={isLoading ? "—" : (counts.all ?? items.length)} sub={t("itemsHub.stat.itemsSub")} />
-        <StatCard label={t("itemsHub.stat.active")} value={isLoading ? "—" : (counts.active ?? 0)} sub={t("itemsHub.stat.activeSub")} />
-        <StatCard label={t("itemsHub.stat.stock")} value={isLoading ? "—" : (counts["type:stock"] ?? 0)} sub={t("itemsHub.stat.stockSub")} />
-        <StatCard label={t("itemsHub.stat.service")} value={isLoading ? "—" : (counts["type:service"] ?? 0)} sub={t("itemsHub.stat.serviceSub")} />
-      </div>
-
+    <WorkspaceHub
+      title={t("itemsHub.title")}
+      description={t("itemsHub.description")}
+      loading={isLoading}
+      error={isError ? t("itemsHub.loadFailed") : null}
+      stats={[
+        { key: "items", label: t("itemsHub.stat.items"), value: counts.all ?? items.length, sub: t("itemsHub.stat.itemsSub") },
+        { key: "active", label: t("itemsHub.stat.active"), value: counts.active ?? 0, sub: t("itemsHub.stat.activeSub") },
+        { key: "stock", label: t("itemsHub.stat.stock"), value: counts["type:stock"] ?? 0, sub: t("itemsHub.stat.stockSub") },
+        { key: "service", label: t("itemsHub.stat.service"), value: counts["type:service"] ?? 0, sub: t("itemsHub.stat.serviceSub") },
+      ]}
+    >
       <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("itemsHub.catalogueHeading")}</h3>
-        <div className="mb-[12px] mt-[2px] text-[11.5px] text-ink-faint">{t("itemsHub.catalogueSub")}</div>
+        <h3 className="font-display text-sm font-bold text-ink">{t("itemsHub.catalogueHeading")}</h3>
+        <div className="mb-[12px] mt-[2px] text-2xs text-ink-faint">{t("itemsHub.catalogueSub")}</div>
         <div className="grid grid-cols-1 gap-[10px] sm:grid-cols-2 lg:grid-cols-4">
           {cards.map((card) => (
             <button
@@ -102,13 +95,13 @@ export function ItemsHubScreen() {
               onClick={() => navigate(card.screen)}
               className="flex flex-col items-start gap-[2px] rounded-lg border border-border bg-surface-2 p-[14px_16px] text-start transition-colors hover:border-brand"
             >
-              <span className="mz-num font-display text-[22px] font-bold text-ink">{card.count === null ? "—" : card.count}</span>
-              <span className="text-[12.5px] font-semibold text-ink">{t(card.labelKey)}</span>
-              <span className="text-[11px] text-ink-faint">{t(card.hintKey)}</span>
+              <span className="mz-num font-display text-xl font-bold text-ink">{card.count === null ? "—" : card.count}</span>
+              <span className="text-xs font-semibold text-ink">{t(card.labelKey)}</span>
+              <span className="text-2xs text-ink-faint">{t(card.hintKey)}</span>
             </button>
           ))}
         </div>
       </Card>
-    </div>
+    </WorkspaceHub>
   );
 }

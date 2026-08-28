@@ -18,13 +18,14 @@ import {
   RowMenu,
 } from "@mezan/ui";
 import {
-  Money,
-  voucherDocumentType,
-  getVoucherTypeDefinition,
   getVoucherPaymentMethodLabel,
-  VOUCHER_TYPE_DEFINITIONS,
+  getVoucherTypeDefinition,
+  isVoucherType,
+  Money,
   VOUCHER_PAYMENT_METHODS,
+  VOUCHER_TYPE_DEFINITIONS,
   type VoucherDocument,
+  voucherDocumentType,
   type VoucherLine,
   type VoucherPaymentMethod,
   type VoucherType,
@@ -173,6 +174,11 @@ export function TreasuryVouchersScreen() {
   // Arriving from «تحصيل» on an invoice row: the customer is known, so the
   // create form opens as a collection already pointed at them (R3.5).
   const [prefillParty, setPrefillParty] = useState<{ customerId?: string; supplierId?: string } | null>(null);
+  // A caller that names the voucher type gets the form open on it. The command
+  // palette offers «تحصيل من عميل» and «دفع لمورد» as separate entries; without
+  // this they both landed on the same untyped grid, so two of the three
+  // advertised actions were describing something the app did not do.
+  const [prefillType, setPrefillType] = useState<VoucherType | null>(null);
   useScreenIntent((intent) => {
     setPrefillParty(
       intent.prefill?.customerId
@@ -181,6 +187,8 @@ export function TreasuryVouchersScreen() {
           ? { supplierId: intent.prefill.supplierId }
           : null,
     );
+    const named = intent.prefill?.voucherType;
+    setPrefillType(named && isVoucherType(named) ? named : null);
     setMode("create");
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -341,6 +349,7 @@ export function TreasuryVouchersScreen() {
         accounts={accounts}
         initialCustomerId={prefillParty?.customerId ?? null}
         initialSupplierId={prefillParty?.supplierId ?? null}
+        initialVoucherType={prefillType}
         onDone={() => setMode("list")}
       />
     );
@@ -835,6 +844,7 @@ function CreateVoucherView({
   accounts,
   initialCustomerId = null,
   initialSupplierId = null,
+  initialVoucherType = null,
   onDone,
 }: {
   customers: CustomerDTO[];
@@ -843,6 +853,8 @@ function CreateVoucherView({
   accounts: AccountDTO[];
   initialCustomerId?: string | null;
   initialSupplierId?: string | null;
+  /** Opens the form on this type instead of the grid. Overridden by a named party. */
+  initialVoucherType?: VoucherType | null;
   onDone: () => void;
 }) {
   const nameOf = useEntityName();
@@ -857,7 +869,7 @@ function CreateVoucherView({
   // «تحصيل» means a collection and «صرف دفعة» a supplier payment; without a
   // party the user still picks the type from the grid.
   const [type, setType] = useState<VoucherType | null>(
-    initialCustomerId ? "customer_collection" : initialSupplierId ? "supplier_payment" : null,
+    initialCustomerId ? "customer_collection" : initialSupplierId ? "supplier_payment" : initialVoucherType,
   );
   const [draft, setDraft] = useState<CreateDraft>({
     amount: null,

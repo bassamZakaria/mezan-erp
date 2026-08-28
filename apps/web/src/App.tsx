@@ -7,7 +7,7 @@ import { useNotificationsBell } from "./notifications/NotificationsBell";
 import { useScopeSelector } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
-import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, PINNED_NAV_ITEM_KEYS, UTILITY_GROUP_KEYS } from "./nav-config";
+import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, PINNED_NAV_ITEM_KEYS } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
@@ -528,11 +528,13 @@ export function App() {
   );
 
   /**
-   * The six workspaces of the column. الإعداد والصلاحيات IS one of them
-   * (direction ب lists it sixth) even though its screens are ALSO behind the
-   * header gear: the gear is the shortcut for someone already at work, the
-   * column is where someone browsing expects to find it. Both read the same
-   * tree, so they cannot disagree.
+   * The six workspaces of the column, الإعداد والصلاحيات among them.
+   *
+   * It used to be behind the header gear as well, on the argument that the
+   * gear is the shortcut for someone already at work — but that made three
+   * components draw the same fifteen screens (rail, gear, avatar menu) and
+   * gave "where do I change settings" three answers. The rail holds it; ⌘K
+   * reaches every screen in it by name.
    */
   const workspaceGroups = useMemo(
     () =>
@@ -569,31 +571,16 @@ export function App() {
     [navigate],
   );
 
-  const utilityGroups = useMemo(
-    () =>
-      groups
-        .filter((group) => UTILITY_GROUP_KEYS.has(group.key))
-        .map((group) =>
-          group.key === "setup"
-            ? {
-                ...group,
-                items: [
-                  ...group.items,
-                  { key: "shortcuts", label: t("shell.utility.shortcuts"), onClick: () => setShortcutsOpen(true) },
-                ],
-              }
-            : group,
-        ),
-    [groups, t],
-  );
-
   const routedCommandItems: CommandItem[] = useMemo(() => {
     const targets: Record<string, () => void> = {
       "cmd-invoice": () => navigate("sales-invoices", "create"),
-      "cmd-collect": () => navigate("treasury-vouchers", "create"),
+      // Three entries with three different names used to dispatch the same
+      // untyped create, so «تحصيل من عميل» and «دفع لمورد» were labels for
+      // something the app did not do. Each now opens on its own voucher type.
+      "cmd-collect": () => navigate("treasury-vouchers", { kind: "create", prefill: { voucherType: "customer_collection" } }),
       "cmd-receipt": () => navigate("treasury-vouchers", "create"),
       "cmd-receive": () => navigate("goods-receipts", "create"),
-      "cmd-pay-supplier": () => navigate("treasury-vouchers", "create"),
+      "cmd-pay-supplier": () => navigate("treasury-vouchers", { kind: "create", prefill: { voucherType: "supplier_payment" } }),
       "cmd-purchase-invoice": () => navigate("purchase-invoices", "create"),
       "cmd-quote": () => navigate("quotes", "create"),
       "cmd-item": () => navigate("items", "create"),
@@ -750,7 +737,6 @@ export function App() {
       // Every group, الإعداد والصلاحيات included — «كل الشاشات» is the
       // unfiltered map, so a screen no workspace tab shows is still browsable.
       allScreensGroups={groups}
-      utilityGroups={utilityGroups}
       onShowHelp={() => setShortcutsOpen(true)}
       user={shellUser}
       commandItems={routedCommandItems}

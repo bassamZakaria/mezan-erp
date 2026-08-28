@@ -278,22 +278,6 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(screen.getByRole("button", { name: "التبديل إلى الإنجليزية" })).toBeInTheDocument();
   });
 
-  it("lists a utility group's SECTION screens in the gear menu, not only its direct items", () => {
-    const utilityGroups: NavGroup[] = [
-      {
-        key: "setup",
-        label: "الإعداد والصلاحيات",
-        items: [{ key: "settings-general", label: "الإعدادات العامة" }],
-        sections: [{ key: "access", label: "الصلاحيات", items: [{ key: "users", label: "المستخدمون" }] }],
-      },
-    ];
-    renderShell({ utilityGroups });
-    fireEvent.click(screen.getByRole("button", { name: "الإعدادات والنظام" }));
-    const menu = screen.getByRole("menu", { name: "الإعدادات والنظام" });
-    expect(within(menu).getByRole("menuitem", { name: "الإعدادات العامة" })).toBeInTheDocument();
-    expect(within(menu).getByRole("menuitem", { name: "المستخدمون" })).toBeInTheDocument();
-  });
-
   it("wires the branch/warehouse switchers into row one, and there is no rail to hold them", () => {
     const branchOptions: TopbarScopeOption[] = [{ id: "BR-MAIN", label: "الفرع الرئيسي" }];
     const onSelectBranch = vi.fn();

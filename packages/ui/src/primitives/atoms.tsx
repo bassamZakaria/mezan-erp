@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import { useFormat } from "../hooks/useFormat";
 import { useUiTranslation } from "../i18n";
 import { MicroBeam } from "./beams";
+import { Kbd } from "./Kbd";
 
 /* ------------------------------------------------------------------ */
 /* Button                                                              */
@@ -14,6 +15,16 @@ export type ButtonSize = "sm" | "md";
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /**
+   * The keystroke that does the same thing, shown as a chip after the label.
+   *
+   * This is the discoverability mechanism the UX spec names — "discoverable,
+   * not folklore". A shortcut whose only advertisement is a cheat sheet you
+   * must already know how to open is folklore. The chip is decoration only:
+   * the key is bound by the global keymap, so a chip on a button the keymap
+   * does not reach would be a lie.
+   */
+  shortcut?: string | readonly string[];
 }
 
 const buttonVariantClass: Record<ButtonVariant, string> = {
@@ -31,7 +42,7 @@ const buttonSizeClass: Record<ButtonSize, string> = {
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = "default", size = "md", className, children, ...props },
+  { variant = "default", size = "md", className, children, shortcut, ...props },
   ref,
 ) {
   return (
@@ -46,6 +57,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {...props}
     >
       {children}
+      {shortcut ? <Kbd keys={shortcut} className="opacity-70" /> : null}
     </button>
   );
 });

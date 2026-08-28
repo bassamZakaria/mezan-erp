@@ -4,17 +4,18 @@ import {
   Card,
   DocumentDetail,
   DocumentList,
+  type DocumentListColumn,
+  type DocumentStatusStep,
   DocumentStatusStepper,
   EmptyState,
   IconButton,
+  modKeyLabel,
+  type PillTone,
   RowMenu,
+  type RowMenuItem,
   Select,
   StatusPill,
   TextInput,
-  type DocumentListColumn,
-  type DocumentStatusStep,
-  type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { DocumentStatusDTO, StockTransferDocumentDTO } from "@mezan/contracts";
 import { Qty, stockTransferDocumentType } from "@mezan/domain";
@@ -298,7 +299,7 @@ export function StockTransfersScreen() {
         title={t("stockXfer.stockTransfers")}
         description={t("stockXfer.draftConfirmedMovingQuantityBetween")}
         actions={
-          <Button variant="primary" onClick={() => subPage.open("new")}>
+          <Button variant="primary" shortcut={modKeyLabel() + "+N"} onClick={() => subPage.open("new")}>
             {t("stockXfer.newTransfer")}
           </Button>
         }

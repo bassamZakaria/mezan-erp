@@ -1,9 +1,8 @@
 import { useMemo } from "react";
-import { Button, Card, Money, StatCard } from "@mezan/ui";
+import { Money, WorkspaceHub } from "@mezan/ui";
 import { useCrmActivities, useLeads, useOpportunities } from "../../data/hooks";
-import { useNavigation } from "../../navigation";
-import type { ScreenKey } from "../../App";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 
 /**
  * إدارة علاقات العملاء hub — leads, opportunities and activities over the
@@ -32,7 +31,7 @@ function num(value: string | undefined | null): number {
  * pixel above already lists is a second copy of the navigation, not an action —
  * and each of these now opens the create flow rather than landing on the list.
  */
-const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
+const quickActions: HubAction[] = [
   { label: "crmHub.newLead", screen: "leads" },
   { label: "crmHub.newOpportunity", screen: "opportunities" },
   { label: "crmHub.newActivity", screen: "crm-activities" },
@@ -40,7 +39,6 @@ const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
 
 export function CrmHubScreen() {
   const { t } = useAppTranslation();
-  const { navigate } = useNavigation();
   const leadsQuery = useLeads();
   const opportunitiesQuery = useOpportunities();
   const activitiesQuery = useCrmActivities();
@@ -62,58 +60,38 @@ export function CrmHubScreen() {
   const isError = leadsQuery.isError || opportunitiesQuery.isError || activitiesQuery.isError;
 
   return (
-    <div className="flex flex-col gap-[22px]">
-      <div className="flex flex-wrap items-start justify-between gap-[16px]">
-        <div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("crmHub.customerRelationships")}</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("crmHub.leadsOpportunitiesAndActivities")}</p>
-        </div>
-        <div className="flex flex-wrap gap-[8px]">
-          {quickActions.map((action, index) => (
-            <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen, "create")}>
-              {t(action.label)}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {isError ? (
-        <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("crmHub.crmDataCouldNotBe")}</p>
-        </Card>
-      ) : null}
-
-      <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label={t("crmHub.newLeads")} value={isLoading ? "—" : newLeads} sub={t("crmHub.ofLeads", { count: leads.length })} />
-        <StatCard label={t("crmHub.openOpportunities")} value={isLoading ? "—" : openOpportunities.length} sub={t("crmHub.beingFollowedUp")} />
-        <StatCard label={t("crmHub.expectedValueOfOpenOpportunities")} value={<Money value={openPipelineValue} />} sub={t("crmHub.allOpenOpportunities")} />
-        <StatCard label={t("crmHub.activitiesPending")} value={isLoading ? "—" : pendingActivities} sub={t("crmHub.callsMeetingsAndTasks")} />
-      </div>
-
-      <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("crmHub.latestActivities")}</h3>
-        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("crmHub.theLast5ActivitiesRecorded")}</div>
-        {recentActivities.length > 0 ? (
-          <ul className="flex flex-col gap-[10px]">
-            {recentActivities.map((a) => (
-              <li key={a.id} className="flex items-center justify-between gap-[10px]">
-                <div>
-                  <div className="text-[12.5px] text-ink">{a.subject}</div>
-                  <div className="mt-[1px] text-[11px] text-ink-faint">
-                    {activityTypeLabel(a.type, t) ?? a.type}
-                    {a.dueDate ? <span className="mz-num"> · {a.dueDate}</span> : null}
-                  </div>
-                </div>
-                <span className="text-[11.5px] font-semibold text-ink-faint">
-                  {a.status === "pending" ? t("crmHub.pending") : a.status === "completed" ? t("crmHub.done") : t("crmHub.cancelled")}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[12.5px] text-ink-muted">{t("crmHub.noActivitiesYetTheFirst")}</p>
-        )}
-      </Card>
-    </div>
+    <WorkspaceHub
+      title={t("crmHub.customerRelationships")}
+      description={t("crmHub.leadsOpportunitiesAndActivities")}
+      loading={isLoading}
+      error={isError ? t("crmHub.crmDataCouldNotBe") : null}
+      actions={<HubActions actions={quickActions} />}
+      stats={[
+        { key: "leads", label: t("crmHub.newLeads"), value: newLeads, sub: t("crmHub.ofLeads", { count: leads.length }) },
+        { key: "open", label: t("crmHub.openOpportunities"), value: openOpportunities.length, sub: t("crmHub.beingFollowedUp") },
+        { key: "pipeline", label: t("crmHub.expectedValueOfOpenOpportunities"), value: <Money value={openPipelineValue} />, sub: t("crmHub.allOpenOpportunities") },
+        { key: "activities", label: t("crmHub.activitiesPending"), value: pendingActivities, sub: t("crmHub.callsMeetingsAndTasks") },
+      ]}
+      list={{
+        title: t("crmHub.latestActivities"),
+        sub: t("crmHub.theLast5ActivitiesRecorded"),
+        empty: t("crmHub.noActivitiesYetTheFirst"),
+        rows: recentActivities.map((a) => ({
+          key: a.id,
+          primary: a.subject,
+          secondary: (
+            <>
+              {activityTypeLabel(a.type, t) ?? a.type}
+              {a.dueDate ? <span className="mz-num"> · {a.dueDate}</span> : null}
+            </>
+          ),
+          trailing: (
+            <span className="text-2xs font-semibold text-ink-faint">
+              {a.status === "pending" ? t("crmHub.pending") : a.status === "completed" ? t("crmHub.done") : t("crmHub.cancelled")}
+            </span>
+          ),
+        })),
+      }}
+    />
   );
 }

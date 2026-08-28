@@ -1,6 +1,13 @@
 // Tokens: import "@mezan/ui/styles.css" once near the app root.
 
 export { cn, type ClassValue } from "./lib/cn";
+export {
+  WorkspaceHub,
+  type WorkspaceHubProps,
+  type WorkspaceHubStat,
+  type WorkspaceHubRow,
+  type WorkspaceHubList,
+} from "./primitives/WorkspaceHub";
 export { FOCUSABLE_SELECTOR, useFocusTrap, type FocusTrapOptions } from "./hooks/useFocusTrap";
 export {
   LIST_NAV_EVENT,

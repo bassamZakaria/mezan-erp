@@ -4,24 +4,25 @@ import {
   Card,
   DocumentDetail,
   DocumentList,
+  type DocumentListColumn,
+  type DocumentListStatusChip,
   EmptyState,
   EntityPicker,
+  type EntityPickerOption,
   IconButton,
+  modKeyLabel,
   Money as MoneyDisplay,
   MoneyInput,
+  type PillTone,
   Qty as QtyDisplay,
   QtyInput,
   RowMenu,
-  SidePanel,
+  type RowMenuItem,
   Select,
+  SidePanel,
   StatusPill,
   TextInput,
   useFormat,
-  type DocumentListColumn,
-  type DocumentListStatusChip,
-  type PillTone,
-  type EntityPickerOption,
-  type RowMenuItem,
 } from "@mezan/ui";
 import {
   Money,
@@ -1873,7 +1874,7 @@ export function SalesInvoicesScreen() {
             title={t("salesInvoices.title")}
             description={t("salesInvoices.description")}
             actions={
-              <Button variant="primary" onClick={() => subPage.open("new")}>
+              <Button variant="primary" shortcut={modKeyLabel() + "+N"} onClick={() => subPage.open("new")}>
                 {t("salesInvoices.new")}
               </Button>
             }

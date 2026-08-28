@@ -4,15 +4,16 @@ import {
   Card,
   DocumentDetail,
   DocumentList,
+  type DocumentListColumn,
   EmptyState,
+  modKeyLabel,
+  type PillTone,
   RowMenu,
+  type RowMenuItem,
   StatusPill,
   TextInput,
-  VarianceBeam,
   trimMoneyString,
-  type DocumentListColumn,
-  type PillTone,
-  type RowMenuItem,
+  VarianceBeam,
 } from "@mezan/ui";
 import type { PhysicalCountDTO, PhysicalCountStatusDTO } from "@mezan/contracts";
 import {
@@ -228,7 +229,7 @@ export function PhysicalCountsScreen() {
         title={t("counts.physicalCounts")}
         description={t("counts.inProgressCompletedAdjustmentCreated")}
         actions={
-          <Button variant="primary" onClick={() => subPage.open("new")}>
+          <Button variant="primary" shortcut={modKeyLabel() + "+N"} onClick={() => subPage.open("new")}>
             {t("counts.newCount")}
           </Button>
         }

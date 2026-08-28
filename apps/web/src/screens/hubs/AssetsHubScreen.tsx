@@ -1,9 +1,8 @@
 import { useMemo } from "react";
-import { Button, Card, Money, StatCard } from "@mezan/ui";
+import { Money, WorkspaceHub } from "@mezan/ui";
 import { useAssetCategories, useAssets, useDepreciationRuns } from "../../data/hooks";
-import { useNavigation } from "../../navigation";
-import type { ScreenKey } from "../../App";
-import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { useAppTranslation } from "../../i18n";
+import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 
 /**
  * الأصول الثابتة hub — asset register + categories + depreciation runs over
@@ -19,14 +18,13 @@ function num(value: string | undefined | null): number {
  * pixel above already lists is a second copy of the navigation, not an action —
  * and each of these now opens the create flow rather than landing on the list.
  */
-const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
+const quickActions: HubAction[] = [
   { label: "assetsHub.newAsset", screen: "asset-register" },
   { label: "assetsHub.runDepreciation", screen: "depreciation-runs" },
 ];
 
 export function AssetsHubScreen() {
   const { t } = useAppTranslation();
-  const { navigate } = useNavigation();
   const assetsQuery = useAssets();
   const categoriesQuery = useAssetCategories();
   const runsQuery = useDepreciationRuns();
@@ -47,53 +45,29 @@ export function AssetsHubScreen() {
   const isError = assetsQuery.isError || categoriesQuery.isError || runsQuery.isError;
 
   return (
-    <div className="flex flex-col gap-[22px]">
-      <div className="flex flex-wrap items-start justify-between gap-[16px]">
-        <div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("assetsHub.fixedAssets")}</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("assetsHub.theAssetAndDepreciationRegister")} {categories.length} {t("assetsHub.categoriesOnRecord")}</p>
-        </div>
-        <div className="flex flex-wrap gap-[8px]">
-          {quickActions.map((action, index) => (
-            <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen, "create")}>
-              {t(action.label)}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {isError ? (
-        <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("assetsHub.fixedAssetDataCouldNot")}</p>
-        </Card>
-      ) : null}
-
-      <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label={t("assetsHub.assets")} value={isLoading ? "—" : assets.length} sub={t("assetsHub.allAssetsOnRecord")} />
-        <StatCard label={t("assetsHub.activeAssets")} value={isLoading ? "—" : activeAssets} sub={t("assetsHub.inUse")} />
-        <StatCard label={t("assetsHub.totalAcquisitionCost")} value={<Money value={totalCost} />} sub={t("assetsHub.allAssets")} />
-        <StatCard label={t("assetsHub.totalAccumulatedDepreciation")} value={<Money value={totalAccumulatedDepreciation} />} sub={t("assetsHub.toDate")} />
-      </div>
-
-      <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("assetsHub.latestDepreciationRuns")}</h3>
-        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("assetsHub.theLast5RunsRecorded")}</div>
-        {recentRuns.length > 0 ? (
-          <ul className="flex flex-col gap-[10px]">
-            {recentRuns.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-[10px]">
-                <div>
-                  <div className="mz-lat text-[12.5px] text-ink">{r.period}</div>
-                  <div className="mt-[1px] text-[11px] text-ink-faint">{r.status === "posted" ? t("assetsHub.posted") : r.status === "draft" ? t("docStatus.draft") : t("assetsHub.cancelled")}</div>
-                </div>
-                <Money value={num(r.totalAmount)} />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[12.5px] text-ink-muted">{t("assetsHub.noDepreciationRunsYetThe")}</p>
-        )}
-      </Card>
-    </div>
+    <WorkspaceHub
+      title={t("assetsHub.fixedAssets")}
+      description={`${t("assetsHub.theAssetAndDepreciationRegister")} ${categories.length} ${t("assetsHub.categoriesOnRecord")}`}
+      loading={isLoading}
+      error={isError ? t("assetsHub.fixedAssetDataCouldNot") : null}
+      actions={<HubActions actions={quickActions} />}
+      stats={[
+        { key: "assets", label: t("assetsHub.assets"), value: assets.length, sub: t("assetsHub.allAssetsOnRecord") },
+        { key: "active", label: t("assetsHub.activeAssets"), value: activeAssets, sub: t("assetsHub.inUse") },
+        { key: "cost", label: t("assetsHub.totalAcquisitionCost"), value: <Money value={totalCost} />, sub: t("assetsHub.allAssets") },
+        { key: "depreciation", label: t("assetsHub.totalAccumulatedDepreciation"), value: <Money value={totalAccumulatedDepreciation} />, sub: t("assetsHub.toDate") },
+      ]}
+      list={{
+        title: t("assetsHub.latestDepreciationRuns"),
+        sub: t("assetsHub.theLast5RunsRecorded"),
+        empty: t("assetsHub.noDepreciationRunsYetThe"),
+        rows: recentRuns.map((r) => ({
+          key: r.id,
+          primary: <span className="mz-lat">{r.period}</span>,
+          secondary: r.status === "posted" ? t("assetsHub.posted") : r.status === "draft" ? t("docStatus.draft") : t("assetsHub.cancelled"),
+          trailing: <Money value={num(r.totalAmount)} />,
+        })),
+      }}
+    />
   );
 }

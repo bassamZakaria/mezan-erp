@@ -85,7 +85,7 @@ const CUSTOMERS = [
     commercialRegistrationNumber: "CR-114522",
     etaBuyerType: "business" as const,
     contactPerson: "أحمد سيد",
-    address: "١٢ شارع طلعت حرب، وسط البلد، القاهرة",
+    address: "12 شارع طلعت حرب، وسط البلد، القاهرة",
   },
   {
     id: "CUST-DEMO-2",
@@ -99,7 +99,7 @@ const CUSTOMERS = [
     commercialRegistrationNumber: "CR-208814",
     etaBuyerType: "business" as const,
     contactPerson: "هالة منصور",
-    address: "٧ شارع الهرم، الجيزة",
+    address: "7 شارع الهرم، الجيزة",
   },
   {
     id: "CUST-DEMO-3",
@@ -115,7 +115,7 @@ const CUSTOMERS = [
     etaBuyerType: "individual" as const,
     nationalId: "29001011234567",
     contactPerson: "محمود الفجر",
-    address: "٣٤ شارع الجيش، طنطا، الغربية",
+    address: "34 شارع الجيش، طنطا، الغربية",
   },
 ];
 
@@ -130,19 +130,19 @@ const ITEMS = [
   {
     id: "ITEM-DEMO-1",
     code: "IT-0001",
-    nameAr: "أرز أبيض ٥ كجم",
+    nameAr: "أرز أبيض 5 كجم",
     nameEn: "White Rice 5kg",
     salePrice: "180",
     costPrice: "140",
-    alternateUnits: [{ code: "CTN", name: "كرتونة (١٢ قطعة)", factor: 12 }],
+    alternateUnits: [{ code: "CTN", name: "كرتونة (12 قطعة)", factor: 12 }],
   },
-  { id: "ITEM-DEMO-2", code: "IT-0002", nameAr: "زيت عباد الشمس ١ لتر", nameEn: "Sunflower Oil 1L", salePrice: "95", costPrice: "72" },
-  { id: "ITEM-DEMO-3", code: "IT-0003", nameAr: "سكر أبيض ١ كجم", nameEn: "White Sugar 1kg", salePrice: "42", costPrice: "31" },
+  { id: "ITEM-DEMO-2", code: "IT-0002", nameAr: "زيت عباد الشمس 1 لتر", nameEn: "Sunflower Oil 1L", salePrice: "95", costPrice: "72" },
+  { id: "ITEM-DEMO-3", code: "IT-0003", nameAr: "سكر أبيض 1 كجم", nameEn: "White Sugar 1kg", salePrice: "42", costPrice: "31" },
   // Reorder points, so the items list's مخزون منخفض chip has something to
   // filter to — a low-stock state is only derivable where one is set.
-  { id: "ITEM-DEMO-4", code: "IT-0004", nameAr: "شاي أسود ٥٠٠ جم", nameEn: "Black Tea 500g", salePrice: "260", costPrice: "205", reorderPoint: 60, reorderQty: 100 },
-  { id: "ITEM-DEMO-5", code: "IT-0005", nameAr: "خليط شاي بالسكر ١ كجم", nameEn: "Sweetened Tea Blend 1kg", salePrice: "150", costPrice: "108.60" },
-  { id: "ITEM-DEMO-6", code: "IT-0006", nameAr: "خليط شاي بالنعناع ١ كجم", nameEn: "Mint Tea Blend 1kg", salePrice: "170", costPrice: "124.00", reorderPoint: 50, reorderQty: 80 },
+  { id: "ITEM-DEMO-4", code: "IT-0004", nameAr: "شاي أسود 500 جم", nameEn: "Black Tea 500g", salePrice: "260", costPrice: "205", reorderPoint: 60, reorderQty: 100 },
+  { id: "ITEM-DEMO-5", code: "IT-0005", nameAr: "خليط شاي بالسكر 1 كجم", nameEn: "Sweetened Tea Blend 1kg", salePrice: "150", costPrice: "108.60" },
+  { id: "ITEM-DEMO-6", code: "IT-0006", nameAr: "خليط شاي بالنعناع 1 كجم", nameEn: "Mint Tea Blend 1kg", salePrice: "170", costPrice: "124.00", reorderPoint: 50, reorderQty: 80 },
   { id: "ITEM-DEMO-9", code: "IT-0009", nameAr: "علبة شاي هدايا حسب الطلب", nameEn: "Custom Gift Tea Box", salePrice: "0", costPrice: "0" },
 ];
 
@@ -195,8 +195,8 @@ const BOMS = [
 
 /** Perishables — the only items that carry batches and expiry dates (FEFO). */
 const PERISHABLE_ITEMS = [
-  { id: "ITEM-DEMO-7", code: "IT-0007", nameAr: "لبن كامل الدسم ١ لتر", nameEn: "Full-Fat Milk 1L", salePrice: "38", costPrice: "27" },
-  { id: "ITEM-DEMO-8", code: "IT-0008", nameAr: "زبادي طبيعي ١٠٠ جم", nameEn: "Plain Yoghurt 100g", salePrice: "12", costPrice: "8" },
+  { id: "ITEM-DEMO-7", code: "IT-0007", nameAr: "لبن كامل الدسم 1 لتر", nameEn: "Full-Fat Milk 1L", salePrice: "38", costPrice: "27" },
+  { id: "ITEM-DEMO-8", code: "IT-0008", nameAr: "زبادي طبيعي 100 جم", nameEn: "Plain Yoghurt 100g", salePrice: "12", costPrice: "8" },
 ];
 
 /**
@@ -223,7 +223,7 @@ const PROMOTIONS = [
   {
     id: "PROMO-DEMO-1",
     code: "SUMMER10",
-    nameAr: "خصم الصيف ١٠٪",
+    nameAr: "خصم الصيف 10٪",
     nameEn: "Summer 10%",
     type: "percentage" as const,
     percentValue: 10,
@@ -236,7 +236,7 @@ const PROMOTIONS = [
   {
     id: "PROMO-DEMO-2",
     code: "BULK15",
-    nameAr: "خصم الجملة ١٥٪ بسقف ٥٠٠",
+    nameAr: "خصم الجملة 15٪ بسقف 500",
     nameEn: "Bulk 15% capped at 500",
     type: "percentage" as const,
     percentValue: 15,

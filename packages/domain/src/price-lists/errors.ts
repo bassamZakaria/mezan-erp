@@ -1,8 +1,12 @@
+/**
+ * Messages here reach the UI verbatim: the api serves `message: err.message`
+ * and screens render it directly, so every message must be Arabic.
+ */
 /** Raised when a price list fails shape validation (empty name, duplicate line item, negative price). */
 export class InvalidPriceListError extends Error {
   readonly code = "INVALID_PRICE_LIST";
   constructor(readonly reasons: string[]) {
-    super(`Invalid price list: ${reasons.join("; ")}`);
+    super(`قائمة أسعار غير صالحة: ${reasons.join("؛ ")}`);
     this.name = "InvalidPriceListError";
   }
 }
@@ -11,7 +15,7 @@ export class InvalidPriceListError extends Error {
 export class PriceListNotFoundError extends Error {
   readonly code = "PRICE_LIST_NOT_FOUND";
   constructor(readonly priceListId: string) {
-    super(`Price list "${priceListId}" was not found.`);
+    super(`تعذّر العثور على قائمة الأسعار "${priceListId}".`);
     this.name = "PriceListNotFoundError";
   }
 }
@@ -20,7 +24,7 @@ export class PriceListNotFoundError extends Error {
 export class DuplicatePriceListError extends Error {
   readonly code = "DUPLICATE_PRICE_LIST_CODE";
   constructor(readonly priceListCode: string) {
-    super(`Price list code "${priceListCode}" already exists.`);
+    super(`كود قائمة الأسعار "${priceListCode}" مستخدم بالفعل — اختر كوداً آخر.`);
     this.name = "DuplicatePriceListError";
   }
 }

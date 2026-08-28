@@ -47,21 +47,21 @@ export function assertValidPriceListShape(nameAr: string, lines: readonly PriceL
   const reasons: string[] = [];
 
   if (nameAr.trim().length === 0) {
-    reasons.push("nameAr must not be empty.");
+    reasons.push("اسم قائمة الأسعار مطلوب.");
   }
 
   const seen = new Set<string>();
   for (const line of lines) {
     const key = `${line.itemId}@${line.minQty.scaled.toString()}`;
     if (seen.has(key)) {
-      reasons.push(`Duplicate tier for itemId "${line.itemId}" at minimum quantity ${line.minQty.toString()}.`);
+      reasons.push(`شريحة مكررة للصنف "${line.itemId}" عند الحد الأدنى للكمية ${line.minQty.toString()}.`);
     }
     seen.add(key);
     if (line.minQty.scaled < 0n) {
-      reasons.push(`Minimum quantity for itemId "${line.itemId}" must not be negative.`);
+      reasons.push(`الحد الأدنى للكمية للصنف "${line.itemId}" لا يمكن أن يكون سالباً.`);
     }
     if (line.price.scaled < 0n) {
-      reasons.push(`Line price for itemId "${line.itemId}" must not be negative.`);
+      reasons.push(`سعر السطر للصنف "${line.itemId}" لا يمكن أن يكون سالباً.`);
     }
   }
 

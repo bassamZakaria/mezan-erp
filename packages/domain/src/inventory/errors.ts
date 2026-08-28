@@ -1,3 +1,7 @@
+/**
+ * Messages here reach the UI verbatim: the api serves `message: err.message`
+ * and screens render it directly, so every message must be Arabic.
+ */
 /** Errors raised by the stock-ledger / costing engine (docs/catalog/03). */
 
 import { Qty } from "../money/index.js";
@@ -16,8 +20,8 @@ export class NegativeStockError extends Error {
     readonly requested: Qty,
   ) {
     super(
-      `Issuing ${requested.toString()} of item "${itemId}" from warehouse "${warehouseId}" ` +
-        `would drive on-hand (${onHand.toString()}) below zero; negative stock is disallowed.`,
+      `صرف ${requested.toString()} من الصنف "${itemId}" من المستودع "${warehouseId}" ` +
+        `سيجعل الرصيد المتاح (${onHand.toString()}) سالباً، والرصيد السالب غير مسموح به.`,
     );
     this.name = "NegativeStockError";
   }
@@ -27,7 +31,7 @@ export class NegativeStockError extends Error {
 export class InvalidStockMovementError extends Error {
   readonly code = "INVALID_STOCK_MOVEMENT";
   constructor(reasons: readonly string[]) {
-    super(`Invalid stock movement: ${reasons.join("; ")}`);
+    super(`حركة مخزون غير صالحة: ${reasons.join("؛ ")}`);
     this.name = "InvalidStockMovementError";
   }
 }
@@ -36,7 +40,7 @@ export class InvalidStockMovementError extends Error {
 export class SameWarehouseTransferError extends Error {
   readonly code = "SAME_WAREHOUSE_TRANSFER";
   constructor(readonly warehouseId: string) {
-    super(`A transfer's source and destination warehouse must differ ("${warehouseId}").`);
+    super(`لا يمكن أن يكون مستودع المصدر هو نفس مستودع الوجهة ("${warehouseId}").`);
     this.name = "SameWarehouseTransferError";
   }
 }
@@ -45,7 +49,7 @@ export class SameWarehouseTransferError extends Error {
 export class WritedownRunNotFoundError extends Error {
   readonly code = "WRITEDOWN_RUN_NOT_FOUND";
   constructor(readonly runId: string) {
-    super(`Write-down run "${runId}" was not found.`);
+    super(`تعذّر العثور على دفعة إهلاك المخزون "${runId}".`);
     this.name = "WritedownRunNotFoundError";
   }
 }
@@ -57,7 +61,7 @@ export class WritedownRunNotDraftError extends Error {
     readonly runId: string,
     readonly status: string,
   ) {
-    super(`Write-down run "${runId}" is "${status}", not a draft, and cannot be posted.`);
+    super(`دفعة إهلاك المخزون "${runId}" حالتها "${status}" وليست مسودة، فلا يمكن ترحيلها.`);
     this.name = "WritedownRunNotDraftError";
   }
 }
@@ -70,7 +74,7 @@ export class DuplicateWritedownPeriodError extends Error {
     readonly warehouseId: string | null,
   ) {
     super(
-      `A write-down run for period "${period}"${warehouseId ? ` / warehouse "${warehouseId}"` : ""} already exists.`,
+      `توجد بالفعل دفعة إهلاك مخزون للفترة "${period}"${warehouseId ? ` وللمستودع "${warehouseId}"` : ""}.`,
     );
     this.name = "DuplicateWritedownPeriodError";
   }
@@ -80,7 +84,7 @@ export class DuplicateWritedownPeriodError extends Error {
 export class NoSlowMovingStockError extends Error {
   readonly code = "NO_SLOW_MOVING_STOCK";
   constructor(readonly period: string) {
-    super(`No slow-moving stock positions were found for period "${period}".`);
+    super(`لا توجد أرصدة راكدة تنطبق عليها سياسة الإهلاك في الفترة "${period}".`);
     this.name = "NoSlowMovingStockError";
   }
 }
@@ -89,7 +93,7 @@ export class NoSlowMovingStockError extends Error {
 export class DuplicateProductTemplateCodeError extends Error {
   readonly code = "DUPLICATE_PRODUCT_TEMPLATE_CODE";
   constructor(readonly templateCode: string) {
-    super(`Product template code "${templateCode}" already exists.`);
+    super(`كود قالب المنتج "${templateCode}" مستخدم بالفعل — اختر كوداً آخر.`);
     this.name = "DuplicateProductTemplateCodeError";
   }
 }
@@ -107,7 +111,7 @@ export class InvalidProductTemplateError extends Error {
 export class ProductTemplateNotFoundError extends Error {
   readonly code = "PRODUCT_TEMPLATE_NOT_FOUND";
   constructor(readonly templateId: string) {
-    super(`Product template "${templateId}" was not found.`);
+    super(`تعذّر العثور على قالب المنتج "${templateId}".`);
     this.name = "ProductTemplateNotFoundError";
   }
 }
@@ -119,7 +123,7 @@ export class AttributeNotFoundError extends Error {
     readonly templateId: string,
     readonly attributeId: string,
   ) {
-    super(`Attribute "${attributeId}" was not found on product template "${templateId}".`);
+    super(`الخاصية "${attributeId}" غير موجودة في قالب المنتج "${templateId}".`);
     this.name = "AttributeNotFoundError";
   }
 }
@@ -128,7 +132,7 @@ export class AttributeNotFoundError extends Error {
 export class DuplicateAttributeNameError extends Error {
   readonly code = "DUPLICATE_ATTRIBUTE_NAME";
   constructor(readonly nameAr: string) {
-    super(`Attribute "${nameAr}" already exists on this template.`);
+    super(`الخاصية "${nameAr}" موجودة بالفعل في هذا القالب.`);
     this.name = "DuplicateAttributeNameError";
   }
 }
@@ -137,7 +141,7 @@ export class DuplicateAttributeNameError extends Error {
 export class DuplicateAttributeValueError extends Error {
   readonly code = "DUPLICATE_ATTRIBUTE_VALUE";
   constructor(readonly value: string) {
-    super(`Value "${value}" already exists on this attribute.`);
+    super(`القيمة "${value}" موجودة بالفعل في هذه الخاصية.`);
     this.name = "DuplicateAttributeValueError";
   }
 }
@@ -149,7 +153,7 @@ export class AttributeInUseError extends Error {
     readonly attributeId: string,
     readonly variantCount: number,
   ) {
-    super(`Attribute "${attributeId}" is used by ${variantCount} generated variant(s) — delete the variants first.`);
+    super(`الخاصية "${attributeId}" مستخدمة في متغيرات مولّدة عددها ${variantCount} — احذف المتغيرات أولاً.`);
     this.name = "AttributeInUseError";
   }
 }
@@ -162,7 +166,7 @@ export class AttributeValueInUseError extends Error {
     readonly value: string,
     readonly variantCount: number,
   ) {
-    super(`Value "${value}" is used by ${variantCount} generated variant(s) — delete the variants first.`);
+    super(`القيمة "${value}" مستخدمة في متغيرات مولّدة عددها ${variantCount} — احذف المتغيرات أولاً.`);
     this.name = "AttributeValueInUseError";
   }
 }
@@ -171,7 +175,7 @@ export class AttributeValueInUseError extends Error {
 export class NoAttributesDefinedError extends Error {
   readonly code = "NO_ATTRIBUTES_DEFINED";
   constructor(readonly templateId: string) {
-    super(`Product template "${templateId}" has no attributes defined.`);
+    super(`قالب المنتج "${templateId}" لا يحتوي على أي خصائص معرّفة.`);
     this.name = "NoAttributesDefinedError";
   }
 }
@@ -180,7 +184,7 @@ export class NoAttributesDefinedError extends Error {
 export class EmptyVariantSelectionError extends Error {
   readonly code = "EMPTY_VARIANT_SELECTION";
   constructor(readonly templateId: string) {
-    super(`No variant combinations were selected for product template "${templateId}".`);
+    super(`لم يتم اختيار أي تركيبة متغيرات لقالب المنتج "${templateId}".`);
     this.name = "EmptyVariantSelectionError";
   }
 }

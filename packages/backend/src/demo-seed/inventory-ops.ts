@@ -59,14 +59,14 @@ const BRANDS = [
 ];
 
 const SEASONS = [
-  { id: "SSN-DEMO-1", code: "RAMADAN-2026", nameAr: "موسم رمضان ٢٠٢٦", nameEn: "Ramadan 2026", startDate: "2026-02-17", endDate: "2026-03-19" },
-  { id: "SSN-DEMO-2", code: "SUMMER-2026", nameAr: "موسم الصيف ٢٠٢٦", nameEn: "Summer 2026", startDate: "2026-06-01", endDate: "2026-09-30" },
+  { id: "SSN-DEMO-1", code: "RAMADAN-2026", nameAr: "موسم رمضان 2026", nameEn: "Ramadan 2026", startDate: "2026-02-17", endDate: "2026-03-19" },
+  { id: "SSN-DEMO-2", code: "SUMMER-2026", nameAr: "موسم الصيف 2026", nameEn: "Summer 2026", startDate: "2026-06-01", endDate: "2026-09-30" },
 ];
 
 /** Which seeded items carry which facets, so the filters return rows. */
 const ITEM_FACETS = [
-  { itemId: "ITEM-DEMO-1", brandId: "BRD-DEMO-2", seasonId: "SSN-DEMO-1", defaultSupplierId: "SUPP-DEMO-1", description: "أرز مصري حبة طويلة، عبوة ٥ كجم", specifications: [{ code: "ORIGIN", value: "مصر" }, { code: "PACK", value: "كيس" }] },
-  { itemId: "ITEM-DEMO-4", brandId: "BRD-DEMO-1", seasonId: "SSN-DEMO-1", defaultSupplierId: "SUPP-DEMO-2", description: "شاي أسود مستورد، عبوة ٥٠٠ جم", specifications: [{ code: "ORIGIN", value: "سريلانكا" }, { code: "SIZE", value: "وسط" }] },
+  { itemId: "ITEM-DEMO-1", brandId: "BRD-DEMO-2", seasonId: "SSN-DEMO-1", defaultSupplierId: "SUPP-DEMO-1", description: "أرز مصري حبة طويلة، عبوة 5 كجم", specifications: [{ code: "ORIGIN", value: "مصر" }, { code: "PACK", value: "كيس" }] },
+  { itemId: "ITEM-DEMO-4", brandId: "BRD-DEMO-1", seasonId: "SSN-DEMO-1", defaultSupplierId: "SUPP-DEMO-2", description: "شاي أسود مستورد، عبوة 500 جم", specifications: [{ code: "ORIGIN", value: "سريلانكا" }, { code: "SIZE", value: "وسط" }] },
   { itemId: "ITEM-DEMO-5", brandId: "BRD-DEMO-1", seasonId: null, specifications: [{ code: "ORIGIN", value: "مصر" }, { code: "SIZE", value: "كبير" }] },
   { itemId: "ITEM-DEMO-6", brandId: "BRD-DEMO-1", seasonId: "SSN-DEMO-2", specifications: [{ code: "ORIGIN", value: "الهند" }] },
   { itemId: "ITEM-DEMO-2", brandId: "BRD-DEMO-3", seasonId: "SSN-DEMO-2", specifications: [{ code: "PACK", value: "برطمان" }] },
@@ -198,7 +198,7 @@ const WORK_ORDERS = [
 
 /** محطات العمل — the shop floor a work order's issues and receipts are recorded at (R9.1). */
 const WORK_STATIONS = [
-  { id: "WST-DEMO-1", code: "WST-01", nameAr: "خط الخلط", nameEn: "Blending line", notes: "خلاط أفقي ٢٠٠ كجم" },
+  { id: "WST-DEMO-1", code: "WST-01", nameAr: "خط الخلط", nameEn: "Blending line", notes: "خلاط أفقي 200 كجم" },
   { id: "WST-DEMO-2", code: "WST-02", nameAr: "خط التعبئة", nameEn: "Packing line", notes: "تعبئة وتغليف" },
   { id: "WST-DEMO-3", code: "WST-03", nameAr: "مراقبة الجودة", nameEn: "Quality control", notes: null },
 ];

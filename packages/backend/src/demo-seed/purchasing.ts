@@ -15,10 +15,10 @@ import { ACCOUNTS, BRANCH_ID, CORE, VAT_PERCENT, WAREHOUSE_ID, step } from "./sh
  */
 
 const ITEM_NAMES_AR: Record<string, string> = {
-  "ITEM-DEMO-1": "أرز أبيض ٥ كجم",
-  "ITEM-DEMO-2": "زيت عباد الشمس ١ لتر",
-  "ITEM-DEMO-3": "سكر أبيض ١ كجم",
-  "ITEM-DEMO-4": "شاي أسود ٥٠٠ جم",
+  "ITEM-DEMO-1": "أرز أبيض 5 كجم",
+  "ITEM-DEMO-2": "زيت عباد الشمس 1 لتر",
+  "ITEM-DEMO-3": "سكر أبيض 1 كجم",
+  "ITEM-DEMO-4": "شاي أسود 500 جم",
 };
 
 const CUSTOMER_NAMES_AR: Record<string, string> = {
@@ -84,7 +84,7 @@ const PRICE_LISTS = [
   {
     id: "PL-DEMO-4",
     code: "PL-SUMMER25",
-    nameAr: "عرض الصيف ٢٠٢٥",
+    nameAr: "عرض الصيف 2025",
     nameEn: "Summer 2025 Offer",
     description: "حملة موسمية منتهية — محفوظة للأرشيف",
     isBase: false,
@@ -193,7 +193,7 @@ export async function seedPurchasing(app: App): Promise<void> {
   await step(app, "POST", "/rfqs/RFQ-DEMO-1/quotes", {
     id: "RFQQ-DEMO-1",
     supplierId: CORE.suppliers[0],
-    notes: "التسليم خلال ١٠ أيام من أمر الشراء",
+    notes: "التسليم خلال 10 أيام من أمر الشراء",
     lines: [
       { itemId: "ITEM-DEMO-2", unitPrice: "74", notes: null },
       { itemId: "ITEM-DEMO-4", unitPrice: "203", notes: null },
@@ -208,7 +208,7 @@ export async function seedPurchasing(app: App): Promise<void> {
       { itemId: "ITEM-DEMO-4", unitPrice: "208", notes: null },
     ],
   });
-  // سياج أرخص في الإجمالي (٢٦٬٨٨٠ مقابل ٢٦٬٩٨٠) رغم أنه أغلى في الشاي.
+  // سياج أرخص في الإجمالي (26٬880 مقابل 26٬980) رغم أنه أغلى في الشاي.
   await step(app, "POST", "/rfqs/RFQ-DEMO-1/convert", {
     purchaseOrderId: "PO-DEMO-3",
     supplierId: CORE.suppliers[1],
@@ -231,7 +231,7 @@ export async function seedPurchasing(app: App): Promise<void> {
   await step(app, "POST", "/rfqs/RFQ-DEMO-2/quotes", {
     id: "RFQQ-DEMO-3",
     supplierId: CORE.suppliers[0],
-    notes: "سعر ساري حتى ٣٠ سبتمبر",
+    notes: "سعر ساري حتى 30 سبتمبر",
     lines: [
       { itemId: "ITEM-DEMO-1", unitPrice: "142", notes: null },
       { itemId: "ITEM-DEMO-3", unitPrice: "32", notes: null },

@@ -8,9 +8,9 @@ import type { LocaleCatalogs } from "./translate";
 const uiAr = {
   "shell.search.placeholder": "بحث عن صفحة، عميل، فاتورة، أو إجراء…",
   "shell.scope.branch": "الفرع الحالي",
-  "shell.scope.warehouse": "المخزن الحالي",
+  "shell.scope.warehouse": "المستودع الحالي",
   "shell.scope.allBranches": "كل الفروع",
-  "shell.scope.allWarehouses": "كل المخازن",
+  "shell.scope.allWarehouses": "كل المستودعات",
   "shell.theme.toggle": "تبديل المظهر",
   "shell.language.switchTo": "التبديل إلى {language}",
   "shell.language.name.ar": "العربية",

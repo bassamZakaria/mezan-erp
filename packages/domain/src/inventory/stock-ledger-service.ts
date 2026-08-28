@@ -300,7 +300,7 @@ export class StockLedgerService {
     expiryDate?: string | null;
   }): Promise<{ signedValue: Money; unitCost: Money }> {
     if (input.qty.isNegative() || input.qty.isZero()) {
-      throw new InvalidStockMovementError(["qty must be a positive magnitude"]);
+      throw new InvalidStockMovementError(["الكمية يجب أن تكون رقماً موجباً"]);
     }
     const snap = await this.loadSnapshot(input.itemId, input.warehouseId);
 
@@ -311,7 +311,7 @@ export class StockLedgerService {
 
     if (input.direction === "IN") {
       if (!input.unitCost) {
-        throw new InvalidStockMovementError(["an IN movement requires a unitCost"]);
+        throw new InvalidStockMovementError(["حركة الإدخال تتطلب تكلفة الوحدة"]);
       }
       unitCost = input.unitCost;
       const value = extend(input.qty, unitCost);
@@ -467,12 +467,12 @@ export class StockLedgerService {
    */
   async postIssue(command: PostIssueCommand): Promise<PostIssueResult> {
     if (command.lines.length === 0) {
-      throw new InvalidStockMovementError(["an issue needs at least one line"]);
+      throw new InvalidStockMovementError(["إذن الصرف يحتاج سطراً واحداً على الأقل"]);
     }
     for (let i = 0; i < command.lines.length; i++) {
       const line = command.lines[i] as IssueLine;
       if (line.qty.isNegative() || line.qty.isZero()) {
-        throw new InvalidStockMovementError([`line ${i}: qty must be a positive magnitude`]);
+        throw new InvalidStockMovementError([`السطر ${i}: الكمية يجب أن تكون رقماً موجباً`]);
       }
     }
     const occurredAt = command.occurredAt ?? this.now();
@@ -547,7 +547,7 @@ export class StockLedgerService {
       throw new SameWarehouseTransferError(command.fromWarehouseId);
     }
     if (command.lines.length === 0) {
-      throw new InvalidStockMovementError(["a transfer needs at least one line"]);
+      throw new InvalidStockMovementError(["التحويل يحتاج سطراً واحداً على الأقل"]);
     }
     const occurredAt = command.occurredAt ?? this.now();
 
@@ -606,12 +606,12 @@ export class StockLedgerService {
    */
   async postReceipt(command: PostReceiptCommand): Promise<void> {
     if (command.lines.length === 0) {
-      throw new InvalidStockMovementError(["a receipt needs at least one line"]);
+      throw new InvalidStockMovementError(["إذن الاستلام يحتاج سطراً واحداً على الأقل"]);
     }
     for (let i = 0; i < command.lines.length; i++) {
       const line = command.lines[i] as ReceiptLine;
       if (line.qty.isNegative() || line.qty.isZero()) {
-        throw new InvalidStockMovementError([`line ${i}: qty must be a positive magnitude`]);
+        throw new InvalidStockMovementError([`السطر ${i}: الكمية يجب أن تكون رقماً موجباً`]);
       }
     }
     const occurredAt = command.occurredAt ?? this.now();
@@ -656,7 +656,7 @@ export class StockLedgerService {
         for (const layer of mine) {
           if (layer.remainingQty.compare(layer.originalQty) !== 0) {
             throw new InvalidStockMovementError([
-              `cost layer "${layer.id}" for item "${pos.itemId}" has already been drawn down; cannot reverse "${command.sourceDocId}"`,
+              `طبقة التكلفة "${layer.id}" للصنف "${pos.itemId}" سُحب منها بالفعل، فلا يمكن عكس "${command.sourceDocId}"`,
             ]);
           }
         }
@@ -794,7 +794,7 @@ export class StockLedgerService {
   }): Promise<void> {
     if (line.valueDelta.scaled <= 0n) {
       throw new InvalidStockMovementError([
-        `landed cost valueDelta for item "${line.itemId}" must be positive`,
+        `قيمة التكلفة الإضافية للصنف "${line.itemId}" يجب أن تكون موجبة`,
       ]);
     }
     await this.runInTransaction(async () => {

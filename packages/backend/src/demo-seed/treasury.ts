@@ -93,7 +93,7 @@ async function seedTreasuryAccountAndWarehouse(app: App): Promise<void> {
   await step(app, "POST", "/warehouses", {
     id: VAN_WAREHOUSE_ID,
     code: "WH-VAN",
-    name: "عربة توزيع رقم ١",
+    name: "عربة توزيع رقم 1",
     nameEn: "Delivery Van 1",
     branchId: BRANCH_ID,
     type: "VAN",
@@ -413,7 +413,7 @@ async function seedCollectionFollowUps(app: App): Promise<void> {
     await step(app, "POST", "/installments/follow-ups", followUp);
   }
   await step(app, "POST", "/installments/follow-ups/FUP-DEMO-2/complete", {
-    outcome: "تم الاتفاق على السداد يوم ٣١ أغسطس",
+    outcome: "تم الاتفاق على السداد يوم 31 أغسطس",
   });
   await step(app, "POST", "/installments/follow-ups/FUP-DEMO-3/cancel", {});
 }
@@ -434,7 +434,7 @@ async function seedFieldSales(app: App): Promise<void> {
     code: "VAN-01",
     nameAr: "مركبة التوزيع الأولى",
     nameEn: "Distribution van 1",
-    plateNumber: "أ ب ج ١٢٣٤",
+    plateNumber: "أ ب ج 1234",
     branchId: BRANCH_ID,
     warehouseId: VAN_WAREHOUSE_ID,
     treasuryAccountId: VAN_TREASURY_ID,
@@ -523,7 +523,7 @@ interface LedgerLineRow {
 }
 
 /**
- * كشف حساب بنكي واحد لشهر أغسطس ٢٠٢٦ — the bank-reconciliation workflow had a
+ * كشف حساب بنكي واحد لشهر أغسطس 2026 — the bank-reconciliation workflow had a
  * screen, routes and an engine and no data at all: `/bank-statements` returned
  * an empty list on every seeded tenant, so import → match → finalize had never
  * once run end to end.

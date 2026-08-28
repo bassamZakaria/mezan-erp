@@ -74,7 +74,7 @@ const CORE_EMPLOYEE_PATCHES = [
       gender: "male",
       maritalStatus: "married",
       standardWorkHours: 8,
-      address: address("١٢ شارع الجلاء", "المنصورة", "الدقهلية", "35511"),
+      address: address("12 شارع الجلاء", "المنصورة", "الدقهلية", "35511"),
       emergencyContact: emergencyContact("منى عادل", "زوجة", "01004556688"),
     },
   },
@@ -91,7 +91,7 @@ const CORE_EMPLOYEE_PATCHES = [
       gender: "female",
       maritalStatus: "single",
       standardWorkHours: 8,
-      address: address("٤ شارع بورسعيد", "طنطا", "الغربية", "31511"),
+      address: address("4 شارع بورسعيد", "طنطا", "الغربية", "31511"),
       emergencyContact: emergencyContact("فؤاد إبراهيم", "والد", "01115667799"),
     },
   },
@@ -120,7 +120,7 @@ const EMPLOYEES = [
     standardWorkHours: 8,
     probationEndDate: null,
     priorServiceYears: 11,
-    address: address("٢٧ شارع الحرية", "المنصورة", "الدقهلية", "35516"),
+    address: address("27 شارع الحرية", "المنصورة", "الدقهلية", "35516"),
     emergencyContact: emergencyContact("سهير الشهابي", "زوجة", "01223344557"),
   },
   {
@@ -145,7 +145,7 @@ const EMPLOYEES = [
     standardWorkHours: 8,
     probationEndDate: null,
     priorServiceYears: 3,
-    address: address("٩ شارع الجمهورية", "المنصورة", "الدقهلية", "35512"),
+    address: address("9 شارع الجمهورية", "المنصورة", "الدقهلية", "35512"),
     emergencyContact: emergencyContact("طارق سعيد", "زوج", "01098112244"),
   },
   {
@@ -170,7 +170,7 @@ const EMPLOYEES = [
     standardWorkHours: 8,
     probationEndDate: null,
     priorServiceYears: 6,
-    address: address("٣١ شارع قناة السويس", "المنصورة", "الدقهلية", "35514"),
+    address: address("31 شارع قناة السويس", "المنصورة", "الدقهلية", "35514"),
     emergencyContact: emergencyContact("داليا الشناوي", "زوجة", "01277889911"),
   },
   {
@@ -195,7 +195,7 @@ const EMPLOYEES = [
     standardWorkHours: 8,
     probationEndDate: "2026-04-30",
     priorServiceYears: 8,
-    address: address("١٧ شارع المشاية", "المنصورة", "الدقهلية", "35519"),
+    address: address("17 شارع المشاية", "المنصورة", "الدقهلية", "35519"),
     emergencyContact: emergencyContact("إيمان رزق", "زوجة", "01066223355"),
   },
   {
@@ -220,7 +220,7 @@ const EMPLOYEES = [
     standardWorkHours: 9,
     probationEndDate: "2026-08-31",
     priorServiceYears: 0,
-    address: address("٦ شارع سعد زغلول", "المنصورة", "الدقهلية", "35513"),
+    address: address("6 شارع سعد زغلول", "المنصورة", "الدقهلية", "35513"),
     emergencyContact: emergencyContact("سمير حجازي", "والد", "01121334466"),
   },
   {
@@ -245,7 +245,7 @@ const EMPLOYEES = [
     standardWorkHours: 6,
     probationEndDate: null,
     priorServiceYears: 2,
-    address: address("٤٤ شارع الترعة", "ميت غمر", "الدقهلية", "35611"),
+    address: address("44 شارع الترعة", "ميت غمر", "الدقهلية", "35611"),
     emergencyContact: emergencyContact("سعاد الديب", "والدة", "01003446688"),
   },
   {
@@ -270,7 +270,7 @@ const EMPLOYEES = [
     standardWorkHours: 8,
     probationEndDate: null,
     priorServiceYears: 1,
-    address: address("٢ شارع النيل", "المنصورة", "الدقهلية", "35515"),
+    address: address("2 شارع النيل", "المنصورة", "الدقهلية", "35515"),
     emergencyContact: emergencyContact("هالة سليم", "والدة", "01144556688"),
   },
 ];
@@ -409,7 +409,7 @@ const CONTRACTS = [
 
 const HOLIDAYS = [
   { id: "HOL-DEMO-1", date: "2026-01-07", nameEn: "Coptic Christmas", nameAr: "عيد الميلاد المجيد", recurringAnnual: true },
-  { id: "HOL-DEMO-2", date: "2026-01-25", nameEn: "Revolution Day & Police Day", nameAr: "عيد الشرطة وثورة ٢٥ يناير", recurringAnnual: true },
+  { id: "HOL-DEMO-2", date: "2026-01-25", nameEn: "Revolution Day & Police Day", nameAr: "عيد الشرطة وثورة 25 يناير", recurringAnnual: true },
   { id: "HOL-DEMO-3", date: "2026-03-20", nameEn: "Eid al-Fitr", nameAr: "عيد الفطر المبارك", recurringAnnual: false },
   { id: "HOL-DEMO-4", date: "2026-03-21", nameEn: "Eid al-Fitr Holiday", nameAr: "ثاني أيام عيد الفطر", recurringAnnual: false },
   { id: "HOL-DEMO-5", date: "2026-04-13", nameEn: "Sham El-Nessim", nameAr: "شم النسيم", recurringAnnual: false },
@@ -417,7 +417,7 @@ const HOLIDAYS = [
   { id: "HOL-DEMO-7", date: "2026-05-01", nameEn: "Labour Day", nameAr: "عيد العمال", recurringAnnual: true },
   { id: "HOL-DEMO-8", date: "2026-05-27", nameEn: "Eid al-Adha", nameAr: "عيد الأضحى المبارك", recurringAnnual: false },
   { id: "HOL-DEMO-9", date: "2026-06-16", nameEn: "Islamic New Year", nameAr: "رأس السنة الهجرية", recurringAnnual: false },
-  { id: "HOL-DEMO-10", date: "2026-07-23", nameEn: "July 23 Revolution Day", nameAr: "عيد ثورة ٢٣ يوليو", recurringAnnual: true },
+  { id: "HOL-DEMO-10", date: "2026-07-23", nameEn: "July 23 Revolution Day", nameAr: "عيد ثورة 23 يوليو", recurringAnnual: true },
   { id: "HOL-DEMO-11", date: "2026-08-25", nameEn: "Prophet's Birthday", nameAr: "المولد النبوي الشريف", recurringAnnual: false },
   { id: "HOL-DEMO-12", date: "2026-10-06", nameEn: "Armed Forces Day", nameAr: "عيد القوات المسلحة", recurringAnnual: true },
 ];
@@ -445,7 +445,7 @@ const EXTRA_LEAVE_POLICIES = [
 ];
 
 const ACCRUAL_RUNS = [
-  { runDate: "2026-01-01", frequency: "annual", runType: "manual", notes: "استحقاق سنوي — بداية ٢٠٢٦" },
+  { runDate: "2026-01-01", frequency: "annual", runType: "manual", notes: "استحقاق سنوي — بداية 2026" },
   { runDate: "2026-06-30", frequency: "monthly", runType: "scheduled", notes: null },
   { runDate: "2026-07-31", frequency: "monthly", runType: "scheduled", notes: null },
   { runDate: "2026-08-31", frequency: "monthly", runType: "manual", notes: "تشغيل يدوي بعد إضافة موظفي الإنتاج" },

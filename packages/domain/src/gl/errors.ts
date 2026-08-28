@@ -1,4 +1,8 @@
 /**
+ * Messages here reach the UI verbatim: the api serves `message: err.message`
+ * and screens render it directly, so every message must be Arabic.
+ */
+/**
  * GL posting-engine errors. Structural/balance errors are reused from the
  * spike's `post-journal-entry.ts` (UnbalancedEntryError, InvalidJournalEntryError);
  * account- and period-gate errors are reused from `accounts/` and
@@ -10,7 +14,7 @@
 export class JournalEntryNotFoundError extends Error {
   readonly code = "JOURNAL_ENTRY_NOT_FOUND";
   constructor(readonly entryId: string) {
-    super(`Journal entry "${entryId}" was not found.`);
+    super(`تعذّر العثور على القيد "${entryId}".`);
     this.name = "JournalEntryNotFoundError";
   }
 }
@@ -22,7 +26,7 @@ export class JournalEntryNotDraftError extends Error {
     readonly entryId: string,
     readonly status: string,
   ) {
-    super(`Journal entry "${entryId}" is "${status}", not a draft, and cannot be posted.`);
+    super(`القيد "${entryId}" حالته "${status}" وليس مسودة، فلا يمكن ترحيله.`);
     this.name = "JournalEntryNotDraftError";
   }
 }
@@ -38,7 +42,7 @@ export class JournalEntryNotPostedError extends Error {
     readonly entryId: string,
     readonly status: string,
   ) {
-    super(`Journal entry "${entryId}" is "${status}", not posted, and cannot be reversed.`);
+    super(`القيد "${entryId}" حالته "${status}" وليس مُرحَّلاً، فلا يمكن عكسه.`);
     this.name = "JournalEntryNotPostedError";
   }
 }
@@ -50,7 +54,7 @@ export class JournalEntryAlreadyReversedError extends Error {
     readonly entryId: string,
     readonly reversedByEntryId: string,
   ) {
-    super(`Journal entry "${entryId}" was already reversed by "${reversedByEntryId}".`);
+    super(`القيد "${entryId}" سبق عكسه بالقيد "${reversedByEntryId}".`);
     this.name = "JournalEntryAlreadyReversedError";
   }
 }
@@ -59,7 +63,7 @@ export class JournalEntryAlreadyReversedError extends Error {
 export class InactiveAccountError extends Error {
   readonly code = "INACTIVE_ACCOUNT";
   constructor(readonly accountId: string) {
-    super(`Account "${accountId}" is inactive and cannot be posted to.`);
+    super(`الحساب "${accountId}" غير نشط، فلا يمكن الترحيل إليه.`);
     this.name = "InactiveAccountError";
   }
 }
@@ -68,7 +72,7 @@ export class InactiveAccountError extends Error {
 export class DuplicateJournalEntryError extends Error {
   readonly code = "DUPLICATE_JOURNAL_ENTRY";
   constructor(readonly entryId: string) {
-    super(`Journal entry "${entryId}" already exists.`);
+    super(`القيد "${entryId}" موجود بالفعل.`);
     this.name = "DuplicateJournalEntryError";
   }
 }

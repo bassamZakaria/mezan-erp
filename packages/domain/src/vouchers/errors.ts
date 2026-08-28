@@ -1,3 +1,7 @@
+/**
+ * Messages here reach the UI verbatim: the api serves `message: err.message`
+ * and screens render it directly, so every message must be Arabic.
+ */
 /** Treasury-voucher domain errors. Stable `code`s so the api/UI can branch. */
 
 /** Raised when a voucher's single economic line is malformed (bad amount, missing account/party). */
@@ -26,9 +30,6 @@ export class CashBalanceWouldGoNegativeError extends Error {
     readonly amount: string,
     readonly accountType: "cash" | "bank" = "cash",
   ) {
-    // Arabic, because this reaches the UI verbatim: an English refusal in an
-    // Arabic-first product is a defect (docs/defects.md — the same shape the
-    // state-machine refusals were fixed for).
     super(
       `لا يمكن تأكيد السند: ${accountType === "cash" ? "الخزينة النقدية" : "الحساب البنكي"} ` +
         `"${treasuryAccountId}" سيصبح رصيده سالباً (الرصيد الحالي ${currentBalance}، والمبلغ المطلوب صرفه ${amount}).`,
@@ -41,7 +42,7 @@ export class CashBalanceWouldGoNegativeError extends Error {
 export class VoucherNotAllocatableError extends Error {
   readonly code = "VOUCHER_NOT_ALLOCATABLE";
   constructor(readonly voucherId: string, readonly voucherType: string) {
-    super(`Voucher "${voucherId}" of type "${voucherType}" cannot be allocated to invoices.`);
+    super(`السند "${voucherId}" من نوع "${voucherType}" لا يقبل التخصيص على الفواتير.`);
     this.name = "VoucherNotAllocatableError";
   }
 }
@@ -50,7 +51,7 @@ export class VoucherNotAllocatableError extends Error {
 export class VoucherNotConfirmedError extends Error {
   readonly code = "VOUCHER_NOT_CONFIRMED";
   constructor(readonly voucherId: string, readonly status: string) {
-    super(`Voucher "${voucherId}" is "${status}", not confirmed; allocation is not allowed.`);
+    super(`السند "${voucherId}" حالته "${status}" وليس مؤكداً، فلا يمكن تخصيصه.`);
     this.name = "VoucherNotConfirmedError";
   }
 }
@@ -59,7 +60,7 @@ export class VoucherNotConfirmedError extends Error {
 export class InvoiceNotFoundError extends Error {
   readonly code = "INVOICE_NOT_FOUND";
   constructor(readonly invoiceId: string) {
-    super(`Open invoice "${invoiceId}" was not found.`);
+    super(`تعذّر العثور على فاتورة مفتوحة بالرقم "${invoiceId}".`);
     this.name = "InvoiceNotFoundError";
   }
 }
@@ -68,7 +69,7 @@ export class InvoiceNotFoundError extends Error {
 export class AllocationNotFoundError extends Error {
   readonly code = "ALLOCATION_NOT_FOUND";
   constructor(readonly allocationId: string) {
-    super(`Allocation "${allocationId}" was not found.`);
+    super(`تعذّر العثور على التخصيص "${allocationId}".`);
     this.name = "AllocationNotFoundError";
   }
 }
@@ -98,7 +99,7 @@ export class AllocationExceedsError extends Error {
 export class AllocationAlreadyReversedError extends Error {
   readonly code = "ALLOCATION_ALREADY_REVERSED";
   constructor(readonly allocationId: string) {
-    super(`Allocation "${allocationId}" is already reversed.`);
+    super(`التخصيص "${allocationId}" معكوس بالفعل.`);
     this.name = "AllocationAlreadyReversedError";
   }
 }

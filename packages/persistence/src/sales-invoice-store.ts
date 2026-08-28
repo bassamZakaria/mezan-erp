@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { childRowsByParent, countMatching, FilterClauses, selectPage } from "./list-query.js";
 import {
   Money,
   Qty,
@@ -332,6 +333,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
   private readonly deleteLines: Database.Statement;
   private readonly insertLine: Database.Statement;
   private readonly selectInvoiceById: Database.Statement;
+  private readonly selectInvoiceByDocNo: Database.Statement;
   private readonly selectLines: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
@@ -414,6 +416,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       )
     `);
     this.selectInvoiceById = sqlite.prepare(`SELECT * FROM sales_invoice WHERE id = ?`);
+    this.selectInvoiceByDocNo = sqlite.prepare(`SELECT * FROM sales_invoice WHERE doc_no = ?`);
     this.selectLines = sqlite
       .prepare(
         `SELECT line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty,
@@ -440,30 +443,70 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     return row ? this.hydrate(row) : null;
   }
 
+  async findByDocNo(docNo: string): Promise<SalesInvoice | null> {
+    const row = this.selectInvoiceByDocNo.get(docNo) as InvoiceRow | undefined;
+    return row ? this.hydrate(row) : null;
+  }
+
+  /**
+   * Filters become SQL, and a page becomes `LIMIT`/`OFFSET`. Everything the
+   * route can express as a column lives here: loading the whole filtered table
+   * and slicing it in the browser is what this replaces.
+   */
+  private clausesFor(filter: SalesInvoiceListFilter): FilterClauses {
+    const where = new FilterClauses()
+      .eq("status", filter.status)
+      .eq("customer_id", filter.customerId)
+      .gte("date", filter.fromDate)
+      .lte("date", filter.toDate)
+      .eq("branch_id", filter.branchId)
+      .eq("warehouse_id", filter.warehouseId)
+      .eq("salesperson_id", filter.salespersonId);
+    // SCOPE, not a filter. An empty array means the caller may see nothing, so
+    // it must narrow to the unattributable rows rather than fall through to
+    // "no clause" — treating an empty scope as unfiltered is how a scope stops
+    // scoping. `IS NULL` survives either way, because a row with no branch is
+    // not attributable to one.
+    for (const [column, ids] of [
+      ["branch_id", filter.branchScope],
+      ["warehouse_id", filter.warehouseScope],
+    ] as const) {
+      if (!ids) continue;
+      if (ids.length === 0) where.raw(`${column} IS NULL`);
+      else where.raw(`(${column} IN (${ids.map(() => "?").join(",")}) OR ${column} IS NULL)`, ...ids);
+    }
+    const term = filter.search?.trim();
+    if (term) {
+      const like = `%${term.toLowerCase()}%`;
+      where.raw("(LOWER(doc_no) LIKE ? OR LOWER(customer_name_ar) LIKE ?)", like, like);
+    }
+    return where;
+  }
+
   async list(filter: SalesInvoiceListFilter = {}): Promise<readonly SalesInvoice[]> {
-    const clauses: string[] = [];
-    const params: unknown[] = [];
-    if (filter.status) {
-      clauses.push("status = ?");
-      params.push(filter.status);
-    }
-    if (filter.customerId) {
-      clauses.push("customer_id = ?");
-      params.push(filter.customerId);
-    }
-    if (filter.fromDate) {
-      clauses.push("date >= ?");
-      params.push(filter.fromDate);
-    }
-    if (filter.toDate) {
-      clauses.push("date <= ?");
-      params.push(filter.toDate);
-    }
-    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM sales_invoice ${where} ORDER BY date, created_at`)
-      .all(...params) as InvoiceRow[];
-    return rows.map((row) => this.hydrate(row));
+    const rows = selectPage<InvoiceRow>(this.sqlite, {
+      table: "sales_invoice",
+      where: this.clausesFor(filter),
+      orderBy: "date, created_at",
+      page: { limit: filter.limit, offset: filter.offset },
+    });
+    // One query for the whole page's lines, not one per invoice.
+    const linesByInvoice = childRowsByParent<LineRow & { invoice_id: string }>(this.sqlite, {
+      table: "sales_invoice_line",
+      parentColumn: "invoice_id",
+      parentIds: rows.map((row) => row.id),
+      orderBy: "invoice_id, line_no",
+      columns:
+        "invoice_id, line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty, " +
+        "unit_price, line_discount_type, line_discount_amount, discount_percent, tax_rate_percent, " +
+        "revenue_account_id, cogs_account_id, inventory_account_id, unit_cost",
+      safeIntegers: true,
+    });
+    return rows.map((row) => this.hydrate(row, linesByInvoice.get(row.id) ?? []));
+  }
+
+  async count(filter: SalesInvoiceListFilter = {}): Promise<number> {
+    return countMatching(this.sqlite, "sales_invoice", this.clausesFor(filter));
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
@@ -496,8 +539,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     });
   }
 
-  private hydrate(row: InvoiceRow): SalesInvoice {
-    const lineRows = this.selectLines.all(row.id) as LineRow[];
+  private hydrate(row: InvoiceRow, preloadedLines?: readonly LineRow[]): SalesInvoice {
+    const lineRows = preloadedLines ?? (this.selectLines.all(row.id) as LineRow[]);
     return {
       id: row.id,
       docType: row.doc_type as SalesInvoice["docType"],

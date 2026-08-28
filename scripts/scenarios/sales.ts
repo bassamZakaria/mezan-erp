@@ -811,4 +811,44 @@ export async function run(ctx: Ctx): Promise<void> {
     const nothingPersisted = await req("GET", "/sales-quotes/SCN-D38-QUOTE");
     check("nothing was persisted by the refused request", nothingPersisted.status === 404, `status ${nothingPersisted.status}`);
   });
+
+  await scenario("a list is a PAGE, and the totals beside it still count the whole set", async () => {
+    const all = await req("GET", "/sales-invoices");
+    check("the unpaged list still answers with every row", all.ok && Array.isArray(all.body) && all.body.length > 1, `status ${all.status} rows ${all.body?.length}`);
+
+    const total = all.body.length;
+    const firstPage = await req("GET", "/sales-invoices?page=1&pageSize=1");
+    const secondPage = await req("GET", "/sales-invoices?page=2&pageSize=1");
+    check("pageSize is honoured by the SERVER, not by the browser slicing what it was sent", firstPage.ok && firstPage.body.length === 1, `status ${firstPage.status} rows ${firstPage.body?.length}`);
+    check("page 2 is a different row from page 1", secondPage.ok && secondPage.body.length === 1 && secondPage.body[0].id !== firstPage.body[0].id, `${firstPage.body?.[0]?.id} vs ${secondPage.body?.[0]?.id}`);
+    check("the page keeps the list's own order", firstPage.body[0].id === all.body[0].id && secondPage.body[0].id === all.body[1].id, `${firstPage.body?.[0]?.id}/${secondPage.body?.[0]?.id}`);
+
+    const pastTheEnd = await req("GET", `/sales-invoices?page=${total + 5}&pageSize=25`);
+    check("a page past the end is empty, not an error", pastTheEnd.ok && pastTheEnd.body.length === 0, `status ${pastTheEnd.status} rows ${pastTheEnd.body?.length}`);
+
+    // The pager's total comes from /counts, so a page must never reach it —
+    // paging would otherwise make every chip read "1" and the pager vanish.
+    const counts = await req("GET", "/sales-invoices/counts?page=1&pageSize=1");
+    check("the chip counts ignore the page and still count the whole filtered set", counts.ok && counts.body.all === total, `all ${counts.body?.all} vs ${total}`);
+    const stats = await req("GET", "/sales-invoices/stats?page=1&pageSize=1");
+    const unpagedStats = await req("GET", "/sales-invoices/stats");
+    check("and so does the KPI strip", stats.ok && stats.body.sales === unpagedStats.body.sales, `${stats.body?.sales} vs ${unpagedStats.body?.sales}`);
+
+    // Deep-linking is why the route had to learn document numbers: the screen
+    // can no longer find a document among the rows it happens to hold.
+    const withDocNo = all.body.find((inv: any) => inv.docNo);
+    check("a confirmed invoice is reachable by its document NUMBER, not only by its id", withDocNo !== undefined, "no numbered invoice in the seed");
+    if (withDocNo) {
+      const byDocNo = await req("GET", `/sales-invoices/${withDocNo.docNo}`);
+      check("GET /sales-invoices/<docNo> resolves the same document as its id", byDocNo.ok && byDocNo.body.id === withDocNo.id, `status ${byDocNo.status} id ${byDocNo.body?.id}`);
+    }
+
+    const filteredCounts = await req("GET", "/sales-invoices/counts?status=confirmed");
+    const filteredPage = await req("GET", "/sales-invoices?status=confirmed&page=1&pageSize=2");
+    check(
+      "a filter narrows the page and the count together, so the pager cannot outrun the rows",
+      filteredPage.ok && filteredCounts.ok && filteredPage.body.length <= 2 && filteredPage.body.every((inv: any) => inv.status === "confirmed"),
+      `rows ${filteredPage.body?.length} count ${filteredCounts.body?.confirmed}`,
+    );
+  });
 }

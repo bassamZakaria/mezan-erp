@@ -50,6 +50,11 @@ CREATE INDEX IF NOT EXISTS idx_movement_item ON stock_movement(item_id, seq);
 CREATE INDEX IF NOT EXISTS idx_movement_warehouse ON stock_movement(warehouse_id, seq);
 CREATE INDEX IF NOT EXISTS idx_movement_source ON stock_movement(source_doc_type, source_doc_id, seq);
 CREATE INDEX IF NOT EXISTS idx_movement_source_doc ON stock_movement(source_doc_id, seq);
+-- Every other index leads with an entity, so a report bounded only by date
+-- (the movement report, the valuation-drift replay, a period close) had no
+-- index to open and fell back to a full scan. seq trails the date so a range
+-- scan still reads the ledger in its append order.
+CREATE INDEX IF NOT EXISTS idx_movement_occurred ON stock_movement(occurred_at, seq);
 
 CREATE TRIGGER IF NOT EXISTS stock_movement_no_update
 BEFORE UPDATE ON stock_movement

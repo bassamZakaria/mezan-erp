@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { childRowsByParent } from "./list-query.js";
 import {
   Money,
   Qty,
@@ -257,7 +258,16 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
     const rows = this.sqlite
       .prepare(`SELECT * FROM sales_quote ${where} ORDER BY date, created_at`)
       .all(...params) as QuoteRow[];
-    return rows.map((row) => this.hydrate(row));
+    // One query for the whole page's children, not one per parent row.
+    const linesByQuote = childRowsByParent<LineRow & { quote_id: string }>(this.sqlite, {
+      table: "sales_quote_line",
+      parentColumn: "quote_id",
+      parentIds: rows.map((row) => row.id),
+      orderBy: "quote_id, line_no",
+      columns: "quote_id, line_id, item_id, item_name_ar, qty, unit_price, discount_percent, tax_rate_percent",
+      safeIntegers: true,
+    });
+    return rows.map((row) => this.hydrate(row, linesByQuote.get(row.id) ?? []));
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
@@ -280,8 +290,8 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
     });
   }
 
-  private hydrate(row: QuoteRow): SalesQuote {
-    const lineRows = this.selectLines.all(row.id) as LineRow[];
+  private hydrate(row: QuoteRow, preloadedLines?: readonly LineRow[]): SalesQuote {
+    const lineRows = preloadedLines ?? (this.selectLines.all(row.id) as LineRow[]);
     return {
       id: row.id,
       docType: row.doc_type as SalesQuote["docType"],

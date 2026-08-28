@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { childRowsByParent } from "./list-query.js";
 import {
   Money,
   Qty,
@@ -255,7 +256,16 @@ class SqlitePromotionRepository implements PromotionRepository {
       .prepare(`SELECT * FROM promotion ${where} ORDER BY created_at`)
       .safeIntegers()
       .all(...params) as PromotionRow[];
-    return rows.map((row) => this.hydrate(row));
+    // One query for the whole page's children, not one per parent row.
+    const componentsByPromotion = childRowsByParent<BundleComponentRow & { promotion_id: string }>(this.sqlite, {
+      table: "promotion_bundle_component",
+      parentColumn: "promotion_id",
+      parentIds: rows.map((row) => row.id),
+      orderBy: "promotion_id, line_no",
+      columns: "promotion_id, item_id, qty",
+      safeIntegers: true,
+    });
+    return rows.map((row) => this.hydrate(row, componentsByPromotion.get(row.id) ?? []));
   }
 
   private insertBundleComponents(promotion: Promotion): void {
@@ -269,8 +279,8 @@ class SqlitePromotionRepository implements PromotionRepository {
     });
   }
 
-  private hydrate(row: PromotionRow): Promotion {
-    const componentRows = this.selectBundleComponents.all(row.id) as BundleComponentRow[];
+  private hydrate(row: PromotionRow, preloadedComponents?: readonly BundleComponentRow[]): Promotion {
+    const componentRows = preloadedComponents ?? (this.selectBundleComponents.all(row.id) as BundleComponentRow[]);
     return toPromotion(row, componentRows.map(toBundleComponent));
   }
 }

@@ -17,13 +17,40 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
     return this.rows.get(id) ?? null;
   }
 
-  async list(filter: SalesInvoiceListFilter = {}): Promise<readonly SalesInvoice[]> {
+  async findByDocNo(docNo: string): Promise<SalesInvoice | null> {
+    return [...this.rows.values()].find((inv) => inv.docNo === docNo) ?? null;
+  }
+
+  private matching(filter: SalesInvoiceListFilter): SalesInvoice[] {
+    const term = filter.search?.trim().toLowerCase();
     return [...this.rows.values()]
       .filter((inv) => (filter.status ? inv.status === filter.status : true))
       .filter((inv) => (filter.customerId ? inv.customerId === filter.customerId : true))
       .filter((inv) => (filter.fromDate ? inv.date >= filter.fromDate : true))
       .filter((inv) => (filter.toDate ? inv.date <= filter.toDate : true))
+      .filter((inv) => (filter.branchScope ? inv.branchId == null || filter.branchScope.includes(inv.branchId) : true))
+      .filter((inv) =>
+        filter.warehouseScope ? inv.warehouseId == null || filter.warehouseScope.includes(inv.warehouseId) : true,
+      )
+      .filter((inv) => (filter.branchId ? inv.branchId === filter.branchId : true))
+      .filter((inv) => (filter.warehouseId ? inv.warehouseId === filter.warehouseId : true))
+      .filter((inv) => (filter.salespersonId ? inv.salespersonId === filter.salespersonId : true))
+      .filter((inv) =>
+        term
+          ? (inv.docNo ?? "").toLowerCase().includes(term) || (inv.customerNameAr ?? "").toLowerCase().includes(term)
+          : true,
+      )
       .sort((a, b) => (a.date === b.date ? a.createdAt.localeCompare(b.createdAt) : a.date.localeCompare(b.date)));
+  }
+
+  async list(filter: SalesInvoiceListFilter = {}): Promise<readonly SalesInvoice[]> {
+    const rows = this.matching(filter);
+    const offset = filter.offset ?? 0;
+    return filter.limit === undefined ? rows : rows.slice(offset, offset + filter.limit);
+  }
+
+  async count(filter: SalesInvoiceListFilter = {}): Promise<number> {
+    return this.matching(filter).length;
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {

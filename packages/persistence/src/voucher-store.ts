@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { childRowsByParent } from "./list-query.js";
 import {
   Money,
   type AllocatableInvoice,
@@ -400,6 +401,23 @@ class SqliteInvoiceRepository implements AllocatableInvoiceRepository {
       total: invoice.total.toScaledNumber(),
       allocated: invoice.allocated.toScaledNumber(),
     });
+  }
+
+  async allocatedByIds(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {
+    const rowsById = childRowsByParent<InvoiceRow>(this.sqlite, {
+      table: "open_invoice",
+      parentColumn: "id",
+      parentIds: ids,
+      orderBy: "id",
+      columns: "id, allocated",
+      safeIntegers: true,
+    });
+    const out = new Map<string, Money>();
+    for (const [id, rows] of rowsById) {
+      const row = rows[0];
+      if (row) out.set(id, Money.fromScaled(row.allocated));
+    }
+    return out;
   }
 
   async listOpen(filter: { kind?: AllocationInvoiceKind; partyId?: string }): Promise<readonly AllocatableInvoice[]> {

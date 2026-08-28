@@ -861,9 +861,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const base = ((await settings.get()) ?? createDefaultSettings()).currency;
     const out: OpenPartyDocument[] = [];
 
-    for (const inv of invoices) {
-      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
-      const allocated = (await vouchers.invoices.findById(inv.id))?.allocated ?? Money.zero();
+    // ONE sub-ledger lookup for every document in scope. This used to be an
+    // awaited `findById` per row inside each loop, so the two reports walked
+    // the whole document history one synchronous round trip at a time.
+    const activeInvoices = invoices.filter((inv) => SALES_INVOICE_ACTIVE_STATUSES.has(inv.status));
+    const confirmedPurchases = purchInvoices.filter((inv) => inv.status === "confirmed");
+    const allocatedById = await vouchers.invoices.allocatedByIds([
+      ...activeInvoices.map((inv) => inv.id),
+      ...confirmedPurchases.map((inv) => inv.id),
+    ]);
+
+    for (const inv of activeInvoices) {
+      const allocated = allocatedById.get(inv.id) ?? Money.zero();
       out.push({
         kind: "receivable",
         documentId: inv.id,
@@ -878,9 +887,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       });
     }
 
-    for (const inv of purchInvoices) {
-      if (inv.status !== "confirmed") continue;
-      const allocated = (await vouchers.invoices.findById(inv.id))?.allocated ?? Money.zero();
+    for (const inv of confirmedPurchases) {
+      const allocated = allocatedById.get(inv.id) ?? Money.zero();
       out.push({
         kind: "payable",
         documentId: inv.id,

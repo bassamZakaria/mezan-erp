@@ -124,6 +124,13 @@ export const salesInvoiceListQuerySchema = z.object({
   warehouseId: z.string().optional(),
   /** Free-text over document number and customer name. */
   search: z.string().optional(),
+  /**
+   * One page of rows, 1-based. The list route answers with that page only —
+   * the totals every screen needs already come from `/counts` and `/stats`,
+   * which are computed over the WHOLE filtered set and are unaffected by it.
+   */
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(200).optional(),
 });
 
 

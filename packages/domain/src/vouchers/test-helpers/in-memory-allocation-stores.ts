@@ -4,6 +4,7 @@ import type {
   AllocationRepository,
   VoucherAllocation,
 } from "../allocation.js";
+import type { Money } from "../../money/index.js";
 import type { AllocationInvoiceKind } from "../voucher-types.js";
 
 /** In-memory {@link AllocationRepository} for domain-layer + UI tests. */
@@ -40,6 +41,14 @@ export class InMemoryInvoiceRepository implements AllocatableInvoiceRepository {
   }
   async save(invoice: AllocatableInvoice): Promise<void> {
     this.rows.set(invoice.id, invoice);
+  }
+  async allocatedByIds(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {
+    const out = new Map<string, Money>();
+    for (const id of ids) {
+      const row = this.rows.get(id);
+      if (row) out.set(id, row.allocated);
+    }
+    return out;
   }
   async listOpen(filter: { kind?: AllocationInvoiceKind; partyId?: string }): Promise<readonly AllocatableInvoice[]> {
     return [...this.rows.values()].filter(

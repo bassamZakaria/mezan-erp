@@ -16,18 +16,7 @@ import { majorOf } from "../lib/money";
 type StatusFilter = "all" | "in_stock" | "low" | "out";
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
-export interface StockBalanceScreenProps {
-  /**
-   * Rendered inside المخزون's own page, which already carries the title and
-   * the actions. The stat strip STAYS — it is the page's only summary, and it
-   * counts the very rows in the table below it. A second summary computed from
-   * a different endpoint is how one screen ends up showing two answers to
-   * «كم عندنا».
-   */
-  readonly embedded?: boolean;
-}
-
-export function StockBalanceScreen({ embedded = false }: StockBalanceScreenProps = {}) {
+export function StockBalanceScreen() {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const [warehouseFilter, setWarehouseFilter] = useState("");
@@ -90,9 +79,6 @@ export function StockBalanceScreen({ embedded = false }: StockBalanceScreenProps
       total: baseRows.length,
       outOfStock: baseRows.filter((r) => statusOf(r) === "out").length,
       lowStock: baseRows.filter((r) => statusOf(r) === "low").length,
-      // The owner judges the product on this number, so it is summed from the
-      // same rows the table renders rather than fetched from a second engine.
-      value: baseRows.reduce((sum, r) => sum + Number(r.totalValue), 0),
     }),
     [baseRows, items],
   );
@@ -191,13 +177,12 @@ export function StockBalanceScreen({ embedded = false }: StockBalanceScreenProps
   return (
     <div className="w-full">
       <DocumentList<StockBalanceRowDTO>
-        title={embedded ? "" : t("stockBalance.title")}
-        description={embedded ? undefined : t("stockBalance.description")}
+        title={t("stockBalance.title")}
+        description={t("stockBalance.description")}
         listKey="stock-balance"
         statsCollapsible
         stats={[
           { label: t("stockBalance.stat.total"), value: <span className="mz-num">{counts.total}</span> },
-          { label: t("stockBalance.stat.value"), value: <MoneyDisplay value={counts.value} /> },
           { label: t("stockBalance.stat.lowStock"), value: <span className="mz-num">{counts.lowStock}</span> },
           { label: t("stockBalance.stat.outOfStock"), value: <span className="mz-num">{counts.outOfStock}</span> },
         ]}

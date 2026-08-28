@@ -97,35 +97,35 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     ],
   },
   /**
-   * ONE workspace for everything stock, manufacturing included.
-   *
-   * The panel that reviewed this — the owner, a storekeeper, a production
-   * manager, a clerk, support, the implementation consultant and product —
-   * converged on three things:
-   *
-   *   1. the workspace opens on the STOCK, not on tiles about the stock;
-   *   2. التصنيع as a peer workspace reads as "factory software" to a business
-   *      that buys and sells and assembles a gift box twice a month, and its
-   *      staff then avoid the whole area. A manufacturing order IS an issue
-   *      plus a receipt, run by the same storekeeper;
-   *   3. everything else is a door off one of those, not a row of its own.
-   *
-   * What is not listed here is still routable and still reachable — الجرد
-   * الفعلي and تسويات from the overview's quick actions, طباعة الملصقات from
-   * الأصناف, لوحة الإنتاج from أوامر التصنيع, قوائم المواد and التصنيع المخصص
-   * as tabs of it, أرصدة المخزون folded into the overview that renders it.
-   * تخفيض قيمة المخزون moved to المالية والإقفال, which is whose job it is.
+   * الأصناف is master data for المخزون، البيع and الشراء alike, so it is a
+   * SHELF of المخزون rather than a workspace of its own — and its four screens
+   * (الأصناف، القوالب، المنتجات القابلة للتهيئة، المواصفات) are four tabs of
+   * ONE page, the way QuickBooks keeps a single «Products and services» list
+   * with a type on the item. Likewise أرصدة المخزون, which answered the same
+   * question as the hub, is now the hub's own table, and the eight inventory
+   * reports are four: كل تقرير هنا يحمل عروضه بداخله (الحركة داخل السجل،
+   * الفروق داخل التقييم، الصلاحية والبطيئة داخل الأعمار).
    */
+  /**
+   * الأصناف is its OWN workspace again. It was folded into المخزون on the
+   * argument that master data belongs beside the thing that consumes it, and
+   * that argument is sound on paper — but a catalogue is opened by people who
+   * never touch a stock document (pricing, purchasing, the person adding a
+   * barcode), and burying it under المخزون made them enter a warehouse to
+   * reach it. Its own row costs one line in the column and removes that
+   * detour.
+   */
+  {
+    key: "items",
+    defaultCollapsed: true,
+    itemKeys: ["items"],
+  },
   {
     key: "stock",
     defaultCollapsed: true,
-    // NO SHELVES on the daily work. A shelf earns its dropdown when it holds
-    // more than the bar can carry; three documents behind «الحركة اليومية»
-    // just put a click in front of the three things this workspace exists to
-    // do. They sit beside الأصناف as chips, and only التقارير — five of them,
-    // read occasionally — stays folded.
-    itemKeys: ["inventory-hub", "items", "stock-transfers", "stock-adjustments", "work-orders"],
+    itemKeys: ["inventory-hub"],
     sections: [
+      { key: "daily", itemKeys: ["stock-transfers", "stock-adjustments", "physical-counts", "writedown-runs"] },
       {
         key: "reports",
         defaultCollapsed: true,
@@ -134,9 +134,19 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
           "report-inventory-ledger",
           "report-inventory-valuation",
           "report-inventory-aging",
-          "report-make-vs-buy",
         ],
       },
+    ],
+  },
+  {
+    key: "manufacturing",
+    defaultCollapsed: true,
+    itemKeys: ["manufacturing-hub"],
+    sections: [
+      // قائمة المواد is a tab of الأصناف now, the way QuickBooks keeps the
+      // recipe on the assembly item rather than in a list of its own.
+      { key: "daily", itemKeys: ["work-orders", "custom-manufacturing"] },
+      { key: "reports", defaultCollapsed: true, itemKeys: ["report-make-vs-buy"] },
     ],
   },
   {
@@ -154,7 +164,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     itemKeys: ["accounting-hub"],
     sections: [
       { key: "daily", itemKeys: ["journals"] },
-      { key: "close", itemKeys: ["fiscal-periods", "reconciliation", "bank-reconciliation", "revaluation", "writedown-runs", "eta"] },
+      { key: "close", itemKeys: ["fiscal-periods", "reconciliation", "bank-reconciliation", "revaluation", "eta"] },
       { key: "master", defaultCollapsed: true, itemKeys: ["coa", "cost-centers", "taxes", "exchange-rates"] },
       { key: "reports", defaultCollapsed: true, itemKeys: ["trial-balance-report", "financial-reports", "cost-center-pl"] },
     ],

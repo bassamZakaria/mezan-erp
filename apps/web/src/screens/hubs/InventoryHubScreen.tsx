@@ -1,46 +1,49 @@
-import { Button, Card } from "@mezan/ui";
+import { useMemo } from "react";
+import { Button, Card, Money, StatCard } from "@mezan/ui";
+import type { InventoryStockLevelsRow } from "@mezan/domain";
 import { useItems } from "../../data/hooks";
+import { useReport } from "../../data/reports-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
-import { StockBalanceScreen } from "../StockBalanceScreen";
 
 /**
- * المخزون — THE LANDING PAGE IS THE STOCK, not a page about the stock.
- *
- * Every voice in the review said the same thing independently: a storekeeper
- * opening المخزون wants to see what is on hand, and the owner judges the
- * product on whether قيمة المخزون is one number he can trust. A hub of tiles
- * above a link to the real list made «كم عندنا من الصنف ده» a two-click
- * question with two candidate answers — أرصدة المخزون and مستويات المخزون —
- * and that pair is the "different numbers for the same thing" ticket.
- *
- * So the balances table IS this page; the tiles sit on top of it as its
- * summary. There is one place to look, and its total is the same rows.
- *
- * The stat strip belongs to the table and counts the very rows in it, so the
- * page's headline figure and its list can never disagree.
+ * المخزون hub — item counts from `/items`, and stock value + at-risk items
+ * from the REAL `/reports/inventory/stock-levels` engine (the same one
+ * `InventoryStockLevelsReportScreen` runs) rather than re-deriving valuation
+ * client-side. No qty/timestamp field exists on `ItemDTO` itself, so the
+ * "needs attention" list below is sourced from that report's rows, not a
+ * fabricated "recent items" ordering.
  */
 
-/**
- * The doors to the screens the nav no longer lists. الجرد الفعلي is a
- * once-a-cycle action and طباعة الملصقات hangs off الأصناف, so neither earns a
- * permanent row — but both have to be reachable from the page whose work they
- * belong to, or they read as missing rather than as tidied away.
- */
 const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
   { label: "inventoryHub.action.newItem", screen: "items" },
+  { label: "inventoryHub.action.balances", screen: "stock-balance" },
   { label: "inventoryHub.action.transfer", screen: "stock-transfers" },
-  { label: "inventoryHub.action.adjust", screen: "stock-adjustments" },
   { label: "inventoryHub.action.count", screen: "physical-counts" },
 ];
+
+const STOCK_LEVELS_PARAMS = { warehouseId: "", search: "" };
 
 export function InventoryHubScreen() {
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const itemsQuery = useItems();
+  const stockLevelsQuery = useReport<InventoryStockLevelsRow>(
+    "inventory.stock-levels",
+    "/inventory/stock-levels",
+    STOCK_LEVELS_PARAMS,
+  );
 
-  const isError = itemsQuery.isError;
+  const items = itemsQuery.data ?? [];
+  const activeItems = useMemo(() => items.filter((i) => i.status === "active").length, [items]);
+  const rows = stockLevelsQuery.data?.rows ?? [];
+  const inventoryValue = stockLevelsQuery.data?.grandTotals.value ?? 0;
+  const needsAttention = useMemo(() => rows.filter((r) => r.status !== "normal").slice(0, 5), [rows]);
+  const needsAttentionCount = useMemo(() => rows.filter((r) => r.status !== "normal").length, [rows]);
+
+  const isLoading = itemsQuery.isLoading || stockLevelsQuery.isLoading;
+  const isError = itemsQuery.isError || stockLevelsQuery.isError;
 
   return (
     <div className="flex flex-col gap-[22px]">
@@ -64,7 +67,39 @@ export function InventoryHubScreen() {
         </Card>
       ) : null}
 
-      <StockBalanceScreen embedded />
+      <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
+        <StatCard label={t("inventoryHub.stat.items")} value={isLoading ? "—" : items.length} sub={t("inventoryHub.stat.itemsSub")} />
+        <StatCard label={t("inventoryHub.stat.active")} value={isLoading ? "—" : activeItems} sub={t("inventoryHub.stat.activeSub")} />
+        <StatCard label={t("inventoryHub.stat.value")} value={<Money value={inventoryValue} />} sub={t("inventoryHub.stat.valueSub")} />
+        <StatCard
+          label={t("inventoryHub.stat.attention")}
+          value={isLoading ? "—" : needsAttentionCount}
+          sub={t("inventoryHub.stat.attentionSub")}
+          subTone={needsAttentionCount > 0 ? "down" : "neutral"}
+        />
+      </div>
+
+      <Card className="p-[18px_20px]">
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("inventoryHub.stat.attention")}</h3>
+        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("inventoryHub.attentionSub")}</div>
+        {needsAttention.length > 0 ? (
+          <ul className="flex flex-col gap-[10px]">
+            {needsAttention.map((row) => (
+              <li key={row.itemId} className="flex items-center justify-between gap-[10px]">
+                <div>
+                  <div className="text-[12.5px] text-ink">{row.itemNameAr}</div>
+                  <div className="mt-[1px] text-[11px] text-ink-faint">
+                    <span className="mz-lat">{row.sku}</span> · {t("inventoryHub.remaining")} <span className="mz-num">{row.onHand}</span>
+                  </div>
+                </div>
+                <span className="text-[11.5px] font-semibold text-danger-ink">{row.status === "out" ? t("inventoryHub.out") : t("inventoryHub.low")}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[12.5px] text-ink-muted">{t("inventoryHub.empty")}</p>
+        )}
+      </Card>
     </div>
   );
 }

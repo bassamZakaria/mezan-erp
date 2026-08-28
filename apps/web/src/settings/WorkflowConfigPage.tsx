@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
 import { Button, Card, DocumentList, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
-import { GATEABLE_ACTION_TYPES } from "@mezan/domain";
+import { GATEABLE_ACTION_TYPES, type GateableActionTypeDef } from "@mezan/domain";
+
+/** Action types whose confirm path does not yet consult the workflow engine. */
+const UNENFORCED_ACTION_TYPES = new Set<string>(
+  (GATEABLE_ACTION_TYPES as readonly GateableActionTypeDef[]).filter((a) => a.enforced === false).map((a) => a.code),
+);
 import type { GateStepDTO, WorkflowConfigDTO } from "@mezan/contracts";
 import { useCreateWorkflowConfig, useDeleteWorkflowConfig, useRoles, useUpdateWorkflowConfig, useWorkflowConfigs } from "../data/hooks";
 import { SelectField, TextField } from "./form-controls";
@@ -119,7 +124,18 @@ export function WorkflowConfigPage() {
       render: (c) => <span className="font-semibold text-ink">{actionTypeLabel(c.actionType, t)}</span>,
     },
     { key: "steps", header: t("workflowConfig.col.steps"), align: "end", render: (c) => <span className="mz-num">{c.steps.length}</span> },
-    { key: "status", header: t("workflowConfig.col.status"), render: () => <StatusPill label={t("workflowConfig.active")} tone="success" /> },
+    {
+      key: "status",
+      header: t("workflowConfig.col.status"),
+      // A chain configured for an action the code path never consults is worse
+      // than no chain: the tenant believes the document is held and it is not.
+      render: (c) =>
+        UNENFORCED_ACTION_TYPES.has(c.actionType) ? (
+          <StatusPill label={t("workflowConfig.notEnforced")} tone="warning" />
+        ) : (
+          <StatusPill label={t("workflowConfig.active")} tone="success" />
+        ),
+    },
     {
       key: "actions",
       header: "",

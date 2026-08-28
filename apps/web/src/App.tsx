@@ -615,11 +615,13 @@ export function App() {
     return [...quickActions, ...goTo];
   }, [navigate, t]);
 
+  // The avatar menu carries only what belongs to the PERSON. Users, roles and
+  // settings live in the gear and in ⌘K; listing them here as well made the
+  // same fifteen screens reachable from three separate menus, so "where do I
+  // change settings" had three answers.
   const userMenuItems: UserMenuItem[] = useMemo(
     () => [
-      { key: "users", label: t("shell.menu.users"), onSelect: () => navigate("users") },
-      { key: "roles", label: t("shell.menu.roles"), onSelect: () => navigate("roles") },
-      { key: "settings", label: t("shell.menu.settings"), onSelect: () => navigate("settings-general") },
+      { key: "profile", label: t("shell.menu.profile"), onSelect: () => navigate("settings-profile") },
       {
         key: "sign-out",
         label: t("shell.menu.signOut"),

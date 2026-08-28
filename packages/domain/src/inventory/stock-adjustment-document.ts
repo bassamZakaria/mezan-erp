@@ -59,7 +59,7 @@ export const stockAdjustmentDocumentType: DocumentTypeDefinition<StockAdjustment
   labelAr: "تسوية مخزون",
   confirmedStatus: "confirmed",
   numberingSequence: "STOCK_ADJUSTMENT",
-  gateActionType: null,
+  gateActionType: "INVENTORY_ADJUSTMENT_CONFIRM",
 
   validate(doc) {
     const { lines } = doc;

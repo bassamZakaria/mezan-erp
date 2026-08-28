@@ -23,6 +23,13 @@ export interface GateableActionTypeDef {
     | "hr_payroll"
     | "hr_leave"
     | "manufacturing";
+  /**
+   * False while the code path this gates does not consult the workflow engine.
+   * The config screen must say so: a tenant who configures an approval chain
+   * for an unenforced action believes spend is held when it is not, which is a
+   * worse control than none at all.
+   */
+  readonly enforced?: boolean;
 }
 
 export const GATEABLE_ACTION_TYPES = [
@@ -32,9 +39,9 @@ export const GATEABLE_ACTION_TYPES = [
   { code: "SALES_QUOTE_SEND", labelAr: "إرسال عرض سعر", labelEn: "Send quotation", category: "sales" },
 
   // Purchases (5)
-  { code: "PURCHASE_ORDER_CONFIRM", labelAr: "تأكيد أمر الشراء", labelEn: "Confirm purchase order", category: "purchases" },
-  { code: "PURCHASE_INVOICE_CONFIRM", labelAr: "تأكيد فاتورة المشتريات", labelEn: "Confirm purchase invoice", category: "purchases" },
-  { code: "PURCHASE_RECEIPT_CONFIRM", labelAr: "تأكيد سند استلام البضاعة", labelEn: "Confirm goods receipt", category: "purchases" },
+  { code: "PURCHASE_ORDER_CONFIRM", labelAr: "تأكيد أمر الشراء", labelEn: "Confirm purchase order", category: "purchases", enforced: false },
+  { code: "PURCHASE_INVOICE_CONFIRM", labelAr: "تأكيد فاتورة المشتريات", labelEn: "Confirm purchase invoice", category: "purchases", enforced: false },
+  { code: "PURCHASE_RECEIPT_CONFIRM", labelAr: "تأكيد سند استلام البضاعة", labelEn: "Confirm goods receipt", category: "purchases", enforced: false },
   { code: "PURCHASE_RETURN_CONFIRM", labelAr: "تأكيد مردودات المشتريات", labelEn: "Confirm purchase return", category: "purchases" },
   { code: "PURCHASE_LANDED_COST_CONFIRM", labelAr: "تأكيد سند التكاليف الإضافية", labelEn: "Confirm landed-cost voucher", category: "purchases" },
 

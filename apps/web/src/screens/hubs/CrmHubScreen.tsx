@@ -27,10 +27,14 @@ function num(value: string | undefined | null): number {
   return value ? Number(value) : 0;
 }
 
+/**
+ * Verbs only. A row of buttons that navigate to the same screens the bar one
+ * pixel above already lists is a second copy of the navigation, not an action —
+ * and each of these now opens the create flow rather than landing on the list.
+ */
 const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
   { label: "crmHub.newLead", screen: "leads" },
   { label: "crmHub.newOpportunity", screen: "opportunities" },
-  { label: "crmHub.pipeline", screen: "pipeline" },
   { label: "crmHub.newActivity", screen: "crm-activities" },
 ];
 
@@ -66,7 +70,7 @@ export function CrmHubScreen() {
         </div>
         <div className="flex flex-wrap gap-[8px]">
           {quickActions.map((action, index) => (
-            <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
+            <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen, "create")}>
               {t(action.label)}
             </Button>
           ))}

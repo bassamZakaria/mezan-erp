@@ -46,7 +46,7 @@ export const stockTransferDocumentType: DocumentTypeDefinition<StockTransferDocL
   labelAr: "تحويل مخزون",
   confirmedStatus: "confirmed",
   numberingSequence: "STOCK_TRANSFER",
-  gateActionType: null,
+  gateActionType: "INVENTORY_TRANSFER_CONFIRM",
 
   validate(doc) {
     const { lines } = doc;

@@ -788,11 +788,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     repo: inventoryOps.stockAdjustments,
     numbering: { next: (opts) => ledger.numbering.next("STOCK_ADJUSTMENT", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
+    workflow: documentWorkflowGate,
   });
   const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
     repo: inventoryOps.stockTransfers,
     numbering: { next: (opts) => ledger.numbering.next("STOCK_TRANSFER", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
+    workflow: documentWorkflowGate,
   });
   const physicalCounts = new PhysicalCountService({
     repo: inventoryOps.physicalCounts,

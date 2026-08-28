@@ -139,9 +139,13 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
         defaultCollapsed: true,
         itemKeys: [
           "report-inventory-stock-levels",
+          "report-inventory-movement",
           "report-inventory-ledger",
           "report-inventory-valuation",
           "report-inventory-aging",
+          "report-inventory-expiring",
+          "report-inventory-slow-moving",
+          "report-inventory-drift",
         ],
       },
     ],

@@ -21,6 +21,9 @@ export interface ReportExportFile {
   readonly data: ArrayBuffer;
 }
 
+/** UTF-8 byte-order mark — what tells Excel the CSV it just opened is UTF-8. */
+const BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
+
 const EXPORT_MIME_TYPES: Record<ReportExportFormat, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   csv: "text/csv;charset=utf-8",
@@ -47,8 +50,19 @@ export async function buildReportExport<Row>(
     sheet.addRow(record);
   }
 
-  const data = options.format === "xlsx" ? await workbook.xlsx.writeBuffer() : await workbook.csv.writeBuffer();
-  return { filename: `${options.baseFilename}.${options.format}`, mimeType: EXPORT_MIME_TYPES[options.format], data };
+  if (options.format === "xlsx") {
+    const data = await workbook.xlsx.writeBuffer();
+    return { filename: `${options.baseFilename}.xlsx`, mimeType: EXPORT_MIME_TYPES.xlsx, data };
+  }
+
+  // Excel reads a BOM-less file as the system codepage, so every Arabic header
+  // and name opens as mojibake — which is what a finance user does with a CSV
+  // the moment it lands. Three bytes make it readable.
+  const body = new Uint8Array(await workbook.csv.writeBuffer());
+  const withBom = new Uint8Array(BOM.length + body.length);
+  withBom.set(BOM, 0);
+  withBom.set(body, BOM.length);
+  return { filename: `${options.baseFilename}.csv`, mimeType: EXPORT_MIME_TYPES.csv, data: withBom.buffer };
 }
 
 /** Triggers a browser download for an already-built export file. No-op outside a DOM environment (e.g. tests, SSR). */

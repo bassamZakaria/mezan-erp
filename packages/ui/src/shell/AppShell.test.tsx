@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { AppShell } from "./AppShell";
-import type { TopbarScopeOption } from "./Topbar";
+import type { TopbarScopeOption } from "./ScopeSwitcher";
 import type { CommandItem, NavGroup, ShellUser } from "./types";
 
 const user: ShellUser = { name: "محمد الشهابي", role: "Company Admin", initials: "م.ش" };

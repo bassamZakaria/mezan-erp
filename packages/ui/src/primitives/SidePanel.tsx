@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { cn } from "../lib/cn";
 import { IconButton } from "./atoms";
 import { useUiTranslation } from "../i18n";
+import { FOCUSABLE_SELECTOR, useFocusTrap } from "../hooks/useFocusTrap";
 
 export interface SidePanelProps {
   open: boolean;
@@ -19,9 +20,6 @@ export interface SidePanelProps {
  * state translates off-screen with `transform`, which is direction-neutral
  * and not something the repo's left/right lint flags.
  */
-const PANEL_FOCUSABLE =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 export function SidePanel({ open, onClose, title, description, children, className }: SidePanelProps) {
   const { t } = useUiTranslation();
   const titleId = useId();
@@ -44,40 +42,13 @@ export function SidePanel({ open, onClose, title, description, children, classNa
     if (!open) return;
     const panel = panelRef.current;
     if (!panel) return;
-    const first = panel.querySelector<HTMLElement>(PANEL_FOCUSABLE);
+    const first = panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
     // The close button is always present, so `first` is only null in a panel
     // rendered before its content — fall back to the dialog itself.
     (first ?? panel).focus();
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const panel = panelRef.current;
-      if (!panel) return;
-      const focusable = [...panel.querySelectorAll<HTMLElement>(PANEL_FOCUSABLE)].filter(
-        (el) => el.offsetParent !== null || el === document.activeElement,
-      );
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!first || !last) return;
-      const active = document.activeElement;
-      if (event.shiftKey && (active === first || active === panel)) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+  useFocusTrap({ active: open, containerRef: panelRef, onEscape: onClose });
 
   useLayoutEffect(() => {
     if (open) {

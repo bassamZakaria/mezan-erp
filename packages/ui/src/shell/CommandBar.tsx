@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/cn";
+import { latinLetter } from "../lib/keys";
 import { useUiTranslation } from "../i18n";
 import { Kbd, modKeyLabel } from "../primitives/Kbd";
 import type { CommandItem } from "./types";
@@ -27,7 +28,7 @@ export function CommandBar({ items, placeholder, className }: CommandBarProps) {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      if ((event.ctrlKey || event.metaKey) && latinLetter(event) === "k") {
         event.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();

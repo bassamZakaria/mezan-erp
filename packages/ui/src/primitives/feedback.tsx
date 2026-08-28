@@ -13,6 +13,7 @@ import {
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
 import { Button } from "./atoms";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /* ------------------------------------------------------------------ */
 /* Toast                                                                */
@@ -272,9 +273,6 @@ export interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 export function ConfirmDialog({
   open,
   title,
@@ -304,32 +302,7 @@ export function ConfirmDialog({
     previousFocusRef.current = null;
   }, [open, tone]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-      const nodes = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-      const first = nodes[0];
-      const last = nodes[nodes.length - 1];
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onCancel]);
+  useFocusTrap({ active: open, containerRef: dialogRef, onEscape: onCancel, preventEscapeDefault: true });
 
   if (!open) return null;
 

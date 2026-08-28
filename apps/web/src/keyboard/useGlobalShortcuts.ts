@@ -6,6 +6,7 @@ import {
   findDocumentForm,
   findSearchInput,
   isActivatableTarget,
+  isHelpKey,
   isTypingTarget,
   latinLetter,
   type ModuleJump,
@@ -126,7 +127,7 @@ export function useGlobalShortcuts({
         return;
       }
 
-      if (event.key === "?") {
+      if (isHelpKey(event)) {
         event.preventDefault();
         disarmChord();
         showHelp();

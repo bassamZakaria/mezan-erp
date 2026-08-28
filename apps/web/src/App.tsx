@@ -748,6 +748,7 @@ export function App() {
       // unfiltered map, so a screen no workspace tab shows is still browsable.
       allScreensGroups={groups}
       utilityGroups={utilityGroups}
+      onShowHelp={() => setShortcutsOpen(true)}
       user={shellUser}
       commandItems={routedCommandItems}
       userMenuItems={userMenuItems}

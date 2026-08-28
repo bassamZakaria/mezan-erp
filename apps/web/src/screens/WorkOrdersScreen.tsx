@@ -517,11 +517,7 @@ export function WorkOrdersScreen() {
   const [scheduledEndDate, setScheduledEndDate] = useState("");
   const [notes, setNotes] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-  const [issuePanelOpen, setIssuePanelOpen] = useState(false);
-  const [issueStationId, setIssueStationId] = useState("");
-  const [issueOperatorId, setIssueOperatorId] = useState("");
   const [buildPanelOpen, setBuildPanelOpen] = useState(false);
-  const [receivePanelOpen, setReceivePanelOpen] = useState(false);
   const [receiveQty, setReceiveQty] = useState(0);
   const [receiveStationId, setReceiveStationId] = useState("");
   const [receiveOperatorId, setReceiveOperatorId] = useState("");
@@ -671,41 +667,6 @@ export function WorkOrdersScreen() {
     }
   }
 
-  async function confirmIssue() {
-    if (!selected) return;
-    setActionError(null);
-    try {
-      await issueOrder.mutateAsync({
-        id: selected.id,
-        body: {
-          stationId: issueStationId === "" ? null : issueStationId,
-          operatorId: issueOperatorId === "" ? null : issueOperatorId,
-        },
-      });
-      setIssuePanelOpen(false);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("workOrders.thatActionCouldNotBe"));
-    }
-  }
-
-  async function confirmReceive() {
-    if (!selected) return;
-    setActionError(null);
-    try {
-      await receiveOrder.mutateAsync({
-        id: selected.id,
-        body: {
-          producedQty: String(receiveQty),
-          stationId: receiveStationId === "" ? null : receiveStationId,
-          operatorId: receiveOperatorId === "" ? null : receiveOperatorId,
-        },
-      });
-      setReceivePanelOpen(false);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("workOrders.theProductCouldNotBe"));
-    }
-  }
-
   const advancing = startOrder.isPending || issueOrder.isPending || completeOrder.isPending;
 
   const createPanel = (
@@ -760,26 +721,6 @@ export function WorkOrdersScreen() {
       label: `${employee.code} — ${[employee.firstNameAr, employee.lastNameAr].filter(Boolean).join(" ") || `${employee.firstName} ${employee.lastName}`}`,
     })),
   ];
-
-  const issuePanel = (
-    <SidePanel open={issuePanelOpen} onClose={() => setIssuePanelOpen(false)} title={t("workOrders.stage.materials_issued")} description={t("workOrders.attributionHint")}>
-      <div className="flex flex-col gap-[14px]">
-        {actionError ? (
-          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-            {actionError}
-          </div>
-        ) : null}
-        <SelectField label={t("workOrders.station")} value={issueStationId} onChange={setIssueStationId} options={stationOptionsForPanel} />
-        <SelectField label={t("workOrders.operator")} value={issueOperatorId} onChange={setIssueOperatorId} options={operatorOptionsForPanel} />
-        <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setIssuePanelOpen(false)}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={confirmIssue} disabled={issueOrder.isPending}>
-            {t("workOrders.stage.materials_issued")}
-          </Button>
-        </div>
-      </div>
-    </SidePanel>
-  );
 
   const buildShortage = selected
     ? selected.materials.some((m) => {
@@ -860,27 +801,6 @@ export function WorkOrdersScreen() {
     </SidePanel>
   );
 
-  const receivePanel = (
-    <SidePanel open={receivePanelOpen} onClose={() => setReceivePanelOpen(false)} title={t("workOrders.receiveProduct")} description={t("workOrders.enterTheQuantityActuallyProduced")}>
-      <div className="flex flex-col gap-[14px]">
-        {actionError ? (
-          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-            {actionError}
-          </div>
-        ) : null}
-        <NumberField label={t("workOrders.quantityProduced")} value={receiveQty} min={0} onChange={setReceiveQty} />
-        <SelectField label={t("workOrders.station")} value={receiveStationId} onChange={setReceiveStationId} options={stationOptionsForPanel} />
-        <SelectField label={t("workOrders.operator")} value={receiveOperatorId} onChange={setReceiveOperatorId} options={operatorOptionsForPanel} />
-        <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setReceivePanelOpen(false)}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={confirmReceive} disabled={receiveOrder.isPending || receiveQty <= 0}>
-            {t("workOrders.confirmReceipt")}
-          </Button>
-        </div>
-      </div>
-    </SidePanel>
-  );
-
   if (selected) {
     return (
       <>
@@ -893,9 +813,7 @@ export function WorkOrdersScreen() {
           advancing={advancing}
         />
         {createPanel}
-        {issuePanel}
         {buildPanel}
-        {receivePanel}
       </>
     );
   }
@@ -1014,9 +932,7 @@ export function WorkOrdersScreen() {
         }
       />
       {createPanel}
-      {issuePanel}
       {buildPanel}
-      {receivePanel}
     </>
   );
 }

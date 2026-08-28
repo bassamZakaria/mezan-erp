@@ -1,6 +1,13 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "../lib/cn";
+import {
+  LIST_NAV_EVENT,
+  isTopListNavSubscriber,
+  popListNavSubscriber,
+  pushListNavSubscriber,
+  type ListNavDetail,
+} from "../lib/keys";
 import { useUiTranslation } from "../i18n";
 import { Card, StatCard } from "./atoms";
 import { SearchInput } from "./form";
@@ -260,6 +267,52 @@ export function DocumentList<Row>({
   // made their own choice.
   const filtersDefaultOpen = Boolean(filterBarExtra);
   const [statsOpen, setStatsOpen] = useState(() => (statsStorageKey ? loadPersistedOpen(statsStorageKey, true) : true));
+
+  // `j`/`k`/`Enter`. The keymap dispatches `mz:list-nav` on window and this is
+  // the listener for it — without one the keys are swallowed by the app's
+  // `preventDefault` and nothing moves.
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const tbodyRef = useRef<HTMLTableSectionElement | null>(null);
+  const navId = useId();
+  const latest = useRef({ rows, onRowClick, selectedIndex });
+  latest.current = { rows, onRowClick, selectedIndex };
+
+  useEffect(() => {
+    const id = Symbol(navId);
+    pushListNavSubscriber(id);
+    function onListNav(event: Event) {
+      if (!isTopListNavSubscriber(id)) return;
+      const { rows: liveRows, onRowClick: open, selectedIndex: current } = latest.current;
+      if (liveRows.length === 0) return;
+      const { action } = (event as CustomEvent<ListNavDetail>).detail;
+      if (action === "open") {
+        if (current !== null && liveRows[current] !== undefined) open?.(liveRows[current]);
+        return;
+      }
+      const next =
+        current === null
+          ? action === "next"
+            ? 0
+            : liveRows.length - 1
+          : Math.min(liveRows.length - 1, Math.max(0, current + (action === "next" ? 1 : -1)));
+      setSelectedIndex(next);
+      // Not `children[next]`: an expanded row inserts a second <tr>, so the
+      // index into the DOM is not the index into `rows`.
+      tbodyRef.current?.querySelector(`[data-mz-row-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
+    }
+    window.addEventListener(LIST_NAV_EVENT, onListNav);
+    return () => {
+      popListNavSubscriber(id);
+      window.removeEventListener(LIST_NAV_EVENT, onListNav);
+    };
+  }, [navId]);
+
+  // A selection that outlives the rows it pointed at would highlight a
+  // different document after a filter or a page change.
+  useEffect(() => {
+    setSelectedIndex(null);
+  }, [page, rows.length]);
+
   const [filtersOpen, setFiltersOpen] = useState(() =>
     filtersStorageKey ? loadPersistedOpen(filtersStorageKey, filtersDefaultOpen) : filtersDefaultOpen,
   );
@@ -440,7 +493,7 @@ export function DocumentList<Row>({
                 ) : null}
               </tr>
             </thead>
-            <tbody>
+            <tbody ref={tbodyRef}>
               {rows.map((row, rowIndex) => {
                 const key = rowKey(row, rowIndex);
                 const expansion = renderExpandedRow?.(row);
@@ -448,9 +501,12 @@ export function DocumentList<Row>({
                 return (
                 <Fragment key={key}>
                 <tr
+                  data-mz-row-index={rowIndex}
+                  aria-selected={selectedIndex === rowIndex ? true : undefined}
                   className={cn(
                     "group/row h-[36px] transition-colors even:bg-[color-mix(in_srgb,var(--surface-2)_55%,transparent)]",
                     onRowClick && "cursor-pointer hover:bg-surface-2",
+                    selectedIndex === rowIndex && "bg-brand-soft even:bg-brand-soft",
                   )}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                 >

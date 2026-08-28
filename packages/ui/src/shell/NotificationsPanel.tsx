@@ -2,6 +2,17 @@ import { useEffect } from "react";
 import { useTranslation } from "../i18n";
 import { cn } from "../lib/cn";
 
+/** One row in the notifications panel. */
+export interface ShellNotification {
+  id: string;
+  title: string;
+  body?: string;
+  at?: string;
+  /** Undefined when the caller has no read-state to report. */
+  read?: boolean;
+}
+
+
 /**
  * Presentational shape for one row — @mezan/ui has no dependency on
  * @mezan/contracts/@mezan/domain (see Topbar/CommandPalette), so this is a

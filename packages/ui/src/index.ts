@@ -1,6 +1,15 @@
 // Tokens: import "@mezan/ui/styles.css" once near the app root.
 
 export { cn, type ClassValue } from "./lib/cn";
+export { FOCUSABLE_SELECTOR, useFocusTrap, type FocusTrapOptions } from "./hooks/useFocusTrap";
+export {
+  LIST_NAV_EVENT,
+  emitListNav,
+  isHelpKey,
+  latinLetter,
+  type ListNavAction,
+  type ListNavDetail,
+} from "./lib/keys";
 export {
   formatDate,
   formatDateTime,
@@ -173,14 +182,8 @@ export {
 } from "./primitives/PermissionMatrix";
 
 export { AppShell, type AppShellProps } from "./shell/AppShell";
-export { Sidebar, type SidebarProps } from "./shell/Sidebar";
-export {
-  Topbar,
-  type TopbarProps,
-  type ShellNotification,
-  type TopbarScopeOption,
-} from "./shell/Topbar";
-export { CommandPalette, type CommandPaletteProps } from "./shell/CommandPalette";
+export { type TopbarScopeOption } from "./shell/ScopeSwitcher";
+export { type ShellNotification } from "./shell/NotificationsPanel";
 export { CommandBar, type CommandBarProps } from "./shell/CommandBar";
 export {
   NotificationsPanel,

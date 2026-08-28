@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { IconButton, Kbd, modKeyLabel } from "@mezan/ui";
+import { IconButton, Kbd, modKeyLabel, useFocusTrap } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import type { ModuleJump } from "./shortcuts";
 
@@ -17,17 +17,17 @@ export interface ShortcutsOverlayProps {
 export function ShortcutsOverlay({ open, onClose, moduleJumps }: ShortcutsOverlayProps) {
   const { t } = useAppTranslation();
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const mod = modKeyLabel();
 
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+  }, [open]);
+
+  // It announces `aria-modal` — without a trap, Tab walked straight out into
+  // the page behind it.
+  useFocusTrap({ active: open, containerRef: dialogRef, onEscape: onClose });
 
   if (!open) return null;
 
@@ -45,6 +45,7 @@ export function ShortcutsOverlay({ open, onClose, moduleJumps }: ShortcutsOverla
     <>
       <div aria-hidden="true" onClick={onClose} className="fixed inset-0 z-[70] bg-scrim backdrop-blur-[2px]" />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("shortcuts.title")}

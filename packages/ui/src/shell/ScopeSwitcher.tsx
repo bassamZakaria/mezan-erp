@@ -1,7 +1,13 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { Select } from "../primitives/Select";
-import type { TopbarScopeOption } from "./Topbar";
+
+/** One option in a scope dropdown — a branch or a warehouse the session may see. */
+export interface TopbarScopeOption {
+  id: string;
+  label: string;
+}
+
 
 interface RailScopeSelectProps {
   ariaLabel: string;

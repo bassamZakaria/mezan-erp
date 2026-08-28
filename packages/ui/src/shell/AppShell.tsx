@@ -11,7 +11,7 @@ import { ScopeSwitchers } from "./ScopeSwitcher";
 import { TopbarMenu } from "./TopbarMenu";
 import { WorkspaceRail } from "./WorkspaceRail";
 import { WorkspaceScreensBar } from "./WorkspaceScreensBar";
-import type { TopbarScopeOption } from "./Topbar";
+import type { TopbarScopeOption } from "./ScopeSwitcher";
 import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
 
 /** The id the skip link targets; `<main>` carries it and `tabIndex={-1}` so focus lands. */
@@ -53,6 +53,8 @@ export interface AppShellProps {
   onOpenAllScreens?: () => void;
   /** Settings and system, behind row one's gear. Omit to drop the gear. */
   utilityGroups?: readonly NavGroup[];
+  /** Opens the shortcuts sheet from the chrome. */
+  onShowHelp?: () => void;
   /** Marks the matching row-two chip (and utility row) `aria-current="page"`. */
   activeNavKey?: string;
 
@@ -120,6 +122,7 @@ export function AppShell({
   allScreensGroups = [],
   onOpenAllScreens,
   utilityGroups = [],
+  onShowHelp,
   activeNavKey,
   user,
   commandItems = [],
@@ -280,6 +283,7 @@ export function AppShell({
                 them off the screen entirely. */}
             <ChromeActions
               utilityGroups={utilityGroups}
+              onShowHelp={onShowHelp}
               activeNavKey={activeNavKey}
               theme={theme}
               onToggleTheme={toggleTheme}

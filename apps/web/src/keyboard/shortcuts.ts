@@ -4,24 +4,14 @@ import type { NavGroup, NavItem } from "@mezan/ui";
  * The DOM-level primitives behind the global keymap (spec §7). Kept separate
  * from the hook so the rules that decide "is the user typing?" and "which form
  * does ⌘S save?" are readable on their own.
+ *
+ * The list-nav event and the layout-independent key helpers live in
+ * `@mezan/ui` instead: the emitter is here and the listener is `DocumentList`,
+ * so one definition has to be visible to both.
  */
 
-/**
- * Fired on `window` when `j` / `k` / `Enter` should move or open a table
- * selection. `DocumentList` (packages/ui) listens for it; a CustomEvent is the
- * seam because packages/ui cannot import from apps/web.
- */
-export const LIST_NAV_EVENT = "mz:list-nav";
-
-export type ListNavAction = "next" | "prev" | "open";
-
-export interface ListNavDetail {
-  action: ListNavAction;
-}
-
-export function emitListNav(action: ListNavAction): void {
-  window.dispatchEvent(new CustomEvent<ListNavDetail>(LIST_NAV_EVENT, { detail: { action } }));
-}
+export { LIST_NAV_EVENT, emitListNav, isHelpKey, latinLetter } from "@mezan/ui";
+export type { ListNavAction, ListNavDetail } from "@mezan/ui";
 
 const NON_TEXT_INPUT_TYPES = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"]);
 
@@ -39,22 +29,6 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 export function isActivatableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.closest('a[href],button,summary,[role="button"],[role="option"],[role="tab"],[role="menuitem"]') !== null;
-}
-
-/**
- * The letter a key press stands for, in a-z. Falls back to the physical
- * `KeyX` code so `g s` still works on an Arabic keyboard layout, where
- * `event.key` is `س` rather than `s`.
- */
-export function latinLetter(event: KeyboardEvent): string | null {
-  const key = event.key;
-  if (key.length === 1) {
-    const lower = key.toLowerCase();
-    if (lower >= "a" && lower <= "z") return lower;
-  }
-  const code = event.code;
-  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
-  return null;
 }
 
 function isHidden(el: HTMLElement): boolean {

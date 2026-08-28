@@ -252,21 +252,47 @@ export function UtilityMenu({ groups, activeNavKey }: UtilityMenuProps) {
   );
 }
 
+/**
+ * The one visible way into the shortcuts sheet. `?` opens it too, but a
+ * shortcut whose only doorway is itself a shortcut is folklore, not a feature
+ * (spec §7: "discoverable, not folklore").
+ */
+export function HelpButton({ onShowHelp, className }: { onShowHelp: () => void; className?: string }) {
+  const { t } = useUiTranslation();
+  return (
+    <button type="button" aria-label={t("shell.help.shortcuts")} onClick={onShowHelp} className={cn(CHROME_BUTTON, className)}>
+      <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
+        <circle cx="10" cy="10" r="7.4" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M7.9 7.9a2.1 2.1 0 1 1 2.9 1.94c-.5.22-.8.7-.8 1.25v.31"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+        <circle cx="10" cy="14.1" r="0.85" fill="currentColor" />
+      </svg>
+    </button>
+  );
+}
+
 export interface ChromeActionsProps {
   /** Settings and system, grouped — rendered behind the gear. Omit to drop the gear. */
   utilityGroups?: readonly NavGroup[];
   activeNavKey?: string;
+  /** Opens the shortcuts sheet. Omit and the help button is not rendered. */
+  onShowHelp?: () => void;
   theme?: ThemePreference;
   onToggleTheme?: () => void;
   className?: string;
 }
 
-/** The three chrome controls as one cluster: gear, language, appearance. */
-export function ChromeActions({ utilityGroups = [], activeNavKey, theme, onToggleTheme, className }: ChromeActionsProps) {
+/** The chrome controls as one cluster: gear, help, language, appearance. */
+export function ChromeActions({ utilityGroups = [], activeNavKey, onShowHelp, theme, onToggleTheme, className }: ChromeActionsProps) {
   const { t } = useUiTranslation();
   return (
     <div className={cn("flex flex-none items-center gap-[6px]", className)} aria-label={t("shell.bar.chromeActions")} role="group">
       {utilityGroups.length > 0 ? <UtilityMenu groups={utilityGroups} activeNavKey={activeNavKey} /> : null}
+      {onShowHelp ? <HelpButton onShowHelp={onShowHelp} /> : null}
       <LanguageToggle />
       <ThemeToggle theme={theme} onToggleTheme={onToggleTheme} />
     </div>

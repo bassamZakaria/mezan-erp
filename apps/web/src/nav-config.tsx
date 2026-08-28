@@ -63,23 +63,17 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "crm",
     defaultCollapsed: true,
-    itemKeys: ["crm-hub"],
-    sections: [
-      { key: "daily", itemKeys: ["crm-activities", "leads", "opportunities", "pipeline"] },
-      { key: "config", defaultCollapsed: true, itemKeys: ["pipeline-stages"] },
-    ],
+    // Flat: a shelf earns its dropdown when the bar cannot carry what it holds.
+    itemKeys: ["crm-hub", "crm-activities", "leads", "opportunities", "pipeline", "pipeline-stages"],
   },
   {
     key: "installments",
     defaultCollapsed: true,
-    itemKeys: ["installment-plans"],
-    sections: [
-      { key: "daily", itemKeys: ["installment-follow-ups"] },
-      {
-        key: "reports",
-        defaultCollapsed: true,
-        itemKeys: ["report-installments-overview", "report-installments-overdue"],
-      },
+    itemKeys: [
+      "installment-plans",
+      "installment-follow-ups",
+      "report-installments-overview",
+      "report-installments-overdue",
     ],
   },
   {
@@ -168,11 +162,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "treasury",
     defaultCollapsed: true,
-    itemKeys: ["treasury-hub"],
-    sections: [
-      { key: "daily", itemKeys: ["treasury-vouchers", "cheques"] },
-      { key: "master", defaultCollapsed: true, itemKeys: ["treasury-accounts"] },
-    ],
+    itemKeys: ["treasury-hub", "treasury-vouchers", "cheques", "treasury-accounts"],
   },
   {
     key: "money",

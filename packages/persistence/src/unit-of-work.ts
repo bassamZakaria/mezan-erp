@@ -4,6 +4,7 @@ import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3"
 import { eq, asc } from "drizzle-orm";
 import {
   Money,
+  normalizeUsername,
   type JournalEntry,
   type JournalRepository,
   type UnitOfWork,
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS role (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_role_code ON role(code);
 CREATE TABLE IF NOT EXISTS user (
   id                TEXT PRIMARY KEY,
+  username          TEXT NOT NULL DEFAULT '',
   full_name         TEXT NOT NULL,
   email             TEXT NOT NULL,
   phone             TEXT,
@@ -61,6 +63,47 @@ CREATE TABLE IF NOT EXISTS user (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_email ON user(email);
 `;
+
+/**
+ * Adds `username` to a database written before logins had one, and fills it in.
+ *
+ * Login used to match the user's FULL NAME, so nothing on disk carries a login
+ * identifier. The backfill derives one from the email local-part — the only
+ * unique thing each row already has — normalised to the same rules
+ * `saveUser` enforces, and de-duplicated with a numeric suffix if two
+ * addresses share a local-part across domains. A row whose local-part cannot
+ * make a legal username falls back to `user<n>`, so every account stays
+ * reachable rather than being silently locked out by its own address.
+ *
+ * The unique index is created only AFTER the backfill: adding it first would
+ * fail on the empty-string default every existing row starts with.
+ */
+function addUsernameColumn(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(user)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "username")) {
+    sqlite.exec(`ALTER TABLE user ADD COLUMN username TEXT NOT NULL DEFAULT ''`);
+  }
+
+  const rows = sqlite
+    .prepare(`SELECT id, email, username FROM user ORDER BY created_at, id`)
+    .all() as { id: string; email: string; username: string }[];
+
+  const taken = new Set(rows.map((r) => r.username).filter((u) => u !== ""));
+  const update = sqlite.prepare(`UPDATE user SET username = ? WHERE id = ?`);
+  let fallback = 0;
+  for (const row of rows) {
+    if (row.username !== "") continue;
+    const local = (row.email.split("@")[0] ?? "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+    let base = /^[a-z0-9][a-z0-9._-]{2,31}$/.test(local) ? local : `user${(fallback += 1)}`;
+    let candidate = base;
+    let n = 1;
+    while (taken.has(candidate)) candidate = `${base}${(n += 1)}`;
+    taken.add(candidate);
+    update.run(candidate, row.id);
+  }
+
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_username ON user(username)`);
+}
 
 function scopeToJson(scope: ScopeSelection): string {
   return JSON.stringify(scope === "*" ? "*" : [...scope]);
@@ -138,6 +181,7 @@ class DrizzleUserRepository implements UserRepository {
       .insert(user)
       .values({
         id: u.id,
+        username: u.username,
         fullName: u.fullName,
         email: u.email,
         phone: u.phone,
@@ -155,6 +199,7 @@ class DrizzleUserRepository implements UserRepository {
       .onConflictDoUpdate({
         target: user.id,
         set: {
+          username: u.username,
           fullName: u.fullName,
           email: u.email,
           phone: u.phone,
@@ -182,6 +227,11 @@ class DrizzleUserRepository implements UserRepository {
     return row ? rowToUser(row) : null;
   }
 
+  async findByUsername(username: string): Promise<User | null> {
+    const row = this.db.select().from(user).where(eq(user.username, normalizeUsername(username))).get();
+    return row ? rowToUser(row) : null;
+  }
+
   async list(): Promise<readonly User[]> {
     return this.db.select().from(user).all().map(rowToUser);
   }
@@ -190,6 +240,7 @@ class DrizzleUserRepository implements UserRepository {
 function rowToUser(row: typeof user.$inferSelect): User {
   return {
     id: row.id,
+    username: row.username,
     fullName: row.fullName,
     email: row.email,
     phone: row.phone,
@@ -301,6 +352,7 @@ export function createSqliteUnitOfWork(
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  addUsernameColumn(sqlite);
 
   const db = drizzle(sqlite, { schema });
   const uow = new SqliteUnitOfWork(db, sqlite);

@@ -51,7 +51,7 @@ export async function run(ctx: Ctx): Promise<void> {
       new Request("http://scenario/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: "محمد الشهابي", pin: "1234" }),
+        body: JSON.stringify({ username: "admin", pin: "1234" }),
       }),
     );
     check("a real sign-in succeeds", login.status === 200, `status ${login.status}`);
@@ -70,6 +70,45 @@ export async function run(ctx: Ctx): Promise<void> {
       new Request("http://scenario/settings", { headers: { authorization: `Bearer ${session.token}` } }),
     );
     check("and stops opening it after sign-out", afterLogout.status === 403, `status ${afterLogout.status}`);
+  });
+
+  // ---------------------------------------------------------------------
+  // The login name is an identifier, not a label
+  // ---------------------------------------------------------------------
+  await ctx.scenario("sign-in matches a username or an email, never the display name", async () => {
+    const attempt = async (username: string) => {
+      const res = await ctx.app.fetch(
+        new Request("http://scenario/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ username, pin: "1234" }),
+        }),
+      );
+      return res.status;
+    };
+
+    check("the username opens the door", (await attempt("admin")) === 200, String(await attempt("admin")));
+    check("and so does it in any case the operator types it", (await attempt("ADMIN")) === 200, String(await attempt("ADMIN")));
+    check("the email does too — it is unique and stable as well", (await attempt("admin@cyag.example")) === 200, String(await attempt("admin@cyag.example")));
+
+    // The defect: login used to match `fullName`, so "who can sign in" was a
+    // property of a field any admin may edit, and two people who share a
+    // display name shared the account door.
+    check(
+      "the DISPLAY NAME does not — it is neither unique nor stable",
+      (await attempt("محمد الشهابي")) === 401,
+      String(await attempt("محمد الشهابي")),
+    );
+
+    const session = await ctx.app.fetch(
+      new Request("http://scenario/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "admin", pin: "1234" }),
+      }),
+    );
+    const body = (await session.json()) as { username?: string; fullName?: string };
+    check("and the session names both, separately", body.username === "admin" && body.fullName === "محمد الشهابي", JSON.stringify(body).slice(0, 120));
   });
 
   // ---------------------------------------------------------------------
@@ -95,6 +134,7 @@ export async function run(ctx: Ctx): Promise<void> {
     approverRoleId = role.body?.id ?? "";
 
     const submitter = await req("POST", "/users", {
+      username: "scn-submitter",
       fullName: "SCN Submitter", email: "scn-submitter@example.test", phone: null,
       roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",
@@ -103,6 +143,7 @@ export async function run(ctx: Ctx): Promise<void> {
     submitterUserId = submitter.body?.id ?? "";
 
     const approver = await req("POST", "/users", {
+      username: "scn-approver",
       fullName: "SCN Approver", email: "scn-approver@example.test", phone: null,
       roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",

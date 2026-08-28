@@ -8,8 +8,13 @@ import { useLogin } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
 const PIN_LENGTH = 4;
-/** Prefilled default username = the seed admin (docs/catalog/09). The PIN is always verified against the real user store. */
-const DEFAULT_USERNAME = "محمد الشهابي";
+/**
+ * Prefilled login name = the seed admin's USERNAME, not their display name.
+ * It used to be «محمد الشهابي», which worked only because login matched the
+ * full name — a field any admin can edit, and one two people can share.
+ * The PIN is always verified against the real user store.
+ */
+const DEFAULT_USERNAME = "admin";
 
 export interface LoginScreenProps {
   onStartWizard: () => void;
@@ -79,7 +84,13 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
           <label className="flex flex-col gap-[6px]">
             <span className="text-[12.5px] font-semibold text-ink">{t("login.username")}</span>
-            <TextInput value={username} onChange={(e) => setUsername(e.target.value)} />
+            <TextInput
+              value={username}
+              placeholder="admin"
+              autoComplete="username"
+              className="mz-lat"
+              onChange={(e) => setUsername(e.target.value)}
+            />
           </label>
 
           <div className="mt-[16px] flex flex-col gap-[6px]">

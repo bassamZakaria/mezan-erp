@@ -7,8 +7,10 @@ export {
 export {
   saveUser,
   setUserStatus,
+  normalizeUsername,
   InvalidUserError,
   DuplicateUserEmailError,
+  DuplicateUsernameError,
   UnknownRoleError,
   UserNotFoundError,
   type SaveUserCommand,

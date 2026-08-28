@@ -18,6 +18,14 @@ export class DuplicateUserEmailError extends Error {
   }
 }
 
+export class DuplicateUsernameError extends Error {
+  readonly code = "DUPLICATE_USERNAME";
+  constructor(readonly username: string) {
+    super(`اسم المستخدم "${username}" مستخدم بالفعل`);
+    this.name = "DuplicateUsernameError";
+  }
+}
+
 export class UnknownRoleError extends Error {
   readonly code = "UNKNOWN_ROLE";
   constructor(readonly roleId: string) {
@@ -36,8 +44,26 @@ export class UserNotFoundError extends Error {
 
 const PIN_PATTERN = /^\d{4,6}$/;
 
+/**
+ * A login name someone can say over the phone and type on a till keyboard:
+ * 3–32 characters, ASCII lower-case letters, digits, dot, underscore or
+ * hyphen, starting with a letter or digit.
+ *
+ * Deliberately narrow. Arabic is the interface language, not the credential —
+ * a username that mixes scripts is the one a support call cannot dictate and
+ * a bidi-rendered field cannot be read back from with confidence.
+ */
+const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+
+/** Trimmed and lower-cased — usernames are compared and stored in this form only. */
+export function normalizeUsername(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
 export interface SaveUserCommand {
   readonly id: string;
+  /** The login name. Normalised here; callers may pass whatever the operator typed. */
+  readonly username: string;
   readonly fullName: string;
   readonly email: string;
   readonly phone: string | null;
@@ -76,6 +102,15 @@ export async function saveUser(
   uow: UnitOfWork,
   hasher: SecretHasher,
 ): Promise<User> {
+  const username = normalizeUsername(cmd.username);
+  if (username === "") {
+    throw new InvalidUserError("اسم المستخدم مطلوب.");
+  }
+  if (!USERNAME_PATTERN.test(username)) {
+    throw new InvalidUserError(
+      "اسم المستخدم يجب أن يتكون من 3 إلى 32 حرفاً إنجليزياً صغيراً أو رقماً، ويمكن أن يحتوي على . _ - ويبدأ بحرف أو رقم.",
+    );
+  }
   if (cmd.fullName.trim() === "") {
     throw new InvalidUserError("الاسم الكامل مطلوب.");
   }
@@ -104,6 +139,11 @@ export async function saveUser(
     throw new DuplicateUserEmailError(cmd.email);
   }
 
+  const existingByUsername = await uow.users.findByUsername(username);
+  if (existingByUsername && existingByUsername.id !== cmd.id) {
+    throw new DuplicateUsernameError(username);
+  }
+
   const prior = await uow.users.findById(cmd.id);
 
   const passwordHash = cmd.password
@@ -122,6 +162,7 @@ export async function saveUser(
 
   const user: User = {
     id: cmd.id,
+    username,
     fullName: cmd.fullName,
     email: cmd.email,
     phone: cmd.phone,

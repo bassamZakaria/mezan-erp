@@ -39,11 +39,12 @@ through as "oh, that's the known one".
 
 ## Open
 
-**No defects are open.** D62 and D64 — the last two — were closed in this pass as
-F131 and F132, and both are guarded by `pnpm scenarios` (x22 and the new x13b).
+**No defects are open.** D62 and D64 — the last two on the list — were closed as
+F131 and F132, and F133 closed the display-name login found straight after.
+All three are guarded by `pnpm scenarios`.
 
 Everything filed — D1 through D64 — is in the Fixed table below, and `pnpm
-scenarios` passes 3793 assertions with all four invariants at exactly zero on
+scenarios` passes 3813 assertions with all four invariants at exactly zero on
 the seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs
 GL 1105.
 
@@ -211,12 +212,13 @@ checks every colour utility against the compiled stylesheet.
 | F130 | **The permission matrix showed Latin identifiers in an Arabic-first app.** `permissionLabel` translated the action verb and pasted the raw code segment for the entity, so all ~281 checkboxes read «عرض — invoice» under headings like «Price list». All 89 entities are now named in Arabic and English. Found the last two (`customer360`, `supplier360`) only from a browser console warning — a static scan missed them because its regex excluded digits — so `scripts/check-permission-labels.mjs` now fails `pnpm lint` on a missing, single-locale or stale `perm.entity.*` key | this commit |
 | F131 | **A matched bank-statement line named its journal entry by uuid** (D62). The line stores only `matchedEntryId`, and the candidate picker that shows JE-000038 excludes already-matched entries by design, so after matching there was nothing left to read the number from — the screen printed «القيد: 13364877-c819-…». `TreasuryLedgerReader` gained `entryNumbersByIds`, one ledger read per statement, and every route returning a line carries `matchedEntryNo`. Measured after the fix: the seeded statement's five matched lines read JE-000035/37/38/40/43, and a line matched live shows its number without a refetch | this commit |
 | F132 | **تسجيل فاقد moved no stock** (D64). `logWorkOrderWaste` wrote a row into `wasteLog` and touched neither the stock ledger nor the GL, so material recorded as scrapped was still standing in مستودع التشغيل and a floor count disagreed by exactly the scrapped quantity until the product was received. Scrap now leaves the floor when it is logged, and its cost splits at the BOM's own waste allowance (EAS/IAS 2): within the allowance it is normal loss that parks in 1250 إنتاج تحت التشغيل and is released into the product at receipt; beyond it, it is abnormal loss expensed the same day to the new 5220 فاقد التصنيع غير الطبيعي. Inventory is credited for ALL of it at waste time, so the stock sub-ledger and GL 1200 never drift mid-run. Measured (x13b): 22 issued against a 10% allowance, 3 scrapped → 2 normal @ 50.00, 1 abnormal @ 25.00, WIP stock 22→19, GL 1200 −75, unit cost (19×25+50)/10 = 52.50. Driven in the browser too: 2 units scrapped on WO-0003 left WH-WIP (7.5→5.5) and posted JE-000057 Dr 5220 410.00 / Cr 1200 410.00 | this commit |
+| F133 | **Sign-in matched the user's DISPLAY NAME.** `POST /auth/login` resolved the caller by `fullName` OR `email`, so «محمد الشهابي» was a credential — and a display name is neither unique nor stable: two people who share one shared the account door, and renaming a user silently changed who could sign in. Users now carry a real `username` (3–32 chars, `^[a-z0-9][a-z0-9._-]{2,31}$`, unique and stored normalised), login matches username or email and never the display name, and the login screen prefills `admin` rather than a person's name. Existing databases get the column and a backfill derived from the email local-part, de-duplicated (`admin`, `admin2`) with a `user<n>` fallback where the local-part cannot make a legal name — measured on a synthetic pre-migration file, no account locked out. Guarded by a platform scenario that asserts `admin`, `ADMIN` and the email all return 200 while the display name returns 401 | this commit |
 
 
 `pnpm scenarios` asserts the FIXED behaviour throughout, so a regression in any
 of these turns it red. F130 is guarded by `pnpm lint` instead, because no
 scenario can see a label: the permission codes were always correct and it was
-only the words beside them that were wrong. It passes 3793 assertions with 0 failures, and no
+only the words beside them that were wrong. It passes 3813 assertions with 0 failures, and no
 assertion documents a still-broken behaviour any more: scenario x46 used to
 assert the VAT return's blended rate to record D28 and now asserts the fix, as
 deltas, because the buckets are tenant-wide.

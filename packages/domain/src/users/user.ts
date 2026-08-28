@@ -13,6 +13,16 @@ export type UserStatus = "active" | "inactive";
  */
 export interface User {
   readonly id: string;
+  /**
+   * The login identifier — stable, unique, and NOT the display name.
+   *
+   * Stored already normalised (trimmed, lower-cased) so uniqueness is a plain
+   * index rather than a collation the SQLite file has to agree about. It is
+   * deliberately separate from `fullName`: a display name is neither unique
+   * nor stable — two «محمد أحمد» can work in one shop, and either may be
+   * corrected next week, which would silently change who can log in.
+   */
+  readonly username: string;
   readonly fullName: string;
   readonly email: string;
   readonly phone: string | null;
@@ -36,6 +46,8 @@ export interface UserRepository {
   save(user: User): Promise<void>;
   findById(id: string): Promise<User | null>;
   findByEmail(email: string): Promise<User | null>;
+  /** Looks up by the normalised username. Callers pass the raw input; the adapter normalises. */
+  findByUsername(username: string): Promise<User | null>;
   list(): Promise<readonly User[]>;
 }
 

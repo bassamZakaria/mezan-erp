@@ -645,6 +645,7 @@ export function App() {
 
   async function handleSaveUser(draft: UserFormDraft, editingId: string | null) {
     const fields = {
+      username: draft.username,
       fullName: draft.fullName,
       email: draft.email,
       phone: draft.phone.trim() === "" ? null : draft.phone,

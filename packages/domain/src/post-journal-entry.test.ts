@@ -41,6 +41,9 @@ function fakeUow(): UnitOfWork & { saved: JournalEntry[] } {
       async findByEmail() {
         return null;
       },
+      async findByUsername() {
+        return null;
+      },
       async list() {
         return [];
       },

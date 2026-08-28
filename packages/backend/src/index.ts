@@ -6,6 +6,7 @@ export {
   SEED_ADMIN_NAME,
   SEED_ADMIN_EMAIL,
   SEED_ADMIN_PIN,
+  SEED_ADMIN_USERNAME,
   type SeedStores,
 } from "./seed.js";
 export { createAuthRoutes, type AuthRoutesDeps } from "./auth-routes.js";

@@ -2,6 +2,7 @@ import type { JournalEntry } from "../journal.js";
 import type { UnitOfWork } from "../journal.js";
 import type { Role } from "../roles/role.js";
 import type { User } from "../users/user.js";
+import { normalizeUsername } from "../users/save-user.js";
 
 /**
  * In-memory `UnitOfWork` fake shared by domain unit tests — no database, no
@@ -61,6 +62,13 @@ export function createFakeUow(): FakeUnitOfWork {
       async findByEmail(email) {
         for (const user of userRecords.values()) {
           if (user.email === email) return user;
+        }
+        return null;
+      },
+      async findByUsername(username) {
+        const needle = normalizeUsername(username);
+        for (const user of userRecords.values()) {
+          if (user.username === needle) return user;
         }
         return null;
       },

@@ -42,7 +42,11 @@ async function assertBalancedEntry(ctx: Ctx, label: string, journalEntryId: stri
 async function linkAdmin(ctx: Ctx, employeeId: string | null): Promise<string | null> {
   const cur = (await ctx.req("GET", "/users/USER-ADMIN")).body;
   const previous = cur.employeeId;
-  await ctx.req("PUT", "/users/USER-ADMIN", {
+  const res = await ctx.req("PUT", "/users/USER-ADMIN", {
+    // A full-replace PUT: every field the schema requires has to be echoed
+    // back, the username included. Omitting one 400s, and the link this helper
+    // exists to make silently does not happen.
+    username: cur.username,
     fullName: cur.fullName,
     email: cur.email,
     phone: cur.phone,
@@ -53,6 +57,13 @@ async function linkAdmin(ctx: Ctx, employeeId: string | null): Promise<string | 
     warehouseScope: cur.warehouseScope,
     status: cur.status,
   });
+  // Asserted here, at the cause. This used to be fire-and-forget, so a refused
+  // link showed up three assertions later as an unexplained zero balance.
+  ctx.check(
+    `linking USER-ADMIN to employee ${employeeId ?? "(none)"} succeeds`,
+    res.status === 200,
+    `${res.status}: ${JSON.stringify(res.body)}`,
+  );
   return previous;
 }
 

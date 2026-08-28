@@ -9,7 +9,11 @@ import { scopeSelectionSchema } from "./roles.js";
  * sends on every subsequent API call.
  */
 export const loginRequestSchema = z.object({
-  /** Matched case-insensitively against the user's full name or email. */
+  /**
+   * Matched case-insensitively against the user's USERNAME or email — never
+   * their display name. A display name is neither unique nor stable, so
+   * matching it made "who can log in" a property of a field anyone may edit.
+   */
   username: z.string().min(1),
   pin: z.string().min(4).max(6),
 });
@@ -17,6 +21,7 @@ export const loginRequestSchema = z.object({
 /** The authenticated session — identity + effective authority. */
 export const sessionSchema = z.object({
   userId: z.string(),
+  username: z.string(),
   fullName: z.string(),
   email: z.string(),
   isCompanyAdmin: z.boolean(),
@@ -46,6 +51,11 @@ export const loginResponseSchema = sessionSchema;
 
 /** First-run wizard "create admin" step — persists the very first company admin. */
 export const bootstrapAdminRequestSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9][a-z0-9._-]{2,31}$/, "Username must be 3-32 characters: a-z, 0-9, dot, underscore or hyphen"),
   fullName: z.string().min(1),
   email: z.string().min(1),
   pin: z.string().regex(/^\d{4,6}$/),

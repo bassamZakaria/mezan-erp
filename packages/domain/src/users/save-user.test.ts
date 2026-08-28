@@ -24,6 +24,7 @@ function fakeHasher(): SecretHasher {
 
 const baseCmd = {
   id: "user-1",
+  username: "tester",
   fullName: "محمد الشهابي",
   email: "mohamed@cyag.test",
   phone: "+201000000000",

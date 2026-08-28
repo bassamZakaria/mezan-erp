@@ -36,6 +36,7 @@ const sampleCustomers: CustomerDTO[] = [
 const sampleUsers: UserDTO[] = [
   {
     id: "user-1",
+    username: "tester",
     fullName: "أحمد المهندس",
     email: "ahmed@example.com",
     phone: null,

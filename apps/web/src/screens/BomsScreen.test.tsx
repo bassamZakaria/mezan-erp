@@ -128,7 +128,7 @@ describe("BomsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "قائمة مواد جديدة" }));
 
     const dialog = screen.getByRole("dialog", { name: "قائمة مواد جديدة" });
-    pickFromCombobox(dialog, "المنتج النهائي *", "طاولة خشبية");
+    pickFromCombobox(dialog, "الصنف المجمَّع *", "طاولة خشبية");
     pickFromCombobox(dialog, "الصنف", "لوح خشب");
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ قائمة المواد" }));
 

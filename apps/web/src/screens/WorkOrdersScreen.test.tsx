@@ -134,12 +134,14 @@ describe("WorkOrdersScreen", () => {
     expect(screen.getAllByText("مخطط").length).toBeGreaterThan(0);
   });
 
-  it("starts a work order (not_started → started) through the stubbed transport", async () => {
+  it("starts a manufacturing order and then offers ONE build, not three more steps", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("WO-0001"));
-    fireEvent.click(screen.getByRole("button", { name: "بدء العمل" }));
+    fireEvent.click(screen.getByRole("button", { name: "بدء التصنيع" }));
 
-    expect(await screen.findByRole("button", { name: "صرف المواد" })).toBeInTheDocument();
-    expect(screen.getByText("قيد التنفيذ")).toBeInTheDocument();
+    // QuickBooks' shape: once a started order is In progress, the whole
+    // remainder — issue, receive, close — is offered as «تجميع المنتج».
+    expect(await screen.findByRole("button", { name: "تجميع المنتج" })).toBeInTheDocument();
+    expect(screen.getByText("جارٍ التنفيذ")).toBeInTheDocument();
   });
 });

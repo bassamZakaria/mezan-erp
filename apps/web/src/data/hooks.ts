@@ -3420,7 +3420,17 @@ function useWorkOrderAction(action: "start" | "complete" | "cancel", fallbackMes
       if (!res.ok) throw new ApiError(res.status, await readError(res, fallbackMessage));
       return res.json<WorkOrderRecord>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+    /**
+     * The ACTIVITY cache has to fall too, and `complete` is why: it is the call
+     * that posts the work order's journal entry, and without this the movement
+     * and journal tabs keep serving the pre-completion snapshot — an order
+     * reading «مكتمل» beside «لم يُرحَّل أي قيد بعد» while the entry sits
+     * posted in the ledger.
+     */
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work-order-activity", id] });
+    },
   });
 }
 

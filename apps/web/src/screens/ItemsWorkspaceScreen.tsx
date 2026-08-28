@@ -1,3 +1,4 @@
+import { BomsScreen } from "./BomsScreen";
 import { ConfigurableProductsScreen } from "./ConfigurableProductsScreen";
 import { ItemSpecificationsScreen } from "./ItemSpecificationsScreen";
 import { ItemsScreen } from "./ItemsScreen";
@@ -6,13 +7,22 @@ import { ScreenTabs } from "./ScreenTabs";
 import { useAppTranslation } from "../i18n";
 
 /**
- * الأصناف — ONE page for the four ways this system describes a product, where
- * the nav used to carry four separate screens: the items themselves, the
+ * الأصناف — ONE page for the ways this system describes a product, where the
+ * nav used to carry a separate screen for each: the items themselves, the
  * templates that generate their variants, the configurable (made-to-order)
- * products built from a formula, and the specifications those two draw their
- * attributes from. They are one subject and were never four destinations; the
- * reference for this shape is QuickBooks' single «Products and services» list,
- * which carries the item's KIND as a field rather than as a menu entry.
+ * products built from a formula, the specifications those two draw their
+ * attributes from, and قائمة المواد — the recipe a finished good is built
+ * from. They are one subject and were never five destinations; the reference
+ * for this shape is QuickBooks' single «Products and services» list, which
+ * carries the item's KIND as a field rather than as a menu entry.
+ *
+ * THE BILL OF MATERIALS BELONGS TO THE ITEM. QuickBooks has no BOM screen at
+ * all: the recipe is reached at «Products and services → the item → Edit →
+ * View/edit bill of materials», and an edit applies only to manufacturing
+ * orders created after it. Mezan already stores it that way — every `Bom`
+ * carries a `productItemId`, versioning supersedes rather than mutates, and a
+ * manufacturing order snapshots the version it was planned against — so this
+ * is only where it is SHOWN.
  *
  * The tab is the first URL segment (`#/stock/items/templates`), so a tab is
  * linkable and survives a reload. None of the four screens uses sub-pages of
@@ -20,7 +30,7 @@ import { useAppTranslation } from "../i18n";
  * that segment.
  */
 
-const TABS = ["items", "templates", "configurable", "specs"] as const;
+const TABS = ["items", "templates", "configurable", "specs", "boms"] as const;
 export type ItemsTab = (typeof TABS)[number];
 
 export function ItemsWorkspaceScreen() {
@@ -34,6 +44,7 @@ export function ItemsWorkspaceScreen() {
         { key: "templates", label: t("items.tabs.templates"), render: () => <ProductTemplatesScreen /> },
         { key: "configurable", label: t("items.tabs.configurable"), render: () => <ConfigurableProductsScreen /> },
         { key: "specs", label: t("items.tabs.specs"), render: () => <ItemSpecificationsScreen /> },
+        { key: "boms", label: t("items.tabs.boms"), render: () => <BomsScreen /> },
       ]}
     />
   );

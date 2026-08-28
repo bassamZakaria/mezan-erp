@@ -131,7 +131,9 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     defaultCollapsed: true,
     itemKeys: ["manufacturing-hub"],
     sections: [
-      { key: "daily", itemKeys: ["work-orders", "custom-manufacturing", "boms"] },
+      // قائمة المواد is a tab of الأصناف now, the way QuickBooks keeps the
+      // recipe on the assembly item rather than in a list of its own.
+      { key: "daily", itemKeys: ["work-orders", "custom-manufacturing"] },
       { key: "reports", defaultCollapsed: true, itemKeys: ["report-make-vs-buy"] },
     ],
   },

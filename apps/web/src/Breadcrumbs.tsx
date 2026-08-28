@@ -18,6 +18,7 @@ const SEGMENT_LABEL_KEY: Record<string, AppTranslationKey> = {
   templates: "items.tabs.templates",
   configurable: "items.tabs.configurable",
   specs: "items.tabs.specs",
+  boms: "items.tabs.boms",
   ledger: "inventoryReports.view.ledger",
   movement: "inventoryReports.view.movement",
   valuation: "inventoryReports.view.valuation",

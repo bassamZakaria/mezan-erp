@@ -80,11 +80,24 @@ const STAGE_STEPS: readonly { key: string; labelKey: AppTranslationKey }[] = [
   { key: "product_received", labelKey: "workOrders.stage.product_received" },
   { key: "completed", labelKey: "workOrders.stage.completed" },
 ];
-/** The NEXT action for a stage, as a catalogue key. */
+/**
+ * The ONE action a stage offers, as a catalogue key.
+ *
+ * QuickBooks names two moments on a manufacturing order: you start it, and you
+ * BUILD the assembly — and the build is where the components leave stock, the
+ * assembly item enters it and the order closes, in one reviewed form. Mezan's
+ * four stages still run underneath (they are what makes WIP, waste and a
+ * partial issue expressible); «تجميع المنتج» is the single button that walks
+ * whatever remains of them, so the everyday path is start → build.
+ *
+ * The individual stage actions are still reachable from the shop-floor panel
+ * for a run that needs them — a build that is issued today and received on
+ * Thursday is still exactly the same four postings.
+ */
 const STAGE_ACTION: Record<WorkOrderStageRecord, AppTranslationKey | null> = {
   not_started: "workOrders.stage.started",
-  started: "workOrders.stage.materials_issued",
-  materials_issued: "workOrders.stage.product_received",
+  started: "workOrders.buildAssembly",
+  materials_issued: "workOrders.buildAssembly",
   product_received: "workOrders.stage.completed",
   completed: null,
 };
@@ -505,6 +518,7 @@ export function WorkOrdersScreen() {
   const [issuePanelOpen, setIssuePanelOpen] = useState(false);
   const [issueStationId, setIssueStationId] = useState("");
   const [issueOperatorId, setIssueOperatorId] = useState("");
+  const [buildPanelOpen, setBuildPanelOpen] = useState(false);
   const [receivePanelOpen, setReceivePanelOpen] = useState(false);
   const [receiveQty, setReceiveQty] = useState(0);
   const [receiveStationId, setReceiveStationId] = useState("");
@@ -606,16 +620,50 @@ export function WorkOrdersScreen() {
     try {
       if (order.stage === "not_started") {
         await startOrder.mutateAsync(order.id);
-      } else if (order.stage === "started") {
-        // The first issue is a shop-floor action like any other, so it asks
-        // where and by whom before it moves stock (R9.1).
-        setIssuePanelOpen(true);
-      } else if (order.stage === "materials_issued") {
+      } else if (order.stage === "started" || order.stage === "materials_issued") {
+        // Build assembly: one reviewed form for the whole remainder of the run.
         setReceiveQty(num(order.plannedQty));
-        setReceivePanelOpen(true);
+        setBuildPanelOpen(true);
       } else if (order.stage === "product_received") {
         await completeOrder.mutateAsync(order.id);
       }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("workOrders.thatActionCouldNotBe"));
+    }
+  }
+
+  /**
+   * تجميع المنتج — QuickBooks' Build Assembly, run over Mezan's own stages.
+   *
+   * ORDER IS LOAD-BEARING and each call must land before the next: the issue
+   * posts the material OUT movement that gives WIP its cost, the receipt reads
+   * that WIP to cost the assembly IN, and the completion posts the journal
+   * entry from the finished figure. Firing them together would cost the
+   * assembly from an empty WIP.
+   */
+  async function confirmBuild() {
+    if (!selected) return;
+    setActionError(null);
+    try {
+      if (selected.stage === "started") {
+        await issueOrder.mutateAsync({
+          id: selected.id,
+          body: {
+            stationId: receiveStationId === "" ? null : receiveStationId,
+            operatorId: receiveOperatorId === "" ? null : receiveOperatorId,
+          },
+        });
+      }
+      await receiveOrder.mutateAsync({
+        id: selected.id,
+        body: {
+          producedQty: String(receiveQty),
+          stationId: receiveStationId === "" ? null : receiveStationId,
+          operatorId: receiveOperatorId === "" ? null : receiveOperatorId,
+        },
+      });
+      await completeOrder.mutateAsync(selected.id);
+      setBuildPanelOpen(false);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("workOrders.thatActionCouldNotBe"));
     }
@@ -731,6 +779,85 @@ export function WorkOrdersScreen() {
     </SidePanel>
   );
 
+  const buildShortage = selected
+    ? selected.materials.some((m) => {
+        const available = m.availableQty === null || m.availableQty === undefined ? null : num(m.availableQty);
+        if (available === null) return false;
+        const scale = num(selected.plannedQty) === 0 ? 0 : receiveQty / num(selected.plannedQty);
+        return num(m.requiredQty) * scale - num(m.issuedQty) > available;
+      })
+    : false;
+
+  const buildPanel = (
+    <SidePanel
+      open={buildPanelOpen}
+      onClose={() => setBuildPanelOpen(false)}
+      title={t("workOrders.buildTitle")}
+      description={t("workOrders.buildDescription")}
+    >
+      <div className="flex flex-col gap-[14px]">
+        {actionError ? (
+          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {actionError}
+          </div>
+        ) : null}
+
+        <NumberField label={t("workOrders.buildQty")} value={receiveQty} min={0} onChange={setReceiveQty} />
+
+        {/* The components this build consumes, at the quantity being built —
+            QuickBooks shows the same list on its build form, and it is the
+            only place a shortage is visible before the stock moves. */}
+        {selected ? (
+          <div className="overflow-x-auto rounded-md border border-border">
+            <table className="w-full border-collapse text-[12.5px]">
+              <thead>
+                <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+                  <th className="px-[10px] py-[8px] text-start">{t("common.item")}</th>
+                  <th className="px-[10px] py-[8px] text-end">{t("workOrders.required")}</th>
+                  <th className="px-[10px] py-[8px] text-end">{t("workOrders.available")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selected.materials.map((m, i) => (
+                  <tr key={i} className="border-b border-border last:border-b-0">
+                    <td className="px-[10px] py-[8px]">{itemName(m.itemId)}</td>
+                    <td className="mz-num px-[10px] py-[8px] text-end">{m.requiredQty}</td>
+                    <td className="mz-num px-[10px] py-[8px] text-end text-ink-muted">{m.availableQty ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {/* QuickBooks refuses the build and offers to park it; Mezan says the
+            same thing before the user spends a click on a call that fails. */}
+        {buildShortage ? (
+          <div role="alert" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+            <div className="font-semibold">{t("workOrders.buildShortage")}</div>
+            <div className="mt-[3px]">{t("workOrders.buildShortageHint")}</div>
+          </div>
+        ) : null}
+
+        <SelectField label={t("workOrders.station")} value={receiveStationId} onChange={setReceiveStationId} options={stationOptionsForPanel} />
+        <SelectField label={t("workOrders.operator")} value={receiveOperatorId} onChange={setReceiveOperatorId} options={operatorOptionsForPanel} />
+
+        <p className="text-[11.5px] text-ink-faint">{t("workOrders.buildSteps")}</p>
+
+        <div className="flex justify-end gap-[9px]">
+          <Button onClick={() => setBuildPanelOpen(false)}>{t("common.cancel")}</Button>
+          <Button
+            variant="primary"
+            onClick={confirmBuild}
+            disabled={buildShortage || receiveQty <= 0 || issueOrder.isPending || receiveOrder.isPending || completeOrder.isPending}
+          >
+            {t("workOrders.buildConfirm")}
+          </Button>
+        </div>
+      </div>
+    </SidePanel>
+  );
+
   const receivePanel = (
     <SidePanel open={receivePanelOpen} onClose={() => setReceivePanelOpen(false)} title={t("workOrders.receiveProduct")} description={t("workOrders.enterTheQuantityActuallyProduced")}>
       <div className="flex flex-col gap-[14px]">
@@ -765,6 +892,7 @@ export function WorkOrdersScreen() {
         />
         {createPanel}
         {issuePanel}
+        {buildPanel}
         {receivePanel}
       </>
     );
@@ -878,6 +1006,7 @@ export function WorkOrdersScreen() {
       />
       {createPanel}
       {issuePanel}
+      {buildPanel}
       {receivePanel}
     </>
   );

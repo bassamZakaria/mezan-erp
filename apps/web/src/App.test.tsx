@@ -127,7 +127,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "المبيعات حسب الفترة" })).toBeInTheDocument();
   });
 
-  it("routes to إعدادات الموافقات from the collapsed settings group", async () => {
+  it("routes to إعدادات الموافقات from the sidebar — the only way in now that the gear is gone", async () => {
     const transport = stubTransport({
       "POST /auth/login": () => ({ body: testAdminSession }),
       "GET /dashboard/summary": () => ({ body: emptySummary }),
@@ -137,10 +137,13 @@ describe("App", () => {
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
-    fireEvent.click(screen.getByRole("button", { name: "الإعدادات والنظام" }));
-    // The gear menu's rows are menuitems, and إعدادات الموافقات hangs off a
-    // section rather than the group itself.
-    fireEvent.click(screen.getByRole("menuitem", { name: "إعدادات الموافقات" }));
+    // The header gear is gone: الإعدادات is a workspace on the rail and nowhere
+    // else, so this is now the only route to a settings screen. إعدادات
+    // الموافقات hangs off a section rather than the group itself, so the
+    // workspace opens first and the section's dropdown carries the screen.
+    fireEvent.click(screen.getByRole("button", { name: "الإعداد والصلاحيات" }));
+    fireEvent.click(await screen.findByRole("button", { name: "سير العمل" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "إعدادات الموافقات" }));
     expect(await screen.findByRole("heading", { name: "إعدادات الموافقات" })).toBeInTheDocument();
   });
 });

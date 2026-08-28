@@ -6334,7 +6334,6 @@ const webAr = {
   "salesInvoices.effects.pendingCustomer": "العميل",
 
   // نظام الحالة + الدعم الفني — شريط التطبيق (R1.7 / R1.8)
-  "shell.utility.shortcuts": "اختصارات لوحة المفاتيح",
   "nav.item.notifications": "الإشعارات",
 
   // مركز الإشعارات — صفحة "عرض الكل" (R1.6)
@@ -13312,7 +13311,6 @@ const webEn: Record<WebTranslationKey, string> = {
   "salesInvoices.effects.pendingCustomer": "The customer",
 
   // System status + support — app header (R1.7 / R1.8)
-  "shell.utility.shortcuts": "Keyboard shortcuts",
   "nav.item.notifications": "Notifications",
 
   // Notification centre — "see all" screen (R1.6)

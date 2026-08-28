@@ -7,16 +7,11 @@ import { POPUP_Z_CLASS, usePopupPosition } from "./popup-position";
 import type { NavGroup, NavItem } from "./types";
 
 /**
- * The chrome's own controls — language, appearance and the settings/system
- * gear — lifted out of the retired `Topbar` so the two-row bar keeps them.
+ * The chrome's own controls — help, language and appearance.
  *
- * WHY THE GEAR'S PANEL IS PORTALED, NOT `absolute`: row one of `AppShell` is
- * `overflow-hidden` (ground rule §2.9 — the bar may never give the page a
- * sideways scrollbar) and sits inside a `sticky` header. An absolutely
- * positioned panel anchored in that row is clipped at the row's edge AND
- * confined to the header's stacking context, so it opens as a sliver under the
- * page. `usePopupPosition` + `POPUP_Z_CLASS` (primitives/popup-position.ts) is
- * the one way this codebase does that.
+ * The settings gear used to sit here too. It was a third component drawing the
+ * same fifteen screens the rail already carries as a workspace and ⌘K already
+ * reaches by name, so الإعدادات now has exactly one home: the sidebar.
  */
 
 /* No resting box: the icons sit straight on the chrome. The fill and the
@@ -80,119 +75,6 @@ export function ThemeToggle({ theme, onToggleTheme, className }: ThemeToggleProp
         </svg>
       )}
     </button>
-  );
-}
-
-interface ChromeMenuProps {
-  label: string;
-  glyph: ReactNode;
-  children: (close: () => void) => ReactNode;
-}
-
-function ChromeMenu({ label, glyph, children }: ChromeMenuProps) {
-  const panelId = useId();
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const position = usePopupPosition(triggerRef, open, "end");
-
-  const close = useCallback(() => setOpen(false), []);
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: MouseEvent) {
-      const target = event.target as Node;
-      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
-      setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      setOpen(false);
-      triggerRef.current?.focus();
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  // A vertical menu: ArrowUp/ArrowDown are unaffected by direction.
-  function onPanelKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const rows = [...(panelRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
-    if (rows.length === 0) return;
-    event.preventDefault();
-    const current = rows.indexOf(document.activeElement as HTMLElement);
-    const next =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? rows.length - 1
-          : ((current < 0 ? (event.key === "ArrowDown" ? -1 : 0) : current) + (event.key === "ArrowDown" ? 1 : -1) + rows.length) %
-            rows.length;
-    rows[next]?.focus();
-  }
-
-  return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? panelId : undefined}
-        onClick={() => setOpen((v) => !v)}
-        className={CHROME_BUTTON}
-      >
-        {glyph}
-      </button>
-
-      {open && position
-        ? createPortal(
-            <div
-              ref={panelRef}
-              id={panelId}
-              role="menu"
-              aria-label={label}
-              onKeyDown={onPanelKeyDown}
-              className={cn("fixed w-[290px] overflow-y-auto border border-border-strong bg-surface text-ink shadow-2", POPUP_Z_CLASS)}
-              style={{ top: position.top, insetInlineEnd: position.insetInlineEnd, maxHeight: position.maxHeight }}
-            >
-              {children(close)}
-            </div>,
-            document.body,
-          )
-        : null}
-    </>
-  );
-}
-
-function UtilityMenuRow({ item, active, close }: { item: NavItem; active: boolean; close: () => void }) {
-  return (
-    <li>
-      <button
-        type="button"
-        role="menuitem"
-        aria-current={active ? "page" : undefined}
-        onClick={() => {
-          item.onClick?.();
-          close();
-        }}
-        className={cn(
-          "flex min-h-[var(--h-btn)] w-full items-center gap-[8px] px-[14px] text-start text-sm transition-colors hover:bg-surface-2",
-          active ? "bg-surface-2 font-semibold text-accent" : "text-ink",
-        )}
-      >
-        {/* Never colour alone — the open screen also carries this marker and a heavier weight. */}
-        <span aria-hidden className={cn("w-[8px] flex-none text-center", active ? "text-accent" : "text-transparent")}>
-          ◂
-        </span>
-        <span className="truncate">{item.label}</span>
-      </button>
-    </li>
   );
 }
 

@@ -154,9 +154,22 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     // the hub, and only التقارير stays folded.
     // قائمة المواد is a tab of الأصناف, the way QuickBooks keeps the recipe on
     // the assembly item rather than in a list of its own.
-    itemKeys: ["manufacturing-hub", "production-dashboard", "work-orders", "custom-manufacturing"],
-    sections: [
-      { key: "reports", defaultCollapsed: true, itemKeys: ["report-make-vs-buy"] },
+    /**
+     * The bar reads in the order the work happens: the summary, then the
+     * DOCUMENT everything else is about, then the floor view of those
+     * documents, then the special-case way of raising one, then the report.
+     *
+     * لوحة الإنتاج used to come before أوامر التصنيع, which put a view OF the
+     * orders ahead of the orders themselves — you cannot have a floor before
+     * you have something on it. And التقارير was a dropdown wrapping a single
+     * row, which is a click in front of one screen.
+     */
+    itemKeys: [
+      "manufacturing-hub",
+      "work-orders",
+      "production-dashboard",
+      "custom-manufacturing",
+      "report-make-vs-buy",
     ],
   },
   {

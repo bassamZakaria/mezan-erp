@@ -223,7 +223,6 @@ export function StockTransfersScreen() {
           statusLabel={documentStatusLabel(selected.status, t)}
           statusTone={DOC_STATUS_TONE[selected.status]}
           subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} />}
-          actions={<Button onClick={subPage.close}>{t("common.back")}</Button>}
           summary={[
             { label: t("stockXfer.fromWarehouse"), value: warehouseLabel(fromWarehouseId) },
             { label: t("stockXfer.toWarehouse"), value: warehouseLabel(toWarehouseId) },

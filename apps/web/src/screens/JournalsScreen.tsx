@@ -31,6 +31,7 @@ import {
   type JournalEntryListFilter,
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
@@ -112,10 +113,12 @@ export function JournalsScreen() {
   const reverseJournalEntry = useReverseJournalEntry();
   const accounts = accountsQuery.data ?? [];
 
-  const [mode, setMode] = useState<"list" | "create" | "detail">("list");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The open entry lives in the URL like every other document screen, so the
+  // shell's breadcrumb (and the «رجوع» that sits beside it) can lead out of it.
+  const subPage = useSubPage();
+  const [selectedId] = subPage.segments;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | JournalEntryStatusDTO>("all");
   const [moduleFilter, setModuleFilter] = useState<"" | JournalSourceModuleDTO>("");
@@ -157,7 +160,10 @@ export function JournalsScreen() {
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) + (moduleFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
-  const selected = selectedId ? documents.find((d) => d.id === selectedId) ?? null : null;
+  const selected =
+    selectedId && selectedId !== "new"
+      ? documents.find((d) => d.id === selectedId || d.entryNo === selectedId) ?? null
+      : null;
 
   const columns: DocumentListColumn<JournalDoc>[] = [
     {
@@ -184,8 +190,8 @@ export function JournalsScreen() {
 
   function openDetail(id: string) {
     setRowError(null);
-    setSelectedId(id);
-    setMode("detail");
+    const doc = documents.find((d) => d.id === id);
+    subPage.open(doc?.entryNo ?? id);
   }
 
   async function reverseEntry(doc: JournalDoc) {
@@ -201,17 +207,29 @@ export function JournalsScreen() {
     }
   }
 
-  if (mode === "create") {
+  if (selectedId && selectedId !== "new" && !selected && !query.isLoading) {
+    return (
+      <div className="w-full p-[24px]">
+        <EmptyState
+          title={t("journals.notFoundTitle")}
+          description={t("journals.notFoundBody", { id: selectedId })}
+          action={{ label: t("common.back"), onClick: subPage.close }}
+        />
+      </div>
+    );
+  }
+
+  if (selectedId === "new") {
     return (
       <CreateJournalView
         onPost={(body) => createJournalEntry.mutateAsync(body)}
         accountOptions={accounts.map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` }))}
-        onDone={() => setMode("list")}
+        onDone={subPage.close}
       />
     );
   }
 
-  if (mode === "detail" && selected) {
+  if (selected) {
     const totals = docTotals(selected);
     const balanced = Math.abs(totals.debit - totals.credit) < 0.005;
     return (
@@ -223,7 +241,6 @@ export function JournalsScreen() {
           subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} tone={selected.status === "reversed" ? "danger" : "brand"} />}
           actions={
             <>
-              <Button onClick={() => setMode("list")}>{t("common.back")}</Button>
               {selected.status === "posted" ? (
                 <Button
                   variant="danger-outline"
@@ -310,7 +327,7 @@ export function JournalsScreen() {
         actions={
           <>
             <Button onClick={() => window.print()}>{t("journals.print")}</Button>
-            <Button variant="primary" onClick={() => setMode("create")}>
+            <Button variant="primary" onClick={() => subPage.open("new")}>
               {t("journals.newEntry")}
             </Button>
           </>
@@ -411,7 +428,7 @@ export function JournalsScreen() {
           <EmptyState
             title={t("journals.noMatchingEntries")}
             description={t("journals.emptyBody")}
-            action={{ label: t("journals.newEntry"), onClick: () => setMode("create") }}
+            action={{ label: t("journals.newEntry"), onClick: () => subPage.open("new") }}
           />
         }
       />

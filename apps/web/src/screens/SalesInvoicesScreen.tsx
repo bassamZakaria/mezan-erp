@@ -1146,11 +1146,9 @@ function InvoicePreviewPanel({
 function InvoiceDetailView({
   invoice,
   today,
-  onBack,
 }: {
   invoice: SalesInvoiceDTO;
   today: string;
-  onBack: () => void;
 }) {
   const { t, locale } = useAppTranslation();
   const format = useFormat();
@@ -1300,7 +1298,6 @@ function InvoiceDetailView({
       statusLabel={salesInvoiceStatusLabel(invoice.status, t)}
       statusTone={STATUS_TONE[invoice.status]}
       subtitle={overdue ? <span className="text-danger-ink">{t("salesInvoices.overdue")}</span> : undefined}
-      actions={<Button onClick={onBack}>{t("common.back")}</Button>}
       summary={[
         { label: t("common.date"), value: <span className="mz-num">{invoice.date}</span> },
         { label: t("common.customer"), value: invoice.customerNameAr },
@@ -1837,7 +1834,7 @@ export function SalesInvoicesScreen() {
   return (
     <>
       {selected ? (
-        <InvoiceDetailView invoice={selected} today={today} onBack={subPage.close} />
+        <InvoiceDetailView invoice={selected} today={today} />
       ) : (
         <div className="w-full">
           {rowError ? (

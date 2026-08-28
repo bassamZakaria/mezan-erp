@@ -61,7 +61,7 @@ import {
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
-import { useScreenIntent } from "../navigation";
+import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { useDomainLabels } from "../lib/domain-labels";
@@ -170,7 +170,10 @@ export function TreasuryVouchersScreen() {
   const treasuryQuery = useTreasuryAccounts();
   const accountsQuery = useAccounts();
 
-  const [mode, setMode] = useState<"list" | "create" | "detail">("list");
+  // The open voucher lives in the URL like every other document screen, so the
+  // shell's breadcrumb (and the «رجوع» that sits beside it) can lead out of it.
+  const subPage = useSubPage();
+  const [selectedId] = subPage.segments;
   // Arriving from «تحصيل» on an invoice row: the customer is known, so the
   // create form opens as a collection already pointed at them (R3.5).
   const [prefillParty, setPrefillParty] = useState<{ customerId?: string; supplierId?: string } | null>(null);
@@ -189,9 +192,8 @@ export function TreasuryVouchersScreen() {
     );
     const named = intent.prefill?.voucherType;
     setPrefillType(named && isVoucherType(named) ? named : null);
-    setMode("create");
+    subPage.open("new");
   });
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "needs_allocation" | "needs_allocation_receipt" | "needs_allocation_payment" | VoucherStatusDTO
@@ -336,11 +338,10 @@ export function TreasuryVouchersScreen() {
   ];
 
   function openDetail(id: string) {
-    setSelectedId(id);
-    setMode("detail");
+    subPage.open(id);
   }
 
-  if (mode === "create") {
+  if (selectedId === "new") {
     return (
       <CreateVoucherView
         customers={customers}
@@ -350,13 +351,13 @@ export function TreasuryVouchersScreen() {
         initialCustomerId={prefillParty?.customerId ?? null}
         initialSupplierId={prefillParty?.supplierId ?? null}
         initialVoucherType={prefillType}
-        onDone={() => setMode("list")}
+        onDone={subPage.close}
       />
     );
   }
 
-  if (mode === "detail" && selectedId) {
-    return <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={() => setMode("list")} />;
+  if (selectedId) {
+    return <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} />;
   }
 
   return (
@@ -373,7 +374,7 @@ export function TreasuryVouchersScreen() {
         title={t("vouchers.cashVouchers")}
         description={t("vouchers.receiptsDisbursementsAndTransfersOne")}
         actions={
-          <Button variant="primary" onClick={() => setMode("create")}>
+          <Button variant="primary" onClick={() => subPage.open("new")}>
             {t("vouchers.newVoucher")}
           </Button>
         }
@@ -526,7 +527,7 @@ export function TreasuryVouchersScreen() {
           <EmptyState
             title={t("vouchers.noMatchingVouchers")}
             description={t("vouchers.emptyBody")}
-            action={{ label: t("vouchers.newVoucher"), onClick: () => setMode("create") }}
+            action={{ label: t("vouchers.newVoucher"), onClick: () => subPage.open("new") }}
           />
         }
       />
@@ -783,7 +784,6 @@ function VoucherDetailView({
         subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={doc.status} tone={doc.status === "reversed" ? "danger" : "brand"} />}
         actions={
           <>
-            <Button onClick={onBack}>{t("common.back")}</Button>
             {doc.status === "confirmed" ? (
               <Button variant="danger-outline" disabled={busy} onClick={handleReverseVoucher}>
                 {t("vouchers.reverseVoucher")}

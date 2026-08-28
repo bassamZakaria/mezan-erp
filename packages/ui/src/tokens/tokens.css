@@ -493,6 +493,18 @@ th.mz-num {
   rotate: 90deg;
 }
 
+/* "Back" means against the reading flow: the glyph points at the inline START,
+   which is left in Latin and right in Arabic. Mirrored with `scale` on the
+   element rather than a second path, so the arrow can never be authored
+   pointing the wrong way for one direction. */
+.mz-back-arrow {
+  scale: 1 1;
+}
+
+[dir="rtl"] .mz-back-arrow {
+  scale: -1 1;
+}
+
 /* The notched corner is the identity's structural signature — geometry cut out
    of the panel rather than a border drawn around it. Two opposite corners only:
    cutting all four reads as a decorative badge instead of a tiled panel. */

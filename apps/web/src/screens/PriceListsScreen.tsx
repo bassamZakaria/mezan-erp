@@ -333,7 +333,6 @@ export function PriceListsScreen() {
             <h1 className="font-display text-xl font-bold text-ink">{selected.nameAr}</h1>
             <p className="mt-[4px] text-[12.5px] text-ink-muted">{selected.description ?? t("priceLists.detail.noDescription")}</p>
           </div>
-          <Button onClick={subPage.close}>{t("common.back")}</Button>
         </div>
 
         {/* The card selector: every list, the active one raised, the base one badged. */}

@@ -23,6 +23,8 @@ export interface GlobalShortcutsOptions {
   onCreate: () => void;
   /** `?` — opens the shortcuts cheat sheet. */
   onShowHelp: () => void;
+  /** Escape on a sub-page — the keyboard twin of «رجوع» beside the breadcrumb. */
+  onBack: () => void;
   /** Suspends every shortcut (the cheat sheet is open, or no session yet). */
   disabled?: boolean;
 }
@@ -44,12 +46,13 @@ export function useGlobalShortcuts({
   topNavItem,
   onCreate,
   onShowHelp,
+  onBack,
   disabled = false,
 }: GlobalShortcutsOptions): GlobalShortcutsResult {
   const moduleJumps = useMemo(() => buildModuleJumps(navGroups, topNavItem), [navGroups, topNavItem]);
 
-  const latest = useRef({ moduleJumps, onCreate, onShowHelp, disabled });
-  latest.current = { moduleJumps, onCreate, onShowHelp, disabled };
+  const latest = useRef({ moduleJumps, onCreate, onShowHelp, onBack, disabled });
+  latest.current = { moduleJumps, onCreate, onShowHelp, onBack, disabled };
 
   useEffect(() => {
     let chordArmed = false;
@@ -106,7 +109,15 @@ export function useGlobalShortcuts({
         if (active instanceof HTMLInputElement && active.dataset.mzSearchFocused === "true") {
           delete active.dataset.mzSearchFocused;
           active.blur();
+          return;
         }
+        // A sub-page is a place, not a layer, so Escape leaves it the way
+        // «رجوع» does. Anything layered ON TOP owns Escape first — every
+        // overlay in this product carries one of these three roles — and a
+        // field being typed in keeps it for its own undo.
+        if (typing) return;
+        if (document.querySelector('[role="dialog"],[role="listbox"],[role="menu"]')) return;
+        latest.current.onBack();
         return;
       }
 

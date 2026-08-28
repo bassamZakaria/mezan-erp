@@ -212,7 +212,6 @@ export function PhysicalCountsScreen() {
         count={selected}
         itemLabel={itemLabel}
         warehouseLabel={warehouseLabel}
-        onBack={subPage.close}
         onResume={() => subPage.open(selected.id, "count")}
       />
     );
@@ -538,13 +537,11 @@ function CountDetailView({
   count,
   itemLabel,
   warehouseLabel,
-  onBack,
   onResume,
 }: {
   count: PhysicalCountDTO;
   itemLabel: (id: string) => string;
   warehouseLabel: (id: string) => string;
-  onBack: () => void;
   onResume: () => void;
 }) {
   const { t } = useAppTranslation();
@@ -568,7 +565,6 @@ function CountDetailView({
         statusTone={STATUS_TONE[count.status]}
         actions={
           <>
-            <Button onClick={onBack}>{t("common.back")}</Button>
             {count.status === "IN_PROGRESS" ? <Button variant="primary" onClick={onResume}>{t("counts.continueCount")}</Button> : null}
             {count.status === "COMPLETED" ? (
               <Button variant="primary" disabled={generate.isPending} onClick={handleGenerate}>

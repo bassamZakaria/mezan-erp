@@ -319,7 +319,6 @@ export function StockAdjustmentsScreen() {
           statusLabel={documentStatusLabel(selected.status, t)}
           statusTone={DOC_STATUS_TONE[selected.status]}
           subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} />}
-          actions={<Button onClick={subPage.close}>{t("common.back")}</Button>}
           summary={[
             { label: t("common.warehouse"), value: warehouseLabel(warehouseId) },
             { label: t("stockAdj.reason"), value: domainLabel(def) },

@@ -32,7 +32,7 @@ import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
 import { NavigationProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
 import { groupKeyForScreen, hashForRoute, hubScreenForGroup, parseHash } from "./routing";
-import { Breadcrumbs } from "./Breadcrumbs";
+import { Breadcrumbs, parentSegments } from "./Breadcrumbs";
 import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
 import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
 
@@ -635,11 +635,17 @@ export function App() {
     navigate(intentTargets > 0 ? activeScreen : DEFAULT_CREATE_SCREEN, "create");
   }, [activeScreen, intentTargets, navigate]);
 
+  const backOnCurrentScreen = useCallback(() => {
+    if (route.segments.length === 0) return;
+    openSubPage(parentSegments(route.segments));
+  }, [route.segments, openSubPage]);
+
   const { moduleJumps } = useGlobalShortcuts({
     navGroups: groups,
     topNavItem: routedTopNavItem,
     onCreate: createOnCurrentScreen,
     onShowHelp: () => setShortcutsOpen(true),
+    onBack: backOnCurrentScreen,
     disabled: !session || showWizard || shortcutsOpen,
   });
 

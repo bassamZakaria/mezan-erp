@@ -58,11 +58,14 @@ interface AdHocLine {
   itemId: string;
   qty: number;
   unitCost: number;
+  /** Shown only for a batch-tracked item — the contract has always accepted both. */
+  batchNo: string;
+  expiryDate: string;
 }
 let adHocSeq = 0;
 function blankAdHocLine(): AdHocLine {
   adHocSeq += 1;
-  return { key: `ah${adHocSeq}`, itemId: "", qty: 1, unitCost: 0 };
+  return { key: `ah${adHocSeq}`, itemId: "", qty: 1, unitCost: 0, batchNo: "", expiryDate: "" };
 }
 
 function ReceiptDetail({
@@ -332,7 +335,13 @@ export function GoodsReceiptsScreen() {
           date,
           supplierId: supplier.id,
           warehouseId: adHocWarehouseId,
-          lines: usableAdHocLines.map((l) => ({ itemId: l.itemId, qty: String(l.qty), unitCost: String(l.unitCost || 0) })),
+          lines: usableAdHocLines.map((l) => ({
+            itemId: l.itemId,
+            qty: String(l.qty),
+            unitCost: String(l.unitCost || 0),
+            batchNo: l.batchNo.trim() === "" ? null : l.batchNo.trim(),
+            expiryDate: l.expiryDate === "" ? null : l.expiryDate,
+          })),
         });
       }
       subPage.close();
@@ -476,6 +485,24 @@ export function GoodsReceiptsScreen() {
                   <NumberField label={t("common.qty")} value={line.qty} min={0} onChange={(v) => setAdHocLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, qty: v } : l)))} />
                   <NumberField label={t("goodsReceipts.col.unitCost")} value={line.unitCost} min={0} onChange={(v) => setAdHocLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, unitCost: v } : l)))} />
                 </div>
+                {/* Receiving is the ONLY moment a batch and its expiry can be
+                    captured. Without these the FEFO engine, the cost layers and
+                    the expiring-soon report have nothing to order by. */}
+                {items.find((it) => it.id === line.itemId)?.trackBatches ? (
+                  <div className="mt-[10px] grid grid-cols-2 gap-[8px]">
+                    <TextField
+                      label={t("goodsReceipts.field.batchNo")}
+                      value={line.batchNo}
+                      onChange={(v) => setAdHocLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, batchNo: v } : l)))}
+                    />
+                    <TextField
+                      label={t("goodsReceipts.field.expiryDate")}
+                      value={line.expiryDate}
+                      onChange={(v) => setAdHocLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, expiryDate: v } : l)))}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </div>
+                ) : null}
                 {adHocLines.length > 1 ? (
                   <div className="mt-[8px] flex justify-end">
                     <Button onClick={() => setAdHocLines((prev) => prev.filter((l) => l.key !== line.key))}>{t("goodsReceipts.deleteLine")}</Button>

@@ -792,6 +792,127 @@ async function attentionBannerCountsMatchTheirFilter_R19(ctx: Ctx): Promise<void
  * a seeded item would change what a later suite counts.
  */
 async function attachmentsRoundTripAndAreGated_R14(ctx: Ctx): Promise<void> {
+  await ctx.scenario("batches survive a transfer, and expired stock cannot be sold", async () => {
+    // Receiving is the only place a batch and its expiry are captured, and a
+    // transfer used to drop both on the destination leg — so goods moved to
+    // another branch to clear near-expiry stock became anonymous exactly when
+    // FEFO and the expiring-soon report needed them most.
+    const receive = await ctx.req("POST", "/purchases/receipts", {
+      id: "SCN-RCP-BATCH",
+      date: "2026-08-01",
+      supplierId: "SUP-DEMO-1",
+      warehouseId: "WH-MAIN",
+      lines: [{ itemId: "ITEM-DEMO-4", qty: "10", unitCost: "100", batchNo: "SCN-LOT-A", expiryDate: "2027-06-30" }],
+    });
+    ctx.check("a receipt can carry a batch and an expiry", receive.status === 201, JSON.stringify(receive.body).slice(0, 200));
+    await ctx.req("POST", "/purchases/receipts/SCN-RCP-BATCH/confirm", {});
+    // A confirmed receipt moves stock and posts no GL — the payable and the
+    // inventory journal land at invoice confirmation. Completing the chain
+    // keeps the by-item cost KPI tied to what the GL holds.
+    await ctx.req("POST", "/purchases/invoices", {
+      id: "SCN-PINV-BATCH",
+      date: "2026-08-01",
+      receiptId: "SCN-RCP-BATCH",
+      supplierId: "SUP-DEMO-1",
+      branchId: "BR-MAIN",
+      warehouseId: "WH-MAIN",
+      currency: "EGP",
+    });
+    await ctx.req("POST", "/purchases/invoices/SCN-PINV-BATCH/confirm", {});
+
+    const move = await ctx.req("POST", "/inventory/transfers", {
+      transferId: "SCN-XF-BATCH",
+      occurredAt: "2026-08-02T10:00:00.000Z",
+      fromWarehouseId: "WH-MAIN",
+      toWarehouseId: "WH-DEMO-2",
+      lines: [{ itemId: "ITEM-DEMO-4", qty: "4" }],
+    });
+    ctx.check("the transfer posts", move.status === 201, JSON.stringify(move.body).slice(0, 200));
+
+    const expiring = ctx.rows((await ctx.req("GET", "/reports/inventory/expiring?warehouseId=WH-DEMO-2&withinDays=1000")).body);
+    const moved = expiring.find((r: any) => r.batchNo === "SCN-LOT-A");
+    ctx.check("the batch is still identifiable at the destination", Boolean(moved), `rows=${JSON.stringify(expiring).slice(0, 200)}`);
+    ctx.check("and it kept its expiry date", moved?.expiryDate === "2027-06-30", `expiry=${moved?.expiryDate}`);
+    ctx.checkEq("for exactly the quantity moved", ctx.n(moved?.qty), 4);
+
+    // An already-expired lot at the FEFO head must stop a sale, while a
+    // write-off adjustment or a transfer to quarantine stays possible.
+    await ctx.req("POST", "/purchases/receipts", {
+      id: "SCN-RCP-EXPIRED",
+      date: "2026-08-01",
+      supplierId: "SUP-DEMO-1",
+      warehouseId: "WH-DEMO-2",
+      lines: [{ itemId: "ITEM-DEMO-4", qty: "5", unitCost: "100", batchNo: "SCN-LOT-OLD", expiryDate: "2026-01-31" }],
+    });
+    await ctx.req("POST", "/purchases/receipts/SCN-RCP-EXPIRED/confirm", {});
+    await ctx.req("POST", "/purchases/invoices", {
+      id: "SCN-PINV-EXPIRED",
+      date: "2026-08-01",
+      receiptId: "SCN-RCP-EXPIRED",
+      supplierId: "SUP-DEMO-1",
+      branchId: "BR-MAIN",
+      warehouseId: "WH-DEMO-2",
+      currency: "EGP",
+    });
+    await ctx.req("POST", "/purchases/invoices/SCN-PINV-EXPIRED/confirm", {});
+
+    const sale = await ctx.req("POST", "/sales-invoices", {
+      id: "SCN-INV-EXPIRED",
+      date: "2026-08-26",
+      dueDate: "2026-09-26",
+      customerId: "CUST-DEMO-1",
+      customerNameAr: "شركة الأمل للتجارة",
+      branchId: "BR-MAIN",
+      warehouseId: "WH-DEMO-2",
+      currency: "EGP",
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      discount: { type: "amount", amount: "0" },
+      lines: [
+        {
+          lineId: "L1",
+          itemId: "ITEM-DEMO-4",
+          itemNameAr: "شاي أسود 500 جم",
+          isStock: true,
+          qty: "1",
+          unitPrice: "260",
+          discountPercent: 0,
+          taxRatePercent: 14,
+          revenueAccountId: "4100",
+          cogsAccountId: "5100",
+          inventoryAccountId: "1200",
+        },
+      ],
+    });
+    ctx.check("the draft is accepted — the block belongs at confirm, where stock moves", sale.status === 201, JSON.stringify(sale.body).slice(0, 200));
+
+    const confirmExpired = await ctx.req("POST", "/sales-invoices/SCN-INV-EXPIRED/confirm", {});
+    ctx.check(
+      "confirming a sale that would draw on expired stock is refused, in Arabic",
+      confirmExpired.status === 422 && /منتهي الصلاحية/.test(String(confirmExpired.body?.message)),
+      `status ${confirmExpired.status} ${JSON.stringify(confirmExpired.body).slice(0, 250)}`,
+    );
+
+    // The write-off path must stay open — that is the whole reason the block
+    // sits on the issue and not on the ledger. It also clears the expired lot,
+    // so this scenario leaves the tenant as it found it.
+    const writeOff = await ctx.req("POST", "/inventory/adjustments", {
+      adjustmentId: "SCN-ADJ-EXPIRED",
+      occurredAt: "2026-08-28T11:00:00.000Z",
+      warehouseId: "WH-DEMO-2",
+      reason: "EXPIRY",
+      lines: [{ itemId: "ITEM-DEMO-4", direction: "OUT", qty: "5" }],
+    });
+    ctx.check("writing the expired lot off is still allowed", writeOff.status === 201, JSON.stringify(writeOff.body).slice(0, 200));
+
+    const afterWriteOff = await ctx.req("POST", "/sales-invoices/SCN-INV-EXPIRED/confirm", {});
+    ctx.check(
+      "and once it is gone the same sale confirms",
+      afterWriteOff.status === 200,
+      `status ${afterWriteOff.status} ${JSON.stringify(afterWriteOff.body).slice(0, 250)}`,
+    );
+  });
+
   await ctx.scenario("an attachment round-trips its bytes and is gated by the entity it hangs off (R1.4)", async () => {
     const itemId = "ITEM-DEMO-2";
     const text = "تقرير فحص — سطر ١\nline two\n٣";

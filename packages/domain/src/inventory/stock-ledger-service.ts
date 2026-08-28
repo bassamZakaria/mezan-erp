@@ -18,6 +18,7 @@
 import { Money, Qty, allocate } from "../money/index.js";
 import { orderLayersForConsumption, type CostLayer } from "./cost-layer.js";
 import {
+  ExpiredStockError,
   NegativeStockError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
@@ -110,6 +111,20 @@ export interface TransferLine {
   readonly qty: Qty;
 }
 
+/**
+ * A quantity drawn out of one cost layer, with the batch it belonged to.
+ *
+ * A transfer's IN leg recreates these at the destination. Without it the
+ * destination position holds anonymous stock: FEFO has nothing to order by and
+ * the expiring-soon report cannot see goods that were merely moved between
+ * branches — which is exactly the move a shop makes to clear near-expiry stock.
+ */
+export interface ConsumedSlice {
+  readonly qty: Qty;
+  readonly batchNo: string | null;
+  readonly expiryDate: string | null;
+}
+
 export interface PostTransferCommand {
   readonly transferId: string;
   readonly transferNumber?: string | null;
@@ -117,6 +132,41 @@ export interface PostTransferCommand {
   readonly toWarehouseId: string;
   readonly lines: readonly TransferLine[];
   readonly occurredAt?: string;
+  /**
+   * The kind of document that moved the goods. Defaults to `"TRANSFER"` — a
+   * stock-transfer document moving its own stock. A work order overrides it:
+   * issuing raw material to the shop floor is a transfer in mechanics but a
+   * `WORK_ORDER` movement in the ledger, and filing it as a transfer would hide
+   * it from the order's own movements feed.
+   */
+  readonly sourceDocType?: Extract<StockSourceDocType, "TRANSFER" | "WORK_ORDER">;
+  /**
+   * The document the movement belongs to, when it is NOT the transfer itself
+   * (same split as {@link PostReceiptCommand.sourceDocId}). A work order's
+   * material issue is keyed `WO-ISSUE:<orderId>` to keep its movement ids clear
+   * of the return's, while every movement still files under the order.
+   */
+  readonly sourceDocId?: string;
+}
+
+/** What one leg of a transfer moved, in money — the OUT leg's moving average. */
+export interface TransferLineCost {
+  readonly itemId: string;
+  readonly qty: Qty;
+  /** Moving-average unit cost at the SOURCE, which the IN leg reuses verbatim. */
+  readonly unitCost: Money;
+  /** qty x unitCost — a positive magnitude. */
+  readonly cost: Money;
+}
+
+/**
+ * A transfer is valuation-neutral to the SYSTEM, but not to either warehouse:
+ * the caller needs the value that left the source to know what the destination
+ * is now holding. A work order accumulates exactly this as its material WIP.
+ */
+export interface PostTransferResult {
+  readonly totalCost: Money;
+  readonly lines: readonly TransferLineCost[];
 }
 
 export interface ReceiptLine {
@@ -298,7 +348,14 @@ export class StockLedgerService {
     occurredAt: string;
     batchNo?: string | null;
     expiryDate?: string | null;
-  }): Promise<{ signedValue: Money; unitCost: Money }> {
+    /**
+     * IN only. Splits the incoming quantity into one cost layer per slice,
+     * carrying each slice's batch and expiry, instead of a single anonymous
+     * layer. Every layer takes THIS movement's unit cost, not the source
+     * layer's, so the leg stays valuation-neutral.
+     */
+    layerSlices?: readonly ConsumedSlice[];
+  }): Promise<{ signedValue: Money; unitCost: Money; consumed: readonly ConsumedSlice[] }> {
     if (input.qty.isNegative() || input.qty.isZero()) {
       throw new InvalidStockMovementError(["الكمية يجب أن تكون رقماً موجباً"]);
     }
@@ -348,24 +405,33 @@ export class StockLedgerService {
 
     await this.deps.ledger.append(movement);
 
+    let consumed: readonly ConsumedSlice[] = [];
     if (input.direction === "IN") {
-      const layer: CostLayer = {
-        id: input.movementId,
-        itemId: input.itemId,
-        warehouseId: input.warehouseId,
-        unitCost,
-        originalQty: input.qty,
-        remainingQty: input.qty,
-        sourceDocType: input.sourceDocType,
-        sourceDocId: input.sourceDocId,
-        sourceDocNumber: input.sourceDocNumber,
-        createdAt: input.occurredAt,
-        batchNo: movement.batchNo,
-        expiryDate: movement.expiryDate,
-      };
-      await this.deps.layers.add(layer);
+      const slices =
+        input.layerSlices && input.layerSlices.length > 0
+          ? input.layerSlices
+          : [{ qty: input.qty, batchNo: movement.batchNo, expiryDate: movement.expiryDate }];
+      let index = 0;
+      for (const slice of slices) {
+        const layer: CostLayer = {
+          id: slices.length === 1 ? input.movementId : `${input.movementId}:layer:${index}`,
+          itemId: input.itemId,
+          warehouseId: input.warehouseId,
+          unitCost,
+          originalQty: slice.qty,
+          remainingQty: slice.qty,
+          sourceDocType: input.sourceDocType,
+          sourceDocId: input.sourceDocId,
+          sourceDocNumber: input.sourceDocNumber,
+          createdAt: input.occurredAt,
+          batchNo: slice.batchNo,
+          expiryDate: slice.expiryDate,
+        };
+        await this.deps.layers.add(layer);
+        index += 1;
+      }
     } else {
-      await this.consumeLayers(input.itemId, input.warehouseId, input.qty);
+      consumed = await this.consumeLayers(input.itemId, input.warehouseId, input.qty);
     }
 
     const averageCost = unitCostOf(newTotalValue, newOnHand);
@@ -384,7 +450,7 @@ export class StockLedgerService {
       averageCostAfter: averageCost,
     });
 
-    return { signedValue: signed, unitCost };
+    return { signedValue: signed, unitCost, consumed };
   }
 
   /**
@@ -395,15 +461,33 @@ export class StockLedgerService {
    * replay in wac.ts; if the two ever diverge, `rebuildPosition` would rewrite
    * the surviving layers into a different set than the live engine produced.
    */
-  private async consumeLayers(itemId: string, warehouseId: string, qty: Qty): Promise<void> {
+  /**
+   * Refuse an issue that would draw on expired stock.
+   *
+   * Checked against the FEFO head only: layers are consumed expiry-first, so if
+   * the first layer is still good nothing behind it can be expired. A layer with
+   * no expiry (most goods here) is never expired.
+   */
+  private async refuseExpiredStock(itemId: string, warehouseId: string, occurredAt: string): Promise<void> {
     const layers = orderLayersForConsumption(await this.deps.layers.listByPosition(itemId, warehouseId));
+    const head = layers.find((layer) => !layer.remainingQty.isZero());
+    if (!head?.expiryDate) return;
+    if (head.expiryDate >= occurredAt.slice(0, 10)) return;
+    throw new ExpiredStockError(itemId, warehouseId, head.batchNo ?? null, head.expiryDate);
+  }
+
+  private async consumeLayers(itemId: string, warehouseId: string, qty: Qty): Promise<ConsumedSlice[]> {
+    const layers = orderLayersForConsumption(await this.deps.layers.listByPosition(itemId, warehouseId));
+    const consumed: ConsumedSlice[] = [];
     let remaining = qty;
     for (const layer of layers) {
       if (!remaining.isNegative() && !remaining.isZero()) {
         if (layer.remainingQty.compare(remaining) <= 0) {
+          consumed.push({ qty: layer.remainingQty, batchNo: layer.batchNo ?? null, expiryDate: layer.expiryDate ?? null });
           remaining = remaining.subtract(layer.remainingQty);
           await this.deps.layers.remove(layer.id);
         } else {
+          consumed.push({ qty: remaining, batchNo: layer.batchNo ?? null, expiryDate: layer.expiryDate ?? null });
           await this.deps.layers.updateRemaining(layer.id, layer.remainingQty.subtract(remaining));
           remaining = Qty.zero();
         }
@@ -411,6 +495,7 @@ export class StockLedgerService {
     }
     // Leftover `remaining` (issue beyond costed layers) only when negative stock
     // is permitted; the drift report surfaces the resulting mismatch.
+    return consumed;
   }
 
   /** Post a stock adjustment (docs/catalog/03 §"تسويات المخزون"). Value-impacting. */
@@ -484,6 +569,7 @@ export class StockLedgerService {
       for (let i = 0; i < command.lines.length; i++) {
         const line = command.lines[i] as IssueLine;
         const warehouseId = line.warehouseId ?? command.warehouseId;
+        await this.refuseExpiredStock(line.itemId, warehouseId, occurredAt);
         const { signedValue, unitCost } = await this.applyMovement({
           movementId: `${command.issueId}:${i}`,
           itemId: line.itemId,
@@ -542,7 +628,7 @@ export class StockLedgerService {
    * and receives into the destination at that SAME unit cost, so total system
    * inventory value is unchanged. Never posts to the GL.
    */
-  async postTransfer(command: PostTransferCommand): Promise<void> {
+  async postTransfer(command: PostTransferCommand): Promise<PostTransferResult> {
     if (command.fromWarehouseId === command.toWarehouseId) {
       throw new SameWarehouseTransferError(command.fromWarehouseId);
     }
@@ -550,22 +636,27 @@ export class StockLedgerService {
       throw new InvalidStockMovementError(["التحويل يحتاج سطراً واحداً على الأقل"]);
     }
     const occurredAt = command.occurredAt ?? this.now();
+    const sourceDocType = command.sourceDocType ?? "TRANSFER";
+    const sourceDocId = command.sourceDocId ?? command.transferId;
 
-    await this.runInTransaction(async () => {
+    return this.runInTransaction(async () => {
       const movementIds: string[] = [];
+      const lineCosts: TransferLineCost[] = [];
+      let totalCost = Money.zero();
+
       for (let i = 0; i < command.lines.length; i++) {
         const line = command.lines[i] as TransferLine;
         const outId = `${command.transferId}:out:${i}`;
         const inId = `${command.transferId}:in:${i}`;
 
-        const { unitCost } = await this.applyMovement({
+        const { unitCost, consumed, signedValue } = await this.applyMovement({
           movementId: outId,
           itemId: line.itemId,
           warehouseId: command.fromWarehouseId,
           direction: "OUT",
           qty: line.qty,
-          sourceDocType: "TRANSFER",
-          sourceDocId: command.transferId,
+          sourceDocType,
+          sourceDocId,
           sourceDocNumber: command.transferNumber ?? null,
           reason: null,
           occurredAt,
@@ -578,14 +669,21 @@ export class StockLedgerService {
           direction: "IN",
           qty: line.qty,
           unitCost, // same unit cost as the OUT leg → system value unchanged
-          sourceDocType: "TRANSFER",
-          sourceDocId: command.transferId,
+          // …and the same batches. Moving goods must not anonymise them: the
+          // destination is where FEFO and the expiring-soon report look next.
+          layerSlices: consumed,
+          sourceDocType,
+          sourceDocId,
           sourceDocNumber: command.transferNumber ?? null,
           reason: null,
           occurredAt,
         });
 
         movementIds.push(outId, inId);
+        // OUT signedValue is negative; the value that left the source is its magnitude.
+        const cost = signedValue.negate();
+        totalCost = totalCost.add(cost);
+        lineCosts.push({ itemId: line.itemId, qty: line.qty, unitCost, cost });
       }
 
       this.deps.events?.publish({
@@ -595,6 +693,8 @@ export class StockLedgerService {
         toWarehouseId: command.toWarehouseId,
         movementIds,
       });
+
+      return { totalCost, lines: lineCosts };
     });
   }
 

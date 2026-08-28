@@ -3,6 +3,7 @@ import {
   Money,
   Qty,
   StockLedgerService,
+  ExpiredStockError,
   NegativeStockError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
@@ -145,6 +146,9 @@ function handleDomainError(c: Context, err: unknown) {
       },
       422,
     );
+  }
+  if (err instanceof ExpiredStockError) {
+    return c.json({ error: err.code, message: err.message, batchNo: err.batchNo, expiryDate: err.expiryDate }, 422);
   }
   if (err instanceof SameWarehouseTransferError) {
     return c.json({ error: err.code, message: err.message }, 422);

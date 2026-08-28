@@ -27,6 +27,30 @@ export class NegativeStockError extends Error {
   }
 }
 
+/**
+ * Raised when an issue would draw on stock that has already expired.
+ *
+ * Only issues are blocked. Writing expired goods OFF — an adjustment with the
+ * EXPIRY reason, or a return to the supplier — must stay possible, and that is
+ * the whole point of catching it here rather than at the ledger.
+ */
+export class ExpiredStockError extends Error {
+  readonly code = "EXPIRED_STOCK";
+  constructor(
+    readonly itemId: string,
+    readonly warehouseId: string,
+    readonly batchNo: string | null,
+    readonly expiryDate: string,
+  ) {
+    super(
+      `الصنف "${itemId}" في المستودع "${warehouseId}" له رصيد منتهي الصلاحية` +
+        `${batchNo ? ` (التشغيلة "${batchNo}")` : ""} بتاريخ ${expiryDate}، فلا يمكن صرفه. ` +
+        `استخدم تسوية مخزون بسبب "انتهاء الصلاحية" أو مرتجع مورد.`,
+    );
+    this.name = "ExpiredStockError";
+  }
+}
+
 /** Raised when a movement/adjustment/transfer command fails structural validation. */
 export class InvalidStockMovementError extends Error {
   readonly code = "INVALID_STOCK_MOVEMENT";

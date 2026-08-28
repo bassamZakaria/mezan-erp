@@ -43,6 +43,7 @@ export {
 } from "./wac.js";
 
 export {
+  ExpiredStockError,
   NegativeStockError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
@@ -82,6 +83,8 @@ export {
   type PostAdjustmentCommand,
   type TransferLine,
   type PostTransferCommand,
+  type TransferLineCost,
+  type PostTransferResult,
   type ReceiptLine,
   type PostReceiptCommand,
   type IssueLine,

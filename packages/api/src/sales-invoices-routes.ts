@@ -22,6 +22,7 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   DuplicateJournalEntryError,
+  ExpiredStockError,
   NegativeStockError,
   CreditLimitExceededError,
   type AppliedSalesInvoicePromotion,
@@ -304,7 +305,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InactiveAccountError ||
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
-    err instanceof NegativeStockError
+    err instanceof NegativeStockError ||
+    err instanceof ExpiredStockError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }

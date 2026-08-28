@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   Card,
@@ -260,7 +261,7 @@ export function SalesReturnsScreen() {
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
       subPage.close();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -282,7 +283,7 @@ export function SalesReturnsScreen() {
       });
       setRefundNotice(t("salesReturns.refund.done", { voucher: settled.voucherNo ?? settled.voucherId }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -291,7 +292,7 @@ export function SalesReturnsScreen() {
     try {
       await confirmReturn.mutateAsync(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -300,7 +301,7 @@ export function SalesReturnsScreen() {
     try {
       await cancelReturn.mutateAsync(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -361,9 +362,6 @@ export function SalesReturnsScreen() {
           <h1 className="font-display text-xl font-bold text-ink">{t("salesReturns.panel.title")}</h1>
           <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("salesReturns.panel.description")}</p>
         </div>
-        <Button variant="default" onClick={subPage.close}>
-          {t("quotes.backToList")}
-        </Button>
       </div>
         <div className="flex flex-col gap-4 p-5">
           <SelectField
@@ -451,9 +449,6 @@ export function SalesReturnsScreen() {
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.sales.returns")}</div>
           <h1 className="font-display text-xl font-bold text-ink">{selected?.docNo ?? t("salesReturns.detailTitle")}</h1>
         </div>
-        <Button variant="default" onClick={subPage.close}>
-          {t("quotes.backToList")}
-        </Button>
       </div>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">

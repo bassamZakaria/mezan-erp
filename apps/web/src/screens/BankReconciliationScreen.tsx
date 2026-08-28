@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   Card,
@@ -395,7 +396,7 @@ function ImportStatementDialog({
       setHeaders([...parseCsv(text).headers]);
     } catch (err) {
       setHeaders([]);
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -441,7 +442,7 @@ function ImportStatementDialog({
       reset();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -591,7 +592,7 @@ function StatementMatchingPanel({
     try {
       await fn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     } finally {
       setPendingLineId(null);
     }
@@ -602,7 +603,7 @@ function StatementMatchingPanel({
     try {
       await fn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 

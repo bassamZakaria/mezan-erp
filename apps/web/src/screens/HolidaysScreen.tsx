@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Button, Card, Chip, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { HolidayDTO } from "@mezan/contracts";
 import { TextField, ToggleField } from "../settings/form-controls";
+import { useConfirmAction } from "../lib/use-confirm-action";
 import { ApiError, useCreateHoliday, useDeleteHoliday, useHolidays, useUpdateHoliday } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
@@ -68,6 +69,7 @@ export function HolidaysScreen() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const confirm = useConfirmAction();
   const [rowError, setRowError] = useState<string | null>(null);
 
   const editing = editingId ? (holidays.find((h) => h.id === editingId) ?? null) : null;
@@ -148,7 +150,18 @@ export function HolidaysScreen() {
           <IconButton aria-label={t("holidays.editLabel", { name: h.nameAr ?? h.nameEn })} onClick={() => openEdit(h)}>
             <EditIcon />
           </IconButton>
-          <IconButton aria-label={t("holidays.deleteLabel", { name: h.nameAr ?? h.nameEn })} disabled={deletingId !== null} onClick={() => handleDelete(h)}>
+          <IconButton
+            aria-label={t("holidays.deleteLabel", { name: h.nameAr ?? h.nameEn })}
+            disabled={deletingId === h.id}
+            onClick={() =>
+              confirm.ask({
+                title: t("holidays.confirmDeleteTitle"),
+                consequence: t("holidays.confirmDeleteBody", { name: h.nameAr ?? h.nameEn }),
+                confirmLabel: t("common.delete"),
+                onConfirm: () => handleDelete(h),
+              })
+            }
+          >
             <TrashIcon />
           </IconButton>
         </div>
@@ -265,6 +278,7 @@ export function HolidaysScreen() {
           </div>
         </form>
       </SidePanel>
+      {confirm.dialog}
     </div>
   );
 }

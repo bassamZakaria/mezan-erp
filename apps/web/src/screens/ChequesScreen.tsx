@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   Card,
@@ -204,7 +205,7 @@ export function ChequesScreen() {
       }
       setSelectedId(null);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setActionError(errorMessage(err, t("common.failed")));
     } finally {
       setPendingId(null);
     }
@@ -470,7 +471,7 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
       });
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 

@@ -97,7 +97,6 @@ function ReceiptDetail({
               {t("goodsReceipts.confirm")}
             </Button>
           ) : null}
-          <Button onClick={onBack}>{t("goodsReceipts.backToList")}</Button>
         </>
       }
       summary={[
@@ -358,9 +357,6 @@ export function GoodsReceiptsScreen() {
           <h1 className="font-display text-xl font-bold text-ink">{t("goodsReceipts.panel.title")}</h1>
           <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("goodsReceipts.panel.description")}</p>
         </div>
-        <Button variant="default" onClick={subPage.close}>
-          {t("quotes.backToList")}
-        </Button>
       </div>
       <div className="flex flex-col gap-[14px]">
         {formError ? (

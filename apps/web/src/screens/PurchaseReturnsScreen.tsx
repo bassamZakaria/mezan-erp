@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   Card,
@@ -211,7 +212,7 @@ export function PurchaseReturnsScreen() {
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
       subPage.close();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -220,7 +221,7 @@ export function PurchaseReturnsScreen() {
     try {
       await confirmReturn.mutateAsync(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -229,7 +230,7 @@ export function PurchaseReturnsScreen() {
     try {
       await cancelReturn.mutateAsync(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -263,9 +264,6 @@ export function PurchaseReturnsScreen() {
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.returns")}</div>
           <h1 className="font-display text-xl font-bold text-ink">{t("purchaseReturns.panel.title")}</h1>
         </div>
-        <Button variant="default" onClick={subPage.close}>
-          {t("quotes.backToList")}
-        </Button>
       </div>
         <div className="flex flex-col gap-4 p-5">
           <SelectField
@@ -340,9 +338,6 @@ export function PurchaseReturnsScreen() {
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.returns")}</div>
           <h1 className="font-display text-xl font-bold text-ink">{selected?.docNo ?? t("purchaseReturns.detailTitle")}</h1>
         </div>
-        <Button variant="default" onClick={subPage.close}>
-          {t("quotes.backToList")}
-        </Button>
       </div>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">

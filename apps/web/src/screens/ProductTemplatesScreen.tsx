@@ -22,6 +22,7 @@ import {
   useProductTemplates,
   useTemplateVariants,
 } from "../data/hooks";
+import { useConfirmAction } from "../lib/use-confirm-action";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { useAppTranslation } from "../i18n";
@@ -91,6 +92,7 @@ export function ProductTemplatesScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [attrError, setAttrError] = useState<string | null>(null);
+  const confirm = useConfirmAction();
   const [newAttrName, setNewAttrName] = useState("");
   const [newAttrValues, setNewAttrValues] = useState("");
   const [newAttrSpecCode, setNewAttrSpecCode] = useState("");
@@ -315,7 +317,17 @@ export function ProductTemplatesScreen() {
                       <span className="text-[13px] font-semibold text-ink">
                         {attr.nameAr} <span className="text-ink-faint">({attr.values.length})</span>
                       </span>
-                      <Button size="sm" onClick={() => void handleDeleteAttribute(attr.id)}>
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          confirm.ask({
+                            title: t("templates.confirmRemoveAttributeTitle"),
+                            consequence: t("templates.confirmRemoveAttributeBody", { name: attr.nameAr }),
+                            confirmLabel: t("templates.removeAttribute"),
+                            onConfirm: () => handleDeleteAttribute(attr.id),
+                          })
+                        }
+                      >
                         {t("templates.removeAttribute")}
                       </Button>
                     </div>
@@ -327,7 +339,14 @@ export function ProductTemplatesScreen() {
                             type="button"
                             className="text-ink-faint hover:text-danger-ink"
                             aria-label={t("templates.deleteValue", { value })}
-                            onClick={() => void handleDeleteValue(attr.id, value)}
+                            onClick={() =>
+                              confirm.ask({
+                                title: t("templates.confirmRemoveValueTitle"),
+                                consequence: t("templates.confirmRemoveValueBody", { value }),
+                                confirmLabel: t("common.delete"),
+                                onConfirm: () => handleDeleteValue(attr.id, value),
+                              })
+                            }
                           >
                             ×
                           </button>
@@ -430,6 +449,7 @@ export function ProductTemplatesScreen() {
           </div>
         ) : null}
       </SidePanel>
+      {confirm.dialog}
     </div>
   );
 }

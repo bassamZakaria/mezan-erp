@@ -31,6 +31,7 @@ import {
   type JournalEntryListFilter,
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
+import { errorMessage } from "../lib/error-message";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
@@ -201,7 +202,7 @@ export function JournalsScreen() {
     try {
       await reverseJournalEntry.mutateAsync({ id: doc.id });
     } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
+      setRowError(errorMessage(err, t("common.failed")));
     } finally {
       setPendingId(null);
     }

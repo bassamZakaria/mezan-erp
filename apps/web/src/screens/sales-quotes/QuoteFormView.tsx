@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { errorMessage } from "../../lib/error-message";
 import {
   Button,
   EntityPicker,
@@ -170,7 +171,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 

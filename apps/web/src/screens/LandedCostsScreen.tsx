@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   Card,
@@ -292,7 +293,7 @@ export function LandedCostsScreen() {
       if (confirmAfter) await confirmLandedCost.mutateAsync(created.id);
       setPanel("none");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -301,7 +302,7 @@ export function LandedCostsScreen() {
     try {
       await confirmLandedCost.mutateAsync(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -310,7 +311,7 @@ export function LandedCostsScreen() {
     try {
       await cancelLandedCost.mutateAsync(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 

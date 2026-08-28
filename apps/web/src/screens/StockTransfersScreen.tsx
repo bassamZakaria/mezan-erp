@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   Card,
@@ -191,7 +192,7 @@ export function StockTransfersScreen() {
     try {
       await listConfirm.mutateAsync(id);
     } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
+      setRowError(errorMessage(err, t("common.failed")));
     } finally {
       setRowPendingId(null);
     }

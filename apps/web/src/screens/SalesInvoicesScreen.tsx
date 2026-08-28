@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   Card,
@@ -654,9 +655,6 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
           <h1 className="font-display text-xl font-bold text-ink">{t("salesInvoices.panel.title")}</h1>
           <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("salesInvoices.panel.description")}</p>
         </div>
-        <Button variant="default" onClick={onClose}>
-          {t("quotes.backToList")}
-        </Button>
       </div>
       <div className="flex flex-col gap-[16px]">
         {!methodChosen ? (
@@ -1723,7 +1721,7 @@ export function SalesInvoicesScreen() {
     try {
       await listConfirm.mutateAsync(id);
     } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
+      setRowError(errorMessage(err, t("common.failed")));
     } finally {
       setConfirmingId(null);
     }

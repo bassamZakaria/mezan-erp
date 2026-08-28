@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   Card,
@@ -162,7 +163,7 @@ export function InstallmentPlansScreen() {
       await confirmPlan.mutateAsync(created.id);
       setPanel("none");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -173,7 +174,7 @@ export function InstallmentPlansScreen() {
     try {
       await cancelPlan.mutateAsync(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     } finally {
       setRowPendingId(null);
     }
@@ -186,7 +187,7 @@ export function InstallmentPlansScreen() {
     try {
       await confirmPlan.mutateAsync(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     } finally {
       setRowPendingId(null);
     }
@@ -198,7 +199,7 @@ export function InstallmentPlansScreen() {
       const result = await processOverdue.mutateAsync({ asOfDate: today() });
       setOverdueResult(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 

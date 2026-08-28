@@ -42,15 +42,11 @@ for (const group of navGroupSpecs) {
  * silently change a URL, or every saved link and drill-down into it breaks.
  */
 const UNLISTED_SCREEN_GROUP: Record<string, string> = {
-  labels: "stock",
-  "product-templates": "stock",
-  "configurable-products": "stock",
-  "item-specifications": "stock",
+  labels: "items",
   "report-inventory-movement": "stock",
   "report-inventory-expiring": "stock",
   "report-inventory-slow-moving": "stock",
   "report-inventory-drift": "stock",
-  boms: "manufacturing",
 };
 for (const [key, group] of Object.entries(UNLISTED_SCREEN_GROUP)) {
   if (PATH_BY_SCREEN.has(key)) continue;

@@ -118,7 +118,11 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "items",
     defaultCollapsed: true,
-    itemKeys: ["items"],
+    // Same treatment as المخزون and التصنيع: the bar carries the destinations.
+    // These four were tabs of one page, three of them folded behind a «…» —
+    // which is a menu inside a page inside a workspace that holds one entry.
+    // They are four kinds of catalogue record and the bar has room for four.
+    itemKeys: ["items", "product-templates", "configurable-products", "item-specifications", "boms"],
   },
   {
     key: "stock",

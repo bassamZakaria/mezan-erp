@@ -97,7 +97,7 @@ const InventoryMovementReportScreen = lazy(() => import("./screens/reports/Inven
 const InventorySlowMovingReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventorySlowMovingReportScreen })));
 const InventoryStockLevelsReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryStockLevelsReportScreen })));
 const InventoryValuationReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryValuationReportScreen })));
-const ItemsWorkspaceScreen = lazy(() => import("./screens/ItemsWorkspaceScreen").then((m) => ({ default: m.ItemsWorkspaceScreen })));
+const ItemsScreen = lazy(() => import("./screens/ItemsScreen").then((m) => ({ default: m.ItemsScreen })));
 const ItemSpecificationsScreen = lazy(() => import("./screens/ItemSpecificationsScreen").then((m) => ({ default: m.ItemSpecificationsScreen })));
 const JobTitlesScreen = lazy(() => import("./screens/JobTitlesScreen").then((m) => ({ default: m.JobTitlesScreen })));
 const JournalsScreen = lazy(() => import("./screens/JournalsScreen").then((m) => ({ default: m.JournalsScreen })));
@@ -215,7 +215,7 @@ const ROUTABLE_SCREENS = {
   "landed-costs": LandedCostsScreen,
   "installment-plans": InstallmentPlansScreen,
   "installment-follow-ups": InstallmentFollowUpsScreen,
-  items: ItemsWorkspaceScreen,
+  items: ItemsScreen,
   /**
    * Merged into a tab or into another page, and kept routable so no URL that
    * ever worked stops working — and so nothing here is unreachable code. Each

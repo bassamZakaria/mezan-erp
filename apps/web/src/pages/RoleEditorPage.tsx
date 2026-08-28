@@ -25,17 +25,25 @@ import { useAppTranslation } from "../i18n";
 
 export interface RoleEditorPageProps {
   role: Role | null;
+  /**
+   * Seeds a NEW role from an existing one. Every custom role otherwise starts
+   * from a blank 268-checkbox matrix, so the second role like the first is
+   * built by hand from nothing.
+   */
+  template?: Role | null;
   entitlements: Entitlements;
   onSave: (cmd: { code: string; name: string; description: string; permissions: string[] }) => Promise<StoreResult<Role>>;
   onCancel: () => void;
 }
 
-export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEditorPageProps) {
+export function RoleEditorPage({ role, template, entitlements, onSave, onCancel }: RoleEditorPageProps) {
   const { t } = useAppTranslation();
+  // The code and name stay blank on a duplicate — they must be unique, and a
+  // prefilled one is the field most likely to be saved unchanged by mistake.
   const [name, setName] = useState(role?.name ?? "");
   const [code, setCode] = useState(role?.code ?? "");
-  const [description, setDescription] = useState(role?.description ?? "");
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set(role?.permissions ?? []));
+  const [description, setDescription] = useState(role?.description ?? template?.description ?? "");
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set(role?.permissions ?? template?.permissions ?? []));
   const [search, setSearch] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -83,6 +91,13 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
       })
       .filter((mod) => mod.subgroups.length > 0);
   }, [entitlements, selected, t]);
+
+  /** Modules this role grants nothing in — closed on open so the matrix is scannable. */
+  const collapsedByDefault = useMemo(
+    () => matrixModules.filter((mod) => mod.subgroups.every((g) => g.items.every((i) => !i.selected))).map((mod) => mod.key),
+    [matrixModules],
+  );
+
 
   const summary = useMemo(() => {
     const touchedModules = new Set<string>();
@@ -169,6 +184,9 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
           onToggleModule={handleToggleModule}
           searchValue={search}
           onSearchChange={setSearch}
+          // 19 modules expanded put ~268 checkboxes on screen at once. A module
+          // the role already touches opens; the rest stay shut until wanted.
+          defaultCollapsedModuleKeys={collapsedByDefault}
         />
 
         <div className="flex flex-col gap-[14px]">

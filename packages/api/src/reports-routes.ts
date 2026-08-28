@@ -266,6 +266,11 @@ async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<Readon
 
   for (const cheque of (await deps.cheques?.list()) ?? []) {
     if (cheque.direction !== "incoming") continue;
+    // A bounced or replaced cheque credited nothing that still stands: bouncing
+    // reclassifies GL 1320 → 1360 and deliberately leaves AR where it is. Counting
+    // it here netted the debt back out of the ladder, so a customer who paid with a
+    // cheque that bounced dropped out of collections while still owing the money.
+    if (cheque.status === "bounced" || cheque.status === "replaced") continue;
     if (cheque.counterpartyGlAccountId !== "1105") continue;
     add(cheque.partyId, cheque.amount.scaled);
   }

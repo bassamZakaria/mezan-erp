@@ -20,6 +20,7 @@ import {
 import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, matchesSearch } from "@mezan/domain";
 import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
+  useCheques,
   useCreateCustomer,
   useCustomers,
   useCustomerCounts,
@@ -665,7 +666,8 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
   // Credit left is the limit minus what the customer owes TODAY. Measuring it
   // against the opening balance ignored every invoice since (D40).
   const invoices = useSalesInvoices().data ?? [];
-  const owed = customerOwedById([customer], invoices).get(customer.id) ?? 0;
+  const cheques = useCheques().data ?? [];
+  const owed = customerOwedById([customer], invoices, cheques).get(customer.id) ?? 0;
   const remainingCredit = num(customer.creditLimit) - owed;
   return (
     <DocumentDetail
@@ -792,7 +794,8 @@ export function CustomersScreen() {
   const counts = useCustomerCounts(filter).data ?? {};
   const stats = useCustomerStats(filter).data ?? {};
   const invoices = useSalesInvoices().data ?? [];
-  const owedById = useMemo(() => customerOwedById(customers, invoices), [customers, invoices]);
+  const cheques = useCheques().data ?? [];
+  const owedById = useMemo(() => customerOwedById(customers, invoices, cheques), [customers, invoices, cheques]);
   const owedOf = (id: string) => owedById.get(id) ?? 0;
 
   const selected = customers.find((c) => c.id === selectedId) ?? null;

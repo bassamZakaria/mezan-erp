@@ -388,6 +388,7 @@ export function App() {
     window.location.hash = hashForRoute(screen);
   }, []);
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
+  const [roleTemplate, setRoleTemplate] = useState<RoleDTO | null>(null); // the role a new one is duplicated from
   const [pendingIntent, setPendingIntent] = useState<ScreenIntent | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // How many mounted screens accept a "create" intent. Only one routable
@@ -792,10 +793,17 @@ export function App() {
           usersByRoleId={usersByRoleId}
           onCreate={() => {
             setEditingRole(null);
+            setRoleTemplate(null);
             setActiveScreen("role-editor");
           }}
           onEdit={(role) => {
             setEditingRole(role);
+            setRoleTemplate(null);
+            setActiveScreen("role-editor");
+          }}
+          onDuplicate={(role) => {
+            setEditingRole(null);
+            setRoleTemplate(role);
             setActiveScreen("role-editor");
           }}
           onDelete={handleRemoveRole}
@@ -805,6 +813,7 @@ export function App() {
       {activeScreen === "role-editor" && entitlements ? (
         <RoleEditorPage
           role={editingRole}
+          template={roleTemplate}
           entitlements={entitlements}
           onSave={handleSaveRole}
           onCancel={() => setActiveScreen("roles")}

@@ -19,7 +19,7 @@ const role: Role = {
 
 describe("RolesPage", () => {
   it("renders the role's permission count and custom/system badge", () => {
-    render(<RolesPage roles={[role]} usersByRoleId={new Map()} onCreate={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />);
+    render(<RolesPage roles={[role]} usersByRoleId={new Map()} onCreate={vi.fn()} onEdit={vi.fn()} onDuplicate={vi.fn()} onDelete={vi.fn()} />);
     expect(screen.getByText("مندوب مبيعات")).toBeInTheDocument();
     expect(screen.getByText("VAN_SALES")).toBeInTheDocument();
     expect(screen.getAllByText("4").length).toBeGreaterThan(0);
@@ -28,13 +28,13 @@ describe("RolesPage", () => {
 
   it("disables delete for a role still assigned to a user", () => {
     const usersByRoleId = new Map([["role-1", 1]]);
-    render(<RolesPage roles={[role]} usersByRoleId={usersByRoleId} onCreate={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} />);
+    render(<RolesPage roles={[role]} usersByRoleId={usersByRoleId} onCreate={vi.fn()} onEdit={vi.fn()} onDuplicate={vi.fn()} onDelete={vi.fn()} />);
     expect(screen.getByRole("button", { name: "حذف" })).toBeDisabled();
   });
 
   it("allows delete for an unused custom role and calls onDelete", async () => {
     const onDelete = vi.fn().mockResolvedValue({ ok: true });
-    render(<RolesPage roles={[role]} usersByRoleId={new Map()} onCreate={vi.fn()} onEdit={vi.fn()} onDelete={onDelete} />);
+    render(<RolesPage roles={[role]} usersByRoleId={new Map()} onCreate={vi.fn()} onEdit={vi.fn()} onDuplicate={vi.fn()} onDelete={onDelete} />);
     const deleteButton = screen.getByRole("button", { name: "حذف" });
     expect(deleteButton).toBeEnabled();
     fireEvent.click(deleteButton);
@@ -43,7 +43,7 @@ describe("RolesPage", () => {
 
   it("calls onCreate when 'دور جديد' is clicked", () => {
     const onCreate = vi.fn();
-    render(<RolesPage roles={[role]} usersByRoleId={new Map()} onCreate={onCreate} onEdit={vi.fn()} onDelete={vi.fn()} />);
+    render(<RolesPage roles={[role]} usersByRoleId={new Map()} onCreate={onCreate} onEdit={vi.fn()} onDuplicate={vi.fn()} onDelete={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "دور جديد" }));
     expect(onCreate).toHaveBeenCalled();
   });

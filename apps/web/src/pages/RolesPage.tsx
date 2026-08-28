@@ -8,6 +8,8 @@ export interface RolesPageProps {
   usersByRoleId: Map<string, number>;
   onCreate: () => void;
   onEdit: (role: Role) => void;
+  /** Opens the editor on a NEW role carrying this one's permissions. */
+  onDuplicate: (role: Role) => void;
   onDelete: (roleId: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
@@ -16,7 +18,7 @@ type RoleKind = "system" | "custom";
 const KIND_KEY: Record<RoleKind, AppTranslationKey> = { system: "roles.system", custom: "roles.custom" };
 const KIND_TONE: Record<RoleKind, PillTone> = { system: "info", custom: "neutral" };
 
-export function RolesPage({ roles, usersByRoleId, onCreate, onEdit, onDelete }: RolesPageProps) {
+export function RolesPage({ roles, usersByRoleId, onCreate, onEdit, onDuplicate, onDelete }: RolesPageProps) {
   const { t } = useAppTranslation();
   const [kindFilter, setKindFilter] = useState<RoleKind | "all">("all");
   const [search, setSearch] = useState("");
@@ -66,6 +68,16 @@ export function RolesPage({ roles, usersByRoleId, onCreate, onEdit, onDelete }: 
             }}
           >
             {t("common.edit")}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate(row);
+            }}
+          >
+            {t("roles.duplicate")}
           </Button>
           {!row.isSystem ? (
             <Button

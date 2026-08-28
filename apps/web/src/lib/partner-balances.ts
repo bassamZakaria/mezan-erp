@@ -31,18 +31,29 @@ const VOUCHER_SETTLED: ReadonlySet<string> = new Set(["confirmed", "posted"]);
 
 /**
  * What each customer still owes: their opening balance plus what is left on
- * every live invoice. `remainingBalance` is the server's own figure, already net
- * of collections and confirmed returns.
+ * every live invoice, less the cheques they have handed over. `remainingBalance`
+ * is the server's own figure, already net of collections and confirmed returns.
+ *
+ * The cheque term is the twin of the supplier one below, and was missing here.
+ * An incoming cheque credits AR the moment it is received — leaving it out
+ * overstates what the customer owes by exactly the cheques in hand, which for a
+ * distribution business is most of the balance. A bounced cheque puts the debt
+ * back, so it is excluded.
  */
 export function customerOwedById(
   customers: readonly CustomerDTO[],
   invoices: readonly SalesInvoiceDTO[],
+  cheques: readonly ChequeDTO[] = [],
 ): Map<string, number> {
   const owed = new Map<string, number>();
   for (const c of customers) owed.set(c.id, num(c.openingBalance));
   for (const inv of invoices) {
     if (inv.status === "draft" || inv.status === "cancelled") continue;
     owed.set(inv.customerId, (owed.get(inv.customerId) ?? 0) + num(inv.remainingBalance));
+  }
+  for (const cheque of cheques) {
+    if (cheque.direction !== "incoming" || cheque.effectiveStatus === "bounced") continue;
+    owed.set(cheque.partyId, (owed.get(cheque.partyId) ?? 0) - num(cheque.amount));
   }
   return owed;
 }

@@ -15,12 +15,17 @@ import {
 } from "@mezan/api";
 
 /**
- * The accounts the dashboard's ذمم مدينة tile means: trade and instalment
- * receivables owed by CUSTOMERS. Retention (1150) and employee advances (1160)
- * are receivables of a different kind and belong on the balance sheet, not in a
- * collections KPI.
+ * The accounts the dashboard's ذمم مدينة tile means: trade, instalment and
+ * bounced-cheque receivables owed by CUSTOMERS. Retention (1150) and employee
+ * advances (1160) are receivables of a different kind and belong on the balance
+ * sheet, not in a collections KPI.
+ *
+ * 1360 is here because bouncing a cheque reclassifies 1320 → 1360 and leaves AR
+ * alone: the money is still owed by the customer and still has to be chased, so
+ * a collections figure that omitted it dropped exactly the debts most in need of
+ * chasing. The aging ladder counts the same thing, and the two must agree.
  */
-const CUSTOMER_RECEIVABLE_ACCOUNTS = new Set(["1105", "1110"]);
+const CUSTOMER_RECEIVABLE_ACCOUNTS = new Set(["1105", "1110", "1360"]);
 
 export interface DashboardDeps {
   readonly accounts: Pick<AccountRepository, "list">;

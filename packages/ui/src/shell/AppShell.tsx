@@ -4,6 +4,7 @@ import { useTheme } from "../hooks/useTheme";
 import { useUiTranslation } from "../i18n";
 import { AllScreensPanel } from "./AllScreensPanel";
 import { BrandMark } from "./BrandMark";
+import { BAR_INSET, RAIL_WIDTH } from "./metrics";
 import { ChromeActions } from "./ChromeActions";
 import { CommandBar } from "./CommandBar";
 import { ScopeSwitchers } from "./ScopeSwitcher";
@@ -205,36 +206,38 @@ export function AppShell({
       </a>
 
       <header className="sticky top-0 z-40 flex-none bg-chrome text-chrome-ink shadow-chrome">
-        <div className="flex min-h-[var(--h-topbar)] items-center gap-[10px] py-[6px] ps-[14px] pe-[20px]">
+        {/* NO GAP on this row: the brand block is exactly the column's width and
+            the scope wrapper carries the screens bar's own inset, so a gap
+            between them would push the branch selector off the line the first
+            chip starts on. The flex-1 wrapper holds the controls at the end. */}
+        <div className="flex min-h-[var(--h-topbar)] items-center py-[6px] pe-[20px]">
           {/* The mark is the app's own balance-beam glyph (`BrandMark`) — there
               is no logo file in the repo — and the whole lockup is one link
               home, which is the convention every user already expects. */}
+          {/* The mark sits in the COLUMN'S width, not beside it, so the brand
+              reads as the workspace column's own header rather than as a thing
+              floating above the page. `RAIL_WIDTH` is the column's own measure
+              — see `metrics.ts`; drifting one and not the other is what puts a
+              logo half over a border. */}
           <button
             type="button"
             onClick={onNavigateHome}
             aria-label={t("shell.bar.home")}
-            className="flex min-h-[var(--h-btn)] flex-none items-center gap-[8px] rounded-md px-[10px] text-chrome-ink transition-colors hover:bg-chrome-hover"
+            className={cn(
+              RAIL_WIDTH,
+              "flex min-h-[var(--h-btn)] flex-none items-center gap-[8px] ps-[14px] text-chrome-ink transition-colors hover:bg-chrome-hover",
+            )}
           >
             <BrandMark className="h-[24px] w-[24px] flex-none text-accent" />
             <span className="mz-disp text-lg font-bold max-[900px]:hidden">{t("shell.brand.name")}</span>
           </button>
 
-          {/* Row one holds the brand and the chrome controls only. The direct
-              links (الموافقات) moved into the workspace column, so every
-              navigation target lives in one place. This spacer is what lets the
-              controls sit at the inline end. */}
-          <div className="min-w-0 flex-1" />
-
-          <div className="flex flex-none items-center gap-[8px]">
-            <CommandBar
-              items={commandItems}
-              placeholder={t("shell.command.placeholder")}
-              // `CommandBar`'s own box is 38px (the shared control scale); the
-              // bar's minimum target is 44 (`--h-btn`), so it is raised here
-              // rather than in the primitive every screen shares.
-              className="w-[250px] [&>div]:min-h-[var(--h-btn)] max-[1280px]:w-[180px] max-[980px]:hidden"
-            />
-
+          {/* The scope the user is working in begins where the CONTENT begins:
+              the same inline offset as the first chip on the screens bar below,
+              which is the column's width plus that bar's own inset. Branch and
+              warehouse describe what every screen under them is showing, so
+              they read as the head of that column of screens. */}
+          <div className={cn(BAR_INSET, "flex min-w-0 flex-1 items-center gap-[8px]")}>
             <ScopeSwitchers
               orientation="header"
               branchAriaLabel={t("shell.scope.branch")}
@@ -247,6 +250,17 @@ export function AppShell({
               onSelectWarehouse={onSelectWarehouse}
               allBranchesLabel={t("shell.scope.allBranches")}
               allWarehousesLabel={t("shell.scope.allWarehouses")}
+            />
+          </div>
+
+          <div className="flex flex-none items-center gap-[8px]">
+            <CommandBar
+              items={commandItems}
+              placeholder={t("shell.command.placeholder")}
+              // `CommandBar`'s own box is 38px (the shared control scale); the
+              // bar's minimum target is 44 (`--h-btn`), so it is raised here
+              // rather than in the primitive every screen shares.
+              className="w-[250px] [&>div]:min-h-[var(--h-btn)] max-[1280px]:w-[180px] max-[980px]:hidden"
             />
 
             {/* The language switcher, the appearance toggle and the settings

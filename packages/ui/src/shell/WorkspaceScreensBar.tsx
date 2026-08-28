@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
 import { useFormat } from "../hooks/useFormat";
 import { useTranslation } from "../i18n";
+import { BAR_INSET } from "./metrics";
 import { POPUP_Z_CLASS, usePopupPosition } from "./popup-position";
 import type { NavGroup, NavItem, NavSection } from "./types";
 
@@ -401,7 +402,10 @@ export function WorkspaceScreensBar({
     <nav
       aria-label={ariaLabel}
       className={cn(
-        "relative flex items-center gap-[6px] overflow-hidden border-y border-border bg-surface px-[12px] py-[4px] text-ink",
+        BAR_INSET,
+        // The inline-start inset is shared with the header's scope switchers so
+        // the first chip and the branch selector above it begin on one line.
+        "relative flex items-center gap-[6px] overflow-hidden border-y border-border bg-surface pe-[12px] py-[4px] text-ink",
         className,
       )}
     >

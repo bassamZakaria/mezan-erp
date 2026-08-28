@@ -1,5 +1,6 @@
 import { useRef, type KeyboardEvent } from "react";
 import { cn } from "../lib/cn";
+import { RAIL_WIDTH } from "./metrics";
 import type { NavGroup, NavItem } from "./types";
 
 /**
@@ -78,7 +79,8 @@ export function WorkspaceRail({
     <nav
       aria-label={ariaLabel}
       className={cn(
-        "flex w-[200px] flex-none flex-col border-e border-chrome-border text-chrome-ink shadow-chrome",
+        RAIL_WIDTH,
+        "flex flex-none flex-col border-e border-chrome-border text-chrome-ink shadow-chrome",
         "bg-[linear-gradient(190deg,var(--chrome),var(--chrome-2))]",
         className,
       )}

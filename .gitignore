@@ -24,3 +24,6 @@ mezan.db-*
 # Reference-product captures must never be committed (third-party UI)
 docs/reference-parity/audit/screenshots/ref-*
 .claude/stakeholders/screenshots/ref-*
+# Local run database (scripts/dev.mjs, MEZAN_DB) — never a repo artifact.
+local.db
+local.db-*

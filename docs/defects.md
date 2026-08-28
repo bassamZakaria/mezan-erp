@@ -59,6 +59,16 @@ by driving a seeded app and comparing two numbers that must agree. Two things
 are open by DECISION rather than by patch, and stay listed so nobody re-files
 them:
 
+- a dead session renders an EMPTY LIST, not a sign-in prompt. When the server
+  no longer knows a token (it restarted, or the session idled out) the shell
+  still paints, the avatar still shows a name, and a list screen shows «0» with
+  "no matching rows" — data-shaped, and indistinguishable from a tenant that
+  genuinely has none. Found while checking the seeded users screen: the API
+  returned 5 users and the screen said 0, because the query is disabled without
+  a session rather than surfacing the 403. Filed rather than fixed: the fix is
+  a session-expiry path through the shell, which is wider than the seeding
+  change that surfaced it.
+
 - outbound notification channels do not deliver. `notifications/engine.ts` stamps
   every channel but `in_app` as `"queued"` and nothing drains the queue.
   **Corrected 2026-08-27:** the channel type is `"in_app" | "email" | "push"` —

@@ -2,6 +2,7 @@ import type { App } from "@mezan/api";
 import { SUPPORTED_CURRENCY_CODES } from "@mezan/domain";
 import { ADMIN_HEADERS, assertLocalOrTest, setSeedSessionToken, type SeedSessionMinter } from "./demo-seed/shared.js";
 import { seedHr } from "./demo-seed/hr.js";
+import { seedAccess } from "./demo-seed/access.js";
 import { seedCrm } from "./demo-seed/crm.js";
 import { seedInventoryOps } from "./demo-seed/inventory-ops.js";
 import { seedPurchasing } from "./demo-seed/purchasing.js";
@@ -647,6 +648,7 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   }
 
   // Order matters: every module below references the core entities above.
+  await seedAccess(app);
   await seedHr(app);
   await seedCrm(app);
   await seedInventoryOps(app);

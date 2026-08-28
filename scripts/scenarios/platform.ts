@@ -111,13 +111,21 @@ export async function run(ctx: Ctx): Promise<void> {
       id,
     });
 
-    const openPolicy = await req("GET", "/settings");
-    checkEq("a fresh tenant restricts no domain — a rollout is not blocked by a rule nobody configured", (openPolicy.body?.allowedEmailDomains ?? []).length, 0);
+    const seeded = await req("GET", "/settings");
+    check(
+      "the seeded tenant names the domain its own people are at",
+      (seeded.body?.allowedEmailDomains ?? []).includes("cyag.example"),
+      JSON.stringify(seeded.body?.allowedEmailDomains),
+    );
 
+    // Both states are set explicitly rather than inherited from the seed: an
+    // assertion that only holds while the seeder happens to leave a field
+    // alone stops testing the product the moment the seeder changes.
+    await req("PUT", "/settings", { ...seeded.body, allowedEmailDomains: [] });
     const anyDomain = await req("POST", "/users", newUser("free@anywhere.example", "SCN-U-DOMAIN-0"));
-    check("so any domain is accepted while the list is empty", anyDomain.status === 201, `${anyDomain.status}: ${JSON.stringify(anyDomain.body)}`);
+    check("an EMPTY list restricts nothing — a rollout is not blocked by a rule nobody configured", anyDomain.status === 201, `${anyDomain.status}: ${JSON.stringify(anyDomain.body)}`);
 
-    const setPolicy = await req("PUT", "/settings", { ...openPolicy.body, allowedEmailDomains: ["cyag.example", "mezan.com"] });
+    const setPolicy = await req("PUT", "/settings", { ...seeded.body, allowedEmailDomains: ["cyag.example", "mezan.com"] });
     check("the tenant names the domains it allows", setPolicy.status === 200, `${setPolicy.status}: ${JSON.stringify(setPolicy.body).slice(0, 200)}`);
 
     const outside = await req("POST", "/users", newUser("someone@gmail.com", "SCN-U-DOMAIN-1"));
@@ -135,8 +143,9 @@ export async function run(ctx: Ctx): Promise<void> {
       String(inside.body?.email),
     );
 
-    // Restore the open policy so later scenarios are not gated by this one.
-    await req("PUT", "/settings", { ...openPolicy.body, allowedEmailDomains: [] });
+    // Restore what the seed configured, so later scenarios see the tenant as
+    // the seeder left it rather than as this one reshaped it.
+    await req("PUT", "/settings", seeded.body);
   });
 
   // ---------------------------------------------------------------------
@@ -162,7 +171,7 @@ export async function run(ctx: Ctx): Promise<void> {
     approverRoleId = role.body?.id ?? "";
 
     const submitter = await req("POST", "/users", {
-      fullName: "SCN Submitter", email: "scn-submitter@example.test", phone: null,
+      fullName: "SCN Submitter", email: "scn-submitter@cyag.example", phone: null,
       roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",
     });
@@ -170,7 +179,7 @@ export async function run(ctx: Ctx): Promise<void> {
     submitterUserId = submitter.body?.id ?? "";
 
     const approver = await req("POST", "/users", {
-      fullName: "SCN Approver", email: "scn-approver@example.test", phone: null,
+      fullName: "SCN Approver", email: "scn-approver@cyag.example", phone: null,
       roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",
     });

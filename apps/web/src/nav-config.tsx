@@ -215,23 +215,45 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "setup",
     defaultCollapsed: true,
-    itemKeys: ["settings-general"],
+    /**
+     * Two shelves, because there are two jobs and two people. المنشأة is what
+     * an implementer configures once when a company is brought onto Mezan —
+     * its branches, its stores, how its documents are numbered and printed,
+     * and the import that carries the old books in. الصلاحيات is what an
+     * owner runs forever after: who has an account, what each may do, what
+     * needs approving, who gets told, and what everybody did.
+     *
+     * Both stay OPEN. The previous shape had four shelves with three of them
+     * folded, so most of a company's setup was one click away from being
+     * seen at all — and the shelf named «المستخدمون والصلاحيات» sat inside a
+     * group named «الإعداد والصلاحيات», saying "صلاحيات" twice on the way to
+     * the same screen.
+     *
+     * حالة النظام sits at group level beside عام rather than on either shelf:
+     * it configures nothing, it reports. It was reachable only by typing its
+     * URL before this.
+     *
+     * الملف الشخصي left the tree entirely. It is one person's own name and
+     * password, it already hangs off the avatar menu, and filing it under an
+     * administrator's shelf implied it governed other people's accounts.
+     */
+    itemKeys: ["settings-general", "status"],
     sections: [
-      { key: "access", itemKeys: ["users", "roles", "settings-profile", "audit"] },
-      { key: "workflow", defaultCollapsed: true, itemKeys: ["settings-workflow", "notification-rules"] },
-      { key: "documents", defaultCollapsed: true, itemKeys: ["settings-print", "settings-sequences", "settings-barcode"] },
-      /**
-       * التكاملات and النظام left the tree. مفاتيح الواجهة، الويب هوك and
-       * حالة النظام are administrator surfaces nobody configures twice, and
-       * they sat beside the settings a business actually edits.
-       *
-       * نقل البيانات did NOT go with them. It is filed under "integrations"
-       * but it is the import wizard a new tenant needs on day one — the only
-       * door to the opening-balance and master-data importers — so it moves to
-       * the shelf where a company is set up rather than being hidden with the
-       * API keys.
-       */
-      { key: "structure", defaultCollapsed: true, itemKeys: ["settings-branches", "settings-warehouses", "settings-data-migration"] },
+      {
+        key: "company",
+        itemKeys: [
+          "settings-branches",
+          "settings-warehouses",
+          "settings-sequences",
+          "settings-print",
+          "settings-barcode",
+          "settings-data-migration",
+        ],
+      },
+      {
+        key: "permissions",
+        itemKeys: ["users", "roles", "settings-workflow", "notification-rules", "audit"],
+      },
     ],
   },
 ];

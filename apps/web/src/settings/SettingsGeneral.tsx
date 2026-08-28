@@ -14,10 +14,16 @@ import {
 } from "./form-controls";
 
 /**
- * Settings — the tenant-config screen. One tab per policy area, matching the
- * areas the reference product separates: عام / بيانات المنشأة / الضريبة /
- * الرقابة الائتمانية / سياسة المخزون / التحكم في المشتريات / سياسة الخزينة /
- * البريد الإلكتروني (R11.1–R11.8).
+ * Settings — the tenant-config screen. FIVE tabs, in the order a company is
+ * described: who it is (بيانات المنشأة), where and in what money it trades
+ * (الإقليمية والعملة), what it owes (الضريبة), the rules it runs by
+ * (السياسات), and how it reaches people (البريد الإلكتروني).
+ *
+ * It was eight tabs, and two fields rendered on two of them at once —
+ * `taxRegistrationNumber` on «بيانات المنشأة» and «الضريبة», `weekendDays` on
+ * «عام» and «بيانات المنشأة». Two controls bound to one field behind one save
+ * button means the last tab touched wins and the other edit disappears
+ * without a word. Every field now has exactly one control.
  *
  * Every switch here is read by the behaviour it names — negative stock and
  * back-orders by the stock ledger, the purchase gates by the goods-receipt and
@@ -104,8 +110,31 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
       }
       tabs={[
         {
-          key: "general",
-          label: t("settingsGeneral.general"),
+          key: "company",
+          label: t("settingsGeneral.companyDetails"),
+          content: (
+            <SectionCard title={t("settingsGeneral.companyDetails")}>
+              <TextField label={t("settingsGeneral.companyName")} value={draft.companyName} onChange={(v) => patch({ companyName: v })} />
+              <TextField
+                label={t("common.taxNumber")}
+                value={draft.taxRegistrationNumber}
+                onChange={(v) => patch({ taxRegistrationNumber: v })}
+                placeholder="300xxxxxxxxx"
+              />
+              <TextField
+                label={t("settingsGeneral.commercialRegistration")}
+                value={draft.commercialRegistrationNumber}
+                onChange={(v) => patch({ commercialRegistrationNumber: v })}
+              />
+              <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => patch({ phone: v })} />
+              <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => patch({ email: v })} />
+              <TextField label={t("settingsGeneral.address")} value={draft.address} onChange={(v) => patch({ address: v })} />
+            </SectionCard>
+          ),
+        },
+        {
+          key: "regional",
+          label: t("settingsGeneral.tabRegional"),
           content: (
             <div className="flex flex-col gap-[16px]">
               <SectionCard title={t("settingsGeneral.currency")}>
@@ -155,12 +184,6 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                     { value: "arabic", label: t("settingsGeneral.arabicIndicDigits") },
                   ]}
                 />
-                <MultiChipField
-                  label={t("settingsGeneral.weekendDays")}
-                  value={draft.weekendDays.map(String)}
-                  onChange={(v) => patch({ weekendDays: v.map(Number) })}
-                  options={weekdayOptions}
-                />
                 <NumberField
                   label={t("settingsGeneral.financialYearStartsMonth")}
                   value={draft.fiscalYearStartMonth}
@@ -168,34 +191,12 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   max={12}
                   onChange={(v) => patch({ fiscalYearStartMonth: v })}
                 />
-              </SectionCard>
-            </div>
-          ),
-        },
-        {
-          key: "company",
-          label: t("settingsGeneral.companyDetails"),
-          content: (
-            <div className="flex flex-col gap-[16px]">
-              <SectionCard title={t("settingsGeneral.companyDetails")}>
-                <TextField label={t("settingsGeneral.companyName")} value={draft.companyName} onChange={(v) => patch({ companyName: v })} />
-                <TextField
-                  label={t("common.taxNumber")}
-                  value={draft.taxRegistrationNumber}
-                  onChange={(v) => patch({ taxRegistrationNumber: v })}
-                  placeholder="300xxxxxxxxx"
-                />
-                <TextField
-                  label={t("settingsGeneral.commercialRegistration")}
-                  value={draft.commercialRegistrationNumber}
-                  onChange={(v) => patch({ commercialRegistrationNumber: v })}
-                />
-                <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => patch({ phone: v })} />
-                <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => patch({ email: v })} />
-                <TextField label={t("settingsGeneral.address")} value={draft.address} onChange={(v) => patch({ address: v })} />
-              </SectionCard>
-
-              <SectionCard title={t("settingsGeneral.sharedHrPolicies")} description={t("settingsGeneral.leaveAndAttendanceRelyOn")}>
+                {/*
+                  The working week lives here and ONLY here. It used to render
+                  on «عام» AND on «بيانات المنشأة» — two controls bound to
+                  weekendDays, on two tabs, behind one save button, so the tab
+                  a user happened to touch last silently won.
+                */}
                 <SelectField
                   label={t("settingsGeneral.weekStartDay")}
                   value={String(draft.weekStartDay)}
@@ -208,28 +209,6 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   onChange={(v) => patch({ weekendDays: v.map(Number) })}
                   options={weekdayOptions}
                 />
-                <NumberField
-                  label={t("settingsGeneral.contractExpiryWarningWindowDays")}
-                  value={draft.hrContractExpiryWarningDays}
-                  min={7}
-                  max={365}
-                  onChange={(v) => patch({ hrContractExpiryWarningDays: v })}
-                  hint={t("settingsGeneral.allowedRange7365Default")}
-                />
-                <NumberField
-                  label={t("settingsGeneral.overtimeMultiplier")}
-                  value={draft.overtimeMultiplier}
-                  step={0.1}
-                  min={1}
-                  onChange={(v) => patch({ overtimeMultiplier: v })}
-                />
-                <NumberField
-                  label={t("settingsGeneral.standardWorkingHoursADay")}
-                  value={draft.standardDailyWorkHours}
-                  min={1}
-                  max={24}
-                  onChange={(v) => patch({ standardDailyWorkHours: v })}
-                />
               </SectionCard>
             </div>
           ),
@@ -239,6 +218,11 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
           label: t("settingsGeneral.tax"),
           content: (
             <SectionCard title={t("settingsGeneral.vat")}>
+              {/*
+                The tax registration number is NOT repeated here. It identifies
+                the company, it is edited on «بيانات المنشأة», and a second
+                control writing the same field is a way to lose an edit.
+              */}
               <ToggleField
                 label={t("settingsGeneral.enableVat")}
                 checked={draft.taxEnabled}
@@ -260,50 +244,12 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   { value: "INCLUSIVE", label: t("settingsGeneral.inclusiveAlreadyInThePrice") },
                 ]}
               />
-              <SelectField
-                label={t("settingsGeneral.depreciationInTheMonthOf")}
-                value={draft.depreciationProrate}
-                onChange={(v) => patch({ depreciationProrate: v as TenantSettingsDTO["depreciationProrate"] })}
-                options={[
-                  { value: "DAILY", label: t("settingsGeneral.dailyProRatedIfrs") },
-                  { value: "FULL_MONTH", label: t("settingsGeneral.aWholeMonth") },
-                ]}
-              />
-              <TextField
-                label={t("common.taxNumber")}
-                value={draft.taxRegistrationNumber}
-                onChange={(v) => patch({ taxRegistrationNumber: v })}
-                placeholder="300xxxxxxxxx"
-              />
             </SectionCard>
           ),
         },
         {
-          key: "credit",
-          label: t("settingsGeneral.creditControl"),
-          content: (
-            <SectionCard title={t("settingsGeneral.creditControl")}>
-              <ToggleField label={t("settingsGeneral.enablePriceLists")} checked={draft.priceListsEnabled} onChange={(v) => patch({ priceListsEnabled: v })} />
-              <ToggleField
-                label={t("settingsGeneral.enableCreditControl")}
-                checked={draft.creditControlEnabled}
-                onChange={(v) => patch({ creditControlEnabled: v })}
-              />
-              <SelectField
-                label={t("settingsGeneral.controlMode")}
-                value={draft.creditControlMode}
-                onChange={(v) => patch({ creditControlMode: v as TenantSettingsDTO["creditControlMode"] })}
-                options={[
-                  { value: "WARNING", label: t("settingsGeneral.warnOnlyWarning") },
-                  { value: "BLOCK", label: t("settingsGeneral.blockOutrightBlock") },
-                ]}
-              />
-            </SectionCard>
-          ),
-        },
-        {
-          key: "inventory",
-          label: t("settingsGeneral.stockPolicy"),
+          key: "policies",
+          label: t("settingsGeneral.tabPolicies"),
           content: (
             <div className="flex flex-col gap-[16px]">
               <SectionCard title={t("settingsGeneral.stockPolicy")}>
@@ -359,49 +305,102 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   onChange={(v) => patch({ agingWritedownRatePercent: v })}
                 />
               </SectionCard>
+
+              <SectionCard title={t("settingsGeneral.purchasingControls")}>
+                <ToggleField
+                  label={t("settingsGeneral.aPurchaseOrderIsRequired")}
+                  checked={draft.requirePoForGrn}
+                  onChange={(v) => patch({ requirePoForGrn: v })}
+                />
+                <ToggleField
+                  label={t("settingsGeneral.aGoodsReceiptIsRequired")}
+                  checked={draft.requireGrnForInvoice}
+                  onChange={(v) => patch({ requireGrnForInvoice: v })}
+                />
+                <ToggleField
+                  label={t("settingsGeneral.trackGoodsConsumedFromPurchase")}
+                  checked={draft.trackSoldPurchaseItems}
+                  onChange={(v) => patch({ trackSoldPurchaseItems: v })}
+                />
+              </SectionCard>
+
+              {/*
+                Price lists are a SALES policy. They sat under «الرقابة
+                الائتمانية» beside the credit limit, which described neither.
+              */}
+              <SectionCard title={t("settingsGeneral.salesAndCredit")}>
+                <ToggleField label={t("settingsGeneral.enablePriceLists")} checked={draft.priceListsEnabled} onChange={(v) => patch({ priceListsEnabled: v })} />
+                <ToggleField
+                  label={t("settingsGeneral.enableCreditControl")}
+                  checked={draft.creditControlEnabled}
+                  onChange={(v) => patch({ creditControlEnabled: v })}
+                />
+                <SelectField
+                  label={t("settingsGeneral.controlMode")}
+                  value={draft.creditControlMode}
+                  onChange={(v) => patch({ creditControlMode: v as TenantSettingsDTO["creditControlMode"] })}
+                  options={[
+                    { value: "WARNING", label: t("settingsGeneral.warnOnlyWarning") },
+                    { value: "BLOCK", label: t("settingsGeneral.blockOutrightBlock") },
+                  ]}
+                />
+              </SectionCard>
+
+              <SectionCard title={t("settingsGeneral.treasuryPolicy")}>
+                <ToggleField
+                  label={t("settingsGeneral.blockANegativeBalanceOn")}
+                  checked={draft.preventNegativeCashBalance}
+                  onChange={(v) => patch({ preventNegativeCashBalance: v })}
+                  hint={t("settingsGeneral.appliesToCashTillsOnly")}
+                />
+                <ToggleField
+                  label={t("settingsGeneral.allowANegativeBalanceOn")}
+                  checked={draft.allowNegativeTreasury}
+                  onChange={(v) => patch({ allowNegativeTreasury: v })}
+                />
+              </SectionCard>
+
+              {/*
+                Proration is how an asset depreciates in its first month. It was
+                filed under «الضريبة», where nothing reads it.
+              */}
+              <SectionCard title={t("settingsGeneral.assetsPolicy")}>
+                <SelectField
+                  label={t("settingsGeneral.depreciationInTheMonthOf")}
+                  value={draft.depreciationProrate}
+                  onChange={(v) => patch({ depreciationProrate: v as TenantSettingsDTO["depreciationProrate"] })}
+                  options={[
+                    { value: "DAILY", label: t("settingsGeneral.dailyProRatedIfrs") },
+                    { value: "FULL_MONTH", label: t("settingsGeneral.aWholeMonth") },
+                  ]}
+                />
+              </SectionCard>
+
+              <SectionCard title={t("settingsGeneral.sharedHrPolicies")} description={t("settingsGeneral.leaveAndAttendanceRelyOn")}>
+                <NumberField
+                  label={t("settingsGeneral.contractExpiryWarningWindowDays")}
+                  value={draft.hrContractExpiryWarningDays}
+                  min={7}
+                  max={365}
+                  onChange={(v) => patch({ hrContractExpiryWarningDays: v })}
+                  hint={t("settingsGeneral.allowedRange7365Default")}
+                />
+                <NumberField
+                  label={t("settingsGeneral.overtimeMultiplier")}
+                  value={draft.overtimeMultiplier}
+                  step={0.1}
+                  min={1}
+                  onChange={(v) => patch({ overtimeMultiplier: v })}
+                />
+                <NumberField
+                  label={t("settingsGeneral.standardWorkingHoursADay")}
+                  value={draft.standardDailyWorkHours}
+                  min={1}
+                  max={24}
+                  onChange={(v) => patch({ standardDailyWorkHours: v })}
+                />
+              </SectionCard>
             </div>
-          ),
-        },
-        {
-          key: "purchasing",
-          label: t("settingsGeneral.purchasingControls"),
-          content: (
-            <SectionCard title={t("settingsGeneral.purchasingControls")}>
-              <ToggleField
-                label={t("settingsGeneral.aPurchaseOrderIsRequired")}
-                checked={draft.requirePoForGrn}
-                onChange={(v) => patch({ requirePoForGrn: v })}
-              />
-              <ToggleField
-                label={t("settingsGeneral.aGoodsReceiptIsRequired")}
-                checked={draft.requireGrnForInvoice}
-                onChange={(v) => patch({ requireGrnForInvoice: v })}
-              />
-              <ToggleField
-                label={t("settingsGeneral.trackGoodsConsumedFromPurchase")}
-                checked={draft.trackSoldPurchaseItems}
-                onChange={(v) => patch({ trackSoldPurchaseItems: v })}
-              />
-            </SectionCard>
-          ),
-        },
-        {
-          key: "treasury",
-          label: t("settingsGeneral.treasuryPolicy"),
-          content: (
-            <SectionCard title={t("settingsGeneral.treasuryPolicy")}>
-              <ToggleField
-                label={t("settingsGeneral.blockANegativeBalanceOn")}
-                checked={draft.preventNegativeCashBalance}
-                onChange={(v) => patch({ preventNegativeCashBalance: v })}
-                hint={t("settingsGeneral.appliesToCashTillsOnly")}
-              />
-              <ToggleField
-                label={t("settingsGeneral.allowANegativeBalanceOn")}
-                checked={draft.allowNegativeTreasury}
-                onChange={(v) => patch({ allowNegativeTreasury: v })}
-              />
-            </SectionCard>
           ),
         },
         {

@@ -5,23 +5,14 @@ import type {
   ChangePasswordDTO,
   ChangePinDTO,
   AuditEventDTO,
-  ApiKeyDTO,
-  CreateApiKeyDTO,
-  CreateApiKeyResultDTO,
-  WebhookDTO,
-  CreateWebhookDTO,
-  UpdateWebhookDTO,
-  CreateWebhookResultDTO,
-  WebhookDeliveryDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
 /**
- * Self-service profile, API keys and webhooks — kept out of `data/hooks.ts`
- * (per file ownership for this task) but following the exact same pattern:
- * a typed TanStack Query hook per endpoint, real loading/error/empty states,
- * mutations invalidate their query key.
+ * Self-service profile hooks — kept out of `data/hooks.ts` but following the
+ * exact same pattern: a typed TanStack Query hook per endpoint, real
+ * loading/error/empty states, mutations invalidate their query key.
  */
 
 export class ApiError extends Error {
@@ -101,108 +92,6 @@ export function useProfileActivity(): UseQueryResult<AuditEventDTO[], ApiError> 
       const res = await request("/profile/activity");
       if (!res.ok) throw new ApiError(res.status, t("accountApi.theActivityLogCouldNot"));
       return res.json<AuditEventDTO[]>();
-    },
-  });
-}
-
-// --- مفاتيح API ---
-
-export function useApiKeys(): UseQueryResult<ApiKeyDTO[], ApiError> {
-  const { t } = useAppTranslation();
-  const { request, session } = useApi();
-  return useQuery<ApiKeyDTO[], ApiError>({
-    queryKey: ["api-keys"],
-    enabled: session !== null,
-    queryFn: async () => {
-      const res = await request("/api-keys");
-      if (!res.ok) throw new ApiError(res.status, t("apiKeys.loadFailed"));
-      return res.json<ApiKeyDTO[]>();
-    },
-  });
-}
-
-export function useCreateApiKey() {
-  const { t } = useAppTranslation();
-  const { request } = useApi();
-  const queryClient = useQueryClient();
-  return useMutation<CreateApiKeyResultDTO, ApiError, CreateApiKeyDTO>({
-    mutationFn: async (body) => {
-      const res = await request("/api-keys", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("accountApi.theApiKeyCouldNot")));
-      return res.json<CreateApiKeyResultDTO>();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["api-keys"] }),
-  });
-}
-
-export function useRevokeApiKey() {
-  const { t } = useAppTranslation();
-  const { request } = useApi();
-  const queryClient = useQueryClient();
-  return useMutation<ApiKeyDTO, ApiError, string>({
-    mutationFn: async (id) => {
-      const res = await request(`/api-keys/${id}/revoke`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("accountApi.theApiKeyCouldNot2")));
-      return res.json<ApiKeyDTO>();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["api-keys"] }),
-  });
-}
-
-// --- الويب هوك ---
-
-export function useWebhooks(): UseQueryResult<WebhookDTO[], ApiError> {
-  const { t } = useAppTranslation();
-  const { request, session } = useApi();
-  return useQuery<WebhookDTO[], ApiError>({
-    queryKey: ["webhooks"],
-    enabled: session !== null,
-    queryFn: async () => {
-      const res = await request("/webhooks");
-      if (!res.ok) throw new ApiError(res.status, t("webhooks.couldNotLoadTheWebhooks"));
-      return res.json<WebhookDTO[]>();
-    },
-  });
-}
-
-export function useCreateWebhook() {
-  const { t } = useAppTranslation();
-  const { request } = useApi();
-  const queryClient = useQueryClient();
-  return useMutation<CreateWebhookResultDTO, ApiError, CreateWebhookDTO>({
-    mutationFn: async (body) => {
-      const res = await request("/webhooks", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("accountApi.theWebhookCouldNotBe")));
-      return res.json<CreateWebhookResultDTO>();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["webhooks"] }),
-  });
-}
-
-export function useUpdateWebhook() {
-  const { t } = useAppTranslation();
-  const { request } = useApi();
-  const queryClient = useQueryClient();
-  return useMutation<WebhookDTO, ApiError, { id: string; body: UpdateWebhookDTO }>({
-    mutationFn: async ({ id, body }) => {
-      const res = await request(`/webhooks/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("accountApi.theWebhookCouldNotBe2")));
-      return res.json<WebhookDTO>();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["webhooks"] }),
-  });
-}
-
-export function useWebhookDeliveries(webhookId: string | null): UseQueryResult<WebhookDeliveryDTO[], ApiError> {
-  const { t } = useAppTranslation();
-  const { request, session } = useApi();
-  return useQuery<WebhookDeliveryDTO[], ApiError>({
-    queryKey: ["webhooks", webhookId, "deliveries"],
-    enabled: session !== null && webhookId !== null,
-    queryFn: async () => {
-      const res = await request(`/webhooks/${webhookId}/deliveries`);
-      if (!res.ok) throw new ApiError(res.status, t("accountApi.theDeliveryAttemptsCouldNot"));
-      return res.json<WebhookDeliveryDTO[]>();
     },
   });
 }

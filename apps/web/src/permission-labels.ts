@@ -4,12 +4,15 @@ import type { AppTranslationKey } from "./i18n";
 /**
  * Presentation-only labels for the permission matrix. The catalog
  * (`@mezan/domain` `permissions/catalog.ts`) intentionally carries no per-permission
- * copy — only per-module names (`MODULES[i].labelAr`) — so the ~268 individual
- * permission labels shown here are DERIVED, not sourced from the catalog:
- * `<action verb> — <entity segment>`. This keeps every card's meaning traceable
- * to its exact `module.entity.action` code (always shown alongside, monospace)
- * rather than inventing bespoke prose per permission. Only the action verb is
- * translated; the entity segment stays the identifier it is in the code.
+ * copy — only per-module names — so the ~279 individual permission labels shown
+ * here are DERIVED from the code itself: `<action verb> — <entity>`. Both halves
+ * are translated, so an Arabic install reads «عرض — فاتورة» rather than
+ * «عرض — invoice». The `module.entity.action` code is still shown alongside in
+ * monospace, which is what keeps a translated label traceable to what it grants.
+ *
+ * A segment with no translation falls back to the raw identifier rather than
+ * blank: a missing word is a defect to fix in the catalog, not a reason to
+ * render an empty checkbox.
  */
 
 const ACTION_KEYS = [
@@ -72,6 +75,8 @@ const ACTION_KEYS = [
 
 const KNOWN_ACTIONS: ReadonlySet<string> = new Set(ACTION_KEYS);
 
+type Translate = (key: AppTranslationKey) => string;
+
 /** `module.entity.action` -> `entity`; `module.action` (no entity) -> `module`. */
 export function entitySegment(code: string): string {
   const parts = code.split(".");
@@ -83,16 +88,21 @@ function actionSegment(code: string): string {
   return parts[parts.length - 1] as string;
 }
 
-/** Human-ish label: translated verb for the action, entity segment kept as a readable identifier. */
-export function permissionLabel(permission: PermissionDef, t: (key: AppTranslationKey) => string): string {
-  const entity = entitySegment(permission.code).replace(/_/g, " ");
-  const segment = actionSegment(permission.code);
-  const action = KNOWN_ACTIONS.has(segment) ? t(`perm.action.${segment}` as AppTranslationKey) : segment;
-  return `${action} — ${entity}`;
+/** Translated name of the thing a permission acts on — «فاتورة», «قائمة أسعار». */
+export function entityLabel(code: string, t: Translate): string {
+  const segment = entitySegment(code);
+  const translated = t(`perm.entity.${segment}` as AppTranslationKey);
+  return translated === `perm.entity.${segment}` ? segment.replace(/_/g, " ") : translated;
 }
 
-/** Sub-group label for the matrix: the entity segment, title-cased. */
-export function subgroupLabel(permission: PermissionDef): string {
-  const entity = entitySegment(permission.code).replace(/_/g, " ");
-  return entity.charAt(0).toUpperCase() + entity.slice(1);
+/** Full label: `<translated verb> — <translated entity>`. */
+export function permissionLabel(permission: PermissionDef, t: Translate): string {
+  const segment = actionSegment(permission.code);
+  const action = KNOWN_ACTIONS.has(segment) ? t(`perm.action.${segment}` as AppTranslationKey) : segment;
+  return `${action} — ${entityLabel(permission.code, t)}`;
+}
+
+/** Sub-group heading for the matrix: the entity the whole group is about. */
+export function subgroupLabel(permission: PermissionDef, t: Translate): string {
+  return entityLabel(permission.code, t);
 }

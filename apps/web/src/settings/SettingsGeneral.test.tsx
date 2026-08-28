@@ -85,11 +85,29 @@ function renderScreen(initial: TenantSettingsDTO = baseSettings) {
 }
 
 describe("SettingsGeneral", () => {
-  it("renders the general tab by default with company info fields available", async () => {
+  it("opens on بيانات المنشأة and keeps the currency on الإقليمية والعملة", async () => {
     renderScreen();
     expect(await screen.findByRole("heading", { name: "الإعدادات" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "عام" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "بيانات المنشأة" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("اسم المنشأة")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإقليمية والعملة" }));
     expect(screen.getByLabelText("العملة الافتراضية")).toBeInTheDocument();
+  });
+
+  it("renders each field exactly once across the whole screen", async () => {
+    renderScreen();
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    // Guards the defect this shape was built to remove: الرقم الضريبي used to
+    // render on «بيانات المنشأة» AND «الضريبة», and أيام العطلة الأسبوعية on
+    // «عام» AND «بيانات المنشأة» — two controls writing one field behind one
+    // save button, so whichever tab was touched last silently won.
+    for (const tab of ["الضريبة", "السياسات", "الإقليمية والعملة", "بيانات المنشأة"]) {
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+    }
+    expect(screen.getAllByLabelText("الرقم الضريبي")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("tab", { name: "الإقليمية والعملة" }));
+    expect(screen.getAllByLabelText("أيام العطلة الأسبوعية")).toHaveLength(1);
   });
 
   it("keeps the save button disabled until a field is dirtied", async () => {

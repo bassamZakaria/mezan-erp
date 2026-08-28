@@ -12,7 +12,7 @@
     "scenarios": "tsx scripts/run-scenarios.ts",
     "trails": "node scripts/build-trail-pack.mjs",
     "test:vitest:disabled": "vitest run",
-    "lint": "eslint . && pnpm run lint:rtl && pnpm run lint:tokens && pnpm run lint:controls && pnpm --filter @mezan/ui lint:theme",
+    "lint": "eslint . && pnpm run lint:rtl && pnpm run lint:tokens && pnpm run lint:controls && pnpm run lint:permission-labels && pnpm --filter @mezan/ui lint:theme",
     "lint:eslint": "eslint .",
     "lint:rtl": "node scripts/check-logical-css.mjs",
     "lint:tokens": "node scripts/check-color-tokens.mjs",
@@ -24,7 +24,8 @@
     "test:e2e": "echo 'E2E running is disabled (see docs/testing-policy.md).' && exit 0",
     "test:e2e:disabled": "playwright test",
     "test:e2e:ui": "echo 'E2E running is disabled (see docs/testing-policy.md).' && exit 0",
-    "test:e2e:install": "playwright install --with-deps chromium"
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "lint:permission-labels": "node scripts/check-permission-labels.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

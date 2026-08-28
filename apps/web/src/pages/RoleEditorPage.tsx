@@ -73,7 +73,7 @@ export function RoleEditorPage({ role, template, entitlements, onSave, onCancel 
           };
           if (!subgroupItems.has(key)) {
             subgroupItems.set(key, []);
-            subgroupLabels.set(key, subgroupLabel(p));
+            subgroupLabels.set(key, subgroupLabel(p, t));
             subgroupOrder.push(key);
           }
           subgroupItems.get(key)?.push(item);

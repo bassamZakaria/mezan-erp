@@ -43,11 +43,9 @@ for (const group of navGroupSpecs) {
  */
 const UNLISTED_SCREEN_GROUP: Record<string, string> = {
   labels: "items",
-  // التكاملات and النظام are off the tree; the screens stay addressable at the
-  // paths they already had, so a saved link or a support instruction still works.
-  "settings-api-keys": "setup",
-  "settings-webhooks": "setup",
-  status: "setup",
+  // الملف الشخصي is off the tree — it hangs off the avatar menu, which is where
+  // one person's own name and password belong. It keeps the address it had.
+  "settings-profile": "setup",
   "report-inventory-movement": "stock",
   "report-inventory-expiring": "stock",
   "report-inventory-slow-moving": "stock",
@@ -60,8 +58,10 @@ for (const [key, group] of Object.entries(UNLISTED_SCREEN_GROUP)) {
   SCREEN_BY_PATH.set(path, key);
 }
 
-// Screens the nav tree does not list: they address as their own bare key.
-for (const key of ["users", "roles", "role-editor", "dashboard", "notifications"]) {
+// Screens with no nav row of their own: they address as their own bare key.
+// (`users` and `roles` ARE in the tree and take their group path from it; the
+// guard below leaves them alone.)
+for (const key of ["role-editor", "dashboard", "notifications"]) {
   if (!PATH_BY_SCREEN.has(key)) {
     PATH_BY_SCREEN.set(key, key);
     SCREEN_BY_PATH.set(key, key);

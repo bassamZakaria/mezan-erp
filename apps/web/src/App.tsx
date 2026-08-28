@@ -53,7 +53,6 @@ import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
  */
 const AccountingHubScreen = lazy(() => import("./screens/hubs/AccountingHubScreen").then((m) => ({ default: m.AccountingHubScreen })));
 const ActivitiesScreen = lazy(() => import("./screens/ActivitiesScreen").then((m) => ({ default: m.ActivitiesScreen })));
-const ApiKeysPage = lazy(() => import("./settings/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage })));
 const ApprovalsInboxScreen = lazy(() => import("./screens/ApprovalsInboxScreen").then((m) => ({ default: m.ApprovalsInboxScreen })));
 const AssetCategoriesScreen = lazy(() => import("./screens/AssetCategoriesScreen").then((m) => ({ default: m.AssetCategoriesScreen })));
 const AssetRegisterScreen = lazy(() => import("./screens/AssetRegisterScreen").then((m) => ({ default: m.AssetRegisterScreen })));
@@ -161,7 +160,6 @@ const TrialBalanceReportScreen = lazy(() => import("./screens/TrialBalanceReport
 const VanSalesReportScreen = lazy(() => import("./screens/reports/FieldSalesReportsScreens").then((m) => ({ default: m.VanSalesReportScreen })));
 const VanTripsScreen = lazy(() => import("./screens/VanTripsScreen").then((m) => ({ default: m.VanTripsScreen })));
 const WarehousesPage = lazy(() => import("./settings/WarehousesPage").then((m) => ({ default: m.WarehousesPage })));
-const WebhooksPage = lazy(() => import("./settings/WebhooksPage").then((m) => ({ default: m.WebhooksPage })));
 const WorkOrdersScreen = lazy(() => import("./screens/WorkOrdersScreen").then((m) => ({ default: m.WorkOrdersScreen })));
 const WorkflowConfigPage = lazy(() => import("./settings/WorkflowConfigPage").then((m) => ({ default: m.WorkflowConfigPage })));
 const WritedownRunsScreen = lazy(() => import("./screens/WritedownRunsScreen").then((m) => ({ default: m.WritedownRunsScreen })));
@@ -283,8 +281,6 @@ const ROUTABLE_SCREENS = {
   "settings-sequences": SequencesPage,
   "settings-barcode": BarcodeConfigPage,
   "settings-profile": ProfilePage,
-  "settings-api-keys": ApiKeysPage,
-  "settings-webhooks": WebhooksPage,
   audit: AuditLogScreen,
   approvals: ApprovalsInboxScreen,
   leads: LeadsScreen,

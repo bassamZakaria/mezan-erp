@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { RowMenu } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { useSubPage } from "../navigation";
 
@@ -28,9 +29,19 @@ export interface ScreenTab {
 export interface ScreenTabsProps {
   readonly tabs: readonly ScreenTab[];
   readonly ariaLabel: string;
+  /**
+   * How many tabs stay on the strip. The rest fold into a «…» menu — they are
+   * still tabs, still addressed, still one click away, they just stop
+   * competing for attention with the one the screen is named after. The OPEN
+   * tab is always on the strip whatever this says, so the way back from a
+   * folded tab is never hidden inside the menu that opened it.
+   */
+  readonly primaryCount?: number;
+  /** Accessible name for that menu — «المزيد من أقسام الأصناف». */
+  readonly moreLabel?: string;
 }
 
-export function ScreenTabs({ tabs, ariaLabel }: ScreenTabsProps) {
+export function ScreenTabs({ tabs, ariaLabel, primaryCount, moreLabel }: ScreenTabsProps) {
   const { direction } = useAppTranslation();
   const { segments, open, close } = useSubPage();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -65,10 +76,15 @@ export function ScreenTabs({ tabs, ariaLabel }: ScreenTabsProps) {
     refs.current[next]?.focus();
   }
 
+  const shown = primaryCount === undefined ? tabs.length : Math.max(1, primaryCount);
+  const stripTabs = tabs.filter((tab, index) => index < shown || index === activeIndex);
+  const foldedTabs = tabs.filter((tab, index) => index >= shown && index !== activeIndex);
+
   return (
     <div className="flex w-full flex-col gap-[16px]">
       <div role="tablist" aria-label={ariaLabel} onKeyDown={onKeyDown} className="flex flex-wrap items-center gap-[6px] border-b border-border pb-[10px]">
-        {tabs.map((tab, index) => {
+        {stripTabs.map((tab) => {
+          const index = tabs.indexOf(tab);
           const selected = index === activeIndex;
           return (
             <button
@@ -92,6 +108,20 @@ export function ScreenTabs({ tabs, ariaLabel }: ScreenTabsProps) {
             </button>
           );
         })}
+
+        {foldedTabs.length > 0 ? (
+          <RowMenu
+            // The strip sits at the page's inline start, so the panel has to
+            // open away from that edge rather than back across it.
+            align="start"
+            label={moreLabel ?? ariaLabel}
+            items={foldedTabs.map((tab) => ({
+              key: tab.key,
+              label: tab.label,
+              onSelect: () => select(tabs.indexOf(tab)),
+            }))}
+          />
+        ) : null}
       </div>
 
       <div role="tabpanel">{active?.render()}</div>

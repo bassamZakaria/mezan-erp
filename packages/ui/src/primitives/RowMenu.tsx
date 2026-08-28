@@ -35,6 +35,14 @@ export interface RowMenuProps {
   items: readonly RowMenuItem[];
   /** Accessible name, e.g. "إجراءات INV-000001". */
   label: string;
+  /**
+   * Which edge the panel hangs from. `end` (the default) is right for a row's
+   * own overflow, which sits at the row's inline end with the whole row to
+   * open back across. A trigger at the inline START — a tab strip's «…» — must
+   * use `start`, or the panel opens off the edge of the page and its labels
+   * are cut in half.
+   */
+  align?: "start" | "end";
   className?: string;
 }
 
@@ -45,7 +53,7 @@ export interface RowMenuProps {
  * تعديل, a paid invoice does not offer إلغاء. Passing an empty list renders
  * nothing rather than a menu that opens onto nothing.
  */
-export function RowMenu({ items, label, className }: RowMenuProps) {
+export function RowMenu({ items, label, align = "end", className }: RowMenuProps) {
   const { t } = useUiTranslation();
   const toast = useOptionalToast();
   const [open, setOpen] = useState(false);
@@ -159,7 +167,8 @@ export function RowMenu({ items, label, className }: RowMenuProps) {
           role="menu"
           aria-label={label}
           className={cn(
-            "absolute end-0 z-30 min-w-[190px] overflow-hidden rounded-lg border border-border bg-surface py-[4px] shadow-2",
+            "absolute z-30 min-w-[190px] overflow-hidden rounded-lg border border-border bg-surface py-[4px] shadow-2",
+            align === "start" ? "start-0" : "end-0",
             dropUp ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]",
           )}
         >

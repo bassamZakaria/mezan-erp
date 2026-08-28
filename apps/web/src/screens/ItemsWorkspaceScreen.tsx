@@ -39,6 +39,15 @@ export function ItemsWorkspaceScreen() {
   return (
     <ScreenTabs
       ariaLabel={t("items.tabs.label")}
+      // الأصناف is the page; the other four are what an item is BUILT from —
+      // its variants' template, the attributes that template draws on, the
+      // formula behind a made-to-order product, and the recipe a manufacturing
+      // order is raised against. Every one is in use (the seeded tenant has 2
+      // templates generating 5 variant items, 5 specifications the item form
+      // reads, 1 configurable product and 3 recipes), so none can go — but
+      // none of them is the list a user opens الأصناف to see.
+      primaryCount={1}
+      moreLabel={t("items.tabs.more")}
       tabs={[
         { key: "items", label: t("items.tabs.items"), render: () => <ItemsScreen /> },
         { key: "templates", label: t("items.tabs.templates"), render: () => <ProductTemplatesScreen /> },

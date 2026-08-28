@@ -93,7 +93,6 @@ function OrderDetail({
               {t("purchaseOrders.confirmSend")}
             </Button>
           ) : null}
-          <Button onClick={onBack}>{t("purchaseOrders.backToList")}</Button>
         </>
       }
       summary={[
@@ -378,9 +377,6 @@ export function PurchaseOrdersScreen() {
           <h1 className="font-display text-xl font-bold text-ink">{t("purchaseOrders.panel.title")}</h1>
           <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("purchaseOrders.panel.description")}</p>
         </div>
-        <Button variant="default" onClick={subPage.close}>
-          {t("quotes.backToList")}
-        </Button>
       </div>
       {form}
     </div>

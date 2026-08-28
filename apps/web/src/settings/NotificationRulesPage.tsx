@@ -16,6 +16,7 @@ import type { NotificationRuleDTO } from "@mezan/contracts";
 import { permissionLabel } from "../permission-labels";
 import { eventLabel, eventLabelArByCode, eventLabelByCode } from "../domain-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useConfirmAction } from "../lib/use-confirm-action";
 import { MultiChipField, SelectField, TextAreaField, TextField, ToggleField } from "./form-controls";
 import {
   useCreateNotificationRule,
@@ -115,6 +116,11 @@ export function NotificationRulesPage() {
   const usersQuery = useUsers();
 
   const [panelOpen, setPanelOpen] = useState(false);
+  const confirm = useConfirmAction();
+  // WHICH row is mutating, not merely that something is. Binding a
+  // mutation-wide `isPending` to every row's `disabled` made the whole list go
+  // dead while one toggle was in flight.
+  const [pendingRuleId, setPendingRuleId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
 
@@ -212,8 +218,12 @@ export function NotificationRulesPage() {
       render: (r) => (
         <button
           type="button"
-          onClick={() => setActive.mutate({ id: r.id, active: !r.active })}
-          disabled={setActive.isPending}
+          onClick={() => {
+            if (pendingRuleId) return;
+            setPendingRuleId(r.id);
+            setActive.mutate({ id: r.id, active: !r.active }, { onSettled: () => setPendingRuleId(null) });
+          }}
+          disabled={pendingRuleId === r.id}
         >
           <StatusPill label={r.active ? t("notifRules.tab.active") : t("notifRules.tab.inactive")} tone={r.active ? "success" : "neutral"} />
         </button>
@@ -224,7 +234,22 @@ export function NotificationRulesPage() {
       header: "",
       align: "end",
       render: (r) => (
-        <Button variant="default" onClick={() => deleteRule.mutate(r.id)} disabled={deleteRule.isPending}>
+        <Button
+          variant="default"
+          disabled={pendingRuleId === r.id}
+          onClick={() =>
+            confirm.ask({
+              title: t("notifRules.confirmDeleteTitle"),
+              consequence: t("notifRules.confirmDeleteBody", { name: r.name }),
+              confirmLabel: t("notifRules.delete"),
+              onConfirm: () => {
+                if (pendingRuleId) return;
+                setPendingRuleId(r.id);
+                deleteRule.mutate(r.id, { onSettled: () => setPendingRuleId(null) });
+              },
+            })
+          }
+        >
           {t("notifRules.delete")}
         </Button>
       ),
@@ -365,6 +390,7 @@ export function NotificationRulesPage() {
           </div>
         </div>
       </SidePanel>
+      {confirm.dialog}
     </div>
   );
 }

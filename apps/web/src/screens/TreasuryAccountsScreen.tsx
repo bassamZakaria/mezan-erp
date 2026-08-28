@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { errorMessage } from "../lib/error-message";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, TextInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
@@ -412,7 +413,7 @@ export function TreasuryAccountsScreen() {
                 setOpeningFor(null);
                 setOpeningAmount(0);
               } catch (err) {
-                setOpeningError(err instanceof Error ? err.message : String(err));
+                setOpeningError(errorMessage(err, t("common.failed")));
               }
             }}
           >

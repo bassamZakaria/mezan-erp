@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { errorMessage } from "../../lib/error-message";
 import { Button, DocumentDetail, DocumentStatusStepper, Money as MoneyDisplay, useFormat } from "@mezan/ui";
 import { SectionCard, SelectField, TextField } from "../../settings/form-controls";
 import {
@@ -127,7 +128,7 @@ export function QuoteDetailView({ quote, onBack }: { quote: SalesQuoteRecord; on
         },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -256,12 +257,6 @@ export function QuoteDetailView({ quote, onBack }: { quote: SalesQuoteRecord; on
 
   return (
     <div className="w-full">
-      <div className="mb-3">
-        <Button variant="default" onClick={onBack}>
-          {t("quotes.backToList")}
-        </Button>
-      </div>
-
       <DocumentDetail
         title={quote.docNo ?? t("quotes.detailTitle")}
         statusLabel={t(STATUS_KEY[quote.status])}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   Card,
@@ -113,7 +114,7 @@ export function InstallmentFollowUpsScreen() {
       setPanel("none");
       setNotes("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -124,7 +125,7 @@ export function InstallmentFollowUpsScreen() {
       setPanel("none");
       setOutcome("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -136,7 +137,7 @@ export function InstallmentFollowUpsScreen() {
       await cancelFollowUp.mutateAsync(f.id);
       setPanel("none");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, t("common.failed")));
     } finally {
       setRowPendingId(null);
     }

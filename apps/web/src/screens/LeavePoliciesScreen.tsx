@@ -11,6 +11,7 @@ import {
   useLeavePolicyPresets,
   useUpdateLeavePolicy,
 } from "../data/hooks";
+import { useConfirmAction } from "../lib/use-confirm-action";
 import { ACCRUAL_FREQUENCY_KEY, formatDays, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
@@ -90,6 +91,7 @@ export function LeavePoliciesScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const confirm = useConfirmAction();
   const [banner, setBanner] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
@@ -215,7 +217,18 @@ export function LeavePoliciesScreen() {
           <IconButton aria-label={t("leavePolicies.editLabel", { name: t(LEAVE_TYPE_KEY[p.leaveType]) })} onClick={() => openEdit(p)}>
             <EditIcon />
           </IconButton>
-          <IconButton aria-label={t("leavePolicies.deleteLabel", { name: t(LEAVE_TYPE_KEY[p.leaveType]) })} disabled={deletingId !== null} onClick={() => handleDelete(p)}>
+          <IconButton
+            aria-label={t("leavePolicies.deleteLabel", { name: t(LEAVE_TYPE_KEY[p.leaveType]) })}
+            disabled={deletingId === p.id}
+            onClick={() =>
+              confirm.ask({
+                title: t("leavePolicies.confirmDeleteTitle"),
+                consequence: t("leavePolicies.confirmDeleteBody", { name: t(LEAVE_TYPE_KEY[p.leaveType]) }),
+                confirmLabel: t("common.delete"),
+                onConfirm: () => handleDelete(p),
+              })
+            }
+          >
             <TrashIcon />
           </IconButton>
         </div>
@@ -371,6 +384,7 @@ export function LeavePoliciesScreen() {
           </div>
         </form>
       </SidePanel>
+      {confirm.dialog}
     </div>
   );
 }

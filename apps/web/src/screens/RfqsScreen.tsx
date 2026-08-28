@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { errorMessage } from "../lib/error-message";
 import {
   Button,
   DocumentList,
@@ -145,7 +146,7 @@ function RfqDetail({
       setQuoteLines(rfq.lines.map((l) => ({ itemId: l.itemId, unitPrice: 0 })));
       setQuoteNotes("");
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setActionError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -159,7 +160,7 @@ function RfqDetail({
         body: { purchaseOrderId: crypto.randomUUID(), supplierId, expectedDeliveryDate: null },
       });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setActionError(errorMessage(err, t("common.failed")));
     } finally {
       setPendingConvertSupplierId(null);
     }
@@ -190,7 +191,6 @@ function RfqDetail({
               {t("rfqs.cancel")}
             </Button>
           ) : null}
-          <Button onClick={onBack}>{t("rfqs.backToList")}</Button>
         </>
       }
       summary={[
@@ -412,7 +412,7 @@ export function RfqsScreen() {
     try {
       await transition.mutateAsync(id);
     } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
+      setRowError(errorMessage(err, t("common.failed")));
     } finally {
       setRowPendingId(null);
     }
@@ -523,7 +523,7 @@ export function RfqsScreen() {
       });
       subPage.close();
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : String(err));
+      setCreateError(errorMessage(err, t("common.failed")));
     }
   }
 
@@ -535,9 +535,6 @@ export function RfqsScreen() {
           <h1 className="font-display text-xl font-bold text-ink">{t("rfqs.panel.title")}</h1>
           <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("rfqs.panel.description")}</p>
         </div>
-        <Button variant="default" onClick={subPage.close}>
-          {t("quotes.backToList")}
-        </Button>
       </div>
       <div className="flex flex-col gap-[14px]">
         <TextField label={t("rfqs.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />

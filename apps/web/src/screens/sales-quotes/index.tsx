@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { errorMessage } from "../../lib/error-message";
 import {
   Button,
   DocumentList,
@@ -73,7 +74,7 @@ export function SalesQuotesScreen() {
     try {
       await transition.mutateAsync(id);
     } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
+      setRowError(errorMessage(err, t("common.failed")));
     } finally {
       setPendingId(null);
     }

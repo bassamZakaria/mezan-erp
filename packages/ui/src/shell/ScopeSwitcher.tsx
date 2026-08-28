@@ -18,14 +18,48 @@ interface RailScopeSelectProps {
   icon: ReactNode;
   expanded: boolean;
   widthClassName?: string;
+  /** Header only: no resting fill, so the scope reads under the search rather than against it. */
+  quiet?: boolean;
 }
+
+/**
+ * The header pair carries no box until it is pointed at. Two filled 172px
+ * pills were the heaviest thing on the bar — heavier than the command bar
+ * they sit beside — which is backwards: the scope is what you SET once a day,
+ * the search is what you USE all day. The fill returns on hover and focus, and
+ * `aria-expanded` keeps the gold edge while the menu is open.
+ *
+ * Each `[&>button]` selector outranks the plain classes `Select` writes on the
+ * same element (class + type beats class alone), so this wins regardless of
+ * the order Tailwind emits them in.
+ */
+/* The pair shrinks before the command bar does. Below ~1280 the header runs out
+   of room, and a search field squeezed to a stub is worse than a branch name
+   that truncates — the value stays readable at 132px for every seeded branch,
+   and the full label is in the menu. */
+const HEADER_SCOPE_WIDTH = "w-[172px] max-[1280px]:w-[132px]";
+
+const QUIET_TRIGGER =
+  "[&>button]:border-transparent [&>button]:bg-transparent " +
+  "[&>button:hover]:border-chrome-border [&>button:hover]:bg-chrome-hover " +
+  // The global focus ring is `--action` (teal) and `Select` clears the native
+  // one, so on the teal chrome a keyboard user saw nothing at all here. Gold is
+  // the chrome's own accent, and the pseudo-class has to sit INSIDE the
+  // arbitrary selector: `[&>button]:focus-visible:` puts `:focus-visible` on
+  // the wrapper, which never receives focus, and the ring stayed transparent.
+  "[&>button:focus-visible]:outline-chrome-accent " +
+  // Open beats hover: the two selectors are otherwise equally specific, and
+  // which one won would be decided by the order Tailwind happened to emit them
+  // in — the gold edge lost that race while the pointer rested on the trigger.
+  "[&>button[aria-expanded='true']]:border-chrome-accent [&>button[aria-expanded='true']:hover]:border-chrome-accent " +
+  "[&>button[aria-expanded='true']]:bg-chrome-hover";
 
 /**
  * One working-scope dropdown (branch or warehouse), pinned to the rail top.
  * Collapsed, the trigger is the icon alone and the chosen scope moves to the
  * title attribute, so the rail stays 30px wide without hiding the value.
  */
-function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, expanded, widthClassName }: RailScopeSelectProps) {
+function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, expanded, widthClassName, quiet }: RailScopeSelectProps) {
   const selectedLabel = (value ? options.find((opt) => opt.id === value)?.label : null) ?? allLabel;
 
   return (
@@ -48,6 +82,7 @@ function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, 
           // size scale tops out at 38, so the trigger is raised here rather
           // than in the primitive every screen shares.
           "[&>button]:min-h-[var(--h-btn)]",
+          quiet && QUIET_TRIGGER,
           !expanded && "[&>button]:h-[30px] [&>button]:w-[30px] [&>button]:justify-center [&>button]:px-0",
         )}
       />
@@ -128,7 +163,8 @@ export function ScopeSwitchers({
         options={branchOptions}
         icon={BRANCH_ICON}
         expanded={header || expanded}
-        widthClassName={header ? "w-[172px]" : undefined}
+        quiet={header}
+        widthClassName={header ? HEADER_SCOPE_WIDTH : undefined}
       />
       <RailScopeSelect
         ariaLabel={warehouseAriaLabel}
@@ -138,7 +174,8 @@ export function ScopeSwitchers({
         options={warehouseOptions}
         icon={WAREHOUSE_ICON}
         expanded={header || expanded}
-        widthClassName={header ? "w-[172px]" : undefined}
+        quiet={header}
+        widthClassName={header ? HEADER_SCOPE_WIDTH : undefined}
       />
     </div>
   );

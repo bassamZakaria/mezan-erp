@@ -102,6 +102,9 @@
   --danger: #c0402f;
   --danger-soft: #f8e4df;
   --danger-ink: #8f2a1e;
+  /* Ink that sits ON `--danger` itself, not beside it: `--danger-ink` is the
+     red used for danger TEXT on a surface, which on a red fill is invisible. */
+  --danger-on: #fff8f6;
   --info: #2f6690;
   --info-soft: #e1eaf2;
   --info-ink: #234e6e;
@@ -277,6 +280,7 @@
       --danger: #e37b67;
       --danger-soft: #3a1712;
       --danger-ink: #f0a796;
+      --danger-on: #2b0d07;
       --info: #6fa3cc;
       --info-soft: #12293a;
       --info-ink: #9ec7e7;
@@ -345,6 +349,7 @@
     --danger: #e37b67;
     --danger-soft: #3a1712;
     --danger-ink: #f0a796;
+    --danger-on: #2b0d07;
     --info: #6fa3cc;
     --info-soft: #12293a;
     --info-ink: #9ec7e7;

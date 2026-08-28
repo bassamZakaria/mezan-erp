@@ -73,7 +73,7 @@ export function CommandBar({ items, placeholder, className }: CommandBarProps) {
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
-      <div className="flex items-center gap-[10px] rounded-md border border-chrome-border bg-chrome-hover px-[13px] py-[8px] transition-colors focus-within:border-chrome-accent hover:border-chrome-accent">
+      <div className="flex items-center gap-[10px] rounded-md border border-chrome-border bg-chrome-hover px-[13px] py-[8px] transition-colors focus-within:border-chrome-accent hover:border-chrome-accent has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-chrome-accent">
         <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[16px] w-[16px] flex-none text-chrome-ink-muted">
           <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
           <path d="m17 17-4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

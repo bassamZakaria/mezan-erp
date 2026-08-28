@@ -18,8 +18,10 @@ import type { NavGroup, NavItem } from "./types";
    brighter ink appear on hover and focus, which is where they carry meaning —
    a bordered container around every glyph made the bar read as five buttons
    competing with the workspace column. */
+/* The global focus ring is `--action` (teal) — on the teal chrome it is all but
+   invisible, so every chrome control names the chrome's own gold instead. */
 const CHROME_BUTTON =
-  "flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md border border-transparent bg-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink";
+  "flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md border border-transparent bg-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink focus-visible:outline-chrome-accent";
 
 const LANGUAGE_NAME_KEY = { ar: "shell.language.name.ar", en: "shell.language.name.en" } as const;
 

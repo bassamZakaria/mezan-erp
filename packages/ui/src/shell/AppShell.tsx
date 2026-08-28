@@ -238,7 +238,7 @@ export function AppShell({
             aria-label={t("shell.bar.home")}
             className={cn(
               RAIL_WIDTH,
-              "flex min-h-[var(--h-btn)] flex-none items-center gap-[8px] ps-[14px] text-chrome-ink transition-colors hover:bg-chrome-hover",
+              "flex min-h-[var(--h-btn)] flex-none items-center gap-[8px] ps-[14px] text-chrome-ink transition-colors hover:bg-chrome-hover focus-visible:outline-chrome-accent",
             )}
           >
             <BrandMark className="h-[24px] w-[24px] flex-none text-accent" />
@@ -250,7 +250,7 @@ export function AppShell({
               which is the column's width plus that bar's own inset. Branch and
               warehouse describe what every screen under them is showing, so
               they read as the head of that column of screens. */}
-          <div className={cn(BAR_INSET, "flex min-w-0 flex-1 items-center gap-[8px]")}>
+          <div className={cn(BAR_INSET, "flex min-w-0 flex-1 items-center gap-[16px]")}>
             <ScopeSwitchers
               orientation="header"
               branchAriaLabel={t("shell.scope.branch")}
@@ -264,18 +264,27 @@ export function AppShell({
               allBranchesLabel={t("shell.scope.allBranches")}
               allWarehousesLabel={t("shell.scope.allWarehouses")}
             />
+
+            {/* ⌘K is the fastest way to anywhere in the app, and as a fixed
+                250px box wedged between the appearance toggle and the bell it
+                read as one more icon. It takes the empty middle instead: the
+                run of chrome between the scope and the utilities was dead
+                space at every width above ~1400px. It grows with the window up
+                to 560px — past that a search field stops looking like a field
+                — and is centred in what is left between its two neighbours. */}
+            <div className="flex min-w-0 flex-1 justify-center">
+              <CommandBar
+                items={commandItems}
+                placeholder={t("shell.command.placeholder")}
+                // `CommandBar`'s own box is 38px (the shared control scale); the
+                // bar's minimum target is 44 (`--h-btn`), so it is raised here
+                // rather than in the primitive every screen shares.
+                className="w-full max-w-[560px] [&>div]:min-h-[var(--h-btn)] max-[980px]:hidden"
+              />
+            </div>
           </div>
 
           <div className="flex flex-none items-center gap-[8px]">
-            <CommandBar
-              items={commandItems}
-              placeholder={t("shell.command.placeholder")}
-              // `CommandBar`'s own box is 38px (the shared control scale); the
-              // bar's minimum target is 44 (`--h-btn`), so it is raised here
-              // rather than in the primitive every screen shares.
-              className="w-[250px] [&>div]:min-h-[var(--h-btn)] max-[1280px]:w-[180px] max-[980px]:hidden"
-            />
-
             {/* The language switcher, the appearance toggle and the settings
                 gear. They belonged to the retired `Topbar`; dropping it took
                 them off the screen entirely. */}
@@ -292,19 +301,36 @@ export function AppShell({
                 aria-label={
                   notificationCount > 0 ? t("shell.notifications.withCount", { count: notificationCount }) : t("shell.notifications")
                 }
-                className="relative flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md border border-transparent bg-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink"
+                className="relative flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md border border-transparent bg-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink focus-visible:outline-chrome-accent"
               >
                 <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
                   <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                   <path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
                 </svg>
-                {/* Never colour alone: the count is in the accessible name above. */}
+                {/* Never colour alone — and now never a bare dot either: the
+                    number is the thing the user wants ("three waiting" reads
+                    differently from "something waiting"), and it is text, so
+                    it survives greyscale and a colour-blind viewer. Past 9 the
+                    exact figure stops mattering and the badge would outgrow the
+                    icon, so it caps; the accessible name keeps the true count.
+                    `text-danger-on` is the ink that sits ON the red fill —
+                    `text-danger-ink` is the red used BESIDE it, invisible here. */}
                 {notificationCount > 0 ? (
-                  <span aria-hidden className="absolute top-[8px] end-[8px] h-[7px] w-[7px] rounded-full border-2 border-chrome bg-danger" />
+                  <span
+                    aria-hidden
+                    className="mz-lat absolute top-[5px] end-[5px] flex h-[16px] min-w-[16px] items-center justify-center rounded-pill border-2 border-chrome bg-danger px-[3px] text-[10px] font-bold leading-none text-danger-on"
+                  >
+                    {notificationCount > 9 ? "9+" : notificationCount}
+                  </span>
                 ) : null}
               </button>
               {notificationsPanel}
             </div>
+
+            {/* Utilities (help, language, appearance, notifications) belong to
+                the APP; the chip belongs to the SESSION. Eight pixels of gap
+                said they were one row of seven equal things. */}
+            <span aria-hidden className="mx-[4px] h-[22px] w-px flex-none bg-chrome-border" />
 
             <TopbarMenu
               label={user.name}
@@ -313,7 +339,7 @@ export function AppShell({
                 <button
                   {...triggerProps}
                   type="button"
-                  className="flex min-h-[var(--h-btn)] flex-none items-center gap-[9px] rounded-pill border border-chrome-border bg-chrome-hover pe-[12px] ps-[6px] transition-colors hover:border-chrome-accent"
+                  className="flex min-h-[var(--h-btn)] flex-none items-center gap-[9px] rounded-pill border border-chrome-border bg-chrome-hover pe-[12px] ps-[6px] transition-colors hover:border-chrome-accent focus-visible:outline-chrome-accent"
                 >
                   <span className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full bg-accent font-display text-[11px] font-extrabold text-accent-ink">
                     {user.initials}

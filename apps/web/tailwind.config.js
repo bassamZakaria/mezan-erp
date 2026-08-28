@@ -49,7 +49,7 @@ export default {
         },
         success: { DEFAULT: "var(--success)", soft: "var(--success-soft)", ink: "var(--success-ink)" },
         warning: { DEFAULT: "var(--warning)", soft: "var(--warning-soft)", ink: "var(--warning-ink)" },
-        danger: { DEFAULT: "var(--danger)", soft: "var(--danger-soft)", ink: "var(--danger-ink)" },
+        danger: { DEFAULT: "var(--danger)", soft: "var(--danger-soft)", ink: "var(--danger-ink)", on: "var(--danger-on)" },
         info: { DEFAULT: "var(--info)", soft: "var(--info-soft)", ink: "var(--info-ink)" },
         scrim: "var(--scrim)",
         "chart-1": "var(--chart-1)",

@@ -58,6 +58,7 @@ import {
   Hourglass,
   KeyRound,
   Landmark,
+  LayoutGrid,
   Layers,
   LayoutDashboard,
   LayoutTemplate,
@@ -142,6 +143,7 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "landed-costs": Ship,
 
   "inventory-hub": PackageOpen,
+  "items-hub": LayoutGrid,
   items: Package,
   "stock-balance": Boxes,
   "stock-transfers": ArrowLeftRight,

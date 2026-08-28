@@ -97,6 +97,7 @@ const InventoryMovementReportScreen = lazy(() => import("./screens/reports/Inven
 const InventorySlowMovingReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventorySlowMovingReportScreen })));
 const InventoryStockLevelsReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryStockLevelsReportScreen })));
 const InventoryValuationReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryValuationReportScreen })));
+const ItemsHubScreen = lazy(() => import("./screens/hubs/ItemsHubScreen").then((m) => ({ default: m.ItemsHubScreen })));
 const ItemsScreen = lazy(() => import("./screens/ItemsScreen").then((m) => ({ default: m.ItemsScreen })));
 const ItemSpecificationsScreen = lazy(() => import("./screens/ItemSpecificationsScreen").then((m) => ({ default: m.ItemSpecificationsScreen })));
 const JobTitlesScreen = lazy(() => import("./screens/JobTitlesScreen").then((m) => ({ default: m.JobTitlesScreen })));
@@ -183,6 +184,7 @@ const ROUTABLE_SCREENS = {
   "sales-hub": SalesHubScreen,
   "purchases-hub": PurchasesHubScreen,
   "inventory-hub": InventoryHubScreen,
+  "items-hub": ItemsHubScreen,
   "accounting-hub": AccountingHubScreen,
   "treasury-hub": TreasuryHubScreen,
   "crm-hub": CrmHubScreen,

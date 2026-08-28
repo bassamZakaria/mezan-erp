@@ -7,12 +7,14 @@ import {
   EmailDomainNotAllowedError,
   UnknownRoleError,
   UserNotFoundError,
+  type AuditSink,
   type User,
   type UnitOfWork,
   type SecretHasher,
 } from "@mezan/domain";
 import { createUserSchema, updateUserSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 
 function serializeUser(user: User) {
   return {
@@ -66,9 +68,40 @@ export function createUsersRoutes(
    * the app before the next account can use it.
    */
   readAllowedEmailDomains?: () => Promise<readonly string[]>,
+  /** Who created an account, changed its role, or gave it admin. */
+  audit?: AuditSink,
 ) {
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
+
+  /**
+   * The ROLE and the admin flag travel — they are what a user account grants.
+   * The PIN hash never does: a forensic log that carries the secret it is
+   * meant to protect is a second copy of the credential store.
+   */
+  function auditUser(c: Context, user: User, action: string, before?: User | null) {
+    return recordAdminEvent(audit, c, {
+      module: "admin",
+      entityType: "USER",
+      entityId: user.id,
+      action,
+      details: {
+        email: user.email,
+        roleId: user.roleId,
+        isCompanyAdmin: user.isCompanyAdmin,
+        status: user.status,
+        branchScope: user.branchScope,
+        warehouseScope: user.warehouseScope,
+        ...(before
+          ? {
+              previousRoleId: before.roleId,
+              previousIsCompanyAdmin: before.isCompanyAdmin,
+              previousStatus: before.status,
+            }
+          : {}),
+      },
+    });
+  }
   const saveOptions = async () => ({ allowedEmailDomains: (await readAllowedEmailDomains?.()) ?? [] });
 
   app.get("/", gate("admin.users.view"), async (c) => {
@@ -94,6 +127,7 @@ export function createUsersRoutes(
         hasher,
         await saveOptions(),
       );
+      await auditUser(c, user, "CREATE");
       return c.json(serializeUser(user), 201);
     } catch (err) {
       return userErrorResponse(c, err);
@@ -105,6 +139,8 @@ export function createUsersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    // Read before the write: "role changed" is only evidence with both ends.
+    const before = await uow.users.findById(c.req.param("id"));
     try {
       const user = await saveUser(
         { id: c.req.param("id"), ...parsed.data, createdAt: new Date().toISOString() },
@@ -112,6 +148,7 @@ export function createUsersRoutes(
         hasher,
         await saveOptions(),
       );
+      await auditUser(c, user, "UPDATE", before);
       return c.json(serializeUser(user));
     } catch (err) {
       return userErrorResponse(c, err);
@@ -121,6 +158,7 @@ export function createUsersRoutes(
   app.post("/:id/deactivate", gate("admin.users.deactivate"), async (c) => {
     try {
       const user = await setUserStatus(c.req.param("id"), "inactive", uow);
+      await auditUser(c, user, "DEACTIVATE");
       return c.json(serializeUser(user));
     } catch (err) {
       return userErrorResponse(c, err);
@@ -130,6 +168,7 @@ export function createUsersRoutes(
   app.post("/:id/activate", gate("admin.users.edit"), async (c) => {
     try {
       const user = await setUserStatus(c.req.param("id"), "active", uow);
+      await auditUser(c, user, "ACTIVATE");
       return c.json(serializeUser(user));
     } catch (err) {
       return userErrorResponse(c, err);

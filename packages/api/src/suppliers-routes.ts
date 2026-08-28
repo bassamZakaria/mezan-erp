@@ -1,7 +1,8 @@
 import { Hono, type Context } from "hono";
-import { createSupplier, updateSupplier, InvalidSupplierError, Money, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
+import { createSupplier, updateSupplier, InvalidSupplierError, Money, type AuditSink, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
 import { createSupplierSchema, updateSupplierSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 
 /**
  * What is still owed to each supplier on their LIVE documents — confirmed
@@ -60,9 +61,33 @@ export function createSuppliersRouter(
   repo: SupplierRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
   payables?: SupplierPayablesSource,
+  /**
+   * The twin of the customer trail. A supplier's bank details and opening
+   * balance decide where money goes and how much is owed; the customer side
+   * was logged and this one was not.
+   */
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  function auditSupplier(c: Context, supplier: Supplier, action: "CREATE" | "UPDATE", before?: Supplier) {
+    return recordAdminEvent(audit, c, {
+      module: "purchases",
+      entityType: "SUPPLIER",
+      entityId: supplier.id,
+      action,
+      severity: before && before.openingBalance.scaled !== supplier.openingBalance.scaled ? "WARNING" : "INFO",
+      details: {
+        code: supplier.code,
+        nameAr: supplier.nameAr,
+        openingBalance: supplier.openingBalance.toString(),
+        ...(before
+          ? { previousOpeningBalance: before.openingBalance.toString(), previousCode: before.code }
+          : {}),
+      },
+    });
+  }
 
   interface SupplierListFilter {
     readonly status?: string;
@@ -154,6 +179,7 @@ export function createSuppliersRouter(
         openingBalance: openingBalance !== undefined ? Money.fromMajor(openingBalance) : undefined,
       });
       await repo.save(supplier);
+      await auditSupplier(c, supplier, "CREATE");
       return c.json(serialize(supplier), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -187,6 +213,7 @@ export function createSuppliersRouter(
       };
       const next = updateSupplier(current, patch);
       await repo.save(next);
+      await auditSupplier(c, next, "UPDATE", current);
       return c.json(serialize(next));
     } catch (err) {
       return handleDomainError(c, err);

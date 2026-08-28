@@ -36,6 +36,7 @@ const baseSettings: TenantSettingsDTO = {
   priceListsEnabled: true,
   creditControlEnabled: false,
   creditControlMode: "WARNING",
+  maxLineDiscountPercent: 100,
   allowCrossWarehouseSales: true,
   showOtherWarehouseStock: true,
   allowBackorder: false,

@@ -7,11 +7,13 @@ import {
   DuplicateFiscalPeriodError,
   FiscalPeriodNotFoundError,
   InvalidPeriodTransitionError,
+  type AuditSink,
   type FiscalPeriod,
   type FiscalPeriodRepository,
 } from "@mezan/domain";
 import { generateFiscalYearSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 
 function serialize(period: FiscalPeriod) {
   return {
@@ -53,9 +55,30 @@ function handleDomainError(c: Context, err: unknown) {
 export function createFiscalPeriodsRoutes(
   repo: FiscalPeriodRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /**
+   * Who closed, reopened or locked a period. Reopening a closed period is the
+   * move that lets a posted month be changed after the fact, and it left no
+   * record at all.
+   */
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  function auditPeriod(c: Context, period: FiscalPeriod, action: string, previousStatus: string | null) {
+    return recordAdminEvent(audit, c, {
+      module: "accounting",
+      entityType: "FISCAL_PERIOD",
+      entityId: period.id,
+      action,
+      details: {
+        year: period.year,
+        periodNumber: period.periodNumber,
+        status: period.status,
+        ...(previousStatus ? { previousStatus } : {}),
+      },
+    });
+  }
 
   app.get("/", gate("accounting.period.view"), async (c) => {
     const year = c.req.query("year");
@@ -84,7 +107,9 @@ export function createFiscalPeriodsRoutes(
 
   app.post("/:id/close", gate("accounting.period.close"), async (c) => {
     try {
+      const before = await repo.findById(c.req.param("id"));
       const period = await closeFiscalPeriod(c.req.param("id"), repo);
+      await auditPeriod(c, period, "CLOSE", before?.status ?? null);
       return c.json(serialize(period));
     } catch (err) {
       return handleDomainError(c, err);
@@ -93,7 +118,9 @@ export function createFiscalPeriodsRoutes(
 
   app.post("/:id/reopen", gate("accounting.period.reopen"), async (c) => {
     try {
+      const before = await repo.findById(c.req.param("id"));
       const period = await reopenFiscalPeriod(c.req.param("id"), repo);
+      await auditPeriod(c, period, "REOPEN", before?.status ?? null);
       return c.json(serialize(period));
     } catch (err) {
       return handleDomainError(c, err);
@@ -102,7 +129,9 @@ export function createFiscalPeriodsRoutes(
 
   app.post("/:id/lock", gate("accounting.period.close"), async (c) => {
     try {
+      const before = await repo.findById(c.req.param("id"));
       const period = await lockFiscalPeriod(c.req.param("id"), repo);
+      await auditPeriod(c, period, "LOCK", before?.status ?? null);
       return c.json(serialize(period));
     } catch (err) {
       return handleDomainError(c, err);

@@ -46,6 +46,7 @@ export const tenantSettingsSchema = z.object({
   priceListsEnabled: z.boolean(),
   creditControlEnabled: z.boolean(),
   creditControlMode: z.enum(["WARNING", "BLOCK"]),
+  maxLineDiscountPercent: z.number().min(0).max(100),
 
   allowCrossWarehouseSales: z.boolean(),
   showOtherWarehouseStock: z.boolean(),

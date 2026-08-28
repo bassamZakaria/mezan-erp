@@ -1547,8 +1547,8 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   await scenario("x37 · a document posted into an earlier open period restates that period's reports and leaves the current one alone", async () => {
-    const julyBefore = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-07-01&periodTo=2026-07-31")).body?.grandTotals?.amount);
-    const augustBefore = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31")).body?.grandTotals?.amount);
+    const julyBefore = n((await req("GET", "/financial-reports/income-statement?periodFrom=2026-07-01&periodTo=2026-07-31")).body?.grandTotals?.amount);
+    const augustBefore = n((await req("GET", "/financial-reports/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31")).body?.grandTotals?.amount);
     const expenseBefore = await gl(EXPENSE);
 
     const backdated = await req("POST", "/gl/journal-entries", {
@@ -1563,8 +1563,8 @@ export async function run(ctx: Ctx): Promise<void> {
     check("a July-dated entry posts while July is still open", backdated.status === 201 && backdated.body?.status === "posted", `status ${backdated.status} ${JSON.stringify(backdated.body).slice(0, 200)}`);
     if (backdated.status === 201) treasuryLedger.push({ label: "backdated July expense (cash)", delta: -1200 });
 
-    const julyAfter = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-07-01&periodTo=2026-07-31")).body?.grandTotals?.amount);
-    const augustAfter = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31")).body?.grandTotals?.amount);
+    const julyAfter = n((await req("GET", "/financial-reports/income-statement?periodFrom=2026-07-01&periodTo=2026-07-31")).body?.grandTotals?.amount);
+    const augustAfter = n((await req("GET", "/financial-reports/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31")).body?.grandTotals?.amount);
     check("July's income statement moved — the past was genuinely restated", julyAfter !== julyBefore, `before=${julyBefore} after=${julyAfter}`);
     checkEq("August's is untouched — a backdated entry must not leak into the current period", augustAfter, augustBefore);
     checkEq("the cumulative ledger as of today carries it — a backdated entry is not a report-only adjustment", (await gl(EXPENSE)) - expenseBefore, 1200);

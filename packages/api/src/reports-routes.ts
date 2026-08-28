@@ -158,15 +158,22 @@ function firstOfYear(today: string): string {
 }
 
 /**
- * The GL context every financial statement reads: the real posted journal
- * entries plus the chart of accounts to classify them. Only `posted` entries
- * feed the statements — drafts/pending/reversed never reach a report.
+ * The GL slice the account drill-down reads.
+ *
+ * REVERSED ENTRIES LOAD ALONGSIDE POSTED ONES. Reversing posts a mirror entry
+ * (status `posted`) and marks the original `reversed`; loading only `posted`
+ * therefore keeps the mirror and drops what it offsets, so every figure is
+ * wrong by the reversal. This is the same slice
+ * `financial-reports-routes.ts` loads, and the two must not diverge again —
+ * they answer the same questions about the same ledger.
  */
 async function loadGlContext(deps: ReportsRoutesDeps): Promise<GlReportContext> {
-  const [accounts, journalEntries] = await Promise.all([
+  const [accounts, posted, reversed] = await Promise.all([
     deps.accounts.list(),
     deps.ledger.list({ status: "posted" }),
+    deps.ledger.list({ status: "reversed" }),
   ]);
+  const journalEntries = [...posted, ...reversed].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   return { accounts, journalEntries };
 }
 
@@ -517,48 +524,6 @@ export function createReportsRoutes(
   // never a fixture ledger. Each recreates the SAME `ReportDefinition` the web
   // screen renders through, so params/columns/reconciliation can never drift.
 
-  app.get("/accounting/trial-balance", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
-    const definition = createTrialBalanceReport(today);
-    const ctx = await loadGlContext(deps);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
-  });
-
-  app.get("/accounting/income-statement", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
-    const definition = createIncomeStatementReport({ periodFrom: firstOfYear(today), periodTo: today });
-    const ctx = await loadGlContext(deps);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
-  });
-
-  app.get("/accounting/balance-sheet", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
-    const definition = createBalanceSheetReport(today);
-    const ctx = await loadGlContext(deps);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
-  });
-
-  app.get("/accounting/cash-flow", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
-    const definition = createCashFlowReport({ periodFrom: firstOfYear(today), periodTo: today });
-    const ctx = await loadGlContext(deps);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
-  });
-
-  app.get("/accounting/vat-return", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
-    const definition = createVatReturnReport({ periodFrom: firstOfYear(today), periodTo: today });
-    const ctx = await loadGlContext(deps);
-    // Resolve the VAT control accounts from the real chart (standard COA codes
-    // 2200 output / 1400 input), falling back to the fixture ids if absent.
-    const outputVatAccountId = ctx.accounts.find((a) => a.code === "2200")?.id ?? OUTPUT_VAT_ACCOUNT_ID;
-    const inputVatAccountId = ctx.accounts.find((a) => a.code === "1400")?.id ?? INPUT_VAT_ACCOUNT_ID;
-    return respond(
-      c,
-      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { ...ctx, outputVatAccountId, inputVatAccountId }),
-    );
-  });
-
   app.get("/tax/withholding", gate("accounting.reports.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createWithholdingTaxReport(firstOfYear(today), today);
@@ -583,13 +548,6 @@ export function createReportsRoutes(
       }];
     });
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { rows }));
-  });
-
-  app.get("/accounting/general-ledger", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
-    const definition = createGeneralLedgerReport({ periodFrom: firstOfYear(today), periodTo: today });
-    const ctx = await loadGlContext(deps);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
   });
 
   // --- التفاصيل — drill-down from an entity cell (A5) ----------------------
@@ -757,18 +715,6 @@ export function createReportsRoutes(
       })),
       documentCount: touching.length,
     });
-  });
-
-  app.get("/accounting/account-ledger", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
-    const ctx = await loadGlContext(deps);
-    const firstPostable = ctx.accounts.find((a) => !a.isHeader);
-    const definition = createAccountLedgerReport(ctx.accounts, {
-      accountId: firstPostable?.id ?? "",
-      periodFrom: firstOfYear(today),
-      periodTo: today,
-    });
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
   });
 
   return app;

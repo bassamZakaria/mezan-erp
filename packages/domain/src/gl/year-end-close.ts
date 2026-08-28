@@ -16,6 +16,7 @@
  */
 
 import { Money } from "../money/index.js";
+import { YEAR_END_CLOSE_DOC_TYPE } from "../journal.js";
 import type { Account, AccountRepository } from "../accounts/account.js";
 import type { LedgerRepository } from "./ledger.js";
 import { postJournalEntry, type JournalPostingDeps } from "./post.js";
@@ -161,6 +162,13 @@ export async function closeFiscalYear(cmd: CloseYearCommand, deps: CloseYearDeps
       date: plan.date,
       memo: cmd.memo ?? `إقفال السنة المالية ${cmd.year} — ترحيل النتيجة إلى الأرباح المرحلة`,
       source: "system",
+      // The entry is dated inside the year it closes, which is correct — and
+      // it zeroes every P&L account. Without this stamp the year's own income
+      // statement reads nil revenue and nil profit, and the result reappears
+      // as a financing inflow in the cash-flow statement, because nothing
+      // could tell a closing entry from trading.
+      sourceDocType: YEAR_END_CLOSE_DOC_TYPE,
+      sourceDocId: plan.entryId,
       lines,
     },
     deps,

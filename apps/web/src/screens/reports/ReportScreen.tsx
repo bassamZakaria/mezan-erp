@@ -37,6 +37,13 @@ export interface ReportScreenDefinition<TParams, Row> {
 export interface ReportScreenProps<TParams, Row> {
   readonly definition: ReportScreenDefinition<TParams, Row>;
   readonly apiPath: string;
+  /**
+   * Mount the path hangs off. The seven financial statements live under
+   * `/financial-reports`, which loads posted AND reversed entries; `/reports`
+   * once served its own copy of them from a posted-only slice, so the
+   * statements hub and the trial-balance screen disagreed by every reversal.
+   */
+  readonly apiRoot?: string;
   /** Optional summary block rendered above the table (e.g. the VAT net-payable line). */
   readonly renderSummary?: (rows: readonly Row[]) => ReactNode;
   /** Overrides the definition's own `onDemand` — lets a caller auto-run a report the definition marks on-demand (e.g. the trial balance on the financial-statements page). */
@@ -49,7 +56,7 @@ function toStringParams(defaults: object): Record<string, string> {
   );
 }
 
-export function ReportScreen<TParams extends object, Row>({ definition: rawDefinition, apiPath, renderSummary, onDemand: onDemandOverride }: ReportScreenProps<TParams, Row>) {
+export function ReportScreen<TParams extends object, Row>({ definition: rawDefinition, apiPath, apiRoot, renderSummary, onDemand: onDemandOverride }: ReportScreenProps<TParams, Row>) {
   const { t, locale } = useAppTranslation();
   const definition = localizeReportDefinition(rawDefinition, t);
   const onDemand = onDemandOverride ?? definition.onDemand ?? false;
@@ -58,7 +65,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
   const [hasRun, setHasRun] = useState<boolean>(!onDemand);
   const [drillEntity, setDrillEntity] = useState<ReportRunnerEntityRef | null>(null);
 
-  const query = useReport<Row>(definition.id, apiPath, params, { enabled: hasRun });
+  const query = useReport<Row>(definition.id, apiPath, params, { enabled: hasRun, apiRoot });
 
   const fieldErrors = query.error?.fieldErrors;
   const raw = query.data ?? null;

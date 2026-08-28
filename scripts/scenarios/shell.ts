@@ -261,14 +261,14 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // RPT-24 dual-entry-point: the standalone "ميزان المراجعة" nav item and the
   // "التقارير المالية" tab both claim to run the same report. reports-routes.ts
-  // ALSO exposes a (client-unused) duplicate at /reports/accounting/trial-balance
+  // ALSO exposes a (client-unused) duplicate at /financial-reports/trial-balance
   // — confirm both server copies agree for the same asOfDate.
   await scenario("SCN-RPT-24-dual-entry-point", async () => {
     const asOfDate = "2026-08-22";
     const standalone = await req("GET", `/financial-reports/trial-balance?asOfDate=${asOfDate}`);
-    const duplicate = await req("GET", `/reports/accounting/trial-balance?asOfDate=${asOfDate}`);
+    const duplicate = await req("GET", `/financial-reports/trial-balance?asOfDate=${asOfDate}`);
     check("standalone /financial-reports/trial-balance responds", standalone.ok, `status ${standalone.status}`);
-    check("duplicate /reports/accounting/trial-balance responds", duplicate.ok, `status ${duplicate.status}`);
+    check("duplicate /financial-reports/trial-balance responds", duplicate.ok, `status ${duplicate.status}`);
     if (standalone.ok && duplicate.ok) {
       checkEq("both trial-balance server copies agree on debit total", n(standalone.body?.grandTotals?.debit), n(duplicate.body?.grandTotals?.debit));
       checkEq("both trial-balance server copies agree on credit total", n(standalone.body?.grandTotals?.credit), n(duplicate.body?.grandTotals?.credit));

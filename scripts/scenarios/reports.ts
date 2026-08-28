@@ -49,13 +49,13 @@ const ALL_REPORTS: readonly string[] = [
   "/reports/installments/overview",
   "/reports/installments/overdue",
   "/reports/field/van-sales?dateFrom=2026-01-01&dateTo=2026-12-31",
-  "/reports/accounting/trial-balance",
-  "/reports/accounting/income-statement?periodFrom=2026-01-01&periodTo=2026-12-31",
-  "/reports/accounting/balance-sheet",
-  "/reports/accounting/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31",
-  "/reports/accounting/vat-return?periodFrom=2026-01-01&periodTo=2026-12-31",
+  "/financial-reports/trial-balance",
+  "/financial-reports/income-statement?periodFrom=2026-01-01&periodTo=2026-12-31",
+  "/financial-reports/balance-sheet",
+  "/financial-reports/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31",
+  "/financial-reports/vat-return?periodFrom=2026-01-01&periodTo=2026-12-31",
   "/reports/tax/withholding?fromDate=2026-01-01&toDate=2026-12-31",
-  "/reports/accounting/general-ledger?periodFrom=2026-01-01&periodTo=2026-12-31",
+  "/financial-reports/general-ledger?periodFrom=2026-01-01&periodTo=2026-12-31",
 ];
 
 export async function run(ctx: Ctx): Promise<void> {
@@ -92,19 +92,19 @@ async function everyReportCarriesAKpiStrip_R212(ctx: Ctx): Promise<void> {
 
 async function headlineFiguresTieToTheLedger_R212(ctx: Ctx): Promise<void> {
   await ctx.scenario("R21.2 — every headline figure ties to the ledger beneath it", async () => {
-    const tb = await ctx.req("GET", "/reports/accounting/trial-balance");
+    const tb = await ctx.req("GET", "/financial-reports/trial-balance");
     ctx.checkEq("trial balance: the مدين KPI is the مدين column total", kpi(tb.body, "debit"), ctx.n(tb.body?.grandTotals?.debit));
     ctx.checkEq("trial balance: the دائن KPI is the دائن column total", kpi(tb.body, "credit"), ctx.n(tb.body?.grandTotals?.credit));
     ctx.checkEq("trial balance: the KPI ties to the reconciliation banner", kpi(tb.body, "debit"), ctx.n(tb.body?.reconciliation?.reportTotal));
     // Exactly zero, not "within tolerance": this is the report's whole claim.
     ctx.check("trial balance: the الفرق KPI is exactly zero", kpi(tb.body, "difference") === 0, `${kpi(tb.body, "difference")}`);
 
-    const bs = await ctx.req("GET", "/reports/accounting/balance-sheet");
+    const bs = await ctx.req("GET", "/financial-reports/balance-sheet");
     ctx.checkEq("balance sheet: الأصول KPI ties to the A = L + E banner", kpi(bs.body, "totalAssets"), ctx.n(bs.body?.reconciliation?.reportTotal));
     ctx.checkEq("balance sheet: الالتزامات وحقوق الملكية KPI ties to the same banner", kpi(bs.body, "totalLiabilitiesEquity"), ctx.n(bs.body?.reconciliation?.referenceTotal));
     ctx.check("balance sheet: the الفرق KPI is exactly zero", kpi(bs.body, "difference") === 0, `${kpi(bs.body, "difference")}`);
 
-    const is = await ctx.req("GET", "/reports/accounting/income-statement?periodFrom=2026-01-01&periodTo=2026-12-31");
+    const is = await ctx.req("GET", "/financial-reports/income-statement?periodFrom=2026-01-01&periodTo=2026-12-31");
     ctx.checkEq("income statement: صافي الدخل KPI is the amount column total", kpi(is.body, "netIncome"), ctx.n(is.body?.grandTotals?.amount));
     ctx.checkEq(
       "income statement: الإيرادات − المصروفات = صافي الدخل",
@@ -112,7 +112,7 @@ async function headlineFiguresTieToTheLedger_R212(ctx: Ctx): Promise<void> {
       kpi(is.body, "netIncome"),
     );
 
-    const cf = await ctx.req("GET", "/reports/accounting/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31");
+    const cf = await ctx.req("GET", "/financial-reports/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31");
     ctx.checkEq(
       "cash flow: الرصيد الافتتاحي + صافي التغيّر = الرصيد الختامي",
       kpi(cf.body, "openingCash") + kpi(cf.body, "netChange"),
@@ -120,7 +120,7 @@ async function headlineFiguresTieToTheLedger_R212(ctx: Ctx): Promise<void> {
     );
     ctx.checkEq("cash flow: صافي التغيّر KPI is the flow column total", kpi(cf.body, "netChange"), ctx.n(cf.body?.grandTotals?.amount));
 
-    const vat = await ctx.req("GET", "/reports/accounting/vat-return?periodFrom=2026-01-01&periodTo=2026-12-31");
+    const vat = await ctx.req("GET", "/financial-reports/vat-return?periodFrom=2026-01-01&periodTo=2026-12-31");
     ctx.checkEq("VAT: صافي الضريبة KPI is the tax column's net grand total", kpi(vat.body, "netPayable"), ctx.n(vat.body?.grandTotals?.tax));
     ctx.checkEq(
       "VAT: المخرجات − المدخلات = صافي الضريبة",
@@ -128,7 +128,7 @@ async function headlineFiguresTieToTheLedger_R212(ctx: Ctx): Promise<void> {
       kpi(vat.body, "netPayable"),
     );
 
-    const gl = await ctx.req("GET", "/reports/accounting/general-ledger?periodFrom=2026-01-01&periodTo=2026-12-31");
+    const gl = await ctx.req("GET", "/financial-reports/general-ledger?periodFrom=2026-01-01&periodTo=2026-12-31");
     ctx.checkEq("general ledger: the two KPI sides balance", kpi(gl.body, "debit"), kpi(gl.body, "credit"));
     ctx.check("general ledger: the strip counts every line, not a page", kpi(gl.body, "lineCount") === (gl.body?.rows ?? []).length, `${kpi(gl.body, "lineCount")} vs ${(gl.body?.rows ?? []).length}`);
 
@@ -250,7 +250,7 @@ async function drillDownAnswersFromTheSourceDocuments_A5(ctx: Ctx): Promise<void
 
     // The account panel and the trial balance are two readings of the same
     // postings; they must land on the same balance.
-    const tb = await ctx.req("GET", "/reports/accounting/trial-balance");
+    const tb = await ctx.req("GET", "/financial-reports/trial-balance");
     const account = (tb.body?.rows ?? []).find((r: any) => ctx.n(r.debit) + ctx.n(r.credit) > 0);
     if (account?.accountId) {
       const panel = await ctx.req("GET", `/reports/drill-down/account/${account.accountId}`);

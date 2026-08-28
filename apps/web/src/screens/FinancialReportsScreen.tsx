@@ -22,7 +22,7 @@ import { todayIso, yearStartIso } from "../lib/dates";
  * statements as tabs on one page (`/accounting/reports`). Every tab is the SAME
  * generic `<ReportScreen>` the operational reports use: it renders a
  * `ReportDefinition`'s metadata (title/params/columns) locally and fetches the
- * computed rows/totals/reconciliation from the live `/reports/accounting/*` API
+ * computed rows/totals/reconciliation from the live `/financial-reports/*` API
  * over the shared session transport. Nothing here reads a fixture ledger — the
  * statements compute from the REAL posted GL (packages/api reports-routes.ts),
  * the same posted journal entries the journal/dashboard screens show.
@@ -76,7 +76,7 @@ function AccountLedgerTab() {
     return <div className="rounded-lg border border-border bg-surface p-[28px] text-center text-[13px] text-ink-muted">{t("finReports.loadingTheChartOfAccounts")}</div>;
   }
 
-  return <ReportScreen definition={definition} apiPath="/accounting/account-ledger" />;
+  return <ReportScreen definition={definition} apiPath="/account-ledger" apiRoot="/financial-reports" />;
 }
 
 interface TabDef {
@@ -92,22 +92,22 @@ const TABS: readonly TabDef[] = [
     // The four core statements + VAT auto-run on the selected period; only the
     // two ledger dumps (general/account ledger) gate behind عرض التقرير. The
     // trial-balance definition is marked on-demand as a demo, overridden here.
-    render: () => <ReportScreen definition={trialBalance} apiPath="/accounting/trial-balance" onDemand={false} />,
+    render: () => <ReportScreen definition={trialBalance} apiPath="/trial-balance" apiRoot="/financial-reports" onDemand={false} />,
   },
   {
     id: "income-statement",
     labelKey: "finReports.incomeStatement",
-    render: () => <ReportScreen definition={incomeStatement} apiPath="/accounting/income-statement" />,
+    render: () => <ReportScreen definition={incomeStatement} apiPath="/income-statement" apiRoot="/financial-reports" />,
   },
   {
     id: "balance-sheet",
     labelKey: "finReports.balanceSheet",
-    render: () => <ReportScreen definition={balanceSheet} apiPath="/accounting/balance-sheet" />,
+    render: () => <ReportScreen definition={balanceSheet} apiPath="/balance-sheet" apiRoot="/financial-reports" />,
   },
   {
     id: "cash-flow",
     labelKey: "finReports.cashFlow",
-    render: () => <ReportScreen definition={cashFlow} apiPath="/accounting/cash-flow" />,
+    render: () => <ReportScreen definition={cashFlow} apiPath="/cash-flow" apiRoot="/financial-reports" />,
   },
   {
     id: "vat-return",
@@ -115,7 +115,8 @@ const TABS: readonly TabDef[] = [
     render: () => (
       <ReportScreen
         definition={vatReturn}
-        apiPath="/accounting/vat-return"
+        apiPath="/vat-return"
+        apiRoot="/financial-reports"
         renderSummary={(rows) => <VatNetSummary rows={rows} />}
       />
     ),
@@ -128,7 +129,7 @@ const TABS: readonly TabDef[] = [
   {
     id: "general-ledger",
     labelKey: "finReports.generalLedger",
-    render: () => <ReportScreen definition={generalLedger} apiPath="/accounting/general-ledger" />,
+    render: () => <ReportScreen definition={generalLedger} apiPath="/general-ledger" apiRoot="/financial-reports" />,
   },
   {
     id: "account-ledger",

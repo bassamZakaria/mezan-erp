@@ -25,10 +25,19 @@ export interface ReverseJournalEntryResult {
   readonly reversal: JournalEntry;
 }
 
-/** Mirror a line: a debit becomes a credit of the same amount and vice-versa. */
+/**
+ * Mirror a line: a debit becomes a credit of the same amount and vice-versa.
+ *
+ * EVERY DIMENSION TRAVELS WITH IT. A reversal that keeps only the account and
+ * the amount un-tags itself: cost-centre P&L never nets it out, the VAT return
+ * cannot reverse it into the rate it was charged at, and FX revaluation cannot
+ * see it at all — so a second revaluation at an unchanged rate posts a further
+ * gain. Copy the whole line and swap the two sides; anything added to
+ * `JournalLine` must appear here too.
+ */
 function mirror(line: JournalLine): JournalLine {
   return {
-    accountId: line.accountId,
+    ...line,
     debit: line.credit,
     credit: line.debit,
     memo: line.memo ?? null,

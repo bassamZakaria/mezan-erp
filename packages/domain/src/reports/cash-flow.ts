@@ -93,7 +93,12 @@ export function cashFlowNetChange(rows: readonly CashFlowRow[]): number {
 type CashFlowRowCore = Omit<CashFlowRow, "priorAmount" | "variance">;
 
 function cashFlowRows(range: { from: string; to: string }, ctx: GlReportContext): CashFlowRowCore[] {
-  const periodBalances = netBalancesByAccount(ctx.journalEntries, { from: range.from, to: range.to });
+  // The year-end close is excluded: it moves the whole result into retained
+  // earnings without touching cash, so counting it would zero the net income
+  // this statement starts from AND report the same figure again as a financing
+  // inflow. The cash opening/closing balances below keep every entry — the
+  // close posts nothing to a cash account, and the tie-out must stay exact.
+  const periodBalances = netBalancesByAccount(ctx.journalEntries, { from: range.from, to: range.to }, { excludeYearEndClose: true });
 
   const cashAccounts = ctx.accounts.filter((a) => !a.isHeader && isCashAccount(a, ctx.cashAccountIds));
   const cashIds = new Set(cashAccounts.map((a) => a.id));

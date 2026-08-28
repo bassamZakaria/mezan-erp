@@ -80,7 +80,7 @@ export async function boot() {
   }
 
   async function invariants() {
-    const tb = await req("GET", "/reports/accounting/trial-balance");
+    const tb = await req("GET", "/financial-reports/trial-balance");
     const g = tb.body?.grandTotals ?? {};
     const recon = await req("GET", "/reconciliation");
     const list = rows(recon.body).length ? rows(recon.body) : (recon.body?.controls ?? []);

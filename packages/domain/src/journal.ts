@@ -61,6 +61,14 @@ export interface JournalLine {
  * the spike's minimal poster and the legacy `/journal-entries` route keep
  * constructing the same type without change.
  */
+/**
+ * `sourceDocType` of the entry `closeFiscalYear` posts. It carries a whole
+ * year's result into retained earnings and is dated the last day of that year,
+ * so it falls inside any period the income statement is asked about — a
+ * performance statement must exclude it, a position statement must not.
+ */
+export const YEAR_END_CLOSE_DOC_TYPE = "YEAR_END_CLOSE";
+
 export interface JournalEntry {
   readonly id: string;
   readonly date: string;

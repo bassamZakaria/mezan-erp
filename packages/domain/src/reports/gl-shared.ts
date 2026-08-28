@@ -1,5 +1,5 @@
 import type { Account, AccountType } from "../accounts/account.js";
-import type { JournalEntry } from "../journal.js";
+import { YEAR_END_CLOSE_DOC_TYPE, type JournalEntry } from "../journal.js";
 import { Money } from "../money/index.js";
 
 /**
@@ -124,18 +124,28 @@ export function isLedgerEffective(entry: JournalEntry): boolean {
   return entry.status === "posted" || entry.status === "reversed";
 }
 
+/** True for the year-end closing entry, which no performance statement counts as activity. */
+export function isYearEndClose(entry: JournalEntry): boolean {
+  return entry.sourceDocType === YEAR_END_CLOSE_DOC_TYPE;
+}
+
 /**
  * Net (debit − credit) movement per account across every posted line whose
  * entry date falls in `range`. Positive = net debit (debit-normal balance),
  * negative = net credit. The one primitive all seven statements build on.
+ *
+ * `excludeYearEndClose` drops the closing entry — pass it for a performance
+ * statement (income, cash flow), never for a position one (balance sheet).
  */
 export function netBalancesByAccount(
   journalEntries: readonly JournalEntry[],
   range: DateRange = {},
+  options: { readonly excludeYearEndClose?: boolean } = {},
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
   for (const entry of journalEntries) {
     if (!isLedgerEffective(entry)) continue;
+    if (options.excludeYearEndClose === true && isYearEndClose(entry)) continue;
     if (!inRange(entry.date, range)) continue;
     for (const line of entry.lines) {
       const net = line.debit.add(line.credit.negate());

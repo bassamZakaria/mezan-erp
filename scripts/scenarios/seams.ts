@@ -137,7 +137,7 @@ export async function run(ctx: Ctx): Promise<void> {
   }
 
   async function vatReturn(from = MONTH_START, to = MONTH_END) {
-    const res = await req("GET", `/reports/accounting/vat-return?periodFrom=${from}&periodTo=${to}`);
+    const res = await req("GET", `/financial-reports/vat-return?periodFrom=${from}&periodTo=${to}`);
     return { res, rows: rows(res.body).length ? rows(res.body) : ((res.body?.rows ?? []) as any[]) };
   }
 
@@ -400,7 +400,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const before = (await req("GET", `/cost-center-pl?fromDate=${MONTH_START}&toDate=${MONTH_END}`)).body;
     const beforeRow = ((before?.rows ?? []) as any[]).find((r) => r.costCenterId === centre.id);
-    const isBefore = n((await req("GET", `/reports/accounting/income-statement?periodFrom=${MONTH_START}&periodTo=${MONTH_END}`)).body?.grandTotals?.amount);
+    const isBefore = n((await req("GET", `/financial-reports/income-statement?periodFrom=${MONTH_START}&periodTo=${MONTH_END}`)).body?.grandTotals?.amount);
 
     const tagged = await postJournal("SCN-S-JE-CC", TODAY, "مصروف موزّع على مركز تكلفة", [
       { accountId: EXPENSE, debit: "1500.00", credit: "0.00", costCenterId: centre.id },
@@ -411,7 +411,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const after = (await req("GET", `/cost-center-pl?fromDate=${MONTH_START}&toDate=${MONTH_END}`)).body;
     const afterRow = ((after?.rows ?? []) as any[]).find((r) => r.costCenterId === centre.id);
     checkEq("the centre's expense rises by exactly what was posted — once, not twice", n(afterRow?.expense) - n(beforeRow?.expense), 1500);
-    const isAfter = n((await req("GET", `/reports/accounting/income-statement?periodFrom=${MONTH_START}&periodTo=${MONTH_END}`)).body?.grandTotals?.amount);
+    const isAfter = n((await req("GET", `/financial-reports/income-statement?periodFrom=${MONTH_START}&periodTo=${MONTH_END}`)).body?.grandTotals?.amount);
     checkEq("and the income statement sees the same expense once", isBefore - isAfter, 1500);
 
     // The seam that matters: real spending goes out through the treasury, so a
@@ -693,7 +693,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // X47 — a filed VAT period must not move under the filing
   // ---------------------------------------------------------------------------
   await scenario("x47 · once a VAT period is filed, a backdated document cannot restate it without someone amending the filing", async () => {
-    const filed = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
+    const filed = await req("GET", `/financial-reports/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
     const filedOutput = ((filed.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
     check("July's VAT return runs — this is the figure a tenant would file", filed.status === 200, `status ${filed.status}`);
 
@@ -704,7 +704,7 @@ export async function run(ctx: Ctx): Promise<void> {
     ]);
     check("before filing, a backdated July sale posts freely into the open period", backdatedBefore.status === 201, `status ${backdatedBefore.status} ${JSON.stringify(backdatedBefore.body).slice(0, 200)}`);
 
-    const beforeFiling = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
+    const beforeFiling = await req("GET", `/financial-reports/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
     const submitted = ((beforeFiling.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
     checkEq("and it moves the return, as it should while the period is still open", submitted - filedOutput, 140);
 
@@ -730,7 +730,7 @@ export async function run(ctx: Ctx): Promise<void> {
       `status ${afterFiling.status} ${JSON.stringify(afterFiling.body).slice(0, 250)}`,
     );
 
-    const unchanged = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
+    const unchanged = await req("GET", `/financial-reports/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
     const stillFiled = ((unchanged.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
     checkEq("so the submitted figure is exactly what was submitted — the return cannot move under the filing", stillFiled, submitted);
 
@@ -1253,7 +1253,7 @@ export async function run(ctx: Ctx): Promise<void> {
     );
     checkEq("the disposal-gain account is zeroed as well", await creditBalance("4500"), 0);
 
-    const revenue2027 = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2027-01-01&periodTo=2027-12-31")).body?.grandTotals?.amount);
+    const revenue2027 = n((await req("GET", "/financial-reports/income-statement?periodFrom=2027-01-01&periodTo=2027-12-31")).body?.grandTotals?.amount);
     checkEq("a fresh year's income statement is empty", revenue2027, 0);
     checkEq("the revenue ACCOUNT no longer carries last year's total — closing zeroed it (docs/defects.md D34)", await creditBalance(REVENUE), 0);
     checkEq(
@@ -1265,16 +1265,43 @@ export async function run(ctx: Ctx): Promise<void> {
     const twice = await req("POST", "/gl/year-end-close", { year: 2026, retainedEarningsAccountId: RETAINED_EARNINGS });
     check("closing the same year twice is refused rather than posted twice, in Arabic", twice.status === 409 && /مقفلة بالفعل/.test(String(twice.body?.message)), `status ${twice.status} ${JSON.stringify(twice.body).slice(0, 200)}`);
 
-    const balanceSheet = await req("GET", `/reports/accounting/balance-sheet?asOfDate=2027-01-01`);
+    const balanceSheet = await req("GET", `/financial-reports/balance-sheet?asOfDate=2027-01-01`);
     check("the balance sheet still runs into the new year", balanceSheet.status === 200, `status ${balanceSheet.status}`);
     const bsRows = (balanceSheet.body?.rows ?? []) as any[];
-    const derivedRetained = bsRows.find((r: any) => String(r.rowId).includes("retained"));
+    // After a real close the equity row is the retained-earnings ACCOUNT, not
+    // the "_retained-earnings" figure the report derives when no close has
+    // posted: every P&L account reads zero as of the new year, so there is
+    // nothing left to derive. Asserting the derived row here would be
+    // asserting that the close did not happen.
+    const postedRetained = bsRows.find((r: any) => String(r.rowId) === RETAINED_EARNINGS);
+    const derivedRetained = bsRows.find((r: any) => String(r.rowId) === "_retained-earnings");
     check(
-      "and it still balances, now with a POSTED retained-earnings balance behind the row rather than one the report derives for itself",
-      Boolean(derivedRetained),
-      `rows=${bsRows.map((r: any) => r.rowId).slice(0, 12).join(",")}`,
+      "the equity side now carries the POSTED retained-earnings account",
+      Boolean(postedRetained),
+      `rows=${bsRows.map((r: any) => r.rowId).slice(0, 20).join(",")}`,
     );
-    const prior = await req("GET", "/reports/accounting/income-statement?periodFrom=2026-01-01&periodTo=2026-12-31");
+    check(
+      "and the report no longer derives a retained-earnings row of its own — the close made one real",
+      derivedRetained === undefined,
+      `derived=${JSON.stringify(derivedRetained)}`,
+    );
+    checkEq(
+      "and it carries the year's result",
+      n(postedRetained?.amount),
+      Math.round((await creditBalance(RETAINED_EARNINGS)) * 100) / 100,
+    );
+    const assets = bsRows.filter((r: any) => r.side === "asset").reduce((s: number, r: any) => s + n(r.amount), 0);
+    const claims = bsRows.filter((r: any) => r.side === "liability-equity").reduce((s: number, r: any) => s + n(r.amount), 0);
+    checkEq("and the sheet still balances", Math.round(assets * 100) / 100, Math.round(claims * 100) / 100);
+    const prior = await req("GET", "/financial-reports/income-statement?periodFrom=2026-01-01&periodTo=2026-12-31");
     check("the prior year's comparatives still resolve after the new year opens", prior.status === 200 && n(prior.body?.grandTotals?.amount) !== 0, `status ${prior.status} amount=${prior.body?.grandTotals?.amount}`);
+    // The closing entry is dated 31 December of the year it closes, so it
+    // falls inside this very window. A statement that counted it would report
+    // the year it just closed as having earned nothing.
+    check(
+      "and the closed year still reports the revenue it actually earned — the closing entry is not activity",
+      n((await req("GET", "/financial-reports/income-statement?periodFrom=2026-01-01&periodTo=2026-12-31")).body?.rows?.reduce((s: number, r: any) => (r.sectionKey === "revenue" ? s + n(r.amount) : s), 0)) >= revenue2026,
+      `revenue2026=${revenue2026}`,
+    );
   });
 }

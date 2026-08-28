@@ -112,8 +112,11 @@ export function createIncomeStatementReport(
     },
     run: (params, ctx) => {
       const prior = comparativeRange({ from: params.periodFrom, to: params.periodTo }, params.compareTo);
-      const current = netBalancesByAccount(ctx.journalEntries, { from: params.periodFrom, to: params.periodTo });
-      const previous = netBalancesByAccount(ctx.journalEntries, { from: prior.from, to: prior.to });
+      // Without `excludeYearEndClose` the closing entry — dated 31 December of
+      // the year it closes — nets every P&L account to zero, so the annual
+      // قائمة الدخل reads nil revenue and nil profit.
+      const current = netBalancesByAccount(ctx.journalEntries, { from: params.periodFrom, to: params.periodTo }, { excludeYearEndClose: true });
+      const previous = netBalancesByAccount(ctx.journalEntries, { from: prior.from, to: prior.to }, { excludeYearEndClose: true });
       const rows: IncomeStatementRow[] = [];
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;

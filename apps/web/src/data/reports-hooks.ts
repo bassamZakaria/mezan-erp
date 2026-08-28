@@ -38,15 +38,15 @@ export function useReport<Row>(
   reportId: string,
   apiPath: string,
   params: Record<string, string>,
-  options: { readonly enabled?: boolean } = {},
+  options: { readonly enabled?: boolean; readonly apiRoot?: string } = {},
 ): UseQueryResult<ReportResult<Row>, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ReportResult<Row>, ApiError>({
-    queryKey: ["reports", reportId, params],
+    queryKey: ["reports", options.apiRoot ?? "/reports", reportId, params],
     enabled: session !== null && (options.enabled ?? true),
     queryFn: async () => {
-      const res = await request(`/reports${apiPath}${toQueryString(params)}`);
+      const res = await request(`${options.apiRoot ?? "/reports"}${apiPath}${toQueryString(params)}`);
       if (!res.ok) throw new ApiError(res.status, t("reportsApi.theReportCouldNotBe"), await readReportFieldErrors(res));
       return res.json<ReportResult<Row>>();
     },

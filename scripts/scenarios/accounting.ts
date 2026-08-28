@@ -85,15 +85,15 @@ export async function run(ctx: Ctx): Promise<void> {
       `August priorAmount=${august.body?.grandTotals?.priorAmount} vs direct July amount=${july.body?.grandTotals?.amount}`,
     );
 
-    // Confirming the bug is route-specific, not domain-wide: /reports/accounting/income-statement
+    // Confirming the bug is route-specific, not domain-wide: /financial-reports/income-statement
     // (reports-routes.ts) loads the ENTIRE unbounded ledger, so the exact same domain
     // comparativeRange math resolves correctly through that older route.
     const augustUnbounded = await ctx.req(
       "GET",
-      `/reports/accounting/income-statement?${qs({ periodFrom: "2026-08-01", periodTo: "2026-08-31", compareTo: "previous" })}`,
+      `/financial-reports/income-statement?${qs({ periodFrom: "2026-08-01", periodTo: "2026-08-31", compareTo: "previous" })}`,
     );
     ctx.checkEq(
-      "confirming: the unbounded /reports/accounting/income-statement route computes the same comparison correctly",
+      "confirming: the unbounded /financial-reports/income-statement route computes the same comparison correctly",
       ctx.n(augustUnbounded.body?.grandTotals?.priorAmount),
       ctx.n(july.body?.grandTotals?.amount),
     );

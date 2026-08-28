@@ -32,11 +32,36 @@ for (const group of navGroupSpecs) {
     SCREEN_BY_PATH.set(path, key);
   }
 }
+/**
+ * Screens the nav tree no longer lists, and the workspace each still belongs
+ * to. They are all reachable — `labels` from الأصناف's «طباعة الملصقات», the
+ * three item screens as tabs of `items`, `stock-balance` from the hub's own
+ * quick action, `production-dashboard` from the manufacturing hub, and the
+ * four reports as views inside their surviving sibling — so each keeps the
+ * SAME address it had while it was in the tree. Dropping a nav row must not
+ * silently change a URL, or every saved link and drill-down into it breaks.
+ */
+const UNLISTED_SCREEN_GROUP: Record<string, string> = {
+  labels: "stock",
+  "product-templates": "stock",
+  "configurable-products": "stock",
+  "item-specifications": "stock",
+  "stock-balance": "stock",
+  "report-inventory-movement": "stock",
+  "report-inventory-expiring": "stock",
+  "report-inventory-slow-moving": "stock",
+  "report-inventory-drift": "stock",
+  "production-dashboard": "manufacturing",
+};
+for (const [key, group] of Object.entries(UNLISTED_SCREEN_GROUP)) {
+  if (PATH_BY_SCREEN.has(key)) continue;
+  const path = `${group}/${key}`;
+  PATH_BY_SCREEN.set(key, path);
+  SCREEN_BY_PATH.set(path, key);
+}
+
 // Screens the nav tree does not list: they address as their own bare key.
-// `labels` is reached from الأصناف's own «طباعة الملصقات» action rather than
-// from a nav row of its own — a print builder is a thing you do TO an item,
-// not a shelf of the workspace — so it needs its address stated here.
-for (const key of ["users", "roles", "role-editor", "dashboard", "notifications", "labels"]) {
+for (const key of ["users", "roles", "role-editor", "dashboard", "notifications"]) {
   if (!PATH_BY_SCREEN.has(key)) {
     PATH_BY_SCREEN.set(key, key);
     SCREEN_BY_PATH.set(key, key);

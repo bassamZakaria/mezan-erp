@@ -38,6 +38,29 @@ export function InventoryStockLevelsReportScreen() {
   return <ReportScreen definition={createInventoryStockLevelsReport()} apiPath="/inventory/stock-levels" />;
 }
 
+/*
+ * The four reports the nav stopped listing are still exported, still routable
+ * and still exactly themselves — each is the view its surviving sibling opens,
+ * and each keeps its own address so a saved link or a drill-down into it is
+ * never a dead end.
+ */
+
+export function InventoryMovementReportScreen() {
+  return <ReportScreen definition={createInventoryMovementReport(MONTH_START, TODAY)} apiPath="/inventory/movement" />;
+}
+
+export function InventoryDriftReportScreen() {
+  return <ReportScreen definition={createInventoryDriftReport()} apiPath="/inventory/drift" />;
+}
+
+export function InventoryExpiringReportScreen() {
+  return <ReportScreen definition={createInventoryExpiringReport(TODAY)} apiPath="/inventory/expiring" />;
+}
+
+export function InventorySlowMovingReportScreen() {
+  return <ReportScreen definition={createInventorySlowMovingReport(TODAY)} apiPath="/inventory/slow-moving" />;
+}
+
 /** السجل والحركة — the running-balance ledger, and the same rows as a flat in/out list. */
 export function InventoryLedgerReportScreen() {
   const { t } = useAppTranslation();
@@ -53,9 +76,7 @@ export function InventoryLedgerReportScreen() {
         {
           key: "movement",
           label: t("inventoryReports.view.movement"),
-          render: () => (
-            <ReportScreen definition={createInventoryMovementReport(MONTH_START, TODAY)} apiPath="/inventory/movement" />
-          ),
+          render: () => <InventoryMovementReportScreen />,
         },
       ]}
     />
@@ -103,7 +124,7 @@ export function InventoryValuationReportScreen() {
         {
           key: "drift",
           label: t("inventoryReports.view.drift"),
-          render: () => <ReportScreen definition={createInventoryDriftReport()} apiPath="/inventory/drift" />,
+          render: () => <InventoryDriftReportScreen />,
         },
       ]}
     />
@@ -125,14 +146,12 @@ export function InventoryAgingReportScreen() {
         {
           key: "expiring",
           label: t("inventoryReports.view.expiring"),
-          render: () => <ReportScreen definition={createInventoryExpiringReport(TODAY)} apiPath="/inventory/expiring" />,
+          render: () => <InventoryExpiringReportScreen />,
         },
         {
           key: "slow-moving",
           label: t("inventoryReports.view.slowMoving"),
-          render: () => (
-            <ReportScreen definition={createInventorySlowMovingReport(TODAY)} apiPath="/inventory/slow-moving" />
-          ),
+          render: () => <InventorySlowMovingReportScreen />,
         },
       ]}
     />

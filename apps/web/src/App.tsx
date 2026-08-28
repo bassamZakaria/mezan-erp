@@ -89,11 +89,16 @@ const HrDashboardScreen = lazy(() => import("./screens/HrDashboardScreen").then(
 const InstallmentFollowUpsScreen = lazy(() => import("./screens/InstallmentFollowUpsScreen").then((m) => ({ default: m.InstallmentFollowUpsScreen })));
 const InstallmentPlansScreen = lazy(() => import("./screens/InstallmentPlansScreen").then((m) => ({ default: m.InstallmentPlansScreen })));
 const InventoryAgingReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryAgingReportScreen })));
+const InventoryDriftReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryDriftReportScreen })));
+const InventoryExpiringReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryExpiringReportScreen })));
 const InventoryHubScreen = lazy(() => import("./screens/hubs/InventoryHubScreen").then((m) => ({ default: m.InventoryHubScreen })));
 const InventoryLedgerReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryLedgerReportScreen })));
+const InventoryMovementReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryMovementReportScreen })));
+const InventorySlowMovingReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventorySlowMovingReportScreen })));
 const InventoryStockLevelsReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryStockLevelsReportScreen })));
 const InventoryValuationReportScreen = lazy(() => import("./screens/reports/InventoryReportsScreens").then((m) => ({ default: m.InventoryValuationReportScreen })));
 const ItemsWorkspaceScreen = lazy(() => import("./screens/ItemsWorkspaceScreen").then((m) => ({ default: m.ItemsWorkspaceScreen })));
+const ItemSpecificationsScreen = lazy(() => import("./screens/ItemSpecificationsScreen").then((m) => ({ default: m.ItemSpecificationsScreen })));
 const JobTitlesScreen = lazy(() => import("./screens/JobTitlesScreen").then((m) => ({ default: m.JobTitlesScreen })));
 const JournalsScreen = lazy(() => import("./screens/JournalsScreen").then((m) => ({ default: m.JournalsScreen })));
 const LabelPrintingScreen = lazy(() => import("./screens/LabelPrintingScreen").then((m) => ({ default: m.LabelPrintingScreen })));
@@ -104,6 +109,7 @@ const LeaveBalancesScreen = lazy(() => import("./screens/LeaveBalancesScreen").t
 const LeavePoliciesScreen = lazy(() => import("./screens/LeavePoliciesScreen").then((m) => ({ default: m.LeavePoliciesScreen })));
 const LeaveRequestsScreen = lazy(() => import("./screens/LeaveRequestsScreen").then((m) => ({ default: m.LeaveRequestsScreen })));
 const MakeVsBuyReportScreen = lazy(() => import("./screens/reports/ManufacturingReportsScreens").then((m) => ({ default: m.MakeVsBuyReportScreen })));
+const ManufacturingHubScreen = lazy(() => import("./screens/hubs/ManufacturingHubScreen").then((m) => ({ default: m.ManufacturingHubScreen })));
 const MyLeaveScreen = lazy(() => import("./screens/MyLeaveScreen").then((m) => ({ default: m.MyLeaveScreen })));
 const NotificationRulesPage = lazy(() => import("./settings/NotificationRulesPage").then((m) => ({ default: m.NotificationRulesPage })));
 const NotificationsScreen = lazy(() => import("./screens/NotificationsScreen").then((m) => ({ default: m.NotificationsScreen })));
@@ -116,6 +122,9 @@ const PipelineStagesScreen = lazy(() => import("./screens/PipelineStagesScreen")
 const PriceListsScreen = lazy(() => import("./screens/PriceListsScreen").then((m) => ({ default: m.PriceListsScreen })));
 const PrintTemplatesPage = lazy(() => import("./settings/PrintTemplatesPage").then((m) => ({ default: m.PrintTemplatesPage })));
 const ProductionDashboardScreen = lazy(() => import("./screens/hubs/ProductionDashboardScreen").then((m) => ({ default: m.ProductionDashboardScreen })));
+const ProductTemplatesScreen = lazy(() => import("./screens/ProductTemplatesScreen").then((m) => ({ default: m.ProductTemplatesScreen })));
+const ConfigurableProductsScreen = lazy(() => import("./screens/ConfigurableProductsScreen").then((m) => ({ default: m.ConfigurableProductsScreen })));
+const StockBalanceScreen = lazy(() => import("./screens/StockBalanceScreen").then((m) => ({ default: m.StockBalanceScreen })));
 const ProfilePage = lazy(() => import("./settings/ProfilePage").then((m) => ({ default: m.ProfilePage })));
 const ProjectsScreen = lazy(() => import("./screens/ProjectsScreen").then((m) => ({ default: m.ProjectsScreen })));
 const PromotionsScreen = lazy(() => import("./screens/PromotionsScreen").then((m) => ({ default: m.PromotionsScreen })));
@@ -178,10 +187,15 @@ const ROUTABLE_SCREENS = {
   "treasury-hub": TreasuryHubScreen,
   "crm-hub": CrmHubScreen,
   "assets-hub": AssetsHubScreen,
-  // التصنيع's hub IS the production dashboard: both rendered the same
-  // `/manufacturing/dashboard` figures, one as a teaser above a link to the
-  // other, so a workspace of five screens opened onto two landing pages.
-  "manufacturing-hub": ProductionDashboardScreen,
+  /**
+   * BOTH manufacturing landing pages are still here and still routable; only
+   * the NAV stopped listing two of them. The workspace opens its hub, and the
+   * hub's own «افتح لوحة الإنتاج» button is how the fuller dashboard is
+   * reached — a hub linking to its detail, rather than two sibling entries
+   * rendering the same `/manufacturing/dashboard` response.
+   */
+  "manufacturing-hub": ManufacturingHubScreen,
+  "production-dashboard": ProductionDashboardScreen,
   status: SystemStatusScreen,
   notifications: NotificationsScreen,
   "sales-invoices": SalesInvoicesScreen,
@@ -202,6 +216,17 @@ const ROUTABLE_SCREENS = {
   "installment-plans": InstallmentPlansScreen,
   "installment-follow-ups": InstallmentFollowUpsScreen,
   items: ItemsWorkspaceScreen,
+  /**
+   * Merged into a tab or into another page, and kept routable so no URL that
+   * ever worked stops working — and so nothing here is unreachable code. Each
+   * one is rendered by the page that absorbed it: the three item screens are
+   * tabs of `items`, `stock-balance` is the inventory hub's own table, and the
+   * four reports are views inside their surviving sibling.
+   */
+  "product-templates": ProductTemplatesScreen,
+  "configurable-products": ConfigurableProductsScreen,
+  "item-specifications": ItemSpecificationsScreen,
+  "stock-balance": StockBalanceScreen,
   "work-orders": WorkOrdersScreen,
   boms: BomsScreen,
   "custom-manufacturing": ConfigInstancesScreen,
@@ -232,9 +257,13 @@ const ROUTABLE_SCREENS = {
   "report-purchases-by-supplier": PurchasesBySupplierReportScreen,
   "report-purchases-by-item": PurchasesByItemReportScreen,
   "report-inventory-stock-levels": InventoryStockLevelsReportScreen,
+  "report-inventory-movement": InventoryMovementReportScreen,
   "report-inventory-ledger": InventoryLedgerReportScreen,
   "report-inventory-valuation": InventoryValuationReportScreen,
   "report-inventory-aging": InventoryAgingReportScreen,
+  "report-inventory-expiring": InventoryExpiringReportScreen,
+  "report-inventory-slow-moving": InventorySlowMovingReportScreen,
+  "report-inventory-drift": InventoryDriftReportScreen,
   "report-aging-customers": AgingCustomersReportScreen,
   "report-aging-suppliers": AgingSuppliersReportScreen,
   "report-installments-overview": InstallmentsOverviewReportScreen,

@@ -40,7 +40,7 @@ describe("createBackend — seeded app", () => {
 
   it("rejects a wrong PIN", async () => {
     const app = await newBackend();
-    const res = await post(app, "/auth/login", { username: "محمد الشهابي", pin: "0000" });
+    const res = await post(app, "/auth/login", { username: "admin@cyag.example", pin: "000000" });
     expect(res.status).toBe(401);
   });
 

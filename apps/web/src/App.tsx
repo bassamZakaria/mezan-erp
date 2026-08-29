@@ -526,10 +526,16 @@ export function App() {
   // of screens and this has exactly one, so it is drawn beside the tabs as a
   // plain link. Its group (سير العمل) then holds nothing and drops out of the
   // tabs — «كل الشاشات» still lists it, since it is handed the whole tree.
-  const directNavItems = useMemo(
-    () => groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key)),
-    [groups],
-  );
+  const directNavItems = useMemo(() => {
+    const pinned = groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key));
+    // لوحة التحكم leads the column, and it is the SAME destination the brand
+    // mark opens. The mark alone carried it, which is a convention people know
+    // but nothing on the screen says: a named row costs one line and removes
+    // the guess — and it is where a workspace list should start anyway, with
+    // the view of the whole business before the parts of it.
+    const home: NavItem = { ...buildTopNavItem(t), onClick: () => navigate("dashboard") };
+    return [home, ...pinned];
+  }, [groups, navigate, t]);
 
   /**
    * The six workspaces of the column, الإعداد والصلاحيات among them.

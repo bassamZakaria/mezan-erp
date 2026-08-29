@@ -134,7 +134,10 @@ export async function seedAccess(app: App): Promise<void> {
       warehouseScope: "*",
       status: person.status,
       password: `Mezan-demo-${person.local}`,
-      pin: "1234",
+      // Six digits, like every other PIN in the system since the login stopped
+      // asking for a typed username — the device supplies the identity, so the
+      // PIN is the whole credential.
+      pin: "123456",
     });
   }
 }

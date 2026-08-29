@@ -14,6 +14,49 @@ import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./
 /** The id the skip link targets; `<main>` carries it and `tabIndex={-1}` so focus lands. */
 const MAIN_ID = "mz-main";
 
+/**
+ * One of the inboxes, as an icon button beside the wordmark.
+ *
+ * Icon-only, so the label has to survive twice over: as `aria-label` for a
+ * screen reader and as `title` for a hover tooltip. Dropping either turns a
+ * named row into an unidentifiable glyph — the count badge alone does not say
+ * WHAT is unread, and «صندوق الوارد» and «الموافقات» are easily confused when
+ * both are reduced to a small mark.
+ *
+ * The badge is a bare number, so the count is spelled into the accessible name
+ * rather than left for the reader to associate positionally.
+ */
+function BrandAction({ item, active }: { item: NavItem; active: boolean }) {
+  const label = item.tag ? `${item.label} (${item.tag.label})` : item.label;
+  return (
+    <button
+      type="button"
+      onClick={item.onClick}
+      aria-label={label}
+      title={label}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "relative flex h-[32px] w-[32px] flex-none items-center justify-center rounded-md transition-colors",
+        "focus-visible:outline-chrome-accent",
+        active ? "bg-chrome-active text-chrome-ink" : "text-chrome-ink-muted hover:bg-chrome-hover hover:text-chrome-ink",
+      )}
+    >
+      {item.icon}
+      {item.tag ? (
+        // Positioned on the glyph rather than after it: at 32px there is no
+        // room for a number beside the icon, and the badge must stay legible
+        // at a glance — it is the only reason to look at this control.
+        <span
+          aria-hidden
+          className="mz-num absolute -top-[2px] end-[1px] min-w-[14px] rounded-pill bg-chrome-accent px-[3px] text-center text-2xs font-bold leading-[14px] text-chrome"
+        >
+          {item.tag.label}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 export interface AppShellProps {
   /** Opens the main dashboard — the logo and wordmark are one link to it. */
   onNavigateHome?: () => void;
@@ -104,9 +147,10 @@ export interface AppShellProps {
  *
  * ROW ONE IS NOT `overflow-hidden`: the user menu and the notifications panel
  * are anchored (`position: absolute`) rather than portaled, and clipping row
- * one would slice both off at its edge. Row TWO is clipped — that is how it
- * truncates to «+N» — so every dropdown it opens is portaled instead (see
- * `WorkspaceScreensBar`).
+ * one would slice both off at its edge. Row TWO scrolls horizontally instead
+ * of clipping, but its own dropdowns are still portaled (see
+ * `WorkspaceScreensBar`) rather than reasoning about a scroll container's
+ * stacking context.
  */
 export function AppShell({
   onNavigateHome,
@@ -237,16 +281,28 @@ export function AppShell({
             /* The mark is the app's own balance-beam glyph (`BrandMark`) and the
                whole lockup is one link home. It sits INSIDE the column now — the
                column is the only chrome left, so the brand is its header rather
-               than a thing floating in a band above the page. */
-            <button
-              type="button"
-              onClick={onNavigateHome}
-              aria-label={t("shell.bar.home")}
-              className="flex min-h-[var(--h-topbar)] flex-none items-center gap-[8px] px-[14px] text-chrome-ink transition-colors hover:bg-chrome-hover focus-visible:outline-chrome-accent"
-            >
-              <BrandMark className="h-[24px] w-[24px] flex-none text-accent" />
-              <span className="mz-disp text-lg font-bold">{t("shell.brand.name")}</span>
-            </button>
+               than a thing floating in a band above the page.
+
+               The inboxes sit BESIDE it as icons rather than as rows in the
+               list below. They are single destinations, not workspaces: every
+               other row in the column opens a whole shelf of screens, these
+               open exactly one each. They are also the same two in every
+               workspace, and they carry live counts — a badge that scrolls out
+               of view with the list is a badge nobody sees. */
+            <div className="flex min-h-[var(--h-topbar)] flex-none items-center gap-[4px] pe-[8px] ps-[14px]">
+              <button
+                type="button"
+                onClick={onNavigateHome}
+                aria-label={t("shell.bar.home")}
+                className="flex min-w-0 flex-1 items-center gap-[8px] py-[6px] text-chrome-ink transition-colors hover:text-chrome-ink focus-visible:outline-chrome-accent"
+              >
+                <BrandMark className="h-[24px] w-[24px] flex-none text-accent" />
+                <span className="mz-disp truncate text-lg font-bold">{t("shell.brand.name")}</span>
+              </button>
+              {directNavItems.map((item) => (
+                <BrandAction key={item.key} item={item} active={item.key === activeNavKey} />
+              ))}
+            </div>
           }
           footer={
             <RailFooter
@@ -268,7 +324,9 @@ export function AppShell({
           groups={workspaceGroups}
           activeKey={activeWorkspaceKey}
           onChange={handleWorkspaceChange}
-          pinnedItems={directNavItems}
+          /* The pinned rows moved into the brand row above as icons; the rail
+             now carries workspaces only. */
+          pinnedItems={[]}
           activeItemKey={activeNavKey}
           ariaLabel={t("shell.bar.workspacesLandmark")}
           allScreensLabel={t("shell.rail.all")}
@@ -290,7 +348,6 @@ export function AppShell({
               ariaLabel={
                 activeGroup ? `${t("shell.bar.workspaceScreens")} — ${activeGroup.label}` : t("shell.bar.workspaceScreens")
               }
-              overflowLabel={t("shell.bar.overflow")}
             />
           ) : null}
 

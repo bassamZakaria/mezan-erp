@@ -247,16 +247,21 @@ export function AppLayout() {
   // of screens and this has exactly one, so it is drawn beside the tabs as a
   // plain link. Its group (سير العمل) then holds nothing and drops out of the
   // tabs — «كل الشاشات» still lists it, since it is handed the whole tree.
-  const directNavItems = useMemo(() => {
-    const pinned = groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key));
-    // لوحة التحكم leads the column, and it is the SAME destination the brand
-    // mark opens. The mark alone carried it, which is a convention people know
-    // but nothing on the screen says: a named row costs one line and removes
-    // the guess — and it is where a workspace list should start anyway, with
-    // the view of the whole business before the parts of it.
-    const home: NavItem = { ...buildTopNavItem(t), onClick: () => navigate("dashboard") };
-    return [home, ...pinned];
-  }, [groups, navigate, t]);
+  /**
+   * صندوق الوارد and الموافقات, drawn as icons beside the wordmark rather than
+   * as rows in the column.
+   *
+   * لوحة التحكم is deliberately NOT among them. The brand lockup beside these
+   * icons already opens it — that is what `onNavigateHome` does — so adding a
+   * dashboard icon next to the brand would put two controls a centimetre apart
+   * that do exactly the same thing. It had a named row while the brand was the
+   * only other way home; now that the row is gone from the column, the
+   * wordmark is the single, labelled way there.
+   */
+  const directNavItems = useMemo(
+    () => groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key)),
+    [groups],
+  );
 
   /**
    * The six workspaces of the column, الإعداد والصلاحيات among them.

@@ -1,0 +1,2008 @@
+<title>Best ERP in Egypt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;900&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+
+<style>
+:root {
+  --ground: #f4f7f5;
+  --surface: #ffffff;
+  --surface-2: #e9f0ec;
+  --surface-3: #dee8e3;
+  --ink: #0f1a18;
+  --ink-2: #3d534e;
+  --ink-3: #6c817b;
+  --rule: #d3ded9;
+  --rule-strong: #b6c7c0;
+  --teal: #0e5049;
+  --teal-bright: #12756a;
+  --gold: #ae7c24;
+  --gold-soft: #f0e2c6;
+  --cut: #a33a28;
+  --cut-soft: #f5ded9;
+  --warn: #8a6410;
+  --warn-soft: #f7ecd2;
+  --defer: #5c6f76;
+  --defer-soft: #e2e9eb;
+  --teal-soft: #d6e7e3;
+  --shadow: 0 1px 2px rgba(15, 26, 24, .05), 0 8px 24px -16px rgba(15, 26, 24, .18);
+
+  --f-display: "Cairo", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans Arabic", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0a1211;
+    --surface: #111b19;
+    --surface-2: #172320;
+    --surface-3: #1e2c29;
+    --ink: #e7eeeb;
+    --ink-2: #a5b6b1;
+    --ink-3: #7b8e89;
+    --rule: #24332f;
+    --rule-strong: #33463f;
+    --teal: #4fb8a6;
+    --teal-bright: #6fd2bd;
+    --gold: #d9a441;
+    --gold-soft: #33290f;
+    --cut: #e58367;
+    --cut-soft: #351c15;
+    --warn: #d4a63c;
+    --warn-soft: #2e2510;
+    --defer: #93a7ae;
+    --defer-soft: #1c2629;
+    --teal-soft: #16302c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .7);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #0a1211;
+  --surface: #111b19;
+  --surface-2: #172320;
+  --surface-3: #1e2c29;
+  --ink: #e7eeeb;
+  --ink-2: #a5b6b1;
+  --ink-3: #7b8e89;
+  --rule: #24332f;
+  --rule-strong: #33463f;
+  --teal: #4fb8a6;
+  --teal-bright: #6fd2bd;
+  --gold: #d9a441;
+  --gold-soft: #33290f;
+  --cut: #e58367;
+  --cut-soft: #351c15;
+  --warn: #d4a63c;
+  --warn-soft: #2e2510;
+  --defer: #93a7ae;
+  --defer-soft: #1c2629;
+  --teal-soft: #16302c;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .7);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 16.5px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 1200px;
+  margin-inline: auto;
+  padding: 0 28px 120px;
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 1080px) {
+  .page {
+    grid-template-columns: 216px minmax(0, 1fr);
+    column-gap: 56px;
+    align-items: start;
+  }
+  .masthead { grid-column: 1 / -1; }
+  .toc { position: sticky; top: 32px; }
+}
+
+/* ---------- masthead ---------- */
+
+.masthead {
+  padding-block: 72px 44px;
+  border-block-end: 1px solid var(--rule);
+  margin-block-end: 48px;
+}
+
+.eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin: 0 0 18px;
+  font-weight: 600;
+}
+
+h1 {
+  font-family: var(--f-display);
+  font-weight: 900;
+  font-size: clamp(2.6rem, 6.5vw, 4.1rem);
+  line-height: 1.02;
+  letter-spacing: -.025em;
+  margin: 0 0 22px;
+  text-wrap: balance;
+  color: var(--teal);
+}
+
+:root[data-theme="dark"] h1 { color: var(--teal-bright); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) h1 { color: var(--teal-bright); } }
+
+.standfirst {
+  font-size: 1.22rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 64ch;
+  margin: 0 0 30px;
+  text-wrap: pretty;
+}
+
+.byline {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+}
+
+/* ---------- toc ---------- */
+
+.toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  counter-reset: toc;
+}
+
+.toc a {
+  display: flex;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  line-height: 1.35;
+  padding: 6px 8px;
+  border-radius: 5px;
+}
+
+.toc a:hover { color: var(--teal); background: var(--surface-2); }
+.toc a:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+.toc li { counter-increment: toc; }
+.toc a::before {
+  content: counter(toc, decimal-leading-zero);
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  color: var(--gold);
+  padding-top: 2px;
+  flex: none;
+}
+
+.toc-title {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 12px;
+  padding-inline-start: 8px;
+}
+
+/* ---------- sections ---------- */
+
+section { margin-block-end: 76px; scroll-margin-top: 24px; }
+
+h2 {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: clamp(1.55rem, 3.4vw, 2.05rem);
+  line-height: 1.15;
+  letter-spacing: -.02em;
+  margin: 0 0 6px;
+  text-wrap: balance;
+}
+
+.sec-num {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .16em;
+  color: var(--gold);
+  display: block;
+  margin-block-end: 10px;
+  font-weight: 600;
+}
+
+h3 {
+  font-family: var(--f-body);
+  font-weight: 700;
+  font-size: 1.06rem;
+  letter-spacing: -.005em;
+  margin: 38px 0 10px;
+  color: var(--ink);
+}
+
+p { margin: 0 0 15px; max-width: 70ch; text-wrap: pretty; }
+
+a { color: var(--teal-bright); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+strong { font-weight: 700; color: var(--ink); }
+
+code, .mono {
+  font-family: var(--f-mono);
+  font-size: .88em;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--rule);
+}
+
+ul, ol.body-list { margin: 0 0 15px; padding-inline-start: 22px; max-width: 70ch; }
+li { margin-block-end: 7px; }
+
+/* ---------- summary band ---------- */
+
+.summary {
+  background: var(--surface-2);
+  border-inline-start: 3px solid var(--gold);
+  border-radius: 0 6px 6px 0;
+  padding: 16px 20px 16px 18px;
+  margin: 0 0 30px;
+  max-width: 76ch;
+}
+
+.summary .label {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--gold);
+  font-weight: 600;
+  display: block;
+  margin-block-end: 7px;
+}
+
+.summary p { margin: 0; font-size: .97rem; color: var(--ink-2); max-width: none; }
+.summary p + p { margin-block-start: 10px; }
+.summary strong { color: var(--ink); }
+
+/* ---------- executive card ---------- */
+
+.exec {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 30px 32px;
+  box-shadow: var(--shadow);
+  margin-block-end: 34px;
+}
+
+.exec h2 { font-size: 1.35rem; margin-block-end: 16px; }
+.exec p { max-width: none; }
+
+/* ---------- stat row ---------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(146px, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-block: 26px 30px;
+}
+
+.stat { background: var(--surface); padding: 18px 18px 16px; }
+
+.stat .n {
+  font-family: var(--f-mono);
+  font-size: 1.8rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+  display: block;
+  margin-block-end: 7px;
+}
+
+.stat .k { font-size: 12.5px; line-height: 1.35; color: var(--ink-3); display: block; }
+
+.n-teal { color: var(--teal); }
+.n-gold { color: var(--gold); }
+.n-cut { color: var(--cut); }
+.n-defer { color: var(--defer); }
+
+/* ---------- verdict bar ---------- */
+
+.bar {
+  display: flex;
+  height: 30px;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-block: 8px 14px;
+  border: 1px solid var(--rule);
+}
+
+.bar span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  min-width: 0;
+}
+
+.bar-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-block-end: 26px;
+}
+
+.bar-key span { display: inline-flex; align-items: center; gap: 7px; }
+.bar-key i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+
+/* ---------- tables ---------- */
+
+.tw { overflow-x: auto; margin-block: 18px 30px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+
+table { border-collapse: collapse; width: 100%; font-size: 14.2px; min-width: 660px; }
+
+caption {
+  text-align: start;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 14px 16px 0;
+}
+
+th {
+  text-align: start;
+  font-family: var(--f-mono);
+  font-weight: 600;
+  font-size: 10.5px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 13px 14px 9px;
+  border-block-end: 1px solid var(--rule-strong);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+td { padding: 10px 14px; border-block-end: 1px solid var(--rule); vertical-align: top; line-height: 1.45; }
+
+tbody tr:last-child td { border-block-end: none; }
+tbody tr:hover { background: var(--surface-2); }
+
+td.scr { font-family: var(--f-mono); font-size: 12.5px; white-space: nowrap; color: var(--ink); }
+td.num { font-variant-numeric: tabular-nums; text-align: end; font-family: var(--f-mono); }
+
+.grp-row td {
+  background: var(--surface-3);
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  font-weight: 600;
+  padding-block: 8px;
+}
+.grp-row:hover td { background: var(--surface-3); }
+
+/* ---------- pills ---------- */
+
+.p {
+  display: inline-block;
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.p-ok { background: var(--teal-soft); color: var(--teal); border-color: var(--teal); }
+.p-qbo { background: var(--teal-soft); color: var(--teal); border-color: var(--teal); }
+.p-qbd { background: var(--teal-soft); color: var(--teal-bright); border-color: var(--teal-bright); }
+.p-eg { background: var(--gold-soft); color: var(--gold); border-color: var(--gold); }
+.p-part { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.p-merge { background: var(--surface-3); color: var(--ink-2); border-color: var(--rule-strong); }
+.p-cut { background: var(--cut-soft); color: var(--cut); border-color: var(--cut); }
+.p-defer { background: var(--defer-soft); color: var(--defer); border-color: var(--defer); }
+
+/* ---------- callout ---------- */
+
+.callout {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-inline-start: 3px solid var(--cut);
+  border-radius: 0 8px 8px 0;
+  padding: 18px 22px;
+  margin-block: 24px 30px;
+}
+
+.callout.good { border-inline-start-color: var(--teal); }
+.callout.warn { border-inline-start-color: var(--gold); }
+
+.callout .label {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--cut);
+  display: block;
+  margin-block-end: 8px;
+}
+.callout.good .label { color: var(--teal); }
+.callout.warn .label { color: var(--gold); }
+.callout p:last-child { margin-block-end: 0; }
+
+/* ---------- cards ---------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+  gap: 16px;
+  margin-block: 22px 30px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 20px 20px 18px;
+}
+
+.card h5 {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 1.02rem;
+  margin: 0 0 4px;
+  color: var(--teal);
+}
+
+:root[data-theme="dark"] .card h5 { color: var(--teal-bright); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .card h5 { color: var(--teal-bright); } }
+
+.card .role {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--gold);
+  display: block;
+  margin-block-end: 12px;
+}
+
+.card p { font-size: 14px; color: var(--ink-2); margin-block-end: 10px; max-width: none; }
+.card p:last-child { margin-block-end: 0; }
+
+/* ---------- steps ---------- */
+
+.steps { list-style: none; padding: 0; margin: 22px 0 30px; counter-reset: step; max-width: none; }
+
+.steps > li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 16px;
+  padding-block: 16px;
+  border-block-start: 1px solid var(--rule);
+  margin: 0;
+}
+
+.steps > li:last-child { border-block-end: 1px solid var(--rule); }
+
+.steps > li::before {
+  content: counter(step, decimal-leading-zero);
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--teal);
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.steps .st-h { font-weight: 700; display: block; margin-block-end: 4px; }
+.steps .st-m { font-family: var(--f-mono); font-size: 11px; color: var(--ink-3); display: block; margin-block-start: 6px; }
+.steps p { margin: 0; font-size: 14.5px; color: var(--ink-2); max-width: 68ch; }
+
+.ar { font-family: var(--f-body); direction: rtl; unicode-bidi: isolate; }
+
+hr.rule { border: none; border-block-start: 1px solid var(--rule); margin-block: 44px; }
+
+footer { border-block-start: 1px solid var(--rule); padding-block-start: 26px; font-size: 13px; color: var(--ink-3); }
+footer p { max-width: 72ch; }
+footer ol { font-size: 12.5px; max-width: 72ch; padding-inline-start: 20px; }
+footer li { margin-block-end: 4px; }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- module & matrix marks ---------- */
+
+.legend {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-block: 0 6px;
+}
+
+table.matrix { min-width: 880px; }
+table.matrix th.mk, table.matrix td.mk { text-align: center; }
+
+th.mk { white-space: nowrap; }
+
+td.mk {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.mk-y { color: var(--teal); }
+.mk-h { color: var(--warn); }
+.mk-n { color: var(--ink-3); }
+
+tr.totals td {
+  background: var(--surface-2);
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  border-block-start: 1px solid var(--rule-strong);
+  font-variant-numeric: tabular-nums;
+}
+tr.totals:hover td { background: var(--surface-2); }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">Mezan · module audit &amp; competitive brief · 29 Aug 2026</p>
+    <h1>Best ERP in Egypt</h1>
+    <p class="standfirst">Every module Mezan ships, audited against QuickBooks, Odoo, and the twenty-four other products an Egyptian, Gulf or global buyer would put beside it — and against the fourteen Egyptian statutory obligations that decide whether any of it is sellable. Twenty-three modules: five ahead of the field, nine at par, seven behind, two absent.</p>
+    <p class="byline">
+      <span>23 modules audited</span>
+      <span>26 competitors surveyed</span>
+      <span>14 statutory obligations</span>
+      <span>115 nav destinations + dashboard</span>
+      <span><span class="mono">84d516f</span> · <span class="mono">bassamZakaria/cormorant</span></span>
+    </p>
+  </header>
+
+  <nav class="toc" aria-label="Sections">
+    <p class="toc-title">Contents</p>
+    <ol>
+      <li><a href="#s1">What wins Egypt</a></li>
+      <li><a href="#s2">The statutory register</a></li>
+      <li><a href="#s3">The three statutory gaps</a></li>
+      <li><a href="#s4">The 2026 market shift</a></li>
+      <li><a href="#s5">The field, in three rings</a></li>
+      <li><a href="#s6">Module audit</a></li>
+      <li><a href="#s7">The capability matrix</a></li>
+      <li><a href="#s8">What the field has and Mezan does not</a></li>
+      <li><a href="#s9">The moat, re-tested</a></li>
+      <li><a href="#s10">The Egyptian floor</a></li>
+      <li><a href="#s11">Where QuickBooks and Odoo each fit</a></li>
+      <li><a href="#s12">The screen ledger</a></li>
+      <li><a href="#s13">The plan</a></li>
+      <li><a href="#s14">Decisions to record</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ EXEC ============ -->
+    <div class="exec">
+      <h2>Summary of everything</h2>
+
+      <p><strong>What this revision adds.</strong> The previous version audited Egyptian statute and used QuickBooks as a scope knife. This one keeps all of that and adds what was asked for: <strong>every module in the product, enumerated from <code>packages/domain/src</code> and <code>nav-config.tsx</code>, each one judged against the best product in the world at that particular job</strong> — QuickBooks and Odoo first, then Daftra, SMACC, AccFlex, Zoho, Wafeq, Qoyod, Focus, Tally, SAP Business One, Dynamics 365 Business Central, NetSuite, ERPNext and the rest.</p>
+
+      <div class="stats">
+        <div class="stat"><span class="n n-teal">23</span><span class="k">Modules audited</span></div>
+        <div class="stat"><span class="n n-gold">26</span><span class="k">Competitors surveyed</span></div>
+        <div class="stat"><span class="n n-teal">5</span><span class="k">Modules ahead of the field</span></div>
+        <div class="stat"><span class="n" style="color:var(--ink-2)">9</span><span class="k">At par</span></div>
+        <div class="stat"><span class="n" style="color:var(--warn)">7</span><span class="k">Behind</span></div>
+        <div class="stat"><span class="n n-cut">2</span><span class="k">Absent outright</span></div>
+      </div>
+
+      <p><strong>The engine is not the problem.</strong> Where Mezan is measured on accounting truth it beats the products it is priced against: money as a bigint at 1e-6 with largest-remainder allocation, weighted-average costing over immutable cost layers with FEFO draw-down, an append-only audit trail enforced by a database trigger, sub-ledger against control-account reconciliation as a shipped screen, a VAT filing that refuses a posting into a filed period, 268 permissions with branch and warehouse scope, and a defect register that currently reads <strong>zero open</strong> with 3,819 scenario assertions passing and four ledger invariants at exactly zero. QuickBooks Online has no sub-ledger/control split at all; Daftra gates cost centres behind a paid tier; ERPNext has no Egyptian compliance.</p>
+
+      <p><strong>The problem is everything around the engine.</strong> Seven modules are behind the field and two do not exist. Ranked by what they cost in a deal: <strong>no POS and no B2C e-receipt</strong> (retail, restaurants and pharmacies cannot legally transact — and every Egyptian competitor ships POS); <strong>no report centre and no drill-down</strong> across 40 report engines, which is <span class="ar">المحاسب</span>'s stated breaking point and the single biggest usability gap against QuickBooks; <strong>no Egyptian payroll</strong> while Daftra, SMACC and AccFlex all ship it; <strong>no contracting</strong> — no BOQ, no <span class="ar">مستخلصات</span>, no retention — which makes a whole segment unaddressable; and a <strong>single cost-centre axis</strong> where Business Central offers eight dimensions and Odoo offers analytic distribution.</p>
+
+      <p><strong>The deadline that already passed.</strong> The VAT and e-invoicing registration threshold fell to <strong>EGP 250,000</strong> on 1 January 2026 and newly in-scope taxpayers had to register by <strong>31 March 2026</strong>. That cohort — tens of thousands of shops with no accountant and no IT — is in the market <em>now</em>, obligated, and shopping. They are not comparing feature counts; they are asking who can get them issuing a compliant document this week.</p>
+
+      <p><strong>The thesis survives the wider audit.</strong> Of twenty-six products surveyed, exactly one other runs the whole back office with no internet (SAP Business One, at roughly a hundred times the price), and none sells a perpetual licence. Offline plus perpetual is still the whole differentiator; compliance, Arabic and price are the price of being taken seriously by the buyer that differentiator targets.</p>
+    </div>
+    <!-- ============ 1 ============ -->
+    <section id="s1">
+      <span class="sec-num">Section 01</span>
+      <h2>What wins Egypt</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Four axes, in priority order: <strong>compliance</strong>, <strong>Arabic</strong>, <strong>offline</strong>, <strong>price</strong>. Feature count is not on the list. Every competitor in the matrix beats Mezan on breadth; none of them holds all four axes, and the four are what a shop owner actually buys on.</p>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <h5>Compliance that holds</h5>
+          <span class="role">Axis 1 · non-negotiable</span>
+          <p>An ERP in Egypt is judged the day the tax inspector arrives. E-invoice, e-receipt, VAT return, Form 41, five-year retention, an audit trail nobody can edit. Failure here is not a lost feature — it is a fine and a lost customer.</p>
+          <p>Section 02 audits all fourteen obligations against the code.</p>
+        </div>
+        <div class="card">
+          <h5>Arabic as the first language</h5>
+          <span class="role">Axis 2 · the trust test</span>
+          <p><span class="ar">المحاسب</span> is trained on <span class="ar">مدين</span> / <span class="ar">دائن</span>, on <span class="ar">سند قبض</span>, on <span class="ar">مستخلص</span>. A product that translates English concepts into Arabic words reads as foreign in the first thirty seconds.</p>
+          <p>RTL by construction, enforced by <code>pnpm lint:rtl</code>. This is already a moat and it is the one QuickBooks structurally cannot copy.</p>
+        </div>
+        <div class="card">
+          <h5>Runs with no internet</h5>
+          <span class="role">Axis 3 · the structural differentiator</span>
+          <p>Every cloud competitor stops when the line drops. Egyptian shops outside the main corridors lose connectivity routinely, and a till that cannot ring a sale is a closed shop.</p>
+          <p>Electron + SQLite, LAN multi-till, offline Ed25519 licence. Only SAP Business One among the surveyed products offers true on-premises, at 100× the price.</p>
+        </div>
+        <div class="card">
+          <h5>A price an owner can pay</h5>
+          <span class="role">Axis 4 · the close</span>
+          <p><span class="ar">صاحب المنشأة</span> signs the cheque. Daftra runs EGP 489–1,960/month, the local reference from EGP 1,500/month plus per-module add-ons, both forever. A perpetual offline licence is a different purchase decision, not a cheaper one.</p>
+        </div>
+      </div>
+
+      <p>The order matters. A product that is beautiful, fast and complete but cannot issue a compliant e-receipt is unsellable to a retailer; a product that is compliant, Arabic and offline but plain will still close. <strong>Spend on the axes in order, and treat every feature request as a question about which axis it serves.</strong></p>
+
+      <p>The five named users are the test for each: <span class="ar">المُدخِل اليومي</span> keying 40–80 invoices a day, <span class="ar">أمين المخزن</span> on one screen all day, <span class="ar">المحاسب</span> closing the month, <span class="ar">صاحب المنشأة</span> opening it twice a week and signing the cheque, and <span class="ar">الدعم</span> solving it by phone. A decision that serves only the first loses the sale.</p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section id="s2">
+      <span class="sec-num">Section 02</span>
+      <h2>The statutory register</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Every Egyptian obligation that touches an ERP, what it demands, what the code actually has, and a verdict. <strong>Nine handled, two partial, three missing.</strong> The register is the scope document — anything not on it is optional, and anything on it is not.</p>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>Egyptian statutory obligations vs. the code on <span class="mono">9ccf99e</span></caption>
+          <thead>
+            <tr><th>Obligation</th><th>What the law demands</th><th>What Mezan has</th><th>Verdict</th></tr>
+          </thead>
+          <tbody>
+
+            <tr class="grp-row"><td colspan="4">Tax authority — the ETA digital ecosystem</td></tr>
+
+            <tr>
+              <td><strong>E-invoice B2B</strong><br><span class="ar">الفاتورة الإلكترونية</span></td>
+              <td>Pre-clearance submission of every B2B invoice to the ETA. UUID returned, activity/EGS item codes, VAT sub-type codes, e-seal signature on document version 1.0. Law 206/2020 obliges issuing electronic invoices on every sale of goods or services.</td>
+              <td><code>packages/domain/src/eta/</code> — submission queue, payload builder, sub-types V001–V009, activity codes, lifecycle <span class="ar">جاهز</span> → <span class="ar">بانتظار التوقيع</span> → <span class="ar">مرسل</span> → <span class="ar">مقبول</span>, config with <code>signingMethod: "none" | "eseal"</code>.</td>
+              <td><span class="p p-part">PARTIAL</span><br>Queue and payload are real. Actual e-seal signing needs an HSM or signing agent that <code>service.ts</code> notes is not wired. Cannot claim production v1.0 until it is.</td>
+            </tr>
+
+            <tr>
+              <td><strong>E-receipt B2C</strong><br><span class="ar">الإيصال الإلكتروني</span></td>
+              <td>A <em>separate regime</em> from e-invoicing. Consumer sales routed through an ETA-integrated POS or ERP; post-clearance submission <strong>within 72 hours</strong>; from 2026 every printed receipt carries a QR resolving to the validated record. Eighth sub-phase of stage two took effect 15 Sep 2025.</td>
+              <td><strong>Nothing.</strong> No receipt document type in the ETA domain; no 72-hour window; no QR on print. Scenario X41 describes the requirement, and nothing implements it.</td>
+              <td><span class="p p-cut">MISSING</span><br>Blocks retail, restaurants, pharmacies. The highest-priority item in this document.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Registration threshold</strong></td>
+              <td>VAT and e-invoicing registration threshold cut from EGP 500,000 to <strong>EGP 250,000</strong> annual revenue, effective 1 Jan 2026.</td>
+              <td>Market fact rather than a feature — but it is the reason the addressable market moved. Newly in-scope taxpayers had to register by 31 March 2026, so the cohort is live now.</td>
+              <td><span class="p p-eg">OPPORTUNITY</span></td>
+            </tr>
+
+            <tr class="grp-row"><td colspan="4">Indirect tax</td></tr>
+
+            <tr>
+              <td><strong>VAT</strong><br><span class="ar">ضريبة القيمة المضافة</span></td>
+              <td>Law 67/2016, amended by Law 157/2025 effective 18 Jul 2025. Standard rate 14%. Monthly return within two months of period end. Some goods carry schedule tax alone, some carry schedule tax <em>and</em> VAT.</td>
+              <td><code>tax-rates/tax-group.ts</code> models exactly the combined case — its own comment names "Egypt's table tax on top of VAT" as the usual one. <code>tax/vat-filing.ts</code> records a filed period and <strong>refuses a posting dated inside it unless the filing is explicitly amended</strong>.</td>
+              <td><span class="p p-ok">HANDLED</span><br>The filing lock is better than the competitor set. Verify the 2025 amendment's new taxable items are reachable as rates.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Schedule / table tax</strong><br><span class="ar">ضريبة الجدول</span></td>
+              <td>Applied alone or stacked on VAT depending on the good or service.</td>
+              <td>Tax groups compose multiple rates against the same base.</td>
+              <td><span class="p p-ok">HANDLED</span></td>
+            </tr>
+
+            <tr>
+              <td><strong>Withholding at source</strong><br><span class="ar">خصم وتحصيل تحت حساب الضريبة</span></td>
+              <td>Payments over EGP 300: 0.5% supplies and contracting, 2% services, 5% commission and brokerage. <strong>Quarterly Form 41</strong>, filed electronically within one month of quarter end, with the tax remitted alongside.</td>
+              <td>GL account 2210 <span class="ar">ضريبة خصم وتحصيل مستحقة</span>; voucher carries <code>withholdingAmount</code>, <code>withholdingRatePercent</code>, <code>withholdingGlAccountId</code>; supplier discharged in full while only the net leaves the treasury; <code>GET /reports/tax/withholding</code> exists.</td>
+              <td><span class="p p-part">PARTIAL</span><br>The mechanics are right. <strong>There is no Form 41 return</strong> — no quarterly period, no filing record, no lock equivalent to the VAT one.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Stamp tax</strong><br><span class="ar">ضريبة الدمغة</span></td>
+              <td>Levied on defined documents and contracts. Businesses electing the Law 6/2025 regime are exempt.</td>
+              <td>Nothing found in the domain.</td>
+              <td><span class="p p-cut">MISSING</span><br>Small — likely a tax-group type plus a document flag, not a module.</td>
+            </tr>
+
+            <tr class="grp-row"><td colspan="4">Direct tax and regime</td></tr>
+
+            <tr>
+              <td><strong>Simplified regime</strong><br>Law 6 of 2025</td>
+              <td>Effective 1 Mar 2025. Turnover ≤ EGP 20m: income tax becomes <strong>0.4%–1.5% of turnover</strong> instead of 22.5% of net profit; exempt from stamp duty, development fees, dividend and capital-gains tax; simplified bookkeeping; the election cannot be withdrawn for five years.</td>
+              <td>Nothing. No regime concept, no turnover-band computation, no simplified book set.</td>
+              <td><span class="p p-cut">MISSING</span><br><strong>This describes nearly every Mezan prospect.</strong> No surveyed competitor models it.</td>
+            </tr>
+
+            <tr class="grp-row"><td colspan="4">Payroll — deferred with the HR module, but the numbers are here for when it returns</td></tr>
+
+            <tr>
+              <td><strong>Payroll income tax</strong></td>
+              <td>Progressive brackets from 0% on income to EGP 40,000 up to 27.5% above EGP 1,200,000, with an EGP 20,000 annual personal exemption.</td>
+              <td><code>hr/payroll-run.ts</code> states plainly that statutory rules live in configurable components — i.e. the brackets are not shipped.</td>
+              <td><span class="p p-defer">DEFERRED</span></td>
+            </tr>
+
+            <tr>
+              <td><strong>Social insurance</strong><br>Law 148/2019</td>
+              <td>Employee 11%, employer 18.75% of insurable wage. From 1 Jan 2026 the wage floor is EGP 2,700/month and the ceiling EGP 16,700/month (EGP 200,400/year); both rise 15% every 1 January for seven years from 2021.</td>
+              <td>A component label <span class="ar">التأمينات الاجتماعية</span> and a GL account. No rates, no caps, no annual escalation.</td>
+              <td><span class="p p-defer">DEFERRED</span><br>The escalating cap is the trap: a hard-coded 16,700 is wrong on 1 Jan 2027.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Martyrs &amp; Victims Fund</strong></td>
+              <td>0.05% of gross monthly salary, withheld by the employer.</td>
+              <td>Nothing.</td>
+              <td><span class="p p-defer">DEFERRED</span></td>
+            </tr>
+
+            <tr>
+              <td><strong>Labour law</strong><br>Law 14/2025</td>
+              <td>Leave entitlements, end-of-service, contract rules.</td>
+              <td><code>leave-policies</code> presets citing articles. DEC-6 flags casual 7 days and paternity 1 day as the least certain and wanting legal review.</td>
+              <td><span class="p p-part">PARTIAL</span><br>Not an engineering decision — needs someone who can read the law.</td>
+            </tr>
+
+            <tr class="grp-row"><td colspan="4">Books, records and presentation</td></tr>
+
+            <tr>
+              <td><strong>Retention and audit trail</strong><br>Law 206/2020</td>
+              <td>Records and books supporting a return kept <strong>five consecutive years</strong>. The Authority may require specified records be translated into Arabic by an accredited body.</td>
+              <td><code>AuditEvent</code> is append-only by database trigger — a back-fill is impossible by design. Backup and restore are first-class. Branch scope is recorded on every event.</td>
+              <td><span class="p p-ok">HANDLED</span><br>Add an explicit retention statement; the guarantee exists but is not written down as a policy the buyer can point at.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Immutability of posted entries</strong></td>
+              <td>A posted entry may be reversed, never edited.</td>
+              <td>Reversal posts a linked mirror entry and marks the original <code>reversed</code>; cancelling a purchase invoice whose goods were sold is refused with <code>PURCHASE_ITEMS_ALREADY_CONSUMED</code>.</td>
+              <td><span class="p p-ok">HANDLED</span></td>
+            </tr>
+
+            <tr>
+              <td><strong>Financial statement presentation</strong><br>Egyptian Accounting Standards</td>
+              <td>Balance sheet, income statement and cash flow in EAS form, which tracks IFRS with local departures.</td>
+              <td><code>reports/balance-sheet.ts</code>, <code>income-statement.ts</code>, <code>cash-flow.ts</code> exist with a fixture suite. EAS-specific line ordering and captions are not evidenced.</td>
+              <td><span class="p p-part">VERIFY</span><br>Have a <span class="ar">محاسب قانوني</span> sign off one printed set. This is cheap and it is the difference between a report and a statement.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Invoice legal content</strong></td>
+              <td>Seller and buyer tax registration number, commercial register number, activity code, the ETA UUID and its QR on the printed document.</td>
+              <td>Customer and supplier forms carry <code>taxRegistrationNumber</code> and <code>commercialRegistrationNumber</code> (R3.8). Nine print-template tabs exist.</td>
+              <td><span class="p p-part">VERIFY</span><br>Print one real invoice and check it against a compliant sample, field by field. Nothing in the test suite proves this today.</td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section id="s3">
+      <span class="sec-num">Section 03</span>
+      <h2>The three gaps</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>E-receipt, Form 41, and the Law 6/2025 regime. The first blocks three named target segments outright; the second fails an audit; the third is the largest uncontested differentiator available in this market. Everything else in the backlog is smaller than these.</p>
+      </div>
+
+      <h3>Gap 1 · The B2C e-receipt <span class="ar">الإيصال الإلكتروني</span></h3>
+
+      <div class="callout">
+        <span class="label">Blocks three named segments</span>
+        <p>The e-receipt regime is <strong>not</strong> the e-invoice regime with a different name. It is a separate ETA system, phased separately, with different mechanics: post-clearance rather than pre-clearance, a <strong>72-hour</strong> submission window rather than immediate, and from 2026 a mandatory QR on the printed receipt that resolves to the validated record. Reprinting must reproduce the same QR, never mint a new one.</p>
+      </div>
+
+      <p>Mezan implements the e-invoice path and nothing else. The consequence is concrete: a retailer, a restaurant or a pharmacy running Mezan is not compliant on a consumer sale. <code>client-retail</code>, <code>client-restaurant</code> and <code>client-pharmacy</code> are all named target buyers, so this is not a future segment — it is three of the ones already being designed for.</p>
+
+      <p>"POS is descoped" does not resolve it. The obligation attaches to the sale, not to the POS product, and a sales invoice raised at a counter to a walk-in consumer is a B2C transaction whatever screen raised it. The minimum honest build is: a receipt submission type in the ETA domain, the 72-hour queue-and-forward behaviour the desktop edition already uses for invoices, a QR on the printed receipt, and a reprint that is idempotent.</p>
+
+      <p><strong>The offline architecture is an advantage here, not an obstacle.</strong> A 72-hour window is exactly what queue-and-forward is for — the shop rings the sale with no internet, the receipt prints, and the submission goes when the line returns. A cloud competitor with a dropped connection simply cannot ring the sale. Say this out loud in the sales conversation.</p>
+
+      <h3>Gap 2 · Form 41, the quarterly withholding return</h3>
+
+      <p>The withholding mechanics are correct and well-built — the supplier is discharged in full while only the net leaves the treasury, which is the part most systems get wrong. What is missing is the return itself: a quarterly period, a filing record, a remittance figure, and a lock that refuses a backdated posting into a filed quarter.</p>
+
+      <p>The design already exists in the codebase. <code>tax/vat-filing.ts</code> solves precisely this problem for VAT, and its own header explains why: before it, "July's output tax moved by 140.00 after the fact, with no amendment, no warning and no trace". <strong>Form 41 needs the same object with a quarterly window.</strong> That makes it a small, well-specified build rather than a new domain.</p>
+
+      <h3>Gap 3 · The Law 6/2025 regime — the uncontested differentiator</h3>
+
+      <div class="callout good">
+        <span class="label">Nobody else models this</span>
+        <p>Turnover under EGP 20m, income tax at 0.4%–1.5% of turnover instead of 22.5% of profit, exemptions from stamp duty and dividend and capital-gains tax, simplified books, and a five-year lock-in on the election. That is a description of the Mezan customer. None of Daftra, SMACC, AccFlex, Odoo, Zoho or the local reference product markets support for it.</p>
+      </div>
+
+      <p>What it needs is small relative to what it buys: a regime field on company settings, the turnover bands, a computation that reports the liability from figures the ledger already holds, and — the part that actually sells — a <strong>comparison</strong>: what this business would pay under each regime, from its own numbers. An owner deciding whether to elect a regime they cannot leave for five years will pay for that screen.</p>
+
+      <p>It also has a compliance consequence worth catching: the election is irrevocable for five years, so the regime is a fact about a period, not a setting someone toggles. Model it the way <code>vat-filing</code> models a filed period — a claim about a window, with an explicit amendment path — not as a boolean in settings.</p>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section id="s4">
+      <span class="sec-num">Section 04</span>
+      <h2>The 2026 market shift</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Two decrees moved the market in Mezan's favour and neither is in the plan. The registration threshold fell to EGP 250,000, forcing tens of thousands of micro-businesses into e-invoicing for the first time; Law 6/2025 gave those same businesses a reason to formalise. The buyer being created is a shop with no accountant, no IT, and now a legal obligation.</p>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>What changed, and what it implies for the product</caption>
+          <thead>
+            <tr><th>Change</th><th>Effective</th><th>What it creates</th><th>Product implication</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Registration threshold EGP 500k → 250k</strong></td>
+              <td>1 Jan 2026</td>
+              <td>Tens of thousands of small businesses and sole proprietors newly in scope for VAT registration and e-invoicing. <strong>Registration was due by 31 March 2026 — that cohort is already obligated and already shopping.</strong></td>
+              <td>A much smaller buyer than the plan assumes. Time-to-first-invoice matters more than module breadth. A first-run experience that gets a shop issuing a compliant invoice the same day beats any feature.</td>
+            </tr>
+            <tr>
+              <td><strong>E-receipt sub-phase 8</strong></td>
+              <td>15 Sep 2025</td>
+              <td>Named taxpayers must integrate POS or ERP with the ETA receipt system.</td>
+              <td>Gap 1. Blocking for retail, F&amp;B and pharmacy.</td>
+            </tr>
+            <tr>
+              <td><strong>QR mandatory on printed e-receipts</strong></td>
+              <td>2026</td>
+              <td>Every printed receipt must carry a QR resolving to the validated ETA record.</td>
+              <td>Print is where offline ERPs fail loudest. Thermal receipt output, Arabic rendering with no internet, and an idempotent reprint all become compliance features rather than polish.</td>
+            </tr>
+            <tr>
+              <td><strong>Law 6/2025 simplified regime</strong></td>
+              <td>1 Mar 2025</td>
+              <td>A cheap, low-friction path to formalising, aimed exactly at the informal small business.</td>
+              <td>Gap 3. Also a sales argument: the ERP that shows you what you would pay under each regime.</td>
+            </tr>
+            <tr>
+              <td><strong>VAT Law amended by Law 157/2025</strong></td>
+              <td>18 Jul 2025</td>
+              <td>New items brought into VAT (crude oil, commercial trademarks, advertising services) and higher rates on some goods.</td>
+              <td>Confirm the shipped tax-rate seed covers the amended scope. A stale rate table is a silent wrong number on every invoice.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The composite picture: the market is getting <em>larger</em> and <em>smaller-per-customer</em> at the same time. More businesses, each one tinier, each one obligated. That argues for a cheaper entry tier, a faster setup, and a ruthlessly short path from install to first compliant invoice — and it argues against every screen the product does not need.</p>
+    </section>
+
+
+    <!-- ============ 5 ============ -->
+    <section id="s5">
+      <span class="sec-num">Section 05</span>
+      <h2>The field, in three rings</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Twenty-six products, sorted by which ring they compete in. <strong>Ring one is Egypt</strong> — these appear in the actual deal, and they set the feature floor. <strong>Ring two is the Gulf and the wider Arab market</strong> — they set the compliance craft, because ZATCA Phase 2 forced Saudi vendors to build clearance pipelines Egypt is only now catching up to. <strong>Ring three is the world</strong> — these set the depth ceiling and the interaction patterns, and mostly do not sell here.</p>
+      </div>
+
+      <h3>Ring one · Egypt — who is in the room</h3>
+
+      <div class="tw">
+        <table>
+          <caption>Products an Egyptian SMB buyer actually shortlists</caption>
+          <thead>
+            <tr><th>Product</th><th>Shape &amp; price</th><th>Real strength</th><th>Where it is weak</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Daftra</strong></td>
+              <td>Cloud SaaS, ~EGP 489–1,960/mo plus per-unit add-ons</td>
+              <td>The broadest local suite: ETA integration with e-signature and hardware token, POS with offline capability, BOM and production orders, HR and payroll, installments, cheques, multi-branch, mobile apps, 50+ vertical presets.</td>
+              <td>Cloud-only back office. Usage caps by tier. Cost centres and several accounting depth features sit behind higher tiers.</td>
+            </tr>
+            <tr>
+              <td><strong>The local reference product</strong></td>
+              <td>Cloud, from ~EGP 1,500/mo + modules</td>
+              <td>Arabic-first, single-ledger positioning, van sales, contracting with BOQ and retention, restaurant and pharmacy verticals with FEFO, loyalty, a notification engine, an AI assistant.</td>
+              <td>Cloud-only. Its own comparison marketing overstates rivals' gaps. Server-side counts and stats are its one real architectural lesson, not its feature list.</td>
+            </tr>
+            <tr>
+              <td><strong>SMACC</strong> (MNT-Halan)</td>
+              <td>Cloud, ~$125–185/mo</td>
+              <td>The most specific ETA work in the market: UUID retrieval, QR and long-ID printing on the document, bulk issuance. Distribution muscle behind it.</td>
+              <td>Cloud-only, accounting-led rather than operations-led, thin manufacturing.</td>
+            </tr>
+            <tr>
+              <td><strong>AccFlex</strong></td>
+              <td>Quote-based, ETA-approved</td>
+              <td>Vertical credibility — construction, real estate, F&amp;B — sold as "we know your industry" rather than on a feature grid. Ships Egyptian payroll.</td>
+              <td>Opaque deployment and pricing; older interaction model.</td>
+            </tr>
+            <tr>
+              <td><strong>Onyx Pro</strong> · <strong>Al-Ameen</strong></td>
+              <td>Long-established local/regional installs, licence-based</td>
+              <td>The incumbents in the accountant's office. On-premises history, deep Arabic accounting vocabulary, trusted by <span class="ar">المحاسب القانوني</span>.</td>
+              <td>Dated interfaces, weak modern e-invoicing stories, little product velocity. <strong>These are the customers Mezan converts.</strong></td>
+            </tr>
+            <tr>
+              <td><strong>Enerpize</strong> · <strong>Zemam</strong> · <strong>Hunt ERP</strong></td>
+              <td>Cloud SMB suites; Hunt from ~EGP 1,000/mo</td>
+              <td>The new cheap Arabic cloud tier aimed squarely at the newly-registered micro-business — fast signup, e-invoicing, POS, small module sets.</td>
+              <td>Shallow accounting depth. <strong>They are the direct threat for the EGP 250,000 cohort</strong>, and they compete on time-to-first-invoice, not on ledgers.</td>
+            </tr>
+            <tr>
+              <td><strong>Foodics</strong> · <strong>Rewaa</strong></td>
+              <td>Vertical cloud POS (F&amp;B, retail), per-terminal</td>
+              <td>Best-in-region counter experience, kitchen and shelf operations, e-receipt paths, hardware ecosystems.</td>
+              <td>Not general ledgers. They sit <em>beside</em> an ERP — which is exactly the seat Mezan concedes by having no POS.</td>
+            </tr>
+            <tr>
+              <td><strong>Odoo, via Egyptian partners</strong></td>
+              <td>Enterprise ~$25–30/user/mo + implementations from ~EGP 125,000</td>
+              <td>Everything, eventually: full MRP, WMS, ecommerce, official <code>l10n_eg_edi_eta</code> since v15, analytic accounting.</td>
+              <td>Partner-dependent, real TCO hidden in implementation and upgrades, Arabic RTL is bolted on. Wins the buyer who can fund a project, not the shop.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Ring two · The Gulf and the Arab market — where the compliance craft is</h3>
+
+      <p>Saudi Arabia processed <strong>over 8.2 billion e-invoices in 2025</strong>, up 64% year on year, because ZATCA Phase 2 made integrated clearance non-optional. The vendors who survived that are the ones worth studying, since Egypt's ETA is walking the same road one phase behind.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Regional products and the lesson each one carries</caption>
+          <thead>
+            <tr><th>Product</th><th>Market</th><th>The lesson for Mezan</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Wafeq</strong></td><td>KSA + UAE</td><td>Built for the region's compliance reality first rather than localised into it — the same claim Mezan makes. Proof the positioning sells: ~2M invoices/month processed.</td></tr>
+            <tr><td><strong>Qoyod</strong></td><td>KSA</td><td>Arabic-first UI plus ZATCA Phase 2 clearance as the product's spine. Onboarding and Arabic register are its moat, not module count.</td></tr>
+            <tr><td><strong>Zoho Books / Zoho One</strong></td><td>KSA, UAE, Egypt</td><td>Phase 2 e-invoicing with digital signature and transmission, at a price no local vendor can match, inside a suite of 40+ apps. The custom report builder and the mobile apps are what a small buyer notices.</td></tr>
+            <tr><td><strong>Focus Softnet</strong></td><td>UAE, KSA, Egypt</td><td>The regional mid-market incumbent: on-premises or cloud, deep trading and distribution, partner-led. The closest thing to a regional SAP B1 alternative.</td></tr>
+            <tr><td><strong>Tally</strong></td><td>Gulf, India diaspora</td><td>The desktop-licence, offline-capable, keyboard-driven ledger that refuses to die. It proves the buyer Mezan targets exists in millions — and that speed of data entry beats interface fashion.</td></tr>
+            <tr><td><strong>Sage 50 / Sage Intacct</strong></td><td>Gulf, global</td><td>Sage 50's desktop lineage and Intacct's dimensional accounting. Intacct's dimensions are the model for fixing Mezan's single cost-centre axis.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Ring three · The world — the depth ceiling</h3>
+
+      <div class="tw">
+        <table>
+          <caption>Global products, their 2026 pricing shape, and what they are actually for</caption>
+          <thead>
+            <tr><th>Product</th><th>Price shape</th><th>What it sets the standard for</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>QuickBooks Online</strong></td><td>From ~$15/mo; Advanced far higher</td><td>Interaction design: the <span class="mono">+New</span> menu, one products-and-services list, a report centre with ~80 reports, favourites, scheduling and drill-down from every figure, and setup-as-you-go onboarding.</td></tr>
+            <tr><td><strong>QuickBooks Desktop Enterprise</strong></td><td>Subscription; the only Desktop edition Intuit still sells</td><td>Depth Mezan already matches or exceeds: assemblies, multi-site transfers, price levels, landed cost, barcode, physical count, fixed-asset manager. <strong>Note the strategic fact:</strong> Desktop 2024 was the last non-Enterprise release, and support for 2023 ended 31 May 2026 — Intuit is evacuating the desktop, in the exact decade Mezan is betting on it.</td></tr>
+            <tr><td><strong>Intuit Enterprise Suite</strong></td><td>Quote-based, upmarket</td><td>Where Intuit went instead: multi-entity consolidation, dimensions, AI agents. The ceiling QuickBooks buyers graduate to.</td></tr>
+            <tr><td><strong>Odoo 19</strong></td><td>~$25–30/user/mo Enterprise; Community free</td><td>Scope. Standard, AVCO and FIFO valuation, full MRP with routings and work centres, WMS with lots, serials and bins, ecommerce, analytic distribution, an official Egypt localisation. The control reference: a feature Odoo has that neither Egyptian law nor the local floor requires was copied from an app list.</td></tr>
+            <tr><td><strong>Dynamics 365 Business Central</strong></td><td>~$70–100/user/mo, 3–6 month implementations</td><td>Dimensions (eight axes), multi-entity, and the Microsoft 365 gravity well. The dimensional model to copy.</td></tr>
+            <tr><td><strong>SAP Business One</strong></td><td>~$95/user/mo plus $25K–150K partner cost, 6–12 months</td><td><strong>The only other product in this survey that runs on-premises with no internet.</strong> That is the whole comparison: same architecture, hundredfold price.</td></tr>
+            <tr><td><strong>NetSuite</strong></td><td>~$999/mo platform + ~$99–125/user, 9–18 months</td><td>Global consolidation for 100+ employee companies. Out of frame for this buyer, useful only as the ceiling.</td></tr>
+            <tr><td><strong>ERPNext / Frappe</strong></td><td>Free self-hosted; managed cloud cheap</td><td>The open-source control: full manufacturing, WMS and HR at zero licence cost — and <em>no Egyptian compliance</em>, which is precisely why licence price is not what wins this market.</td></tr>
+            <tr><td><strong>Xero</strong> · <strong>Acumatica</strong> · <strong>Epicor</strong> · <strong>Infor</strong></td><td>Various</td><td>Bank-feed-centric bookkeeping (Xero) and upper-mid-market manufacturing suites. Present for completeness; none sells into Egyptian SMB.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <span class="label">The one number that reframes the desktop bet</span>
+        <p>Intuit has ended new non-Enterprise Desktop sales and support, Sage is pushing Intacct, and every regional vendor is cloud-only. <strong>The desktop back office is being vacated by everyone with the resources to defend it.</strong> That is either the best possible news for a product whose thesis is offline-first, or a warning that the segment is shrinking. It is worth deciding which, deliberately, rather than discovering it — see DEC-15.</p>
+      </div>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section id="s6">
+      <span class="sec-num">Section 06</span>
+      <h2>Module audit</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Twenty-three modules, enumerated from <code>packages/domain/src</code> (66 domain directories) and the 14 workspaces in <code>nav-config.tsx</code>. Each is judged against whichever product in the world is <em>best at that specific job</em> — not against an average competitor. <strong>Five ahead, nine at par, seven behind, two absent.</strong> A verdict of "at par" means a buyer comparing the two would not switch on this module alone.</p>
+      </div>
+
+      <div class="bar" role="img" aria-label="Verdict split of 23 modules: 5 ahead, 9 at par, 7 behind, 2 absent">
+        <span style="background:var(--teal);flex:5">5</span>
+        <span style="background:var(--rule-strong);flex:9;color:var(--ink)">9</span>
+        <span style="background:var(--warn);flex:7">7</span>
+        <span style="background:var(--cut);flex:2">2</span>
+      </div>
+      <div class="bar-key">
+        <span><i style="background:var(--teal)"></i> Ahead of the field · 5</span>
+        <span><i style="background:var(--rule-strong)"></i> At par · 9</span>
+        <span><i style="background:var(--warn)"></i> Behind · 7</span>
+        <span><i style="background:var(--cut)"></i> Absent · 2</span>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>Every module against the best product at that job</caption>
+          <thead>
+            <tr><th>Module</th><th>What Mezan actually has</th><th>Best in the world at this, and what they do</th><th>Verdict</th><th>The gap that matters</th></tr>
+          </thead>
+          <tbody>
+
+            <tr class="grp-row"><td colspan="5">The financial core</td></tr>
+
+            <tr>
+              <td><strong>General ledger &amp; chart of accounts</strong><br><span class="mono">gl/ · accounts/ · reconciliation/</span></td>
+              <td>78 seeded Egyptian accounts, per-item GL mapping, account routing, posted entries immutable and corrected only by a linked reversal, sub-ledger against control account as a shipped screen, four invariants at exactly zero on the seeded tenant (trial balance, inventory vs 1200, AP vs 2100, AR vs 1105).</td>
+              <td><strong>Sage Intacct / Business Central</strong> — multi-book, eight dimension axes, budget versus actual on every account, statutory and management books side by side.</td>
+              <td><span class="p p-merge">AT PAR</span></td>
+              <td>No budgets anywhere in the domain. No multi-entity consolidation. <strong>Retained earnings is still derived inside <code>balance-sheet.ts</code> rather than posted by a year-end close</strong> — the ledger alone cannot answer the question.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Fiscal periods &amp; close</strong><br><span class="mono">fiscal-periods/ · tax/vat-filing.ts</span></td>
+              <td>Three-state periods (open / closed / locked, locked terminal), and a VAT filing that <em>refuses</em> a posting dated inside a filed period unless the filing is explicitly amended.</td>
+              <td><strong>QuickBooks</strong> closes the books behind a password; <strong>Odoo</strong> uses lock dates. Neither ties the lock to a filed tax return.</td>
+              <td><span class="p p-merge">AT PAR</span></td>
+              <td>Ahead on the VAT lock, behind on the close itself: no year-end closing entry, and no equivalent quarterly lock for withholding once Form 41 exists.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Tax &amp; e-invoicing</strong><br><span class="mono">tax-rates/ · eta/ · reports/vat-return.ts</span></td>
+              <td>Tax groups that stack schedule tax on VAT against one base, per-line rates, withholding fields on the voucher with the supplier discharged in full, a withholding report, and an ETA queue with activity codes, sub-types V001–V009 and a four-state lifecycle.</td>
+              <td><strong>Daftra</strong> and <strong>SMACC</strong> in Egypt — e-signature and hardware token, bulk issuance, UUID and long-ID printing. <strong>Wafeq / Zoho</strong> in Saudi — full Phase 2 clearance with digital signature.</td>
+              <td><span class="p p-part">BEHIND</span></td>
+              <td>Three named holes: <code>EtaDocumentType</code> is <code>invoice | credit_note | debit_note</code> — <strong>no e-receipt</strong>; the e-seal signing agent is not wired; there is no Form 41 return. Sections 02 and 03 carry the detail.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Multi-currency &amp; FX</strong><br><span class="mono">currency/ · exchange-rates/ · fx-revaluation/</span></td>
+              <td>Rates resolved against the document's own date at confirm time, and an auto-reversing revaluation engine.</td>
+              <td><strong>Odoo</strong> and <strong>Business Central</strong> — realised and unrealised gain/loss split, per-account revaluation policy, rate feeds.</td>
+              <td><span class="p p-merge">AT PAR</span></td>
+              <td>IAS-21 depth is unverified: the realised/unrealised split and the treatment of monetary versus non-monetary items want an accountant's review, not a code review.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Cost centres &amp; analytics</strong><br><span class="mono">cost-centers/ · cost-center-pl/</span></td>
+              <td>One cost-centre axis carried on postings, with a cost-centre P&amp;L report.</td>
+              <td><strong>Business Central</strong> — eight dimension axes with combination rules. <strong>Odoo</strong> — analytic accounts with percentage distribution across several plans at once.</td>
+              <td><span class="p p-part">BEHIND</span></td>
+              <td>One axis cannot answer "this branch, this project, this product line" simultaneously — which is exactly what a multi-branch trading company asks. Distribution rules do not exist: a cost lands whole on one centre or none.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Bank reconciliation</strong><br><span class="mono">bank-reconciliation/</span></td>
+              <td>Statement lines matched against ledger movements, kept separate from balance reconciliation — correctly, they are different questions.</td>
+              <td><strong>Xero</strong> and <strong>QuickBooks Online</strong> — live bank feeds, learned matching rules, and a daily review loop that most of their dashboard exists to serve.</td>
+              <td><span class="p p-part">BEHIND</span></td>
+              <td>Behind <em>by architecture</em>, and that is defensible — an offline product cannot hold a feed. The honest answer is not a feed: it is a first-class statement importer with saved matching rules, so the manual path costs minutes rather than an afternoon.</td>
+            </tr>
+
+            <tr class="grp-row"><td colspan="5">Money in and money out</td></tr>
+
+            <tr>
+              <td><strong>Treasury &amp; cheques</strong><br><span class="mono">vouchers/ · cheques/ · treasury-accounts/</span></td>
+              <td>Ten voucher types, allocation against invoices, a negative-cash guard, custody <span class="ar">(عهدة)</span>, and a cheque register whose seven status tabs sit over five stored states plus two date-derived views — a deliberate refusal to store what can be computed.</td>
+              <td>Nobody, globally. <strong>QuickBooks</strong> prints a cheque. <strong>Daftra</strong> and the local reference ship the cycle; neither models the derived states this cleanly.</td>
+              <td><span class="p p-ok">AHEAD</span></td>
+              <td>Ahead, and over-built: eleven voucher types against QuickBooks' four is the clearest simplification target in the product. Missing at the edges: cheque endorsement and replacement states.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Sales</strong><br><span class="mono">sales-quotes/ · sales-invoices/ · sales-returns/ · price-lists/ · promotions/ · credit-control/</span></td>
+              <td>Quote to invoice to return, price lists with quantity tiers, promotions, credit limits checked at the point of sale, salesperson reporting, and a collect action that raises and allocates a real treasury voucher rather than flipping a flag.</td>
+              <td><strong>QuickBooks Online</strong> — recurring invoices, a customer portal, pay-by-link, e-signed estimates. <strong>Odoo</strong> — subscriptions, ecommerce, sales teams and targets.</td>
+              <td><span class="p p-merge">AT PAR</span></td>
+              <td>No recurring or subscription billing, no customer portal, no payment link, no commission engine. The first of those is the one a services business asks for on day one.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Van &amp; field sales</strong><br><span class="mono">field-sales/</span></td>
+              <td>Van as a warehouse type, trips opened and settled, cash movements recorded against the trip, van-sales reporting.</td>
+              <td>The local reference product and <strong>Focus</strong> in the Gulf. QuickBooks and Odoo core have no analogue.</td>
+              <td><span class="p p-ok">AHEAD</span></td>
+              <td>Ahead of the global field, at par regionally. The missing half is the mobile side — a rep on the road cannot open a desktop.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Installments</strong><br><span class="mono">installments/</span></td>
+              <td>Plans, follow-ups, an overview and an overdue report.</td>
+              <td><strong>Daftra</strong> sells it as a paid add-on; the local reference likewise.</td>
+              <td><span class="p p-merge">AT PAR</span></td>
+              <td>Nothing structural. Worth pricing as its own module, exactly as the competitors do.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Purchasing</strong><br><span class="mono">purchasing/ · purchase-returns/ · landed-costs/</span></td>
+              <td>RFQ to purchase order to goods receipt to invoice to return, landed cost allocated across target lines with largest-remainder arithmetic, receipt-to-invoice guarded against double invoicing, FEFO applied at receipt.</td>
+              <td><strong>Odoo</strong> — vendor price lists, blanket orders, dropship, configurable three-way-match tolerances. <strong>QuickBooks Online</strong> has no goods receipt at all.</td>
+              <td><span class="p p-merge">AT PAR</span></td>
+              <td>The policy toggles are missing rather than the documents: require-PO-before-GRN, require-GRN-before-invoice and the negative-stock block are named in the parity audit and not shipped.</td>
+            </tr>
+
+            <tr>
+              <td><strong>CRM</strong><br><span class="mono">crm/</span></td>
+              <td>Six screens — leads, opportunities, pipeline, stages, activities, hub.</td>
+              <td><strong>Odoo CRM</strong> and <strong>Zoho CRM</strong> — the category definitions.</td>
+              <td><span class="p p-part">BEHIND</span></td>
+              <td>Built and hollow: no owner, no quote-to-opportunity link, no stage history, no loss reasons — so its own reports have no substrate. Six screens' worth of surface area carrying one screen's worth of truth. Reduce to one list on the customer record.</td>
+            </tr>
+
+            <tr class="grp-row"><td colspan="5">Stock, catalogue and making things</td></tr>
+
+            <tr>
+              <td><strong>Inventory &amp; costing</strong><br><span class="mono">inventory/ (41 files)</span></td>
+              <td>Weighted average over <em>immutable cost layers</em> drawn down FEFO where an expiry exists and FIFO otherwise; batches and expiry; reservations <strong>derived</strong> from open documents rather than stored; transfers, adjustments with eight reasons, physical counts with variance, write-down runs; five warehouse types; movements dated by their document, never the wall clock.</td>
+              <td><strong>Odoo</strong> and <strong>SAP B1</strong> — bin locations, serial numbers, wave picking, putaway rules, multi-step receipts and deliveries.</td>
+              <td><span class="p p-ok">AHEAD</span><br>on costing truth</td>
+              <td>Ahead of every product at this price on <em>valuation honesty</em>; behind on warehouse mechanics. Absent: <strong>serial numbers</strong> (no <code>serialNumber</code> anywhere in the domain), <strong>bin or shelf locations</strong>, pick/pack/ship, and replenishment suggestions — <code>reorderPoint</code> is stored on the item and nothing acts on it.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Items &amp; catalogue</strong><br><span class="mono">items/ · units/ · barcode-config/</span></td>
+              <td>Item types, product templates, configurable products with generated variants, specifications, barcode configuration and label printing in three sizes, and multi-unit conversion held at 1e-6 with exact integer arithmetic.</td>
+              <td><strong>Odoo</strong> — the attribute/variant matrix feeding ecommerce and manufacturing.</td>
+              <td><span class="p p-merge">AT PAR</span></td>
+              <td>Six catalogue screens where QuickBooks ships one list with a type column. The depth is real; the navigation cost is not earned.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Manufacturing</strong><br><span class="mono">manufacturing/</span></td>
+              <td>Bills of material with formula lines, work orders that issue material and receive finished goods, work stations, configurable products, and a make-vs-buy report with no counterpart in either QuickBooks or Odoo.</td>
+              <td><strong>Odoo MRP</strong> and <strong>SAP B1</strong> — routings with work-centre capacity, scheduling, MRP planning runs, subcontracting, quality checks.</td>
+              <td><span class="p p-part">BEHIND</span></td>
+              <td>No routing time or capacity, no scheduling, no MRP run, no subcontracting, no quality gate. Adequate for a workshop that builds to order; not for a factory that plans.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Contracting &amp; projects</strong><br><span class="mono">projects/ (5 files)</span></td>
+              <td>A project record with a budget field and a guarded status machine. That is the whole module.</td>
+              <td>The local reference product and <strong>AccFlex</strong> — BOQ, <span class="ar">مستخلصات</span> (progress certificates), retention withheld and released, advance recovery, subcontractor accounts.</td>
+              <td><span class="p p-cut">ABSENT</span></td>
+              <td>No BOQ, no progress certificate, no retention on a document (the word appears only in the chart-of-accounts template), no advance recovery, no percentage-of-completion revenue. <strong>The contracting segment is unaddressable today</strong>, and its own workspace row in the nav promises otherwise.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Point of sale &amp; retail counter</strong><br><span class="mono">— nothing —</span></td>
+              <td>Nothing. Descoped by decision.</td>
+              <td><strong>Foodics</strong>, <strong>Rewaa</strong>, <strong>Daftra</strong>, <strong>Odoo POS</strong> — offline-capable terminals, shift and till close, kitchen and shelf workflows, ETA e-receipt paths.</td>
+              <td><span class="p p-cut">ABSENT</span></td>
+              <td>The single largest addressable-market hole. Retail, restaurants and pharmacies are three of the five named target buyers, every Egyptian competitor ships a counter, and the B2C e-receipt obligation attaches to the sale whether or not a POS product exists. <strong>An offline desktop ERP with no till is arguing against its own strongest story.</strong></td>
+            </tr>
+
+            <tr class="grp-row"><td colspan="5">People, assets and reporting</td></tr>
+
+            <tr>
+              <td><strong>Fixed assets</strong><br><span class="mono">fixed-assets/</span></td>
+              <td>Categories, an asset register, depreciation runs that post, and disposal with its gain or loss.</td>
+              <td><strong>QuickBooks Desktop Fixed Asset Manager</strong>; <strong>Odoo</strong> assets with revaluation and deferred expense.</td>
+              <td><span class="p p-merge">AT PAR</span></td>
+              <td>One book only: Egyptian tax depreciation and accounting policy cannot diverge, which they routinely do. No componentisation, no revaluation, no IFRS 16 lease treatment.</td>
+            </tr>
+
+            <tr>
+              <td><strong>HR &amp; payroll</strong><br><span class="mono">hr/ (29 files) · 15 screens</span></td>
+              <td>Employees, departments, contracts, attendance, holidays, leave requests with entitlement enforcement, accrual batches, advances, payroll runs with configurable components — and <strong>no Egyptian statutory rule computed anywhere</strong>.</td>
+              <td><strong>Daftra</strong>, <strong>SMACC</strong>, <strong>AccFlex</strong> — all ship Egyptian payroll with income tax brackets and social insurance.</td>
+              <td><span class="p p-part">BEHIND</span></td>
+              <td>Deferred by decision, but a competitor demo shows a payslip and this one cannot. The statutory numbers are recorded in Section 02 for when it returns; the escalating insurance cap is the trap that makes a hard-coded figure wrong every January.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Reports &amp; BI</strong><br><span class="mono">reports/ (40 engines)</span></td>
+              <td>Forty report engines behind 33 catalogued reports across eight domains, with a shared engine, fixtures for the financial statements, and server-side parameter validation that now surfaces its errors.</td>
+              <td><strong>QuickBooks Online</strong> — one report centre, ~80 reports, favourites, a customise drawer, scheduling, and drill-down to the transaction from every figure. <strong>Odoo</strong> — pivot and graph views on any model. <strong>Zoho</strong> — a custom report builder.</td>
+              <td><span class="p p-part">BEHIND</span></td>
+              <td>Twenty-two operational reports render as one identical table with no KPI strip, no chart and <strong>no drill-down</strong>. Worse, chip counts and KPI money are computed from the page of rows in hand, so both are wrong past page one — a correctness defect the parity audit rates P0. This is the biggest single usability gap in the product.</td>
+            </tr>
+
+            <tr class="grp-row"><td colspan="5">Cross-cutting</td></tr>
+
+            <tr>
+              <td><strong>Workflow, approvals &amp; notifications</strong><br><span class="mono">workflow/ · notifications/ · events/</span></td>
+              <td>Twenty-six gateable actions, approval chains that genuinely hold a document and post it on approval, 39 notification events, and an in-app inbox.</td>
+              <td><strong>QuickBooks Advanced</strong> workflows; <strong>Odoo</strong> activities and automated actions.</td>
+              <td><span class="p p-merge">AT PAR</span></td>
+              <td>Only <code>in_app</code> delivers — email and push are stamped <em>queued</em> and nothing drains the queue, though an SMTP transport now exists. For an offline product that is a delivery decision, not a missing feature; it should be stated rather than implied.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Users, permissions &amp; audit</strong><br><span class="mono">permissions/ · roles/ · audit/ · users/</span></td>
+              <td>268 permissions across 19 modules, a role editor, branch and warehouse scope on the session, and an audit trail that is append-only <em>by database trigger</em> — a back-fill is impossible by design.</td>
+              <td><strong>Business Central</strong> and <strong>SAP B1</strong> at the enterprise end; <strong>QuickBooks</strong> ships a handful of roles.</td>
+              <td><span class="p p-ok">AHEAD</span></td>
+              <td>Ahead, with an implementation cost attached: 268 permissions is a configuration project unless role presets ship with it. No segregation-of-duties reporting yet.</td>
+            </tr>
+
+            <tr>
+              <td><strong>Platform, licensing &amp; deployment</strong><br><span class="mono">licensing/ · entitlements/ · lan/ · data-migration/ · attachments/</span></td>
+              <td>Electron over SQLite with one shared connection discipline, LAN multi-till, Ed25519-signed offline licences with module entitlements, backup and restore as product features, spreadsheet importers, nine print-template tabs, attachments and search.</td>
+              <td><strong>SAP Business One</strong> is the only comparable on-premises option surveyed. Everyone else is cloud with mobile apps, open APIs and marketplaces.</td>
+              <td><span class="p p-ok">AHEAD</span></td>
+              <td>The moat — and its shadow. No mobile app, no public API in use (the <code>api-keys</code> and <code>webhooks</code> back end has no consumer since its screens were deleted), no connector ecosystem, no payment or e-commerce integration, no OCR bill capture, no AI assistant. Each is a checklist row a competitor ticks.</td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout good">
+        <span class="label">Read the pattern, not the rows</span>
+        <p>Everything Mezan is ahead on is <strong>truth-preserving machinery</strong>: immutable cost layers, derived rather than stored reservations, an audit trail no back-fill can reach, a cheque register that computes what can be computed. Everything it is behind on is <strong>reach</strong>: getting the data in (POS, mobile, feeds, OCR), getting it out (report centre, drill-down, export), and the segments that need a document type nobody has built (contracting, payroll). That is a good asymmetry — reach is buildable, and a competitor cannot retrofit truth into a ledger that never recorded the fact.</p>
+      </div>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section id="s7">
+      <span class="sec-num">Section 07</span>
+      <h2>The capability matrix</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Forty-four capabilities against the six products a buyer might realistically place beside Mezan. Read it for the <em>shape</em>, not the score: Mezan leads the compliance and accounting-truth blocks and trails the reach block almost uniformly. A capability marked partial is one the product has in a form that would not satisfy a buyer who asked for it by name.</p>
+      </div>
+
+      <p class="legend"><span class="mk-y">●</span> full &nbsp;·&nbsp; <span class="mk-h">◐</span> partial, or only on a higher tier / with a partner &nbsp;·&nbsp; <span class="mk-n">○</span> none</p>
+
+      <div class="tw">
+        <table class="matrix">
+          <caption>Mezan against QuickBooks, Odoo, Daftra, Zoho, SAP B1 / Business Central and ERPNext</caption>
+          <thead>
+            <tr>
+              <th>Capability</th>
+              <th class="mk">Mezan</th>
+              <th class="mk">QuickBooks</th>
+              <th class="mk">Odoo 19</th>
+              <th class="mk">Daftra</th>
+              <th class="mk">Zoho</th>
+              <th class="mk">SAP B1 / BC</th>
+              <th class="mk">ERPNext</th>
+            </tr>
+          </thead>
+          <tbody>
+
+            <tr class="grp-row"><td colspan="8">Egyptian compliance</td></tr>
+            <tr><td>ETA e-invoice, B2B</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td></tr>
+            <tr><td>ETA e-receipt, B2C, with QR</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td></tr>
+            <tr><td>E-seal / digital signing wired</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td></tr>
+            <tr><td>VAT return with a filing lock on the period</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td></tr>
+            <tr><td>Withholding at source, supplier settled in full</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td></tr>
+            <tr><td>Form 41 quarterly withholding return</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td></tr>
+            <tr><td>Law 6/2025 turnover regime</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td></tr>
+            <tr><td>Arabic-first RTL interface</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td></tr>
+
+            <tr class="grp-row"><td colspan="8">Accounting truth</td></tr>
+            <tr><td>Posted entries immutable, reversal-only</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Sub-ledger reconciled to its control account</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td></tr>
+            <tr><td>Append-only audit trail</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td></tr>
+            <tr><td>Multi-currency with FX revaluation</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Cost centres or dimensions</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Budget versus actual</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Year-end close that posts retained earnings</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Multi-entity consolidation</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Bank feeds and learned matching</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td></tr>
+
+            <tr class="grp-row"><td colspan="8">Trading, stock and making</td></tr>
+            <tr><td>Goods receipt and three-way match</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Landed cost absorbed into valuation</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Weighted average over immutable cost layers</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Batch, expiry and FEFO issue order</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Serial number tracking</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Bin or shelf locations inside a warehouse</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Physical count as a posting document</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Multi-warehouse with transfers</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>BOM and work orders</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Routings, capacity and MRP planning</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Point of sale</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Van sales as a mobile warehouse</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td></tr>
+            <tr><td>Installment plans and follow-up</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td></tr>
+            <tr><td>Post-dated cheque lifecycle</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td></tr>
+            <tr><td>Contracting: BOQ, certificates, retention</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td></tr>
+            <tr><td>Recurring and subscription billing</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Customer portal and pay-by-link</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Egyptian statutory payroll</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td></tr>
+
+            <tr class="grp-row"><td colspan="8">Platform and reach</td></tr>
+            <tr><td>Whole back office runs with no internet</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td></tr>
+            <tr><td>Perpetual or one-time licence</td><td class="mk mk-y" title="full">●</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-n" title="none">○</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Mobile application</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Public API and integrations in use</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Report centre with drill-down to source</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td></tr>
+            <tr><td>Custom report builder</td><td class="mk mk-n" title="none">○</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Approval workflows on documents</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>Permission granularity beyond a few roles</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td></tr>
+            <tr><td>AI assistant or document capture</td><td class="mk mk-n" title="none">○</td><td class="mk mk-y" title="full">●</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-y" title="full">●</td><td class="mk mk-h" title="partial">◐</td><td class="mk mk-h" title="partial">◐</td></tr>
+
+            <tr class="totals"><td><strong>Full · partial · none</strong></td><td class="mk">21 · 2 · 21</td><td class="mk">9 · 18 · 17</td><td class="mk">29 · 12 · 3</td><td class="mk">20 · 20 · 4</td><td class="mk">17 · 13 · 14</td><td class="mk">31 · 12 · 1</td><td class="mk">25 · 13 · 6</td></tr>
+
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>How to read the totals honestly.</strong> A raw count flatters the suites — Odoo and ERPNext win a checklist and lose a shop, because neither ships an Egyptian e-receipt or an Arabic accountant's vocabulary, and ERPNext ships no Egyptian compliance at all. What the matrix is for is the <em>shape</em>: Mezan's marks cluster full in compliance and accounting truth, and empty in the reach block — mobile, API, report centre, POS, portal, capture. Six of those eight empties are the same product decision (offline, desktop, no ecosystem) seen from six angles, which means they get answered together or not at all.</p>
+
+      <div class="callout">
+        <span class="label">The row that should be uncomfortable</span>
+        <p><strong>Every column has a mobile app except Mezan, and every column has a working public API except Mezan</strong> — where the back end for API keys and webhooks exists, is tested, and has had no consumer since its screens were deleted. Neither is on the statutory register, so neither blocks a sale on its own. Both appear on every comparison grid a competitor prints.</p>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section id="s8">
+      <span class="sec-num">Section 08</span>
+      <h2>What the field has and Mezan does not</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Sixteen gaps, ranked by what each one costs in a real deal rather than by engineering size. The first four decide whether a segment can be sold to at all. The last four are checklist rows that lose a comparison meeting but never a customer. <strong>Rank by lost deals, build in that order, and say no to the tail out loud</strong> — an offline product that chases every cloud checkbox stops being an offline product.</p>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>The missing register, ranked by deal impact</caption>
+          <thead>
+            <tr><th>#</th><th>Gap</th><th>Who has it</th><th>What it costs to be without it</th><th>Size</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="num">1</td><td><strong>B2C e-receipt with QR</strong></td><td>Daftra, SMACC, Foodics, Rewaa</td><td>Retail, restaurants and pharmacies cannot legally transact. Three of five named buyers. Not a feature — a licence to operate.</td><td>8–12 d</td></tr>
+            <tr><td class="num">2</td><td><strong>Point of sale</strong></td><td>Everyone in ring one</td><td>The same three segments, plus the strongest demo Mezan could give: a till that keeps ringing when the line drops. The offline thesis is unfinished without it.</td><td>Module</td></tr>
+            <tr><td class="num">3</td><td><strong>Report centre with drill-down</strong></td><td>QuickBooks, Zoho, Odoo, BC</td><td><span class="ar">المحاسب</span>'s stated breaking point: 22 identical tables, no chart, no KPI strip, and no way from a figure to the entries behind it. Also fixes counts and KPIs that are wrong past page one.</td><td>12–18 d</td></tr>
+            <tr><td class="num">4</td><td><strong>Egyptian statutory payroll</strong></td><td>Daftra, SMACC, AccFlex</td><td>Any prospect with more than a handful of staff. A competitor shows a payslip; this shows a component list. Needs legal review before code.</td><td>Module</td></tr>
+            <tr><td class="num">5</td><td><strong>Contracting: BOQ, <span class="ar">مستخلصات</span>, retention</strong></td><td>The local reference, AccFlex</td><td>A whole segment, and a nav row that already promises it.</td><td>Module</td></tr>
+            <tr><td class="num">6</td><td><strong>Form 41 quarterly return</strong></td><td>Business Central's Egypt localisation</td><td>Fails an audit for anyone paying local B2B suppliers. The mechanics already exist; only the return is missing.</td><td>4–6 d</td></tr>
+            <tr><td class="num">7</td><td><strong>Dimensions beyond one cost-centre axis</strong></td><td>BC (8 axes), Odoo, Intacct</td><td>Multi-branch and project-based buyers cannot slice their own P&amp;L the way they think about it.</td><td>10–14 d</td></tr>
+            <tr><td class="num">8</td><td><strong>Budgets versus actual</strong></td><td>Every column in the matrix</td><td>The first thing an owner asks for after a P&amp;L, and the only "missing" row where Mezan is alone.</td><td>6–10 d</td></tr>
+            <tr><td class="num">9</td><td><strong>Year-end close that posts</strong></td><td>Every column</td><td>Retained earnings is derived in the balance sheet rather than posted, so the ledger cannot answer the question by itself. An auditor notices.</td><td>4–6 d</td></tr>
+            <tr><td class="num">10</td><td><strong>Serial numbers &amp; bin locations</strong></td><td>Odoo, SAP B1, ERPNext, Zoho</td><td>Electronics, appliances and anything with a warranty; larger warehouses. Batches and expiry already exist, so the shape is proven.</td><td>10–14 d</td></tr>
+            <tr><td class="num">11</td><td><strong>Recurring &amp; subscription billing</strong></td><td>QuickBooks, Zoho, Odoo, Daftra</td><td>Services businesses, maintenance contracts, rentals. Cheap to build on documents that already exist.</td><td>5–8 d</td></tr>
+            <tr><td class="num">12</td><td><strong>Mobile application</strong></td><td>Every competitor</td><td>Two concrete uses, not vanity: the van rep on the road, and the owner checking today's cash. Everything else can stay on the desktop.</td><td>Module</td></tr>
+            <tr><td class="num">13</td><td><strong>Bank statement importer with rules</strong></td><td>Xero, QuickBooks (as feeds)</td><td>The offline-honest substitute for a feed. Without it, reconciliation is an afternoon.</td><td>5–8 d</td></tr>
+            <tr><td class="num">14</td><td><strong>MRP: routings, capacity, planning</strong></td><td>Odoo, SAP B1, ERPNext</td><td>Only the factory buyer, who is the smallest named segment. Deliberately deferrable.</td><td>Module</td></tr>
+            <tr><td class="num">15</td><td><strong>Public API and integrations</strong></td><td>Every competitor</td><td>A comparison-grid row today; an ecosystem question later. The back end exists and has no consumer — decide whether to finish it or delete it.</td><td>Decision</td></tr>
+            <tr><td class="num">16</td><td><strong>Multi-entity consolidation</strong></td><td>Odoo, SAP, BC, ERPNext</td><td>Above this buyer. Listed so it is refused deliberately rather than forgotten.</td><td>Refuse</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <span class="label">Three things worth refusing out loud</span>
+        <p><strong>Multi-entity consolidation, MRP planning and an ecommerce sync</strong> all belong to buyers Mezan is not built for, and each would take a quarter. Write the refusal into positioning: "Mezan runs one company's books completely, offline, in Arabic. If you consolidate five entities, buy Business Central." A product that says what it is not gets believed about what it is.</p>
+      </div>
+    </section>
+    <!-- ============ 5 ============ -->
+    <section id="s9">
+      <span class="sec-num">Section 09</span>
+      <h2>The moat</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Four things Mezan has that the competitor set does not, ranked by how hard they are to copy. Offline is the only one that is structurally uncopyable — the rest are a head start. Note what is <em>not</em> a moat: ETA e-invoicing is table stakes, and Odoo has shipped <code>l10n_eg_edi_eta</code> since v15.</p>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>Defensibility of each differentiator</caption>
+          <thead>
+            <tr><th>Differentiator</th><th>Who else has it</th><th>How hard to copy</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>True offline operation</strong><br>Electron + SQLite, LAN multi-till, offline Ed25519 licence</td>
+              <td>SAP Business One only, at $1,350–5,500/user perpetual plus a $12K–120K implementation. Daftra offers offline POS hardware on its top tier — not an offline back office. Every other product surveyed is cloud-only.</td>
+              <td><strong>Structural.</strong> A cloud SaaS cannot retrofit this; it is an architecture, not a feature. Highest and most durable.</td>
+            </tr>
+            <tr>
+              <td><strong>Perpetual offline licence</strong><br>seat- and machine-bound, Ed25519-signed</td>
+              <td>Nobody in the matrix. Every Egyptian and regional competitor is recurring SaaS.</td>
+              <td><strong>High.</strong> Not technical — a SaaS company changing to perpetual licensing breaks its own revenue model.</td>
+            </tr>
+            <tr>
+              <td><strong>Arabic-first by construction</strong><br>RTL enforced by lint, not retrofitted</td>
+              <td>Daftra, SMACC, AccFlex and the local reference are all natively Arabic. Odoo is bolted-on with rough edges; ERPNext has open RTL bugs; QuickBooks has none at all.</td>
+              <td><strong>Low against local players, absolute against global ones.</strong> It is a barrier to the global entrants, not to Daftra.</td>
+            </tr>
+            <tr>
+              <td><strong>Law 6/2025 regime support</strong></td>
+              <td>Nobody, today.</td>
+              <td><strong>Low, but unclaimed.</strong> Any competitor could build it in a sprint. The advantage is being first and saying so — and it will not stay available.</td>
+            </tr>
+            <tr>
+              <td>ETA e-invoicing</td>
+              <td>Daftra (deepest), SMACC, AccFlex, Odoo's official module, Zoho via marketplace connectors.</td>
+              <td><strong>Not a moat.</strong> Table stakes. Being <em>absent</em> here is disqualifying; being present is worth nothing.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>Re-tested against twenty-six products rather than five, the finding holds and gets sharper.</strong> One other surveyed product runs a whole back office with no internet — SAP Business One, at roughly a hundred times the price. None sells a perpetual licence except SAP and the open-source options. And the incumbents are walking away from the desktop while Mezan walks toward it: Intuit has ended new non-Enterprise Desktop sales and support for the 2023 line, and every regional vendor is cloud-only. That is an open field or an emptying one, and DEC-15 exists to decide which.</p>
+
+      <p>The honest reading: <strong>offline plus perpetual licensing is the whole thesis</strong>, and it targets a specific buyer — the shop that loses connectivity, distrusts subscriptions, and wants the books on a machine it owns. Everything else is a requirement for being taken seriously by that buyer, not a reason they choose you.</p>
+
+      <p>That has a scope consequence. Features that only make sense online — a notification engine pushing to WhatsApp, bank feeds, a customer portal — are not just deprioritised; they are arguing against the thesis. Features that make offline <em>better</em> — a bulletproof backup, a fast restore, a same-QR reprint, a 72-hour submission queue that survives a week without a line — are the product.</p>
+    </section>
+
+
+    <!-- ============ 10 ============ -->
+    <section id="s10">
+      <span class="sec-num">Section 10</span>
+      <h2>The Egyptian floor</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>An Egyptian buyer compares Mezan to Daftra, SMACC, AccFlex and the local reference product — never to QuickBooks, which has no Arabic and does not sell here. The floor is what those four force onto the product regardless of whether a global baseline would keep it. Three cuts the QuickBooks test made are reversed by it; you lose a checklist comparison in a meeting, not an architecture review.</p>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>Cuts reversed by the Egypt test</caption>
+          <thead>
+            <tr><th>Screen</th><th>QuickBooks verdict</th><th>Egypt verdict</th><th>Resolution</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="scr">promotions</td>
+              <td>Cut — no counterpart</td>
+              <td>Daftra and the reference both ship it; Egyptian retail runs on <span class="ar">عروض</span></td>
+              <td><span class="p p-part">REDUCE</span> Percentage and amount discount with a window. Drop coupons, bundles, priority and caps.</td>
+            </tr>
+            <tr>
+              <td class="scr">notification-rules</td>
+              <td>Cut — reminders only</td>
+              <td>The reference markets messaging notifications hard, and Egyptian SMBs run on WhatsApp</td>
+              <td><span class="p p-part">REDUCE</span> A fixed set of reminders. The channel type is <code>in_app | email | push</code> and only the first delivers, so a deep-link that opens WhatsApp with the message pre-filled is the offline-honest version.</td>
+            </tr>
+            <tr>
+              <td class="scr">opportunities</td>
+              <td>Cut with the other five CRM screens</td>
+              <td>Daftra ships "basic CRM"; the reference ships a full pipeline. Zero CRM is a visible hole on a comparison grid.</td>
+              <td><span class="p p-part">REDUCE</span> One opportunities list on the customer record. The other five CRM screens stay cut.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Beyond the reversals, the floor demands four things Section 06 marks as behind or absent: <strong>a point of sale</strong>, <strong>Egyptian payroll</strong>, <strong>contracting</strong>, and <strong>e-receipt depth including the hardware-token path SMACC markets by name</strong>. Two more the local reference sells that Mezan has since built — FEFO and expiry reporting — are worth saying out loud in the same sentence, because a feature nobody knows about wins nothing.</p>
+
+      <p>One opening runs the other way. <strong>Daftra gates cost centres behind a paid tier and caps usage by plan; Mezan ships cost centres in the accounting module and sells modules rather than caps.</strong> That is a real positioning difference for the buyer who grows and finds their plan's ceiling.</p>
+    </section>
+    <!-- ============ 7 ============ -->
+    <section id="s11">
+      <span class="sec-num">Section 11</span>
+      <h2>Where QuickBooks and Odoo each fit</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Demoted, and still useful. QuickBooks answers exactly one question well — <em>how few screens can carry this?</em> — and it answers it better than any product in the Egyptian set, all of which grew by module accretion. It sets no scope, arbitrates no behaviour, and supplies no Arabic.</p>
+      </div>
+
+      <p>The three-question rule stands, with the order corrected so Egypt goes first:</p>
+
+      <ol class="body-list">
+        <li><strong>Does Egyptian law require it?</strong> If yes, it is built, at whatever cost. Section 02 is the list.</li>
+        <li><strong>Does the competitive floor require it?</strong> If yes, it is built at the shallowest depth that survives a comparison meeting. Section 06.</li>
+        <li><strong>Would QuickBooks build it, and how thinly?</strong> This does not decide <em>whether</em>. It decides <em>how small</em>.</li>
+      </ol>
+
+      <p>Odoo stays the control: a feature Odoo ships, QuickBooks lacks, and neither Egyptian law nor the competitive floor requires was copied from an app list rather than requested by a customer. That test is what produces the 11 cuts.</p>
+
+      <h3>What QuickBooks is genuinely worth copying</h3>
+
+      <div class="cards">
+        <div class="card">
+          <h5>The <span class="mono">+New</span> menu</h5>
+          <span class="role">Highest value</span>
+          <p>One button on every screen opens every document a user can create, grouped by who it concerns. You never navigate in order to create. Mezan's nearest equivalent is a Ctrl+K palette that <span class="ar">صاحب المنشأة</span> will never discover.</p>
+        </div>
+        <div class="card">
+          <h5>One list, a type column</h5>
+          <span class="role">Information architecture</span>
+          <p>Products and services is a single list with Type as a column and a filter. Six Mezan item screens collapse into it. The same move fixes treasury's 11 voucher types.</p>
+        </div>
+        <div class="card">
+          <h5>The report centre</h5>
+          <span class="role">Biggest single win</span>
+          <p>~80 reports, no report screens — one centre with favourites, a customise drawer, scheduling, and drill-down to the transaction from every figure. Mezan has 22 identical tables with no drill-down, which is <span class="ar">المحاسب</span>'s stated breaking point.</p>
+        </div>
+        <div class="card">
+          <h5>Setup as you go</h5>
+          <span class="role">Now urgent</span>
+          <p>Three questions, then a working file, with the rest surfaced as dashboard tasks. Against a buyer newly dragged over the EGP 250,000 threshold with no accountant, time-to-first-compliant-invoice is the metric that closes the sale.</p>
+        </div>
+      </div>
+
+      <h3>Where following QuickBooks would break the product</h3>
+
+      <p><strong>Settings.</strong> QuickBooks hides policy that Egyptian operations need: credit-control mode, backorders, negative stock, require-PO-before-GRN, require-GRN-before-invoice, negative-cash block, tax-inclusive pricing, missing-exchange-rate policy (R11.1–R11.8). These toggles are what make an ERP an ERP rather than a ledger. Keep all ten tabs; QuickBooks is simply worse here.</p>
+
+      <p><strong>The bank-feed loop.</strong> QuickBooks Online's daily rhythm is reviewing bank-feed transactions, and most of its dashboard exists to serve that. Mezan is offline and has no feed. Copying that visual language yields a dashboard with nothing to review.</p>
+
+      <p><strong>One account for receivables.</strong> QuickBooks has no sub-ledger/control-account split. Mezan's ledger invariants require agreement between them, and D1 already records what happens when two stores of the same fact disagree. The heavier design is the correct one.</p>
+
+      <p><strong>The vocabulary, uncritically.</strong> Adopting <em>assembly</em> was right — a plainer word for the same thing. Adopting <em>Credit memo</em> for <span class="ar">مرتجع مبيعات</span> or <em>Class</em> for <span class="ar">مركز تكلفة</span> would be wrong. Copy the plainness, not the words; QuickBooks has no Arabic to borrow.</p>
+
+      <div class="callout warn">
+        <span class="label">The prerequisite nobody has met</span>
+        <p>Every QuickBooks claim in this brief comes from published Intuit documentation, not from a live tenant. Before the cut list is executed, run the <code>site-feature-audit</code> method against an Intuit Developer sandbox or an Online trial and produce <code>docs/quickbooks-baseline/</code> — the same four artifacts the reference audit produced. Note also that "QuickBooks" is two products: 13 of the surviving screens are justified by <strong>Desktop Enterprise</strong> (assemblies, multi-site transfers, price levels, landed cost, barcode, physical count, sales-by-rep, fixed-asset manager) and by nothing in Online.</p>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section id="s12">
+      <span class="sec-num">Section 12</span>
+      <h2>The screen ledger</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>All <strong>115 nav destinations</strong> plus the dashboard, enumerated from <code>nav-config.tsx</code> at <code>84d516f</code> across 14 workspaces — <span class="ar">المقاولات</span> now stands as its own workspace and <span class="ar">صندوق الوارد</span> is pinned beside the approvals inbox. Tested against Egypt first and QuickBooks second. 11 cut, 3 reduced, 18 merged, 15 deferred with HR, leaving <strong>71 screens</strong>. Nine new Egypt-mandated surfaces bring the shipping total to <strong>80</strong>.</p>
+      </div>
+
+      <div class="bar" role="img" aria-label="Verdict split of 115 entries: 44 QuickBooks Online, 13 QuickBooks Desktop, 11 Egypt, 3 reduced, 18 merged, 11 cut, 15 deferred">
+        <span style="background:var(--teal);flex:44">44</span>
+        <span style="background:var(--teal-bright);flex:13">13</span>
+        <span style="background:var(--gold);flex:11">11</span>
+        <span style="background:var(--warn);flex:3">3</span>
+        <span style="background:var(--rule-strong);flex:18;color:var(--ink)">18</span>
+        <span style="background:var(--cut);flex:11">11</span>
+        <span style="background:var(--defer);flex:15">15</span>
+      </div>
+      <div class="bar-key">
+        <span><i style="background:var(--teal)"></i> QB Online confirms · 44</span>
+        <span><i style="background:var(--teal-bright)"></i> QB Desktop only · 13</span>
+        <span><i style="background:var(--gold)"></i> Egypt requires · 11</span>
+        <span><i style="background:var(--warn)"></i> Reduce · 3</span>
+        <span><i style="background:var(--rule-strong)"></i> Merge · 18</span>
+        <span><i style="background:var(--cut)"></i> Cut · 11</span>
+        <span><i style="background:var(--defer)"></i> Defer · 15</span>
+      </div>
+
+      <h3>By workspace</h3>
+
+      <div class="tw">
+        <table>
+          <caption>Verdict counts per navigation group</caption>
+          <thead>
+            <tr><th>Workspace</th><th class="num">Now</th><th class="num">QBO</th><th class="num">QBD</th><th class="num">Egypt</th><th class="num">Reduce</th><th class="num">Merge</th><th class="num">Cut</th><th class="num">Defer</th><th class="num">Ships</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Dashboard</td><td class="num">1</td><td class="num">1</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">1</td></tr>
+            <tr><td><span class="ar">الاعتمادات</span> · Approvals</td><td class="num">1</td><td class="num">1</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">1</td></tr>
+            <tr><td><span class="ar">البيع</span> · Sell</td><td class="num">15</td><td class="num">9</td><td class="num">2</td><td class="num">1</td><td class="num">1</td><td class="num">2</td><td class="num">—</td><td class="num">—</td><td class="num">13</td></tr>
+            <tr><td><span class="ar">إدارة العملاء</span> · CRM</td><td class="num">6</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">1</td><td class="num">—</td><td class="num">5</td><td class="num">—</td><td class="num">1</td></tr>
+            <tr><td><span class="ar">الأقساط</span> · Installments</td><td class="num">4</td><td class="num">—</td><td class="num">—</td><td class="num">3</td><td class="num">—</td><td class="num">1</td><td class="num">—</td><td class="num">—</td><td class="num">3</td></tr>
+            <tr><td><span class="ar">الشراء</span> · Buy</td><td class="num">12</td><td class="num">7</td><td class="num">3</td><td class="num">—</td><td class="num">—</td><td class="num">1</td><td class="num">1</td><td class="num">—</td><td class="num">10</td></tr>
+            <tr><td><span class="ar">الأصناف</span> · Items</td><td class="num">6</td><td class="num">1</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">2</td><td class="num">3</td><td class="num">—</td><td class="num">1</td></tr>
+            <tr><td><span class="ar">المخزون</span> · Stock</td><td class="num">14</td><td class="num">4</td><td class="num">3</td><td class="num">2</td><td class="num">—</td><td class="num">5</td><td class="num">—</td><td class="num">—</td><td class="num">9</td></tr>
+            <tr><td><span class="ar">التصنيع</span> · Manufacturing</td><td class="num">5</td><td class="num">—</td><td class="num">1</td><td class="num">1</td><td class="num">—</td><td class="num">1</td><td class="num">2</td><td class="num">—</td><td class="num">2</td></tr>
+            <tr><td><span class="ar">الخزينة</span> · Treasury</td><td class="num">4</td><td class="num">—</td><td class="num">—</td><td class="num">2</td><td class="num">—</td><td class="num">2</td><td class="num">—</td><td class="num">—</td><td class="num">2</td></tr>
+            <tr><td><span class="ar">المحاسبة</span> · Money</td><td class="num">14</td><td class="num">11</td><td class="num">—</td><td class="num">2</td><td class="num">—</td><td class="num">1</td><td class="num">—</td><td class="num">—</td><td class="num">13</td></tr>
+            <tr><td><span class="ar">الموارد البشرية</span> · People</td><td class="num">15</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">15</td><td class="num">0</td></tr>
+            <tr><td><span class="ar">الأصول</span> · Assets</td><td class="num">5</td><td class="num">1</td><td class="num">2</td><td class="num">—</td><td class="num">—</td><td class="num">2</td><td class="num">—</td><td class="num">—</td><td class="num">3</td></tr>
+            <tr><td><span class="ar">الإعدادات</span> · Setup</td><td class="num">13</td><td class="num">9</td><td class="num">2</td><td class="num">—</td><td class="num">1</td><td class="num">1</td><td class="num">—</td><td class="num">—</td><td class="num">12</td></tr>
+            <tr style="font-weight:700"><td>Total</td><td class="num">115</td><td class="num">44</td><td class="num">13</td><td class="num">11</td><td class="num">3</td><td class="num">18</td><td class="num">11</td><td class="num">15</td><td class="num">71</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>New surfaces Egyptian law requires</h3>
+
+      <div class="tw">
+        <table>
+          <caption>Nine builds that do not exist today</caption>
+          <thead>
+            <tr><th>Surface</th><th>Why</th><th>Priority</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>E-receipt queue</strong> <span class="ar">الإيصال الإلكتروني</span></td><td>Separate ETA regime, 72-hour post-clearance window, QR on print, idempotent reprint. Blocks retail, F&amp;B, pharmacy.</td><td><span class="p p-cut">P0</span></td></tr>
+            <tr><td><strong>Form 41 return</strong></td><td>Quarterly withholding filing with the same period-lock semantics as <code>vat-filing.ts</code>.</td><td><span class="p p-cut">P0</span></td></tr>
+            <tr><td><strong>Tax regime &amp; Law 6/2025</strong></td><td>Regime as a fact about a period, turnover bands, liability computation, and the regime-comparison screen that sells it.</td><td><span class="p p-eg">P1</span></td></tr>
+            <tr><td><strong>Account routing</strong></td><td>R6.1 — every posting's GL account configured rather than constant: tax, retention, advances, sales-discount contra, per-reason adjustments, per-item-type revenue and COGS.</td><td><span class="p p-eg">P1</span></td></tr>
+            <tr><td><strong>ETA readiness meter</strong></td><td>R7.1 — what is unmapped and therefore unsubmittable, before a document is refused.</td><td><span class="p p-eg">P1</span></td></tr>
+            <tr><td><strong>ETA credentials + test connection</strong></td><td>R7.2 — including the e-seal path that <code>service.ts</code> currently leaves unwired.</td><td><span class="p p-cut">P0</span></td></tr>
+            <tr><td><strong>ETA item mapping</strong></td><td>R7.4 — EGS/GS1 codes per item.</td><td><span class="p p-eg">P1</span></td></tr>
+            <tr><td><strong>ETA unit mapping</strong></td><td>R7.5 — ETA unit codes per unit of measure.</td><td><span class="p p-eg">P1</span></td></tr>
+            <tr><td><strong>Customer &amp; supplier statements</strong></td><td>R3.6 — a printable statement of account with a running balance. Every competitor has it; the parity audit found it absent.</td><td><span class="p p-eg">P1</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Screen by screen</h3>
+
+      <p>Egypt first, QuickBooks second. <span class="p p-eg">EGYPT</span> ships because law or the competitive floor demands it, with or without a QuickBooks counterpart. <span class="p p-qbo">QBO</span> and <span class="p p-qbd">QBD</span> ship as-is. <span class="p p-part">REDUCE</span> keeps the tick at minimum depth. <span class="p p-merge">MERGE</span> keeps the function and loses the route. <span class="p p-cut">CUT</span> removes it.</p>
+
+      <div class="tw">
+        <table>
+          <caption>All 115 navigation entries</caption>
+          <thead>
+            <tr><th>Screen</th><th>QuickBooks counterpart</th><th>Verdict</th><th>Egypt note</th></tr>
+          </thead>
+          <tbody>
+
+            <tr class="grp-row"><td colspan="4">Dashboard &amp; workflow · 2</td></tr>
+            <tr><td class="scr">dashboard</td><td>Business overview</td><td><span class="p p-qbo">QBO</span></td><td>Should lead with compliance state: unsubmitted receipts, ETA errors, an unfiled VAT period</td></tr>
+            <tr><td class="scr">approvals</td><td>Workflows (Advanced)</td><td><span class="p p-qbo">QBO</span></td><td>DEC-2 is a live correctness bug beneath it</td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">البيع</span> · Sell · 15</td></tr>
+            <tr><td class="scr">sales-hub</td><td>Sales overview</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">quotes</td><td>Estimates</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">sales-invoices</td><td>Invoices</td><td><span class="p p-qbo">QBO</span></td><td>Carries the ETA UUID, QR and legal header — verify against a compliant printed sample</td></tr>
+            <tr><td class="scr">sales-returns</td><td>Credit memos</td><td><span class="p p-qbo">QBO</span></td><td>A return also needs its own ETA credit-note submission</td></tr>
+            <tr><td class="scr">van-trips</td><td>None</td><td><span class="p p-eg">EGYPT</span></td><td>Distribution segment; the reference markets it, no QuickBooks analogue</td></tr>
+            <tr><td class="scr">customers</td><td>Customers</td><td><span class="p p-qbo">QBO</span></td><td>Tax and commercial registration numbers are legal invoice content, not optional fields</td></tr>
+            <tr><td class="scr">report-sales-by-period</td><td>Sales by Customer Summary</td><td><span class="p p-qbo">QBO</span></td><td>Also the turnover input for the Law 6/2025 band</td></tr>
+            <tr><td class="scr">report-sales-by-item</td><td>Sales by Product/Service</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">report-sales-by-customer</td><td>Sales by Customer Summary</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">report-sales-by-salesperson</td><td>Sales by Rep (Desktop)</td><td><span class="p p-qbd">QBD</span></td><td>Blocked by DEC-7 — needs a rep field on the invoice</td></tr>
+            <tr><td class="scr">report-sales-top-products</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>A sort order, not a report</td></tr>
+            <tr><td class="scr">report-van-sales</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>Belongs on the van-trip detail</td></tr>
+            <tr><td class="scr">report-aging-customers</td><td>A/R Aging</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">price-lists</td><td>Price Levels (Desktop)</td><td><span class="p p-qbd">QBD</span></td><td>Quantity tiers exceed QuickBooks; justified by wholesale</td></tr>
+            <tr><td class="scr">promotions</td><td>None</td><td><span class="p p-part">REDUCE</span></td><td><strong>Reversed by the Egypt test.</strong> Daftra and the reference both ship it. Keep percentage and amount discount with a window; drop coupons, bundles, priority, caps.</td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">إدارة العملاء</span> · CRM · 6 → 1</td></tr>
+            <tr><td class="scr">opportunities</td><td>None</td><td><span class="p p-part">REDUCE</span></td><td><strong>Reversed.</strong> One list on the customer record — zero CRM is a visible hole on a comparison grid.</td></tr>
+            <tr><td class="scr">crm-hub</td><td>None</td><td><span class="p p-cut">CUT</span></td><td rowspan="5">QuickBooks has no CRM; Odoo has all of it. <code>plan.md</code> records that Mezan's CRM lacks the substrate its own reports need — no owner, no quote-to-opportunity link, no stage history, no loss reasons. Built, hollow, and off the statutory register.</td></tr>
+            <tr><td class="scr">crm-activities</td><td>None</td><td><span class="p p-cut">CUT</span></td></tr>
+            <tr><td class="scr">leads</td><td>None</td><td><span class="p p-cut">CUT</span></td></tr>
+            <tr><td class="scr">pipeline</td><td>None</td><td><span class="p p-cut">CUT</span></td></tr>
+            <tr><td class="scr">pipeline-stages</td><td>None</td><td><span class="p p-cut">CUT</span></td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">الأقساط</span> · Installments · 4</td></tr>
+            <tr><td class="scr">installment-plans</td><td>None</td><td><span class="p p-eg">EGYPT</span></td><td>Installment retail is a named target segment; the reference sells it as a paid module</td></tr>
+            <tr><td class="scr">installment-follow-ups</td><td>None</td><td><span class="p p-eg">EGYPT</span></td><td></td></tr>
+            <tr><td class="scr">report-installments-overview</td><td>None</td><td><span class="p p-eg">EGYPT</span></td><td></td></tr>
+            <tr><td class="scr">report-installments-overdue</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>A filter on the overview</td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">الشراء</span> · Buy · 12</td></tr>
+            <tr><td class="scr">purchases-hub</td><td>Expenses overview</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">rfqs</td><td>None</td><td><span class="p p-cut">CUT</span></td><td>Odoo counterpart; not on the statutory register and not a floor item at SMB level</td></tr>
+            <tr><td class="scr">purchase-orders</td><td>Purchase orders (Plus)</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">goods-receipts</td><td>Receive Inventory (Desktop)</td><td><span class="p p-qbd">QBD</span></td><td>Required for honest WAC costing regardless of baseline</td></tr>
+            <tr><td class="scr">purchase-invoices</td><td>Bills</td><td><span class="p p-qbo">QBO</span></td><td>Where withholding is applied — feeds Form 41</td></tr>
+            <tr><td class="scr">purchase-returns</td><td>Vendor credits</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">landed-costs</td><td>Landed Cost (Enterprise)</td><td><span class="p p-qbd">QBD</span></td><td>Import-heavy Egyptian trade makes this non-optional</td></tr>
+            <tr><td class="scr">vendors</td><td>Vendors</td><td><span class="p p-qbo">QBO</span></td><td>Tax registration number drives the withholding rate</td></tr>
+            <tr><td class="scr">report-purchases-by-period</td><td>Expenses by Vendor Summary</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">report-purchases-by-supplier</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>Same report, different grouping</td></tr>
+            <tr><td class="scr">report-purchases-by-item</td><td>Purchases by Item Summary</td><td><span class="p p-qbd">QBD</span></td><td></td></tr>
+            <tr><td class="scr">report-aging-suppliers</td><td>A/P Aging</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">الأصناف</span> · Items · 6 → 1</td></tr>
+            <tr><td class="scr">items</td><td>Products and services</td><td><span class="p p-qbo">QBO</span></td><td>One list, a Type column, a filter. Carries the ETA EGS code per item.</td></tr>
+            <tr><td class="scr">items-hub</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>No hub above one list</td></tr>
+            <tr><td class="scr">boms</td><td>Assembly item components</td><td><span class="p p-merge">MERGE</span></td><td>Onto the item, as <code>78fb125</code> argued</td></tr>
+            <tr><td class="scr">product-templates</td><td>None</td><td><span class="p p-cut">CUT</span></td><td>Odoo product templates</td></tr>
+            <tr><td class="scr">configurable-products</td><td>None</td><td><span class="p p-cut">CUT</span></td><td>Odoo variants</td></tr>
+            <tr><td class="scr">item-specifications</td><td>None</td><td><span class="p p-cut">CUT</span></td><td>Odoo attributes</td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">المخزون</span> · Stock · 14</td></tr>
+            <tr><td class="scr">stock-balance</td><td>Inventory Valuation Summary</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">stock-transfers</td><td>Transfer between sites (Enterprise)</td><td><span class="p p-qbd">QBD</span></td><td></td></tr>
+            <tr><td class="scr">stock-adjustments</td><td>Adjust quantity on hand</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">physical-counts</td><td>Physical Inventory Worksheet</td><td><span class="p p-qbd">QBD</span></td><td>A worksheet in QuickBooks; a posting document here — keep the document</td></tr>
+            <tr><td class="scr">inventory-hub</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>Answers the question stock-balance <em>is</em></td></tr>
+            <tr><td class="scr">writedown-runs</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>A reason code on stock-adjustments</td></tr>
+            <tr><td class="scr">report-inventory-stock-levels</td><td>Inventory Stock Status</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">report-inventory-movement</td><td>Item QuickReport</td><td><span class="p p-qbd">QBD</span></td><td></td></tr>
+            <tr><td class="scr">report-inventory-valuation</td><td>Inventory Valuation Detail</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">report-inventory-aging</td><td>None</td><td><span class="p p-eg">EGYPT</span></td><td>Pharmacy and food segments</td></tr>
+            <tr><td class="scr">report-inventory-expiring</td><td>None</td><td><span class="p p-eg">EGYPT</span></td><td>FEFO — a competitive requirement the reference markets, not optional depth</td></tr>
+            <tr><td class="scr">report-inventory-ledger</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>Movement, one level deeper</td></tr>
+            <tr><td class="scr">report-inventory-slow-moving</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>A view inside aging</td></tr>
+            <tr><td class="scr">report-inventory-drift</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>Count variance belongs inside valuation</td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">التصنيع</span> · Manufacturing · 5</td></tr>
+            <tr><td class="scr">work-orders</td><td>Build Assembly (Enterprise)</td><td><span class="p p-qbd">QBD</span></td><td>The module rests on this one QuickBooks feature; Daftra ships real production orders</td></tr>
+            <tr><td class="scr">report-make-vs-buy</td><td>None</td><td><span class="p p-eg">EGYPT</span></td><td>No counterpart in either product — a genuine moat, keep deliberately</td></tr>
+            <tr><td class="scr">manufacturing-hub</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>Two documents do not need a hub</td></tr>
+            <tr><td class="scr">production-dashboard</td><td>None</td><td><span class="p p-cut">CUT</span></td><td>Odoo shop floor; a view of five work orders is not a screen</td></tr>
+            <tr><td class="scr">custom-manufacturing</td><td>None</td><td><span class="p p-cut">CUT</span></td><td>A flag on the work order, not a second document</td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">الخزينة</span> · Treasury · 4</td></tr>
+            <tr><td class="scr">treasury-vouchers</td><td>+New → Expense / Cheque / Deposit</td><td><span class="p p-eg">EGYPT</span></td><td><span class="ar">سند قبض</span> / <span class="ar">سند صرف</span> is a printed legal document. 11 voucher types against QuickBooks' 4 is the clearest over-build in the product — simplify hard. Withholding is applied here.</td></tr>
+            <tr><td class="scr">cheques</td><td>Cheque printing only</td><td><span class="p p-eg">EGYPT</span></td><td>The 7-state post-dated cheque cycle has no analogue in QuickBooks. Strongest domain moat.</td></tr>
+            <tr><td class="scr">treasury-hub</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td></td></tr>
+            <tr><td class="scr">treasury-accounts</td><td>Chart of accounts (bank type)</td><td><span class="p p-merge">MERGE</span></td><td>QuickBooks keeps bank accounts in the chart; a second register duplicates</td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">المحاسبة</span> · Money · 14</td></tr>
+            <tr><td class="scr">eta</td><td>None (third-party connector only)</td><td><span class="p p-eg">EGYPT</span></td><td>Becomes five surfaces (R7.1–R7.6), plus the new e-receipt queue. Table stakes, not a moat.</td></tr>
+            <tr><td class="scr">taxes</td><td>VAT / Sales tax centre</td><td><span class="p p-qbo">QBO</span></td><td>Must reach VAT 14%, schedule tax, stacked groups, and the Law 157/2025 additions</td></tr>
+            <tr><td class="scr">reconciliation</td><td>None</td><td><span class="p p-eg">EGYPT</span></td><td>Sub-ledger vs control account. QuickBooks has no such split, so it cannot arbitrate — the ledger invariants require it.</td></tr>
+            <tr><td class="scr">journals</td><td>Journal entry</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">fiscal-periods</td><td>Close the books</td><td><span class="p p-qbo">QBO</span></td><td>Must interlock with VAT filing and, once built, Form 41</td></tr>
+            <tr><td class="scr">bank-reconciliation</td><td>Reconcile</td><td><span class="p p-qbo">QBO</span></td><td>Genuinely distinct from balance reconciliation; keep both</td></tr>
+            <tr><td class="scr">revaluation</td><td>Home currency adjustment</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">coa</td><td>Chart of accounts</td><td><span class="p p-qbo">QBO</span></td><td>Ships 2210 withholding payable and 2190 payroll withholdings</td></tr>
+            <tr><td class="scr">cost-centers</td><td>Classes (Plus)</td><td><span class="p p-qbo">QBO</span></td><td>Daftra gates these behind a paid tier — a positioning opening</td></tr>
+            <tr><td class="scr">exchange-rates</td><td>Currencies</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">trial-balance-report</td><td>Trial Balance</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">financial-reports</td><td>P&amp;L, Balance Sheet, Cash Flow</td><td><span class="p p-qbo">QBO</span></td><td>EAS presentation needs a <span class="ar">محاسب قانوني</span> sign-off</td></tr>
+            <tr><td class="scr">cost-center-pl</td><td>P&amp;L by Class</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">accounting-hub</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td></td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">الموارد البشرية</span> · People · 15 — all deferred</td></tr>
+            <tr><td class="scr">hr-dashboard … payroll-components</td><td>QuickBooks Payroll — US/UK only, not sold in Egypt</td><td><span class="p p-defer">DEFER</span></td><td>All 15. When it returns it is scoped against statute, not a product: brackets to 27.5%, social insurance 11%/18.75% with the escalating EGP 2,700–16,700 caps, the 0.05% Martyrs Fund levy, and Law 14/2025 leave — with DEC-6's legal review first.</td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">الأصول</span> · Assets · 5</td></tr>
+            <tr><td class="scr">asset-register</td><td>Fixed Asset Item List</td><td><span class="p p-qbd">QBD</span></td><td></td></tr>
+            <tr><td class="scr">depreciation-runs</td><td>Fixed Asset Manager</td><td><span class="p p-qbd">QBD</span></td><td>Rates must follow Egyptian tax depreciation, not only accounting policy</td></tr>
+            <tr><td class="scr">projects</td><td>Projects (Plus)</td><td><span class="p p-qbo">QBO</span></td><td>Misfiled under Assets. Also the hook for contracting — BOQ, <span class="ar">مستخلصات</span>, retention.</td></tr>
+            <tr><td class="scr">assets-hub</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td></td></tr>
+            <tr><td class="scr">asset-categories</td><td>—</td><td><span class="p p-merge">MERGE</span></td><td>A field on the asset</td></tr>
+
+            <tr class="grp-row"><td colspan="4"><span class="ar">الإعدادات</span> · Setup · 13</td></tr>
+            <tr><td class="scr">settings-general</td><td>Account and settings</td><td><span class="p p-qbo">QBO</span></td><td>Home of the tax regime election and the company's ETA identity</td></tr>
+            <tr><td class="scr">settings-print</td><td>Custom form styles</td><td><span class="p p-qbo">QBO</span></td><td>Where invoice and receipt legal content lives. 9 tabs is heavy, but the QR and legal header are compliance, not styling.</td></tr>
+            <tr><td class="scr">settings-data-migration</td><td>Import data</td><td><span class="p p-qbo">QBO</span></td><td>Critical for the newly-registered micro-business. QuickBooks is the standard to hold it to.</td></tr>
+            <tr><td class="scr">audit</td><td>Audit log</td><td><span class="p p-qbo">QBO</span></td><td>The five-year retention evidence; append-only by trigger</td></tr>
+            <tr><td class="scr">users</td><td>Manage users</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">roles</td><td>Custom roles (Advanced)</td><td><span class="p p-qbo">QBO</span></td><td>268 permissions against QuickBooks' handful — ship role presets</td></tr>
+            <tr><td class="scr">settings-profile</td><td>User profile</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">settings-workflow</td><td>Workflows (Advanced)</td><td><span class="p p-qbo">QBO</span></td><td></td></tr>
+            <tr><td class="scr">settings-branches</td><td>Locations (Plus)</td><td><span class="p p-qbo">QBO</span></td><td>ETA submissions are branch-scoped</td></tr>
+            <tr><td class="scr">settings-warehouses</td><td>Sites (Enterprise)</td><td><span class="p p-qbd">QBD</span></td><td></td></tr>
+            <tr><td class="scr">settings-barcode</td><td>Barcode scanning (Enterprise)</td><td><span class="p p-qbd">QBD</span></td><td></td></tr>
+            <tr><td class="scr">notification-rules</td><td>Reminders only</td><td><span class="p p-part">REDUCE</span></td><td><strong>Reversed by the Egypt test.</strong> A fixed reminder set. A WhatsApp deep-link is the offline-honest version of what the reference markets.</td></tr>
+            <tr><td class="scr">settings-sequences</td><td>Invoice numbering</td><td><span class="p p-merge">MERGE</span></td><td>One setting inside general in QuickBooks</td></tr>
+
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 13 ============ -->
+    <section id="s13">
+      <span class="sec-num">Section 13</span>
+      <h2>The plan</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Compliance first, then the two gaps that decide which segments exist at all, then the cut, then the patterns. Ordered by <em>deals lost per week not doing it</em>, not by size. The first block is roughly three weeks; the whole list is a quarter and a half, and steps 5, 6 and 12 are the ones that change what Mezan can be sold as.</p>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <span class="st-h">Close the e-receipt gap</span>
+          <p>A receipt submission type in the ETA domain, the post-clearance window (72 hours, and some guidance says 24 — build to the shorter), queue-and-forward on the existing offline path, a QR on the printed receipt that resolves to the validated record, and a reprint that reproduces the same QR rather than minting a new one. Verify against the ETA sandbox before claiming it.</p>
+          <span class="st-m">P0 · blocks retail, F&amp;B, pharmacy · 8–12 days</span>
+        </li>
+        <li>
+          <span class="st-h">Wire the e-seal, or say plainly that it is test-mode</span>
+          <p><code>eta/service.ts</code> notes the signing agent is not connected, and production document version 1.0 needs it. Until it is wired the product is test-mode only, and that must be visible in the UI rather than discovered by a customer at an audit.</p>
+          <span class="st-m">P0 · 5–8 days</span>
+        </li>
+        <li>
+          <span class="st-h">Build the Form 41 return</span>
+          <p>Clone the <code>tax/vat-filing.ts</code> shape with a quarterly window: a filing record, the remitted figure, the authority's reference, and a refusal of backdated postings into a filed quarter unless explicitly amended.</p>
+          <span class="st-m">P0 · 4–6 days</span>
+        </li>
+        <li>
+          <span class="st-h">Verify the printed invoice and the statements</span>
+          <p>Print one real invoice and one full set of financial statements. Check the invoice field by field against a compliant sample — tax registration number, commercial register number, activity code, UUID, QR. Have a <span class="ar">محاسب قانوني</span> sign off the statements as EAS-conformant. Both are cheap and neither is proven today.</p>
+          <span class="st-m">P0 · 2–3 days</span>
+        </li>
+        <li>
+          <span class="st-h">Decide POS, then build the till</span>
+          <p>The largest addressable-market hole in the audit, and the best demonstration of the only structurally uncopyable differentiator: a counter that keeps ringing when the line drops, queueing e-receipts until it returns. Every Egyptian competitor ships a till; the two that ship the best ones (Foodics, Rewaa) are not ERPs and would otherwise take the seat.</p>
+          <span class="st-m">P0 · module · DEC-16</span>
+        </li>
+        <li>
+          <span class="st-h">Build the report centre and drill-down</span>
+          <p>One centre with favourites, a customise drawer and drill-down from every figure to the entries behind it — plus the server-side counts and stats that make chip counts and KPI money correct past page one. This is a correctness fix wearing a usability fix's clothes, and it is <span class="ar">المحاسب</span>'s stated breaking point.</p>
+          <span class="st-m">P0/P1 · 12–18 days</span>
+        </li>
+        <li>
+          <span class="st-h">Build the tax regime and Law 6/2025</span>
+          <p>Regime as a fact about a period rather than a settings boolean, the turnover bands, the liability computation, and the comparison screen that shows an owner what they would pay each way. The largest uncontested differentiator on the board — no product in the twenty-six surveyed models it — and it will not stay uncontested.</p>
+          <span class="st-m">P1 · 8–10 days</span>
+        </li>
+        <li>
+          <span class="st-h">Shorten time-to-first-compliant-invoice</span>
+          <p>The EGP 250,000 cohort had to register by 31 March 2026; they are shopping now, they have no accountant, and the cheap Arabic cloud tier — Enerpize, Zemam, Hunt — is competing for them on exactly this metric. Setup-as-you-go rather than a gating wizard, a seeded Egyptian chart of accounts, VAT and withholding rates pre-configured, the ETA connection tested during setup.</p>
+          <span class="st-m">P1 · 6–10 days</span>
+        </li>
+        <li>
+          <span class="st-h">Close the accounting-truth holes</span>
+          <p>Three small builds that an auditor or an owner asks for by name: a year-end close that <em>posts</em> retained earnings instead of deriving it, budgets against actual, and a second and third dimension axis beside the cost centre.</p>
+          <span class="st-m">P1 · 18–26 days combined</span>
+        </li>
+        <li>
+          <span class="st-h">Build the remaining ETA surfaces and account routing</span>
+          <p>Readiness meter, credentials with test-connection, item mapping, unit mapping (R7.1–R7.6), plus account routing (R6.1) and customer/supplier statements (R3.6) — the last of which every competitor has and the parity audit found absent.</p>
+          <span class="st-m">P2 · 10–14 days</span>
+        </li>
+        <li>
+          <span class="st-h">Execute the cuts and merges</span>
+          <p>11 cuts, 3 reductions, 18 merges. Hide before deleting, so the change is reversible for one release. Start with items 6 → 1 and stock 14 → 9, and settle the orphaned API-key and webhook back end while the knife is out.</p>
+          <span class="st-m">P2 · 8–12 days</span>
+        </li>
+        <li>
+          <span class="st-h">Decide payroll and contracting</span>
+          <p>Two module-sized segment decisions, both with a competitor answer already on the shelf. Payroll needs legal review before code — brackets to 27.5%, insurance at 11% and 18.75% against a floor and ceiling that escalate every January, the 0.05% Martyrs Fund levy, Law 14/2025 leave. Contracting needs BOQ, <span class="ar">مستخلصات</span>, retention and advance recovery, or the workspace row should stop promising it.</p>
+          <span class="st-m">P2 · DEC-12, DEC-11</span>
+        </li>
+        <li>
+          <span class="st-h">Build the <span class="mono">+New</span> menu, and the reach items worth having</span>
+          <p>The one QuickBooks interaction pattern worth more than every cut combined, then in order: a bank-statement importer with saved rules, recurring invoices, serial numbers, and a mobile companion scoped to two jobs only — the van rep and the owner's daily cash.</p>
+          <span class="st-m">P3 · staged</span>
+        </li>
+        <li>
+          <span class="st-h">Run the QuickBooks baseline audit</span>
+          <p>Answer "which QuickBooks" and record it as DEC-8, obtain a sandbox or trial, and produce <code>docs/quickbooks-baseline/</code> with the same four artifacts the reference audit produced. Lower priority than it looked in the last revision: Intuit has stopped selling new non-Enterprise Desktop and support for the 2023 line ended 31 May 2026, so 13 screens justified by Desktop need a live re-argument or an Egyptian one.</p>
+          <span class="st-m">P3 · 6–8 days</span>
+        </li>
+      </ol>
+
+      <p>Roughly <strong>three weeks of compliance work before anything else</strong>, then the two segment decisions and the report centre, then scope and patterns. The sequencing rule that produced this order: <em>a screen count is a preference, an unissued legal receipt is a fine, and a segment with no document type is a market you do not have.</em></p>
+    </section>
+
+    <!-- ============ 14 ============ -->
+    <section id="s14">
+      <span class="sec-num">Section 14</span>
+      <h2>Decisions to record</h2>
+
+      <div class="summary">
+        <span class="label">In short</span>
+        <p>Eleven entries for <code>docs/decisions.md</code>. Each has two or more defensible answers and each changes a shared contract, which is that file's own test for what belongs in it. DEC-13 has a closing window; DEC-15 and DEC-16 are the two that decide what product this is.</p>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>Proposed entries in the decision register</caption>
+          <thead>
+            <tr><th>Ref</th><th>Decision</th><th>Options</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="scr">DEC-8</td>
+              <td><strong>Which QuickBooks is the baseline</strong></td>
+              <td>Online Plus only — 13 screens lose their justification and must be re-argued on Egyptian grounds · Online plus Desktop Enterprise, stated explicitly · <em>Online for interaction, Desktop for depth</em>. Note that Intuit is retiring non-Enterprise Desktop, which weakens the third option's evidence base over time.</td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-9</td>
+              <td><strong>Does the e-receipt build assume POS</strong></td>
+              <td>Build it into the existing sales-invoice path so any consumer sale is covered — <em>smaller and unblocks three segments now</em> · Wait for POS · Ship a receipt-only screen separate from both.</td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-10</td>
+              <td><strong>Ship without a wired e-seal?</strong></td>
+              <td>Ship test-mode with an unmissable banner · Hold the compliance claim until signing is wired · Ship with a documented signing-agent dependency the customer installs. Whichever is chosen, the product must never imply production clearance it cannot perform.</td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-11</td>
+              <td><strong>Is contracting in scope</strong></td>
+              <td>Build BOQ, <span class="ar">مستخلصات</span>, retention and advance recovery — the segment is unaddressable without them and the nav already has a <span class="ar">المقاولات</span> row · Leave contracting out, say so in positioning, and take the row down.</td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-12</td>
+              <td><strong>Does HR come back, and against what</strong></td>
+              <td>Stays deferred and the 15 screens come out of the nav · Returns scoped against Egyptian statute directly, with legal review as a prerequisite either way. Competitors show a payslip; a component list does not answer them.</td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-13</td>
+              <td><strong>Do we claim Law 6/2025 support, and when</strong></td>
+              <td>Build and market it now, while none of the twenty-six surveyed products has it · Build it quietly as a compliance feature · Skip it. <em>The window is open and closing; any competitor can build this in a sprint.</em></td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-14</td>
+              <td><strong>Hide or delete the cut screens</strong></td>
+              <td>Hide — reversible, but the code carries both shapes for a release · Delete outright — smaller codebase, no way back without a revert.</td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-15</td>
+              <td><strong>Is the desktop bet a moat or a shrinking segment</strong></td>
+              <td>Intuit has ended new non-Enterprise Desktop sales, Sage pushes Intacct, every regional vendor is cloud-only, and SAP B1 is the only surveyed product still running a whole back office on-premises. <em>Either the incumbents have vacated a defensible segment, or they left because it is shrinking.</em> Decide explicitly, and if it is a moat, fund the things that make offline <em>better</em> — backup, restore, same-QR reprint, a submission queue that survives a week without a line — rather than cloud parity features.</td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-16</td>
+              <td><strong>Does POS come back into v1</strong></td>
+              <td>Build it — three named segments, the e-receipt obligation, and the single best demonstration of the offline thesis · Keep it descoped and cede retail and F&amp;B to Daftra, Foodics and Rewaa, saying so in positioning rather than leaving the gap implicit.</td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-17</td>
+              <td><strong>Finish or delete the API and webhook back end</strong></td>
+              <td>Finish it as a licensable integration module — every competitor has one · Delete it, accepting the comparison-grid row, since a desktop v1 has nothing to call it. It cannot stay as it is: built, tested, and consumed by nothing.</td>
+            </tr>
+            <tr>
+              <td class="scr">DEC-18</td>
+              <td><strong>How many dimension axes</strong></td>
+              <td>Keep one cost centre and say so · Add a second and third axis on the Business Central model · Adopt Odoo-style analytic distribution with percentages. The middle option answers the multi-branch buyer without a new posting model.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <hr class="rule">
+
+      <footer>
+        <p><strong>Provenance.</strong> The module list is enumerated from the 66 directories under <code>packages/domain/src</code> and the 14 workspaces in <code>apps/web/src/nav-config.tsx</code> on branch <code>bassamZakaria/cormorant</code> at <code>84d516f</code> — 115 navigation destinations plus the dashboard. Capability claims about Mezan are read from that code: absences were checked by search, not assumed (no <code>serialNumber</code>, no bin or shelf location, no budget outside a project field, no <code>recurring</code> invoice, <code>EtaDocumentType = invoice | credit_note | debit_note</code>, retained earnings computed in <code>reports/balance-sheet.ts</code>). Defect and decision references are from <code>docs/defects.md</code> — which currently reads zero open, with 3,819 scenario assertions passing and four ledger invariants at zero — and <code>docs/decisions.md</code>. Requirement references (R1.1 … R12.2) are from <code>docs/reference-parity/audit/REQUIREMENTS.md</code>.</p>
+        <p><strong>Three caveats to carry.</strong> First, competitor capability marks come from published documentation, vendor material and secondary reviews, <strong>not from live tenants</strong> — they are accurate enough to rank a backlog and not accurate enough to print in a comparison advertisement; a marked cell that would decide a deal should be re-checked in the product itself. Second, prices move: every figure here is a 2026 published or reported list price, and Egyptian pound figures move faster than the rest. Third, Egyptian statutory details are from the secondary sources listed below and were current at the time of writing — <strong>confirm every rate, threshold and deadline against the ETA and the official gazette before it reaches a customer</strong>, and have a <span class="ar">محاسب قانوني</span> review the register. Nothing here is tax advice.</p>
+        <p><strong>Sources consulted</strong></p>
+        <ol>
+          <li><a href="https://kpmg.com/us/en/taxnewsflash/news/2025/01/tnf-egypt-taxpayers-required-comply-mandate-electronic-receipts-b2c-transactions.html">KPMG — Egypt: taxpayers required to comply with the mandate for electronic receipts on B2C transactions</a></li>
+          <li><a href="https://invoicedataextraction.com/blog/egypt-e-receipt-requirements">Egypt E-Receipt Requirements: ETA Guide for 2026</a></li>
+          <li><a href="https://www.flick.network/en-eg/egypt-b2c-e-receipt-mandate">Egypt B2C e-Receipt Mandate: compliance, requirements and ETA rules</a></li>
+          <li><a href="https://vatit.com/e-invoicing-guide/egypt/">VAT IT — E-invoicing Egypt guide</a></li>
+          <li><a href="https://datavalue.solutions/egypt-e-invoicing-eta-2026-sme-guide/">Egypt E-Invoicing 2026 — ETA compliance guide for SMEs (EGP 250,000 threshold, 31 March 2026 registration deadline)</a></li>
+          <li><a href="https://www.ey.com/en_gl/technical/tax-alerts/egypt-introduces-tax-incentives-and-benefits-for-small-enterprises">EY — Egypt introduces tax incentives and benefits for small enterprises (Law 6 of 2025)</a></li>
+          <li><a href="https://www.eta.gov.eg/sites/default/files/2024-02/Law-english-no.67-2016.pdf.pdf">Egyptian Tax Authority — Value Added Tax Law No. 67 of 2016 (English)</a></li>
+          <li><a href="https://taxsummaries.pwc.com/egypt/corporate/other-taxes">PwC Worldwide Tax Summaries — Egypt, corporate other taxes</a></li>
+          <li><a href="https://learn.microsoft.com/en-us/dynamics365/finance/localizations/mea/emea-egy-wht-declaration">Microsoft Learn — Withholding tax declaration for Egypt (Form 41)</a></li>
+          <li><a href="https://www.bdo.global/en-gb/insights/tax/expatriate-tax/egypt-maximum-and-minimum-salaries-subject-to-social-insurance-increased">BDO — Egypt: maximum and minimum salaries subject to social insurance increased</a></li>
+          <li><a href="https://www.pwc.com/m1/en/tax/documents/2020/egyptian-government-issues-unified-tax-procedures-law-no-206-2020.pdf">PwC — Egypt issues Unified Tax Procedures Law No. 206 of 2020</a></li>
+          <li><a href="https://ecpa-eg.com/en/eg/articles/the-most-important-provisions-of-tax-procedures-law-no.-206-of-2020-in-egypt">ECPA — Key provisions of Tax Procedures Law No. 206 of 2020</a></li>
+          <li><a href="https://www.taxspoc.com/articles/egypt-transforming-taxation-in-2025-key-highlights-of-laws-no-5-6-and-7">Egypt: Transforming Taxation in 2025 — Laws No. 5, 6 and 7</a></li>
+          <li><a href="https://www.flick.network/en-eg/withholding-tax-in-egypt">Withholding Tax in Egypt: rates, compliance and treaty benefits</a></li>
+          <li><a href="https://taxsummaries.pwc.com/egypt/individual/other-taxes">PwC Worldwide Tax Summaries — Egypt, individual other taxes</a></li>
+          <li><a href="https://www.odoo.com/documentation/19.0/applications/finance/fiscal_localizations/egypt.html">Odoo 19 documentation — Egypt fiscal localisation (ETA e-invoicing since v15)</a></li>
+          <li><a href="https://www.odoo.com/documentation/19.0/applications/finance/accounting.html">Odoo 19 documentation — Accounting: standard, AVCO and FIFO valuation</a></li>
+          <li><a href="https://www.method.me/blog/quickbooks-desktop-discontinued/">QuickBooks Desktop discontinued — next steps for Desktop users (2026)</a></li>
+          <li><a href="https://www.erpresearch.com/compare/dynamics-365-vs-sap-business-one">ERP Research — Dynamics 365 vs SAP Business One 2026: pricing and modules</a></li>
+          <li><a href="https://codxpert.com/business-central-vs-netsuite-vs-sap-business-one-2026/">Business Central vs NetSuite vs SAP Business One, 2026 guide</a></li>
+          <li><a href="https://hunt-eg.com/en/blog/best-erp-system-egypt-2026-en">The best ERP system in Egypt 2026 — buying guide (local pricing landscape)</a></li>
+          <li><a href="https://www.capterra.com/p/244865/Daftra/">Capterra — Daftra pricing and alternatives, 2026</a></li>
+          <li><a href="https://www.azdan.com/blog/15-accounting-systems-approved-by-zatca-in-saudi-arabia-2026">15 accounting systems approved by ZATCA in Saudi Arabia (2026)</a></li>
+          <li><a href="https://www.wafeq.com/en-sa/e-invoicing-in-saudi-arabia/preparing-for-e-invoicing/best-accounting-software-in-saudi-arabia">Wafeq — best accounting software in Saudi Arabia (regional field)</a></li>
+          <li><a href="https://www.zatcahub.com/reviews/qoyod/">ZatcaHub — Qoyod review 2026</a></li>
+          <li><a href="https://www.zoho.com/sa/books/help/e-invoicing/">Zoho Books — e-invoicing (ZATCA Phase 2)</a></li>
+        </ol>
+      </footer>
+    </section>
+
+  </main>
+</div>
+
+</body></html>

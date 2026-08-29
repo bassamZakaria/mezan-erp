@@ -13,6 +13,7 @@ step and no external requests.
 | File | What it is |
 |---|---|
 | `mezan-enhanced-mockups.html` | **The design source of truth.** The clickable enhanced mockup — where a question about what a screen should look like gets settled. Its prose companion is `../design/ux-enhancement-spec.md` |
+| `mezan-contracting-designs.html` | **The المقاولات module design.** Twelve decisions the research in `../archive/contracting/` left open, each with the source that settles it and what would reverse it; the مستخلص modelled end to end — cumulative lines, the eleven-line deductions block, two approval states — plus the screens, the controls and the build order that follow. Palette and geometry are the shipped tokens, not a new identity |
 | `directions/` | Each direction as a full working page — `1-mizan`, `2-mishkah` (the chosen light identity), `3-shubbak`, `4-daftar`, `5-tiraz`, `6-thil` (the dark palette) — plus the shell, nav, reports, components and frames studies they were judged on. **`2-mishkah.html` is the type and colour authority; `6-thil.html` is its dark half** — `tokens/fonts.css` and `check-theme-colour-only.mjs` both cite them |
 
 The earlier mockups and the six-directions comparison page are in `../archive/`: the parity

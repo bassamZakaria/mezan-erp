@@ -117,6 +117,53 @@ admin may edit, and two people sharing a name shared an account door. Older note
 `محمد الشهابي` / PIN `1234` are stale; where a scenario below still says that, read it as
 the email login.
 
+### Demo logins
+
+Every seeded account signs in with its **email** and PIN **`123456`** (one PIN for all of
+them on purpose — a demo whose logins each need a different code is a demo nobody signs
+into twice). Passwords, where a screen asks for one, are `Mezan-demo-<local-part>`.
+
+Use `admin@cyag.example` to see everything. Use one of the others to see what a *role*
+sees — which is the only way to catch a screen that opens for someone who should not have
+it, and the reason none of these accounts but two are company admins.
+
+| Email (`@cyag.example`) | الاسم | Role | Scope |
+|---|---|---|---|
+| `admin` | محمد الشهابي | — company admin | all |
+| `nadia.shafik` | نادية شفيق | — company admin | all |
+| `tarek.mansour` | طارق منصور | `FINANCE_MANAGER` المدير المالي | all |
+| `omar.hilal` | عمر هلال | `SUPERVISOR` مشرف المبيعات | all |
+| `mona.abdelrahman` | منى عبد الرحمن | `ACCOUNTANT` محاسب | all |
+| `rania.adel` | رانيا عادل | `PURCHASING_OFFICER` مسؤول المشتريات | all |
+| `youssef.badr` | يوسف بدر | `TREASURY_CASHIER` أمين الخزنة | all |
+| `sayed.gamal` | سيد جمال | `WAREHOUSE_KEEPER` أمين مخزن | all warehouses |
+| `magdy.rashad` | مجدي رشاد | `WAREHOUSE_KEEPER` أمين مخزن | **Giza warehouse only** |
+| `karim.fouad` | كريم فؤاد | `SALES_REP` مندوب مبيعات | all |
+| `salma.fouad` | سلمى فؤاد | `VAN_SALES` مندوب توزيع | **van warehouse only**, linked to `EMP-DEMO-2` |
+| `sameh.fathy` | سامح فتحي | `CRM_MANAGER` مسؤول علاقات العملاء | all |
+| `hossam.nabil` | حسام نبيل | `BRANCH_MANAGER` مدير الفرع | **`BR-MAIN` only** |
+| `dalia.saeed` | داليا سعيد | `HR_OFFICER` مسؤول شؤون العاملين | all — **no salary visibility** |
+| `amir.zaki` | أمير زكي | `PAYROLL_OFFICER` مسؤول الرواتب | all — **holds the ⚠ salary codes** |
+| `laila.ibrahim` | ليلى إبراهيم | `AUDITOR` مراجع داخلي | all — **read-only everywhere** |
+| `hala.mostafa` | هالة مصطفى | `SALES_REP` | **deactivated — login must be refused** |
+
+Four pairs are there to be compared, and comparing them is the test:
+
+- **`sayed.gamal` vs `magdy.rashad`** — same role, different warehouse scope. Measured on
+  the seeded tenant: 40 stock rows against 3. Anything they see identically is the scope
+  not being read (D8).
+- **`dalia.saeed` vs `amir.zaki`** — HR without and with the ⚠ sensitive salary
+  permissions. `GET /hr/payroll/runs` is 403 for the first and 200 for the second.
+- **`karim.fouad` vs `omar.hilal`** — `sales.invoice.view_own` against `.view_all`, the two
+  halves of the visibility model.
+- **`laila.ibrahim` vs anyone** — every code the auditor holds is a `.view`. A write that
+  succeeds for them is the finding.
+
+`SUPERVISOR` and `FINANCE_MANAGER` exist because the seeded approval chains
+(`SALES_INVOICE_CONFIRM`, `PURCHASE_INVOICE_CONFIRM`) name those role codes. Signed in as
+`omar.hilal`, the pending sales approval can be decided; as `karim.fouad` the same call is
+refused 403.
+
 **Gate — no list surface may be empty:**
 
 ```bash

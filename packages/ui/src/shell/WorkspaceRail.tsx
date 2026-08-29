@@ -100,11 +100,22 @@ export function WorkspaceRail({
         EXACTLY ONE VIEWPORT TALL, and sticky at the top — the column is now the
         only chrome, carrying the brand at its head and every global control at
         its foot. `h-screen` rather than min/max: the foot must land ON the
-        bottom edge, and the workspace list (`flex-1 overflow-y-auto`) absorbs
-        whatever is left, so a long list scrolls inside the column instead of
-        pushing the user menu off the end of the screen.
+        bottom edge, and the workspace list (`flex-1 overflow-y-auto` below)
+        absorbs whatever is left, so a long list scrolls inside the column
+        instead of pushing the user menu off the end of the screen.
+
+        `overflow-y-auto` ALSO sits on this outer box, not only on the list: on
+        a short enough viewport the brand + pinned rows + foot alone (every
+        `flex-none` sibling of the list) can exceed one viewport even after the
+        list has shrunk to nothing. Without an escape valve here that excess is
+        `overflow: visible` past a `position: sticky` box — content the page
+        never scrolls into, because the sticky box re-pins to `top: 0` on every
+        scroll tick. Giving the box its own scroll turns that into an ordinary,
+        reachable overflow instead of a permanently hidden one. `mz-scrollbar-none`
+        keeps that fallback bar invisible; it only ever renders in that
+        pathological case.
       */}
-      <div className="sticky top-0 flex h-screen flex-col pb-[10px]">
+      <div className="mz-scrollbar-none sticky top-0 flex h-screen flex-col overflow-y-auto pb-[10px]">
         {brand}
 
         {pinnedItems.length > 0 ? (
@@ -144,7 +155,17 @@ export function WorkspaceRail({
           </>
         ) : null}
 
-        <ul onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto">
+        {/*
+          `min-h-[88px]` (two rows) rather than `min-h-0`: on a viewport short
+          enough that the fixed chrome above and below already exceeds it, a
+          bare `min-h-0` lets this list collapse all the way to nothing — the
+          list itself would then have no box to scroll, so its own entries
+          become unreachable through even the outer fallback scroll (an empty
+          box has nothing to scroll into view). Two rows keeps it a real,
+          visibly scrollable list in every case; the outer box's own scroll
+          (see above) picks up whatever this floor pushes past the viewport.
+        */}
+        <ul onKeyDown={onKeyDown} className="mz-scrollbar-none min-h-[88px] flex-1 overflow-y-auto">
           {groups.map((group, index) => {
             const active = group.key === activeKey;
             return (

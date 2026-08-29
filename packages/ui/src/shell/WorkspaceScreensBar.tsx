@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
-import { useFormat } from "../hooks/useFormat";
 import { useTranslation } from "../i18n";
 import { BAR_INSET } from "./metrics";
 import { POPUP_Z_CLASS, usePopupPosition } from "./popup-position";
@@ -13,7 +12,7 @@ import type { NavGroup, NavItem, NavSection } from "./types";
  * what that job contains and changes with it. This is what makes ~118
  * destinations browsable instead of recallable: nothing here has to be typed.
  *
- *   [hub] [اليومي ▾] [البيانات الأساسية ▾] [التقارير ▾] [الإعدادات ▾]   [+٣]
+ *   [hub] [اليومي ▾] [البيانات الأساسية ▾] [التقارير ▾] [الإعدادات ▾] →
  *
  * — the workspace's own hub as a chip (it belongs to no section), then ONE
  * DROPDOWN PER SECTION, in the nav config's own order. The column stays a flat
@@ -21,11 +20,14 @@ import type { NavGroup, NavItem, NavSection } from "./types";
  * from the bar: a workspace of 25 screens is four menus wide either way, and
  * every screen is at most two clicks from here.
  *
- * OVERFLOW — truncate to a «+٣» menu, never scroll. Ground rule §2.9 (125%
- * zoom, no sideways scroll) rules out growing the row, `flex-wrap` would eat
- * the vertical budget the two-row bar already costs, and a scrolled strip is
- * invisible in an app that hides every scrollbar — and is where browsers still
- * disagree about the sign of `scrollLeft` in RTL.
+ * OVERFLOW — the strip scrolls, it never clips. `flex-wrap` would eat the
+ * vertical budget the two-row bar already costs, so every cell stays on one
+ * line (`flex-none`, `whitespace-nowrap`) inside a horizontally scrolling
+ * row; the browser's own scrollbar is suppressed (`mz-scrollbar-none`, the
+ * same convention the workspace column uses) so the strip reads as a place
+ * rather than a widget. The active chip is scrolled into view whenever the
+ * open screen changes, so a screen reached from elsewhere never leaves its
+ * own bar showing nothing.
  */
 
 
@@ -59,10 +61,6 @@ const FLATTEN_UP_TO = 4;
 function isFlattenable(section: NavSection): boolean {
   return !ALWAYS_A_MENU.has(section.key) && section.items.length > 0 && section.items.length <= FLATTEN_UP_TO;
 }
-
-const GAP_PX = 6;
-/** Sub-pixel slack so a rounding error never pushes the last chip past the row. */
-const SAFETY_PX = 4;
 
 /**
  * TABS, NOT CHIPS (direction ت١). Bare text under a gold rule: a row of
@@ -104,7 +102,6 @@ export interface WorkspaceScreensBarProps {
   /** The screen currently on display — its chip, or its section's menu, is marked. */
   activeKey?: string;
   ariaLabel: string;
-  overflowLabel: string;
   className?: string;
 }
 
@@ -270,14 +267,11 @@ export function WorkspaceScreensBar({
   group,
   activeKey,
   ariaLabel,
-  overflowLabel,
   className,
 }: WorkspaceScreensBarProps) {
-  const format = useFormat();
   const { direction } = useTranslation();
   const rtl = direction === "rtl";
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const measureRef = useRef<HTMLDivElement | null>(null);
 
   const cells = useMemo<Cell[]>(() => {
     if (!group) return [];
@@ -310,74 +304,32 @@ export function WorkspaceScreensBar({
     return out;
   }, [group, activeKey]);
 
-  const [visibleCount, setVisibleCount] = useState(cells.length);
-
-  const recalculate = useCallback(() => {
-    const row = rowRef.current;
-    const measure = measureRef.current;
-    if (!row || !measure) return;
-
-    // Zero width means the row is not laid out at all (jsdom, display:none, a
-    // detached tree). Measuring there would hide every screen, so show all.
-    const available = row.clientWidth - SAFETY_PX;
-    if (available <= 0) {
-      setVisibleCount(cells.length);
-      return;
-    }
-
-    const widths = Array.from(measure.children).map((child) => (child as HTMLElement).offsetWidth);
-    if (widths.length === 0 || widths.every((w) => w === 0)) {
-      setVisibleCount(cells.length);
-      return;
-    }
-
-    let used = 0;
-    let count = 0;
-    for (let i = 0; i < widths.length; i += 1) {
-      const advance = (widths[i] ?? 0) + (i > 0 ? GAP_PX : 0);
-      if (used + advance > available) break;
-      used += advance;
-      count += 1;
-    }
-    setVisibleCount(count);
-  }, [cells.length]);
-
-  useLayoutEffect(() => {
-    recalculate();
-  }, [recalculate, cells]);
-
-  useEffect(() => {
-    const row = rowRef.current;
-    const measure = measureRef.current;
-    if (!row || !measure || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => recalculate());
-    observer.observe(row);
-    // The measuring copy is observed too, and it is NOT redundant: the first
-    // pass runs before the web font has swapped in, so every chip is measured
-    // at fallback metrics. The row's own width never changes when the font
-    // lands — the measuring copy's does, and that is what re-runs the fit.
-    observer.observe(measure);
-    return () => observer.disconnect();
-  }, [recalculate]);
-
-  const shown = Math.min(visibleCount, cells.length);
-  const visibleCells = cells.slice(0, shown);
-  const hiddenCells = cells.slice(shown);
-  const hiddenScreens = hiddenCells.filter((cell): cell is Extract<Cell, { kind: "screen" }> => cell.kind === "screen");
-  const hiddenSections = hiddenCells.filter((cell): cell is Extract<Cell, { kind: "section" }> => cell.kind === "section");
-  const hiddenCount = hiddenScreens.length + hiddenSections.reduce((sum, cell) => sum + cell.section.items.length, 0);
-
   /**
    * The strip is ONE Tab stop: `Tab` reaches the current chip, the arrow keys
    * walk the rest. Ten chips and menus that each took their own Tab stop would
    * put ten presses between the bar and the page it names.
    */
   const cellRefs = useRef<(HTMLElement | null)[]>([]);
-  const activeCellIndex = visibleCells.findIndex((cell) => cell.active);
+  const activeCellIndex = cells.findIndex((cell) => cell.active);
   const rovingIndex = activeCellIndex >= 0 ? activeCellIndex : 0;
 
+  /**
+   * A screen reached from elsewhere (the column's «كل الشاشات», the command
+   * palette, a link) can land on a chip the horizontal scroll has carried out
+   * of view — this is what keeps the strip from ever "clipping it out of
+   * reach": the moment it becomes current, it scrolls back into view.
+   */
+  useEffect(() => {
+    if (activeCellIndex < 0) return;
+    const cell = cellRefs.current[activeCellIndex];
+    // jsdom has no layout engine and never implements `scrollIntoView`.
+    if (typeof cell?.scrollIntoView === "function") {
+      cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [activeCellIndex, group?.key]);
+
   function onStripKeyDown(event: React.KeyboardEvent<HTMLUListElement>) {
-    const count = visibleCells.length;
+    const count = cells.length;
     if (count === 0) return;
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
@@ -456,70 +408,21 @@ export function WorkspaceScreensBar({
         BAR_INSET,
         // The inline-start inset is shared with the header's scope switchers so
         // the first chip and the branch selector above it begin on one line.
-        "relative flex items-center gap-[6px] overflow-hidden border-b border-border bg-surface pe-[12px] py-[4px] text-ink",
+        "relative flex items-center gap-[6px] border-b border-border bg-surface pe-[12px] py-[4px] text-ink",
         className,
       )}
     >
-      <div ref={rowRef} className="flex min-w-0 flex-1 items-center">
-        <ul onKeyDown={onStripKeyDown} className="flex flex-none items-center gap-[6px]">
-          {visibleCells.map(renderCell)}
-        </ul>
-      </div>
-
-      <div className="flex flex-none items-center gap-[6px]">
-        {hiddenCount > 0 ? (
-          <BarMenu
-            label={overflowLabel}
-            triggerAriaLabel={`${overflowLabel} (${format.number(hiddenCount)})`}
-            triggerClassName={cn(CHIP_BASE, CHIP_IDLE, "min-w-[var(--h-btn)] justify-center")}
-            triggerContent={
-              <>
-                <span className="mz-num">+{format.number(hiddenCount)}</span>
-                {hiddenCells.some((cell) => cell.active) ? <TabRule /> : null}
-              </>
-            }
-          >
-            {(close) => (
-              <>
-                {hiddenScreens.length > 0 ? (
-                  <MenuRows items={hiddenScreens.map((cell) => cell.item)} activeKey={activeKey} close={close} />
-                ) : null}
-                {hiddenSections.map((cell) => (
-                  <div key={cell.id} role="group" aria-label={cell.section.label}>
-                    <div className="px-[12px] pb-[2px] pt-[8px] text-2xs font-semibold text-ink-faint">{cell.section.label}</div>
-                    <MenuRows items={cell.section.items} activeKey={activeKey} close={close} />
-                  </div>
-                ))}
-              </>
-            )}
-          </BarMenu>
-        ) : null}
-      </div>
-
       {/*
-        Off-layout measuring copy. Every cell is rendered here at its natural
-        width whether or not it is currently on the bar, so the fit calculation
-        reads from a source that does NOT change when the bar truncates — which
-        is what stops the count oscillating. `visibility:hidden` keeps it out of
-        the accessibility tree and out of the tab order without `inert`.
+        The row itself is the scroll container — `min-w-0` is what lets a flex
+        child shrink below its content width and actually overflow instead of
+        stretching the bar. The scrollbar is suppressed (`mz-scrollbar-none`)
+        so the strip reads as a place, not a widget; wheel/trackpad/keyboard
+        scrolling is untouched.
       */}
-      <div
-        ref={measureRef}
-        aria-hidden
-        className="pointer-events-none invisible absolute top-0 start-0 flex w-max items-center gap-[6px]"
-      >
-        {cells.map((cell) =>
-          cell.kind === "section" ? (
-            <span key={cell.id} className={cn(CHIP_BASE, cell.active ? CHIP_ACTIVE : CHIP_SECTION)}>
-              {cell.section.label}
-              <Caret />
-            </span>
-          ) : (
-            <span key={cell.id} className={cn(CHIP_BASE, cell.active ? CHIP_ACTIVE : CHIP_IDLE)}>
-              {chipContent(cell.item, cell.active)}
-            </span>
-          ),
-        )}
+      <div ref={rowRef} className="mz-scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto">
+        <ul onKeyDown={onStripKeyDown} className="flex flex-none items-center gap-[6px]">
+          {cells.map(renderCell)}
+        </ul>
       </div>
     </nav>
   );

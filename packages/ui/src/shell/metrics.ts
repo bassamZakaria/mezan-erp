@@ -13,12 +13,12 @@
  */
 
 /**
- * The workspace column's width. 224, not 200: the column now carries the
- * search row, both scope selects and the user's own name at its foot, and at
- * 200 the longest workspace names sat a hair from the edge while «كل الفروع»
- * had nowhere to truncate.
+ * The workspace column's width. 256, not 224 (+14%): even at 224 the longer
+ * workspace and nav labels sat a hair from the edge with no room to breathe.
+ * Every consumer imports this constant rather than repeating the number —
+ * change it here only.
  */
-export const RAIL_WIDTH = "w-[224px]";
+export const RAIL_WIDTH = "w-[256px]";
 
 /** The screens bar's own inline padding; the header matches it after the brand. */
 export const BAR_INSET = "ps-[12px]";

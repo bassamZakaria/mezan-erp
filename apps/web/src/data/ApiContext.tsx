@@ -12,7 +12,7 @@ import {
   type Session,
 } from "./session";
 import { resolveDefaultTransport, type Transport, type TransportResponse } from "./transport";
-import { clearLoaderApi, publishLoaderApi } from "./api-bridge";
+import { publishLoaderApi } from "./api-bridge";
 
 interface ApiContextValue {
   readonly session: Session | null;
@@ -132,7 +132,6 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
    * session headers. The assignment is idempotent.
    */
   publishLoaderApi({ request: value.request, queryClient, isAuthenticated: session !== null });
-  useEffect(() => clearLoaderApi, []);
 
   return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;
 }

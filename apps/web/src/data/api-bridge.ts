@@ -32,9 +32,20 @@ export function publishLoaderApi(api: LoaderApi): void {
   current = api;
 }
 
-export function clearLoaderApi(): void {
-  current = null;
-}
+/*
+ * There is deliberately NO clear-on-unmount.
+ *
+ * It used to be `useEffect(() => clearLoaderApi, [])` in the provider, which
+ * looks like tidy cleanup and silently disabled every loader. StrictMode
+ * mounts effects, unmounts them and remounts them, so the order was: render
+ * (publish) → mount → CLEANUP (clear) → remount. The remount only returns the
+ * cleanup again and no re-render follows, so this stayed null for the rest of
+ * the session and every loader correctly declined to fetch without a session.
+ *
+ * Nothing needs the clear: the app has one provider for its lifetime, the next
+ * provider's first render overwrites this, and a loader cannot run once the
+ * router that owns it is gone.
+ */
 
 /**
  * Throws rather than returning null: a loader that silently skipped its fetch

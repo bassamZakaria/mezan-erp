@@ -4,6 +4,8 @@ import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import { HydrateFallback } from "./HydrateFallback";
 import { SCREEN_MODULES, type RoutableKey } from "./screens";
 import { routePathForScreen } from "../routing";
+import { listLoader } from "./loader";
+import { customerFilterFromUrl, customersQuery } from "../data/list-queries";
 
 /**
  * The route table, derived from the nav tree rather than written out.
@@ -18,10 +20,27 @@ import { routePathForScreen } from "../routing";
  * too, so one entry serves both `/sales/quotes` and `/sales/quotes/QT-0004`.
  * Screens read it through `useNavigation().segments`, unchanged from before.
  */
+/**
+ * Screens that prefetch their list before they render.
+ *
+ * The loader is attached HERE rather than inside the screen's lazy module, and
+ * that placement is the point: React Router runs a static loader concurrently
+ * with the chunk download, so the request overlaps the JavaScript instead of
+ * queueing behind it. Inside the module it could not start until the module
+ * had already arrived.
+ *
+ * A screen is absent from this map simply because nobody has described its
+ * query yet — it renders exactly as before and fetches on mount.
+ */
+const SCREEN_LOADERS: Partial<Record<string, ReturnType<typeof listLoader>>> = {
+  customers: listLoader((url) => [customersQuery(customerFilterFromUrl(url))]),
+};
+
 function screenRoute(key: string): RouteObject {
   return {
     path: `${routePathForScreen(key)}/*`,
     lazy: SCREEN_MODULES[key as RoutableKey],
+    loader: SCREEN_LOADERS[key],
     // Per screen, not once at the root: a failing report must not take the
     // nav rail and the header down with it. See RouteErrorBoundary.
     ErrorBoundary: RouteErrorBoundary,

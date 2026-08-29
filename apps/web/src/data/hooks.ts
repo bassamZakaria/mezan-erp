@@ -596,7 +596,7 @@ export interface CustomerListFilter {
  * The one place the customer list's filters become a query string, so the
  * rows, the chip counts and the KPI strip cannot be narrowed differently.
  */
-function customerParams(filter: CustomerListFilter): URLSearchParams {
+export function customerParams(filter: CustomerListFilter): URLSearchParams {
   const params = new URLSearchParams();
   if (filter.status && filter.status !== "all") params.set("status", filter.status);
   if (filter.q) params.set("q", filter.q);

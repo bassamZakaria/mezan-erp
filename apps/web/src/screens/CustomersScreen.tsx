@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useLocation } from "react-router";
 import {
   Button,
   Card,
@@ -52,6 +53,7 @@ import { TextField, NumberField, SelectField, ToggleField } from "../settings/fo
 import { customerOwedById } from "../lib/partner-balances";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlFlag, useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { customerFilterFromUrl } from "../data/list-queries";
 import { useNavigation } from "../navigation";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
@@ -796,14 +798,20 @@ export function CustomersScreen() {
    * had sent, so applying a filter moved the table and left the header alone —
    * and `?q=` is Arabic-forgiving server-side, which the old `includes` was not.
    */
+  /*
+   * Built from the ADDRESS by the same function the route loader uses
+   * (`data/list-queries.ts`), not assembled from the individual pieces of
+   * state here.
+   *
+   * The filter object IS the query key. If the loader derived it even slightly
+   * differently — a trimmed string, an absent key rather than `undefined` — it
+   * would warm a cache entry this screen never reads: a prefetch that costs a
+   * request and saves nothing, with nothing to show it had gone wrong.
+   */
+  const location = useLocation();
   const filter = useMemo<CustomerListFilter>(
-    () => ({
-      status: statusFilter,
-      q: search.trim() || undefined,
-      priceListId: priceListFilter?.id,
-      overLimit: overLimitOnly || undefined,
-    }),
-    [statusFilter, search, priceListFilter, overLimitOnly],
+    () => customerFilterFromUrl(new URL(location.pathname + location.search, window.location.origin)),
+    [location.pathname, location.search],
   );
 
   const query = useCustomers(filter);

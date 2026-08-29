@@ -17,6 +17,7 @@ import { useCreateTaxGroup, useCreateTaxRate, useTaxGroups, useTaxRates, useUpda
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * الضرائب (Taxes) — docs/archive/catalog/04 §"الضرائب". List + add/edit dialog with
@@ -248,11 +249,11 @@ export function TaxesScreen() {
   const updateTaxRate = useUpdateTaxRate();
   const taxes = query.data ?? EMPTY;
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [activeTab, setActiveTab] = useState<"rates" | "groups">("rates");
   const [statusFilter, setStatusFilter] = useState<TaxRateStatusDTO | "all">("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -275,7 +276,7 @@ export function TaxesScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = statusFilter === "all" ? 0 : 1;
 
@@ -421,9 +422,9 @@ export function TaxesScreen() {
           { label: t("common.active"), value: <span className="mz-num">{taxes.filter((tax) => tax.status === "active").length}</span> },
           { label: t("common.inactive"), value: <span className="mz-num">{taxes.filter((tax) => tax.status === "inactive").length}</span> },
         ]}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("taxes.search")}

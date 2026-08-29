@@ -12,6 +12,7 @@ import { SelectField, TextField } from "./form-controls";
 import { actionTypeLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlSearch } from "../lib/url-state";
 
 /**
  * إعدادات الموافقات — the workflow chain-builder (docs/archive/catalog/09 §إعدادات
@@ -54,7 +55,7 @@ export function WorkflowConfigPage() {
   const [actionType, setActionType] = useState<string>("");
   const [steps, setSteps] = useState<StepDraft[]>([newStep("")]);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
 
   const configuredActionTypes = useMemo(() => new Set(configs.map((c) => c.actionType)), [configs]);
   const availableActionTypes = useMemo(
@@ -201,8 +202,8 @@ export function WorkflowConfigPage() {
           </Button>
         }
         stats={[{ label: t("workflowConfig.stat.defined"), value: <span className="mz-num">{configs.length}</span> }]}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("workflowConfig.searchPlaceholder")}
         columns={columns}
         rows={filtered}

@@ -21,6 +21,7 @@ import { branchName } from "./branch-name";
 import { TextField, ToggleField, SectionCard } from "./form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlSearch } from "../lib/url-state";
 
 /**
  * الفروع (Branches) — docs/archive/catalog/09 §"إدارة الفروع" list +
@@ -605,7 +606,7 @@ export function BranchesPage() {
   const branches = query.data ?? EMPTY;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ code: "", name: "", phone: "", email: "", address: "", isMain: false });
 
@@ -678,8 +679,8 @@ export function BranchesPage() {
           { label: t("branches.headBranch"), value: <span className="mz-num">{branches.filter((b) => b.isMain).length}</span> },
           { label: t("common.active"), value: <span className="mz-num">{branches.filter((b) => b.active).length}</span> },
         ]}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("branches.searchByBranchNameOr")}
         columns={columns}
         rows={filtered}

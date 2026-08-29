@@ -9,6 +9,7 @@ import { warehouseTypeLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { EMPTY } from "../lib/empty";
+import { useUrlSearch } from "../lib/url-state";
 
 /**
  * المستودعات (Warehouses) — docs/archive/catalog/09 §"إدارة المستودعات". Surfaces
@@ -26,7 +27,7 @@ export function WarehousesPage() {
   const createWarehouseMutation = useCreateWarehouse();
   const warehouses = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? EMPTY;
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [typeFilter, setTypeFilter] = useState<WarehouseType | "all">("all");
   const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,8 +119,8 @@ export function WarehousesPage() {
             ))}
           </div>
         }
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("warehouses.searchPlaceholder")}
         columns={columns}
         rows={filtered}

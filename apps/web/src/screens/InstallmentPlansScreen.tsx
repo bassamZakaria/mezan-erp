@@ -33,6 +33,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation, useScreenIntent } from "../navigation";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
+import { useUrlNumber } from "../lib/url-state";
 
 /** خطط الأقساط (Installment Plans) — docs/archive/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
@@ -98,8 +99,8 @@ export function InstallmentPlansScreen() {
   const documents = query.data ?? [];
   const counts = useInstallmentPlanCounts(filter).data ?? {};
   const stats = useInstallmentPlanStats(filter).data ?? {};
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [invoiceId, setInvoiceId] = useState("");
   const [installmentCount, setInstallmentCount] = useState(6);
   const [frequency, setFrequency] = useState<InstallmentFrequencyDTO>("MONTHLY");

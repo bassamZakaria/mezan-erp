@@ -14,6 +14,7 @@ import {
 import { useConfirmAction } from "../lib/use-confirm-action";
 import { ACCRUAL_FREQUENCY_KEY, formatDays, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlNumber } from "../lib/url-state";
 
 /** سياسات الإجازات (Leave Policies) — docs/archive/catalog/06 §"سياسات الإجازات" (`/settings/leave-policies`). The matrix starts empty; the two dated Egyptian Labour Law presets fill it in one action. */
 
@@ -93,14 +94,14 @@ export function LeavePoliciesScreen() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const confirm = useConfirmAction();
   const [banner, setBanner] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const pageCount = Math.max(1, Math.ceil(policies.length / pageSize));
   const pageRows = policies.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   function openCreate() {
     setEditingId(null);

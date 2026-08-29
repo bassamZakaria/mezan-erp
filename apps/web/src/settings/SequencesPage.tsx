@@ -16,6 +16,7 @@ import { TextField, NumberField, ToggleField } from "./form-controls";
 import { sequenceLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlSearch } from "../lib/url-state";
 
 /**
  * تسلسلات الترقيم (Numbering Sequences) — `/settings/sequences`. Reads the
@@ -40,7 +41,7 @@ export function SequencesPage() {
   const sequences = query.data ?? EMPTY;
 
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [form, setForm] = useState<ReturnType<typeof editForm> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [counterOpen, setCounterOpen] = useState(false);
@@ -118,8 +119,8 @@ export function SequencesPage() {
           { label: t("sequences.stat.total"), value: <span className="mz-num">{sequences.length}</span> },
           { label: t("sequences.stat.annualReset"), value: <span className="mz-num">{annualResetCount}</span> },
         ]}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("sequences.searchPlaceholder")}
         columns={columns}
         rows={filtered}

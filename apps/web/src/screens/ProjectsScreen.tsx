@@ -22,6 +22,7 @@ import { ApiError, useCreateProject, useCustomers, useProjects, useUpdateProject
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** المشاريع والمقاولات (Projects & Contracting) — docs/archive/catalog/07 §"المشاريع والمقاولات". List + detail + new-project panel. */
 
@@ -110,10 +111,10 @@ export function ProjectsScreen() {
   const customers = customersQuery.data ?? [];
   const users = usersQuery.data ?? [];
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<ProjectDraft>(blankDraft());
@@ -281,9 +282,9 @@ export function ProjectsScreen() {
           setStatusFilter(k);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(v) => {
-          setSearch(v);
+          setSearchText(v);
           setPage(1);
         }}
         searchPlaceholder={t("projects.searchByCodeOrName")}

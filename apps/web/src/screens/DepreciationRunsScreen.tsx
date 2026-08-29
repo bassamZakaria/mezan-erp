@@ -18,6 +18,7 @@ import { ApiError, useBranches, useCreateDepreciationRun, useDepreciationRuns, u
 import { NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber } from "../lib/url-state";
 
 /** الإهلاك (Depreciation Runs) — docs/archive/catalog/07 §"الإهلاك". List + detail + run-creation panel. */
 
@@ -62,8 +63,8 @@ export function DepreciationRunsScreen() {
   const branches = branchesQuery.data ?? [];
 
   const [statusFilter, setStatusFilter] = useState("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<RunDraft>(blankDraft());
@@ -88,7 +89,7 @@ export function DepreciationRunsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const totalCount = runs.length;
   const draftCount = runs.filter((r) => r.status === "draft").length;

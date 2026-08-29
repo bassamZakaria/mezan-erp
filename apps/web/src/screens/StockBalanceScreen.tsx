@@ -7,6 +7,7 @@ import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * أرصدة المخزون (Stock Balance) — docs/archive/catalog/03. Read-only cross-warehouse
@@ -25,10 +26,10 @@ export function StockBalanceScreen() {
   // NaN is this codebase's empty number, as NumberField already treats it.
   const [qtyFrom, setQtyFrom] = useState(Number.NaN);
   const [qtyTo, setQtyTo] = useState(Number.NaN);
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const balanceQuery = useStockBalance(warehouseFilter ? { warehouseId: warehouseFilter } : {});
   const itemsQuery = useItems();
@@ -100,7 +101,7 @@ export function StockBalanceScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount =
     (warehouseFilter ? 1 : 0) +
@@ -194,9 +195,9 @@ export function StockBalanceScreen() {
           { label: t("stockBalance.stat.lowStock"), value: <span className="mz-num">{counts.lowStock}</span> },
           { label: t("stockBalance.stat.outOfStock"), value: <span className="mz-num">{counts.outOfStock}</span> },
         ]}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("stockBalance.searchPlaceholder")}

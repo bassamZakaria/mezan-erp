@@ -20,6 +20,7 @@ import { useAllowedCurrencies, useApproveExchangeRate, useCreateExchangeRate, us
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { TextField } from "../settings/form-controls";
 import { todayIso } from "../lib/dates";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 const STATUS_KEY: Record<ExchangeRateStatusDTO, AppTranslationKey> = { pending: "fxRates.status.pending", approved: "fxRates.status.approved", locked: "fxRates.status.locked" };
 const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning", approved: "success", locked: "neutral" };
@@ -49,11 +50,11 @@ export function ExchangeRatesScreen() {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ currency: "USD", rate: "", effectiveDate: todayIso() });
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const filtered = rates.filter((r) => {
@@ -70,7 +71,7 @@ export function ExchangeRatesScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
@@ -165,9 +166,9 @@ export function ExchangeRatesScreen() {
 
       <DocumentList<ExchangeRateDTO>
         title=""
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("fxRates.searchPlaceholder")}

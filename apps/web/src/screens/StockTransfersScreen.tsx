@@ -39,6 +39,7 @@ import { useDocumentEffectText } from "../lib/document-effects";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** تحويلات المخزون (Stock Transfers) — docs/archive/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
@@ -114,10 +115,10 @@ export function StockTransfersScreen() {
   // Set when «تحويل مخزني» on the item detail routes here, so the first line
   // opens on that item instead of making the user find it again.
   const routedItemId = firstSegment === "new" ? (subPage.segments[1] ?? null) : null;
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const listConfirm = useConfirmStockTransfer();
@@ -143,7 +144,7 @@ export function StockTransfersScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   /**
@@ -321,9 +322,9 @@ export function StockTransfersScreen() {
           setStatusFilter(k as "all" | DocumentStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("stockXfer.searchByTransferNumber")}

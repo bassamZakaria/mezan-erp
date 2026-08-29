@@ -48,6 +48,7 @@ import { useEntityName } from "../lib/entity-names";
 import { useNavigation } from "../navigation";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 const STATUS_KEY: Record<WorkOrderStatusRecord, AppTranslationKey> = {
   planned: "workOrders.status.planned",
@@ -568,11 +569,11 @@ export function WorkOrdersScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<WorkOrderStatusRecord | "all">("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [priorityFilter, setPriorityFilter] = useState("");
   const [stageFilter, setStageFilter] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [panelOpen, setPanelOpen] = useState(false);
   const [bom, setBom] = useState<EntityPickerOption | null>(null);
   const [plannedQty, setPlannedQty] = useState(1);
@@ -939,8 +940,8 @@ export function WorkOrdersScreen() {
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as WorkOrderStatusRecord | "all")}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("workOrders.searchWorkOrders")}
         filterBarCollapsible
         activeFilterCount={activeFilterCount}

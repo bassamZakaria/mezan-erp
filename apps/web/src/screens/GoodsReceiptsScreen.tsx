@@ -33,6 +33,7 @@ import { majorOf } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 const STATUS_KEY: Record<GoodsReceiptStatusDTO, AppTranslationKey> = {
   draft: "goodsReceipts.status.draft",
@@ -204,7 +205,7 @@ export function GoodsReceiptsScreen() {
   const branchWarehouses = branchFilter ? filterWarehouses.filter((w) => w.branchId === branchFilter) : filterWarehouses;
 
   const [statusFilter, setStatusFilter] = useState<GoodsReceiptStatusDTO | "all">("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const { navigate } = useNavigation();
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
@@ -214,8 +215,8 @@ export function GoodsReceiptsScreen() {
   const [pickedOrder, setPickedOrder] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(todayIso());
   const [formError, setFormError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   /**
    * One filter for the rows, the chips and the KPI strip (R1.1) — the receipt
@@ -570,8 +571,8 @@ export function GoodsReceiptsScreen() {
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as GoodsReceiptStatusDTO | "all")}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("goodsReceipts.searchPlaceholder")}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">

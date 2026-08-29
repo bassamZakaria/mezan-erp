@@ -38,6 +38,7 @@ import {
   useUnmatchStatementLine,
 } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * تسوية كشوف البنك — Bank Statement Reconciliation (docs/archive/catalog/04, route
@@ -71,9 +72,9 @@ export function BankReconciliationScreen() {
   const [treasuryAccountId, setTreasuryAccountId] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [importOpen, setImportOpen] = useState(false);
   const [openStatementId, setOpenStatementId] = useState<string | null>(null);
 
@@ -112,7 +113,7 @@ export function BankReconciliationScreen() {
   const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) + (treasuryAccountId ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
@@ -202,9 +203,9 @@ export function BankReconciliationScreen() {
           setStatusFilter(k as "all" | BankStatementStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("bankRec.searchByAccountReferenceOr")}

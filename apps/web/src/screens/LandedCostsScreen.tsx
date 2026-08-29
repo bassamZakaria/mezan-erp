@@ -38,6 +38,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** التكاليف الإضافية (Landed Costs) — docs/archive/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
 
@@ -110,12 +111,12 @@ export function LandedCostsScreen() {
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [methodFilter, setMethodFilter] = useState("");
   const [costTypeFilter, setCostTypeFilter] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
@@ -371,8 +372,8 @@ export function LandedCostsScreen() {
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
         columns={columns}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("landedCosts.searchPlaceholder")}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">

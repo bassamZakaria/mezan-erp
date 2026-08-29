@@ -31,6 +31,7 @@ import { usePayrollComponents } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** العقود (Contracts) — docs/archive/catalog/06 §"العقود". Formal employment contract per employee: type/pay-basis/frequency, salary, currency, allowances/deductions, leave-entitlement overrides. */
 
@@ -96,10 +97,10 @@ export function ContractsScreen() {
   const contracts = query.data ?? EMPTY;
   const employees = employeesQuery.data ?? EMPTY;
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | ContractStatusDTO | "expiring_soon">("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<ContractDraft>(blankDraft());
@@ -133,7 +134,7 @@ export function ContractsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const selected = selectedId ? (contracts.find((c) => c.id === selectedId) ?? null) : null;
 
@@ -292,9 +293,9 @@ export function ContractsScreen() {
           setStatusFilter(k as "all" | ContractStatusDTO | "expiring_soon");
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("contracts.searchByContractNumberOr")}

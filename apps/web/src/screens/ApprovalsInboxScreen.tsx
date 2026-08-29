@@ -17,6 +17,7 @@ import type { ApprovalRequestDTO } from "@mezan/contracts";
 import { useDecideApproval, useMyApprovalDecisions, useMyApprovalRequests, usePendingApprovals } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { useDomainLabels } from "../lib/domain-labels";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * الموافقات (docs/archive/reference-parity/REQUIREMENTS.md R12.1, R14.1) — three
@@ -49,11 +50,11 @@ export function ApprovalsInboxScreen() {
   const [tab, setTab] = useState<TabKey>("inbox");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [actionTypeFilter, setActionTypeFilter] = useState<string>(ANY_TYPE);
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const actionTypeLabel = useMemo(() => {
     const byCode = new Map<string, string>(GATEABLE_ACTION_TYPES.map((a) => [a.code, domainLabel(a)]));
@@ -76,7 +77,7 @@ export function ApprovalsInboxScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = actionTypeFilter === ANY_TYPE ? 0 : 1;
 
@@ -189,9 +190,9 @@ export function ApprovalsInboxScreen() {
         setTab(key as TabKey);
         setPage(1);
       }}
-      searchValue={search}
+      searchValue={searchText}
       onSearchChange={(value) => {
-        setSearch(value);
+        setSearchText(value);
         setPage(1);
       }}
       searchPlaceholder={t("approvals.searchByActionTypeOr")}

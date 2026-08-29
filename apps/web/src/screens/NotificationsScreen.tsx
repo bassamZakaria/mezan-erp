@@ -20,6 +20,7 @@ import { eventLabelByCode } from "../domain-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * مركز الإشعارات — the bell's "عرض جميع الإشعارات" destination (R1.6). The
@@ -49,9 +50,9 @@ export function NotificationsScreen() {
   const [tab, setTab] = useState<"all" | "unread">("all");
   const [priorityFilter, setPriorityFilter] = useState<"" | NotificationPriority>("");
   const [eventFilter, setEventFilter] = useState("");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const listQuery = useNotifications();
@@ -68,7 +69,7 @@ export function NotificationsScreen() {
   function updateFilters(patch: { priority?: "" | NotificationPriority; event?: string; search?: string }) {
     if (patch.priority !== undefined) setPriorityFilter(patch.priority);
     if (patch.event !== undefined) setEventFilter(patch.event);
-    if (patch.search !== undefined) setSearch(patch.search);
+    if (patch.search !== undefined) setSearchText(patch.search);
     setPage(1);
   }
 
@@ -106,7 +107,7 @@ export function NotificationsScreen() {
   function clearFilters() {
     setPriorityFilter("");
     setEventFilter("");
-    setSearch("");
+    setSearchText("");
     setPage(1);
   }
 
@@ -189,7 +190,7 @@ export function NotificationsScreen() {
           setTab(k as "all" | "unread");
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(v) => updateFilters({ search: v })}
         searchPlaceholder={t("notifications.screen.search")}
         filterBarCollapsible

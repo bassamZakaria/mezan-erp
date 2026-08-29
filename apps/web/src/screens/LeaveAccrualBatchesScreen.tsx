@@ -7,6 +7,7 @@ import { formatDays } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
+import { useUrlNumber } from "../lib/url-state";
 
 /** استحقاقات الإجازات (Leave Accrual Batches) — docs/archive/catalog/06 §"استحقاقات الإجازات". Manual and scheduled runs that credit entitlement across every eligible employee; a period already run is never credited twice. */
 
@@ -38,15 +39,15 @@ export function LeaveAccrualBatchesScreen() {
   const [draft, setDraft] = useState<RunDraft>({ runDate: today(), frequency: "monthly", notes: "" });
   const [formError, setFormError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const batches = query.data ?? [];
   const pageCount = Math.max(1, Math.ceil(batches.length / pageSize));
   const pageRows = batches.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   function openForm() {
     setDraft({ runDate: today(), frequency: "monthly", notes: "" });

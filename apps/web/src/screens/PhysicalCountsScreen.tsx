@@ -40,6 +40,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * الجرد الفعلي (Physical Counts) — docs/archive/catalog/03: start → record counts →
@@ -104,9 +105,9 @@ export function PhysicalCountsScreen() {
   const subPage = useSubPage();
   const [firstSegment, secondSegment] = subPage.segments;
   const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatusDTO>("all");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const cancelCount = useCancelPhysicalCount();
@@ -143,7 +144,7 @@ export function PhysicalCountsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const selected = selectedId ? (counts.find((c) => c.id === selectedId) ?? null) : null;
@@ -254,9 +255,9 @@ export function PhysicalCountsScreen() {
           setStatusFilter(k as "all" | PhysicalCountStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("counts.searchByCountNumber")}

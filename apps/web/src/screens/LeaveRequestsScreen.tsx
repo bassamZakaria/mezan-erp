@@ -18,6 +18,7 @@ import { ApiError, useCreateLeaveRequest, useDecideLeaveRequest, useEmployees, u
 import { LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { employeeDisplayName } from "./hr-employee-name";
+import { useUrlNumber } from "../lib/url-state";
 
 /** طلبات الإجازات (Leave Requests — admin) — docs/archive/catalog/06 §"طلبات الإجازات". Manager list with employee/status/date filters plus approve/reject, which route through the workflow gate configured for the leave type. */
 
@@ -65,15 +66,15 @@ export function LeaveRequestsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<LeaveDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const requests = query.data ?? [];
   const pageCount = Math.max(1, Math.ceil(requests.length / pageSize));
   const pageRows = requests.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = (status !== "" ? 1 : 0) + (employeeId !== "" ? 1 : 0) + (leaveType !== "" ? 1 : 0) + (from !== "" ? 1 : 0) + (to !== "" ? 1 : 0);
   const counts = countsQuery.data;

@@ -40,6 +40,7 @@ import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** الموظفون (Employees) — docs/archive/catalog/06 §"الموظفون". The HR hub record: personal info, department/job-title/manager/branch, hire date, worker category, overtime/standard hours, probation end, prior-service years (Article 47), attendance clock-in flags. */
 
@@ -180,11 +181,11 @@ export function EmployeesScreen() {
   const branches = branchesQuery.data ?? [];
   const allContracts = allContractsQuery.data ?? EMPTY;
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | EmployeeStatusDTO>("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<EmployeeDraft>(blankDraft());
@@ -254,7 +255,7 @@ export function EmployeesScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (departmentFilter === "all" ? 0 : 1);
 
@@ -763,9 +764,9 @@ export function EmployeesScreen() {
           setStatusFilter(k as "all" | EmployeeStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("employees.searchByNameOrNumber")}

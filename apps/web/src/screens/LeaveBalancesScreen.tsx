@@ -6,6 +6,7 @@ import { ApiError, useEmployees, useLeaveBalances, useUpsertLeaveBalance } from 
 import { formatDays, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation } from "../i18n";
 import { employeeDisplayName } from "./hr-employee-name";
+import { useUrlNumber } from "../lib/url-state";
 
 /** أرصدة الإجازات (Leave Balances) — per-employee, per-leave-type position for a year: what accrual credited, what carried over, what approved leave consumed. */
 
@@ -34,15 +35,15 @@ export function LeaveBalancesScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<BalanceDraft>({ employeeId: "", leaveType: "annual", entitled: "0", carriedOver: "0", used: "0" });
   const [formError, setFormError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const balances = query.data ?? [];
   const pageCount = Math.max(1, Math.ceil(balances.length / pageSize));
   const pageRows = balances.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = employeeId !== "" ? 1 : 0;
   const employeeName = (id: string) => {

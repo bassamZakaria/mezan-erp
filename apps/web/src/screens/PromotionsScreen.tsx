@@ -24,6 +24,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 const TYPE_KEY: Record<PromotionTypeDTO, AppTranslationKey> = {
   percentage: "promotions.type.percentage",
@@ -229,11 +230,11 @@ export function PromotionsScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<"all" | DerivedState>("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [couponOnly, setCouponOnly] = useState(false);
   const [cappedOnly, setCappedOnly] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const itemOptions = useMemo<EntityPickerOption[]>(
     () => items.map((i: ItemDTO) => ({ id: i.id, label: i.nameAr, sublabel: i.code })),
@@ -266,7 +267,7 @@ export function PromotionsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (couponOnly ? 1 : 0) + (cappedOnly ? 1 : 0);
 
@@ -433,9 +434,9 @@ export function PromotionsScreen() {
           setStatusFilter(k as "all" | DerivedState);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("promotions.searchPlaceholder")}

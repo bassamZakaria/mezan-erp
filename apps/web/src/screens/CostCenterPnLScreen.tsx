@@ -13,6 +13,7 @@ import type { CostCenterPnLRowDTO } from "@mezan/contracts";
 import { useCostCenterPnL } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { monthEndIso, monthStartIso } from "../lib/dates";
+import { useUrlNumber } from "../lib/url-state";
 
 /** Display-only formatter for a 6-dp exact decimal string (ledger math stays in Money). */
 function fmt(value: string): string {
@@ -33,15 +34,15 @@ export function CostCenterPnLScreen() {
   const [toDate, setToDate] = useState(monthEndIso());
   const query = useCostCenterPnL(fromDate, toDate);
   const report = query.data ?? null;
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const rows = report?.rows ?? [];
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const columns: DocumentListColumn<CostCenterPnLRowDTO>[] = [
     { key: "code", header: t("common.code"), render: (r) => <span className="mz-num text-ink-muted">{r.code}</span> },

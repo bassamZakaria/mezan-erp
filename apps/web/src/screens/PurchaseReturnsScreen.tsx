@@ -34,6 +34,7 @@ import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/archive/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
 
@@ -117,9 +118,9 @@ export function PurchaseReturnsScreen() {
     [selectedInvoice],
   );
 
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [supplierFilter, setSupplierFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -404,8 +405,8 @@ export function PurchaseReturnsScreen() {
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
         columns={columns}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("purchaseReturns.searchPlaceholder")}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-3">

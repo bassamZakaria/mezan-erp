@@ -46,6 +46,7 @@ import {
   useUpdateEtaConfig,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 const STATUS_TONE: Record<EtaSubmissionStatusDTO, PillTone> = {
   ready: "info",
@@ -513,21 +514,21 @@ function CredentialsTab({ config }: { config: EtaConfigDTO | null }) {
 
 function ItemMappingTab() {
   const { t, locale } = useAppTranslation();
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [unmappedOnly, setUnmappedOnly] = useState(false);
   const mappings = useEtaItemMappings({ q: search, unmappedOnly });
   const save = useSaveEtaItemMapping();
   const [drafts, setDrafts] = useState<Record<string, { etaCodeType: string; etaItemCode: string; gpcCode: string }>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const rows = mappings.data?.rows ?? [];
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
   const activeFilterCount = unmappedOnly ? 1 : 0;
   const draftOf = (row: EtaItemMappingRowDTO) =>
     drafts[row.itemId] ?? {
@@ -618,9 +619,9 @@ function ItemMappingTab() {
   return (
     <DocumentList<EtaItemMappingRowDTO>
       title=""
-      searchValue={search}
+      searchValue={searchText}
       onSearchChange={(value) => {
-        setSearch(value);
+        setSearchText(value);
         setPage(1);
       }}
       searchPlaceholder={t("eta.searchItems")}
@@ -665,15 +666,15 @@ function UnitMappingTab() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [pendingCode, setPendingCode] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ applied: number; unresolved: number } | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const rows = unitMappings.data ?? [];
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
   const options = (unitCodes.data ?? []).map((u) => ({ value: u.code, label: `${u.code} — ${locale === "ar" ? u.labelAr : u.labelEn}` }));
   const valueOf = (row: EtaUnitMappingRowDTO) => drafts[row.unitCode] ?? row.etaUnitCode ?? "";
 
@@ -777,8 +778,8 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   const [actionError, setActionError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const allSubs = submissionsQuery.data ?? [];
   const filtered = statusFilter === "all" ? allSubs : allSubs.filter((s) => s.status === statusFilter);
@@ -786,7 +787,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
   const activeFilterCount = statusFilter === "all" ? 0 : 1;
   const countBy = (status: EtaSubmissionStatusDTO) => allSubs.filter((s) => s.status === status).length;
   const actionable = (status: EtaSubmissionStatusDTO) => status === "ready" || status === "pending_signature" || status === "error";

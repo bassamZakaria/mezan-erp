@@ -31,6 +31,7 @@ import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** سلف الموظفين (Employee Advances) — docs/archive/catalog/06 §"سلف الموظفين". A cash advance is a DEBT on the employee (an asset, 1160), recovered from payroll in instalments — never an expense. */
 
@@ -82,10 +83,10 @@ export function EmployeeAdvancesScreen() {
   const treasuryAccounts = treasuryQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | EmployeeAdvanceStatusDTO>("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<AdvanceDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
@@ -118,7 +119,7 @@ export function EmployeeAdvancesScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const selected = selectedId ? (advances.find((a) => a.id === selectedId) ?? null) : null;
   const employeeOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: `${e.code} — ${employeeName(e.id)}` }));
@@ -245,9 +246,9 @@ export function EmployeeAdvancesScreen() {
           setStatusFilter(k as "all" | EmployeeAdvanceStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("advances.searchByAdvanceNumberOr")}

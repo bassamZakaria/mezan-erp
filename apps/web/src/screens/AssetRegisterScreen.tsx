@@ -27,6 +27,7 @@ import {
 } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** سجل الأصول (Asset Register) — docs/archive/catalog/07 §"سجل الأصول". List + detail + register-asset panel. */
 
@@ -111,11 +112,11 @@ export function AssetRegisterScreen() {
   const categories = categoriesQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   /**
    * One filter for the rows and the KPI strip (R1.1) — category, branch and
@@ -166,7 +167,7 @@ export function AssetRegisterScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = (categoryFilter === "all" ? 0 : 1) + (branchFilter === "all" ? 0 : 1);
 
@@ -243,9 +244,9 @@ export function AssetRegisterScreen() {
           { label: t("common.active"), value: <span className="mz-num">{stats.active ?? 0}</span> },
           { label: t("asset.fullyDepreciated"), value: <span className="mz-num">{stats.fully_depreciated ?? 0}</span> },
         ]}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("asset.searchAssets")}

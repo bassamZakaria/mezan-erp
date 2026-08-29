@@ -22,6 +22,7 @@ import {
 } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { monthEndIso } from "../lib/dates";
+import { useUrlNumber } from "../lib/url-state";
 
 function fmt(value: string, digits = 2): string {
   return formatNumber(Number(value), { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -50,8 +51,8 @@ export function FxRevaluationScreen() {
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [posted, setPosted] = useState<{ entryNo: string | null; reversalNo: string | null } | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   function toggleCurrency(c: string) {
     setSelected((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
@@ -103,7 +104,7 @@ export function FxRevaluationScreen() {
   const pageRows = details.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   return (
     <div className="w-full">

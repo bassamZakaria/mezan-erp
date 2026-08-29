@@ -17,6 +17,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * Chip counts (R1.1). Not in `data/hooks.ts` yet — the /treasury-accounts/counts
@@ -127,14 +128,14 @@ export function TreasuryAccountsScreen() {
   const updateTreasuryAccount = useUpdateTreasuryAccount();
   const accounts = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? [];
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   // The chips (R1.1): /treasury-accounts/counts drops its own status/type axis, so
   // every chip reports how many rows it would show under the search term alone,
   // not the count of whatever chip happens to be active.
   const accountCounts = useTreasuryAccountCounts(search).data ?? {};
   const [filter, setFilter] = useState<"all" | "active" | "cash" | "bank" | "inactive">("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openingFor, setOpeningFor] = useState<TreasuryAccountDTO | null>(null);
@@ -164,7 +165,7 @@ export function TreasuryAccountsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = filter === "all" ? 0 : 1;
 
@@ -304,9 +305,9 @@ export function TreasuryAccountsScreen() {
           { label: t("treasuryAcc.cashOnHand"), value: <MoneyDisplay value={cashBalance} /> },
           { label: t("treasuryAcc.bankBalance"), value: <MoneyDisplay value={bankBalance} /> },
         ]}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("treasuryAcc.searchByName")}

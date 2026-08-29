@@ -52,6 +52,7 @@ import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** تسويات المخزون (Stock Adjustments) — docs/archive/catalog/03. List + detail + create, on the real document-framework API. */
 
@@ -129,7 +130,7 @@ export function StockAdjustmentsScreen() {
   const { label: domainLabel } = useDomainLabels();
   const [reasonFilter, setReasonFilter] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
 
   /**
@@ -186,8 +187,8 @@ export function StockAdjustmentsScreen() {
     (routedReason && isAdjustmentReason(routedReason) ? getAdjustmentReasonDefinition(routedReason) : null);
   const setSelectedReason = setReasonChoice;
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const listConfirm = useConfirmStockAdjustment();
@@ -196,7 +197,7 @@ export function StockAdjustmentsScreen() {
   const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (reasonFilter ? 1 : 0) + (warehouseFilter ? 1 : 0);
 
@@ -396,9 +397,9 @@ export function StockAdjustmentsScreen() {
           setStatusFilter(k as "all" | DocumentStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("stockAdj.searchByAdjustmentNumber")}

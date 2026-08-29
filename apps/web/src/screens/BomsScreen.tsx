@@ -22,6 +22,7 @@ import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsBomComponent } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 type BomStatus = BomRecord["status"];
 
@@ -150,10 +151,10 @@ export function BomsScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<BomStatus | "all">("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [productFilter, setProductFilter] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [panelOpen, setPanelOpen] = useState(false);
   const [product, setProduct] = useState<EntityPickerOption | null>(null);
   const [standardQty, setStandardQty] = useState(1);
@@ -358,8 +359,8 @@ export function BomsScreen() {
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as BomStatus | "all")}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("boms.searchByNumberOrProduct")}
         filterBarCollapsible
         activeFilterCount={activeFilterCount}

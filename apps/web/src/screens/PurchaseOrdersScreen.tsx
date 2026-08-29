@@ -41,6 +41,7 @@ import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
   draft: "purchaseOrders.status.draft",
@@ -188,9 +189,9 @@ export function PurchaseOrdersScreen() {
   const userName = (id: string) => users.find((u) => u.id === id)?.nameAr ?? id;
 
   const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatusDTO | "all">("all");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   /**
    * One filter for the rows, the chips and the KPI strip (R1.1) — the branch,
@@ -420,8 +421,8 @@ export function PurchaseOrdersScreen() {
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as PurchaseOrderStatusDTO | "all")}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("purchaseOrders.searchPlaceholder")}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">

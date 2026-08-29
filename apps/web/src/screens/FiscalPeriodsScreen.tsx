@@ -24,6 +24,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { YearEndCloseCard } from "./YearEndCloseCard";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber } from "../lib/url-state";
 
 /**
  * الفترات المالية (Fiscal Periods) — docs/archive/catalog/04 §"الفترات المالية".
@@ -78,8 +79,8 @@ export function FiscalPeriodsScreen() {
   const [statusFilter, setStatusFilter] = useState<FiscalPeriodStatusDTO | "all">("all");
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const years = useMemo(() => [...new Set(periods.map((p) => p.year))].sort((a, b) => a - b), [periods]);
   const selectedYear = year ?? years[years.length - 1] ?? new Date().getUTCFullYear();
@@ -96,7 +97,7 @@ export function FiscalPeriodsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = statusFilter === "all" ? 0 : 1;
 

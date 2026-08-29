@@ -29,6 +29,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber } from "../lib/url-state";
 
 /** متابعة التحصيل (Collection Follow-ups) — docs/archive/catalog/05. A collections-agent worklog against customers with overdue installment balances. */
 
@@ -67,8 +68,8 @@ export function InstallmentFollowUpsScreen() {
   const followUps = query.data ?? [];
   const counts = useFollowUpCounts(filter).data ?? {};
   const stats = useFollowUpStats(filter).data ?? {};
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [customerId, setCustomerId] = useState("");
   const [type, setType] = useState<FollowUpTypeDTO>("CALL");
   const [followUpDate, setFollowUpDate] = useState(today());

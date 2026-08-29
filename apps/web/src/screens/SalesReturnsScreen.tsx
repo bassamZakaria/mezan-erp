@@ -41,6 +41,7 @@ import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/archive/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
@@ -123,7 +124,7 @@ export function SalesReturnsScreen() {
     [customers],
   );
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [customerFilter, setCustomerFilter] = useState<EntityPickerOption | null>(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -135,8 +136,8 @@ export function SalesReturnsScreen() {
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [awaitingOnly, setAwaitingOnly] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [refundTreasuryId, setRefundTreasuryId] = useState("");
   const [refundMethod, setRefundMethod] = useState<"cash" | "bank" | "cheque" | "card" | "wallet">("cash");
   const [refundNotice, setRefundNotice] = useState<string | null>(null);
@@ -202,7 +203,7 @@ export function SalesReturnsScreen() {
   const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) + (awaitingOnly ? 1 : 0) + (customerFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
@@ -606,8 +607,8 @@ export function SalesReturnsScreen() {
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("salesReturns.searchPlaceholder")}
         filterBarCollapsible
         activeFilterCount={activeFilterCount}

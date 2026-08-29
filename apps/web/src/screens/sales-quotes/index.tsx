@@ -35,6 +35,7 @@ import { QuoteDetailView } from "./QuoteDetailView";
 import { QuoteFormView } from "./QuoteFormView";
 import { STATUS_KEY, STATUS_TONE, daysExpired, isExpired, type QuoteFilterKey } from "./quote-model";
 import { EMPTY } from "../../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../../lib/url-state";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
@@ -89,13 +90,13 @@ export function SalesQuotesScreen() {
   });
 
   const [statusFilter, setStatusFilter] = useState<QuoteFilterKey>("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [branchFilter, setBranchFilter] = useState("");
   const [customerFilter, setCustomerFilter] = useState<EntityPickerOption | null>(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   /**
    * One filter for the rows, the chips and the KPI strip (R1.1). The screen
@@ -232,9 +233,9 @@ export function SalesQuotesScreen() {
           setStatusFilter(k as QuoteFilterKey);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(v) => {
-          setSearch(v);
+          setSearchText(v);
           setPage(1);
         }}
         searchPlaceholder={t("quotes.search.placeholder")}

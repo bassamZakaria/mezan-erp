@@ -28,6 +28,7 @@ import {
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlSearch } from "../lib/url-state";
 
 /** مراكز التكلفة (Cost Centers) — docs/archive/catalog/04 §"مراكز التكلفة". Tree/list + detail panel, mirroring ChartOfAccountsScreen's tree pattern (no header/detail distinction here — any cost center may have children). */
 
@@ -109,7 +110,7 @@ export function CostCentersScreen() {
   const costCenters = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? [];
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [typeFilter, setTypeFilter] = useState<CostCenterTypeDTO | "all">("all");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const expandedInitialized = useRef(false);
@@ -280,8 +281,8 @@ export function CostCentersScreen() {
       <div className="mb-[14px] flex flex-wrap gap-[10px]">
         <SearchInput
           className="min-w-[240px] flex-1"
-          value={search}
-          onValueChange={setSearch}
+          value={searchText}
+          onValueChange={setSearchText}
           placeholder={t("costCentres.searchByCodeOrName")}
           aria-label={t("costCentres.searchByCodeOrName2")}
         />

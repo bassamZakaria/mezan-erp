@@ -13,6 +13,7 @@ import {
 import { ATTENDANCE_STATUS_KEY, ATTENDANCE_STATUS_TONE, formatWorkedDuration } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { employeeDisplayName } from "./hr-employee-name";
+import { useUrlNumber } from "../lib/url-state";
 
 /** الحضور والانصراف (Attendance) — docs/archive/catalog/06 §"الحضور والانصراف". Per-employee daily check-in/out with a computed worked duration and a day status resolved against the official holiday calendar and approved leave. */
 
@@ -63,8 +64,8 @@ export function AttendanceScreen() {
   const [month, setMonth] = useState(currentMonth());
   const [employeeId, setEmployeeId] = useState("");
   const [status, setStatus] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const { from, to } = useMemo(() => monthBounds(month), [month]);
   const employeesQuery = useEmployees();
@@ -84,7 +85,7 @@ export function AttendanceScreen() {
   const pageRows = entries.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
   const activeFilterCount = (employeeId !== "" ? 1 : 0) + (status !== "" ? 1 : 0);
   const employeeName = (id: string) => {
     const employee = employees.find((e) => e.id === id);

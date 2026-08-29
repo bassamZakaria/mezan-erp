@@ -18,6 +18,7 @@ import { useCreatePayrollComponent, usePayrollComponents, useUpdatePayrollCompon
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * مكوّنات الرواتب (Payroll components) — R10.7. The registry a contract's
@@ -70,9 +71,9 @@ export function PayrollComponentsScreen() {
   const accounts = accountsQuery.data ?? EMPTY;
 
   const [kindFilter, setKindFilter] = useState<"all" | PayrollComponentKindDTO>("all");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ComponentDraft>(blankDraft());
@@ -108,7 +109,7 @@ export function PayrollComponentsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   function openCreate() {
     setEditingId(null);
@@ -208,9 +209,9 @@ export function PayrollComponentsScreen() {
           setKindFilter(key as "all" | PayrollComponentKindDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("payrollComponents.searchByCodeOrName")}

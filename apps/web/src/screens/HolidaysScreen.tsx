@@ -6,6 +6,7 @@ import { useConfirmAction } from "../lib/use-confirm-action";
 import { ApiError, useCreateHoliday, useDeleteHoliday, useHolidays, useUpdateHoliday } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber } from "../lib/url-state";
 
 /** الإجازات الرسمية (Official Holidays) — docs/archive/catalog/06 §"الإجازات الرسمية". Year-scoped company calendar; recurring holidays repeat every year. */
 
@@ -56,8 +57,8 @@ function EditIcon() {
 export function HolidaysScreen() {
   const { t } = useAppTranslation();
   const [year, setYear] = useState(CURRENT_YEAR);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const query = useHolidays(year);
   const createHoliday = useCreateHoliday();
   const updateHoliday = useUpdateHoliday();
@@ -81,7 +82,7 @@ export function HolidaysScreen() {
   const pageRows = holidays.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   function openCreateForm() {
     setDraft(blankDraft(year));

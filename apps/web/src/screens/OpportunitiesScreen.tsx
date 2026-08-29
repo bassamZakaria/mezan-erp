@@ -22,6 +22,7 @@ import { useCreateOpportunity, useCustomers, useMoveOpportunityStage, useOpportu
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** الفرص (Opportunities) — docs/archive/catalog/06 §"الفرص". List + create. Stage moves happen from the Pipeline board. */
 
@@ -171,11 +172,11 @@ export function OpportunitiesScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [stagesQuery.data]);
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | OpportunityStatusDTO>("all");
   const [formOpen, setFormOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
@@ -268,9 +269,9 @@ export function OpportunitiesScreen() {
           setStatusFilter(k as "all" | OpportunityStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(v) => {
-          setSearch(v);
+          setSearchText(v);
           setPage(1);
         }}
         searchPlaceholder={t("opportunities.searchByTitle")}

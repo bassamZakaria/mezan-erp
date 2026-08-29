@@ -25,6 +25,7 @@ import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * قوائم الأسعار (Price Lists — docs/archive/catalog/01). Real data only: the list, the
@@ -240,11 +241,11 @@ export function PriceListsScreen() {
   const [description, setDescription] = useState("");
   const [isBase, setIsBase] = useState(false);
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [baseOnly, setBaseOnly] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   function resetForm() {
     setCode("");
@@ -277,7 +278,7 @@ export function PriceListsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (baseOnly ? 1 : 0);
 
@@ -400,9 +401,9 @@ export function PriceListsScreen() {
           setStatusFilter(key as typeof statusFilter);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("priceLists.searchPlaceholder")}

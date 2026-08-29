@@ -19,6 +19,7 @@ import { NumberField, SelectField, TextField, ToggleField } from "../settings/fo
 import { useConvertLead, useCreateLead, useLeads, usePipelineStages, useTransitionLead } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** العملاء المحتملون (Leads) — docs/archive/catalog/06 §"العملاء المحتملون". List + detail + create + status transitions + convert. */
 
@@ -125,10 +126,10 @@ export function LeadsScreen() {
   const leads = query.data ?? EMPTY;
   const stages = useMemo(() => [...(stagesQuery.data ?? [])].filter((s) => s.active).sort((a, b) => a.order - b.order), [stagesQuery.data]);
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | LeadStatusDTO>("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -299,9 +300,9 @@ export function LeadsScreen() {
           setStatusFilter(k as "all" | LeadStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(v) => {
-          setSearch(v);
+          setSearchText(v);
           setPage(1);
         }}
         searchPlaceholder={t("leads.searchByNameOrCompany")}

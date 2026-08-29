@@ -40,6 +40,7 @@ import { SelectField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { EMPTY } from "../lib/empty";
+import { useUrlSearch } from "../lib/url-state";
 
 const TYPE_KEY: Record<AccountTypeDTO, AppTranslationKey> = {
   asset: "coa.type.asset",
@@ -276,7 +277,7 @@ export function ChartOfAccountsScreen() {
   const updateAccount = useUpdateAccount();
   const accounts = query.data ?? EMPTY;
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [typeFilter, setTypeFilter] = useState<AccountTypeDTO | "all">("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatusDTO | "all">("all");
   const [expandedOverride, setExpandedOverride] = useState<Set<string> | null>(null);
@@ -456,8 +457,8 @@ export function ChartOfAccountsScreen() {
       <div className="mb-[14px] flex flex-wrap gap-[10px]">
         <SearchInput
           className="min-w-[240px] flex-1"
-          value={search}
-          onValueChange={setSearch}
+          value={searchText}
+          onValueChange={setSearchText}
           placeholder={t("coa.searchByNameOrNumber")}
           aria-label={t("coa.searchByNameOrNumber2")}
         />

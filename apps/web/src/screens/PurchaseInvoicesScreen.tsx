@@ -59,6 +59,7 @@ import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** Document states plus the payment states derived from the allocation sub-ledger. */
 type PurchaseInvoiceFilterKey = PurchaseInvoiceStatusDTO | "all" | "overdue" | "due_soon" | "partially_paid" | "paid";
@@ -477,10 +478,10 @@ export function PurchaseInvoicesScreen() {
   const userName = (id: string) => users.find((u) => u.id === id)?.nameAr ?? id;
 
   const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceFilterKey>("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const { navigate } = useNavigation();
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   /**
    * One filter object drives the rows, the chip counts and the KPI strip
@@ -923,8 +924,8 @@ export function PurchaseInvoicesScreen() {
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as PurchaseInvoiceStatusDTO | "all")}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("purchaseInvoices.searchPlaceholder")}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">

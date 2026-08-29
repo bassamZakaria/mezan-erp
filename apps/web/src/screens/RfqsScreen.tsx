@@ -42,6 +42,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * طلبات عروض الأسعار (RFQs — docs/archive/catalog/02 §"طلبات عروض الأسعار"): مسودة →
@@ -398,11 +399,11 @@ export function RfqsScreen() {
   const convertRfq = useConvertRfq();
 
   const [statusFilter, setStatusFilter] = useState<PurchaseRfqStatusDTO | "all">("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
@@ -467,7 +468,7 @@ export function RfqsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
@@ -627,9 +628,9 @@ export function RfqsScreen() {
           setStatusFilter(key as PurchaseRfqStatusDTO | "all");
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("rfqs.searchPlaceholder")}

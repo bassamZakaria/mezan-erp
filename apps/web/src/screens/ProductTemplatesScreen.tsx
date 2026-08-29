@@ -27,6 +27,7 @@ import { SelectField, TextField } from "../settings/form-controls";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { useAppTranslation } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber } from "../lib/url-state";
 
 /**
  * قوالب المنتجات (Product Templates) — docs/archive/catalog/03-inventory.md §"قوالب
@@ -79,13 +80,13 @@ export function ProductTemplatesScreen() {
 
   const templates = query.data ?? [];
 
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const pageCount = Math.max(1, Math.ceil(templates.length / pageSize));
   const pageRows = templates.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<CreateDraft>(blankCreateDraft());

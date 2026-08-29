@@ -4,6 +4,7 @@ import type { PipelineStageDTO } from "@mezan/contracts";
 import { NumberField, TextField, ToggleField } from "../settings/form-controls";
 import { useCreatePipelineStage, useMovePipelineStage, usePipelineStages } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlNumber } from "../lib/url-state";
 
 /**
  * مراحل خط المبيعات (Pipeline Stages) — docs/archive/catalog/06 §"مراحل خط المبيعات".
@@ -55,8 +56,8 @@ export function PipelineStagesScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const pageCount = Math.max(1, Math.ceil(stages.length / pageSize));
   const currentPage = Math.min(page, pageCount);

@@ -38,6 +38,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * سجل الشيكات — Cheque Register (docs/archive/catalog/04, route `/financial-papers/cheques`
@@ -113,9 +114,9 @@ export function ChequesScreen() {
   const [directionFilter, setDirectionFilter] = useState<"all" | ChequeDirectionDTO>("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -165,7 +166,7 @@ export function ChequesScreen() {
   const pageRows = cheques.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) + (directionFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
@@ -267,9 +268,9 @@ export function ChequesScreen() {
           setStatusFilter(k as "all" | ChequeStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("cheques.searchByChequeNumber")}

@@ -79,6 +79,7 @@ import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** فواتير المبيعات (Sales Invoices) — docs/archive/catalog/01-sales.md. List + detail (with the
  * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm sub-page form with live
@@ -1702,7 +1703,7 @@ function InvoiceDetailView({
 export function SalesInvoicesScreen() {
   const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useState<InvoiceFilterKey>("all");
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [branchFilter, setBranchFilter] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [customerFilter, setCustomerFilter] = useState<EntityPickerOption | null>(null);
@@ -1716,8 +1717,8 @@ export function SalesInvoicesScreen() {
    * rows and left the totals alone.
    */
   const debouncedSearch = useDebounced(search);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const listFilter: SalesInvoiceListQueryDTO = useMemo(
     () => ({
       ...(statusFilter === "all" ? {} : { status: statusFilter }),
@@ -1745,7 +1746,7 @@ export function SalesInvoicesScreen() {
   // that no longer exists — the server would answer with nothing at all.
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, customerFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch]);
+  }, [statusFilter, customerFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch, setPage]);
   const listBranches = useBranches().data ?? [];
   const listWarehouses = useWarehouses().data ?? [];
   const listCustomers = useCustomers().data ?? [];
@@ -1967,9 +1968,9 @@ export function SalesInvoicesScreen() {
               setStatusFilter(key as InvoiceFilterKey);
               setPage(1);
             }}
-            searchValue={search}
+            searchValue={searchText}
             onSearchChange={(v) => {
-              setSearch(v);
+              setSearchText(v);
               setPage(1);
             }}
             searchPlaceholder={t("salesInvoices.searchPlaceholder")}

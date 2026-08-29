@@ -6,6 +6,7 @@ import { ApiError, useCreateDepartment, useDepartments, useEmployees, useUpdateD
 import { useAppTranslation } from "../i18n";
 import { bilingualName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** الأقسام (Departments) — docs/archive/catalog/06 §"الأقسام". Thin master data: list + a combined edit/detail panel + create panel, no standalone detail page (matches the catalog's "no dedicated detail page" note). */
 
@@ -44,10 +45,10 @@ export function DepartmentsScreen() {
   const departments = query.data ?? EMPTY;
   const employees = employeesQuery.data ?? EMPTY;
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<DepartmentDraft>(blankDraft());
@@ -87,7 +88,7 @@ export function DepartmentsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const selected = selectedId ? (departments.find((d) => d.id === selectedId) ?? null) : null;
 
@@ -201,9 +202,9 @@ export function DepartmentsScreen() {
           setStatusFilter(k as "all" | "active" | "inactive");
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("departments.searchByCodeOrName")}

@@ -6,6 +6,7 @@ import { useBranches } from "../data/hooks";
 import { branchName } from "../settings/branch-name";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlNumber } from "../lib/url-state";
 
 /**
  * سجل المراجعة (Audit Log Viewer) — `/audit`. Read-only over the real,
@@ -82,8 +83,8 @@ export function AuditLogScreen() {
   const branchesQuery = useBranches();
   const branches = useMemo(() => branchesQuery.data ?? [], [branchesQuery.data]);
   const [filters, setFilters] = useState<Filters>(BLANK_FILTERS);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [selected, setSelected] = useState<AuditEventDTO | null>(null);
 
   function updateFilters(patch: Partial<Filters>) {

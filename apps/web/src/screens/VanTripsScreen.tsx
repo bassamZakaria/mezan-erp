@@ -37,6 +37,7 @@ import { employeeDisplayName } from "./hr-employee-name";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** رحلات المندوبين (Van/Rep Trips — Field Sales) — docs/archive/catalog/07 §"رحلات المندوبين". List + open-trip form + detail with cash-movement/settle actions. */
 
@@ -160,15 +161,15 @@ export function VanTripsScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [items]);
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | VanTripStatusDTO>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<OpenTripDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [crewEmployeeId, setCrewEmployeeId] = useState("");
   const [crewRole, setCrewRole] = useState<VanTripCrewRoleDTO>("driver");
   const [stockItemId, setStockItemId] = useState("");
@@ -389,8 +390,8 @@ export function VanTripsScreen() {
           { label: t("vanTrips.open"), value: <span className="mz-num">{ongoingCount}</span> },
           { label: t("vanTrips.settled"), value: <span className="mz-num">{settledCount}</span> },
         ]}
-        searchValue={search}
-        onSearchChange={setSearch}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
         searchPlaceholder={t("vanTrips.searchByTripNo")}
         filterBarCollapsible
         activeFilterCount={activeFilterCount}

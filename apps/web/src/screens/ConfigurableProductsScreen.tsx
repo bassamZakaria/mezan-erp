@@ -27,6 +27,7 @@ import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsBomComponent } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 type Status = ConfigurableProductRecord["status"];
 
@@ -186,9 +187,9 @@ export function ConfigurableProductsScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [panelOpen, setPanelOpen] = useState(false);
   const [code, setCode] = useState("");
   const [nameAr, setNameAr] = useState("");
@@ -223,7 +224,7 @@ export function ConfigurableProductsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: products.length },
@@ -499,9 +500,9 @@ export function ConfigurableProductsScreen() {
           setStatusFilter(key as Status | "all");
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("configProducts.searchByCodeOrName")}

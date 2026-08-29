@@ -69,6 +69,7 @@ import { useDebounced } from "../lib/use-debounced";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** السندات النقدية (Treasury Vouchers) — docs/archive/catalog/04, on the real `/vouchers` API. */
 
@@ -195,7 +196,7 @@ export function TreasuryVouchersScreen() {
     setPrefillType(named && isVoucherType(named) ? named : null);
     subPage.open("new");
   });
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<
     "all" | "needs_allocation" | "needs_allocation_receipt" | "needs_allocation_payment" | VoucherStatusDTO
   >("all");
@@ -203,8 +204,8 @@ export function TreasuryVouchersScreen() {
   const [branchFilter, setBranchFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const debouncedSearch = useDebounced(search);
   /**
@@ -292,7 +293,7 @@ export function TreasuryVouchersScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) + (typeFilter === "all" ? 0 : 1) + (branchFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
@@ -422,9 +423,9 @@ export function TreasuryVouchersScreen() {
           setStatusFilter(k as typeof statusFilter);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("vouchers.searchByVoucherNumberReference")}

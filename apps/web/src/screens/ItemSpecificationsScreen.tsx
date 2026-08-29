@@ -20,6 +20,7 @@ import {
 } from "../data/item-catalog-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /**
  * المواصفات — the reusable specification/attribute registry over the item
@@ -114,7 +115,7 @@ export function ItemSpecificationsScreen() {
 
   const specifications = query.data ?? EMPTY;
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [typeFilter, setTypeFilter] = useState<ItemSpecificationTypeDTO | "all">("all");
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingCode, setEditingCode] = useState<string | null>(null);
@@ -122,8 +123,8 @@ export function ItemSpecificationsScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingCode, setDeletingCode] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const filtered = useMemo(() => {
     let rows = specifications;
@@ -139,7 +140,7 @@ export function ItemSpecificationsScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   function openCreate() {
     setEditingCode(null);
@@ -314,9 +315,9 @@ export function ItemSpecificationsScreen() {
           setTypeFilter(key as ItemSpecificationTypeDTO | "all");
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("specs.searchByCodeOrName")}

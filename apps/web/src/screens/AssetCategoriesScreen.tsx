@@ -5,6 +5,7 @@ import { ApiError, useAssetCategories, useCreateAssetCategory } from "../data/ho
 import { NumberField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { matchesSearch } from "@mezan/domain";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** تصنيفات الأصول (Asset Categories) — docs/archive/catalog/07 §"تصنيفات الأصول". List + add panel; API supports list+create only. */
 
@@ -61,10 +62,10 @@ export function AssetCategoriesScreen() {
   const createAssetCategory = useCreateAssetCategory();
   const categories = query.data ?? [];
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<AssetCategoryDraft>(blankDraft());
@@ -82,7 +83,7 @@ export function AssetCategoriesScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   function openCreateForm() {
     setDraft(blankDraft());
@@ -158,9 +159,9 @@ export function AssetCategoriesScreen() {
           setStatusFilter(key as "all" | "active" | "inactive");
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("assetCategories.searchByCategoryCodeOr")}

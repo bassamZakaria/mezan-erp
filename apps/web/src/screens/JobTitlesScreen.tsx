@@ -6,6 +6,7 @@ import { ApiError, useCreateJobTitle, useDepartments, useEmployees, useJobTitles
 import { useAppTranslation } from "../i18n";
 import { bilingualName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
+import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 
 /** المسميات الوظيفية (Job Titles) — docs/archive/catalog/06 §"المسميات الوظيفية". Department-scoped master data; department is locked once created. */
 
@@ -32,10 +33,10 @@ export function JobTitlesScreen() {
   const departments = departmentsQuery.data ?? [];
   const employees = employeesQuery.data ?? EMPTY;
 
-  const [search, setSearch] = useState("");
+  const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<JobTitleDraft>(blankDraft());
@@ -77,7 +78,7 @@ export function JobTitlesScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const selected = selectedId ? (jobTitles.find((j) => j.id === selectedId) ?? null) : null;
 
@@ -180,9 +181,9 @@ export function JobTitlesScreen() {
           setStatusFilter(k as "all" | "active" | "inactive");
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("jobTitles.searchByName")}

@@ -182,8 +182,53 @@ export function CommandPalette({ items, open, onClose, placeholder }: CommandPal
 }
 
 /** The foot's search row — a button, because the typing surface is the dialog. */
-export function CommandTrigger({ onOpen, className }: { onOpen: () => void; className?: string }) {
+export function CommandTrigger({
+  onOpen,
+  className,
+  compact = false,
+}: {
+  onOpen: () => void;
+  className?: string;
+  /**
+   * Icon only, sized and styled as one of the foot's utility controls.
+   *
+   * The full-width box spent a whole row of the column on a control the
+   * keyboard already reaches from anywhere. Collapsed to a glyph it joins the
+   * row it belongs with and gives the row back to the workspace list, which is
+   * the thing that actually overflows.
+   *
+   * The label and the shortcut do not disappear — they move into the
+   * accessible name and the tooltip, because a magnifier alone does not say
+   * «بحث وأوامر» and certainly does not say ⌘K.
+   */
+  compact?: boolean;
+}) {
   const { t } = useUiTranslation();
+  const label = t("shell.command.trigger");
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${label} (${modKeyLabel()}K)`}
+        title={`${label} (${modKeyLabel()}K)`}
+        aria-keyshortcuts="Meta+K Control+K"
+        className={cn(
+          "flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md",
+          "border border-transparent bg-transparent text-chrome-ink-muted transition-colors",
+          "hover:bg-chrome-hover hover:text-chrome-ink focus-visible:outline-chrome-accent",
+          className,
+        )}
+      >
+        <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
+          <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
+          <path d="m17 17-4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -199,7 +244,7 @@ export function CommandTrigger({ onOpen, className }: { onOpen: () => void; clas
         <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
         <path d="m17 17-4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       </svg>
-      <span className="min-w-0 flex-1 truncate">{t("shell.command.trigger")}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
       <Kbd keys={[modKeyLabel(), "K"]} tone="chrome" />
     </button>
   );

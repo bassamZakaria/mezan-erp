@@ -11,12 +11,11 @@ import type { ShellUser } from "./types";
  * THE FOOT OF THE WORKSPACE COLUMN — everything that used to be row one.
  *
  *   ┌──────────────────┐
- *   │ ⌕ ابحث…      ⌘K │  search, results opening UPWARD
  *   │ 🏠 الفرع الرئيسي │  the working scope
  *   │ 🏬 كل المستودعات │
  *   ├──────────────────┤
  *   │ (م) محمد الشهابي │  the user — one click to their profile
- *   │ ؟ ع ☀        ⏻  │  utilities, then sign out
+ *   │ ⌕ ؟ ع ☀      ⏻  │  search and utilities, then sign out
  *   └──────────────────┘
  *
  * Row one is gone (direction أ): a full-width band cost 56px on every screen
@@ -72,8 +71,6 @@ export function RailFooter({
 
   return (
     <div className="mt-auto flex flex-none flex-col gap-[8px] border-t border-chrome-border px-[10px] pt-[10px]">
-      <CommandTrigger onOpen={onOpenPalette} />
-
       <ScopeSwitchers
         orientation="rail"
         expanded
@@ -107,6 +104,13 @@ export function RailFooter({
         </button>
 
         <div className="flex items-center gap-[2px]">
+          {/* Search leads the utility row rather than owning a row of its own.
+              It was a full-width box carrying a label and a ⌘K hint for a
+              control the keyboard reaches from anywhere; as a glyph it costs
+              nothing and returns the row to the workspace list, which is what
+              actually runs out of height. The label and the shortcut live in
+              its accessible name and tooltip. */}
+          <CommandTrigger onOpen={onOpenPalette} compact />
           <ChromeActions onShowHelp={onShowHelp} theme={theme} onToggleTheme={onToggleTheme} className="gap-[2px]" />
 
           {onSignOut ? (

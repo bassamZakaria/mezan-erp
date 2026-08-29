@@ -1240,16 +1240,25 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("with twelve periods", periods.length, 12);
     check("all of them open", periods.every((p: any) => p.status === "open"), periods.map((p: any) => p.status).join(","));
 
-    const revenue2026 = await creditBalance(REVENUE);
+    // Two different figures, and they are only the same on a tenant whose whole
+    // history is one year: the REVENUE account carries every unclosed year, and
+    // the close rolls all of it; the 2026 income statement carries 2026 alone.
+    async function statementRevenue(from: string, to: string): Promise<number> {
+      const statement = await req("GET", `/financial-reports/income-statement?periodFrom=${from}&periodTo=${to}`);
+      return n((statement.body?.rows ?? []).reduce((s: number, r: any) => (r.sectionKey === "revenue" ? s + n(r.amount) : s), 0));
+    }
+    const revenueOnBooks = await creditBalance(REVENUE);
+    const revenue2026 = await statementRevenue("2026-01-01", "2026-12-31");
     const retainedBefore = await creditBalance(RETAINED_EARNINGS);
-    check("2026 has revenue on the books to roll over", revenue2026 > 0, `revenue=${revenue2026}`);
+    check("2026 has revenue on the books to roll over", revenueOnBooks > 0, `revenue=${revenueOnBooks}`);
+    check("and 2026 itself earned some of it", revenue2026 > 0, `revenue2026=${revenue2026}`);
 
     const closeYear = await req("POST", "/gl/year-end-close", { year: 2026, retainedEarningsAccountId: RETAINED_EARNINGS });
     check("the year closes", closeYear.status === 201, `status ${closeYear.status} ${JSON.stringify(closeYear.body).slice(0, 250)}`);
     check(
       "and reports what it rolled over — every revenue account, not just sales: the year's asset-disposal gain closes too",
-      n(closeYear.body?.revenueClosed) >= revenue2026,
-      `revenueClosed=${closeYear.body?.revenueClosed} sales alone=${revenue2026}`,
+      n(closeYear.body?.revenueClosed) >= revenueOnBooks,
+      `revenueClosed=${closeYear.body?.revenueClosed} sales alone=${revenueOnBooks}`,
     );
     checkEq("the disposal-gain account is zeroed as well", await creditBalance("4500"), 0);
 
@@ -1300,7 +1309,7 @@ export async function run(ctx: Ctx): Promise<void> {
     // the year it just closed as having earned nothing.
     check(
       "and the closed year still reports the revenue it actually earned — the closing entry is not activity",
-      n((await req("GET", "/financial-reports/income-statement?periodFrom=2026-01-01&periodTo=2026-12-31")).body?.rows?.reduce((s: number, r: any) => (r.sectionKey === "revenue" ? s + n(r.amount) : s), 0)) >= revenue2026,
+      (await statementRevenue("2026-01-01", "2026-12-31")) >= revenue2026,
       `revenue2026=${revenue2026}`,
     );
   });

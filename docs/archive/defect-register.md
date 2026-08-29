@@ -44,15 +44,20 @@ through as "oh, that's the known one".
 
 ## Open
 
-**No defects are open.** D62 and D64 — the last two on the list — were closed as
+**No defects are open.** D66 — every fully-paid supplier bill reported as still
+outstanding by أعمار ديون الموردين — was found and fixed in the same pass that
+added the multi-year seed history (F138 below); it had been invisible because no
+purchase invoice in the old seed was ever settled in full. Before it, D62 and
+D64 — the last two on the list — were closed as
 F131 and F132; F133 closed the display-name login found straight after, F134
 made the email itself the login behind a tenant domain policy, and F135/F136
 closed the dead-session screen that work surfaced.
 
-Everything filed — D1 through D64 — is in the Fixed table below, and `pnpm
-scenarios` passes 3819 assertions with all four invariants at exactly zero on
+Everything filed — D1 through D66 — is in the Fixed table below, and `pnpm
+scenarios` passes 6176 assertions with all four invariants at exactly zero on
 the seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs
-GL 1105.
+GL 1105. The assertion count rose with the seed: the suites iterate over the
+tenant's own rows, and the tenant now carries two and a half years of trading.
 
 This table used to carry 23 rows that the Fixed table ALSO carried — a defect
 was moved without being removed, so the register said 32 open while its own
@@ -223,6 +228,7 @@ checks every colour utility against the compiled stylesheet.
 | F135 | **A dead session rendered an empty list, not a sign-in prompt.** An unknown or expired token resolved to an anonymous context and the gate answered `403 PERMISSION_DENIED` — the same answer a signed-in user gets for a permission they lack, so the client could not tell "sign in again" from "not yours". Screens whose query is disabled without a session then showed «0 rows»: data-shaped, and indistinguishable from a tenant that genuinely has none. Measured before the fix: the API returned 5 users while the screen said 0. The gate now answers `401 SESSION_EXPIRED` for a caller it cannot identify and keeps 403 for one it can; `ApiContext.request` — the single door every call goes through — clears the session and the query cache on a 401, and the login screen says why. Guarded by the platform scenario: no credential, a forged token and a signed-out token all return 401 naming SESSION_EXPIRED, while a signed-in user without `admin.roles.view` still gets 403 | this commit |
 | F136 | **The session-expired notice never rendered, because its read lived in a `useState` initializer.** StrictMode invokes an initializer twice in development: the first call cleared the flag and the second returned false, and false is the value React keeps. Found only by driving it in the browser — the flag was set in sessionStorage and the notice was absent, which no test asserted. Reading and clearing are now separate (`sessionExpiredPending` / `clearSessionExpired`), pure read at mount and the clear in an effect, both safe to run twice | this commit |
 | F137 | **20 scenario assertions failed on a contract the harness never followed (D65).** `2c0e7fa` made a user's Arabic name mandatory; every scenario that created a user still posted without `nameAr`, so the harness got `VALIDATION_ERROR … fieldErrors: {nameAr: ["Required"]}` and everything downstream of a created user fell over — sign-in and domain policy, the approvals chain (both actors are created users), and HR leave, which derives the employee from the caller. The fix was in the harness, not the product: the product is right to demand the name. The HR leave-balance reading of 21 against 11, filed as a possible second defect hiding behind the first, was the same bug — it holds once the caller exists. Measured 2026-08-29 after the fix: **3876 passed, 0 failed** | `d3294fc` |
+| F138 | **Every fully-paid supplier bill was reported as still outstanding.** `settledByInvoiceId` in `reports-routes.ts` built its allocated-per-invoice map from `AllocatableInvoiceRepository.listOpen`, whose SQL is `total > allocated` — so an invoice settled in FULL is absent from the result, the caller reads the missing entry as zero allocated, and أعمار ديون الموردين restates the whole invoice as owed. Sales was shielded by `aging.customers` falling back to the invoice's own `amountPaid`; a purchase invoice carries no such counter, and it never reaches a `paid` status either, so nothing else caught it. Latent until the tenant had a fully-paid purchase invoice, which the old seed never produced. Measured on the multi-year seed: AP aging read **20,583,938.59** against a GL 2100 control balance of **1,265,408.94** — 16×. The port already had the right call (`allocatedByIds`, written for exactly this); the report asked the wrong one. After: **1,275,446.54** against 1,265,408.94, the remainder being drafts and credits the report and the control account legitimately count differently | this commit |
 
 
 `pnpm scenarios` asserts the FIXED behaviour throughout, so a regression in any

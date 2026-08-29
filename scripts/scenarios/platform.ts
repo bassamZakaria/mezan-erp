@@ -467,6 +467,12 @@ export async function run(ctx: Ctx): Promise<void> {
   await ctx.scenario("platform / numbering sequences — prefix change affects next document only", async () => {
     const before = await req("GET", "/sequences/SALES_INVOICE", undefined, {});
     const currentValue = before.body.currentValue;
+    // Read the existing document's number BEFORE the prefix moves. Pinning the
+    // literal "INV-000001" only held while this invoice happened to be the
+    // first ever numbered; what the scenario actually claims is that the
+    // number does not move, whatever it is.
+    const docNoBefore = (await req("GET", "/sales-invoices/INV-DEMO-1", undefined, {})).body?.docNo;
+    check("the existing invoice has a number to preserve", typeof docNoBefore === "string" && docNoBefore.length > 0, String(docNoBefore));
 
     const patch = await req("PATCH", "/sequences/SALES_INVOICE", { prefix: "SCN-SI-" }, {});
     check("prefix change accepted", patch.status === 200 && patch.body?.prefix === "SCN-SI-", `${patch.status}: ${JSON.stringify(patch.body)}`);
@@ -474,7 +480,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("the preview recomputes against the SAME counter value under the new prefix", patch.body?.nextNumber === `SCN-SI-${String(currentValue + 1).padStart(patch.body?.padLength ?? 6, "0")}`, patch.body?.nextNumber);
 
     const oldInvoice = await req("GET", "/sales-invoices/INV-DEMO-1", undefined, {});
-    check("an existing confirmed invoice's docNo is unchanged by the prefix change", oldInvoice.body?.docNo === "INV-000001", oldInvoice.body?.docNo);
+    check("an existing confirmed invoice's docNo is unchanged by the prefix change", oldInvoice.body?.docNo === docNoBefore, `${oldInvoice.body?.docNo} was ${docNoBefore}`);
 
     const newInvoiceLine = invoice.lines[1] ?? invoice.lines[0];
     const create = await req("POST", "/sales-invoices", {

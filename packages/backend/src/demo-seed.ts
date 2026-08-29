@@ -9,6 +9,7 @@ import { seedPurchasing } from "./demo-seed/purchasing.js";
 import { seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
+import { seedHistory } from "./demo-seed/history.js";
 
 /**
  * SEED PROFILE FOR TESTS AND LOCAL DEVELOPMENT ONLY.
@@ -572,6 +573,15 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
       { accountId: ACCOUNTS.capital, debit: "0", credit: OPENING_BANK_BALANCE, memo: "رأس المال المدفوع" },
     ],
   });
+
+  /**
+   * Two and a half years of ordinary trading, in its own customers, suppliers
+   * and items. It runs HERE — after the core master data, before the
+   * hand-authored 2026-07 documents — because the ledger must be written in
+   * date order: a backdated confirm would issue stock at a weighted-average
+   * cost the earlier receipt had not yet set.
+   */
+  await seedHistory(app);
 
   for (const invoice of [...PURCHASE_INVOICES, ...PERISHABLE_PURCHASE_INVOICES]) {
     await step(app, "POST", "/purchases/invoices", {

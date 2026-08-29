@@ -298,13 +298,23 @@ async function returnsByInvoiceId(deps: ReportsRoutesDeps): Promise<ReadonlyMap<
   return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
 }
 
+/**
+ * How much of each of these invoices the allocation sub-ledger records as
+ * settled.
+ *
+ * It asks by ID, never through `listOpen`: that query is `total > allocated`,
+ * so a FULLY settled invoice is absent from its result, the caller reads the
+ * missing entry as zero allocated, and the document is reported as owing its
+ * whole value. Sales survived it because `aging.customers` falls back to the
+ * invoice's own `amountPaid`; a purchase invoice carries no such counter, so
+ * `aging.suppliers` restated every paid supplier bill as outstanding (D66).
+ */
 async function settledByInvoiceId(
   deps: ReportsRoutesDeps,
-  kind: "sales" | "purchase",
+  invoices: readonly { readonly id: string }[],
 ): Promise<ReadonlyMap<string, Money>> {
   if (!deps.allocatable) return new Map();
-  const open = await deps.allocatable.listOpen({ kind });
-  return new Map(open.map((i) => [i.id, i.allocated]));
+  return deps.allocatable.allocatedByIds(invoices.map((invoice) => invoice.id));
 }
 
 export function createReportsRoutes(
@@ -326,7 +336,7 @@ export function createReportsRoutes(
     const today = todayIso(deps);
     const definition = createSalesByPeriodReport(firstOfMonth(today), today);
     const invoices = await deps.salesInvoices.list();
-    const allocatedByInvoiceId = await settledByInvoiceId(deps, "sales");
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     return respond(
       c,
       runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, allocatedByInvoiceId }),
@@ -337,7 +347,7 @@ export function createReportsRoutes(
     const today = todayIso(deps);
     const definition = createSalesByItemReport(firstOfMonth(today), today);
     const [invoices, items] = await Promise.all([deps.salesInvoices.list(), deps.items.list()]);
-    const allocatedByInvoiceId = await settledByInvoiceId(deps, "sales");
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     const params = { ...definition.defaultParams, ...queryParams(c) };
     const postedRevenue = await postedGross(deps, REVENUE_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "credit", ["SALES_INVOICE"]);
     return respond(c, runReport(definition, params, { invoices, items, allocatedByInvoiceId, postedRevenue: () => postedRevenue }));
@@ -377,7 +387,7 @@ export function createReportsRoutes(
     const today = todayIso(deps);
     const definition = createPurchasesBySupplierReport(firstOfMonth(today), today);
     const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
-    const allocatedByInvoiceId = await settledByInvoiceId(deps, "purchase");
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     return respond(
       c,
       runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId }),
@@ -469,13 +479,13 @@ export function createReportsRoutes(
 
   app.get("/aging/customers", gate("sales.invoice.view"), async (c) => {
     const definition = createAgingCustomersReport(todayIso(deps));
-    const [invoices, allocatedByInvoiceId, returns, credits, customers] = await Promise.all([
+    const [invoices, returns, credits, customers] = await Promise.all([
       deps.salesInvoices.list(),
-      settledByInvoiceId(deps, "sales"),
       returnsByInvoiceId(deps),
       unappliedCustomerCredits(deps),
       deps.customers.findAll(),
     ]);
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     return respond(
       c,
       runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, {
@@ -491,7 +501,7 @@ export function createReportsRoutes(
   app.get("/aging/suppliers", gate("purchases.invoice.view"), async (c) => {
     const definition = createAgingSuppliersReport(todayIso(deps));
     const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
-    const allocatedByInvoiceId = await settledByInvoiceId(deps, "purchase");
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     return respond(
       c,
       runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId }),

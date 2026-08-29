@@ -99,19 +99,25 @@ export async function run(ctx: Ctx): Promise<void> {
     );
   });
 
+  // February 2024 is the FIRST month of the seeded trading history, so its
+  // lastYear comparison (Feb 2023) is genuinely empty — which is the only
+  // condition under which zero-filling can be observed at all. It used to read
+  // Aug 2026 against Aug 2025; once the tenant carried more than one year of
+  // history that comparison window stopped being empty and the check was
+  // measuring nothing.
   await ctx.scenario("income statement — lastYear mode zero-fills an empty comparison window instead of dropping the row", async () => {
     const res = await ctx.req(
       "GET",
-      `/financial-reports/income-statement?${qs({ periodFrom: "2026-08-01", periodTo: "2026-08-31", compareTo: "lastYear" })}`,
+      `/financial-reports/income-statement?${qs({ periodFrom: "2024-02-01", periodTo: "2024-02-29", compareTo: "lastYear" })}`,
     );
     const rows = res.body?.rows ?? [];
-    ctx.check("August 2026 has real activity to compare", rows.length > 0, `rows=${rows.length}`);
+    ctx.check("February 2024 has real activity to compare", rows.length > 0, `rows=${rows.length}`);
     ctx.check(
       "the current-window total is nonzero — activity isn't silently dropped",
       ctx.n(res.body?.grandTotals?.amount) !== 0,
       `amount=${res.body?.grandTotals?.amount}`,
     );
-    ctx.checkEq("the prior-year (Aug 2025, no activity) total is exactly zero", ctx.n(res.body?.grandTotals?.priorAmount), 0);
+    ctx.checkEq("the prior-year (Feb 2023, before the books open) total is exactly zero", ctx.n(res.body?.grandTotals?.priorAmount), 0);
     ctx.check(
       "every row active only in the current window still appears, with an explicit zero on the empty side",
       rows.every((r: any) => ctx.n(r.priorAmount) === 0),

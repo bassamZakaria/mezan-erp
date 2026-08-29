@@ -769,7 +769,10 @@ export function VanTripsScreen() {
             <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("vanTrips.crew2")}</h3>
             <div className="flex flex-col gap-[6px]">
               {draft.crew.map((c, i) => (
-                <div key={i} className="flex items-center justify-between rounded-md border border-border px-[10px] py-[7px] text-[12.5px]">
+                // Keyed by the employee, not the index: the row is removable
+                // from the middle of the list, and the picker above already
+                // filters out anyone already on the crew, so this is unique.
+                <div key={c.employeeId} className="flex items-center justify-between rounded-md border border-border px-[10px] py-[7px] text-[12.5px]">
                   <span className="text-ink">
                     {employeeName(c.employeeId)} — {t(ROLE_KEY[c.role])}
                   </span>

@@ -22,9 +22,20 @@ import { useAppTranslation } from "../i18n";
  */
 
 interface StepDraft {
+  /**
+   * Client-only, and stripped before the config is saved. An approval step has
+   * no natural key — two steps may legitimately name the same role — and the
+   * row holds a role picker and a description the user is editing. Keyed by
+   * index, removing a middle step shifts the ones below it onto the previous
+   * indices, so React reuses those DOM nodes and the edit in progress lands on
+   * the wrong step.
+   */
+  rowId: string;
   role: string;
   description: string;
 }
+
+const newStep = (role: string): StepDraft => ({ rowId: crypto.randomUUID(), role, description: "" });
 
 export function WorkflowConfigPage() {
   const { t } = useAppTranslation();
@@ -40,7 +51,7 @@ export function WorkflowConfigPage() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [editing, setEditing] = useState<WorkflowConfigDTO | null>(null); // null = creating
   const [actionType, setActionType] = useState<string>("");
-  const [steps, setSteps] = useState<StepDraft[]>([{ role: "", description: "" }]);
+  const [steps, setSteps] = useState<StepDraft[]>([newStep("")]);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
@@ -59,7 +70,7 @@ export function WorkflowConfigPage() {
   function openCreate() {
     setEditing(null);
     setActionType(availableActionTypes[0]?.code ?? "");
-    setSteps([{ role: customRoles[0]?.code ?? "", description: "" }]);
+    setSteps([newStep(customRoles[0]?.code ?? "")]);
     setError(null);
     setPanelOpen(true);
   }
@@ -67,13 +78,13 @@ export function WorkflowConfigPage() {
   function openEdit(config: WorkflowConfigDTO) {
     setEditing(config);
     setActionType(config.actionType);
-    setSteps(config.steps.map((s) => ({ role: s.role, description: s.description ?? "" })));
+    setSteps(config.steps.map((s) => ({ rowId: crypto.randomUUID(), role: s.role, description: s.description ?? "" })));
     setError(null);
     setPanelOpen(true);
   }
 
   function addStep() {
-    setSteps((prev) => [...prev, { role: customRoles[0]?.code ?? "", description: "" }]);
+    setSteps((prev) => [...prev, newStep(customRoles[0]?.code ?? "")]);
   }
 
   function removeStep(index: number) {
@@ -240,7 +251,7 @@ export function WorkflowConfigPage() {
               <p className="text-[11.5px] text-ink-faint">{t("workflowConfig.noRoles")}</p>
             ) : null}
             {steps.map((step, index) => (
-              <div key={index} className="flex flex-col gap-[8px] rounded-lg border border-border bg-surface p-[12px_14px]">
+              <div key={step.rowId} className="flex flex-col gap-[8px] rounded-lg border border-border bg-surface p-[12px_14px]">
                 <div className="flex items-center justify-between">
                   <span className="mz-num rounded-pill bg-brand-soft px-[8px] py-[2px] text-[11px] font-bold text-brand">
                     {t("workflowConfig.step", { number: index + 1 })}

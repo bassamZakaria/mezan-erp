@@ -238,6 +238,15 @@ export function TreasuryVouchersScreen() {
   const voucherStats = useVoucherStats(listFilter).data ?? {};
   const branches = useBranches().data ?? [];
   const cancelVoucher = useCancelVoucher();
+  /**
+   * WHICH voucher is being cancelled, not merely that one is.
+   *
+   * `cancelVoucher.isPending` is mutation-wide, so binding it to every row's
+   * menu greyed out «إلغاء» on every other draft voucher while one request was
+   * in flight. The cashier cancelling a mistyped voucher could not touch the
+   * next one until the first came back.
+   */
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const documents = query.data ?? [];
   const customers = customersQuery.data ?? [];
@@ -498,10 +507,15 @@ export function TreasuryVouchersScreen() {
                       key: "cancel",
                       label: t("vouchers.action.cancel"),
                       tone: "danger" as const,
-                      disabled: cancelVoucher.isPending,
+                      disabled: cancellingId === d.id,
                       onSelect: () => {
-                        if (cancelVoucher.isPending) return;
-                        cancelVoucher.mutate(d.id);
+                        // The concurrency guard stays an early return rather
+                        // than a disabled attribute on every sibling row.
+                        if (cancellingId !== null) return;
+                        setCancellingId(d.id);
+                        // onSettled, not onSuccess: a failed cancel that never
+                        // cleared this left the row disabled for good.
+                        cancelVoucher.mutate(d.id, { onSettled: () => setCancellingId(null) });
                       },
                     },
                   ]

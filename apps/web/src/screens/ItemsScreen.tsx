@@ -85,13 +85,42 @@ const DEFAULT_GL_KEY = "items.defaultForTheItemType" as const;
 const PAGE_SIZES = [5, 10, 25, 50, 100] as const;
 
 /** Draft shape for the add/edit panel. Money fields are plain numbers here (MoneyInput's contract) — converted to/from the ItemDTO's decimal-string wire shape on submit/load. */
+/**
+ * A draft alternate-unit row, carrying a client-only `rowId`.
+ *
+ * The row is three text inputs the user edits and can delete from the middle
+ * of the list, and `AlternateUnitDTO` has no stable field to key it by — the
+ * code is what they are typing, so it is empty on a new row and changes on
+ * every keystroke. Keyed by array index instead, deleting row 1 of 3 shifts
+ * rows 2 and 3 up onto the previous indices: React reuses the DOM nodes and
+ * the caret jumps to a different row mid-edit.
+ *
+ * `rowId` never leaves this screen — `toCommand` strips it before the item is
+ * sent, since the wire contract has no such field and a zod schema would drop
+ * it silently anyway.
+ */
+type DraftAlternateUnit = AlternateUnitDTO & { rowId: string };
+
+const newAlternateUnitRow = (): DraftAlternateUnit => ({
+  rowId: crypto.randomUUID(),
+  code: "",
+  name: "",
+  factor: 1,
+});
+
+const withRowIds = (units: readonly AlternateUnitDTO[]): DraftAlternateUnit[] =>
+  units.map((u) => ({ ...u, rowId: crypto.randomUUID() }));
+
+const stripRowIds = (units: readonly DraftAlternateUnit[]): AlternateUnitDTO[] =>
+  units.map(({ rowId: _rowId, ...unit }) => unit);
+
 interface ItemDraft {
   code: string;
   nameAr: string;
   nameEn: string;
   type: ItemTypeDTO;
   baseUnitCode: string;
-  alternateUnits: AlternateUnitDTO[];
+  alternateUnits: DraftAlternateUnit[];
   barcodes: string[];
   categoryId: string | null;
   brandId: string;
@@ -156,7 +185,7 @@ function draftFromItem(item: ItemDTO): ItemDraft {
     nameEn: item.nameEn ?? "",
     type: item.type,
     baseUnitCode: item.baseUnitCode,
-    alternateUnits: item.alternateUnits,
+    alternateUnits: withRowIds(item.alternateUnits),
     barcodes: item.barcodes,
     categoryId: item.categoryId,
     brandId: item.brandId ?? "",
@@ -233,7 +262,7 @@ function draftToItem(draft: ItemDraft, id: string): ItemDTO {
     nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
     type: draft.type,
     baseUnitCode: draft.baseUnitCode,
-    alternateUnits: draft.alternateUnits,
+    alternateUnits: stripRowIds(draft.alternateUnits),
     barcodes: draft.barcodes,
     categoryId: draft.categoryId,
     brandId: draft.brandId === "" ? null : draft.brandId,
@@ -1007,7 +1036,7 @@ export function ItemsScreen() {
         <FieldGroup label={t("items.alternateUnitsOfMeasure")} hint={t("items.forExampleCarton12Pieces")}>
           <div className="flex flex-col gap-[8px]">
             {draft.alternateUnits.map((unit, index) => (
-              <div key={index} className="flex items-end gap-[6px]">
+              <div key={unit.rowId} className="flex items-end gap-[6px]">
                 <TextInput
                   size="sm"
                   className="w-[70px]"
@@ -1050,7 +1079,7 @@ export function ItemsScreen() {
             <Button
               type="button"
               size="sm"
-              onClick={() => setDraft((d) => ({ ...d, alternateUnits: [...d.alternateUnits, { code: "", name: "", factor: 1 }] }))}
+              onClick={() => setDraft((d) => ({ ...d, alternateUnits: [...d.alternateUnits, newAlternateUnitRow()] }))}
             >
               {t("items.addUnit")}
             </Button>

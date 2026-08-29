@@ -37,16 +37,22 @@ function login() {
   fireEvent.click(screen.getByRole("button", { name: "دخول" }));
 }
 
+/**
+ * Every case renders through the MEMORY router (`initialEntries`), not the
+ * browser one. jsdom keeps a single `location` for the whole file, so a
+ * pathname router would leave each test on the screen the previous one
+ * navigated to — the same isolation problem the old `window.location.hash = ""`
+ * cleanup existed to solve, minus the cleanup.
+ */
+const renderApp = () => renderWithProviders(<App initialEntries={["/"]} />, { transport: appTransport() });
+
 describe("App", () => {
   afterEach(() => {
     persistSession(null);
-    // The shell routes on the hash, and jsdom keeps one location per file —
-    // without this a test that navigates leaves the next one on its screen.
-    window.location.hash = "";
   });
 
   it("shows the login screen first, and لوحة التحكم is the landing screen after a real sign-in", async () => {
-    renderWithProviders(<App />, { transport: appTransport() });
+    renderApp();
     expect(screen.getByRole("heading", { name: "تسجيل الدخول" })).toBeInTheDocument();
 
     login();
@@ -58,14 +64,16 @@ describe("App", () => {
   });
 
   it("routes to another screen and back to لوحة التحكم via the sidebar top item", async () => {
-    renderWithProviders(<App />, { transport: appTransport() });
+    renderApp();
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
     fireEvent.click(screen.getByRole("button", { name: "المحاسبة" }));
     fireEvent.click(screen.getByRole("button", { name: "دليل الحسابات" }));
-    // Navigation goes through the hash, and jsdom delivers `hashchange` on a
-    // later tick — a synchronous assertion here reads the previous screen.
+    // The router resolves the screen's lazy module before it swaps the match,
+    // so the assertion has to await it — a synchronous read here still sees
+    // the outgoing screen, which is exactly the behaviour that stops the list
+    // flashing to a skeleton on every nav click.
     expect(await screen.findByRole("heading", { name: "دليل الحسابات" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).not.toBeInTheDocument();
 
@@ -76,7 +84,7 @@ describe("App", () => {
   });
 
   it("reaches the first-run wizard from the login screen and can cancel back to it", () => {
-    renderWithProviders(<App />, { transport: appTransport() });
+    renderApp();
     fireEvent.click(screen.getByRole("button", { name: "أول مرة على ميزان؟ ابدأ معالج الإعداد الأولي" }));
     expect(screen.getByRole("heading", { name: "معالج الإعداد الأولي" })).toBeInTheDocument();
 
@@ -103,7 +111,7 @@ describe("App", () => {
       "GET /workflow/requests/pending-count": () => ({ body: { count: 2 } }),
       "GET /workflow/requests/pending": () => ({ body: [] }),
     });
-    renderWithProviders(<App />, { transport });
+    renderWithProviders(<App initialEntries={["/"]} />, { transport });
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
@@ -115,7 +123,7 @@ describe("App", () => {
   });
 
   it("routes to a report that lives in a section, from row two's own dropdown", async () => {
-    renderWithProviders(<App />, { transport: appTransport() });
+    renderApp();
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
@@ -133,7 +141,7 @@ describe("App", () => {
       "GET /dashboard/summary": () => ({ body: emptySummary }),
       "GET /workflow/configs": () => ({ body: [] }),
     });
-    renderWithProviders(<App />, { transport });
+    renderWithProviders(<App initialEntries={["/"]} />, { transport });
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 

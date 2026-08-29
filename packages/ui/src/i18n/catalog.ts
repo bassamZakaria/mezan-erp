@@ -132,6 +132,7 @@ const uiAr = {
   "print.totals.totalDiscount": "إجمالي الخصم",
   "print.totals.grandTotal": "الإجمالي",
   "print.notes": "ملاحظات: {value}",
+  "print.etaUuid": "رقم الفاتورة الإلكترونية لدى مصلحة الضرائب:",
 
   // spreadsheet import
   "import.noSheet": "الملف لا يحتوي على أي ورقة بيانات",
@@ -355,6 +356,7 @@ const uiEn: Record<UiTranslationKey, string> = {
   "print.totals.totalDiscount": "Total discount",
   "print.totals.grandTotal": "Total",
   "print.notes": "Notes: {value}",
+  "print.etaUuid": "ETA e-invoice identifier:",
 
   // spreadsheet import
   "import.noSheet": "The file contains no data sheet",

@@ -247,6 +247,15 @@ export function PrintView({ config, document, showToolbar = true, className }: P
             </div>
           ) : null}
 
+          {document.etaUuid ? (
+            <p className="mt-[8px] border-t border-border pt-[6px] text-center text-[10px] text-ink-muted">
+              <span>{t("print.etaUuid")}</span>{" "}
+              <span className="mz-num" dir="ltr">
+                {document.etaUuid}
+              </span>
+            </p>
+          ) : null}
+
           {footer.text ? <p className="mt-[6px] text-center text-[10px] text-ink-faint">{footer.text}</p> : null}
         </div>
       </div>

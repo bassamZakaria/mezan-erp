@@ -74,7 +74,7 @@ export interface AppShellProps {
 }
 
 /**
- * AppShell — design direction ب (`design/directions/nav-level.html`): the six
+ * AppShell — design direction ب (`docs/artifacts/directions/nav-level.html`): the six
  * workspaces live in a 200px column, not in the top bar.
  *
  *   ┌───────────────────────────────────────────────────────┐

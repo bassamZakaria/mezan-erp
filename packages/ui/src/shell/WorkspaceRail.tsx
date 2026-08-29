@@ -5,7 +5,7 @@ import type { NavGroup, NavItem } from "./types";
 
 /**
  * The workspace column — level one of the navigation (design direction ب,
- * `design/directions/nav-level.html`). ONLY THE WORKSPACES: read top to bottom
+ * `docs/artifacts/directions/nav-level.html`). ONLY THE WORKSPACES: read top to bottom
  * they are a plain list of the jobs the business does, which is what a new
  * employee can scan, and moving them off row one gives the chrome's own
  * controls room to stay visible instead of collapsing into a «⋯».

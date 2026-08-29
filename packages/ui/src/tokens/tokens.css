@@ -214,7 +214,7 @@
   --action-soft: var(--brand-soft);
   --action-ink: var(--brand-ink);
 
-  /* the shared contract used by design/directions/directions.css, so markup
+  /* the shared contract used by docs/artifacts/directions/directions.css, so markup
      ported from the mockups compiles against the shipped tokens */
   --ink: var(--text);
   --muted: var(--text-muted);

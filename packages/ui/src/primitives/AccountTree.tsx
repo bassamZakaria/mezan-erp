@@ -7,7 +7,7 @@ import { DisclosureChevron } from "./DisclosureChevron";
 /**
  * AccountTree — the دليل الحسابات (Chart of Accounts) tree table: an
  * indented, expand/collapse table matching the `.tree-row` / `.tree-toggle`
- * pattern in design/mezan-ui-mockups.html's Chart of Accounts screen. The
+ * pattern in docs/artifacts/mezan-ui-mockups.html's Chart of Accounts screen. The
  * caller owns expand/collapse state and passes down the already-flattened,
  * already-filtered set of *visible* rows (depth-first order) — this
  * component only renders them.

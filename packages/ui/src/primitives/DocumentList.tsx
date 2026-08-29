@@ -19,7 +19,7 @@ import { SkeletonTable } from "./feedback";
  * DocumentList — the reusable list-page pattern (KPI strip + status chips +
  * filter bar + sortable table + pager). This is the single shape reused
  * across ~40 "list of documents" screens (invoices, journals, customers…),
- * per design/mezan-ui-mockups.html's `pattern-list` section.
+ * per docs/artifacts/mezan-ui-mockups.html's `pattern-list` section.
  */
 
 export interface DocumentListColumn<Row> {

@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const SOURCE = join(root, "docs/TESTING.md");
-const OUT = process.argv[2] ?? join(root, "docs/trail-pack.html");
+const OUT = process.argv[2] ?? join(root, "docs/artifacts/trail-pack.html");
 
 function parse(md) {
   const trails = [];

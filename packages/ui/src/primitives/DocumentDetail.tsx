@@ -7,7 +7,7 @@ import { useUiTranslation } from "../i18n";
  * DocumentDetail — header/status/actions + summary strip + the
  * "تأثيرات هذا المستند" (effects of this document) panel + tabs, with an
  * optional side column for a SidePanel trigger. Matches the `pattern-detail`
- * section of design/mezan-ui-mockups.html.
+ * section of docs/artifacts/mezan-ui-mockups.html.
  */
 
 export interface DocumentDetailSummaryItem {

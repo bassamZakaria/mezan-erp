@@ -5,7 +5,7 @@ import { Card } from "./atoms";
 
 /**
  * Dashboard chart primitives — inline SVG line/area chart + a CSS
- * conic-gradient donut, matching the approach design/mezan-ui-mockups.html
+ * conic-gradient donut, matching the approach docs/artifacts/mezan-ui-mockups.html
  * uses for the لوحة التحكم dashboard (no charting library dependency).
  */
 

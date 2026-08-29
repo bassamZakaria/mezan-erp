@@ -18,7 +18,8 @@ Six documents and three directories. Start with the one that answers your questi
 | `workflows.md` | What to show a prospect in a demo, and in what words (§2–§3); which periodic actions are proven to work (§3.5, a dated measurement) |
 | `catalog/01..10` | The reference product's 125 screens, field by field — a label snapshot. It records that a field exists, not whether it is a picker or a text input |
 | `reference-parity/` | `REQUIREMENTS.md` — the ~90-requirement register read from the running reference product, plus 8 reference defects not to reproduce. `API-SURFACE.md` — 201 GET endpoints with their query contracts. Where this and `plan.md` disagree about the scope of a screen, **the register wins** |
-| `design/` | `ui-revamp.md` (approved, in build), `visual-identity-and-shell.md` (the المِشكاة identity, superseding the revamp's §3.4 and §3.6), and `ux-enhancement-spec.md` with its clickable mockup at `design/mezan-enhanced-mockups.html` |
+| `artifacts/` | **Every artifact this project produces** — the mockups, the six direction studies, the roadmap page, and anything `pnpm` generates. Its `README.md` says what each one is. `artifacts/mezan-enhanced-mockups.html` is the design source of truth |
+| `design/` | `ux-enhancement-spec.md` — the prose behind the enhanced mockup: why the identity evolved, and what each decision was weighed against |
 | `enhancements/` | `requirements.md` (ENH-###) and `workflows.md` (WF-##) — the beyond-parity requirements and the workflows they enable. The backlog that ranks them is `ROADMAP.md` §7 |
 | `archive/` | Retired documents, kept for their evidence. Read its `README.md` before trusting anything inside |
 
@@ -36,7 +37,8 @@ Six documents and three directories. Start with the one that answers your questi
 | Who do we compete with, and where are the gaps? | `plan.md` §8 |
 | What is the plan for HR / POS / Cloud? | `plan.md` §9 |
 | What does the reference app actually do? | `catalog/01..10`, then `reference-parity/REQUIREMENTS.md` for what was read from it running |
-| What should the UI look like? | `design/` |
+| What should the UI look like? | `artifacts/mezan-enhanced-mockups.html`, then `design/ux-enhancement-spec.md` for why |
+| Where do I put a mockup, a generated page, or an Artifact I just published? | `artifacts/` — always, and add a row to its `README.md` |
 
 ## The rules these documents are kept under
 
@@ -46,5 +48,8 @@ Six documents and three directories. Start with the one that answers your questi
   commit, because that is how its regression is recognised.
 - **A decision is never deleted either.** Taking it records the option chosen and why, so
   the next person knows the alternative was considered.
+- **Every artifact goes in `artifacts/`** — a mockup, a diagram, a generated page, a
+  published Artifact. Never a folder at the repository root, never left in a scratch
+  directory. One left loose gets mistaken for source; one nobody can find goes unused.
 - **Point-in-time measurements carry their date**, and are moved to `archive/` once they
   stop describing the present.

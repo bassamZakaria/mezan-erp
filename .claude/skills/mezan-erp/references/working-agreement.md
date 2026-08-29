@@ -57,7 +57,7 @@ without being asked again is the point of writing them down.
   sizes; a readable Arabic font.
 - The language switcher must actually change the UI language — the settings copy of it
   was removed; the switcher is the one control.
-- Design authority is `design/mezan-enhanced-mockups.html` (serve over HTTP; `file://`
+- Design authority is `docs/artifacts/mezan-enhanced-mockups.html` (serve over HTTP; `file://`
   is refused by the browser tooling). The older `mezan-ui-mockups.html` loses where
   they disagree. No human designer is reachable — ClickUp returns nothing for this
   project and Slack is unauthenticated.
@@ -80,6 +80,14 @@ silently computing a wrong net.
 
 ## Documentation
 
+- **Two documents to work from.** `docs/ROADMAP.md` is what is built, what is open, the
+  defect register and the open decisions. `docs/TESTING.md` is the policy, the regression
+  plan and every scenario. Do not start a third — the four files these replaced spent
+  months disagreeing with each other.
+- **Every artifact goes in `docs/artifacts/`** — a mockup, a diagram, a generated page, an
+  Artifact published to claude.ai. Never a folder at the repository root, never left in a
+  scratch directory, and add a row to that folder's `README.md` saying what it is. This is a
+  standing rule for every project, not just this one.
 - One status document (`docs/ROADMAP.md §1`); audits get archived, not left to rot in place.
 - Record decisions and known defects where the next person will actually read them —
   a comment promising a follow-up sweep tracks nothing.

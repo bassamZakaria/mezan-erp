@@ -16,7 +16,7 @@ export interface SidePanelProps {
 /**
  * SidePanel — RTL drill-down drawer. Anchored to the inline-end edge (the
  * left edge in our RTL layout) via `end-0` / `border-s`, matching the
- * `.overlay` + `.panel` pattern in design/mezan-ui-mockups.html. The closed
+ * `.overlay` + `.panel` pattern in docs/artifacts/mezan-ui-mockups.html. The closed
  * state translates off-screen with `transform`, which is direction-neutral
  * and not something the repo's left/right lint flags.
  */

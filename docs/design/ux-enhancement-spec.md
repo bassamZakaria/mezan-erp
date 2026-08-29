@@ -2,7 +2,7 @@
 
 **Status:** proposal (branch `enhancements`, worktree `enh/ui-design`)
 **Author:** Bassam Zakaria
-**Scope:** a distinctive, premium evolution of Mezan's visual identity. This does **not** change the parity app on `main`. It is a design direction plus a clickable mockup (`design/mezan-enhanced-mockups.html`).
+**Scope:** a distinctive, premium evolution of Mezan's visual identity. This does **not** change the parity app on `main`. It is a design direction plus a clickable mockup (`docs/artifacts/mezan-enhanced-mockups.html`).
 
 ---
 
@@ -128,4 +128,4 @@ Not everything should change. Kept from parity: the effects panel concept, the s
 ## 10. Deliverables & verification
 
 - **This spec** — `docs/design/ux-enhancement-spec.md`.
-- **Clickable mockup** — `design/mezan-enhanced-mockups.html`: shell, dashboard (balance-beam hero), a document list, a document detail, and a financial report, with Cyag / محمد الشهابي sample data, RTL, light + dark toggle. Verified rendering in a real browser (Playwright) in both themes, and published as an Artifact.
+- **Clickable mockup** — `docs/artifacts/mezan-enhanced-mockups.html`: shell, dashboard (balance-beam hero), a document list, a document detail, and a financial report, with Cyag / محمد الشهابي sample data, RTL, light + dark toggle. Verified rendering in a real browser (Playwright) in both themes, and published as an Artifact.

@@ -170,5 +170,5 @@ Full detail in `references/working-agreement.md`; the load-bearing parts:
 - Arabic-first RTL UI. Domain refusals must surface in Arabic, not raw English
   enum text.
 - Browser work goes in this session's dedicated Chrome tab group, never the user's tabs.
-- Design authority is `design/mezan-enhanced-mockups.html`, served over HTTP.
+- Design authority is `docs/artifacts/mezan-enhanced-mockups.html`, served over HTTP.
 - Never name or reference the competing product the catalog was captured from.

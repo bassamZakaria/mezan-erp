@@ -45,7 +45,7 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
 | **Open now (§3)** | Two items: those row menus, and outbound notification delivery |
 | **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
-| **Defects (§5)** | One open — D65, 20 scenario assertions failing on a contract change the harness never followed. D1–D64 are closed |
+| **Defects (§5)** | None open. D65 closed by `d3294fc`; D1–D64 were already closed. `pnpm scenarios` measured 3876/0 on 2026-08-29 |
 | **Decisions (§6)** | Six open (DEC-2 … DEC-7), each blocking its own issue rather than the build |
 | **Beyond parity (§7)** | 27 candidates across E1–E3, none started; `enhancements` branch only |
 | **Shell follow-ups (§8)** | 8 items, queued behind the i18n sweep |
@@ -446,26 +446,23 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**D65 — `pnpm scenarios` fails 20 assertions, and the cause is a contract change nobody
-propagated.** `2c0e7fa` made a user's Arabic name mandatory; every scenario that creates a
-user still posts without `nameAr`, so the harness gets
-`VALIDATION_ERROR … fieldErrors: {nameAr: ["Required"]}` and everything downstream of a
-created user falls over — the sign-in and domain-policy suite, the approvals chain (both
-actors are created users), and HR leave, which derives the employee from the caller.
+**No defects are open.**
 
-Measured 2026-08-29 on two trees to be sure it is not a merge artifact: **3,856 passed,
-20 failed** on `origin/main` at `099266e`, and **3,856 passed, 20 failed** on the merged
-tree. Identical, so the four branches merged this pass introduce none of it.
+D65 — 20 scenario assertions failing because `2c0e7fa` made a user's Arabic name mandatory
+and no scenario that creates a user passed `nameAr` — was closed by `d3294fc`, which taught
+the harness to sign in with the seed PIN and the current user contract. The fix was in the
+harness, not the product: the product is right to demand the name. The one reading filed as
+a possible second defect behind it — an HR leave balance of 21 against 11 — was the same
+bug, and holds once the caller exists.
 
-The fix is in the harness, not the product — the product is right to demand the name. But
-read the two HR failures before assuming all 20 are the same bug: one asserts a leave
-balance of 21 against 11, which is arithmetic, and it may be a second defect hiding behind
-the first. **Every other gate is green**: typecheck, lint, RTL logical-CSS, native controls,
-permission labels, theme colour-only, and `pnpm smoke` over all 199 read surfaces.
+Measured on this tree, 2026-08-29: `pnpm scenarios` **3876 passed, 0 failed**, across all
+thirteen suites. Every other gate green with it — typecheck, lint, RTL logical-CSS, colour
+tokens, native controls, permission labels, theme colour-only, and `pnpm smoke` over all
+199 read surfaces.
 
 ---
 
-Everything else is closed. D1 through D64 are all closed. The closed register — every defect with
+Everything filed is closed — D1 through D65. The closed register — every defect with
 the commit that fixed it, plus the readings that looked like defects and were not — is
 `archive/defect-register.md`. It is kept, not deleted, because a fixed defect is how its
 regression is recognised.

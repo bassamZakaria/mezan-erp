@@ -15,6 +15,7 @@ import {
 } from "@mezan/ui";
 import type { PayrollRunDTO, PayrollRunStatusDTO, PayslipDTO } from "@mezan/contracts";
 import { PAYROLL_UNIMPLEMENTED_RULES } from "@mezan/domain";
+import { HrProvisionsPanel } from "./HrProvisionsPanel";
 import { NumberField, SelectField } from "../settings/form-controls";
 import { ApiError, useBranches, useEmployees, useTreasuryAccounts } from "../data/hooks";
 import {
@@ -563,6 +564,15 @@ export function PayrollRunsScreen() {
           </div>
         </form>
       </SidePanel>
+
+      {/*
+        The two obligations that accrue outside any payroll run. They live here
+        rather than on their own screen because the person who closes a payroll
+        month is the person who should be booking them, in the same sitting.
+      */}
+      <div className="mt-[18px]">
+        <HrProvisionsPanel />
+      </div>
     </div>
   );
 }

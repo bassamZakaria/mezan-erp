@@ -426,3 +426,51 @@ export function useRemoveInsuranceYear() {
     onSuccess: invalidate,
   });
 }
+
+/* -------------------------------------------------------------------- */
+/* ترحيل المخصصات — /hr/payroll/provisions                                 */
+/* -------------------------------------------------------------------- */
+
+export type HrProvisionKindDTO = "end_of_service" | "leave";
+
+export interface HrProvisionPreviewDTO {
+  kind: HrProvisionKindDTO;
+  asOfDate: string;
+  labelAr: string;
+  expenseAccountId: string;
+  liabilityAccountId: string;
+  computedTotal: string;
+  postedBalance: string;
+  movement: string;
+}
+
+export function useProvisionPreview(kind: HrProvisionKindDTO, asOfDate: string, enabled = true): UseQueryResult<HrProvisionPreviewDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<HrProvisionPreviewDTO, ApiError>({
+    queryKey: ["hr", "payroll", "provisions", kind, asOfDate],
+    enabled: session !== null && enabled,
+    queryFn: async () => {
+      const res = await request(`/hr/payroll/provisions/${kind}/preview?asOfDate=${asOfDate}`);
+      if (!res.ok) throw new ApiError(res.status, t("provisions.couldNotLoad"));
+      return res.json<HrProvisionPreviewDTO>();
+    },
+  });
+}
+
+export function usePostProvision() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const client = useQueryClient();
+  return useMutation<{ movement: string; journalEntryId: string }, ApiError, { kind: HrProvisionKindDTO; asOfDate: string }>({
+    mutationFn: async ({ kind, asOfDate }) => {
+      const res = await request(`/hr/payroll/provisions/${kind}`, { method: "POST", body: JSON.stringify({ asOfDate }) });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("provisions.couldNotPost")));
+      return res.json<{ movement: string; journalEntryId: string }>();
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ["hr", "payroll", "provisions"] });
+      void client.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}

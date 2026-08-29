@@ -819,6 +819,9 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
             (attendanceRepo && overtimeTable ? createOvertimeHoursProvider(attendanceRepo, overtimeTable, resolveDerivationOptions) : undefined),
           workedTime:
             deps.payroll.workedTime ?? (attendanceRepo ? createWorkedTimeProvider(attendanceRepo, resolveDerivationOptions) : undefined),
+          // The provision routes need the leave side to price payable balances.
+          leave:
+            deps.payroll.leave ?? (deps.leaveBalances && deps.leavePolicies ? { balances: deps.leaveBalances, policies: deps.leavePolicies } : undefined),
         },
         resolveAuthContext,
       ),

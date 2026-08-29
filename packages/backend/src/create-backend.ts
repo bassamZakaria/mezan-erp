@@ -1522,6 +1522,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         payrollComponents: hrPayrollComponents,
         garnishmentRegister: hrGarnishments,
         statutoryOverrides: hrStatutoryOverrides,
+        // The obligation provisions compare the computed figure against what
+        // the liability account already carries, so they need to read the GL.
+        ledger,
         settings,
       },
       users: uow.users,

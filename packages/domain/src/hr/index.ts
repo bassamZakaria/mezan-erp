@@ -383,3 +383,17 @@ export {
   releaseGarnishment,
   createGarnishmentProvider,
 } from "./garnishment.js";
+
+export type {
+  HrProvisionKind,
+  HrProvisionDefinition,
+  PostHrProvisionCommand,
+  PostHrProvisionDeps,
+  HrProvisionResult,
+} from "./post-hr-provision.js";
+export {
+  HR_PROVISION_DEFINITIONS,
+  getHrProvisionDefinition,
+  hrProvisionMovement,
+  postHrProvision,
+} from "./post-hr-provision.js";

@@ -52,6 +52,16 @@ import {
   type GarnishmentRepository,
   type SocialInsuranceYearOverride,
   type StatutoryOverrideRepository,
+  type LedgerRepository,
+  type LeaveBalanceRepository,
+  type LeavePolicyRepository,
+  type HrProvisionKind,
+  getHrProvisionDefinition,
+  hrProvisionMovement,
+  postHrProvision,
+  createEndOfServiceProvisionReport,
+  createLeaveLiabilityReport,
+  runReport,
   type OvertimeHoursProvider,
   type PayrollDayDivisorBasis,
   type SettingsRepository,
@@ -127,6 +137,17 @@ export interface HrPayrollRoutesDeps {
    * together, so the screen can never edit a figure payroll does not read.
    */
   readonly statutoryOverrides?: StatutoryOverrideRepository;
+  /**
+   * Read side of the two HR obligation provisions. Supplying `ledger` mounts
+   * the provision routes: without the ledger there is no posted balance to
+   * compare the computed obligation against, and posting the TOTAL rather than
+   * the movement would double the liability every month.
+   */
+  readonly ledger?: Pick<LedgerRepository, "list">;
+  readonly leave?: {
+    readonly balances: Pick<LeaveBalanceRepository, "list">;
+    readonly policies: Pick<LeavePolicyRepository, "list">;
+  };
   /** Overrides the settings-derived basis; for tests. */
   readonly dayDivisorBasis?: PayrollDayDivisorBasis;
   readonly standardDailyHours?: number;
@@ -475,6 +496,110 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
   });
 
   // --- Payroll runs --------------------------------------------------------
+
+  // --- HR provisions (ترحيل المخصصات) --------------------------------------
+
+  /**
+   * End-of-service gratuity and payable leave accrue every month and appear
+   * NOWHERE in the ledger until somebody resigns. Their reports could compute
+   * them exactly and still reconcile to zero forever — a report standing in for
+   * a fact the books never recorded, and a balance sheet understated by the
+   * whole obligation.
+   *
+   * These two routes post the MOVEMENT: the difference between the obligation
+   * now and what the liability account already carries. The computed figure
+   * comes from the SAME report definition the screen renders, so the entry and
+   * the report are one number rather than two that ought to agree.
+   */
+  const ledger = deps.ledger;
+  if (ledger) {
+    const leave = deps.leave;
+
+    async function provisionState(kind: HrProvisionKind, asOfDate: string) {
+      const definition = getHrProvisionDefinition(kind);
+      const entries = await ledger!.list({ status: "posted" });
+      let balance = 0n;
+      for (const entry of entries) {
+        for (const line of entry.lines) {
+          if (line.accountId !== definition.liabilityAccountId) continue;
+          balance += line.credit.scaled - line.debit.scaled;
+        }
+      }
+      const postedBalance = Money.fromScaled(balance);
+
+      const employees = await deps.employees.list();
+      const contracts = await deps.contracts.list();
+      let computedTotal = Money.zero();
+      if (kind === "end_of_service") {
+        const outcome = runReport(createEndOfServiceProvisionReport(), { asOfDate }, { employees, contracts });
+        if (outcome.ok) computedTotal = Money.fromMajor(outcome.rows.reduce((sum, row) => sum + row.provision, 0).toFixed(2));
+      } else if (leave) {
+        const outcome = runReport(createLeaveLiabilityReport(), { asOfDate }, {
+          employees,
+          contracts,
+          balances: await leave.balances.list(),
+          policies: await leave.policies.list(),
+        });
+        if (outcome.ok) computedTotal = Money.fromMajor(outcome.rows.reduce((sum, row) => sum + row.liability, 0).toFixed(2));
+      }
+      return { definition, postedBalance, computedTotal };
+    }
+
+    function parseKind(raw: string): HrProvisionKind | null {
+      return raw === "end_of_service" || raw === "leave" ? raw : null;
+    }
+
+    app.get("/payroll/provisions/:kind/preview", gate("hr.payroll.view"), async (c) => {
+      const kind = parseKind(c.req.param("kind"));
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف." }, 404);
+      if (kind === "leave" && !leave) return c.json({ error: "LEAVE_NOT_CONFIGURED", message: "لم تُضبط سياسات وأرصدة الإجازات بعد." }, 409);
+      const asOfDate = c.req.query("asOfDate") ?? new Date().toISOString().slice(0, 10);
+      const { definition, postedBalance, computedTotal } = await provisionState(kind, asOfDate);
+      return c.json({
+        kind,
+        asOfDate,
+        labelAr: definition.labelAr,
+        expenseAccountId: definition.expenseAccountId,
+        liabilityAccountId: definition.liabilityAccountId,
+        computedTotal: computedTotal.toString(),
+        postedBalance: postedBalance.toString(),
+        movement: hrProvisionMovement(computedTotal, postedBalance).toString(),
+      });
+    });
+
+    app.post("/payroll/provisions/:kind", gate("hr.payroll.approve"), async (c) => {
+      const kind = parseKind(c.req.param("kind"));
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف." }, 404);
+      if (kind === "leave" && !leave) return c.json({ error: "LEAVE_NOT_CONFIGURED", message: "لم تُضبط سياسات وأرصدة الإجازات بعد." }, 409);
+      const body = (await c.req.json().catch(() => ({}))) as { asOfDate?: string };
+      const asOfDate = body.asOfDate ?? new Date().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح." }, 400);
+
+      const { definition, postedBalance, computedTotal } = await provisionState(kind, asOfDate);
+      try {
+        const result = await postHrProvision({ kind, asOfDate, computedTotal, postedBalance }, { gl: deps.gl });
+        return c.json({
+          kind: result.kind,
+          asOfDate: result.asOfDate,
+          labelAr: definition.labelAr,
+          computedTotal: result.computedTotal.toString(),
+          previousBalance: result.previousBalance.toString(),
+          movement: result.movement.toString(),
+          journalEntryId: result.journalEntryId,
+        });
+      } catch (err) {
+        if (
+          err instanceof InvalidPayrollRunError ||
+          err instanceof NoFiscalPeriodForDateError ||
+          err instanceof PeriodNotOpenForPostingError ||
+          err instanceof UnbalancedEntryError
+        ) {
+          return c.json({ error: err.code, message: err.message }, 422);
+        }
+        throw err;
+      }
+    });
+  }
 
   // --- Garnishments (الحجز على الأجر) -------------------------------------
 

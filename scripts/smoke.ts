@@ -235,6 +235,8 @@ const READ_PATHS = [
   "/hr/payroll/components",
   "/hr/payroll/statutory-tables",
   "/hr/payroll/garnishments",
+  "/hr/payroll/provisions/end_of_service/preview",
+  "/hr/payroll/provisions/leave/preview",
   "/hr/employees/EMP-DEMO-9/end-of-service",
   "/reports/hr/payroll-register",
   "/reports/hr/social-insurance-return",

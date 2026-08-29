@@ -319,6 +319,46 @@ export async function run(ctx: Ctx): Promise<void> {
     ctx.check("GRN-07 — a monthly instalment larger than the order itself is refused", overInstalment.status === 422, `got ${overInstalment.status}`);
   });
 
+  await ctx.scenario("hr / provisions — the accruing obligations reach the LEDGER, not just a report", async () => {
+    // Before this existed, the end-of-service report could compute 419,210 of
+    // liability and account 2181 could sit at zero forever: a report standing
+    // in for a fact the books never recorded, and a balance sheet understated
+    // by the whole obligation.
+    const asOfDate = "2026-08-31";
+
+    for (const kind of ["end_of_service", "leave"] as const) {
+      const before = (await ctx.req("GET", `/hr/payroll/provisions/${kind}/preview?asOfDate=${asOfDate}`)).body;
+      ctx.checkEq(
+        `PRV-01 ${kind} — the movement offered is owed MINUS booked, never the total`,
+        ctx.n(before.movement),
+        ctx.n(before.computedTotal) - ctx.n(before.postedBalance),
+      );
+      if (ctx.n(before.movement) === 0) continue;
+
+      const posted = await ctx.req("POST", `/hr/payroll/provisions/${kind}`, { asOfDate });
+      ctx.check(`PRV-02 ${kind} — posting succeeds and returns its journal entry`, posted.status === 200 && !!posted.body.journalEntryId, `status ${posted.status}`);
+      await assertBalancedEntry(ctx, `PRV-03 ${kind}`, posted.body.journalEntryId);
+
+      const after = (await ctx.req("GET", `/hr/payroll/provisions/${kind}/preview?asOfDate=${asOfDate}`)).body;
+      ctx.checkEq(`PRV-04 ${kind} — the liability account now carries exactly what is owed`, ctx.n(after.postedBalance), ctx.n(before.computedTotal));
+      ctx.checkEq(`PRV-05 ${kind} — and there is nothing left to post`, ctx.n(after.movement), 0);
+
+      // Posting again must not double the liability. This is the whole reason
+      // the movement is posted rather than the total.
+      const again = await ctx.req("POST", `/hr/payroll/provisions/${kind}`, { asOfDate });
+      ctx.check(`PRV-06 ${kind} — posting a second time is REFUSED rather than doubling the provision`, again.status === 422, `status ${again.status}`);
+      const stillAfter = (await ctx.req("GET", `/hr/payroll/provisions/${kind}/preview?asOfDate=${asOfDate}`)).body;
+      ctx.checkEq(`PRV-07 ${kind} — and the balance is unchanged by the refused attempt`, ctx.n(stillAfter.postedBalance), ctx.n(after.postedBalance));
+    }
+
+    // The report and the ledger must now agree — which is the point of all of it.
+    const eos = (await ctx.req("GET", `/reports/hr/end-of-service-provision?asOfDate=${asOfDate}`)).body;
+    ctx.check("PRV-08 — the end-of-service report still renders its reconciliation banner", eos.reconciliation != null);
+    if (eos.reconciliation) {
+      ctx.checkEq("PRV-09 — and it now TIES: the computed provision equals account 2181", ctx.n(eos.reconciliation.reportTotal), ctx.n(eos.reconciliation.referenceTotal));
+    }
+  });
+
   await ctx.scenario("hr / end-of-service settlement — the statutory tiers, and a running employee refused", async () => {
     const settlement = (await ctx.req("GET", "/hr/employees/EMP-DEMO-9/end-of-service")).body;
     ctx.check("EOS-01 — a terminated employee gets a settlement statement", settlement.serviceYears > 0, JSON.stringify(settlement.serviceYears));

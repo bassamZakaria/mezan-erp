@@ -177,21 +177,49 @@ export interface UseScopeSelectorResult {
 }
 
 /** Backs the topbar's branch/warehouse dropdowns; the actual header-narrowing lives in `authHeaders` (data/session.ts) via `ApiContext.scopeSelection`. */
+/**
+ * The branch and warehouse ids this session may see, as sets.
+ *
+ * `null` means the `"*"` scope — no restriction — which is NOT the same as an
+ * empty set, and reading it as one would hide every branch from an admin.
+ *
+ * Memoised so callers depend on the sets themselves rather than on the session
+ * fields behind them. Both recompute at exactly the same moments either way;
+ * naming the real dependency is what lets the rules of hooks check it, and it
+ * stops the two call sites below duplicating the derivation.
+ */
+function useAllowedScopeIds(): {
+  allowedBranchIds: Set<string> | null;
+  allowedWarehouseIds: Set<string> | null;
+} {
+  const { session } = useApi();
+  const branchScope = session?.branchScope;
+  const warehouseScope = session?.warehouseScope;
+  const allowedBranchIds = useMemo(
+    () => (branchScope === "*" ? null : new Set(branchScope ?? [])),
+    [branchScope],
+  );
+  const allowedWarehouseIds = useMemo(
+    () => (warehouseScope === "*" ? null : new Set(warehouseScope ?? [])),
+    [warehouseScope],
+  );
+  return { allowedBranchIds, allowedWarehouseIds };
+}
+
 export function useScopeSelector(): UseScopeSelectorResult {
   const { session, scopeSelection, setScopeSelection } = useApi();
   const nameOf = useEntityName();
   const branchesQuery = useBranches();
   const warehousesQuery = useWarehouses();
 
-  const allowedBranchIds = session?.branchScope === "*" ? null : new Set(session?.branchScope ?? []);
-  const allowedWarehouseIds = session?.warehouseScope === "*" ? null : new Set(session?.warehouseScope ?? []);
+  const { allowedBranchIds, allowedWarehouseIds } = useAllowedScopeIds();
 
   const branchOptions = useMemo<ScopeOption[]>(() => {
     const branches = branchesQuery.data ?? [];
     return branches
       .filter((b) => b.active && (allowedBranchIds === null || allowedBranchIds.has(b.id)))
       .map((b) => ({ id: b.id, label: nameOf(b) }));
-  }, [branchesQuery.data, session?.branchScope, nameOf]);
+  }, [branchesQuery.data, session?.branchScope, nameOf, allowedBranchIds]);
 
   const warehouseOptions = useMemo<ScopeOption[]>(() => {
     const warehouses = warehousesQuery.data ?? [];
@@ -203,7 +231,7 @@ export function useScopeSelector(): UseScopeSelectorResult {
           (!scopeSelection.branchId || w.branchId === scopeSelection.branchId),
       )
       .map((w) => ({ id: w.id, label: nameOf(w) }));
-  }, [warehousesQuery.data, session?.warehouseScope, scopeSelection.branchId, nameOf]);
+  }, [warehousesQuery.data, session?.warehouseScope, scopeSelection.branchId, nameOf, allowedWarehouseIds]);
 
   function setBranch(branchId: string | null) {
     const stillValid = branchId
@@ -240,8 +268,7 @@ export function useWorkingLocation(): WorkingLocation {
   const branchesQuery = useBranches();
   const warehousesQuery = useWarehouses();
 
-  const allowedBranchIds = session?.branchScope === "*" ? null : new Set(session?.branchScope ?? []);
-  const allowedWarehouseIds = session?.warehouseScope === "*" ? null : new Set(session?.warehouseScope ?? []);
+  const { allowedBranchIds, allowedWarehouseIds } = useAllowedScopeIds();
 
   return useMemo<WorkingLocation>(() => {
     const branches = (branchesQuery.data ?? []).filter(
@@ -265,7 +292,7 @@ export function useWorkingLocation(): WorkingLocation {
     warehousesQuery.data,
     scopeSelection.branchId,
     scopeSelection.warehouseId,
-    session?.branchScope,
-    session?.warehouseScope,
+    allowedBranchIds,
+    allowedWarehouseIds,
   ]);
 }

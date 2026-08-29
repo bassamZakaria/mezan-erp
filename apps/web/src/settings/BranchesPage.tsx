@@ -464,7 +464,7 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
       });
     }
     return built.sort((a, b) => (a.date === b.date ? b.key.localeCompare(a.key) : b.date.localeCompare(a.date)));
-  }, [salesQuery.data, purchasesQuery.data, vouchersQuery.data, branch.id]);
+  }, [salesQuery.data, purchasesQuery.data, vouchersQuery.data, branch.id, t]);
 
   if (salesQuery.isError || purchasesQuery.isError || vouchersQuery.isError) {
     return (

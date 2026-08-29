@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
@@ -108,11 +108,14 @@ export function ContractsScreen() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
-  function employeeName(employeeId: string): string {
-    const e = employees.find((row) => row.id === employeeId);
-    if (!e) return employeeId;
-    return employeeDisplayName(e, locale);
-  }
+  const employeeName = useCallback(
+    (employeeId: string): string => {
+      const e = employees.find((row) => row.id === employeeId);
+      if (!e) return employeeId;
+      return employeeDisplayName(e, locale);
+    },
+    [employees, locale],
+  );
 
   const filtered = useMemo(() => {
     let rows = contracts;
@@ -123,7 +126,7 @@ export function ContractsScreen() {
       rows = rows.filter((c) => c.number.toLowerCase().includes(q) || employeeName(c.employeeId).toLowerCase().includes(q));
     }
     return rows;
-  }, [contracts, statusFilter, search, employees]);
+  }, [contracts, statusFilter, search, employees, employeeName]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);

@@ -330,7 +330,7 @@ export function ChartOfAccountsScreen() {
         .filter((a) => a.isHeader && a.id !== editingId)
         .map((a) => ({ id: a.id, label: `${a.code} — ${nameOf(a)}` })),
     ],
-    [accounts, editingId],
+    [accounts, editingId, nameOf, t],
   );
 
   const selectedAccount = selectedAccountId ? accounts.find((a) => a.id === selectedAccountId) ?? null : null;

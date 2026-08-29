@@ -184,6 +184,7 @@ export function ConfigInstancesScreen() {
   const closeInstance = useCloseConfigInstance();
   const cancelInstance = useCancelConfigInstance();
   const preview = usePreviewConfigInstance();
+  const { mutate: previewMutate } = preview;
 
   const instances = query.data ?? [];
   const products = (productsQuery.data ?? []).filter((p) => p.status === "active");
@@ -202,7 +203,7 @@ export function ConfigInstancesScreen() {
   const customerName = useMemo(() => {
     const map = new Map(customers.map((c) => [c.id, c.nameAr]));
     return (id: string | null) => (id === null ? t("customOrders.noCustomer") : (map.get(id) ?? id));
-  }, [customers]);
+  }, [customers, t]);
 
   const productOptions: EntityPickerOption[] = products.map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code }));
   const customerOptions: EntityPickerOption[] = customers.map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code }));
@@ -241,8 +242,12 @@ export function ConfigInstancesScreen() {
     if (!selectedProduct) return;
     if (!panelOpen) return;
     if (selectedProduct.inputs.some((i) => (spec[i.id] ?? "").trim() === "")) return;
-    preview.mutate({ configurableProductId: selectedProduct.id, spec });
-  }, [selectedProduct, spec, panelOpen]);
+    previewMutate({ configurableProductId: selectedProduct.id, spec });
+    // `previewMutate`, never the `preview` mutation object: the object gets a
+    // new identity on every state transition it makes, so depending on it here
+    // would re-fire this effect from its own result, forever. `mutate` is
+    // stable for the life of the mutation.
+  }, [selectedProduct, spec, panelOpen, previewMutate]);
 
   const selected = instances.find((i) => i.id === selectedId) ?? null;
 

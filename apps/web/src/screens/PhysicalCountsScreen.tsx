@@ -130,7 +130,7 @@ export function PhysicalCountsScreen() {
   const warehouseLabel = useMemo(() => {
     const map = new Map(warehouses.map((w) => [w.id, nameOf(w)]));
     return (id: string) => map.get(id) ?? id;
-  }, [warehouses]);
+  }, [warehouses, nameOf]);
   const itemLabel = useMemo(() => {
     const map = new Map(items.map((i) => [i.id, `${i.nameAr} (${i.code})`]));
     return (id: string) => map.get(id) ?? id;

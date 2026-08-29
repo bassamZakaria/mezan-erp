@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
@@ -94,11 +94,14 @@ export function EmployeeAdvancesScreen() {
   const [treasuryAccountId, setTreasuryAccountId] = useState("");
   const [branchId, setBranchId] = useState("");
 
-  function employeeName(employeeId: string): string {
-    const e = employees.find((row) => row.id === employeeId);
-    if (!e) return employeeId;
-    return employeeDisplayName(e, locale);
-  }
+  const employeeName = useCallback(
+    (employeeId: string): string => {
+      const e = employees.find((row) => row.id === employeeId);
+      if (!e) return employeeId;
+      return employeeDisplayName(e, locale);
+    },
+    [employees, locale],
+  );
 
   const filtered = useMemo(() => {
     let rows = advances;
@@ -108,7 +111,7 @@ export function EmployeeAdvancesScreen() {
       rows = rows.filter((a) => a.number.toLowerCase().includes(q) || employeeName(a.employeeId).toLowerCase().includes(q));
     }
     return rows;
-  }, [advances, statusFilter, search, employees]);
+  }, [advances, statusFilter, search, employees, employeeName]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);

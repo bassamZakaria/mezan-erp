@@ -300,7 +300,7 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
       if (b.date === null) return 1;
       return a.date === b.date ? a.key.localeCompare(b.key) : a.date.localeCompare(b.date);
     });
-  }, [supplier.openingBalance, confirmedInvoices, supplierVouchers, allocationsQuery.data, invoiceLabels]);
+  }, [supplier.openingBalance, confirmedInvoices, supplierVouchers, allocationsQuery.data, invoiceLabels, t]);
 
   const isError = invoicesQuery.isError || vouchersQuery.isError || allocationsQuery.isError || openInvoicesQuery.isError;
   const isLoading = invoicesQuery.isLoading || vouchersQuery.isLoading || allocationsQuery.isLoading || openInvoicesQuery.isLoading;

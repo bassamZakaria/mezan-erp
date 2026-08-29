@@ -137,7 +137,7 @@ export function VanTripsScreen() {
   const warehouseName = useMemo(() => {
     const map = new Map(warehouses.map((w) => [w.id, nameOf(w)]));
     return (id: string) => map.get(id) ?? id;
-  }, [warehouses]);
+  }, [warehouses, nameOf]);
   const branchName = useMemo(() => {
     const map = new Map(branches.map((b) => [b.id, b.name]));
     return (id: string) => map.get(id) ?? id;
@@ -145,7 +145,7 @@ export function VanTripsScreen() {
   const treasuryName = useMemo(() => {
     const map = new Map(treasuryAccounts.map((a) => [a.id, nameOf(a)]));
     return (id: string) => map.get(id) ?? id;
-  }, [treasuryAccounts]);
+  }, [treasuryAccounts, nameOf]);
   const employeeName = useMemo(() => {
     const map = new Map(employees.map((e) => [e.id, employeeDisplayName(e, locale)]));
     return (id: string) => map.get(id) ?? id;

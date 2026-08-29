@@ -404,7 +404,7 @@ function CreateTransferView({
 
   const itemOptions = useMemo(
     () => [{ value: "", label: t("stockXfer.chooseAnItem") }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
-    [itemList],
+    [itemList, t],
   );
   const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
 

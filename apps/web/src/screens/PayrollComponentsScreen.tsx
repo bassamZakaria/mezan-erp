@@ -85,7 +85,7 @@ export function PayrollComponentsScreen() {
           id: account.id,
           label: `${account.code} — ${nameOf(account)}`,
         })),
-    [accounts, locale],
+    [accounts, locale, nameOf],
   );
 
   function accountLabel(id: string | null): string {

@@ -770,11 +770,11 @@ export function ItemsScreen() {
 
   const categoryOptions: EntityPickerOption[] = useMemo(
     () => [{ id: NO_CATEGORY_ID, label: t(NO_CATEGORY_KEY) }, ...itemCategories.map((c) => ({ id: c.id, label: nameOf(c) }))],
-    [itemCategories, t],
+    [itemCategories, t, nameOf],
   );
   const glOptions: EntityPickerOption[] = useMemo(
     () => [{ id: DEFAULT_GL_ID, label: t(DEFAULT_GL_KEY) }, ...glAccounts.map((a) => ({ id: a.id, label: `${a.code} — ${nameOf(a)}` }))],
-    [glAccounts, t],
+    [glAccounts, t, nameOf],
   );
 
   const selectedItem = selectedId ? (items.find((i) => i.id === selectedId) ?? null) : null;

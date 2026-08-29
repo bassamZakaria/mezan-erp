@@ -108,7 +108,7 @@ export function ProductTemplatesScreen() {
   const specificationOptions = useMemo(() => {
     const selectable = (specificationsQuery.data ?? []).filter((s) => s.type === "select" && s.status === "active");
     return [{ value: "", label: t("templates.anAttributeSpecificToThis") }, ...selectable.map((s) => ({ value: s.code, label: `${s.nameAr} (${s.code})` }))];
-  }, [specificationsQuery.data]);
+  }, [specificationsQuery.data, t]);
 
   function openCreateForm() {
     setDraft(blankCreateDraft());

@@ -155,7 +155,7 @@ export function AuditLogScreen() {
         render: (e) => <StatusPill label={t(SEVERITY_KEY[e.severity])} tone={SEVERITY_TONE[e.severity]} />,
       },
     ],
-    [branches],
+    [branches, locale, t],
   );
 
   return (

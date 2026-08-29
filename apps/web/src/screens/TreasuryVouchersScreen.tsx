@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DocumentList,
   DocumentDetail,
@@ -259,12 +259,12 @@ export function TreasuryVouchersScreen() {
     for (const c of customers) map.set(c.id, nameOf(c));
     for (const s of suppliers) map.set(s.id, nameOf(s));
     return (id: string | null) => (id ? (map.get(id) ?? id) : t("vouchers.noParty"));
-  }, [customers, suppliers]);
+  }, [customers, suppliers, nameOf, t]);
 
   const treasuryName = useMemo(() => {
     const map = new Map(treasuryAccounts.map((account) => [account.id, nameOf(account)]));
     return (id: string) => map.get(id) ?? id;
-  }, [treasuryAccounts]);
+  }, [treasuryAccounts, nameOf]);
 
   const counts = {
     all: voucherCounts.all ?? 0,
@@ -921,18 +921,19 @@ function CreateVoucherView({
         ? accounts.filter((a) => a.type === "expense").map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` }))
         : [];
 
-  function treasuryGlOf(id: string): string {
-    return treasuryAccounts.find((account) => account.id === id)?.glAccountId ?? "";
-  }
+  const treasuryGlOf = useCallback(
+    (id: string): string => treasuryAccounts.find((account) => account.id === id)?.glAccountId ?? "",
+    [treasuryAccounts],
+  );
 
-  function counterpartyGl(): string | null {
+  const counterpartyGl = useCallback((): string | null => {
     if (!type) return null;
     if (def!.direction === "transfer") return null;
     const fixed = FIXED_COUNTERPARTY[type];
     return fixed ?? draft.counterpartyGlAccountId;
-  }
+  }, [type, def, draft.counterpartyGlAccountId]);
 
-  function buildLine(): VoucherLine | null {
+  const buildLine = useCallback((): VoucherLine | null => {
     if (!type || !def) return null;
     const amount = Money.fromMajor(String(draft.amount ?? 0));
     return {
@@ -953,7 +954,10 @@ function CreateVoucherView({
       costCenterId: draft.costCenterId || null,
       ...withholdingOf(amount, draft.withholdingRatePercent, def.direction),
     };
-  }
+    // `workingLocation` and the branch list are real inputs: the line's branch
+    // is resolved from them, and leaving them out let the effects preview keep
+    // showing the branch that was current when the form opened.
+  }, [type, def, draft, workingLocation.branchId, branchesQuery.data, treasuryGlOf, counterpartyGl]);
 
   // A preview document for the live effects panel — a pure client-side computation, no network call.
   const previewEffects = useMemo(() => {
@@ -966,7 +970,7 @@ function CreateVoucherView({
     } catch {
       return null;
     }
-  }, [type, def, draft]);
+  }, [type, def, draft, buildLine, voucherLabel]);
 
   async function submitVoucher() {
     if (!type || !def || busy) return;

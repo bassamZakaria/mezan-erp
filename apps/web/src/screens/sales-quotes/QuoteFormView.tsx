@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { errorMessage } from "../../lib/error-message";
 import {
   Button,
@@ -82,10 +82,13 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
   }, [customer, priceLists]);
 
   /** The price this quote should open a line at: the customer's list, else the item's own sale price. */
-  function priceFor(item: ItemDTO): number {
-    const listed = priceList?.lines.find((l) => l.itemId === item.id);
-    return Number(listed?.price ?? item.salePrice ?? "0");
-  }
+  const priceFor = useCallback(
+    (item: ItemDTO): number => {
+      const listed = priceList?.lines.find((l) => l.itemId === item.id);
+      return Number(listed?.price ?? item.salePrice ?? "0");
+    },
+    [priceList],
+  );
 
   function onHandOf(itemId: string): number | null {
     const row = stockRows.find((r) => r.itemId === itemId);
@@ -107,8 +110,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
       items
         .filter((i) => i.status === "active")
         .map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}` })),
-    // priceFor depends on the resolved price list, so re-derive when it changes.
-    [items, priceList, format],
+    [items, priceFor, format],
   );
 
   const domainLines = useMemo(() => toDomainLines(lines, items), [lines, items]);

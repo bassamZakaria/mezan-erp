@@ -148,7 +148,7 @@ export function JournalsScreen() {
   const accountLabel = useMemo(() => {
     const map = new Map(accounts.map((a) => [a.id, `${a.code} — ${nameOf(a)}`]));
     return (id: string) => map.get(id) ?? id;
-  }, [accounts]);
+  }, [accounts, nameOf]);
 
   const documents = query.data ?? [];
 
@@ -464,7 +464,7 @@ function CreateJournalView({
   const allLinesValid = lines.every((l) => l.accountId !== "" && (l.debit > 0) !== (l.credit > 0));
   const canPost = balanced && allLinesValid && memo.trim() !== "" && !busy;
 
-  const options = useMemo(() => [{ value: "", label: t("journals.chooseAnAccount") }, ...accountOptions], [accountOptions]);
+  const options = useMemo(() => [{ value: "", label: t("journals.chooseAnAccount") }, ...accountOptions], [accountOptions, t]);
 
   function updateLine(index: number, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));

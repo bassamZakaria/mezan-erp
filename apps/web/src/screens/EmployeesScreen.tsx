@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
@@ -207,9 +207,10 @@ export function EmployeesScreen() {
   const advancesQuery = useEmployeeAdvances();
   const attendanceQuery = useAttendance({ employeeId: selectedId, from: null, to: null, status: null });
 
-  function employeeName(e: Pick<EmployeeDTO, "firstNameAr" | "lastNameAr" | "firstName" | "lastName">): string {
-    return employeeDisplayName(e, locale);
-  }
+  const employeeName = useCallback(
+    (e: Pick<EmployeeDTO, "firstNameAr" | "lastNameAr" | "firstName" | "lastName">): string => employeeDisplayName(e, locale),
+    [locale],
+  );
 
   function departmentName(id: string | null): string {
     if (!id) return "—";
@@ -246,7 +247,7 @@ export function EmployeesScreen() {
       rows = rows.filter((e) => employeeName(e).toLowerCase().includes(q) || e.code.toLowerCase().includes(q));
     }
     return rows;
-  }, [employees, statusFilter, departmentFilter, search]);
+  }, [employees, statusFilter, departmentFilter, search, employeeName]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);

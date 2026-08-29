@@ -447,7 +447,7 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
       if (b.date === null) return 1;
       return a.date === b.date ? a.key.localeCompare(b.key) : a.date.localeCompare(b.date);
     });
-  }, [customer.openingBalance, invoicesQuery.data, returnsQuery.data, customerVouchers, allocationsQuery.data]);
+  }, [customer.openingBalance, customer.id, invoicesQuery.data, returnsQuery.data, customerVouchers, allocationsQuery.data, t]);
 
   const isError = invoicesQuery.isError || returnsQuery.isError || vouchersQuery.isError || allocationsQuery.isError;
   const isLoading = invoicesQuery.isLoading || returnsQuery.isLoading || vouchersQuery.isLoading || allocationsQuery.isLoading;

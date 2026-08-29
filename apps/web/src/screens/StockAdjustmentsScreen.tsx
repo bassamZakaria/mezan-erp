@@ -609,7 +609,7 @@ function CreateAdjustmentView({
 
   const itemOptions = useMemo(
     () => [{ value: "", label: t("stockAdj.chooseAnItem") }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: nameOf(i) }))],
-    [itemList],
+    [itemList, nameOf, t],
   );
   const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
 

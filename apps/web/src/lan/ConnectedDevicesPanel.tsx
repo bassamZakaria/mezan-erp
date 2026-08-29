@@ -57,7 +57,7 @@ export function ConnectedDevicesPanel({
     } catch (err) {
       setError(err instanceof Error ? err.message : t("devices.couldNotLoadTheConnected"));
     }
-  }, [baseUrl, fetchImpl]);
+  }, [baseUrl, fetchImpl, t]);
 
   useEffect(() => {
     void refresh();
@@ -81,7 +81,7 @@ export function ConnectedDevicesPanel({
         setDisconnectingId(null);
       }
     },
-    [baseUrl, fetchImpl, disconnectingId, refresh],
+    [baseUrl, fetchImpl, disconnectingId, refresh, t],
   );
 
   if (status && !status.licensed) {

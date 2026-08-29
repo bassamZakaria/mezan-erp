@@ -46,6 +46,7 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
     isCompanyAdmin: user.isCompanyAdmin,
     permissions,
     roleCode,
+    photoUrl: user.photoUrl,
     branchScope: user.branchScope === ALL_SCOPE ? "*" : [...user.branchScope],
     warehouseScope: user.warehouseScope === ALL_SCOPE ? "*" : [...user.warehouseScope],
     tenantName: await tenantName(deps.settings),

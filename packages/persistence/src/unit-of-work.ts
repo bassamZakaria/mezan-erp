@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS user (
   branch_scope      TEXT NOT NULL,
   warehouse_scope   TEXT NOT NULL,
   status            TEXT NOT NULL,
+  photo_url         TEXT,
   last_login_at     TEXT,
   created_at        TEXT NOT NULL
 );
@@ -82,6 +83,11 @@ function migrateUserLogin(sqlite: Database.Database): void {
     sqlite.exec(`ALTER TABLE user DROP COLUMN username`);
   }
   sqlite.exec(`UPDATE user SET email = lower(trim(email)) WHERE email <> lower(trim(email))`);
+  // Profile photos arrived after the table did; an install that predates them
+  // must gain the column or every user read fails on a missing field.
+  if (!columns.some((c) => c.name === "photo_url")) {
+    sqlite.exec(`ALTER TABLE user ADD COLUMN photo_url TEXT`);
+  }
 }
 
 function scopeToJson(scope: ScopeSelection): string {
@@ -171,6 +177,7 @@ class DrizzleUserRepository implements UserRepository {
         branchScope: scopeToJson(u.branchScope),
         warehouseScope: scopeToJson(u.warehouseScope),
         status: u.status,
+        photoUrl: u.photoUrl,
         lastLoginAt: u.lastLoginAt,
         createdAt: u.createdAt,
       })
@@ -188,6 +195,7 @@ class DrizzleUserRepository implements UserRepository {
           branchScope: scopeToJson(u.branchScope),
           warehouseScope: scopeToJson(u.warehouseScope),
           status: u.status,
+          photoUrl: u.photoUrl,
           lastLoginAt: u.lastLoginAt,
         },
       })
@@ -223,6 +231,7 @@ function rowToUser(row: typeof user.$inferSelect): User {
     branchScope: scopeFromJson(row.branchScope),
     warehouseScope: scopeFromJson(row.warehouseScope),
     status: row.status as User["status"],
+    photoUrl: row.photoUrl,
     lastLoginAt: row.lastLoginAt,
     createdAt: row.createdAt,
   };

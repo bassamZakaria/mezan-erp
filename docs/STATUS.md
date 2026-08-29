@@ -95,7 +95,7 @@ MEZAN_SEED_DEMO=1 MEZAN_DB=./dev.db PORT=3187 pnpm exec tsx apps/server/src/inde
 cd apps/web && MEZAN_API_URL=http://127.0.0.1:3187 pnpm exec vite --port 5183
 ```
 
-Log in as `محمد الشهابي` / PIN `1234`. **Reload the page to confirm a save
+Log in as `admin@cyag.example` / PIN `123456`. **Reload the page to confirm a save
 actually persisted** — that check alone has caught several "works until you look
 again" bugs.
 

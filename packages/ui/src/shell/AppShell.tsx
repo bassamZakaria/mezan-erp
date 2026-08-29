@@ -4,6 +4,7 @@ import { useTheme } from "../hooks/useTheme";
 import { useUiTranslation } from "../i18n";
 import { AllScreensPanel } from "./AllScreensPanel";
 import { BrandMark } from "./BrandMark";
+import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
 import { RailFooter } from "./RailFooter";
 import { WorkspaceRail } from "./WorkspaceRail";
 import { WorkspaceScreensBar } from "./WorkspaceScreensBar";
@@ -168,6 +169,11 @@ export function AppShell({
    */
   const showScreensBar = (activeWorkspaceKey ?? clickedWorkspaceKey) !== undefined && activeGroup !== null;
 
+  /** ⌘K and the column's search row open the same dialog. */
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  useCommandPaletteShortcut(openPalette);
+
   const canBrowse = allScreensGroups.length > 0;
   const [allScreensOpen, setAllScreensOpen] = useState(false);
   /** Which workspace «كل الشاشات» opens filtered to; null is the whole tree. */
@@ -234,7 +240,7 @@ export function AppShell({
           }
           footer={
             <RailFooter
-              commandItems={commandItems}
+              onOpenPalette={openPalette}
               onShowHelp={onShowHelp}
               theme={theme}
               onToggleTheme={toggleTheme}
@@ -289,6 +295,13 @@ export function AppShell({
           </div>
         </div>
       </div>
+
+      <CommandPalette
+        items={commandItems}
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        placeholder={t("shell.command.placeholder")}
+      />
 
       <AllScreensPanel
         open={allScreensOpen}

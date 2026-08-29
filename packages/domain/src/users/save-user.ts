@@ -84,10 +84,12 @@ export interface SaveUserCommand {
    */
   readonly password?: string;
   /**
-   * Plaintext 4-6 digit PIN. `undefined` leaves it unchanged (update), `null`
+   * Plaintext six-digit PIN. `undefined` leaves it unchanged (update), `null`
    * clears it, a string (re)sets it.
    */
   readonly pin?: string | null;
+  /** Profile photo as a data URL. `undefined` keeps whatever is stored. */
+  readonly photoUrl?: string | null;
   readonly roleId: string | null;
   readonly isCompanyAdmin: boolean;
   readonly employeeId: string | null;
@@ -191,6 +193,7 @@ export async function saveUser(
     branchScope: cmd.branchScope,
     warehouseScope: cmd.warehouseScope,
     status: cmd.status,
+    photoUrl: cmd.photoUrl === undefined ? (prior?.photoUrl ?? null) : cmd.photoUrl,
     lastLoginAt: prior?.lastLoginAt ?? null,
     createdAt: prior?.createdAt ?? cmd.createdAt,
   };

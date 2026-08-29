@@ -30,7 +30,7 @@ function post(app: App, path: string, body: unknown, headers: Record<string, str
 describe("createBackend — seeded app", () => {
   it("seeds an empty DB and logs the admin in with the real PIN", async () => {
     const app = await newBackend();
-    const res = await post(app, "/auth/login", { username: "محمد الشهابي", pin: "1234" });
+    const res = await post(app, "/auth/login", { username: "admin@cyag.example", pin: "123456" });
     expect(res.status).toBe(200);
     const session = (await res.json()) as SessionDTO;
     expect(session.isCompanyAdmin).toBe(true);

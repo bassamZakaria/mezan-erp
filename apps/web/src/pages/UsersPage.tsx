@@ -45,6 +45,8 @@ export interface UserFormDraft {
   branchIds: string[];
   warehouseIds: string[];
   status: UserStatusDTO;
+  /** Carried through the admin form untouched; people set their own photo in الملف الشخصي. */
+  photoUrl?: string | null;
 }
 
 const STATUS_KEY: Record<UserStatusDTO, AppTranslationKey> = { active: "common.active", inactive: "common.inactive" };
@@ -83,6 +85,7 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
     branchIds: scopeToIds(user.branchScope, allBranchIds),
     warehouseIds: scopeToIds(user.warehouseScope, allWarehouseIds),
     status: user.status,
+    photoUrl: user.photoUrl,
   };
 }
 
@@ -280,7 +283,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
               value={draft.password}
               onChange={(v) => setDraft((d) => ({ ...d, password: v }))}
             />
-            <TextField label={t("users.pinOptional46Digits")} value={draft.pin} onChange={(v) => setDraft((d) => ({ ...d, pin: v }))} placeholder="1234" />
+            <TextField label={t("users.pinOptional46Digits")} value={draft.pin} onChange={(v) => setDraft((d) => ({ ...d, pin: v }))} placeholder="123456" />
           </FormSection>
 
           <FormSection title={t("users.roleAndRights")}>

@@ -54,7 +54,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
     fillPin("123");
     expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
-    fillPin("1234");
+    fillPin("123456");
     expect(screen.getByRole("button", { name: "دخول" })).toBeEnabled();
   });
 
@@ -75,7 +75,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     );
     expect(screen.getByTestId("session")).toHaveTextContent("none");
 
-    fillPin("1234");
+    fillPin("123456");
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
 
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.fullName));

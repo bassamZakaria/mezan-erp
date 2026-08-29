@@ -125,9 +125,12 @@
   --shadow-2:
     0 22px 48px -22px rgba(12, 40, 32, 0.3),
     0 6px 16px -8px rgba(12, 40, 32, 0.14);
+  /* The column sits at the INLINE START, so its shadow falls toward the
+     content — which is -x in RTL and +x in LTR. `box-shadow` has no logical
+     form, so the offset is a token and the direction rule below flips it. */
   --shadow-chrome:
     0 0 0 1px rgba(0, 0, 0, 0.04),
-    8px 0 30px -18px rgba(7, 43, 39, 0.55);
+    -8px 0 30px -18px rgba(7, 43, 39, 0.55);
 
   color-scheme: light;
 
@@ -301,7 +304,7 @@
 
         --shadow-chrome:
           0 0 0 1px rgba(0, 0, 0, 0.5),
-          8px 0 30px -18px rgba(0, 0, 0, 0.7);
+          -8px 0 30px -18px rgba(0, 0, 0, 0.7);
 
       color-scheme: dark;
     }
@@ -370,7 +373,7 @@
 
       --shadow-chrome:
         0 0 0 1px rgba(0, 0, 0, 0.5),
-        8px 0 30px -18px rgba(0, 0, 0, 0.7);
+        -8px 0 30px -18px rgba(0, 0, 0, 0.7);
 
     color-scheme: dark;
   }
@@ -549,6 +552,13 @@ th.mz-num {
 ::selection {
   background: var(--action-soft);
   color: var(--text);
+}
+
+/* LTR mirrors the chrome shadow back: same 8px, other side. */
+[dir="ltr"] {
+  --shadow-chrome:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    8px 0 30px -18px rgba(7, 43, 39, 0.55);
 }
 
 :focus-visible {

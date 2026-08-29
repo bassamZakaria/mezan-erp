@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "../i18n";
 import { cn } from "../lib/cn";
 
@@ -49,7 +50,17 @@ const PRIORITY_DOT_CLASS: Record<NonNullable<NotificationPanelItem["priority"]>,
   urgent: "bg-danger",
 };
 
-/** NotificationsPanel — the top-bar bell's dropdown (docs/catalog/09 §الإشعارات): الكل/غير مقروء tabs, mark-all-read, a scrollable list. */
+/**
+ * NotificationsPanel — a MODAL (docs/catalog/09 §الإشعارات): الكل/غير مقروء
+ * tabs, mark-all-read, a scrollable list.
+ *
+ * It was a dropdown anchored to the bell. The bell now lives at the BOTTOM of
+ * the workspace column, where an anchored panel either opens past the fold or
+ * has to be flipped and squeezed into 200px of column; and a notification list
+ * is something you read and act on, not a menu you flick through. So it opens
+ * in the middle of the screen, the same shape as «كل الشاشات» and ⌘K — three
+ * surfaces, one behaviour, one Escape.
+ */
 export function NotificationsPanel({
   open,
   onClose,
@@ -74,14 +85,25 @@ export function NotificationsPanel({
 
   if (!open) return null;
 
-  return (
-    <>
-      <div aria-hidden="true" onClick={onClose} className="fixed inset-0 z-[70]" />
+  /*
+   * PORTALED TO <body>. The bell lives inside the workspace column, whose
+   * scroll container is `position: sticky` — and a sticky element creates a
+   * stacking context, so a `position: fixed` dialog rendered inside it is
+   * trapped in that context and the page's own cards paint straight over it.
+   * z-index cannot win that fight; leaving the subtree does.
+   */
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[70] flex items-start justify-center bg-scrim p-[16px] pt-[10vh]"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={t("notifications.title")}
-        className="absolute end-0 top-[calc(100%+8px)] z-[71] flex max-h-[70vh] w-[380px] max-w-[92vw] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2"
+        className="flex max-h-[min(620px,76vh)] w-full max-w-[460px] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2"
       >
         <div className="flex items-center justify-between border-b border-border px-[16px] py-[13px]">
           <div className="flex items-center gap-[8px]">
@@ -158,6 +180,7 @@ export function NotificationsPanel({
           </div>
         ) : null}
       </div>
-    </>
+    </div>,
+    document.body,
   );
 }

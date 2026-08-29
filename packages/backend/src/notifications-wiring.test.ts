@@ -40,7 +40,7 @@ const ADMIN_HEADERS = {
 };
 
 async function loginAdmin(app: App): Promise<SessionDTO> {
-  const res = await post(app, "/auth/login", { username: "محمد الشهابي", pin: "1234" });
+  const res = await post(app, "/auth/login", { username: "admin@cyag.example", pin: "123456" });
   expect(res.status).toBe(200);
   return (await res.json()) as SessionDTO;
 }

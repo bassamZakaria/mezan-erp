@@ -48,6 +48,8 @@ export interface ShellUser {
   name: string;
   role: string;
   initials: string;
+  /** The profile photo, when one has been uploaded; initials stand in when not. */
+  photoUrl?: string | null;
 }
 
 export interface CommandItem {

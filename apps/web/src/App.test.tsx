@@ -31,7 +31,7 @@ function appTransport() {
 }
 
 function login() {
-  "1234".split("").forEach((digit, index) => {
+  "123456".split("").forEach((digit, index) => {
     fireEvent.change(screen.getByLabelText(`رمز PIN رقم ${index + 1}`), { target: { value: digit } });
   });
   fireEvent.click(screen.getByRole("button", { name: "دخول" }));

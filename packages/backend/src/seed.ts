@@ -37,7 +37,7 @@ import type { BootstrapSeedResultDTO } from "@mezan/contracts";
 export const SEED_TENANT_NAME = "Cyag";
 export const SEED_ADMIN_NAME = "محمد الشهابي";
 export const SEED_ADMIN_EMAIL = "admin@cyag.example";
-export const SEED_ADMIN_PIN = "1234";
+export const SEED_ADMIN_PIN = "123456";
 const SEED_ADMIN_PASSWORD = "change-me-on-first-login";
 const SEED_MAIN_BRANCH_ID = "BR-MAIN";
 const SEED_MAIN_WAREHOUSE_ID = "WH-MAIN";
@@ -112,7 +112,7 @@ export async function isEmptyTenant(stores: Pick<SeedStores, "accounts">): Promi
  * Seeds an EMPTY database with the minimum a tenant needs to operate:
  * a standard Chart of Accounts, the 14% VAT rate, the current fiscal year's
  * periods, one main branch + its main warehouse, tenant settings, one system
- * role, and one company-admin user (username محمد الشهابي, PIN 1234). Numbering
+ * role, and one company-admin user (email admin@cyag.example, PIN 123456). Numbering
  * sequences are initialised lazily by the NextNumber service on first use, so
  * no counters are pre-seeded. Idempotent: a no-op on an already-seeded DB.
  */

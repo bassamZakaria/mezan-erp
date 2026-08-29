@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
+import { Avatar } from "./Avatar";
 import { ChromeActions } from "./ChromeActions";
-import { CommandBar } from "./CommandBar";
+import { CommandTrigger } from "./CommandPalette";
 import { ScopeSwitchers, type TopbarScopeOption } from "./ScopeSwitcher";
 import { TopbarMenu } from "./TopbarMenu";
 import type { ThemePreference } from "../hooks/useTheme";
-import type { CommandItem, ShellUser, UserMenuItem } from "./types";
+import type { ShellUser, UserMenuItem } from "./types";
 
 /**
  * THE FOOT OF THE WORKSPACE COLUMN — everything that used to be row one.
@@ -28,10 +29,12 @@ import type { CommandItem, ShellUser, UserMenuItem } from "./types";
  *
  * EVERY PANEL OPENS UPWARD. At the bottom of the viewport a menu dropped
  * downward is drawn past the fold and cannot be reached — `openUp` on
- * `TopbarMenu` and `CommandBar` exists for exactly this position.
+ * `TopbarMenu` exists for exactly this position. Search is the exception: it
+ * is a dialog in the middle of the screen, so the row here is only its trigger.
  */
 export interface RailFooterProps {
-  commandItems?: CommandItem[];
+  /** Opens the ⌘K dialog; the foot only carries its trigger. */
+  onOpenPalette: () => void;
   onShowHelp?: () => void;
   theme?: ThemePreference;
   onToggleTheme?: () => void;
@@ -49,7 +52,7 @@ export interface RailFooterProps {
 }
 
 export function RailFooter({
-  commandItems = [],
+  onOpenPalette,
   onShowHelp,
   theme,
   onToggleTheme,
@@ -69,12 +72,7 @@ export function RailFooter({
 
   return (
     <div className="mt-auto flex flex-none flex-col gap-[8px] border-t border-chrome-border px-[10px] pt-[10px]">
-      <CommandBar
-        items={commandItems}
-        placeholder={t("shell.command.placeholder")}
-        openUp
-        className="w-full [&>div]:min-h-[38px] [&>div]:px-[10px]"
-      />
+      <CommandTrigger onOpen={onOpenPalette} />
 
       <ScopeSwitchers
         orientation="rail"
@@ -106,21 +104,22 @@ export function RailFooter({
                 "px-[6px] text-start transition-colors hover:bg-chrome-hover focus-visible:outline-chrome-accent",
               )}
             >
-              <span className="flex h-[28px] w-[28px] flex-none items-center justify-center rounded-full bg-accent font-display text-[11px] font-extrabold text-accent-ink">
-                {user.initials}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-bold leading-[1.2] text-chrome-ink">{user.name}</span>
-                <span className="mz-lat block truncate text-2xs text-chrome-ink-muted">{user.role}</span>
-              </span>
+              <Avatar user={user} size={28} />
+              {/* NAME ONLY. The role sat under it as a second line and was the
+                  one thing here nobody needs at a glance — it is in the menu
+                  this button opens, next to everything else about the user. */}
+              <span className="min-w-0 flex-1 truncate text-xs font-bold text-chrome-ink">{user.name}</span>
             </button>
           )}
         >
           {(close) => (
             <>
-              <div className="border-b border-border px-[14px] py-[11px]">
-                <div className="text-sm font-bold text-ink">{user.name}</div>
-                <div className="mz-lat text-xs text-ink-faint">{user.role}</div>
+              <div className="flex items-center gap-[10px] border-b border-border px-[14px] py-[11px]">
+                <Avatar user={user} size={36} />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-bold text-ink">{user.name}</div>
+                  <div className="truncate text-xs text-ink-faint">{user.role}</div>
+                </div>
               </div>
               <ul className="py-[4px]">
                 {userMenuItems.map((item) => (

@@ -25,6 +25,7 @@ function serializeProfile(user: User) {
     isCompanyAdmin: user.isCompanyAdmin,
     roleId: user.roleId,
     hasPin: user.pinHash !== null,
+    photoUrl: user.photoUrl,
     lastLoginAt: user.lastLoginAt,
     createdAt: user.createdAt,
   };

@@ -119,7 +119,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
       setAdminError(t("firstRun.theFullNameAndThe"));
       return;
     }
-    if (adminPin.length !== 4 || !/^\d{4}$/.test(adminPin)) {
+    if (!/^\d{6}$/.test(adminPin)) {
       setAdminError(t("firstRun.thePinMustBe4"));
       return;
     }
@@ -223,7 +223,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
                   type="password"
                   numeric
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={6}
                   value={adminPin}
                   onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, ""))}
                 />
@@ -234,7 +234,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
                   type="password"
                   numeric
                   inputMode="numeric"
-                  maxLength={4}
+                  maxLength={6}
                   value={adminPinConfirm}
                   onChange={(e) => setAdminPinConfirm(e.target.value.replace(/\D/g, ""))}
                 />

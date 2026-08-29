@@ -96,6 +96,8 @@ export const user = sqliteTable("user", {
   branchScope: text("branch_scope").notNull(), // JSON
   warehouseScope: text("warehouse_scope").notNull(), // JSON
   status: text("status").notNull(),
+  /** Profile photo as a `data:` URL — the desktop edition has no blob store. */
+  photoUrl: text("photo_url"),
   lastLoginAt: text("last_login_at"),
   createdAt: text("created_at").notNull(),
 });

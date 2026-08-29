@@ -3,7 +3,16 @@ import { scopeSelectionSchema } from "./roles.js";
 
 export const userStatusSchema = z.enum(["active", "inactive"]);
 
-const pinSchema = z.string().regex(/^\d{4,6}$/, "PIN must be 4 to 6 digits");
+/** ~180KB of base64 — a 256px avatar with room to spare, and far below a raw camera JPEG. */
+export const PHOTO_MAX_CHARS = 250_000;
+
+/**
+ * SIX digits, exactly. A four-digit PIN is 10,000 combinations guarding a
+ * ledger — and on this login the PIN is the whole credential, because the
+ * device supplies the identity. Six is the shortest code the reviewers would
+ * sign off on beside a lockout.
+ */
+const pinSchema = z.string().regex(/^\d{6}$/, "PIN must be exactly 6 digits");
 
 /** The login identifier. Normalised on the wire so the client cannot create a case variant. */
 const loginEmailSchema = z.string().trim().toLowerCase().email();
@@ -21,6 +30,8 @@ export const userSchema = z.object({
   warehouseScope: scopeSelectionSchema,
   status: userStatusSchema,
   hasPin: z.boolean(),
+  /** Profile photo as a stored data URL, or null when the user has none. */
+  photoUrl: z.string().nullable(),
   lastLoginAt: z.string().nullable(),
   createdAt: z.string(),
 });
@@ -35,6 +46,12 @@ const userBaseFields = {
   branchScope: scopeSelectionSchema,
   warehouseScope: scopeSelectionSchema,
   status: userStatusSchema.default("active"),
+  /**
+   * A small square image as a `data:` URL. Bounded on the wire because it goes
+   * into the SQLite row itself: the desktop edition has no blob store, and an
+   * unbounded string here is how one 4MB camera photo lands in every user list.
+   */
+  photoUrl: z.string().max(PHOTO_MAX_CHARS).nullable().default(null),
 };
 
 export const createUserSchema = z

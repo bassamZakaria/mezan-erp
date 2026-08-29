@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DocumentDetail, Button, Card, StatusPill, formatDate, type PillTone } from "@mezan/ui";
 import type { AuditEventDTO, AuditSeverityDTO } from "@mezan/contracts";
 import { useProfile, useUpdateProfile, useChangePassword, useChangePin, useProfileActivity } from "../data/account-hooks";
 import { TextField, SectionCard } from "./form-controls";
+import { squarePhotoDataUrl } from "./photo";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
@@ -11,6 +12,14 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
  * any user), every action here is scoped to the caller's own id by the API
  * (`profile-routes.ts`) — there is no user picker and no permission gate.
  */
+
+/** Two initials for the fallback disc — the same shape the shell's avatar uses. */
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = [...(parts[0] ?? "")][0] ?? "؟";
+  const second = [...(parts[1] ?? "")][0] ?? "";
+  return second ? `${first}.${second}` : first;
+}
 
 function severityTone(severity: AuditSeverityDTO): PillTone {
   switch (severity) {
@@ -40,22 +49,37 @@ function InfoTab() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!profile) return;
     setFullName(profile.fullName);
     setEmail(profile.email);
     setPhone(profile.phone ?? "");
+    setPhotoUrl(profile.photoUrl ?? null);
   }, [profile]);
 
   if (profileQuery.isLoading) return <p className="text-[12.5px] text-ink-muted">{t("common.loading")}</p>;
   if (!profile) return <p className="text-[12.5px] text-danger-ink">{t("profile.couldNotLoadTheAccount")}</p>;
 
+  async function handlePickPhoto(file: File) {
+    setMessage(null);
+    try {
+      // Downscaled and re-encoded here, not stored as picked: the row holds the
+      // string itself, so a 4MB camera JPEG would otherwise travel with every
+      // user read. 256px square at JPEG q0.85 lands around 20KB.
+      setPhotoUrl(await squarePhotoDataUrl(file, 256));
+    } catch {
+      setMessage({ kind: "error", text: t("profile.photoUnreadable") });
+    }
+  }
+
   async function handleSave() {
     setMessage(null);
     try {
-      await updateProfile.mutateAsync({ fullName, email, phone: phone.trim() === "" ? null : phone });
+      await updateProfile.mutateAsync({ fullName, email, phone: phone.trim() === "" ? null : phone, photoUrl });
       setMessage({ kind: "ok", text: t("profile.theAccountDetailsWereSaved") });
     } catch (err) {
       setMessage({ kind: "error", text: err instanceof Error ? err.message : t("profile.couldNotSaveTheDetails") });
@@ -64,6 +88,41 @@ function InfoTab() {
 
   return (
     <SectionCard title={t("profile.coreDetails")} description={t("profile.yourAccountSNameEmail")}>
+      <div className="col-span-full flex items-center gap-[14px]">
+        {photoUrl ? (
+          <img src={photoUrl} alt="" className="h-[72px] w-[72px] flex-none rounded-full object-cover" />
+        ) : (
+          <span
+            aria-hidden
+            className="flex h-[72px] w-[72px] flex-none items-center justify-center rounded-full bg-accent font-display text-[22px] font-extrabold text-accent-ink"
+          >
+            {initialsOf(fullName)}
+          </span>
+        )}
+        <div className="flex flex-col gap-[6px]">
+          <span className="text-[12.5px] font-semibold text-ink">{t("profile.photo")}</span>
+          <span className="text-[11.5px] text-ink-faint">{t("profile.photoHint")}</span>
+          <div className="flex gap-[8px]">
+            <Button onClick={() => fileRef.current?.click()}>{t("profile.photoChoose")}</Button>
+            {photoUrl ? (
+              <Button variant="danger-outline" onClick={() => setPhotoUrl(null)}>
+                {t("profile.photoRemove")}
+              </Button>
+            ) : null}
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void handlePickPhoto(file);
+            }}
+          />
+        </div>
+      </div>
       <TextField label={t("profile.fullName")} value={fullName} onChange={setFullName} />
       <TextField label={t("common.email")} value={email} onChange={setEmail} type="email" />
       <TextField label={t("profile.phoneNumber")} value={phone} onChange={setPhone} type="tel" placeholder={t("profile.optional")} />

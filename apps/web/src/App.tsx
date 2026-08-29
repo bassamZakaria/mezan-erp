@@ -5,6 +5,7 @@ import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 import { useNotificationsBell } from "./notifications/NotificationsBell";
 import { useScopeSelector } from "./data/hub-hooks";
+import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, PINNED_NAV_ITEM_KEYS } from "./nav-config";
@@ -375,6 +376,7 @@ function initialsFor(fullName: string, unknown: string): string {
 
 export function App() {
   const { session, setSession, request } = useApi();
+  const profile = useProfile();
   const { t } = useAppTranslation();
   const [showWizard, setShowWizard] = useState(false);
   // The URL is the source of truth for which screen and sub-page is on display.
@@ -662,6 +664,9 @@ export function App() {
       branchScope: scopeIdsToSelection(draft.branchIds, allBranchIds),
       warehouseScope: scopeIdsToSelection(draft.warehouseIds, allWarehouseIds),
       status: draft.status,
+      // The admin's user form does not edit photos — people set their own in
+      // الملف الشخصي — so this carries the stored value through untouched.
+      photoUrl: draft.photoUrl ?? null,
     };
     try {
       const value = editingId
@@ -725,6 +730,9 @@ export function App() {
     name: session.fullName,
     role: session.isCompanyAdmin ? t("shell.user.role.companyAdmin") : t("shell.user.role.member"),
     initials: initialsFor(session.fullName, t("app.unknownInitial")),
+    // The photo comes from the profile, not the session: it changes while the
+    // session lives, and the login response is issued once.
+    photoUrl: profile.data?.photoUrl ?? null,
   };
   const scopeLabel = scopeLabelFor(session.branchScope, branches, t);
 

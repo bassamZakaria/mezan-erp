@@ -40,7 +40,7 @@ MEZAN_SEED_DEMO=1 MEZAN_DB=$S/test.db PORT=3300 pnpm exec tsx apps/server/src/in
 cd apps/web && MEZAN_API_URL=http://127.0.0.1:3300 pnpm exec vite --port 5300 --host 127.0.0.1 &
 ```
 
-Log in as `محمد الشهابي`, PIN `1234`.
+Log in as `admin@cyag.example`, PIN `123456`.
 
 **Gate — no list surface may be empty.** Run the coverage check:
 

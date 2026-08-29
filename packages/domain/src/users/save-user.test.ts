@@ -28,7 +28,7 @@ const baseCmd = {
   email: "mohamed@cyag.test",
   phone: "+201000000000",
   password: "TempPass123",
-  pin: "1234",
+  pin: "123456",
   roleId: null,
   isCompanyAdmin: true,
   employeeId: null,

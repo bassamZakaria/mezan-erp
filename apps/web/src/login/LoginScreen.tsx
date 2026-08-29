@@ -5,7 +5,7 @@ import { clearSessionExpired, sessionExpiredPending } from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
 
-const PIN_LENGTH = 4;
+const PIN_LENGTH = 6;
 /**
  * The seed admin's EMAIL, not their display name — login used to match the full
  * name, a field any admin can edit and two people can share. Only used as the
@@ -196,15 +196,19 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
                       : "border-transparent bg-surface-2 text-ink-muted hover:bg-surface-3",
                   )}
                 >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full font-display text-[13px] font-extrabold",
-                      active ? "bg-accent text-accent-ink" : "bg-brand text-brand-ink",
-                    )}
-                  >
-                    {user.initials}
-                  </span>
+                  {user.photoUrl ? (
+                    <img src={user.photoUrl} alt="" className="h-[40px] w-[40px] flex-none rounded-full object-cover" />
+                  ) : (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full font-display text-[13px] font-extrabold",
+                        active ? "bg-accent text-accent-ink" : "bg-brand text-brand-ink",
+                      )}
+                    >
+                      {user.initials}
+                    </span>
+                  )}
                   <span className="w-full truncate text-center" title={user.name}>
                     {user.name}
                   </span>
@@ -253,7 +257,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
         <p className="mt-[16px] text-xs text-ink-muted">{pinLabel}</p>
 
-        <div className="mt-[8px] flex gap-[10px]" dir="ltr" role="group" aria-label={t("login.pin")}>
+        <div className="mt-[8px] flex gap-[7px]" dir="ltr" role="group" aria-label={t("login.pin")}>
           {pinDigits.map((digit, index) => (
             <TextInput
               key={index}
@@ -267,7 +271,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               aria-label={t("login.pin.digit", { index: index + 1 })}
               onChange={(e) => handlePinChange(index, e)}
               onKeyDown={(e) => handlePinKeyDown(index, e)}
-              className="h-[56px] w-full px-0 text-center text-[20px] font-bold"
+              className="h-[52px] w-full px-0 text-center text-[19px] font-bold"
             />
           ))}
         </div>

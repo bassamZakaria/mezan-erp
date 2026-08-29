@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
+import { POPUP_Z_CLASS, usePopupPosition } from "./popup-position";
 
 export interface TopbarMenuTriggerProps {
   ref: (el: HTMLButtonElement | null) => void;
@@ -15,9 +17,8 @@ export interface TopbarMenuProps {
   children: ReactNode | ((close: () => void) => ReactNode);
   panelClassName?: string;
   /**
-   * Opens above the trigger instead of below it. The user menu now sits at the
-   * BOTTOM of the workspace column, where a panel dropped downward would open
-   * past the end of the viewport and be unreachable.
+   * Kept for callers that still name it; the panel now measures its own space
+   * and flips up on its own (`usePopupPosition`), so this is advisory.
    */
   openUp?: boolean;
 }
@@ -27,11 +28,26 @@ export interface TopbarMenuProps {
  * click and on Escape, returning focus to its trigger so keyboard users are
  * never stranded on a dismissed panel.
  */
-export function TopbarMenu({ label, trigger, children, panelClassName, openUp }: TopbarMenuProps) {
+export function TopbarMenu({ label, trigger, children, panelClassName }: TopbarMenuProps) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  /*
+   * PORTALED AND MEASURED. The user menu's trigger sits at the foot of the
+   * workspace column — 200px wide, inside a `position: sticky` box, at the
+   * bottom of the viewport. Anchored absolutely it did all three wrong things
+   * at once: it dropped below the fold, it overflowed the column's width, and
+   * being inside a sticky ancestor's stacking context the page painted over
+   * it. `usePopupPosition` flips it above the trigger and pins it to the
+   * viewport; the portal takes it out of the column's stacking context.
+   */
+  // "start", not "end": at the foot of the column the trigger's inline-END is
+  // the viewport's own edge, and an end-aligned panel grows straight off the
+  // screen. Anchored at the inline-START it opens toward the content, which is
+  // also where there is room for it.
+  const position = usePopupPosition(triggerRef, open, "start");
 
   function close() {
     setOpen(false);
@@ -41,7 +57,10 @@ export function TopbarMenu({ label, trigger, children, panelClassName, openUp }:
     if (!open) return;
 
     function onPointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (containerRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -69,20 +88,30 @@ export function TopbarMenu({ label, trigger, children, panelClassName, openUp }:
         "aria-controls": open ? panelId : undefined,
       })}
 
-      {open ? (
-        <div
-          id={panelId}
-          role="menu"
-          aria-label={label}
-          className={cn(
-            "absolute end-0 z-30 w-[300px] overflow-hidden rounded-lg border border-border bg-surface shadow-2",
-            openUp ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]",
-            panelClassName,
-          )}
-        >
-          {typeof children === "function" ? children(close) : children}
-        </div>
-      ) : null}
+      {open && position
+        ? createPortal(
+            <div
+              ref={panelRef}
+              id={panelId}
+              role="menu"
+              aria-label={label}
+              style={{
+                position: "fixed",
+                top: `${position.top}px`,
+                insetInlineStart: `${position.inlineStart ?? 0}px`,
+                maxHeight: `${position.maxHeight}px`,
+              }}
+              className={cn(
+                POPUP_Z_CLASS,
+                "w-[300px] overflow-y-auto rounded-lg border border-border bg-surface shadow-2",
+                panelClassName,
+              )}
+            >
+              {typeof children === "function" ? children(close) : children}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

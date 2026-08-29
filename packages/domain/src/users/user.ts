@@ -34,6 +34,12 @@ export interface User {
   readonly isCompanyAdmin: boolean;
   /** Optional link to an HR employee record (e.g. a van-sales driver login). */
   readonly employeeId: string | null;
+  /**
+   * Profile photo as a `data:` URL, or null. Stored on the row because the
+   * desktop edition ships one SQLite file and no blob store — the wire schema
+   * bounds its size (`PHOTO_MAX_CHARS`) so a camera JPEG cannot ride along.
+   */
+  readonly photoUrl: string | null;
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
   readonly status: UserStatus;

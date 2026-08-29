@@ -59,6 +59,7 @@ export const testAdminSession: Session = {
   isCompanyAdmin: true,
   permissions: ["*"],
   roleCode: null,
+  photoUrl: null,
   branchScope: "*",
   warehouseScope: "*",
   tenantName: "Cyag",

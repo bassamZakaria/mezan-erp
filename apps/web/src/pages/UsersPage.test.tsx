@@ -29,6 +29,7 @@ const user: UserDTO = {
   branchScope: "*",
   warehouseScope: "*",
   status: "active",
+  photoUrl: null,
   lastLoginAt: null,
   createdAt: "2026-08-08T00:00:00.000Z",
 };

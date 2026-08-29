@@ -20,6 +20,8 @@ export interface DeviceUser {
   name: string;
   initials: string;
   role: string;
+  /** Last known profile photo, so the face row is a face and not two letters. */
+  photoUrl?: string | null;
 }
 
 function initialsOf(name: string): string {
@@ -53,6 +55,7 @@ export function rememberDeviceUser(session: SessionDTO): void {
     name: session.fullName,
     initials: initialsOf(session.fullName),
     role: session.roleCode ?? (session.isCompanyAdmin ? "admin" : ""),
+    photoUrl: session.photoUrl ?? null,
   };
   try {
     const rest = readDeviceUsers().filter((u) => u.email !== entry.email);

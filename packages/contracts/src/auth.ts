@@ -16,7 +16,7 @@ export const loginRequestSchema = z.object({
    * the login form is called; the value is an address.
    */
   username: z.string().min(1),
-  pin: z.string().min(4).max(6),
+  pin: z.string().regex(/^\d{6}$/),
 });
 
 /** The authenticated session — identity + effective authority. */
@@ -35,6 +35,8 @@ export const sessionSchema = z.object({
    * (see `authHeaders` in apps/web/src/data/session.ts).
    */
   roleCode: z.string().nullable(),
+  /** The user's profile photo, so the device's face row can draw it before the next sign-in. */
+  photoUrl: z.string().nullable(),
   branchScope: scopeSelectionSchema,
   warehouseScope: scopeSelectionSchema,
   tenantName: z.string(),
@@ -54,7 +56,7 @@ export const bootstrapAdminRequestSchema = z.object({
   fullName: z.string().min(1),
   /** The first admin's email — and, from this moment on, their login. */
   email: z.string().trim().toLowerCase().email(),
-  pin: z.string().regex(/^\d{4,6}$/),
+  pin: z.string().regex(/^\d{6}$/),
 });
 
 /** Result of the idempotent `POST /bootstrap/seed` — what the empty-DB seed created (or found). */

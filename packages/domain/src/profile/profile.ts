@@ -22,6 +22,8 @@ export interface UpdateOwnProfileCommand {
   readonly fullName: string;
   readonly email: string;
   readonly phone: string | null;
+  /** `undefined` leaves the stored photo alone; `null` removes it. */
+  readonly photoUrl?: string | null;
 }
 
 /** Updates the caller's own name/email/phone. Email must stay unique across users. */
@@ -40,7 +42,13 @@ export async function updateOwnProfile(
     throw new DuplicateUserEmailError(cmd.email);
   }
 
-  const next: User = { ...user, fullName: cmd.fullName, email: cmd.email, phone: cmd.phone };
+  const next: User = {
+    ...user,
+    fullName: cmd.fullName,
+    email: cmd.email,
+    phone: cmd.phone,
+    photoUrl: cmd.photoUrl === undefined ? user.photoUrl : cmd.photoUrl,
+  };
   await uow.users.save(next);
   return next;
 }

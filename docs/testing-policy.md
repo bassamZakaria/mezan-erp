@@ -31,7 +31,7 @@ MEZAN_SEED_DEMO=1 MEZAN_DB=./dev.db PORT=3187 pnpm exec tsx apps/server/src/inde
 cd apps/web && MEZAN_API_URL=http://127.0.0.1:3187 pnpm exec vite --port 5183
 ```
 
-Log in as `محمد الشهابي` / PIN `1234`, then exercise the screens you changed: open them, run
+Log in as `admin@cyag.example` / PIN `123456`, then exercise the screens you changed: open them, run
 their actions, and **reload the page to confirm what you saved actually persisted**. Cross-check
 what the screen displays against what the endpoint returns (`curl` with headers
 `x-user-id: t`, `x-permissions: *`, `x-branch-scope: *`, `x-warehouse-scope: *`).

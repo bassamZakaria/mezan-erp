@@ -29,6 +29,7 @@ function serializeUser(user: User) {
     warehouseScope: user.warehouseScope,
     status: user.status,
     hasPin: user.pinHash !== null,
+    photoUrl: user.photoUrl,
     lastLoginAt: user.lastLoginAt,
     createdAt: user.createdAt,
   };

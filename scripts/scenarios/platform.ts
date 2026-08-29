@@ -1,4 +1,11 @@
 import type { Ctx } from "./harness.js";
+/**
+ * The seed's PIN, imported rather than typed out. It was hardcoded as "1234"
+ * here while the seed moved to six digits and the wire contract began
+ * requiring `/^\d{6}$/`, so every sign-in in this file 400'd on validation and
+ * took the whole authentication section down with it.
+ */
+import { SEED_ADMIN_PIN } from "../../packages/backend/src/seed.js";
 
 /**
  * Executable checks for the Settings / Platform Administration module — see
@@ -58,7 +65,7 @@ export async function run(ctx: Ctx): Promise<void> {
       new Request("http://scenario/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: "admin@cyag.example", pin: "1234" }),
+        body: JSON.stringify({ username: "admin@cyag.example", pin: SEED_ADMIN_PIN }),
       }),
     );
     check("a real sign-in succeeds", login.status === 200, `status ${login.status}`);
@@ -88,7 +95,7 @@ export async function run(ctx: Ctx): Promise<void> {
         new Request("http://scenario/auth/login", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ username, pin: "1234" }),
+          body: JSON.stringify({ username, pin: SEED_ADMIN_PIN }),
         }),
       );
       return res.status;
@@ -105,7 +112,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // --- the allowed-domain policy -------------------------------------
     const newUser = (email: string, id: string) => ({
-      fullName: "مستخدم نطاق",
+      nameAr: "مستخدم نطاق", nameEn: null,
       email,
       phone: null,
       roleId: null,
@@ -178,7 +185,7 @@ export async function run(ctx: Ctx): Promise<void> {
     approverRoleId = role.body?.id ?? "";
 
     const submitter = await req("POST", "/users", {
-      fullName: "SCN Submitter", email: "scn-submitter@cyag.example", phone: null,
+      nameAr: "SCN Submitter", nameEn: null, email: "scn-submitter@cyag.example", phone: null,
       roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",
     });
@@ -186,7 +193,7 @@ export async function run(ctx: Ctx): Promise<void> {
     submitterUserId = submitter.body?.id ?? "";
 
     const approver = await req("POST", "/users", {
-      fullName: "SCN Approver", email: "scn-approver@cyag.example", phone: null,
+      nameAr: "SCN Approver", nameEn: null, email: "scn-approver@cyag.example", phone: null,
       roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",
     });

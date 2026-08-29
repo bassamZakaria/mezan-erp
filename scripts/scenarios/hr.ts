@@ -46,7 +46,8 @@ async function linkAdmin(ctx: Ctx, employeeId: string | null): Promise<string | 
     // A full-replace PUT: every field the schema requires has to be echoed
     // back. Omitting one 400s, and the link this helper exists to make
     // silently does not happen.
-    fullName: cur.fullName,
+    nameAr: cur.nameAr,
+    nameEn: cur.nameEn ?? null,
     email: cur.email,
     phone: cur.phone,
     roleId: cur.roleId,

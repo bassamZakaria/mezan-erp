@@ -42,6 +42,24 @@ function step(key: string, rtl: boolean): number {
   return 0;
 }
 
+/**
+ * التقارير NEVER flattens, however few reports a workspace has today.
+ *
+ * Reports are browsed by name from one known place — "where are the reports"
+ * must have the same answer on every workspace — and the list grows: a
+ * workspace with two reports this quarter has nine next quarter, and a shelf
+ * that silently turns into tabs and back again as it grows is a moving target
+ * for anyone who learned where it was.
+ */
+const ALWAYS_A_MENU = new Set(["reports"]);
+
+/** A shelf this short reads better as tabs than as a caret hiding two rows. */
+const FLATTEN_UP_TO = 4;
+
+function isFlattenable(section: NavSection): boolean {
+  return !ALWAYS_A_MENU.has(section.key) && section.items.length > 0 && section.items.length <= FLATTEN_UP_TO;
+}
+
 const GAP_PX = 6;
 /** Sub-pixel slack so a rounding error never pushes the last chip past the row. */
 const SAFETY_PX = 4;
@@ -270,6 +288,15 @@ export function WorkspaceScreensBar({
       active: item.key === activeKey,
     }));
     for (const section of group.sections ?? []) {
+      if (isFlattenable(section)) {
+        // A short shelf becomes tabs. A dropdown that opens onto two rows costs
+        // a click to show what would have fit on the bar, and hides where the
+        // user already is behind a caret.
+        for (const item of section.items) {
+          out.push({ kind: "screen", id: `item:${item.key}`, item, active: item.key === activeKey });
+        }
+        continue;
+      }
       out.push({
         kind: "section",
         id: `section:${section.key}`,

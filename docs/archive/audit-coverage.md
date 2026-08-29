@@ -9,9 +9,9 @@ Run 2026-08-26, three rounds, all against a live authenticated session.
 
 ## Method
 
-The skill's deterministic crawler was **not** used. `staging.getzemam.com/robots.txt`
-returns `User-agent: * / Disallow: /`, and the skill's operating rules put a
-disallowed path out of scope and forbid routing around it. On the user's instruction
+The skill's deterministic crawler was **not** used: the reference app's
+`robots.txt` returns `User-agent: * / Disallow: /`, and the skill's operating
+rules put a disallowed path out of scope and forbid routing around it. On the user's instruction
 the audit was therefore carried out manually through the UI, in their own
 already-authenticated browser session, applying the skill's method by hand:
 

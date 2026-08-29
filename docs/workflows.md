@@ -186,7 +186,7 @@ Gates after the change: `tsc --noEmit` clean, `eslint` clean, `check:seed` 129 p
 0 unexpectedly empty, `scenarios` **3,740 passed / 0 failed** with trial balance,
 inventory, AP and AR all reconciling to 0.000000.
 
-One gap still open, worth filing in `defects.md`:
+One gap still open, worth filing in `ROADMAP.md` §5:
 
 1. **Year-end close has no screen.** `POST /gl/year-end-close` (`packages/api/src/gl-routes.ts:344`)
    is mounted, permission-gated and correct, and nothing in `apps/web/src` calls it. This

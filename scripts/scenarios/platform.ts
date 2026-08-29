@@ -2,7 +2,7 @@ import type { Ctx } from "./harness.js";
 
 /**
  * Executable checks for the Settings / Platform Administration module — see
- * docs/scenarios/07-platform-settings.md.
+ * docs/TESTING.md §11.
  *
  * The seed's only real login is USER-ADMIN, whose `x-permissions: "*"`
  * satisfies `hasAdminRole` in every actor-role check across this codebase —

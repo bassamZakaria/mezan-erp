@@ -1,5 +1,10 @@
 # Reference audit — status and route map
 
+> **Archived 2026-08-29 — a point-in-time record, not current state.** Read `../ROADMAP.md`
+> for what is built and open, and `../TESTING.md` for how it is verified. Paths cited
+> below may name documents that have since moved; `README.md` in this directory maps them.
+
+
 Full audit of Mezan against the running reference product. Started 2026-08-26.
 Every line here was read from a live screen on both sides; nothing is inferred
 from `docs/catalog/`.

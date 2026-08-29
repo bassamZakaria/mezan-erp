@@ -55,7 +55,7 @@ something a gap.
 |---|---|
 | Build plan, phasing, risks, open decisions | `docs/plan.md` |
 | Per-domain feature catalog (parity target) | `docs/catalog/*.md` |
-| Backlog | `docs/tasks.md` |
+| Backlog | `docs/ROADMAP.md` |
 | Approved visual direction | `design/mezan-ui-mockups.html` |
 | Shared UI primitives | `packages/ui/src/` |
 | Screens under review | `apps/web/src/` |

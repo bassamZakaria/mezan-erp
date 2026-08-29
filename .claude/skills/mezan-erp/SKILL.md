@@ -127,7 +127,7 @@ Apply these first — they have the highest yield per minute.
 - **Empty states are real states.** Render zero honestly rather than something
   plausible.
 - **Verify in the running app.** Automated business-logic tests are disabled by
-  decision (`docs/testing-policy.md`); do not add or run them. Proof is `pnpm typecheck
+  decision (`docs/TESTING.md §1`); do not add or run them. Proof is `pnpm typecheck
   && pnpm lint && pnpm build`, then `pnpm smoke`, `pnpm check:seed` and `pnpm
   scenarios` — plus driving the real UI on a seeded backend and reloading the page,
   which is what catches "works until you look again".

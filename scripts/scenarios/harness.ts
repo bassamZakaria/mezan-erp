@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * Executable scenarios — `docs/scenarios/*.md` as code.
+ * Executable scenarios — `docs/TESTING.md *.md` as code.
  *
  * Runs in-process against a freshly seeded backend, through the SAME HTTP
  * routes the UI calls. This exists because driving the browser proved

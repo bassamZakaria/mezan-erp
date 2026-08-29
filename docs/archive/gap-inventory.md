@@ -1,5 +1,10 @@
 # Gap inventory — Mezan vs the reference product
 
+> **Archived 2026-08-29 — a point-in-time record, not current state.** Read `../ROADMAP.md`
+> for what is built and open, and `../TESTING.md` for how it is verified. Paths cited
+> below may name documents that have since moved; `README.md` in this directory maps them.
+
+
 Captured 2026-08-26 by sweeping **101 reference routes** and **116 Mezan routes**
 live in the browser and diffing each screen's h1, tabs, KPI tiles, filter controls,
 action buttons, table columns, chart count and row count. Round 2 (below) then opened

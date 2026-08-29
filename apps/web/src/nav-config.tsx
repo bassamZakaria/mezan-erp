@@ -31,7 +31,7 @@ export interface NavGroupSpec {
  * previous fourteen-group tree still appears here exactly once — a workspace
  * simply gathers the documents, the master data, the reports and the set-once
  * configuration for one job into shelves, so a daily list holds only daily work
- * (docs/superpowers/specs/2026-08-27-ui-revamp-design.md §3.1, §3.3).
+ * (docs/design/ui-revamp.md §3.1, §3.3).
  *
  * A group's first item is its hub, which is what the workspace header opens.
  */

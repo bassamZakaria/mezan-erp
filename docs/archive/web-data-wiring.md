@@ -1,5 +1,10 @@
 # Web data wiring — migrating screens off sample data
 
+> **Archived 2026-08-29 — a point-in-time record, not current state.** Read `../ROADMAP.md`
+> for what is built and open, and `../TESTING.md` for how it is verified. Paths cited
+> below may name documents that have since moved; `README.md` in this directory maps them.
+
+
 This note is the pattern for turning a `*-sample-data.ts`-driven web screen into
 one backed by REAL persisted data. Phase 1 wired login → the dashboard (لوحة
 التحكم) → the shell this way; the remaining screens follow the same steps.

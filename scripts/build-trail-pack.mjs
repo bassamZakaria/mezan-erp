@@ -3,14 +3,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * `pnpm trails` — turns docs/scenarios/10-posting-trails.md into the tickable
+ * `pnpm trails` — turns the posting trails in docs/TESTING.md §14 into the tickable
  * page published as an Artifact. The markdown is the source of truth; this
  * script never edits it, and the page is regenerated whole on every run.
  *
  * The parser is deliberately strict, so a malformed trail fails the build
  * instead of silently disappearing from the page:
  *
- *   ## T01 · Sales — Quote to collection
+ *   ### T01 · Sales — Quote to collection
  *   Modules: Sales · Inventory
  *   Executable: cross-module.ts x40
  *
@@ -22,8 +22,8 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const SOURCE = join(root, "docs/scenarios/10-posting-trails.md");
-const OUT = process.argv[2] ?? join(root, "docs/scenarios/trail-pack.html");
+const SOURCE = join(root, "docs/TESTING.md");
+const OUT = process.argv[2] ?? join(root, "docs/trail-pack.html");
 
 function parse(md) {
   const trails = [];
@@ -42,7 +42,7 @@ function parse(md) {
     if (raw.startsWith("```")) { fenced = !fenced; continue; }
     if (fenced) continue;
 
-    const head = /^## (T\d+) · ([^—]+?) — (.+)$/.exec(raw);
+    const head = /^#{2,4} (T\d+) · ([^—]+?) — (.+)$/.exec(raw);
     if (head) {
       push();
       trail = { id: head[1], group: head[2].trim(), title: head[3].trim(), mods: [], exec: "", steps: [], done: "" };
@@ -65,7 +65,7 @@ function parse(md) {
     const fx = /^ {3}- (!?)([^:]+): (.+)$/.exec(raw);
     if (fx && step) { step.fx.push([fx[2].trim(), fx[3].trim(), fx[1] === "!"]); continue; }
 
-    if (/^## /.test(raw)) { push(); trail = null; step = null; }
+    if (/^#{1,6} /.test(raw)) { push(); trail = null; step = null; }
   }
   push();
 

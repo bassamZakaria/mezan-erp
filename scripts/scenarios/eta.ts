@@ -199,7 +199,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("a real invoice is confirmed with the switch off", quiet.confirmed.status === 200, JSON.stringify(quiet.confirmed.body).slice(0, 200));
     const afterOff = rows((await req("GET", "/eta/submissions")).body).length;
     check(
-      "and the queue does NOT grow — the setting is read, not merely stored (docs/defects.md F33 / D5)",
+      "and the queue does NOT grow — the setting is read, not merely stored (docs/archive/defect-register.md F33 / D5)",
       afterOff === before,
       `before=${before} after=${afterOff}`,
     );

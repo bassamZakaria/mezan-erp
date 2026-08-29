@@ -1,7 +1,7 @@
 import type { Ctx } from "./harness.js";
 
 /**
- * Executable checks for the sales module — docs/scenarios/01-sales.md as code.
+ * Executable checks for the sales module — docs/TESTING.md §5 as code.
  *
  * Runs LAST (see run-scenarios.ts): every id here is prefixed `SCN-` so it can
  * never collide with the seed (`CUST-DEMO-*`, `ITEM-DEMO-*`, `INV-DEMO-*`) or
@@ -123,7 +123,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // Collecting on the invoice is a real receipt voucher, allocated — the same
     // shape the reference product's "Collect" uses. It used to increment
-    // amountPaid and post nothing (docs/defects.md D1).
+    // amountPaid and post nothing (docs/archive/defect-register.md D1).
     const noTreasury = await req("POST", "/sales-invoices/SCN-INV-1/payments", { amount: "300" });
     checkEq("a collection with no treasury account to land in is refused", noTreasury.status, 400);
 
@@ -527,7 +527,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
   await scenario("D1 + D9 — INV-DEMO-1's remainingBalance nets its confirmed returns AND its voucher collection", async () => {
     const invoice = (await req("GET", "/sales-invoices/INV-DEMO-1")).body;
-    check("amountPaid reflects VCH-DEMO-1's Treasury-voucher collection (docs/defects.md D1 — the regression guard)", n(invoice.amountPaid) > 0, JSON.stringify(invoice.amountPaid));
+    check("amountPaid reflects VCH-DEMO-1's Treasury-voucher collection (docs/archive/defect-register.md D1 — the regression guard)", n(invoice.amountPaid) > 0, JSON.stringify(invoice.amountPaid));
 
     const allReturns = rows((await req("GET", "/sales-returns")).body);
     const against = allReturns.filter((r: any) => r.status === "confirmed" && r.lines?.[0]?.sourceInvoiceId === "INV-DEMO-1");
@@ -736,7 +736,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // A fixed line discount larger than the line cannot make a line negative:
     // an unvalidated one is how an invoice-level discount once turned 950 into
-    // 1,140 (docs/defects.md, discount validation).
+    // 1,140 (docs/ROADMAP.md §5, discount validation).
     const capped = await req("POST", "/sales-invoices", {
       id: "SCN-INV-DISC-CAP",
       date: TODAY,

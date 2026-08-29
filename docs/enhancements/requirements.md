@@ -13,7 +13,7 @@
 1. **Section A — Stakeholder meeting notes** — the personas, their pain with a parity-only ERP, and the enhancements each asked for. This is the source of truth.
 2. **Section B — Requirements by persona** — every enhancement as a numbered requirement (`ENH-###`) with Problem / Enhancement / Value / Size / Parity dependency.
 3. **Section C — Requirements by module** — the same requirements re-indexed by the parity module they extend, for planning.
-4. **Section D — Prioritization** — MoSCoW + phase pointer (detail in `backlog.md`).
+4. **Section D — Prioritization** — MoSCoW + phase pointer (detail in `../ROADMAP.md` §7).
 
 Requirement IDs are stable. Workflows they enable are in `workflows.md` (`WF-##`).
 
@@ -320,7 +320,7 @@ Requirement IDs are stable. Workflows they enable are in `workflows.md` (`WF-##`
 
 ## Section D — Prioritization (MoSCoW + phase)
 
-> Full phased breakdown with candidate issues is in `backlog.md`. Phases here are pointers.
+> Full phased breakdown with candidate issues is in `../ROADMAP.md` §7. Phases here are pointers.
 
 | Priority | Requirements | Rationale | Phase |
 |---|---|---|---|

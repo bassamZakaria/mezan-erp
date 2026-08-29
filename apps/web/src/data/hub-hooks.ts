@@ -11,7 +11,7 @@ import { useEntityName } from "../lib/entity-names";
  * Data hooks for the domain hub landing pages, the manufacturing production
  * dashboard, the system-status page and the topbar's working-branch/
  * warehouse selector. Every figure here traces to a real endpoint or a real
- * build-time constant — never a fabricated number (docs/web-data-wiring.md).
+ * build-time constant — never a fabricated number (docs/archive/web-data-wiring.md).
  */
 
 // ---------------------------------------------------------------------------

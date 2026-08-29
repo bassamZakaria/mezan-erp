@@ -2,7 +2,7 @@
 /**
  * "A theme change alters colour only" — enforced, not documented.
  *
- * Spec: docs/superpowers/specs/2026-08-27-visual-identity-and-shell-design.md
+ * Spec: docs/design/visual-identity-and-shell.md
  * §1.1. Measured across the two source directions, 12 of 14 structural tokens
  * differed — `--h-btn` was 44px in the light direction and 38px in the dark
  * one. Shipping that pair would mean the dark theme fails the 44px target-size

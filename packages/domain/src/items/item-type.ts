@@ -1,5 +1,5 @@
 /**
- * The six item types (docs/reference-parity/audit/REQUIREMENTS.md R5.1) and,
+ * The six item types (docs/reference-parity/REQUIREMENTS.md R5.1) and,
  * more importantly, what each one is ALLOWED to do.
  *
  * The rules used to be spelled out as `item.type === "stock"` in eight

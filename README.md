@@ -68,7 +68,7 @@ Everything below has a real domain package under `packages/domain/src`, a persis
 
 ## Real-data approach — no mockups
 
-Every screen is wired to the real seeded backend, not static sample arrays. The pattern (documented in detail in [`docs/web-data-wiring.md`](docs/web-data-wiring.md)):
+Every screen is wired to the real seeded backend, not static sample arrays. The pattern (documented in detail in [`docs/archive/web-data-wiring.md`](docs/archive/web-data-wiring.md)):
 
 1. A screen's data comes from a typed TanStack Query hook (`data/hooks.ts`) calling the API through the one platform-swapped transport (`data/transport.ts` — real `fetch` on web, `window.mezan.fetch` on desktop).
 2. Loading / error / empty states are real states (zero counts, empty lists) — never a fabricated placeholder number.
@@ -78,7 +78,7 @@ Every screen is wired to the real seeded backend, not static sample arrays. The 
 Both exceptions this section used to list are now closed: no `*-sample-data.ts`
 file remains under `apps/web/src`, and no screen runs `@mezan/domain` in the
 browser against in-memory repositories. Current state is tracked in
-[`docs/STATUS.md`](docs/STATUS.md).
+[`docs/ROADMAP.md` §1](docs/ROADMAP.md).
 
 ## Internationalisation
 
@@ -115,7 +115,7 @@ Beyond the deferred modules below, these are named in the docs' phase lists but 
 - **Inventory extras** — label printing, product templates / variant generation, and the aging-based write-down batch.
 - **Navigation extras** — per-domain hub landing pages, branch 360 view, profile screen, production dashboard.
 - **Reports** — sales-by-salesperson, van-sales and POS report packs (the last depends on POS).
-- **Delivery notes** — open product decision (`docs/tasks.md` §5.2).
+- **Delivery notes** — open product decision (`docs/ROADMAP.md` §6.2).
 
 ## How to run
 
@@ -147,6 +147,6 @@ pnpm build
 ## Branch strategy
 
 - **`main`** — tracks parity with the reference application's captured catalog (`docs/catalog/`). This is the v1 desktop scope: every module listed above, built to functional completeness against the catalog, in Mezan's own UI — not a pixel clone.
-- **An `enhancements` branch** (created off `main` once v1 parity is stable) is where beyond-parity ideas live — anything that improves on the reference system rather than just matching it. Parity work always lands on `main` first; enhancement branches rebase onto it, not the other way around.
+- **Beyond-parity work** lives on its own branch off `main`, never on `main` itself — anything that improves on the reference system rather than just matching it. Parity work always lands on `main` first; enhancement branches rebase onto it, not the other way around.
 
-See [`docs/README.md`](docs/README.md) for the documentation map, [`docs/plan.md`](docs/plan.md) for the full architecture rationale and module build order, [`docs/tasks.md`](docs/tasks.md) for the phased issue backlog, [`docs/STATUS.md`](docs/STATUS.md) for what is done and what is broken right now, and [`docs/catalog/`](docs/catalog) for the per-domain functional specification everything above is grounded in.
+See [`docs/README.md`](docs/README.md) for the documentation map, [`docs/plan.md`](docs/plan.md) for the full architecture rationale and module build order, [`docs/ROADMAP.md`](docs/ROADMAP.md) for what is done, what is open and the whole task list, [`docs/TESTING.md`](docs/TESTING.md) for the testing policy and every scenario, and [`docs/catalog/`](docs/catalog) for the per-domain functional specification everything above is grounded in.

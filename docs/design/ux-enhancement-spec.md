@@ -127,5 +127,5 @@ Not everything should change. Kept from parity: the effects panel concept, the s
 
 ## 10. Deliverables & verification
 
-- **This spec** — `docs/enhancements/ux-enhancement-spec.md`.
+- **This spec** — `docs/design/ux-enhancement-spec.md`.
 - **Clickable mockup** — `design/mezan-enhanced-mockups.html`: shell, dashboard (balance-beam hero), a document list, a document detail, and a financial report, with Cyag / محمد الشهابي sample data, RTL, light + dark toggle. Verified rendering in a real browser (Playwright) in both themes, and published as an Artifact.

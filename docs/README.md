@@ -1,84 +1,50 @@
 # Mezan — documentation map
 
-Start here. Every document under `docs/` is in exactly one of four categories, and
-the category tells you how much to trust it.
+Six documents and three directories. Start with the one that answers your question.
 
-| Category | Goes stale? | Files |
+## The three you will use daily
+
+| Document | What it answers | Goes stale? |
 |---|---|---|
-| **Live** — kept current, read before acting | yes, and it is maintained | `STATUS.md`, `defects.md`, `decisions.md`, `tasks.md` |
-| **Durable reference** — the product, the market and the architecture | no | `plan.md`, `distribution.md`, `workflows.md`, `catalog/`, `reference-parity/` |
-| **Procedure** — how to do a recurring job | only when the job changes | `testing-policy.md`, `testing-plan.md`, `scenarios/`, `web-data-wiring.md`, `enhancements/` |
+| **`ROADMAP.md`** | What is built, what is open, which defects are known, which decisions wait on a human, and the whole task list | Yes — and it is maintained. If it disagrees with the running app, the app wins and the file is corrected in the same pass |
+| **`TESTING.md`** | The testing policy, the regression plan, and all 1,686 scenarios across every screen | Only when the product changes under a scenario |
+| **`plan.md`** | Architecture and tech stack (§1–§3), module build order (§4), risks (§5–§7), the market and competitor study (§8), the deferred HR/POS/Cloud plans (§9) | No |
 
-## The two documents most work starts from
+## The rest
 
-- **`plan.md`** — the whole plan in one file. Architecture and tech stack (§1–§3),
-  module build order (§4), risks and open decisions (§5–§7), reference parity and the
-  operational-depth candidates, then **§8 the market analysis and gap study** (competitor
-  matrix, per-competitor detail, the five structural gaps, the recommended differentiators)
-  and **§9 the deferred roadmap** for HR/Payroll, POS and Cloud/SaaS.
-- **`tasks.md`** — the whole work list in one file. Parity P0–P6, what is **open now**,
-  what is deferred by decision, the beyond-parity enhancement backlog, the shell
-  follow-ups, and the original catalog-derived phase backlog kept for traceability.
+| Document | What it answers |
+|---|---|
+| `distribution.md` | Which bundle is sold to which industry, what can honestly be sold today (§2), and how to branch and release when every customer self-hosts (§4–§5) |
+| `workflows.md` | What to show a prospect in a demo, and in what words (§2–§3); which periodic actions are proven to work (§3.5, a dated measurement) |
+| `catalog/01..10` | The reference product's 125 screens, field by field — a label snapshot. It records that a field exists, not whether it is a picker or a text input |
+| `reference-parity/` | `REQUIREMENTS.md` — the ~90-requirement register read from the running reference product, plus 8 reference defects not to reproduce. `API-SURFACE.md` — 201 GET endpoints with their query contracts. Where this and `plan.md` disagree about the scope of a screen, **the register wins** |
+| `design/` | `ui-revamp.md` (approved, in build), `visual-identity-and-shell.md` (the المِشكاة identity, superseding the revamp's §3.4 and §3.6), and `ux-enhancement-spec.md` with its clickable mockup at `design/mezan-enhanced-mockups.html` |
+| `enhancements/` | `requirements.md` (ENH-###) and `workflows.md` (WF-##) — the beyond-parity requirements and the workflows they enable. The backlog that ranks them is `ROADMAP.md` §7 |
+| `archive/` | Retired documents, kept for their evidence. Read its `README.md` before trusting anything inside |
 
 ## Find it by question
 
-| Question | Document |
+| Question | Where |
 |---|---|
-| What is done, and what is broken right now? | `STATUS.md` — **the only status document** |
-| What is left to do? | `tasks.md` — **the only task document** |
-| What defects are known? | `defects.md` — the register, read before every test run |
-| What is waiting on a human decision? | `decisions.md` |
+| What is done, and what is broken right now? | `ROADMAP.md` §1–§2, §5 |
+| What is left to do? | `ROADMAP.md` §3, §7, §8 |
+| What is waiting on a human decision? | `ROADMAP.md` §6 |
+| Why are we not writing unit tests? | `TESTING.md` §1 |
+| How do I test after a big change? | `TESTING.md` §2, then the scenarios for the domains you touched |
+| Does the whole product still agree with itself? | `TESTING.md` §14 — 76 posting trails, one per part, each crossing every module it touches (`pnpm trails` rebuilds the tickable page) |
 | What is the architecture, and why? | `plan.md` §1–§3 |
 | Who do we compete with, and where are the gaps? | `plan.md` §8 |
 | What is the plan for HR / POS / Cloud? | `plan.md` §9 |
-| Which bundle do we sell to which industry, and what can we honestly sell today? | `distribution.md` §2 |
-| How do we branch and release when every customer self-hosts their own copy? | `distribution.md` §4–§5 |
-| What do I actually show a prospect in a demo, and in what words? | `workflows.md` §2–§3 |
-| Which of the periodic actions (collection, cheques, bank rec, year-end) are proven to work? | `workflows.md` §3.5 |
-| What does the reference app actually do? | `catalog/01..10` — the spec, captured from the live product |
-| What did a live re-enumeration of one reference screen find? | `reference-parity/` |
-| How is anything verified now? | `testing-policy.md` |
-| How do I test after a big change? | `testing-plan.md`, then `scenarios/01..09` |
-| Does the whole product still agree with itself? | `scenarios/10-posting-trails.md` — 76 trails, one per part, each crossing every module it touches (`pnpm trails` rebuilds the tickable page) |
-| How do I wire a screen to real data? | `web-data-wiring.md` |
+| What does the reference app actually do? | `catalog/01..10`, then `reference-parity/REQUIREMENTS.md` for what was read from it running |
+| What should the UI look like? | `design/` |
 
-## The four live documents, and who updates them
+## The rules these documents are kept under
 
-- **`STATUS.md`** — updated when a capability lands or a claim in it turns out to be
-  false. It is measured against the running app, not against a checklist.
-- **`tasks.md`** — an item is ticked only when it has been driven in the running app on
-  seeded data, in both locales and both themes. A green test is not a tick.
-- **`defects.md`** — read before a test run, updated in the same commit as any fix. A
-  defect is never deleted; it moves to FIXED, because that is how its regression is
-  recognised.
-- **`decisions.md`** — a decision lands here when work stops on a question with more than
-  one defensible answer. Taking it moves the row to DECIDED.
-
-If any of them disagree with the running app, the app wins and the file is corrected in
-the same pass.
-
-## Directories
-
-- **`catalog/`** — 10 files capturing the reference product's 125 screens, field by
-  field. A label snapshot: it records that a field exists, not whether it is a picker or
-  a text input — for that, re-enumerate live (`reference-parity/`).
-- **`reference-parity/`** — per-screen enumerations driven from the *running* reference
-  product, plus the audit evidence: the ~90-requirement register (`audit/REQUIREMENTS.md`),
-  201 GET endpoints (`audit/API-SURFACE.md`), every control (`audit/ACTIONS.md`), what was
-  **not** seen (`audit/COVERAGE.md`), 28 screenshots, and the screen-by-screen diff
-  (`gap-inventory.md`). Where this and `plan.md` disagree about the scope of a screen, the
-  register wins — it was read from the running product.
-- **`scenarios/`** — business-scenario files, one per domain plus the cross-module money
-  trails. Each is paired with an executable suite in `scripts/scenarios/`; run them with
-  `pnpm scenarios`.
-- **`enhancements/`** — the beyond-parity requirements (`requirements.md`), the workflows
-  they enable (`workflows.md`), and the UX enhancement spec. The enhancement *backlog*
-  moved into `tasks.md` §4.
-
-## What was removed on 2026-08-27
-
-`backlog.md`, `deferred-plan.md`, `reference-parity/parity-tasks.md`,
-`enhancements/backlog.md`, `enhancements/shell-follow-ups.md` and
-`enhancements/market-analysis.md` were merged into `plan.md` and `tasks.md` and deleted.
-`archive/`, `enhancements/meeting/` and `enhancements/design-review-2026-08-23.md` were
-point-in-time documents already stale by design; they are in git history.
+- **An item is ticked only when it has been driven in the running app** on seeded data, in
+  both locales (ar/RTL and en/LTR) and both themes. A green test is not a tick.
+- **A defect is never deleted.** It moves to `archive/defect-register.md` with its fix
+  commit, because that is how its regression is recognised.
+- **A decision is never deleted either.** Taking it records the option chosen and why, so
+  the next person knows the alternative was considered.
+- **Point-in-time measurements carry their date**, and are moved to `archive/` once they
+  stop describing the present.

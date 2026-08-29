@@ -4,7 +4,7 @@ import type { Ctx } from "./harness.js";
 /**
  * Executable checks for the seams `cross-module.ts` could not reach — the
  * currency, tax, compliance, numbering, permission and year-end scenarios
- * written up in docs/scenarios/09-cross-module.md as "not yet executable"
+ * written up in docs/TESTING.md §13 as "not yet executable"
  * (X23-X30) and in its compliance / integrity-at-scale / platform sections
  * (X45-X64).
  *
@@ -215,7 +215,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const usdEntry = await journalOf(usdEntryId);
     const usdRate = n((await req("GET", "/exchange-rates")).body?.find?.((r: any) => r.currency === "USD" && r.effectiveDate <= TODAY && r.status === "approved")?.rate ?? 0);
     check(
-      "USD 1,000 posts its BASE-currency value at the approved rate of the invoice's own date, not 1,000 EGP (docs/defects.md D24)",
+      "USD 1,000 posts its BASE-currency value at the approved rate of the invoice's own date, not 1,000 EGP (docs/archive/defect-register.md D24)",
       usdEntry.credit > 1000 && Math.abs(usdEntry.credit - 1000 * usdRate) < 0.01,
       `credit=${usdEntry.credit} rate=${usdRate} lines=${JSON.stringify(usdEntry.lines).slice(0, 250)}`,
     );
@@ -302,7 +302,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const entry = await journalOf(String(confirmed.body?.journalEntryId ?? ""));
     const arLine = entry.lines.find((l: any) => l.accountId === AR);
     checkEq(
-      "USD 1,000 debits the receivable with its BASE-currency value at the invoice's own rate, not 1,000 EGP (docs/defects.md D24)",
+      "USD 1,000 debits the receivable with its BASE-currency value at the invoice's own rate, not 1,000 EGP (docs/archive/defect-register.md D24)",
       n(arLine?.debit),
       1000 * rate,
     );
@@ -381,7 +381,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const after = ((await req("GET", "/exchange-rates")).body as any[]).find((r: any) => r.id === "SCN-S-FX-EUR-31");
     check(
       "a locked rate is final: re-posting its id is refused, and the rate the ledger already converted at is untouched " +
-        "(docs/defects.md D25 — the regression guard; the SQLite repository still upserts, so the route must refuse first)",
+        "(docs/archive/defect-register.md D25 — the regression guard; the SQLite repository still upserts, so the route must refuse first)",
       overwrite.status === 409 && n(after?.rate) === 60 && after?.status === "locked",
       `overwrite=${overwrite.status} storedRate=${after?.rate} storedStatus=${after?.status}`,
     );
@@ -431,7 +431,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const unassignedAfter = n(((afterVoucher?.rows ?? []) as any[]).find((r) => r.costCenterId === null)?.expense);
     check(
       "a voucher-paid expense reaches the cost centre it names, rather than the غير مخصص bucket " +
-        "(docs/defects.md D26 — the regression guard: the wire contract carries the dimension the report needs)",
+        "(docs/archive/defect-register.md D26 — the regression guard: the wire contract carries the dimension the report needs)",
       Math.abs(centreRowAfter - centreRowBefore - 400) < 0.005 && Math.abs(unassignedAfter - unassignedBefore) < 0.005,
       `centre before=${centreRowBefore} after=${centreRowAfter} · unassigned before=${unassignedBefore} after=${unassignedAfter}`,
     );
@@ -712,7 +712,7 @@ export async function run(ctx: Ctx): Promise<void> {
       id: "SCN-S-VATF-JULY", periodFrom: "2026-07-01", periodTo: "2026-07-31",
       netAmount: submitted.toFixed(2), referenceNo: "ETA-SCN-JULY",
     });
-    check("the tenant records that July's return went to the authority (docs/defects.md D29)", filing.status === 201 && filing.body?.status === "filed", `status ${filing.status} ${JSON.stringify(filing.body).slice(0, 250)}`);
+    check("the tenant records that July's return went to the authority (docs/archive/defect-register.md D29)", filing.status === 201 && filing.body?.status === "filed", `status ${filing.status} ${JSON.stringify(filing.body).slice(0, 250)}`);
 
     const twice = await req("POST", "/gl/vat-filings", {
       id: "SCN-S-VATF-JULY-2", periodFrom: "2026-07-01", periodTo: "2026-07-31", netAmount: "1.00",
@@ -915,7 +915,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const numberA = String(a.confirmed.body?.docNo ?? "");
     const numberB = String(b.confirmed.body?.docNo ?? "");
-    check("each number names the branch it came from (docs/defects.md D33 — the regression guard)", numberA.includes(BRANCH) && numberB.includes("BR-SCN-SEAM"), `first=${numberA} second=${numberB}`);
+    check("each number names the branch it came from (docs/archive/defect-register.md D33 — the regression guard)", numberA.includes(BRANCH) && numberB.includes("BR-SCN-SEAM"), `first=${numberA} second=${numberB}`);
     check("and the two branches do NOT share one counter", numberA.replace(/\D+/g, "") !== numberB.replace(/\D+/g, "") || numberA !== numberB, `first=${numberA} second=${numberB}`);
 
     const second = await serviceInvoice("SCN-S-BR-B2", [{ qty: "1", unitPrice: "100" }], { branchId: "BR-SCN-SEAM", warehouseId: "WH-SCN-SEAM" });
@@ -947,7 +947,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const listAsConfirmer = await req("GET", "/sales-invoices", undefined, confirmOnly);
     check(
-      "granting `.confirm` implies `.view_own`, and the read route honours that tier rather than demanding `.view` (docs/defects.md D31)",
+      "granting `.confirm` implies `.view_own`, and the read route honours that tier rather than demanding `.view` (docs/archive/defect-register.md D31)",
       listAsConfirmer.status === 200,
       `status ${listAsConfirmer.status} ${JSON.stringify(listAsConfirmer.body).slice(0, 200)}`,
     );
@@ -1016,7 +1016,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const unfiltered = rows((await req("GET", "/customers")).body).length;
     const hamzaless = rows((await req("GET", "/customers?q=احمد")).body);
     check(
-      "`?q=` narrows on the SERVER — it is a real parameter now, not one the route ignores (docs/defects.md D32)",
+      "`?q=` narrows on the SERVER — it is a real parameter now, not one the route ignores (docs/archive/defect-register.md D32)",
       hamzaless.length > 0 && hamzaless.length < unfiltered,
       `unfiltered=${unfiltered} with q=${hamzaless.length}`,
     );
@@ -1098,7 +1098,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("each names the actor who did it", mine.every((row: any) => row.actor && row.actor !== "system"), `actors=${mine.map((row: any) => row.actor).join(",")}`);
     check(
       "and they say WHERE: every row carries the DOCUMENT's branch, not the caller's scope — an all-branches caller (the default, and what the shell sends until a branch is picked) " +
-        "used to write unattributed rows the audit viewer's branch filter could never find again (docs/defects.md D30 — the regression guard)",
+        "used to write unattributed rows the audit viewer's branch filter could never find again (docs/archive/defect-register.md D30 — the regression guard)",
       mine.length > 0 && mine.every((row: any) => row.branchId === BRANCH),
       `voucher branchId=BR-MAIN · audit branchIds=${[...new Set(mine.map((row: any) => String(row.branchId)))].join(",")}`,
     );
@@ -1207,7 +1207,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("and it confirms, because this warns rather than refuses (the same shape credit control's WARNING mode uses)", offList.status === 200, `status ${offList.status} ${JSON.stringify(offList.body).slice(0, 200)}`);
     const variances = (offList.body?.pricingVariances ?? []) as any[];
     check(
-      "but the server SAYS SO: it consulted the customer's price list and reported the line charged under it (docs/defects.md D35 — the regression guard)",
+      "but the server SAYS SO: it consulted the customer's price list and reported the line charged under it (docs/archive/defect-register.md D35 — the regression guard)",
       variances.length === 1 && variances[0]?.lineId === "L1" && n(variances[0]?.listPrice) === 80 && n(variances[0]?.chargedPrice) === 5,
       JSON.stringify(variances).slice(0, 250),
     );
@@ -1255,7 +1255,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const revenue2027 = n((await req("GET", "/financial-reports/income-statement?periodFrom=2027-01-01&periodTo=2027-12-31")).body?.grandTotals?.amount);
     checkEq("a fresh year's income statement is empty", revenue2027, 0);
-    checkEq("the revenue ACCOUNT no longer carries last year's total — closing zeroed it (docs/defects.md D34)", await creditBalance(REVENUE), 0);
+    checkEq("the revenue ACCOUNT no longer carries last year's total — closing zeroed it (docs/archive/defect-register.md D34)", await creditBalance(REVENUE), 0);
     checkEq(
       "and retained earnings received exactly the year's result",
       Math.round(((await creditBalance(RETAINED_EARNINGS)) - retainedBefore) * 100) / 100,

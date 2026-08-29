@@ -1,5 +1,10 @@
 # Reference parity — فواتير المبيعات (Sales Invoices)
 
+> **Archived 2026-08-29 — a point-in-time record, not current state.** Read `../ROADMAP.md`
+> for what is built and open, and `../TESTING.md` for how it is verified. Paths cited
+> below may name documents that have since moved; `README.md` in this directory maps them.
+
+
 **Method.** Enumerated from the running reference product on 2026-08-25 by driving
 its `/sales/invoices` list, the row expander, the quick-preview panel and all eight
 of its tabs, and `/sales/invoices/new` — then each line checked against Mezan running

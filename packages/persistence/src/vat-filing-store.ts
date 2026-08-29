@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { Money, type VatFiling, type VatFilingRepository, type VatFilingStatus } from "@mezan/domain";
 
 /**
- * Filed VAT returns (docs/defects.md D29). One row per submission; an amended
+ * Filed VAT returns (docs/archive/defect-register.md D29). One row per submission; an amended
  * one keeps its row and changes status, so the trail of what was told to the
  * authority and when survives the amendment.
  */

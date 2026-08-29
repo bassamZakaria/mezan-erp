@@ -52,7 +52,7 @@ import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
  * The desktop edition loads from file:// (apps/desktop/src/main/window.ts uses
  * loadFile), where a chunk is fetched as a module script — that needs Vite's
  * `base: "./"` and, in Electron, a custom protocol rather than raw file://.
- * See docs/tasks.md.
+ * See docs/ROADMAP.md.
  */
 const AccountingHubScreen = lazy(() => import("./screens/hubs/AccountingHubScreen").then((m) => ({ default: m.AccountingHubScreen })));
 const ActivitiesScreen = lazy(() => import("./screens/ActivitiesScreen").then((m) => ({ default: m.ActivitiesScreen })));

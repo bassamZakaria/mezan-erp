@@ -1,7 +1,7 @@
 import type { Ctx, Res } from "./harness.js";
 
 /**
- * Executable checks for the shell — docs/scenarios/08-shell-dashboard-reports.md.
+ * Executable checks for the shell — docs/TESTING.md §12.
  *
  * What this module CAN prove, driving the real routes in-process: every
  * report's arithmetic and its validation contract, the dashboard's KPIs
@@ -355,7 +355,7 @@ export async function run(ctx: Ctx): Promise<void> {
       check("type=qty rows are a subset of the unfiltered set", rows(qtyOnly.body).length <= rows(all.body).length, `${rows(qtyOnly.body).length} vs ${rows(all.body).length}`);
       // D4: any row here may be spurious — occurredAt is stamped now() on
       // confirm, not the document date, so the replay can misorder a receipt
-      // after the movement it funded. Not re-filed; see docs/defects.md.
+      // after the movement it funded. Not re-filed; see docs/ROADMAP.md §5.
     }
   });
 
@@ -464,7 +464,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("/reports/aging/customers responds", aging.ok, `status ${aging.status}`);
     if (dash.ok && aging.ok) {
       checkEq(
-        "dashboard gl.receivables = aging.customers grand total (DSH-03 vs RPT-18) — one meaning of \"receivables\" across the tile and the report (docs/defects.md D37 — the regression guard)",
+        "dashboard gl.receivables = aging.customers grand total (DSH-03 vs RPT-18) — one meaning of \"receivables\" across the tile and the report (docs/archive/defect-register.md D37 — the regression guard)",
         n(dash.body?.gl?.receivables),
         n(aging.body?.grandTotals?.total),
       );
@@ -491,7 +491,7 @@ export async function run(ctx: Ctx): Promise<void> {
       const netPayable = outputTax - inputTax;
       const dashboardTaxDue = n(res.body?.grandTotals?.tax);
       checkEq(
-        "candidate new defect, not in docs/defects.md (report, do not silently accept): DSH-05's tax-due row reads vat.data.grandTotals.tax — the engine sums BOTH sides' tax columns together (output+input) with no sign convention between groups — while RPT-28's own renderSummary calls vatNetPayable(rows) = output − input; the two should agree",
+        "candidate new defect, not in docs/ROADMAP.md §5 (report, do not silently accept): DSH-05's tax-due row reads vat.data.grandTotals.tax — the engine sums BOTH sides' tax columns together (output+input) with no sign convention between groups — while RPT-28's own renderSummary calls vatNetPayable(rows) = output − input; the two should agree",
         dashboardTaxDue,
         netPayable,
       );

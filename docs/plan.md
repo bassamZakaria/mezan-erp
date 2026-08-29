@@ -16,9 +16,9 @@
 
 ## Build status (as of 2026-08-23, `main` @ `7b65887`)
 
-This section is maintained as the plan executes; §4 below stays the unmodified original phase design. Every claim here was re-verified against the code in this pass; `docs/STATUS.md` carries the current per-capability state.
+This section is maintained as the plan executes; §4 below stays the unmodified original phase design. Every claim here was re-verified against the code in this pass; `docs/ROADMAP.md §1` carries the current per-capability state.
 
-**Done.** Every v1 domain named in §4 has landed: Foundations (persistence-behind-ports, Money/Qty, auth, permissions, entitlements/licensing skeleton, numbering, audit trail, workflow-engine core, notification bus core, RTL app shell, Electron shell + backup/restore) through Phase 12 (CRM + Projects + Fixed Assets + Field/Van Sales). Concretely, `packages/domain/src` holds 49 domain modules covering accounts, GL/journal posting, cost centers + cost-center P&L, fiscal periods, tax rates, exchange rates + FX revaluation, reconciliation, items, customers/suppliers/partners, sales quotes/invoices/returns, price lists, promotions, credit control, purchasing (RFQ→PO→GRN→invoice), purchase returns, landed costs, inventory, treasury accounts, vouchers, cheques, bank reconciliation, installments, manufacturing, CRM, projects, fixed assets, field sales, permissions, roles, users, workflow, entitlements, licensing, numbering, audit, events, ETA, settings and the LAN host. Each has a persistence + API layer and is mounted in `packages/backend`. The engines called out as the hardest parts of the plan — double-entry posting with balance/period enforcement, WAC costing with immutable cost layers, the 26-action-type workflow gate, the 25-sequence numbering engine, the 268-permission catalog with dependency resolution — are all implemented and covered by unit tests, plus a recent backfill pass added component/unit coverage for previously-thin modules. The real-data control panel described in `docs/web-data-wiring.md` (typed hooks over one platform-swapped transport, real loading/empty/error states, no static arrays driving a screen) is in place and is now the pattern nearly every screen follows; the most recent merges to `main` mounted the manufacturing/RFQ/historical-import/returns/landed-costs/installments backends, converted the remaining sample-data screens, and fixed a real SQLite write-concurrency bug: `createBackend` opened ~35 separate `better-sqlite3` connections onto the same file, and a confirm flow that both issued stock and posted a GL entry inside one store's `BEGIN IMMEDIATE` deadlocked against itself across those separate connections (`SQLITE_BUSY`, not waitable by `busy_timeout` alone). That's fixed — every store-owned connection now goes through `packages/persistence/src/sqlite-connection.ts`'s `openSqliteConnection` (WAL + shared `busy_timeout`) and `withSqliteTransaction` (savepoint-based re-entrancy) — landed directly on `main`.
+**Done.** Every v1 domain named in §4 has landed: Foundations (persistence-behind-ports, Money/Qty, auth, permissions, entitlements/licensing skeleton, numbering, audit trail, workflow-engine core, notification bus core, RTL app shell, Electron shell + backup/restore) through Phase 12 (CRM + Projects + Fixed Assets + Field/Van Sales). Concretely, `packages/domain/src` holds 49 domain modules covering accounts, GL/journal posting, cost centers + cost-center P&L, fiscal periods, tax rates, exchange rates + FX revaluation, reconciliation, items, customers/suppliers/partners, sales quotes/invoices/returns, price lists, promotions, credit control, purchasing (RFQ→PO→GRN→invoice), purchase returns, landed costs, inventory, treasury accounts, vouchers, cheques, bank reconciliation, installments, manufacturing, CRM, projects, fixed assets, field sales, permissions, roles, users, workflow, entitlements, licensing, numbering, audit, events, ETA, settings and the LAN host. Each has a persistence + API layer and is mounted in `packages/backend`. The engines called out as the hardest parts of the plan — double-entry posting with balance/period enforcement, WAC costing with immutable cost layers, the 26-action-type workflow gate, the 25-sequence numbering engine, the 268-permission catalog with dependency resolution — are all implemented and covered by unit tests, plus a recent backfill pass added component/unit coverage for previously-thin modules. The real-data control panel described in `docs/archive/web-data-wiring.md` (typed hooks over one platform-swapped transport, real loading/empty/error states, no static arrays driving a screen) is in place and is now the pattern nearly every screen follows; the most recent merges to `main` mounted the manufacturing/RFQ/historical-import/returns/landed-costs/installments backends, converted the remaining sample-data screens, and fixed a real SQLite write-concurrency bug: `createBackend` opened ~35 separate `better-sqlite3` connections onto the same file, and a confirm flow that both issued stock and posted a GL entry inside one store's `BEGIN IMMEDIATE` deadlocked against itself across those separate connections (`SQLITE_BUSY`, not waitable by `busy_timeout` alone). That's fixed — every store-owned connection now goes through `packages/persistence/src/sqlite-connection.ts`'s `openSqliteConnection` (WAL + shared `busy_timeout`) and `withSqliteTransaction` (savepoint-based re-entrancy) — landed directly on `main`.
 
 **Gates.** `pnpm test` → 306 test files / 2078 tests passing; `pnpm typecheck` and `pnpm lint` (incl. the RTL logical-CSS rule) pass; 28 Playwright specs live under `e2e/`; 33 API route prefixes are mounted; the web app ships 74 non-test components across ~70 nav entries.
 
@@ -30,11 +30,11 @@ This section is maintained as the plan executes; §4 below stays the unmodified 
 - **Real-data sweep, finishing touches** — 7 `*-sample-data.ts` files still exist under `apps/web/src` (the six previously listed plus `inventory-ops-sample-data.ts`) with roughly twenty importers. `sample-data.ts` is not just demo rows: it still owns the nav registry, the command-palette items and the demo entitlements, so retiring it needs those moved somewhere real first.
 - **Domain-in-browser screens** — 9 screens (`StockBalance`, `StockTransfers`, `StockAdjustments`, `PhysicalCounts`, `ExchangeRates`, `FxRevaluation`, `CostCenterPnL`, `Reconciliation`, `Eta`) import `@mezan/domain` directly through `apps/web/src/store/*` and run it against in-memory repositories. The rules are the real ones and the tests are meaningful, but nothing these screens do reaches SQLite, and their API routes are already mounted — so this is web wiring, not new backend work.
 - **Manufacturing/RFQ mount** — domain + persistence + API layers exist for Manufacturing (BOMs, work orders, configurable-product instances) and RFQs; the backend-mount and web-screen wiring landed in the most recent merge and needs a stabilization pass (edge cases, e2e coverage) before being considered fully hardened.
-- **Bug-hunt** — an active sweep across the app looking for functional defects (the kind called out in `docs/tasks.md` §8 as worth deliberately avoiding, e.g. RTL direction handling, i18n fallback gaps, navigation-target mismatches) before the next stabilization checkpoint. The SQLite cross-connection deadlock above was one concrete find from this sweep.
+- **Bug-hunt** — an active sweep across the app looking for functional defects (the kind called out in `docs/ROADMAP.md` §8 as worth deliberately avoiding, e.g. RTL direction handling, i18n fallback gaps, navigation-target mismatches) before the next stabilization checkpoint. The SQLite cross-connection deadlock above was one concrete find from this sweep.
 - Several phase branches (`phase1/users-roles`, `phase4/inventory-ops`, `phase56/returns-landed-installments`, `phase9/accounting-depth`, `phase9/financial-statements`, `sweep/real-data-screens`) and Playwright e2e-stabilization worktrees remain open alongside already-merged work, reconciling incremental hardening and test coverage against what's landed on `main`.
 
-**Deferred (by product decision, not by gap — see §1 "v1 Scope" and `docs/tasks.md` §1).**
-- **HR & Payroll** (backlog Phase 13) — all 13 screens (employees, departments, job titles, attendance, holidays, contracts, leave requests/policies, leave accrual batches, payroll runs, advances, my-leave, shift settings). The payroll calculation-engine internals are flagged in `docs/tasks.md` as the single largest specification hole in the whole catalog and need a standalone design pass before implementation starts.
+**Deferred (by product decision, not by gap — see §1 "v1 Scope" and `docs/ROADMAP.md` §1).**
+- **HR & Payroll** (backlog Phase 13) — all 13 screens (employees, departments, job titles, attendance, holidays, contracts, leave requests/policies, leave accrual batches, payroll runs, advances, my-leave, shift settings). The payroll calculation-engine internals are flagged in `docs/ROADMAP.md` as the single largest specification hole in the whole catalog and need a standalone design pass before implementation starts.
 - **POS** (backlog Phase 14) — terminals, sessions/shifts, sales/refunds ledgers, discount approvals, restaurant mode (tables/kitchen/reservations/deliveries), loyalty, and the net-new POS selling screen (no reference implementation exists anywhere — needs its own design spike with a real cashier before being built).
 - **Cloud/SaaS website edition** (backlog Phase 15) — Postgres dialect + dual-engine conformance suite, cloud JWT + Row-Level Security, `apps/server` as a real hosted multi-tenant server, SSE + Redis realtime fan-out, S3 storage, subscription→entitlements, tenant onboarding, API keys/webhooks/WhatsApp integration. The architecture (ports-first persistence, transport-agnostic Hono app layer) is deliberately built to make this additive later, not a rewrite — nothing here is started.
 
@@ -42,7 +42,7 @@ This section is maintained as the plan executes; §4 below stays the unmodified 
 - Finish the real-data sweep (above) and delete every dead `*-sample-data.ts` file once its last consumer is converted.
 - Extend the SQLite concurrency fix with a regression test that exercises concurrent numbering-sequence allocation and LAN multi-till writers, so this class of cross-connection deadlock can't reappear silently.
 - Stabilize e2e coverage — several `test/e2e-*` worktrees are mid-flight; consolidate into a green, deterministic Playwright suite (browser project) run on every change, per the CI plan in §2.7.
-- Complete the bug-hunt sweep and fold findings into either immediate fixes or tracked backlog items, cross-checked against the known-defects list already called out in `docs/tasks.md` §8 (so known source-app bugs aren't silently reintroduced).
+- Complete the bug-hunt sweep and fold findings into either immediate fixes or tracked backlog items, cross-checked against the known-defects list already called out in `docs/ROADMAP.md` §8 (so known source-app bugs aren't silently reintroduced).
 - Merge the outstanding phase branches into `main` (or confirm their content already landed via a later merge) so the branch list reflects actual `main` state, not stale in-flight work.
 - Re-run the golden-ledger fixture suite and the permission/workflow/numbering invariant tests as a release gate once the above lands, per the testing strategy in §2.7.
 - Decide and record the open product decisions in §6.3 that are still genuinely open (licensing mechanism finalization, installment late-fee rule, FIFO-in-v1, delivery notes, branch-scoped numbering) — none block current development but several block calling specific v1 issues "done" rather than "buildable."
@@ -623,10 +623,10 @@ The first five concrete tasks, in order.
 
 **Added 2026-08-26.** A three-round live audit of the reference product replaced the
 prose catalog as the source of truth for what a screen must do. The requirements
-register is `docs/reference-parity/audit/REQUIREMENTS.md` (~90 numbered
+register is `docs/reference-parity/REQUIREMENTS.md` (~90 numbered
 requirements, R1.1 … R12.2, each observed in a running screen); the ordered work
-list is `docs/tasks.md` §1; the scenarios that verify it are
-`docs/scenarios/10-reference-parity.md`.
+list is `docs/ROADMAP.md` §1; the scenarios that verify it are
+`docs/TESTING.md §15`.
 
 Where this plan and the requirements register disagree about the scope of a screen,
 **the register wins** — it was read from the running product, this plan was written
@@ -722,7 +722,7 @@ credible workshop system on the engine already built. Routings, capacity schedul
 are a different product — they need a planning engine that does not exist and they push
 Mezan into deals where the buyer expects a partner-led implementation. That answer decides
 whether items 22–24 in `plan.md` §8.5 are ever scheduled, and it belongs in
-`docs/decisions.md` once taken.
+`docs/ROADMAP.md §6` once taken.
 
 ---
 
@@ -1268,7 +1268,7 @@ follow-on; "P2" = differentiator once the core is proven.
 ### P1 — Close specific competitive gaps before they cost a sale
 
 5. **Installment-sales module polish + collection-risk scoring** — Mezan already scopes
-   installment plans + overdue batch + follow-ups (`docs/tasks.md` Phase 7); this is a genuine
+   installment plans + overdue batch + follow-ups (`docs/ROADMAP.md` Phase 7); this is a genuine
    whitespace versus nearly every competitor surveyed. Adding light collection-risk
    scoring/aging buckets on top would make it a headline feature for furniture/appliance/
    electronics retailers, a segment none of the twelve competitors targets explicitly.
@@ -1286,7 +1286,7 @@ follow-on; "P2" = differentiator once the core is proven.
    every cloud SaaS competitor solves trivially (just log in) that a pure offline desktop app
    does not solve by default.
 9. **Lightweight CRM pipeline view** — not a full CRM build-out (already scoped later in
-   `docs/tasks.md` Phase 12), but pulling the existing Leads/Opportunities scope earlier or
+   `docs/ROADMAP.md` Phase 12), but pulling the existing Leads/Opportunities scope earlier or
    shipping a minimal pipeline board sooner narrows the gap to Zoho/Odoo for
    distribution-with-a-sales-team customers without committing to full CRM parity.
 
@@ -1410,7 +1410,7 @@ most credible Egypt-native rivals — rather than against the field in the abstr
 
 # 9. Deferred roadmap — HR/Payroll, POS, Cloud/SaaS
 
-> Scope: the three areas explicitly descoped at v1 kickoff (`docs/plan.md` §"v1 Scope"): **HR/Payroll**, **POS (including the net-new selling screen)**, and the **Cloud/SaaS website edition**. `docs/tasks.md` already reserves these as Phase 13/14/15 stubs (13/16/15 issues respectively); this document expands each into a dependency-ordered, issue-level plan and is the thing to work from once v1 (Phases 0–12, SQLite-only Electron desktop) ships. Nothing here invents scope beyond `docs/catalog/06-crm-hr.md`, `docs/catalog/05-pos-installments.md` and `docs/plan.md`'s architecture sections — deviations and open decisions are flagged inline, not silently resolved.
+> Scope: the three areas explicitly descoped at v1 kickoff (`docs/plan.md` §"v1 Scope"): **HR/Payroll**, **POS (including the net-new selling screen)**, and the **Cloud/SaaS website edition**. `docs/ROADMAP.md` already reserves these as Phase 13/14/15 stubs (13/16/15 issues respectively); this document expands each into a dependency-ordered, issue-level plan and is the thing to work from once v1 (Phases 0–12, SQLite-only Electron desktop) ships. Nothing here invents scope beyond `docs/catalog/06-crm-hr.md`, `docs/catalog/05-pos-installments.md` and `docs/plan.md`'s architecture sections — deviations and open decisions are flagged inline, not silently resolved.
 
 **Why these three, together, now:** all three were deferred by the same Path-A decision — build the SQLite-only desktop core first, but keep the domain core behind repository ports and the transport behind a Hono app so nothing here requires re-architecting anything already shipped. HR/Payroll and POS are pure domain-service additions on top of the finished GL/treasury/cost-center/sales-invoice/inventory engines. Cloud/SaaS is almost entirely *infrastructure* — a Postgres dialect, a real HTTP host, multi-tenant auth — sitting underneath the same `packages/api` Hono app and `packages/domain` core that already exist and already run over HTTP today (`apps/server` currently serves the shared app against SQLite as a Postgres stand-in — see Cloud §0).
 
@@ -1418,7 +1418,7 @@ most credible Egypt-native rivals — rather than against the field in the abstr
 
 ## Legend
 
-| Size | Meaning (same scale as `docs/tasks.md` §2) |
+| Size | Meaning (same scale as `docs/ROADMAP.md` §2) |
 |---|---|
 | **S** | < 1 day — CRUD screen, config toggle, single report, small fix |
 | **M** | 2–4 days — a screen with real workflow/state machine, or a medium engine slice |
@@ -1490,7 +1490,7 @@ Ordered by the dependency chain the catalog itself implies: Employees is the hub
 
 ### HR-5 — Payroll engine (deliberately its own sub-phase — largest specification hole in the whole catalog)
 
-The create-run dialog itself is two fields (year, month); everything else — the actual calculation — was never observed running against real data in the source (one seeded employee, no executed run). Per `docs/tasks.md` §7.4's finding, this needs a standalone design deliverable before it can be split into safely-sized build tickets; the breakdown below is the *shape* of that split, not a claim the internals are already known.
+The create-run dialog itself is two fields (year, month); everything else — the actual calculation — was never observed running against real data in the source (one seeded employee, no executed run). Per `docs/ROADMAP.md` §7.4's finding, this needs a standalone design deliverable before it can be split into safely-sized build tickets; the breakdown below is the *shape* of that split, not a claim the internals are already known.
 
 | # | Task | Size | Depends on | Reuse |
 |---|---|---|---|---|
@@ -1536,7 +1536,7 @@ Highest design risk in the whole deferred scope: back-office parity (terminals/s
 |---|---|---|---|---|
 | 12 | Table Management: floor designer (drag-drop layout editor, staging area for unplaced tables, section/zone grouping) | L | #3 | none new — bespoke drag-drop, no v1 equivalent |
 | 13 | Table Management: live occupancy view + per-table stats tab | M | #12, #6 | POS sales for revenue-by-table stats |
-| 14 | Reservations: **consolidate** the embedded tables-tab reservation flow and the standalone `/pos/reservations` screen into one data model with two entry points (per `docs/tasks.md` §5, decision 10 — the source shows the same data behind two disconnected surfaces; pick one to avoid inheriting the ambiguity) | M | #12 | shared form/list |
+| 14 | Reservations: **consolidate** the embedded tables-tab reservation flow and the standalone `/pos/reservations` screen into one data model with two entry points (per `docs/ROADMAP.md` §5, decision 10 — the source shows the same data behind two disconnected surfaces; pick one to avoid inheriting the ambiguity) | M | #12 | shared form/list |
 | 15 | Kitchen Display System: order-card queue, stage transitions (queued→preparing→urgent→ready→picked-up), meal/course-section routing config | L | #6, dedicated realtime channel | **`packages/domain/src/events`** (typed event bus) — needs a dedicated, well-tested channel with polling fallback per `plan.md` §2.6, since this is the one screen with hard latency requirements; **[spec-risk]**: empty queue in the source, order-card layout/bump controls inferred, not observed |
 | 16 | Deliveries: 6-state pipeline (pending→prepared→dispatched→delivered, +failed/returned), driver assignment, live-map placeholder | L | #6 | none new; **[spec-risk]**: 0 records in source, driver-assign/live-map mechanics unconfirmed |
 | 17 | Loyalty points config (source shows this as platform-managed-only; **[decision]** whether Mezan makes it tenant-editable) | S | none | none new |
@@ -1619,8 +1619,8 @@ Everything the Path-A decision was made to defer, not to avoid: `apps/server` al
 
 ---
 
-## Cross-cutting notes carried over from `docs/plan.md` and `docs/tasks.md`
+## Cross-cutting notes carried over from `docs/plan.md` and `docs/ROADMAP.md`
 
-- **WhatsApp integration settings** and the **third locale (German)** are named in the source catalog but flagged `[spec-risk]`/`[decision]` in `docs/tasks.md` §5 — neither is scoped as a numbered task above; resolve the product question first, then it's a small addition to Cloud-4 or the app-shell respectively.
+- **WhatsApp integration settings** and the **third locale (German)** are named in the source catalog but flagged `[spec-risk]`/`[decision]` in `docs/ROADMAP.md` §5 — neither is scoped as a numbered task above; resolve the product question first, then it's a small addition to Cloud-4 or the app-shell respectively.
 - **ETA e-invoicing on the cloud edition** is already in v1 scope (online-only, per `plan.md` §3.6) and does not repeat here; Cloud's job is only to make sure the multi-tenant transport doesn't change its online-only constraint.
 - **Payroll (HR-5) and the POS selling screen (POS-3)** are the two genuine unknowns in this entire deferred scope — both carry a mandatory design spike as their first task (#22 and #18 respectively) precisely so the size estimates on the tasks that follow them are honest rather than optimistic placeholders.

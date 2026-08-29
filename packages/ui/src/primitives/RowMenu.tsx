@@ -47,7 +47,7 @@ export interface RowMenuProps {
 }
 
 /**
- * The overflow menu on a list row (docs/reference-parity/audit/REQUIREMENTS.md
+ * The overflow menu on a list row (docs/reference-parity/REQUIREMENTS.md
  * R1.3). Its contents are the CALLER's job to derive from the row's lifecycle
  * state: a draft transfer offers تأكيد, a converted quote does not offer
  * تعديل, a paid invoice does not offer إلغاء. Passing an empty list renders

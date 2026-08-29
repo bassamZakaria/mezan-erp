@@ -1,6 +1,6 @@
 import type { Ctx } from "./harness.js";
 
-/** Executable checks for the inventory module — see docs/scenarios/03-inventory.md. */
+/** Executable checks for the inventory module — see docs/TESTING.md §7. */
 export async function run(ctx: Ctx): Promise<void> {
   await ctx.scenario("inventory / warehouse scoping — every list route the screens call narrows to the granted warehouses", () => warehouseScoping(ctx));
   await openingBalanceReconciles(ctx);
@@ -268,7 +268,7 @@ async function negativeCountQtyRejected(ctx: Ctx): Promise<void> {
 }
 
 /**
- * D2 (docs/defects.md): a PHYSICAL_COUNT adjustment moves stock with no journal
+ * D2 (docs/ROADMAP.md §5): a PHYSICAL_COUNT adjustment moves stock with no journal
  * entry, so a one-sided count leaves the sub-ledger and GL 1200 off by exactly
  * the variance value. Deliberately NOT wrapped in `scenario()` — its automatic
  * reconciliation check would report this as a fresh failure every run. Plain
@@ -332,7 +332,7 @@ async function physicalCountAdjustmentPostsNoJournalEntry_D2(ctx: Ctx): Promise<
 }
 
 /**
- * D3 (docs/defects.md — the regression guard): completing a work order posts
+ * D3 (docs/ROADMAP.md §5 — the regression guard): completing a work order posts
  * its WIP capitalisation against GL 1200, the one control account the stock
  * ledger moves value through. Not wrapped in `scenario()` for the same reason
  * as D2 above. BOM-DEMO-1 at plannedQty 10 capitalises labour 50 + overhead 30

@@ -32,7 +32,7 @@ export interface CreateWritedownRunDeps {
  * Builds a مسودة (draft) write-down run for a period (+ optional warehouse
  * scope): rejects a duplicate non-cancelled run for the same period+scope,
  * scans every on-hand stock position's WAC snapshot, ages each by its last
- * ledger movement (docs/tasks.md "aging-based … against slow-moving stock"),
+ * ledger movement (docs/archive/phase-backlog.md "aging-based … against slow-moving stock"),
  * applies the aging policy's rate to the position's recorded WAC value, keeps
  * only non-zero lines, and rejects an empty result. Never mutates a cost
  * layer or the WAC snapshot itself — the batch only reads them.

@@ -9,7 +9,7 @@ import { createBackend, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "@mezan/backend"
  * or an unmounted route — the failure modes that make the product not start.
  * It deliberately asserts nothing about the VALUES returned.
  *
- * Run with `pnpm smoke`. See docs/testing-policy.md.
+ * Run with `pnpm smoke`. See docs/TESTING.md §1.
  */
 
 /**

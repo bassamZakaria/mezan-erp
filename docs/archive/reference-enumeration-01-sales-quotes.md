@@ -1,5 +1,10 @@
 # Reference parity — عروض الأسعار (Sales Quotes)
 
+> **Archived 2026-08-29 — a point-in-time record, not current state.** Read `../ROADMAP.md`
+> for what is built and open, and `../TESTING.md` for how it is verified. Paths cited
+> below may name documents that have since moved; `README.md` in this directory maps them.
+
+
 **Method.** Enumerated from the running reference product on 2026-08-25 by
 driving its own `/sales/quotes`, `/sales/quotes/new` and a quote detail page in
 a browser and reading the DOM — not from `docs/catalog/`. The catalog records

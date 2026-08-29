@@ -281,7 +281,7 @@ Read-only throughout; still zero writes to the application. 58 screens captured.
 ## 21. Report design — the full pattern
 
 Every one of the 22 operational reports follows the same shape. This is the
-single largest block of work in `tasks.md` §1 P2, and these are its rules.
+single largest block of work in `../ROADMAP.md` §2.2 P2, and these are its rules.
 
 | # | Requirement | Pri |
 |---|---|---|

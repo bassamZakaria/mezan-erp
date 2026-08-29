@@ -805,7 +805,7 @@ function VoucherDetailView({
 /* -------------------------------------------------------------------- */
 
 /**
- * Egypt withholds tax on most local B2B payments (docs/defects.md D27): the
+ * Egypt withholds tax on most local B2B payments (docs/archive/defect-register.md D27): the
  * supplier is settled in FULL for `amount`, and the withheld slice goes to the
  * authority instead of to them. Only a payment can withhold.
  */

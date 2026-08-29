@@ -1,6 +1,6 @@
 # Defect register — what broke, and the shapes it broke in
 
-`docs/defects.md` is the register and the authority; this page is the distilled
+`docs/ROADMAP.md §5` is the register and the authority; this page is the distilled
 pattern behind it. Read its OPEN table before any test run — those defects will
 appear, and re-filing a known one buries whatever is actually new. Update it in the
 same commit as any fix, and never delete a fixed row: a fixed defect is how its
@@ -14,14 +14,14 @@ means green — but if you add one, label it and flip it the moment it is fixed.
 Report **measured** evidence. "Off by exactly 122.00" is a defect report;
 "reconciliation looks wrong" is a feeling.
 
-## Open (as of 2026-08-25 — re-read `docs/defects.md`, it is the authority)
+## Open (as of 2026-08-25 — re-read `docs/ROADMAP.md §5`, it is the authority)
 
 **D1–D37 are all closed**, and `pnpm scenarios` passes with all four invariants
 at exactly zero on the seeded tenant: trial balance, inventory vs GL 1200, AP vs
 GL 2100, AR vs GL 1105.
 
 **Two are open**, both found on `main` during that same sweep and neither part
-of it — re-read `docs/defects.md` for their evidence:
+of it — re-read `docs/ROADMAP.md §5` for their evidence:
 
 - **D38** — a quote or invoice line accepts ANY `itemId` string; no route checks
   it against the item catalogue, so an invented id posts a 201.

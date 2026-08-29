@@ -1,8 +1,8 @@
 # Product, architecture and market context
 
 Full detail lives in `docs/plan.md` (architecture, licensing, phases),
-`docs/tasks.md` (phased scope), `docs/catalog/01..10` (the captured spec) and
-`docs/STATUS.md` (the single status document — everything else under `docs/` is
+`docs/ROADMAP.md` (phased scope), `docs/catalog/01..10` (the captured spec) and
+`docs/ROADMAP.md §1` (the single status document — everything else under `docs/` is
 durable reference; point-in-time audit evidence lives in `docs/reference-parity/audit/` and is kept for
 their evidence, not their conclusions).
 
@@ -56,7 +56,7 @@ local state over a static array. If the route is not mounted in
 `packages/backend/src/create-backend.ts`, mount it first — a route file that exists but
 is never supplied its dep returns 404 live while looking finished in the source.
 
-## Current shape (`docs/STATUS.md`, 2026-08-24 — and treat it with suspicion)
+## Current shape (`docs/ROADMAP.md §1`, 2026-08-24 — and treat it with suspicion)
 
 110 screens routed, 116 read surfaces answering `pnpm smoke`, 102 list surfaces
 non-empty, `pnpm scenarios` at 1,412 assertions passing with 4 failing (the open
@@ -69,7 +69,7 @@ overtime, gratuity — the catalog captured no formula, so unsupported cases are
 with a named warning and the payslip says its net is incomplete), leave-policy presets
 carrying inferred statutory numbers (casual 7 and paternity 1 under Law 14/2025 want
 legal review), POS (deferred by decision), email/WhatsApp channels modelled but
-unimplemented, and the six defects in `docs/defects.md`.
+unimplemented, and the six defects in `docs/ROADMAP.md §5`.
 
 **`STATUS.md` has been wrong before** — it claimed two reports were missing that were
 in the nav the whole time, blocked three more on false "needs a schema change" claims,
@@ -113,7 +113,7 @@ endorsement/replacement states, own-fleet delivery tracking, IAS-21 FX gain/loss
 
 ## What Egyptian compliance actually demands (measured 2026-08-25)
 
-Scoped in `docs/scenarios/09-cross-module.md` X40–X51 and partly asserted in
+Scoped in `docs/TESTING.md §13` X40–X51 and partly asserted in
 `seams.ts`. These are not polish; they are what a customer is audited on.
 
 - **ETA e-invoicing** — B2B is pre-clearance, B2C an e-receipt within 72 hours with a

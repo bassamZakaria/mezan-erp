@@ -11,7 +11,7 @@ import {
   type PayrollCalculationDeps,
 } from "../../packages/domain/src/index.js";
 
-/** Executable checks for the hr module — see docs/scenarios/05-hr.md. */
+/** Executable checks for the hr module — see docs/TESTING.md §9. */
 
 async function branchIdOf(ctx: Ctx): Promise<string> {
   const list = ctx.rows((await ctx.req("GET", "/hr/employees")).body);

@@ -14,7 +14,7 @@ import { run as reports } from "./scenarios/reports.js";
 import { run as salesParity } from "./scenarios/sales-parity.js";
 
 /**
- * `pnpm scenarios` — the executable half of docs/testing-plan.md Phase 3.
+ * `pnpm scenarios` — the executable half of docs/TESTING.md §2 Phase 3.
  *
  * Order matters: every module runs against the same seeded tenant, so a module
  * that moves stock or money changes what a later one sees. Read-mostly modules

@@ -123,7 +123,7 @@ export interface DocumentListProps<Row> {
   /**
    * Rows per page. Supplying it renders the shared page-size selector in the
    * footer, so every list offers the same 10/25/50/100 the reference does
-   * (docs/reference-parity/audit/REQUIREMENTS.md R1.12) instead of each screen
+   * (docs/reference-parity/REQUIREMENTS.md R1.12) instead of each screen
    * growing its own.
    */
   pageSize?: number;

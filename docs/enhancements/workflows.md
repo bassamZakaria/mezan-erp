@@ -253,4 +253,4 @@
 
 ## Summary
 
-**17 end-to-end enhancement workflows** spanning all 7 personas, each mapped to the requirements in `requirements.md` and sequenced in `backlog.md`. All are beyond-parity and live only on the `enhancements` branch.
+**17 end-to-end enhancement workflows** spanning all 7 personas, each mapped to the requirements in `requirements.md` and sequenced in `../ROADMAP.md` §7. All are beyond-parity and live only on the `enhancements` branch.

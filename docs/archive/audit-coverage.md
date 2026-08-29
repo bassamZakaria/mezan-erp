@@ -1,5 +1,10 @@
 # Coverage — what this audit did and did not see
 
+> **Archived 2026-08-29 — a point-in-time record, not current state.** Read `../ROADMAP.md`
+> for what is built and open, and `../TESTING.md` for how it is verified. Paths cited
+> below may name documents that have since moved; `README.md` in this directory maps them.
+
+
 Run 2026-08-26, three rounds, all against a live authenticated session.
 
 ## Method

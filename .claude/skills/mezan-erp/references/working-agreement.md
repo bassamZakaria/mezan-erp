@@ -80,7 +80,7 @@ silently computing a wrong net.
 
 ## Documentation
 
-- One status document (`docs/STATUS.md`); audits get archived, not left to rot in place.
+- One status document (`docs/ROADMAP.md §1`); audits get archived, not left to rot in place.
 - Record decisions and known defects where the next person will actually read them —
   a comment promising a follow-up sweep tracks nothing.
 - When something is lost in a merge, say what was lost and restore it explicitly; two

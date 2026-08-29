@@ -14,7 +14,7 @@ async function accountBalance(ctx: Ctx, accountId: string, asOf?: string): Promi
   return ctx.n(res.body?.balance?.balance);
 }
 
-/** Executable checks for the accounting module — see docs/scenarios/04-accounting-treasury.md. */
+/** Executable checks for the accounting module — see docs/TESTING.md §8. */
 export async function run(ctx: Ctx): Promise<void> {
   await voucherTypesRouteToTheirOwnAccounts_R81(ctx);
   await voucherQueuesAreAServerConcern_R82_R83(ctx);
@@ -799,7 +799,7 @@ export async function costCentresCarryTheirOwnColumnsAndImportDepartments_R67(ct
         typeof c.status === "string",
     );
     ctx.check(
-      "every row carries code, name, type, what it is linked to, its parent and its status — the six the reference lists (docs/defects.md D44)",
+      "every row carries code, name, type, what it is linked to, its parent and its status — the six the reference lists (docs/archive/defect-register.md D44)",
       columnsPresent,
       JSON.stringify(centres[0] ?? {}).slice(0, 220),
     );

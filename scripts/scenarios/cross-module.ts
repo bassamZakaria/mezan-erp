@@ -1,7 +1,7 @@
 import type { Ctx } from "./harness.js";
 
 /**
- * Executable checks for the CROSS-MODULE money trails — docs/scenarios/09-cross-module.md.
+ * Executable checks for the CROSS-MODULE money trails — docs/TESTING.md §13.
  *
  * Every other file in this directory proves one module behaves. This one proves
  * the modules agree with each other: that selling puts money in the treasury the
@@ -223,7 +223,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const invoiceAfter = (await req("GET", "/sales-invoices/SCN-X-INV-1")).body;
     check(
       "the invoice's own amountPaid follows the allocated collection that cleared its AR in the GL " +
-        "(docs/defects.md D1 — the regression guard: the document and the sub-ledger are one fact)",
+        "(docs/archive/defect-register.md D1 — the regression guard: the document and the sub-ledger are one fact)",
       n(invoiceAfter?.amountPaid) === 1140 && invoiceAfter?.status === "paid",
       `amountPaid=${invoiceAfter?.amountPaid} status=${invoiceAfter?.status}`,
     );
@@ -1020,7 +1020,7 @@ export async function run(ctx: Ctx): Promise<void> {
     }
 
     checkEq("dashboard cash equals the sum of every 13xx cash/bank account, this file's movements included", n(glBlock?.cash), cashSum);
-    checkEq("dashboard receivables equals trade plus instalment customer receivables — not the whole 11xx subtree (docs/defects.md D37)", n(glBlock?.receivables), receivableSum);
+    checkEq("dashboard receivables equals trade plus instalment customer receivables — not the whole 11xx subtree (docs/archive/defect-register.md D37)", n(glBlock?.receivables), receivableSum);
     checkEq("dashboard payables equals the sum of every liability account except output VAT", n(glBlock?.payables), payableSum);
   });
 
@@ -1134,7 +1134,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const planAfter = (await req("GET", "/installments/plans/SCN-X-PLAN-1")).body;
     const paidLines = ((planAfter?.lines ?? []) as any[]).filter((l) => n(l.paidAmount) > 0);
     check(
-      "documented behavior, not a new defect — collecting money against the invoice leaves every instalment line untouched: no route anywhere marks a line paid (docs/scenarios/06 INST-08)",
+      "documented behavior, not a new defect — collecting money against the invoice leaves every instalment line untouched: no route anywhere marks a line paid (docs/TESTING.md §10 INST-08)",
       paidLines.length === 0,
       `lines with a payment recorded: ${paidLines.length}`,
     );
@@ -1172,7 +1172,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const tripId = opened.body?.id ?? "SCN-X-TRIP-1";
 
     check(
-      "FLD-11 (docs/scenarios/06) — the route discards the caller's id, so the trip must be found by listing, not by the id that was sent",
+      "FLD-11 (docs/TESTING.md §10) — the route discards the caller's id, so the trip must be found by listing, not by the id that was sent",
       tripId !== "SCN-X-TRIP-1",
       `returned id=${tripId}`,
     );
@@ -1216,7 +1216,7 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("settling hands the counted cash back to the branch خزنة, net of the float it lent out", branchCashAfter - branchCashBefore, countedCash - 500);
     checkEq(
       "the van's treasury ends exactly where it started: the float and the takings went in, the counted cash went back, " +
-        "and the 50.00 shortfall was written off to عجز الصندوق rather than left on the van's books (docs/defects.md D22 — the regression guard)",
+        "and the 50.00 shortfall was written off to عجز الصندوق rather than left on the van's books (docs/archive/defect-register.md D22 — the regression guard)",
       vanCashAfter,
       vanCashBefore,
     );
@@ -1834,7 +1834,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const confirmed = await req("POST", "/sales-invoices/SCN-X-INV-TRAIL/confirm", {});
     check(
-      "the draft confirms over the API — but NO screen can do this (docs/defects.md D43): the sales-invoice detail page renders only «رجوع», " +
+      "the draft confirms over the API — but NO screen can do this (docs/archive/defect-register.md D43): the sales-invoice detail page renders only «رجوع», " +
         "so an invoice converted from a quote is unconfirmable in the UI, while goods receipts and purchase invoices both carry a تأكيد button",
       confirmed.status === 200 && confirmed.body?.status === "confirmed",
       JSON.stringify(confirmed.body).slice(0, 200),
@@ -1932,7 +1932,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("the from-receipt invoice drafts with no lines supplied", invoice.status === 201, `status ${invoice.status} ${JSON.stringify(invoice.body).slice(0, 200)}`);
     check(
       "every auto-filled line carries the item's own VAT rate — `resolveTaxRate` is wired to the item catalogue, so the receipt path no longer records " +
-        "goods a 14% supplier billed as though they were exempt (the F86 fix for docs/defects.md D50)",
+        "goods a 14% supplier billed as though they were exempt (the F86 fix for docs/archive/defect-register.md D50)",
       (invoice.body?.lines ?? []).every((l: any) => Number(l.taxRatePercent) === 14),
       JSON.stringify(invoice.body?.lines).slice(0, 200),
     );

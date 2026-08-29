@@ -11,7 +11,7 @@ export type ScreenIntentKind = "create";
  * supplier behind «فاتورة مشتريات», the invoice behind «مرتجع جديد» — so the
  * target screen opens its create flow already bound to it instead of asking
  * the user to search for what they just came from
- * (docs/reference-parity/audit/REQUIREMENTS.md R2.11, R3.6, R4.5).
+ * (docs/reference-parity/REQUIREMENTS.md R2.11, R3.6, R4.5).
  */
 export interface ScreenIntent {
   readonly kind: ScreenIntentKind;

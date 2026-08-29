@@ -2,7 +2,7 @@ import type { Ctx } from "./harness.js";
 
 /**
  * Executable checks for CRM, Projects, Fixed Assets, Field Sales and
- * Installments — docs/scenarios/06-crm-projects-assets.md as code. Ids the
+ * Installments — docs/TESTING.md §10 as code. Ids the
  * seed owns are read back by their known LEAD-DEMO, OPP-DEMO, PRJ-DEMO,
  * ASSET-DEMO, AST, TRIP-DEMO and IPLAN-DEMO ids; anything this file creates
  * is prefixed `SCN-`.
@@ -344,7 +344,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("a fully-depreciated asset is excluded from later runs entirely", !stillEligible);
   });
 
-  await scenario("fixed-assets · disposing an asset clears its cost and accumulated depreciation and books the gain or loss (docs/defects.md D13)", async () => {
+  await scenario("fixed-assets · disposing an asset clears its cost and accumulated depreciation and books the gain or loss (docs/archive/defect-register.md D13)", async () => {
     const before = (await req("GET", "/assets/ASSET-DEMO-1")).body;
     check("the asset is live before disposal", before?.status !== "disposed", JSON.stringify(before?.status));
     const cost = n(before?.acquisitionCost);
@@ -504,7 +504,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("with a real, non-zero amount", n(allocation.amount) > 0);
 
     const invoice = await req("GET", "/sales-invoices/INV-DEMO-1");
-    checkEq("amountPaid equals what the allocation applied (docs/defects.md D1 — the regression guard)", n(invoice.body.amountPaid), n(allocation.amount));
+    checkEq("amountPaid equals what the allocation applied (docs/archive/defect-register.md D1 — the regression guard)", n(invoice.body.amountPaid), n(allocation.amount));
     check("remainingBalance therefore drops below the grand total",
       n(invoice.body.remainingBalance) < n(invoice.body.totals.grandTotal),
       `remaining=${invoice.body.remainingBalance} grandTotal=${invoice.body.totals.grandTotal}`);
@@ -512,7 +512,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- Installments must-not-do: no route sets a line to 'paid' — do not invent one, assert the gap (INST-08) ---
 
-  await scenario("installments · no route or service anywhere sets an instalment line to 'paid' (docs/scenarios/06 INST-08 — collection is a separate treasury-voucher concern never linked back to a plan line)", async () => {
+  await scenario("installments · no route or service anywhere sets an instalment line to 'paid' (docs/TESTING.md §10 INST-08 — collection is a separate treasury-voucher concern never linked back to a plan line)", async () => {
     const guess = await req("POST", "/installments/plans/IPLAN-DEMO-1/lines/1/pay", {});
     checkEq("no such route is mounted", guess.status, 404);
   });

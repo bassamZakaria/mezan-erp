@@ -1,5 +1,10 @@
 # Reference parity — المشتريات (Purchases)
 
+> **Archived 2026-08-29 — a point-in-time record, not current state.** Read `../ROADMAP.md`
+> for what is built and open, and `../TESTING.md` for how it is verified. Paths cited
+> below may name documents that have since moved; `README.md` in this directory maps them.
+
+
 **Method.** Both sides driven live on 2026-08-26: every reference purchases screen
 read from its rendered DOM, then the same screen in Mezan on a seeded database.
 List surfaces only in this pass — create forms and document views are the next pass.

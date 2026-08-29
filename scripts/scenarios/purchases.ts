@@ -1,7 +1,7 @@
 import type { Ctx } from "./harness.js";
 
 /**
- * Executable checks for the purchases module — see docs/scenarios/02-purchases.md.
+ * Executable checks for the purchases module — see docs/TESTING.md §6.
  *
  * Drives the real three-gate chain (RFQ → PO → Goods Receipt → Purchase
  * Invoice, plus Returns and Landed Costs) through the API the UI itself

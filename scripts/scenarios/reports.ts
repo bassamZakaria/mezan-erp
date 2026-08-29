@@ -10,7 +10,7 @@ import type { Ctx } from "./harness.js";
  * filter must move both — a strip that stays put while the table narrows is
  * reporting the wrong set.
  *
- * See docs/scenarios/10-reference-parity.md.
+ * See docs/TESTING.md §15.
  */
 
 interface Kpi {

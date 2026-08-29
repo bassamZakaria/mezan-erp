@@ -62,7 +62,7 @@ export function customerOwedById(
  * What each supplier is still owed: opening balance plus confirmed purchase
  * invoices, less confirmed payments made to them and confirmed returns sent
  * back. Purchase invoices carry no `amountPaid` of their own (see
- * `docs/reference-parity/03-purchases.md` P-2), so payments are read from the
+ * `docs/archive/reference-enumeration-03-purchases.md` P-2), so payments are read from the
  * vouchers that name the supplier.
  */
 export function supplierPayableById(

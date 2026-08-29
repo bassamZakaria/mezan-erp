@@ -5,7 +5,7 @@
 >
 > **Category: durable reference.** The three blockers in §1 are code observations made
 > against the working tree on `main` at `128f92e` (2026-08-27), not claims copied from
-> `STATUS.md`. Re-verify them before treating any as still open — they are the kind of
+> `ROADMAP.md`. Re-verify them before treating any as still open — they are the kind of
 > thing that gets fixed without this file being updated.
 >
 > Scope: the **desktop edition sold self-hosted**. The cloud/SaaS edition (`plan.md` §9)
@@ -25,7 +25,7 @@ That model only works once three things are built, and none of them are built no
 Everything else in this document is downstream of §1.
 
 This document also resolves the open row *"licensing mechanism finalization"* in
-`decisions.md` — §3 and §5-B are the proposed decision.
+`ROADMAP.md` §6.2 — §3 and §5-B are the proposed decision.
 
 ---
 
@@ -285,7 +285,7 @@ placeholder `https://updates.mezan.example/desktop/`.
 
 **A is not optional and nothing after it matters without it.** Each phase names what
 "done" means as something observable in the running app — the standard this codebase
-already holds itself to (`testing-policy.md`).
+already holds itself to (`TESTING.md` §1).
 
 ### A — Enforce the bundle
 

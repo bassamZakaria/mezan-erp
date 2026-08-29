@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && pnpm --filter @mezan/ui typecheck && pnpm --filter web build",
     "typecheck": "tsc -p tsconfig.json && pnpm --filter @mezan/ui typecheck && pnpm --filter web typecheck",
-    "test": "echo 'Business-logic tests are disabled (see docs/testing-policy.md). Run `pnpm smoke` and verify in the running app instead.' && exit 0",
+    "test": "echo 'Business-logic tests are disabled (see docs/TESTING.md §1). Run `pnpm smoke` and verify in the running app instead.' && exit 0",
     "smoke": "tsx scripts/smoke.ts",
     "check:seed": "tsx scripts/check-seed-coverage.ts",
     "scenarios": "tsx scripts/run-scenarios.ts",
@@ -21,9 +21,9 @@
     "dev:fresh": "node scripts/dev.mjs --fresh",
     "server": "tsx apps/server/src/index.ts",
     "desktop:demo": "pnpm --filter desktop demo",
-    "test:e2e": "echo 'E2E running is disabled (see docs/testing-policy.md).' && exit 0",
+    "test:e2e": "echo 'E2E running is disabled (see docs/TESTING.md §1).' && exit 0",
     "test:e2e:disabled": "playwright test",
-    "test:e2e:ui": "echo 'E2E running is disabled (see docs/testing-policy.md).' && exit 0",
+    "test:e2e:ui": "echo 'E2E running is disabled (see docs/TESTING.md §1).' && exit 0",
     "test:e2e:install": "playwright install --with-deps chromium",
     "lint:permission-labels": "node scripts/check-permission-labels.mjs"
   },

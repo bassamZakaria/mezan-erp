@@ -1,6 +1,6 @@
 # Verification protocol
 
-Automated business-logic tests are **disabled by decision** (`docs/testing-policy.md`):
+Automated business-logic tests are **disabled by decision** (`docs/TESTING.md §1`):
 do not write, repair or run test files; `pnpm test` and `pnpm test:e2e` are stubs that
 print the policy. The reason is measured — a live click-through found five user-facing
 defects that 2,080 passing unit tests missed, because each test asserted its own
@@ -48,7 +48,7 @@ seeding gap or a broken route — and testing past it tests nothing.
 
 ## Trails, not screens
 
-`docs/scenarios/10-posting-trails.md` holds 76 posting trails (372 steps) covering every
+`docs/TESTING.md §14` holds 76 posting trails (372 steps) covering every
 nav group, every report, the non-functional concerns (volume, offline, a11y, i18n,
 security) and four role journeys — each a single thread of real clicks with the
 cross-module effects each click must produce, plus the pair to check and the known
@@ -116,7 +116,7 @@ create form and its detail as sub-pages, and never as a `SidePanel`. Check which
 two the reference uses before converting a screen; "make everything a page" is as wrong
 as "make everything a drawer".
 
-**"Wired to the real API" is not "correct".** `docs/web-data-wiring.md`'s status table
+**"Wired to the real API" is not "correct".** `docs/archive/web-data-wiring.md`'s status table
 grades screens on data provenance — does this screen read and write the real backend —
 and a form posting fabricated ids to a real endpoint scores full marks on it. Provenance
 is necessary and nowhere near sufficient; field fidelity is a separate gate and has to
@@ -160,9 +160,9 @@ Rules learned the hard way, all of them from a failure:
 ## Behaviour, not reaction
 
 Automation proves a control reacts; only a scenario proves it did the right thing.
-`docs/scenarios/` holds 964 numbered per-screen scenarios with
+`docs/TESTING.md §5–§15 ` holds 964 numbered per-screen scenarios with
 `[NOT IMPLEMENTED]` markers where the build diverges, and `scripts/scenarios/` holds
-the executable subset behind `pnpm scenarios`. `docs/scenarios/09-cross-module.md` is
+the executable subset behind `pnpm scenarios`. `docs/TESTING.md §13` is
 the seam file: money trails across modules (`cross-module.ts`) plus the currency, tax,
 Egypt-compliance, concurrency, permission, search, audit, pricing and year-end seams
 (`seams.ts`). What is still manual is listed there and named — POS, the ETA lifecycle,

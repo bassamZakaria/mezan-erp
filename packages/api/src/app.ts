@@ -390,7 +390,7 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
-   * Mounts `/inventory/writedown-runs` (docs/tasks.md §6 Phase 4 "aging-based
+   * Mounts `/inventory/writedown-runs` (docs/archive/phase-backlog.md Phase 4 "aging-based
    * inventory write-down batch") when present: a manually-triggered,
    * per-period-idempotent monthly provisioning job that posts Dr write-down
    * expense / Cr the 1190-style contra-asset provision for slow-moving

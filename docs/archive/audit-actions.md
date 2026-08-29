@@ -1,5 +1,10 @@
 # Action catalogue — reference
 
+> **Archived 2026-08-29 — a point-in-time record, not current state.** Read `../ROADMAP.md`
+> for what is built and open, and `../TESTING.md` for how it is verified. Paths cited
+> below may name documents that have since moved; `README.md` in this directory maps them.
+
+
 Round 3, brute-force interaction pass. Every non-destructive control was clicked,
 every dropdown enumerated, every row overflow menu opened, create and edit forms
 opened and their sections/fields/dropdowns read. **No submit control was ever

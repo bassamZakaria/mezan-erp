@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * Phase 0 gate of `docs/testing-plan.md`: every list surface must return rows.
+ * Phase 0 gate of `docs/TESTING.md §2`: every list surface must return rows.
  *
  * A screen with no rows cannot have its buttons, filters or CRUD proven — there
  * is nothing for them to act on. So an empty surface is reported as a failure

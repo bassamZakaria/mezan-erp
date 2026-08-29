@@ -132,9 +132,21 @@ Scoped in `docs/scenarios/09-cross-module.md` X40–X51 and partly asserted in
   queues a submission (F33); the submit/clearance lifecycle beyond the queue is still
   manual.
 - **VAT is not 14% of everything** — a 5% reduced rate, zero-rated exports, exempt
-  supplies, and the legacy construction treatment of 14% on **36% of value** with no
-  input deduction. Per-line rates post correctly; the VAT return cannot report them
-  separately (D28) and a partial taxable base cannot be expressed at all.
+  supplies, and a **partial taxable base for construction**. Per-line rates post
+  correctly; the VAT return cannot report them separately (D28) and a partial taxable
+  base cannot be expressed at all.
+  **Corrected 2026-08-29 (`docs/contracting/05-egypt.md`):** the "14% on 36% of value"
+  is *not* the legacy treatment — it is the **new transitional rule**. Contracting and
+  construction historically sat in the schedule tax (ضريبة الجدول) at **5% on full
+  value with no input credit**. **Law 157/2025** moved the sector into the general VAT
+  regime at **14% with full input recovery**, effective for construction from
+  **18 July 2025**; **MoF Decree 418/2025** then fixed a transitional basis of 14% on
+  **36%** of the invoice value (≈5.04%, preserving the old burden) for contracts signed
+  — or with an approved مستخلص or e-invoice — before that date, with input VAT still
+  not recoverable on those. **Two regimes therefore run in parallel, keyed on contract
+  date**, and every Egyptian contractor has both kinds on its books at once. Since the
+  change, VAT is recognised when the e-invoice is issued and **advances no longer
+  trigger VAT on receipt**.
 - **Withholding tax** on local B2B payments — the payment is net, the withheld amount
   is owed to the authority, and the supplier must still read as settled in full. D27
   is **fixed** (F71): vouchers carry `withholdingAmount` / `withholdingRatePercent` /
@@ -142,7 +154,11 @@ Scoped in `docs/scenarios/09-cross-module.md` X40–X51 and partly asserted in
   `reports/withholding-tax.ts` files it. What remains is that it lives on the
   **payable** side only — there is no debtor account for tax a customer withholds from
   our own invoice or certificate, and the GL account is caller-supplied per voucher
-  rather than routed.
+  rather than routed. The rate for **contracting, supplies and transport is 1%**
+  (MoF Decree 405/2018; services 3%, commissions and professional fees 5%), threshold
+  EGP 300, filed quarterly on Form 41. Many Egyptian sources still publish the
+  pre-2018 0.5% — treat any 0.5% in a customer's books as legacy and keep the rate an
+  effective-dated table.
 - **Statutory payroll** — income tax, social insurance as **two** liabilities
   (employee share and employer cost), Article 47 seniority, end-of-service gratuity.
   None is computed, and the honest requirement is that every payslip *says so* rather

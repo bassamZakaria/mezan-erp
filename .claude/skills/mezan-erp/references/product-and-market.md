@@ -107,9 +107,18 @@ manufacturing, cheques, installments and offline POS. Mezan's real edge is deplo
 model and execution quality, not "features they lack". Do not reuse those overstated
 claims.
 
-Catalog gaps worth verifying before finalizing those modules: BOQ / progress
-certificates / retention billing for contracting, FEFO for pharma, cheque
+Catalog gaps worth verifying before finalizing those modules: FEFO for pharma, cheque
 endorsement/replacement states, own-fleet delivery tracking, IAS-21 FX gain/loss depth.
+
+**Contracting is researched — see `docs/contracting/`.** Two corrections to the
+picture above came out of that pass. Daftra **does** ship مستخلصات المقاولات and
+خصم ضمان الأعمال, so contracting is not one of its gaps and must not be claimed as
+one. And of fourteen Egyptian, Saudi and Gulf products checked, **not one advertises
+خطابات الضمان** — either a market-wide convention that guarantees are a bank matter,
+or the cheapest differentiator available. QuickBooks and Odoo both fail at retainage,
+at progress certificates, and at getting stock cost onto a project; Odoo's
+`stock.move` carries no analytic dimension, which is the same hole this repo has, in
+the same place.
 
 ## What Egyptian compliance actually demands (measured 2026-08-25)
 
@@ -123,12 +132,33 @@ Scoped in `docs/TESTING.md §13` X40–X51 and partly asserted in
   queues a submission (F33); the submit/clearance lifecycle beyond the queue is still
   manual.
 - **VAT is not 14% of everything** — a 5% reduced rate, zero-rated exports, exempt
-  supplies, and the legacy construction treatment of 14% on **36% of value** with no
-  input deduction. Per-line rates post correctly; the VAT return cannot report them
-  separately (D28) and a partial taxable base cannot be expressed at all.
+  supplies, and a **partial taxable base for construction**. Per-line rates post
+  correctly; the VAT return cannot report them separately (D28) and a partial taxable
+  base cannot be expressed at all.
+  **Corrected 2026-08-29 (`docs/contracting/05-egypt.md`):** the "14% on 36% of value"
+  is *not* the legacy treatment — it is the **new transitional rule**. Contracting and
+  construction historically sat in the schedule tax (ضريبة الجدول) at **5% on full
+  value with no input credit**. **Law 157/2025** moved the sector into the general VAT
+  regime at **14% with full input recovery**, effective for construction from
+  **18 July 2025**; **MoF Decree 418/2025** then fixed a transitional basis of 14% on
+  **36%** of the invoice value (≈5.04%, preserving the old burden) for contracts signed
+  — or with an approved مستخلص or e-invoice — before that date, with input VAT still
+  not recoverable on those. **Two regimes therefore run in parallel, keyed on contract
+  date**, and every Egyptian contractor has both kinds on its books at once. Since the
+  change, VAT is recognised when the e-invoice is issued and **advances no longer
+  trigger VAT on receipt**.
 - **Withholding tax** on local B2B payments — the payment is net, the withheld amount
-  is owed to the authority, and the supplier must still read as settled in full. No
-  account, no field, no report exists (D27).
+  is owed to the authority, and the supplier must still read as settled in full. D27
+  is **fixed** (F71): vouchers carry `withholdingAmount` / `withholdingRatePercent` /
+  `withholdingGlAccountId`, account 2210 is in the template, and
+  `reports/withholding-tax.ts` files it. What remains is that it lives on the
+  **payable** side only — there is no debtor account for tax a customer withholds from
+  our own invoice or certificate, and the GL account is caller-supplied per voucher
+  rather than routed. The rate for **contracting, supplies and transport is 1%**
+  (MoF Decree 405/2018; services 3%, commissions and professional fees 5%), threshold
+  EGP 300, filed quarterly on Form 41. Many Egyptian sources still publish the
+  pre-2018 0.5% — treat any 0.5% in a customer's books as legacy and keep the rate an
+  effective-dated table.
 - **Statutory payroll** — income tax, social insurance as **two** liabilities
   (employee share and employer cost), Article 47 seniority, end-of-service gratuity.
   None is computed, and the honest requirement is that every payslip *says so* rather

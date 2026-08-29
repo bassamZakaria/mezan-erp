@@ -286,6 +286,8 @@ export {
   NegativeNetPayError,
   StatutoryRulesUnavailableError,
   EmployeeStillEmployedError,
+  InvalidGarnishmentError,
+  GarnishmentNotFoundError,
   LeaveBalanceExceededError,
   TreasuryDisbursementHeldError,
   TreasuryDisbursementUnavailableError,
@@ -361,3 +363,20 @@ export {
 
 export type { EndOfServiceSettlement, EndOfServiceSettlementInput } from "./end-of-service.js";
 export { calculateEndOfServiceSettlement } from "./end-of-service.js";
+
+export type {
+  GarnishmentKind,
+  GarnishmentKindDefinition,
+  GarnishmentRecord,
+  GarnishmentFilter,
+  GarnishmentRepository,
+  CreateGarnishmentCommand,
+} from "./garnishment.js";
+export {
+  GARNISHMENT_KIND_DEFINITIONS,
+  getGarnishmentKindLabel,
+  createGarnishment,
+  applyGarnishmentRecovery,
+  releaseGarnishment,
+  createGarnishmentProvider,
+} from "./garnishment.js";

@@ -1,6 +1,7 @@
 import { Money } from "../money/index.js";
 import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
 import { applyAdvanceRecovery, type EmployeeAdvanceRepository } from "./advance.js";
+import { applyGarnishmentRecovery, type GarnishmentRepository } from "./garnishment.js";
 import {
   canTransitionPayrollRun,
   type PayrollGlAccounts,
@@ -11,6 +12,7 @@ import {
 } from "./payroll-run.js";
 import {
   EmployeeAdvanceNotFoundError,
+  GarnishmentNotFoundError,
   InvalidPayrollRunTransitionError,
   NoPayableEmployeesError,
   PayrollRunNotFoundError,
@@ -46,6 +48,8 @@ export interface PostPayrollRunDeps {
   readonly runs: PayrollRunRepository;
   readonly payslips: Pick<PayslipRepository, "listByRunId">;
   readonly advances: Pick<EmployeeAdvanceRepository, "findById" | "update">;
+  /** Absent = garnishment lines post to the ledger but no order is counted down. */
+  readonly garnishments?: Pick<GarnishmentRepository, "findById" | "update">;
   readonly gl: JournalPostingDeps;
   readonly accounts: PayrollGlAccounts;
   readonly now?: () => string;
@@ -139,6 +143,25 @@ export async function approvePayrollRun(runId: string, approvedBy: string, deps:
     const advance = await deps.advances.findById(advanceId);
     if (!advance) throw new EmployeeAdvanceNotFoundError(advanceId);
     await deps.advances.update(applyAdvanceRecovery(advance, Money.fromScaled(scaled), now));
+  }
+
+  // Same discipline for garnishment orders: what the run actually withheld is
+  // counted down against the order, so a satisfied order stops deducting. An
+  // order that keeps withholding after it is paid is the wage-deduction
+  // equivalent of stock that stays returnable forever.
+  if (deps.garnishments) {
+    const withheldByOrder = new Map<string, bigint>();
+    for (const payslip of payslips) {
+      for (const line of payslip.lines) {
+        if (line.source !== "garnishment" || line.referenceId === null) continue;
+        withheldByOrder.set(line.referenceId, (withheldByOrder.get(line.referenceId) ?? 0n) + line.amount.scaled);
+      }
+    }
+    for (const [orderId, scaled] of withheldByOrder) {
+      const order = await deps.garnishments.findById(orderId);
+      if (!order) throw new GarnishmentNotFoundError(orderId);
+      await deps.garnishments.update(applyGarnishmentRecovery(order, Money.fromScaled(scaled), () => now));
+    }
   }
 
   const approved: PayrollRun = {

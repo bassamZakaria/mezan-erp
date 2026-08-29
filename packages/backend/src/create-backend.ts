@@ -131,6 +131,7 @@ import {
   createSqlitePayrollRunRepository,
   createSqlitePayslipRepository,
   createSqlitePayrollComponentRepository,
+  createSqliteGarnishmentRepository,
   createSqliteWritedownRunRepository,
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
@@ -644,6 +645,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
   const hrPayslips = createSqlitePayslipRepository(sqlite);
   const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
+  const hrGarnishments = createSqliteGarnishmentRepository(sqlite);
 
   // --- w8/notifications — قواعد الإشعارات rules engine. ONE EventBus for the
   // whole backend; the engine subscribes to every event and (per rule) writes
@@ -1516,6 +1518,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         accounts: PAYROLL_GL_ACCOUNTS,
         treasury: hrTreasuryDisbursement,
         payrollComponents: hrPayrollComponents,
+        garnishmentRegister: hrGarnishments,
       },
       users: uow.users,
       numbering: ledger.numbering,

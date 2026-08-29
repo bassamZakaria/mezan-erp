@@ -29,6 +29,11 @@ import {
   InvalidPayrollRunTransitionError,
   NegativeNetPayError,
   StatutoryRulesUnavailableError,
+  InvalidGarnishmentError,
+  GarnishmentNotFoundError,
+  createGarnishment,
+  createGarnishmentProvider,
+  releaseGarnishment,
   listEgyptStatutoryTables,
   formatRateBp,
   totalShareBp,
@@ -43,6 +48,8 @@ import {
   type EmployeeAdvanceRepository,
   type EmployeeRepository,
   type GarnishmentProvider,
+  type GarnishmentRecord,
+  type GarnishmentRepository,
   type OvertimeHoursProvider,
   type PayrollDayDivisorBasis,
   type WorkedTimeProvider,
@@ -62,6 +69,7 @@ import {
 import {
   createEmployeeAdvanceSchema,
   createPayrollRunSchema,
+  createGarnishmentSchema,
   createPayrollComponentSchema,
   updatePayrollComponentSchema,
   treasuryDisbursementSchema,
@@ -94,7 +102,13 @@ export interface HrPayrollRoutesDeps {
   readonly overtime?: OvertimeHoursProvider;
   /** Bound to attendance; required before an hourly or daily contract can be paid. */
   readonly workedTime?: WorkedTimeProvider;
-  /** Court-ordered wage deductions; absent = no garnishment line is produced. */
+  /**
+   * The garnishment register (الحجز على الأجر). Supplying it mounts its routes,
+   * feeds payroll's deduction seam and counts each order down as payroll
+   * withholds — the three go together, so a register can never be half-wired.
+   */
+  readonly garnishmentRegister?: GarnishmentRepository;
+  /** Overrides the register-derived provider; for tests and alternative sources. */
   readonly garnishments?: GarnishmentProvider;
   /** أساس قسمة اليوم from tenant settings; defaults to the Egyptian FIXED_30 convention. */
   readonly dayDivisorBasis?: PayrollDayDivisorBasis;
@@ -167,6 +181,27 @@ function serializePayslip(p: Payslip) {
   };
 }
 
+function serializeGarnishment(g: GarnishmentRecord) {
+  return {
+    id: g.id,
+    employeeId: g.employeeId,
+    kind: g.kind,
+    reference: g.reference,
+    labelAr: g.labelAr,
+    totalAmount: g.totalAmount.toString(),
+    monthlyAmount: g.monthlyAmount.toString(),
+    outstanding: g.outstanding.toString(),
+    recovered: g.recovered.toString(),
+    currency: g.currency,
+    startDate: g.startDate,
+    endDate: g.endDate,
+    notes: g.notes,
+    active: g.active,
+    createdAt: g.createdAt,
+    updatedAt: g.updatedAt,
+  };
+}
+
 function serializeRun(r: PayrollRun) {
   return {
     id: r.id,
@@ -200,7 +235,12 @@ function serializeRun(r: PayrollRun) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
-  if (err instanceof EmployeeAdvanceNotFoundError || err instanceof PayrollRunNotFoundError || err instanceof EmployeeNotFoundError) {
+  if (
+    err instanceof EmployeeAdvanceNotFoundError ||
+    err instanceof PayrollRunNotFoundError ||
+    err instanceof EmployeeNotFoundError ||
+    err instanceof GarnishmentNotFoundError
+  ) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (err instanceof TreasuryDisbursementUnavailableError) {
@@ -222,6 +262,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoPayableEmployeesError ||
     err instanceof NegativeNetPayError ||
     err instanceof StatutoryRulesUnavailableError ||
+    err instanceof InvalidGarnishmentError ||
     err instanceof InvalidPayrollComponentError ||
     err instanceof DuplicatePayrollComponentError
   ) {
@@ -264,7 +305,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     unpaidLeave: deps.unpaidLeave,
     overtime: deps.overtime,
     workedTime: deps.workedTime,
-    garnishments: deps.garnishments,
+    garnishments: deps.garnishments ?? (deps.garnishmentRegister ? createGarnishmentProvider(deps.garnishmentRegister) : undefined),
     dayDivisorBasis: deps.dayDivisorBasis,
     standardDailyHours: deps.standardDailyHours,
     payrollComponents: deps.payrollComponents,
@@ -409,6 +450,59 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
 
   // --- Payroll runs --------------------------------------------------------
 
+  // --- Garnishments (الحجز على الأجر) -------------------------------------
+
+  const garnishmentRegister = deps.garnishmentRegister;
+  if (garnishmentRegister) {
+    app.get("/payroll/garnishments", gate("hr.payroll.view"), async (c) => {
+      const employeeId = c.req.query("employeeId") ?? null;
+      const activeParam = c.req.query("active");
+      const rows = await garnishmentRegister.list({
+        employeeId,
+        active: activeParam === undefined ? null : activeParam === "true",
+      });
+      return c.json(rows.map(serializeGarnishment));
+    });
+
+    app.get("/payroll/garnishments/:id", gate("hr.payroll.view"), async (c) => {
+      const row = await garnishmentRegister.findById(c.req.param("id"));
+      if (!row) return c.json({ error: "GARNISHMENT_NOT_FOUND" }, 404);
+      return c.json(serializeGarnishment(row));
+    });
+
+    app.post("/payroll/garnishments", gate("hr.payroll.create"), async (c) => {
+      const parsed = createGarnishmentSchema.safeParse(await c.req.json().catch(() => ({})));
+      if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      // The employee is resolved against the real register before anything is
+      // written: an order against an id nobody holds is a deduction nobody owns.
+      if (!(await deps.employees.findById(parsed.data.employeeId))) {
+        return c.json({ error: "EMPLOYEE_NOT_FOUND", message: "الموظف غير موجود." }, 404);
+      }
+      try {
+        const record = createGarnishment({
+          ...parsed.data,
+          id: parsed.data.id ?? idGen(),
+          totalAmount: Money.fromMajor(parsed.data.totalAmount),
+          monthlyAmount: Money.fromMajor(parsed.data.monthlyAmount),
+          endDate: parsed.data.endDate ?? null,
+          notes: parsed.data.notes ?? null,
+        });
+        await garnishmentRegister.create(record);
+        return c.json(serializeGarnishment(record), 201);
+      } catch (err) {
+        return handleDomainError(c, err);
+      }
+    });
+
+    app.post("/payroll/garnishments/:id/release", gate("hr.payroll.create"), async (c) => {
+      const current = await garnishmentRegister.findById(c.req.param("id"));
+      if (!current) return c.json({ error: "GARNISHMENT_NOT_FOUND" }, 404);
+      const next = releaseGarnishment(current);
+      await garnishmentRegister.update(next);
+      return c.json(serializeGarnishment(next));
+    });
+  }
+
   // The dated legal tables payroll computes against. Read-only and public to
   // anyone who can see payroll: an accountant must be able to check the ceiling
   // the system used against the gazette without opening the source.
@@ -527,6 +621,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
         runs: deps.runs,
         payslips: deps.payslips,
         advances: deps.advances,
+        garnishments: deps.garnishmentRegister,
         gl: deps.gl,
         accounts: deps.accounts,
       });

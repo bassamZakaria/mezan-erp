@@ -11,6 +11,7 @@ import {
   Barcode,
   Bell,
   BellRing,
+  Inbox,
   Blocks,
   BookMarked,
   BookOpen,
@@ -121,6 +122,7 @@ import {
 const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   dashboard: LayoutDashboard,
 
+  notifications: Inbox,
   approvals: CheckCheck,
 
   "sales-hub": Store,
@@ -274,6 +276,7 @@ const navGroupIcons: Readonly<Record<string, LucideIcon>> = {
   crm: Contact,
   hr: UsersRound,
   projects: FolderKanban,
+  contracting: FolderKanban,
   assets: Building,
   field: Route,
   installments: CreditCard,

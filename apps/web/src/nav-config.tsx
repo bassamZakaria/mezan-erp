@@ -208,10 +208,17 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     defaultCollapsed: true,
     itemKeys: ["assets-hub"],
     sections: [
-      { key: "daily", itemKeys: ["asset-register", "depreciation-runs", "projects"] },
+      { key: "daily", itemKeys: ["asset-register", "depreciation-runs"] },
       { key: "config", defaultCollapsed: true, itemKeys: ["asset-categories"] },
     ],
   },
+  /**
+   * المقاولات stands on its own rather than sitting on الأصول الثابتة's daily
+   * shelf. A contracting business is not a fixed-asset chore: it brings BOQs,
+   * progress certificates, retention and subcontractors with it, and those are
+   * a module, not a screen. One row today, the module's own home tomorrow.
+   */
+  { key: "contracting", defaultCollapsed: true, itemKeys: ["projects"] },
   {
     key: "setup",
     defaultCollapsed: true,

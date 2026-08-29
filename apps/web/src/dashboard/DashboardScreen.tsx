@@ -5,6 +5,7 @@ import { useNavigation } from "../navigation";
 import type { ScreenKey } from "../App";
 import type { ScreenIntentInput } from "../navigation";
 import { useDashboardSummary, type DashboardRange } from "../data/hooks";
+import { displayName } from "../display-name";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { BalanceBeam, beamTiltDegrees } from "./BalanceBeam";
 import { KpiTile, type BeamDirection, type DeltaTone } from "./KpiStrip";
@@ -116,7 +117,7 @@ export function DashboardScreen() {
   const topProducts = useTopProducts(window);
   const attention = useAttentionData(window, today);
 
-  const greetingName = session ? firstNameOf(session.fullName) : "";
+  const greetingName = session ? firstNameOf(displayName(session, locale)) : "";
   const gl = summary?.gl;
   const counts = summary?.counts;
   const revenue = num(gl?.revenue);

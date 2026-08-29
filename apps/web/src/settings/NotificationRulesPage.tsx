@@ -158,7 +158,7 @@ export function NotificationRulesPage() {
   function recipientValueOptions() {
     if (form.recipientType === "permission") return PERMISSIONS.map((p) => ({ value: p.code, label: `${permissionLabel(p, t)} — ${p.code}` }));
     if (form.recipientType === "role") return (rolesQuery.data ?? []).map((r) => ({ value: r.id, label: r.name }));
-    return (usersQuery.data ?? []).map((u) => ({ value: u.id, label: u.fullName }));
+    return (usersQuery.data ?? []).map((u) => ({ value: u.id, label: u.nameAr }));
   }
 
   function resetForm() {

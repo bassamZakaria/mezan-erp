@@ -24,7 +24,8 @@ function fakeHasher(): SecretHasher {
 
 const baseCmd = {
   id: "user-1",
-  fullName: "محمد الشهابي",
+  nameAr: "محمد الشهابي",
+    nameEn: null,
   email: "mohamed@cyag.test",
   phone: "+201000000000",
   password: "TempPass123",
@@ -106,7 +107,8 @@ describe("saveUser", () => {
 
   it("rejects a blank full name", async () => {
     const uow = createFakeUow();
-    await expect(saveUser({ ...baseCmd, fullName: "   " }, uow, fakeHasher())).rejects.toBeInstanceOf(
+    await expect(saveUser({ ...baseCmd, nameAr: "   ",
+    nameEn: null }, uow, fakeHasher())).rejects.toBeInstanceOf(
       InvalidUserError,
     );
   });
@@ -129,9 +131,10 @@ describe("saveUser", () => {
     const uow = createFakeUow();
     const created = await saveUser(baseCmd, uow, fakeHasher());
     const { password: _password, ...rest } = baseCmd;
-    const updated = await saveUser({ ...rest, fullName: "محمد الشهابي (محدث)" }, uow, fakeHasher());
+    const updated = await saveUser({ ...rest, nameAr: "محمد الشهابي (محدث)",
+    nameEn: null }, uow, fakeHasher());
     expect(updated.passwordHash).toBe(created.passwordHash);
-    expect(updated.fullName).toBe("محمد الشهابي (محدث)");
+    expect(updated.nameAr).toBe("محمد الشهابي (محدث)");
   });
 
   it("clears the PIN when pin is explicitly null", async () => {

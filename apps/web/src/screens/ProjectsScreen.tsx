@@ -131,7 +131,7 @@ export function ProjectsScreen() {
 
   function managerName(managerId: string | null): string {
     if (managerId === null) return t("projects.noManager");
-    return users.find((u) => u.id === managerId)?.fullName ?? managerId;
+    return users.find((u) => u.id === managerId)?.nameAr ?? managerId;
   }
 
   const filtered = useMemo(() => {
@@ -159,7 +159,7 @@ export function ProjectsScreen() {
     { id: NO_CUSTOMER_ID, label: t("projects.noCustomer") },
     ...customers.map((c) => ({ id: c.id, label: `${c.code} — ${c.nameAr}` })),
   ];
-  const managerOptions: EntityPickerOption[] = [{ id: NO_MANAGER_ID, label: t("projects.noManager") }, ...users.map((u) => ({ id: u.id, label: u.fullName }))];
+  const managerOptions: EntityPickerOption[] = [{ id: NO_MANAGER_ID, label: t("projects.noManager") }, ...users.map((u) => ({ id: u.id, label: u.nameAr }))];
 
   function openCreateForm() {
     setDraft(blankDraft());

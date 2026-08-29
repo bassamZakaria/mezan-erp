@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { createUserSchema } from "./users.js";
 
 const base = {
-  fullName: "محمد الشهابي",
+  nameAr: "محمد الشهابي",
+    nameEn: null,
   email: "mohamed@cyag.test",
   phone: null,
   employeeId: null,

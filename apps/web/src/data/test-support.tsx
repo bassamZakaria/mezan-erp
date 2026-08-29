@@ -54,7 +54,8 @@ export function stubTransport(
 /** A ready-made admin session for tests that render behind the login gate. */
 export const testAdminSession: Session = {
   userId: "USER-ADMIN",
-  fullName: "محمد الشهابي",
+  nameAr: "محمد الشهابي",
+  nameEn: null,
   email: "admin@cyag.example",
   isCompanyAdmin: true,
   permissions: ["*"],

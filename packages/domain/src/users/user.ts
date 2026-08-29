@@ -13,14 +13,17 @@ export type UserStatus = "active" | "inactive";
  */
 export interface User {
   readonly id: string;
-  readonly fullName: string;
+  /** The Arabic name — the record. Every document and audit row reads this. */
+  readonly nameAr: string;
+  /** The Latin name, when the person has one. `null` falls back to `nameAr`. */
+  readonly nameEn: string | null;
   /**
    * The login identifier AND the contact address — one field, one value.
    *
    * Stored already normalised (trimmed, lower-cased) so uniqueness is a plain
    * index rather than a collation the SQLite file has to agree about, and so
    * `Admin@x.com` cannot become a second account beside `admin@x.com`. It is
-   * deliberately not `fullName`: a display name is neither unique nor stable —
+   * deliberately not the display name: a name is neither unique nor stable —
    * two «محمد أحمد» can work in one shop, and either may be corrected next
    * week, which would silently change who can log in.
    */

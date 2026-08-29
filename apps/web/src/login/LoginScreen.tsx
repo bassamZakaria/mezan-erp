@@ -3,6 +3,7 @@ import { BrandMark, Button, TextInput, cn } from "@mezan/ui";
 import { useLogin } from "../data/hooks";
 import { clearSessionExpired, sessionExpiredPending } from "../data/session";
 import { useAppTranslation } from "../i18n";
+import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
 
 const PIN_LENGTH = 6;
@@ -38,7 +39,7 @@ export interface LoginScreenProps {
  * button the form already knows how to press is pure friction.
  */
 export function LoginScreen({ onStartWizard }: LoginScreenProps) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const login = useLogin();
 
   const remembered = useMemo(() => readDeviceUsers(), []);
@@ -139,7 +140,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
   const pinLabel = typing
     ? t("login.pin")
-    : t("login.who.pinFor", { name: selected?.name ?? "" });
+    : t("login.who.pinFor", { name: selected ? displayName(selected, locale) : "" });
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
@@ -187,7 +188,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
                   type="button"
                   role="radio"
                   aria-checked={active}
-                  aria-label={t("login.who.pick", { name: user.name })}
+                  aria-label={t("login.who.pick", { name: displayName(user, locale) })}
                   onClick={() => pickUser(user)}
                   className={cn(
                     "flex min-w-0 flex-1 flex-col items-center gap-[6px] rounded-md border px-[4px] py-[10px] text-2xs transition-colors",
@@ -209,8 +210,8 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
                       {user.initials}
                     </span>
                   )}
-                  <span className="w-full truncate text-center" title={user.name}>
-                    {user.name}
+                  <span className="w-full truncate text-center" title={displayName(user, locale)}>
+                    {displayName(user, locale)}
                   </span>
                 </button>
               );

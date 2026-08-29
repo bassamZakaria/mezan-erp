@@ -74,7 +74,8 @@ class FakeNotificationRepository implements NotificationRepository {
 function makeUser(overrides: Partial<User> = {}): User {
   return {
     id: overrides.id ?? "user-1",
-    fullName: "مستخدم تجريبي",
+    nameAr: "مستخدم تجريبي",
+    nameEn: null,
     email: `${overrides.id ?? "user-1"}@test.local`,
     phone: null,
     passwordHash: "hash",

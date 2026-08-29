@@ -75,7 +75,8 @@ export function normalizeEmailDomain(raw: string): string {
 
 export interface SaveUserCommand {
   readonly id: string;
-  readonly fullName: string;
+  readonly nameAr: string;
+  readonly nameEn: string | null;
   readonly email: string;
   readonly phone: string | null;
   /**
@@ -125,7 +126,7 @@ export async function saveUser(
   hasher: SecretHasher,
   opts?: SaveUserOptions,
 ): Promise<User> {
-  if (cmd.fullName.trim() === "") {
+  if (cmd.nameAr.trim() === "") {
     throw new InvalidUserError("الاسم الكامل مطلوب.");
   }
   const email = normalizeEmail(cmd.email);
@@ -182,7 +183,8 @@ export async function saveUser(
 
   const user: User = {
     id: cmd.id,
-    fullName: cmd.fullName,
+    nameAr: cmd.nameAr,
+    nameEn: cmd.nameEn,
     email,
     phone: cmd.phone,
     passwordHash,

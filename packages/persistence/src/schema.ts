@@ -85,7 +85,8 @@ export const role = sqliteTable("role", {
  */
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
-  fullName: text("full_name").notNull(),
+  nameAr: text("name_ar").notNull(),
+  nameEn: text("name_en"),
   email: text("email").notNull(),
   phone: text("phone"),
   passwordHash: text("password_hash").notNull(),

@@ -157,7 +157,7 @@ export function createPreferencesRoutes(
       const preferences = row ?? createDefaultUserPreferences(user.id, now);
       return {
         userId: user.id,
-        fullName: user.fullName,
+        fullName: user.nameAr,
         layoutName: preferences.layoutName,
         isDefault: isDefaultUserPreferences(preferences),
         stored: row !== undefined,
@@ -190,7 +190,7 @@ export function createPreferencesRoutes(
     const { preferences, stored } = await load(targetId);
     const user = await deps.uow.users.findById(targetId);
     if (!user && !stored) return c.json({ error: "NOT_FOUND", message: "المستخدم غير موجود." }, 404);
-    return c.json({ ...serialize(preferences, stored), fullName: user?.fullName ?? null, readOnly: true });
+    return c.json({ ...serialize(preferences, stored), fullName: user?.nameAr ?? null, readOnly: true });
   });
 
   app.get("/", requireAuth, async (c) => {

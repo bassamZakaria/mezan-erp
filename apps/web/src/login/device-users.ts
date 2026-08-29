@@ -17,7 +17,8 @@ const LIMIT = 3;
 
 export interface DeviceUser {
   email: string;
-  name: string;
+  nameAr: string;
+  nameEn?: string | null;
   initials: string;
   role: string;
   /** Last known profile photo, so the face row is a face and not two letters. */
@@ -52,8 +53,9 @@ export function readDeviceUsers(): DeviceUser[] {
 export function rememberDeviceUser(session: SessionDTO): void {
   const entry: DeviceUser = {
     email: session.email,
-    name: session.fullName,
-    initials: initialsOf(session.fullName),
+    nameAr: session.nameAr,
+    nameEn: session.nameEn ?? null,
+    initials: initialsOf(session.nameAr),
     role: session.roleCode ?? (session.isCompanyAdmin ? "admin" : ""),
     photoUrl: session.photoUrl ?? null,
   };

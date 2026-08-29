@@ -46,7 +46,8 @@ function InfoTab() {
   const updateProfile = useUpdateProfile();
   const profile = profileQuery.data;
 
-  const [fullName, setFullName] = useState("");
+  const [nameAr, setNameAr] = useState("");
+  const [nameEn, setNameEn] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -55,7 +56,8 @@ function InfoTab() {
 
   useEffect(() => {
     if (!profile) return;
-    setFullName(profile.fullName);
+    setNameAr(profile.nameAr);
+    setNameEn(profile.nameEn ?? "");
     setEmail(profile.email);
     setPhone(profile.phone ?? "");
     setPhotoUrl(profile.photoUrl ?? null);
@@ -79,7 +81,13 @@ function InfoTab() {
   async function handleSave() {
     setMessage(null);
     try {
-      await updateProfile.mutateAsync({ fullName, email, phone: phone.trim() === "" ? null : phone, photoUrl });
+      await updateProfile.mutateAsync({
+        nameAr,
+        nameEn: nameEn.trim() === "" ? null : nameEn,
+        email,
+        phone: phone.trim() === "" ? null : phone,
+        photoUrl,
+      });
       setMessage({ kind: "ok", text: t("profile.theAccountDetailsWereSaved") });
     } catch (err) {
       setMessage({ kind: "error", text: err instanceof Error ? err.message : t("profile.couldNotSaveTheDetails") });
@@ -96,7 +104,7 @@ function InfoTab() {
             aria-hidden
             className="flex h-[72px] w-[72px] flex-none items-center justify-center rounded-full bg-accent font-display text-[22px] font-extrabold text-accent-ink"
           >
-            {initialsOf(fullName)}
+            {initialsOf(nameAr)}
           </span>
         )}
         <div className="flex flex-col gap-[6px]">
@@ -123,7 +131,8 @@ function InfoTab() {
           />
         </div>
       </div>
-      <TextField label={t("profile.fullName")} value={fullName} onChange={setFullName} />
+      <TextField label={t("users.nameAr")} value={nameAr} onChange={setNameAr} />
+      <TextField label={t("users.nameEn")} value={nameEn} onChange={setNameEn} placeholder={t("users.nameEnOptional")} />
       <TextField label={t("common.email")} value={email} onChange={setEmail} type="email" />
       <TextField label={t("profile.phoneNumber")} value={phone} onChange={setPhone} type="tel" placeholder={t("profile.optional")} />
       <div className="col-span-full flex items-center gap-[10px]">
@@ -278,7 +287,7 @@ export function ProfilePage() {
 
   return (
     <DocumentDetail
-      title={profile?.fullName ?? t("profile.profile")}
+      title={profile?.nameAr ?? t("profile.profile")}
       subtitle={profile?.email}
       statusLabel={profile ? (profile.isCompanyAdmin ? t("profile.companyAdministrator") : t("profile.user")) : undefined}
       statusTone={profile?.isCompanyAdmin ? "success" : "neutral"}

@@ -5,6 +5,7 @@ import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 
 import { useScopeSelector } from "./data/hub-hooks";
+import { displayName } from "./display-name";
 import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
@@ -378,7 +379,7 @@ function initialsFor(fullName: string, unknown: string): string {
 export function App() {
   const { session, setSession, request } = useApi();
   const profile = useProfile();
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [showWizard, setShowWizard] = useState(false);
   // The URL is the source of truth for which screen and sub-page is on display.
   const [route, setRoute] = useState(() => parseHash(window.location.hash, "dashboard"));
@@ -654,7 +655,8 @@ export function App() {
 
   async function handleSaveUser(draft: UserFormDraft, editingId: string | null) {
     const fields = {
-      fullName: draft.fullName,
+      nameAr: draft.nameAr,
+      nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn,
       email: draft.email,
       phone: draft.phone.trim() === "" ? null : draft.phone,
       password: draft.password.trim() === "" ? undefined : draft.password,
@@ -727,10 +729,13 @@ export function App() {
   }
 
   const ActiveRoutableScreen = isRoutable(activeScreen) ? ROUTABLE_SCREENS[activeScreen] : null;
+  // The Arabic name is the record; the Latin one shows on the English UI when
+  // the person has one, and falls back rather than leaving a blank.
+  const sessionName = displayName(session, locale);
   const shellUser: ShellUser = {
-    name: session.fullName,
+    name: sessionName,
     role: session.isCompanyAdmin ? t("shell.user.role.companyAdmin") : t("shell.user.role.member"),
-    initials: initialsFor(session.fullName, t("app.unknownInitial")),
+    initials: initialsFor(sessionName, t("app.unknownInitial")),
     // The photo comes from the profile, not the session: it changes while the
     // session lives, and the login response is issued once.
     photoUrl: profile.data?.photoUrl ?? null,

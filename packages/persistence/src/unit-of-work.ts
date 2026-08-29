@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS role (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_role_code ON role(code);
 CREATE TABLE IF NOT EXISTS user (
   id                TEXT PRIMARY KEY,
-  full_name         TEXT NOT NULL,
+  name_ar           TEXT NOT NULL,
+  name_en           TEXT,
   email             TEXT NOT NULL,
   phone             TEXT,
   password_hash     TEXT NOT NULL,
@@ -87,6 +88,31 @@ function migrateUserLogin(sqlite: Database.Database): void {
   // must gain the column or every user read fails on a missing field.
   if (!columns.some((c) => c.name === "photo_url")) {
     sqlite.exec(`ALTER TABLE user ADD COLUMN photo_url TEXT`);
+  }
+  // One display name became two — Arabic (the record) and Latin (optional).
+  // An install that predates the split keeps whatever it had as the Arabic
+  // name, which is what it always was on an Arabic-first product.
+  //
+  // THE COLUMN IS ALREADY THERE BY NOW, AND EMPTY. `schema-sync` runs on the
+  // CREATE TABLE above and adds any column the declaration has and the file
+  // lacks — so on a pre-split database it adds `name_ar` as a nullable blank
+  // beside the populated `full_name`, and a naive `if (!hasNameAr)` guard
+  // reads that as "already migrated". Every user then loads with a null name,
+  // which is exactly what the app did before this: it signed people in with
+  // no name at all rather than failing. Copy the value across, THEN drop the
+  // old column.
+  const has = (name: string) => columns.some((c) => c.name === name);
+  if (has("full_name")) {
+    if (!has("name_ar")) {
+      sqlite.exec(`ALTER TABLE user RENAME COLUMN full_name TO name_ar`);
+    } else {
+      sqlite.exec(`UPDATE user SET name_ar = full_name WHERE name_ar IS NULL OR trim(name_ar) = ''`);
+      sqlite.exec(`ALTER TABLE user DROP COLUMN full_name`);
+    }
+  }
+  if (!has("name_en") && !columns.some((c) => c.name === "name_en")) {
+    const after = sqlite.prepare(`PRAGMA table_info(user)`).all() as { name: string }[];
+    if (!after.some((c) => c.name === "name_en")) sqlite.exec(`ALTER TABLE user ADD COLUMN name_en TEXT`);
   }
 }
 
@@ -166,7 +192,8 @@ class DrizzleUserRepository implements UserRepository {
       .insert(user)
       .values({
         id: u.id,
-        fullName: u.fullName,
+        nameAr: u.nameAr,
+        nameEn: u.nameEn,
         email: u.email,
         phone: u.phone,
         passwordHash: u.passwordHash,
@@ -184,7 +211,8 @@ class DrizzleUserRepository implements UserRepository {
       .onConflictDoUpdate({
         target: user.id,
         set: {
-          fullName: u.fullName,
+          nameAr: u.nameAr,
+        nameEn: u.nameEn,
           email: u.email,
           phone: u.phone,
           passwordHash: u.passwordHash,
@@ -220,7 +248,8 @@ class DrizzleUserRepository implements UserRepository {
 function rowToUser(row: typeof user.$inferSelect): User {
   return {
     id: row.id,
-    fullName: row.fullName,
+    nameAr: row.nameAr,
+    nameEn: row.nameEn,
     email: row.email,
     phone: row.phone,
     passwordHash: row.passwordHash,

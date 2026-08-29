@@ -34,7 +34,8 @@ export interface UsersPageProps {
 }
 
 export interface UserFormDraft {
-  fullName: string;
+  nameAr: string;
+  nameEn: string;
   email: string;
   phone: string;
   password: string;
@@ -54,7 +55,8 @@ const STATUS_TONE: Record<UserStatusDTO, PillTone> = { active: "success", inacti
 
 function emptyDraft(): UserFormDraft {
   return {
-    fullName: "",
+    nameAr: "",
+    nameEn: "",
     email: "",
     phone: "",
     password: "",
@@ -74,7 +76,8 @@ function scopeToIds(scope: ScopeSelection, all: string[]): string[] {
 
 function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: string[]): UserFormDraft {
   return {
-    fullName: user.fullName,
+    nameAr: user.nameAr,
+    nameEn: user.nameEn ?? "",
     email: user.email,
     phone: user.phone ?? "",
     password: "",
@@ -108,7 +111,12 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     if (statusFilter !== "all") rows = rows.filter((u) => u.status === statusFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
-      rows = rows.filter((u) => u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+      rows = rows.filter(
+        (u) =>
+          u.nameAr.toLowerCase().includes(q) ||
+          (u.nameEn ?? "").toLowerCase().includes(q) ||
+          u.email.toLowerCase().includes(q),
+      );
     }
     return rows;
   }, [users, statusFilter, search]);
@@ -131,7 +139,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
 
   async function handleSave() {
     setFormError(null);
-    if (draft.fullName.trim() === "") {
+    if (draft.nameAr.trim() === "") {
       setFormError(t("users.theFullNameIsRequired"));
       return;
     }
@@ -154,16 +162,17 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
 
   const columns: DocumentListColumn<UserDTO>[] = [
     {
-      key: "fullName",
+      key: "nameAr",
       header: t("users.fullName"),
       sortable: true,
       render: (row) => (
         <div className="flex items-center gap-[10px]">
           <span className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[9px] bg-gradient-to-br from-brand to-brand-strong font-display text-[11px] font-bold text-brand-ink">
-            {initials(row.fullName)}
+            {initials(row.nameAr)}
           </span>
           <div>
-            <div className="font-semibold text-ink">{row.fullName}</div>
+            <div className="font-semibold text-ink">{row.nameAr}</div>
+            {row.nameEn ? <div className="mz-lat text-[11.5px] text-ink-faint">{row.nameEn}</div> : null}
             <div className="mz-lat text-[11px] text-ink-faint">{row.email}</div>
           </div>
         </div>
@@ -267,7 +276,13 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
           ) : null}
 
           <FormSection title={t("users.accountDetails")}>
-            <TextField label={t("users.fullName2")} value={draft.fullName} onChange={(v) => setDraft((d) => ({ ...d, fullName: v }))} />
+            <TextField label={t("users.nameAr")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+            <TextField
+              label={t("users.nameEn")}
+              value={draft.nameEn}
+              placeholder={t("users.nameEnOptional")}
+              onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))}
+            />
             <TextField
               label={t("users.email")}
               type="email"

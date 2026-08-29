@@ -19,7 +19,8 @@ import { recordAdminEvent } from "./admin-audit.js";
 function serializeUser(user: User) {
   return {
     id: user.id,
-    fullName: user.fullName,
+    nameAr: user.nameAr,
+    nameEn: user.nameEn,
     email: user.email,
     phone: user.phone,
     roleId: user.roleId,

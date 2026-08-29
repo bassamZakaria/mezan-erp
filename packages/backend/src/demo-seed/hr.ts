@@ -538,7 +538,8 @@ const PAYROLL_RUNS = [
 ];
 
 interface AdminUser {
-  readonly fullName: string;
+  readonly nameAr: string;
+  readonly nameEn: string | null;
   readonly email: string;
   readonly phone: string | null;
   readonly roleId: string | null;
@@ -575,7 +576,8 @@ async function stepAs(app: App, userId: string, method: string, path: string, bo
 async function linkSelfServiceUser(app: App, employeeId: string): Promise<void> {
   const user = (await step(app, "GET", `/users/${SELF_SERVICE_USER}`)) as AdminUser;
   await step(app, "PUT", `/users/${SELF_SERVICE_USER}`, {
-    fullName: user.fullName,
+    nameAr: user.nameAr,
+    nameEn: user.nameEn,
     email: user.email,
     phone: user.phone,
     roleId: user.roleId,

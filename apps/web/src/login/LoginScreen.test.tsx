@@ -8,7 +8,7 @@ import { renderWithProviders, stubTransport, testAdminSession } from "../data/te
 
 function SessionProbe() {
   const { session } = useApi();
-  return <span data-testid="session">{session?.fullName ?? "none"}</span>;
+  return <span data-testid="session">{session?.nameAr ?? "none"}</span>;
 }
 
 function fillPin(pin: string) {
@@ -78,7 +78,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     fillPin("123456");
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
 
-    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.fullName));
+    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
   });
 
   it("calls onStartWizard from the first-run link", () => {

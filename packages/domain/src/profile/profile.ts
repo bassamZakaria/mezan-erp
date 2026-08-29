@@ -19,7 +19,8 @@ export class IncorrectPasswordError extends Error {
 }
 
 export interface UpdateOwnProfileCommand {
-  readonly fullName: string;
+  readonly nameAr: string;
+  readonly nameEn?: string | null;
   readonly email: string;
   readonly phone: string | null;
   /** `undefined` leaves the stored photo alone; `null` removes it. */
@@ -34,7 +35,7 @@ export async function updateOwnProfile(
 ): Promise<User> {
   const user = await uow.users.findById(userId);
   if (!user) throw new UserNotFoundError(userId);
-  if (cmd.fullName.trim() === "") throw new InvalidUserError("الاسم الكامل مطلوب.");
+  if (cmd.nameAr.trim() === "") throw new InvalidUserError("الاسم بالعربية مطلوب.");
   if (cmd.email.trim() === "") throw new InvalidUserError("البريد الإلكتروني مطلوب.");
 
   const existingByEmail = await uow.users.findByEmail(cmd.email);
@@ -44,7 +45,8 @@ export async function updateOwnProfile(
 
   const next: User = {
     ...user,
-    fullName: cmd.fullName,
+    nameAr: cmd.nameAr,
+    nameEn: cmd.nameEn === undefined ? user.nameEn : cmd.nameEn,
     email: cmd.email,
     phone: cmd.phone,
     photoUrl: cmd.photoUrl === undefined ? user.photoUrl : cmd.photoUrl,

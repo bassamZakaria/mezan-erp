@@ -41,7 +41,8 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
   }
   return {
     userId: user.id,
-    fullName: user.fullName,
+    nameAr: user.nameAr,
+    nameEn: user.nameEn,
     email: user.email,
     isCompanyAdmin: user.isCompanyAdmin,
     permissions,
@@ -129,7 +130,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       const user = await saveUser(
         {
           id: crypto.randomUUID(),
-          fullName: parsed.data.fullName,
+          nameAr: parsed.data.nameAr,
+          nameEn: parsed.data.nameEn,
           email: parsed.data.email,
           phone: null,
           password: `pw-${crypto.randomUUID()}`,

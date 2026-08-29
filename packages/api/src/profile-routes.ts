@@ -19,7 +19,8 @@ import { headerAuthContextResolver, getAuthContext, type AuthContextResolver } f
 function serializeProfile(user: User) {
   return {
     id: user.id,
-    fullName: user.fullName,
+    nameAr: user.nameAr,
+    nameEn: user.nameEn,
     email: user.email,
     phone: user.phone,
     isCompanyAdmin: user.isCompanyAdmin,

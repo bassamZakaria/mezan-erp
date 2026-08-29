@@ -22,7 +22,8 @@ export const loginRequestSchema = z.object({
 /** The authenticated session — identity + effective authority. */
 export const sessionSchema = z.object({
   userId: z.string(),
-  fullName: z.string(),
+  nameAr: z.string(),
+  nameEn: z.string().nullable(),
   email: z.string(),
   isCompanyAdmin: z.boolean(),
   /** Resolved effective permission codes; `["*"]` for a tenant admin. */
@@ -53,7 +54,8 @@ export const loginResponseSchema = sessionSchema;
 
 /** First-run wizard "create admin" step — persists the very first company admin. */
 export const bootstrapAdminRequestSchema = z.object({
-  fullName: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().min(1).nullable().default(null),
   /** The first admin's email — and, from this moment on, their login. */
   email: z.string().trim().toLowerCase().email(),
   pin: z.string().regex(/^\d{6}$/),

@@ -24,7 +24,8 @@ const sampleRole: Role = {
 
 const sampleUser: User = {
   id: "user-1",
-  fullName: "محمد الشهابي",
+  nameAr: "محمد الشهابي",
+    nameEn: null,
   email: "mohamed@cyag.test",
   phone: "+201000000000",
   passwordHash: "scrypt$aa$bb",

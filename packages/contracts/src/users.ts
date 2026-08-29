@@ -20,7 +20,14 @@ const loginEmailSchema = z.string().trim().toLowerCase().email();
 /** Wire shape returned to clients — secrets never cross this boundary. */
 export const userSchema = z.object({
   id: z.string().min(1),
-  fullName: z.string().min(1),
+  /**
+   * TWO NAMES, following `project.ts`: the Arabic one is the record — this is
+   * an Arabic-first product and every printed document, approval trail and
+   * audit row is read in Arabic — and the English one is optional, for the
+   * English UI, a Latin-only report, or a person who signs in Latin script.
+   */
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable(),
   email: loginEmailSchema,
   phone: z.string().nullable(),
   roleId: z.string().nullable(),
@@ -37,7 +44,8 @@ export const userSchema = z.object({
 });
 
 const userBaseFields = {
-  fullName: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().min(1).nullable().default(null),
   email: loginEmailSchema,
   phone: z.string().min(1).nullable().default(null),
   roleId: z.string().min(1).nullable(),

@@ -457,7 +457,7 @@ export function RfqsScreen() {
   const comparisonQuery = useRfqComparison(selectedId);
 
   const users = useUsers().data ?? [];
-  const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
+  const userName = (id: string) => users.find((u) => u.id === id)?.nameAr ?? id;
 
   // Sorting stays client-side over the server-filtered set.
   const filtered = useMemo(() => [...rfqs].sort((a, b) => b.number.localeCompare(a.number)), [rfqs]);

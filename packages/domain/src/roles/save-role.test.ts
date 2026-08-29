@@ -166,7 +166,8 @@ describe("deleteRole", () => {
     );
     uow.userRecords.set("user-1", {
       id: "user-1",
-      fullName: "سائق",
+      nameAr: "سائق",
+    nameEn: null,
       email: "driver@cyag.test",
       phone: null,
       passwordHash: "x",

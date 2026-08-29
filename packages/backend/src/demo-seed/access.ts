@@ -85,10 +85,10 @@ const ROLES = [
  * who can still sign in is exactly the defect it would hide.
  */
 const PEOPLE = [
-  { id: "USER-ACCOUNTANT", fullName: "منى عبد الرحمن", local: "mona.abdelrahman", role: "ACCOUNTANT", status: "active" },
-  { id: "USER-WAREHOUSE", fullName: "سيد جمال", local: "sayed.gamal", role: "WAREHOUSE_KEEPER", status: "active" },
-  { id: "USER-SALES", fullName: "كريم فؤاد", local: "karim.fouad", role: "SALES_REP", status: "active" },
-  { id: "USER-LEAVER", fullName: "هالة مصطفى", local: "hala.mostafa", role: "SALES_REP", status: "inactive" },
+  { id: "USER-ACCOUNTANT", nameAr: "منى عبد الرحمن", nameEn: "Mona Abdelrahman", local: "mona.abdelrahman", role: "ACCOUNTANT", status: "active" },
+  { id: "USER-WAREHOUSE", nameAr: "سيد جمال", nameEn: "Sayed Gamal", local: "sayed.gamal", role: "WAREHOUSE_KEEPER", status: "active" },
+  { id: "USER-SALES", nameAr: "كريم فؤاد", nameEn: "Karim Fouad", local: "karim.fouad", role: "SALES_REP", status: "active" },
+  { id: "USER-LEAVER", nameAr: "هالة مصطفى", nameEn: "Hala Mostafa", local: "hala.mostafa", role: "SALES_REP", status: "inactive" },
 ] as const;
 
 interface SeededRole {
@@ -121,7 +121,8 @@ export async function seedAccess(app: App): Promise<void> {
     if (!roleId) throw new Error(`[demo-seed] no role "${person.role}" for ${person.id}`);
     await step(app, "POST", "/users", {
       id: person.id,
-      fullName: person.fullName,
+      nameAr: person.nameAr,
+      nameEn: person.nameEn,
       email: `${person.local}@${TENANT_DOMAIN}`,
       phone: null,
       // Every seeded person is scoped to a role, never to isCompanyAdmin —

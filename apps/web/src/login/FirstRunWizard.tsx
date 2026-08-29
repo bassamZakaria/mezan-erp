@@ -134,7 +134,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
     }
     // Persist the admin for real and establish their session, then advance.
     createAdmin.mutate(
-      { fullName: adminName.trim(), email: adminEmail.trim().toLowerCase(), pin: adminPin },
+      { nameAr: adminName.trim(), nameEn: null, email: adminEmail.trim().toLowerCase(), pin: adminPin },
       {
         onSuccess: () => {
           setAdminCreated(true);

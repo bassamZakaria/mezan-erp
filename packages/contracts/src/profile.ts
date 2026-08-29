@@ -4,7 +4,8 @@ import { PHOTO_MAX_CHARS } from "./users.js";
 /** Wire shape for the self-service profile screen — no role/scope/status fields (admin-only, see `users.ts`). */
 export const profileSchema = z.object({
   id: z.string().min(1),
-  fullName: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable(),
   email: z.string().email(),
   phone: z.string().nullable(),
   isCompanyAdmin: z.boolean(),
@@ -16,7 +17,8 @@ export const profileSchema = z.object({
 });
 
 export const updateProfileSchema = z.object({
-  fullName: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().min(1).nullable().default(null),
   email: z.string().email(),
   phone: z.string().min(1).nullable().default(null),
   /**

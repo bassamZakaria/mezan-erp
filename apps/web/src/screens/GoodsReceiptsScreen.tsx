@@ -197,7 +197,7 @@ export function GoodsReceiptsScreen() {
   const [supplierFilter, setSupplierFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
+  const userName = (id: string) => users.find((u) => u.id === id)?.nameAr ?? id;
 
   /** A receipt has no branch of its own — the branch picker only narrows which warehouses are offered below it. */
   const branchWarehouses = branchFilter ? filterWarehouses.filter((w) => w.branchId === branchFilter) : filterWarehouses;

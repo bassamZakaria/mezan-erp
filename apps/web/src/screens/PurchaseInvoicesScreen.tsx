@@ -473,7 +473,7 @@ export function PurchaseInvoicesScreen() {
   const [supplierFilter, setSupplierFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
+  const userName = (id: string) => users.find((u) => u.id === id)?.nameAr ?? id;
 
   const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceFilterKey>("all");
   const [search, setSearch] = useState("");

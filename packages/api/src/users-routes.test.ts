@@ -20,7 +20,8 @@ async function json(res: Response) {
 }
 
 const newUserBody = {
-  fullName: "محمد الشهابي",
+  nameAr: "محمد الشهابي",
+    nameEn: null,
   email: "mohamed@cyag.test",
   phone: "+201000000000",
   password: "TempPass123",
@@ -110,7 +111,8 @@ describe("users routes", () => {
       new Request(`http://x/users/${created.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...withoutPassword, fullName: "محمد الشهابي (محدث)" }),
+        body: JSON.stringify({ ...withoutPassword, nameAr: "محمد الشهابي (محدث)",
+    nameEn: null }),
       }),
     );
     expect(updateRes.status).toBe(200);

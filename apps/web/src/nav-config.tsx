@@ -200,7 +200,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
       { key: "staff", itemKeys: ["employees", "departments", "job-titles", "contracts"] },
       { key: "time", defaultCollapsed: true, itemKeys: ["attendance", "holidays", "leave-requests", "leave-balances", "leave-accrual-batches", "my-leave"] },
       { key: "pay", defaultCollapsed: true, itemKeys: ["payroll", "advances"] },
-      { key: "config", defaultCollapsed: true, itemKeys: ["leave-policies", "payroll-components", "garnishments"] },
+      { key: "config", defaultCollapsed: true, itemKeys: ["leave-policies", "payroll-components", "garnishments", "payroll-statutory"] },
       { key: "reports", defaultCollapsed: true, itemKeys: ["report-payroll-register", "report-social-insurance", "report-salary-tax", "report-attendance-summary", "report-leave-liability", "report-end-of-service", "report-headcount-movement"] },
     ],
   },

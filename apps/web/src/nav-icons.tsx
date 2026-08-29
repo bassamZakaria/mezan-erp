@@ -191,6 +191,7 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
 
   "hr-dashboard": UsersRound,
   "garnishments": ShieldCheck,
+  "payroll-statutory": Scale,
   "report-payroll-register": ReceiptText,
   "report-social-insurance": ShieldCheck,
   "report-salary-tax": Receipt,

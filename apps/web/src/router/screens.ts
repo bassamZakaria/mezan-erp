@@ -126,6 +126,7 @@ export const SCREEN_MODULES = {
   "van-trips": () => import("../screens/VanTripsScreen").then((m) => ({ Component: m.VanTripsScreen })),
   "hr-dashboard": () => import("../screens/HrDashboardScreen").then((m) => ({ Component: m.HrDashboardScreen })),
   "garnishments": () => import("../screens/GarnishmentsScreen").then((m) => ({ Component: m.GarnishmentsScreen })),
+  "payroll-statutory": () => import("../screens/PayrollStatutoryScreen").then((m) => ({ Component: m.PayrollStatutoryScreen })),
   "report-payroll-register": () => import("../screens/reports/HrReportsScreens").then((m) => ({ Component: m.PayrollRegisterReportScreen })),
   "report-social-insurance": () => import("../screens/reports/HrReportsScreens").then((m) => ({ Component: m.SocialInsuranceReturnReportScreen })),
   "report-salary-tax": () => import("../screens/reports/HrReportsScreens").then((m) => ({ Component: m.SalaryTaxReturnReportScreen })),

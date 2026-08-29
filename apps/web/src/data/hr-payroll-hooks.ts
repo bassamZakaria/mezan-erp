@@ -330,3 +330,99 @@ export function useReleaseGarnishment() {
     onSuccess: invalidate,
   });
 }
+
+/* -------------------------------------------------------------------- */
+/* الجداول القانونية — /hr/payroll/statutory-tables                        */
+/* -------------------------------------------------------------------- */
+
+export interface StatutoryTablesDTO {
+  incomeTax: {
+    code: string;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    citationAr: string;
+    annualPersonalExemption: string;
+    brackets: { upToAnnual: string | null; ratePercent: string }[];
+    eliminationTiers: { aboveAnnual: string; upToAnnual: string | null; dropsLowestBrackets: number }[];
+  }[];
+  socialInsurance: {
+    code: string;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    citationAr: string;
+    monthlyWageFloor: string;
+    monthlyWageCeiling: string;
+    employeeTotalPercent: string;
+    employerTotalPercent: string;
+    employeeShares: { code: string; labelAr: string; ratePercent: string }[];
+    employerShares: { code: string; labelAr: string; ratePercent: string }[];
+  }[];
+  levies: { code: string; effectiveFrom: string; citationAr: string; levies: { code: string; labelAr: string; ratePercent: string; base: string; side: string }[] }[];
+  overtime: {
+    code: string;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    citationAr: string;
+    dayPremiumPercent: string;
+    nightPremiumPercent: string;
+    restDayPremiumPercent: string;
+    standardDailyHours: number;
+    standardWeeklyHours: number;
+  }[];
+  endOfService: {
+    code: string;
+    effectiveFrom: string;
+    citationAr: string;
+    minimumAnnualRaisePercent: string;
+    tiers: { throughYears: number | null; monthsPerYear: string }[];
+  }[];
+  insuranceYearOverrides: { year: number; monthlyWageFloor: string; monthlyWageCeiling: string; note: string | null; enteredBy: string; enteredAt: string }[];
+}
+
+export function useStatutoryTables(): UseQueryResult<StatutoryTablesDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<StatutoryTablesDTO, ApiError>({
+    queryKey: ["hr", "payroll", "statutory-tables"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/payroll/statutory-tables");
+      if (!res.ok) throw new ApiError(res.status, t("statutory.couldNotLoad"));
+      return res.json<StatutoryTablesDTO>();
+    },
+  });
+}
+
+function useStatutoryInvalidation() {
+  const client = useQueryClient();
+  return () => {
+    void client.invalidateQueries({ queryKey: ["hr", "payroll", "statutory-tables"] });
+  };
+}
+
+export function useSaveInsuranceYear() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const invalidate = useStatutoryInvalidation();
+  return useMutation<unknown, ApiError, { year: number; monthlyWageFloor: string; monthlyWageCeiling: string; note: string | null }>({
+    mutationFn: async ({ year, ...body }) => {
+      const res = await request(`/hr/payroll/statutory-tables/insurance-years/${year}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("statutory.couldNotSaveYear")));
+      return res.json<unknown>();
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useRemoveInsuranceYear() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const invalidate = useStatutoryInvalidation();
+  return useMutation<void, ApiError, number>({
+    mutationFn: async (year) => {
+      const res = await request(`/hr/payroll/statutory-tables/insurance-years/${year}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, t("statutory.couldNotRemoveYear"));
+    },
+    onSuccess: invalidate,
+  });
+}

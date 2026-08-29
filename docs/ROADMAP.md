@@ -44,8 +44,8 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 |---|---|
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
 | **Open now (§3)** | Two items: those row menus, and outbound notification delivery |
-| **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
-| **Defects (§5)** | One open — D65, 20 scenario assertions failing on a contract change the harness never followed. D1–D64 are closed |
+| **Deferred by decision (§4)** | POS and cloud — not scheduled, not defects. Statutory payroll and HR depth are no longer among them: see §4.1 |
+| **Defects (§5)** | None open. D65 was closed by the harness fix at `d3294fc`; D1–D64 were already closed |
 | **Decisions (§6)** | Six open (DEC-2 … DEC-7), each blocking its own issue rather than the build |
 | **Beyond parity (§7)** | 27 candidates across E1–E3, none started; `enhancements` branch only |
 | **Shell follow-ups (§8)** | 8 items, queued behind the i18n sweep |
@@ -54,15 +54,15 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 
 | Signal | Value | Measured |
 |---|---|---|
-| Nav destinations | **115** | 2026-08-29, from `nav-config.tsx` |
-| Routable screens | **116** | 2026-08-29, from `App.tsx`'s `ROUTABLE_SCREENS` |
-| Read surfaces answering `pnpm smoke` | **199** | 2026-08-29, run green |
-| «قريباً» placeholders outside HR | **0** | 2026-08-27 |
+| Nav destinations | **124** | 2026-08-29, from `nav-config.tsx` |
+| Routable screens | **124 + 3 reserved** | 2026-08-29 — the route table is derived from the nav tree by `routePathForScreen`, so a screen is addressable exactly when it is reachable; users/roles/role-editor reserve addresses without being screen modules |
+| Read surfaces answering `pnpm smoke` | **211** | 2026-08-29, run green |
+| «قريباً» placeholders anywhere, HR included | **0** | 2026-08-29 |
 | Reference screens still absent | ~14, all POS or POS-adjacent | 2026-08-26 audit |
-| `pnpm scenarios` | **3,856 passing, 20 failing** — the 20 are D65, and identical on `origin/main`, so nothing this pass caused them | 2026-08-29 |
+| `pnpm scenarios` | **4,006 passing, 0 failing** — across all thirteen suites | 2026-08-29 |
 | The four ledger invariants | all at exactly zero — trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs GL 1105 | 2026-08-27 |
 | Typecheck · lint · RTL · native controls · permission labels · theme colour-only | all passing | 2026-08-29 |
-| `pnpm smoke` | 199 read surfaces, all responded | 2026-08-29 |
+| `pnpm smoke` | 211 read surfaces, all responded | 2026-08-29 |
 | Contrast sweep, 13 screens × 2 themes | 0 failures, 0 horizontal overflow | 2026-08-27 |
 | Business-logic unit tests | disabled by decision — `TESTING.md` §1 | 2026-08-23 |
 
@@ -122,8 +122,11 @@ caught several "works until you look again" bugs.
 - **CRM, projects, assets, field sales** — leads and the opportunity pipeline board,
   projects, the asset register with depreciation runs, van trips bound to a vehicle registry.
 - **HR** — employees, departments, job titles, contracts, holidays, attendance, leave
-  requests/balances/accruals/policies, payroll runs, payslips and advances. Statutory payroll
-  computation is deliberately absent — see §4.
+  requests/balances/accruals/policies, payroll runs, payslips and advances, wage
+  garnishments, and Egyptian statutory payroll: salary tax, social insurance, the Martyrs
+  Fund levy, overtime, and end-of-service settlement, all against dated tables that carry
+  the law they come from. Seven HR reports, and the two accruing obligations post to the
+  ledger. What is still not computed is listed on the screen beside every net — see §4.1.
 - **Reports** — 23 operational reports plus the 8 financial statements, each with a
   server-computed KPI strip, charts drawn from the same rows the table shows, quick period
   chips, % contribution bars, GL-reconciliation tiles, drill-down panels and CSV/Excel export.
@@ -422,8 +425,29 @@ it is a decision rather than a constraint from here.
 ## 4.1 Out of scope for v1
 
 POS (9 screens + 2 reports), `/settings/shifts`, a standalone label-templates
-screen, statutory payroll computation. Payroll must stay visibly flagged rather
-than silently computing a wrong net.
+screen.
+
+**Statutory payroll is no longer deferred.** It was, on the grounds that
+"payroll must stay visibly flagged rather than silently computing a wrong net" —
+a sound rule, and the reason the engine had shipped nine documented gaps rather
+than nine plausible figures. What changed is that the rule can now be kept
+while computing: the rates are dated tables carrying the law they come from,
+and a period no table covers makes the run REFUSE rather than fall back. A
+wrong net still cannot ship; it simply is not the only way to avoid one.
+
+What HR now computes: salary tax on the annualised brackets with the
+elimination tiers, social insurance on the الأجر التأميني (floor and ceiling,
+both shares split by sub-fund), the Martyrs Fund levy, overtime at the
+statutory premiums from attendance's own clock times, hourly and daily
+contracts, foreign-currency contracts, wage garnishments ahead of advance
+recovery, and end-of-service settlement. Seven HR reports, two of which
+reconcile to their GL control account. The two accruing obligations — gratuity
+and payable leave — post to the ledger instead of living only in a report.
+
+Three gaps remain, and all three are stated on the screen beside every net:
+no December annual tax settlement, no in-kind benefit valuation, and no FX
+difference booked between calculating and disbursing a foreign-currency
+contract.
 
 ## 4.2 Do not copy
 
@@ -434,8 +458,10 @@ and label a purchase return correctly.
 
 ## 4.3 The deferred build plan
 
-The build plan for the deferred areas — HR/Payroll (27 tasks), POS (26 tasks) and the
-Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated here.
+The build plan for the deferred areas — POS (26 tasks) and the Cloud/SaaS
+edition (20 tasks) — is `archive/plan.md` §9. It is not repeated here. Its
+HR/Payroll part (27 tasks) is done and is kept only as the record of what was
+planned against what was built.
 
 ---
 
@@ -446,26 +472,14 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**D65 — `pnpm scenarios` fails 20 assertions, and the cause is a contract change nobody
-propagated.** `2c0e7fa` made a user's Arabic name mandatory; every scenario that creates a
-user still posts without `nameAr`, so the harness gets
-`VALIDATION_ERROR … fieldErrors: {nameAr: ["Required"]}` and everything downstream of a
-created user falls over — the sign-in and domain-policy suite, the approvals chain (both
-actors are created users), and HR leave, which derives the employee from the caller.
+**None.** D65 — the 20 scenario assertions failing because `2c0e7fa` made a user's Arabic
+name mandatory and the harness never followed — was closed by `d3294fc`, which taught the
+harness to sign in with the seed PIN and the current user contract. Measured on this branch:
+**4,006 passed, 0 failed** across all thirteen suites, including the leave-balance assertion
+that D65 flagged as possibly a second defect hiding behind the first. It was not; it was the
+same one.
 
-Measured 2026-08-29 on two trees to be sure it is not a merge artifact: **3,856 passed,
-20 failed** on `origin/main` at `099266e`, and **3,856 passed, 20 failed** on the merged
-tree. Identical, so the four branches merged this pass introduce none of it.
-
-The fix is in the harness, not the product — the product is right to demand the name. But
-read the two HR failures before assuming all 20 are the same bug: one asserts a leave
-balance of 21 against 11, which is arithmetic, and it may be a second defect hiding behind
-the first. **Every other gate is green**: typecheck, lint, RTL logical-CSS, native controls,
-permission labels, theme colour-only, and `pnpm smoke` over all 199 read surfaces.
-
----
-
-Everything else is closed. D1 through D64 are all closed. The closed register — every defect with
+D1 through D65 are all closed. The closed register — every defect with
 the commit that fixed it, plus the readings that looked like defects and were not — is
 `archive/defect-register.md`. It is kept, not deleted, because a fixed defect is how its
 regression is recognised.
@@ -602,7 +616,9 @@ has been put to anyone yet:
 - **DEC-9** does the e-receipt build assume POS
 - **DEC-10** ship without a wired e-seal
 - **DEC-11** is contracting in scope — the research behind it is `archive/contracting/`
-- **DEC-12** does HR come back, and against what
+- ~~**DEC-12** does HR come back, and against what~~ — taken. It came back against the
+  Egyptian statute, modelled as dated tables rather than logic, with a run refusing any
+  period no table covers and an admin able to enter the year's published insurance limits
 - **DEC-13** do we claim Law 6/2025 support, and when
 - **DEC-14** hide or delete the cut screens
 - **DEC-15** is the desktop bet a moat or a shrinking segment

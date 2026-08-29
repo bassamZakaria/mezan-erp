@@ -64,6 +64,33 @@ runs the demo seed and hits every read surface. `pnpm scenarios` drives the same
 the UI calls and asserts what documents did to stock and to the ledger — it is an executable
 suite, not a unit-test suite, and it is not covered by the ban.
 
+## 1.3.1 What the HR statutory pass added to `pnpm scenarios`
+
+The Egyptian statutory payroll work is guarded by 302 assertions in
+`scripts/scenarios/hr.ts`, and they are worth naming because they are the only
+thing standing between a plausible net and a correct one:
+
+- **PR-20…PR-32** — the 2026 floor and ceiling, the 11% / 18.75% split, a salary
+  above the ceiling contributing on the CEILING rather than on gross, and the
+  annual bracket walk recomputed by hand rather than read back from the engine.
+- **PR-36…PR-44** — an unpublished year is refused, an admin enters the
+  published limits, the SAME run then calculates, and the entered ceiling is the
+  one that binds. Both halves matter: refusing forever is as broken as
+  computing on a stale table.
+- **PRV-01…PRV-09** — the two accruing obligations post the MOVEMENT, posting
+  twice is refused rather than doubling the liability, and the report then ties
+  to its GL control account.
+- **GRN-01…GRN-07**, **EOS-01…EOS-06**, **OT-01…OT-05**, **ATT-20…ATT-25** —
+  garnishments ahead of advances, the settlement tiers, approved overtime
+  winning over the clock, and a workforce attendance summary instead of four
+  zeros over a full table.
+
+Several of these REPLACED assertions that documented the old behaviour: PR-14,
+PR-15 and PR-16 asserted the pre-statutory nets, PR-09 asserted that no payslip
+line ever names tax or insurance, and PR-17 assumed unpaid leave prorates gross.
+Leaving them would have turned the suite red for the wrong reason; deleting
+them would have left the new behaviour unguarded.
+
 ## 1.4 Known risk, accepted
 
 Live UI verification catches wiring and integration defects well. It does **not** cover the

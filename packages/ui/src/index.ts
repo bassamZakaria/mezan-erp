@@ -198,6 +198,7 @@ export {
   type NotificationPanelItem,
 } from "./shell/NotificationsPanel";
 export { BrandMark } from "./shell/BrandMark";
+export { Copyright } from "./shell/Copyright";
 export type { NavGroup, NavItem, NavSection, NavTag, ShellUser, CommandItem, UserMenuItem } from "./shell/types";
 export { navGroupItems } from "./shell/types";
 

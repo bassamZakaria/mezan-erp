@@ -1,5 +1,6 @@
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
+import { Copyright } from "./Copyright";
 import { Avatar } from "./Avatar";
 import { ChromeActions } from "./ChromeActions";
 import { CommandTrigger } from "./CommandPalette";
@@ -139,6 +140,8 @@ export function RailFooter({
             </button>
           ) : null}
         </div>
+
+        <Copyright className="px-[6px] pb-[2px] text-center" />
       </div>
     </div>
   );

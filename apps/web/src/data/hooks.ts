@@ -6699,9 +6699,13 @@ export function useAttendanceSummary(employeeId: string | null, from: string, to
   const { request, session } = useApi();
   return useQuery<AttendanceSummaryDTO, ApiError>({
     queryKey: ["hr-attendance-summary", employeeId, from, to],
-    enabled: session !== null && employeeId !== null,
+    // A null employee is a REQUEST for the whole workforce, not a reason to
+    // skip the request: disabling it here is what left the summary tiles
+    // rendering zero above a table full of rows.
+    enabled: session !== null,
     queryFn: async () => {
-      const res = await request(`/hr/attendance/summary?employeeId=${encodeURIComponent(employeeId ?? "")}&from=${from}&to=${to}`);
+      const scope = employeeId === null ? "" : `employeeId=${encodeURIComponent(employeeId)}&`;
+      const res = await request(`/hr/attendance/summary?${scope}from=${from}&to=${to}`);
       if (!res.ok) throw new ApiError(res.status, t("api.theAttendanceSummaryCouldNot"));
       return res.json<AttendanceSummaryDTO>();
     },

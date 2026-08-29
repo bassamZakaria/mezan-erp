@@ -35,7 +35,7 @@ import {
   useLeaveRequests,
   useRehireEmployee,
 } from "../data/hooks";
-import { useEmployeeAdvances, useEmployeePayslips } from "../data/hr-payroll-hooks";
+import { useEmployeeAdvances, useEmployeePayslips, useEndOfServiceSettlement } from "../data/hr-payroll-hooks";
 import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
@@ -161,6 +161,91 @@ function blankDraft(): EmployeeDraft {
     emergencyPhone: "",
     emergencyAltPhone: "",
   };
+}
+
+/**
+ * مستحقات نهاية الخدمة — the settlement statement for someone who has left.
+ *
+ * A statement, not a posting: the money moves when a voucher is raised against
+ * these figures. Saying so on the screen is the difference between a number
+ * someone acts on and a number someone assumes was already paid.
+ */
+function EndOfServiceTab({ employeeId }: { employeeId: string }) {
+  const { t } = useAppTranslation();
+  const query = useEndOfServiceSettlement(employeeId, true);
+
+  if (query.isLoading) return <p className="text-[12.5px] text-ink-muted">{t("common.loading")}</p>;
+  if (query.isError || !query.data) {
+    return <p className="text-[12.5px] text-danger-ink">{query.error?.message ?? t("endOfService.couldNotLoad")}</p>;
+  }
+  const s = query.data;
+
+  return (
+    <div className="flex flex-col gap-[14px]">
+      <dl className="grid grid-cols-1 gap-[12px] text-[12.5px] sm:grid-cols-3">
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.serviceYears")}</dt>
+          <dd className="mz-num text-ink">{s.serviceYears}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.priorService")}</dt>
+          <dd className="mz-num text-ink">{s.priorServiceYears}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.settlementWage")}</dt>
+          <dd className="text-ink"><MoneyDisplay value={Number(s.settlementWage)} /></dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.monthsEarned")}</dt>
+          <dd className="mz-num text-ink">{s.monthsEarned}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.leavePayoutDays")}</dt>
+          <dd className="mz-num text-ink">{s.leavePayoutDays}</dd>
+        </div>
+      </dl>
+
+      <div className="rounded-lg border border-border p-[14px]">
+        <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("endOfService.breakdown")}</h3>
+        <ul className="flex flex-col gap-[4px] text-[12.5px] text-ink-muted">
+          {s.gratuityBreakdown.map((tier, index) => (
+            <li key={index} className="flex items-center justify-between">
+              <span>{tier.labelAr}</span>
+              <MoneyDisplay value={Number(tier.amount)} />
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <ul className="flex flex-col gap-[6px] text-[12.5px]">
+        <li className="flex items-center justify-between text-ink-muted">
+          <span>{t("endOfService.gratuity")}</span>
+          <MoneyDisplay value={Number(s.gratuity)} />
+        </li>
+        <li className="flex items-center justify-between text-ink-muted">
+          <span>{t("endOfService.leavePayout")}</span>
+          <MoneyDisplay value={Number(s.leavePayout)} />
+        </li>
+        <li className="flex items-center justify-between text-ink-muted">
+          <span>{t("endOfService.outstandingAdvances")}</span>
+          <MoneyDisplay value={-Number(s.outstandingAdvances)} />
+        </li>
+        <li className="flex items-center justify-between border-t border-border pt-[6px] font-bold text-ink">
+          <span>{t("endOfService.netSettlement")}</span>
+          <MoneyDisplay value={Number(s.netSettlement)} />
+        </li>
+        {Number(s.advanceShortfall) > 0 ? (
+          <li className="flex items-center justify-between text-danger-ink">
+            <span>{t("endOfService.advanceShortfall")}</span>
+            <MoneyDisplay value={Number(s.advanceShortfall)} />
+          </li>
+        ) : null}
+      </ul>
+
+      <p className="text-[11.5px] leading-relaxed text-ink-faint">{t("endOfService.statement")}</p>
+      <p className="text-[11.5px] leading-relaxed text-ink-faint">{s.citationAr}</p>
+    </div>
+  );
 }
 
 export function EmployeesScreen() {
@@ -669,6 +754,20 @@ export function EmployeesScreen() {
               </table>
             ),
         },
+        /*
+         * Only for a leaver. A settlement quoted for a serving employee reads
+         * as a figure they are owed today, and the server refuses it anyway —
+         * a tab that always 422s is worse than one that is not there.
+         */
+        ...(selected.status === "terminated"
+          ? [
+              {
+                key: "end-of-service",
+                label: t("endOfService.tab"),
+                content: <EndOfServiceTab employeeId={selected.id} />,
+              },
+            ]
+          : []),
       ]
     : [];
 

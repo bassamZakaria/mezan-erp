@@ -380,6 +380,27 @@ export async function run(ctx: Ctx): Promise<void> {
     ctx.check("EOS-06 — a serving employee is refused, not quoted a settlement", stillEmployed.status === 422 && stillEmployed.body?.error === "EMPLOYEE_STILL_EMPLOYED", `got ${stillEmployed.status}`);
   });
 
+  await ctx.scenario("hr / attendance summary — a workforce total, not four zeros over a full table", async () => {
+    // The summary tiles rendered `?? 0` whenever no employee was picked, so
+    // four zeros sat above forty-odd present days. A plausible zero is
+    // indistinguishable from a bug; the honest figure was always available.
+    const scoped = (await ctx.req("GET", "/hr/attendance/summary?employeeId=EMP-DEMO-1&from=2026-08-01&to=2026-08-31")).body;
+    ctx.check("ATT-20 — a named employee still gets their own summary", scoped.employeeId === "EMP-DEMO-1", JSON.stringify(scoped.employeeId));
+
+    const workforce = (await ctx.req("GET", "/hr/attendance/summary?from=2026-08-01&to=2026-08-31")).body;
+    ctx.check("ATT-21 — omitting the employee answers for the WHOLE workforce instead of 400", workforce.employeeId === null, JSON.stringify(workforce.employeeId));
+    ctx.check("ATT-22 — and its counts are non-zero where the attendance table has rows", workforce.daysPresent > 0, `daysPresent ${workforce.daysPresent}`);
+    ctx.check(
+      "ATT-23 — the workforce total covers at least the one employee's own days",
+      workforce.daysPresent >= scoped.daysPresent,
+      `${workforce.daysPresent} vs ${scoped.daysPresent}`,
+    );
+    ctx.check("ATT-24 — the attendance rate is a real percentage, not a placeholder", workforce.attendanceRatePercent > 0 && workforce.attendanceRatePercent <= 100, `${workforce.attendanceRatePercent}`);
+
+    const missingDates = await ctx.req("GET", "/hr/attendance/summary?employeeId=EMP-DEMO-1");
+    ctx.check("ATT-25 — the date range is still required", missingDates.status === 400, `got ${missingDates.status}`);
+  });
+
   await ctx.scenario("hr / overtime — approved minutes pay, at the statutory premium for the hour worked", async () => {
     // The clock on EMP-DEMO-6's 2026-07-21 shift implies more overtime than was
     // authorised. Payroll must pay the APPROVED figure: a clock records

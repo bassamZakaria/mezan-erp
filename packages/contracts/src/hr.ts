@@ -335,7 +335,8 @@ export const recordAttendanceSchema = z.object({
 export const correctAttendanceSchema = recordAttendanceSchema.omit({ id: true, employeeId: true, date: true }).partial();
 
 export const attendanceSummarySchema = z.object({
-  employeeId: z.string().min(1),
+  /** Null = the whole workforce, not one employee. */
+  employeeId: z.string().min(1).nullable(),
   from: z.string().min(1),
   to: z.string().min(1),
   workingDays: z.number(),

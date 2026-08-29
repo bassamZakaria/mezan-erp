@@ -474,3 +474,41 @@ export function usePostProvision() {
     },
   });
 }
+
+/* -------------------------------------------------------------------- */
+/* مستحقات نهاية الخدمة — /hr/employees/:id/end-of-service                  */
+/* -------------------------------------------------------------------- */
+
+export interface EndOfServiceSettlementDTO {
+  employeeId: string;
+  lastWorkingDay: string;
+  currency: string;
+  serviceYears: number;
+  priorServiceYears: number;
+  settlementWage: string;
+  allowancesIncluded: boolean;
+  gratuity: string;
+  monthsEarned: string;
+  gratuityBreakdown: { labelAr: string; years: number; monthsPerYear: string; amount: string }[];
+  leavePayoutDays: string;
+  leavePayout: string;
+  outstandingAdvances: string;
+  netSettlement: string;
+  advanceShortfall: string;
+  statutoryTableCode: string;
+  citationAr: string;
+}
+
+export function useEndOfServiceSettlement(employeeId: string | null, enabled: boolean): UseQueryResult<EndOfServiceSettlementDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<EndOfServiceSettlementDTO, ApiError>({
+    queryKey: ["hr", "end-of-service", employeeId],
+    enabled: session !== null && enabled && employeeId !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/employees/${employeeId}/end-of-service`);
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("endOfService.couldNotLoad")));
+      return res.json<EndOfServiceSettlementDTO>();
+    },
+  });
+}

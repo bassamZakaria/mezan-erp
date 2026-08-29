@@ -23,6 +23,7 @@ export const ROUNDING_BOUNDARIES = [
   "TAX_COMPUTATION",
   "DISCOUNT_ALLOCATION",
   "LANDED_COST_DISTRIBUTION",
+  "PAYROLL_STATUTORY",
 ] as const;
 export type RoundingBoundary = (typeof ROUNDING_BOUNDARIES)[number];
 

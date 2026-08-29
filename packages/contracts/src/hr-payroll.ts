@@ -72,9 +72,15 @@ export const payslipLineKindSchema = z.enum(["earning", "deduction", "employer_c
 export const payslipLineSourceSchema = z.enum([
   "contract_basic",
   "contract_allowance",
+  "overtime",
   "contract_deduction",
   "unpaid_leave",
   "advance_recovery",
+  "garnishment",
+  "income_tax",
+  "social_insurance_employee",
+  "social_insurance_employer",
+  "statutory_levy",
 ]);
 
 export const payslipLineSchema = z.object({
@@ -103,6 +109,10 @@ export const payslipSchema = z.object({
   totalDeductions: z.string(),
   employerContributions: z.string(),
   netPay: z.string(),
+  insurableWage: z.string(),
+  insurableWageCapped: z.boolean(),
+  annualTaxableIncome: z.string(),
+  totalEmployerCost: z.string(),
   createdAt: z.string().min(1),
 });
 
@@ -121,7 +131,10 @@ export const payrollRunSchema = z.object({
   totalDeductions: z.string(),
   totalEmployerContributions: z.string(),
   totalNet: z.string(),
+  totalEmployerCost: z.string(),
   unpaidLeaveSource: z.enum(["none", "provider"]),
+  overtimeSource: z.enum(["none", "provider"]),
+  statutoryTableCodes: z.array(z.string()),
   warnings: z.array(z.string()),
   journalEntryId: z.string().nullable(),
   disbursementVoucherId: z.string().nullable(),

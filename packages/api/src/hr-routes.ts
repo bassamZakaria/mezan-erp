@@ -21,7 +21,14 @@ import {
   updateHoliday,
   listHolidaysForYear,
   createLeaveRequest,
+  advanceOutstanding,
   createUnpaidLeaveDaysProvider,
+  createOvertimeHoursProvider,
+  createWorkedTimeProvider,
+  calculateEndOfServiceSettlement,
+  EGYPT_OVERTIME_TABLES,
+  EmployeeStillEmployedError,
+  StatutoryRulesUnavailableError,
   cancelLeaveRequest,
   summarizeWorkforceAttendance,
   LEAVE_TYPE_DEFINITIONS,
@@ -520,6 +527,81 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     }
   });
 
+  /**
+   * مستحقات نهاية الخدمة — the settlement statement for a terminated employee.
+   *
+   * A STATEMENT, not a posting: it computes gratuity, the payable leave balance
+   * and outstanding advances so the figures can be checked before a voucher is
+   * raised against them. Reading it changes nothing.
+   */
+  app.get("/employees/:id/end-of-service", gate("hr.payroll.view"), async (c) => {
+    const employee = await deps.employees.findById(c.req.param("id"));
+    if (!employee) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
+
+    const contracts = await deps.contracts.listByEmployeeId(employee.id);
+    // The last contract, running or terminated — an employee who has left has no
+    // active one, so filtering to active would answer 409 for every real case.
+    const contract = [...contracts].sort((a, b) => (a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0))[0];
+    if (!contract) return c.json({ error: "CONTRACT_NOT_FOUND", message: "لا يوجد عقد لهذا الموظف." }, 404);
+
+    const lastWorkingDay = c.req.query("lastWorkingDay") ?? employee.terminatedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+
+    const payableBalances = [];
+    if (deps.leaveBalances && deps.leavePolicies) {
+      const policies = await deps.leavePolicies.list();
+      const payoutTypes = new Set(policies.filter((p) => p.payoutOnTermination && p.active).map((p) => p.leaveType));
+      for (const balance of await deps.leaveBalances.list({ employeeId: employee.id })) {
+        if (payoutTypes.has(balance.leaveType)) payableBalances.push(balance);
+      }
+    }
+
+    let outstandingAdvances = Money.zero();
+    if (deps.payroll?.advances) {
+      for (const advance of await deps.payroll.advances.listByEmployeeId(employee.id)) {
+        if (advance.status === "disbursed") outstandingAdvances = outstandingAdvances.add(advanceOutstanding(advance));
+      }
+    }
+
+    try {
+      const settlement = calculateEndOfServiceSettlement({
+        employee,
+        contract,
+        lastWorkingDay,
+        payableLeaveBalances: payableBalances,
+        outstandingAdvances,
+      });
+      return c.json({
+        employeeId: settlement.employeeId,
+        lastWorkingDay: settlement.lastWorkingDay,
+        currency: settlement.currency,
+        serviceYears: settlement.serviceYears,
+        priorServiceYears: settlement.priorServiceYears,
+        settlementWage: settlement.settlementWage.toString(),
+        allowancesIncluded: settlement.allowancesIncluded,
+        gratuity: settlement.gratuity.gratuity.toString(),
+        monthsEarned: settlement.gratuity.monthsEarned,
+        gratuityBreakdown: settlement.gratuity.tierBreakdown.map((t) => ({
+          labelAr: t.labelAr,
+          years: t.years,
+          monthsPerYear: t.monthsPerYear,
+          amount: t.amount.toString(),
+        })),
+        leavePayoutDays: settlement.leavePayoutDays,
+        leavePayout: settlement.leavePayout.toString(),
+        outstandingAdvances: settlement.outstandingAdvances.toString(),
+        netSettlement: settlement.netSettlement.toString(),
+        advanceShortfall: settlement.advanceShortfall.toString(),
+        statutoryTableCode: settlement.statutoryTableCode,
+        citationAr: settlement.citationAr,
+      });
+    } catch (err) {
+      if (err instanceof EmployeeStillEmployedError || err instanceof StatutoryRulesUnavailableError) {
+        return c.json({ error: err.code, message: err.message }, 422);
+      }
+      return handleDomainError(c, err);
+    }
+  });
+
   app.post("/employees/:id/rehire", gate("hr.employee.create"), async (c) => {
     const current = await deps.employees.findById(c.req.param("id"));
     if (!current) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
@@ -704,6 +786,13 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   // path stays under `/hr`) --------------------------------------------------
 
   if (deps.payroll) {
+    // Attendance is what turns clock times into payable overtime and gives an
+    // hourly or daily contract its hours. Bound here rather than in the payroll
+    // router so that router stays free of attendance's shape — and so a build
+    // without attendance still runs payroll, saying on the run that it did.
+    const overtimeTable = EGYPT_OVERTIME_TABLES[EGYPT_OVERTIME_TABLES.length - 1];
+    const derivationOptions = { standardDailyHours: overtimeTable?.standardDailyHours ?? 8 };
+    const attendanceRepo = deps.attendance;
     app.route(
       "/",
       createHrPayrollRoutes(
@@ -713,6 +802,11 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
           contracts: deps.contracts,
           numbering: deps.numbering,
           unpaidLeave: deps.payroll.unpaidLeave ?? createUnpaidLeaveDaysProvider(deps.leaveRequests),
+          overtime:
+            deps.payroll.overtime ??
+            (attendanceRepo && overtimeTable ? createOvertimeHoursProvider(attendanceRepo, overtimeTable, derivationOptions) : undefined),
+          workedTime:
+            deps.payroll.workedTime ?? (attendanceRepo ? createWorkedTimeProvider(attendanceRepo, derivationOptions) : undefined),
         },
         resolveAuthContext,
       ),

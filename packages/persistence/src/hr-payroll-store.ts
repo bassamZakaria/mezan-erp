@@ -224,7 +224,10 @@ CREATE TABLE IF NOT EXISTS hr_payroll_run (
   total_deductions              INTEGER NOT NULL,
   total_employer_contributions  INTEGER NOT NULL,
   total_net                     INTEGER NOT NULL,
+  total_employer_cost           INTEGER NOT NULL DEFAULT 0,
   unpaid_leave_source           TEXT NOT NULL,
+  overtime_source               TEXT NOT NULL DEFAULT 'none',
+  statutory_tables_json         TEXT NOT NULL DEFAULT '[]',
   warnings_json                 TEXT NOT NULL,
   journal_entry_id              TEXT,
   disbursement_voucher_id       TEXT,
@@ -252,7 +255,10 @@ interface PayrollRunRow {
   total_deductions: number;
   total_employer_contributions: number;
   total_net: number;
+  total_employer_cost: number | null;
   unpaid_leave_source: string;
+  overtime_source: string | null;
+  statutory_tables_json: string | null;
   warnings_json: string;
   journal_entry_id: string | null;
   disbursement_voucher_id: string | null;
@@ -280,7 +286,10 @@ function toPayrollRun(row: PayrollRunRow): PayrollRun {
     totalDeductions: Money.fromScaled(row.total_deductions),
     totalEmployerContributions: Money.fromScaled(row.total_employer_contributions),
     totalNet: Money.fromScaled(row.total_net),
+    totalEmployerCost: Money.fromScaled(row.total_employer_cost ?? 0),
     unpaidLeaveSource: row.unpaid_leave_source === "provider" ? "provider" : "none",
+    overtimeSource: row.overtime_source === "provider" ? "provider" : "none",
+    statutoryTableCodes: JSON.parse(row.statutory_tables_json ?? "[]") as string[],
     warnings: JSON.parse(row.warnings_json) as string[],
     journalEntryId: row.journal_entry_id,
     disbursementVoucherId: row.disbursement_voucher_id,
@@ -304,13 +313,15 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
     this.upsert = sqlite.prepare(`
       INSERT INTO hr_payroll_run (
         id, number, year, month, period_start, period_end, branch_id, currency, status, employee_count,
-        total_gross, total_deductions, total_employer_contributions, total_net, unpaid_leave_source,
+        total_gross, total_deductions, total_employer_contributions, total_net, total_employer_cost,
+        unpaid_leave_source, overtime_source, statutory_tables_json,
         warnings_json, journal_entry_id, disbursement_voucher_id, calculated_at, approved_at, approved_by,
         disbursed_at, cancelled_at, created_at
       )
       VALUES (
         @id, @number, @year, @month, @period_start, @period_end, @branch_id, @currency, @status, @employee_count,
-        @total_gross, @total_deductions, @total_employer_contributions, @total_net, @unpaid_leave_source,
+        @total_gross, @total_deductions, @total_employer_contributions, @total_net, @total_employer_cost,
+        @unpaid_leave_source, @overtime_source, @statutory_tables_json,
         @warnings_json, @journal_entry_id, @disbursement_voucher_id, @calculated_at, @approved_at, @approved_by,
         @disbursed_at, @cancelled_at, @created_at
       )
@@ -321,7 +332,10 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
         total_deductions = excluded.total_deductions,
         total_employer_contributions = excluded.total_employer_contributions,
         total_net = excluded.total_net,
+        total_employer_cost = excluded.total_employer_cost,
         unpaid_leave_source = excluded.unpaid_leave_source,
+        overtime_source = excluded.overtime_source,
+        statutory_tables_json = excluded.statutory_tables_json,
         warnings_json = excluded.warnings_json,
         journal_entry_id = excluded.journal_entry_id,
         disbursement_voucher_id = excluded.disbursement_voucher_id,
@@ -377,7 +391,10 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
       total_deductions: run.totalDeductions.toScaledNumber(),
       total_employer_contributions: run.totalEmployerContributions.toScaledNumber(),
       total_net: run.totalNet.toScaledNumber(),
+      total_employer_cost: run.totalEmployerCost.toScaledNumber(),
       unpaid_leave_source: run.unpaidLeaveSource,
+      overtime_source: run.overtimeSource,
+      statutory_tables_json: JSON.stringify(run.statutoryTableCodes),
       warnings_json: JSON.stringify(run.warnings),
       journal_entry_id: run.journalEntryId,
       disbursement_voucher_id: run.disbursementVoucherId,
@@ -410,6 +427,10 @@ CREATE TABLE IF NOT EXISTS hr_payslip (
   total_deductions        INTEGER NOT NULL,
   employer_contributions  INTEGER NOT NULL,
   net_pay                 INTEGER NOT NULL,
+  insurable_wage          INTEGER NOT NULL DEFAULT 0,
+  insurable_wage_capped   INTEGER NOT NULL DEFAULT 0,
+  annual_taxable_income   INTEGER NOT NULL DEFAULT 0,
+  total_employer_cost     INTEGER NOT NULL DEFAULT 0,
   created_at              TEXT NOT NULL
 );
 `;
@@ -430,6 +451,10 @@ interface PayslipRow {
   total_deductions: number;
   employer_contributions: number;
   net_pay: number;
+  insurable_wage: number | null;
+  insurable_wage_capped: number | null;
+  annual_taxable_income: number | null;
+  total_employer_cost: number | null;
   created_at: string;
 }
 
@@ -486,6 +511,10 @@ function toPayslip(row: PayslipRow): Payslip {
     totalDeductions: Money.fromScaled(row.total_deductions),
     employerContributions: Money.fromScaled(row.employer_contributions),
     netPay: Money.fromScaled(row.net_pay),
+    insurableWage: Money.fromScaled(row.insurable_wage ?? 0),
+    insurableWageCapped: (row.insurable_wage_capped ?? 0) === 1,
+    annualTaxableIncome: Money.fromScaled(row.annual_taxable_income ?? 0),
+    totalEmployerCost: Money.fromScaled(row.total_employer_cost ?? 0),
     createdAt: row.created_at,
   };
 }
@@ -501,18 +530,24 @@ class SqlitePayslipRepository implements PayslipRepository {
     this.upsert = sqlite.prepare(`
       INSERT INTO hr_payslip (
         id, number, run_id, employee_id, contract_id, currency, period_start, period_end, period_days, paid_days,
-        lines_json, gross_earnings, total_deductions, employer_contributions, net_pay, created_at
+        lines_json, gross_earnings, total_deductions, employer_contributions, net_pay,
+        insurable_wage, insurable_wage_capped, annual_taxable_income, total_employer_cost, created_at
       )
       VALUES (
         @id, @number, @run_id, @employee_id, @contract_id, @currency, @period_start, @period_end, @period_days, @paid_days,
-        @lines_json, @gross_earnings, @total_deductions, @employer_contributions, @net_pay, @created_at
+        @lines_json, @gross_earnings, @total_deductions, @employer_contributions, @net_pay,
+        @insurable_wage, @insurable_wage_capped, @annual_taxable_income, @total_employer_cost, @created_at
       )
       ON CONFLICT(id) DO UPDATE SET
         lines_json = excluded.lines_json,
         gross_earnings = excluded.gross_earnings,
         total_deductions = excluded.total_deductions,
         employer_contributions = excluded.employer_contributions,
-        net_pay = excluded.net_pay
+        net_pay = excluded.net_pay,
+        insurable_wage = excluded.insurable_wage,
+        insurable_wage_capped = excluded.insurable_wage_capped,
+        annual_taxable_income = excluded.annual_taxable_income,
+        total_employer_cost = excluded.total_employer_cost
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_payslip WHERE id = ?`);
     this.selectByRun = sqlite.prepare(`SELECT * FROM hr_payslip WHERE run_id = ? ORDER BY number`);
@@ -550,6 +585,10 @@ class SqlitePayslipRepository implements PayslipRepository {
       total_deductions: payslip.totalDeductions.toScaledNumber(),
       employer_contributions: payslip.employerContributions.toScaledNumber(),
       net_pay: payslip.netPay.toScaledNumber(),
+      insurable_wage: payslip.insurableWage.toScaledNumber(),
+      insurable_wage_capped: payslip.insurableWageCapped ? 1 : 0,
+      annual_taxable_income: payslip.annualTaxableIncome.toScaledNumber(),
+      total_employer_cost: payslip.totalEmployerCost.toScaledNumber(),
       created_at: payslip.createdAt,
     });
   }
@@ -557,6 +596,38 @@ class SqlitePayslipRepository implements PayslipRepository {
   async deleteByRunId(runId: string): Promise<void> {
     this.deleteByRun.run(runId);
   }
+}
+
+// --- Schema migrations -----------------------------------------------------
+
+/**
+ * Adds columns an older database predates. Statutory payroll landed after the
+ * first payroll runs existed, so an install that already holds runs must gain
+ * the new columns rather than be recreated — the DEFAULTs are what a
+ * pre-statutory run legitimately had.
+ */
+function addMissingColumns(sqlite: Database.Database, table: string, columns: readonly (readonly [string, string])[]): void {
+  const existing = new Set((sqlite.pragma(`table_info(${table})`) as { name: string }[]).map((c) => c.name));
+  for (const [name, definition] of columns) {
+    if (!existing.has(name)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  }
+}
+
+function migratePayrollRunSchema(sqlite: Database.Database): void {
+  addMissingColumns(sqlite, "hr_payroll_run", [
+    ["total_employer_cost", "INTEGER NOT NULL DEFAULT 0"],
+    ["overtime_source", "TEXT NOT NULL DEFAULT 'none'"],
+    ["statutory_tables_json", "TEXT NOT NULL DEFAULT '[]'"],
+  ]);
+}
+
+function migratePayslipSchema(sqlite: Database.Database): void {
+  addMissingColumns(sqlite, "hr_payslip", [
+    ["insurable_wage", "INTEGER NOT NULL DEFAULT 0"],
+    ["insurable_wage_capped", "INTEGER NOT NULL DEFAULT 0"],
+    ["annual_taxable_income", "INTEGER NOT NULL DEFAULT 0"],
+    ["total_employer_cost", "INTEGER NOT NULL DEFAULT 0"],
+  ]);
 }
 
 // --- Factories -------------------------------------------------------------
@@ -585,6 +656,7 @@ export function createSqlitePayrollRunRepository(path: SqliteConnectionInput = "
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_PAYROLL_RUN);
+  migratePayrollRunSchema(sqlite);
   const repo = new SqlitePayrollRunRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayrollRunRepositoryHandle;
 }
@@ -594,6 +666,7 @@ export function createSqlitePayslipRepository(path: SqliteConnectionInput = ":me
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_PAYSLIP);
+  migratePayslipSchema(sqlite);
   const repo = new SqlitePayslipRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayslipRepositoryHandle;
 }

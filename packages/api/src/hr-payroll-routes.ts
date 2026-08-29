@@ -28,6 +28,10 @@ import {
   InvalidPayrollRunError,
   InvalidPayrollRunTransitionError,
   NegativeNetPayError,
+  StatutoryRulesUnavailableError,
+  listEgyptStatutoryTables,
+  formatRateBp,
+  totalShareBp,
   NoFiscalPeriodForDateError,
   NoPayableEmployeesError,
   PayrollRunNotFoundError,
@@ -38,6 +42,10 @@ import {
   type EmployeeAdvance,
   type EmployeeAdvanceRepository,
   type EmployeeRepository,
+  type GarnishmentProvider,
+  type OvertimeHoursProvider,
+  type PayrollDayDivisorBasis,
+  type WorkedTimeProvider,
   type ContractRepository,
   type JournalPostingDeps,
   type PayrollComponent,
@@ -82,6 +90,15 @@ export interface HrPayrollRoutesDeps {
   readonly treasury?: TreasuryDisbursementPort;
   /** Bound by the attendance/leave side of HR; absent = no unpaid-leave day is deducted. */
   readonly unpaidLeave?: UnpaidLeaveDaysProvider;
+  /** Bound to attendance; absent = no overtime is paid and the run says so. */
+  readonly overtime?: OvertimeHoursProvider;
+  /** Bound to attendance; required before an hourly or daily contract can be paid. */
+  readonly workedTime?: WorkedTimeProvider;
+  /** Court-ordered wage deductions; absent = no garnishment line is produced. */
+  readonly garnishments?: GarnishmentProvider;
+  /** أساس قسمة اليوم from tenant settings; defaults to the Egyptian FIXED_30 convention. */
+  readonly dayDivisorBasis?: PayrollDayDivisorBasis;
+  readonly standardDailyHours?: number;
   /** The payroll-component registry (R10.7); absent = the component routes are not mounted and every line posts to the run defaults. */
   readonly payrollComponents?: PayrollComponentRepository;
   readonly idGen?: () => string;
@@ -142,6 +159,10 @@ function serializePayslip(p: Payslip) {
     totalDeductions: p.totalDeductions.toString(),
     employerContributions: p.employerContributions.toString(),
     netPay: p.netPay.toString(),
+    insurableWage: p.insurableWage.toString(),
+    insurableWageCapped: p.insurableWageCapped,
+    annualTaxableIncome: p.annualTaxableIncome.toString(),
+    totalEmployerCost: p.totalEmployerCost.toString(),
     createdAt: p.createdAt,
   };
 }
@@ -162,7 +183,10 @@ function serializeRun(r: PayrollRun) {
     totalDeductions: r.totalDeductions.toString(),
     totalEmployerContributions: r.totalEmployerContributions.toString(),
     totalNet: r.totalNet.toString(),
+    totalEmployerCost: r.totalEmployerCost.toString(),
     unpaidLeaveSource: r.unpaidLeaveSource,
+    overtimeSource: r.overtimeSource,
+    statutoryTableCodes: r.statutoryTableCodes,
     warnings: r.warnings,
     journalEntryId: r.journalEntryId,
     disbursementVoucherId: r.disbursementVoucherId,
@@ -197,6 +221,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof DuplicatePayrollPeriodError ||
     err instanceof NoPayableEmployeesError ||
     err instanceof NegativeNetPayError ||
+    err instanceof StatutoryRulesUnavailableError ||
     err instanceof InvalidPayrollComponentError ||
     err instanceof DuplicatePayrollComponentError
   ) {
@@ -237,6 +262,11 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     advances: deps.advances,
     numbering: deps.numbering,
     unpaidLeave: deps.unpaidLeave,
+    overtime: deps.overtime,
+    workedTime: deps.workedTime,
+    garnishments: deps.garnishments,
+    dayDivisorBasis: deps.dayDivisorBasis,
+    standardDailyHours: deps.standardDailyHours,
     payrollComponents: deps.payrollComponents,
     idGen,
   };
@@ -378,6 +408,66 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
   });
 
   // --- Payroll runs --------------------------------------------------------
+
+  // The dated legal tables payroll computes against. Read-only and public to
+  // anyone who can see payroll: an accountant must be able to check the ceiling
+  // the system used against the gazette without opening the source.
+  app.get("/payroll/statutory-tables", gate("hr.payroll.view"), (c) => {
+    const tables = listEgyptStatutoryTables();
+    return c.json({
+      incomeTax: tables.incomeTax.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        annualPersonalExemption: t.annualPersonalExemption,
+        brackets: t.brackets.map((b) => ({ upToAnnual: b.upToAnnual, ratePercent: formatRateBp(b.rateBp) })),
+        eliminationTiers: t.eliminationTiers.map((e) => ({
+          aboveAnnual: e.aboveAnnual,
+          upToAnnual: e.upToAnnual,
+          dropsLowestBrackets: e.dropsLowestBrackets,
+        })),
+      })),
+      socialInsurance: tables.socialInsurance.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        monthlyWageFloor: t.monthlyWageFloor,
+        monthlyWageCeiling: t.monthlyWageCeiling,
+        employeeTotalPercent: formatRateBp(totalShareBp(t.employeeShares)),
+        employerTotalPercent: formatRateBp(totalShareBp(t.employerShares)),
+        employeeShares: t.employeeShares.map((x) => ({ code: x.code, labelAr: x.labelAr, ratePercent: formatRateBp(x.rateBp) })),
+        employerShares: t.employerShares.map((x) => ({ code: x.code, labelAr: x.labelAr, ratePercent: formatRateBp(x.rateBp) })),
+      })),
+      levies: tables.levies.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        levies: t.levies.map((x) => ({ code: x.code, labelAr: x.labelAr, ratePercent: formatRateBp(x.rateBp), base: x.base, side: x.side })),
+      })),
+      overtime: tables.overtime.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        dayPremiumPercent: formatRateBp(t.dayPremiumBp),
+        nightPremiumPercent: formatRateBp(t.nightPremiumBp),
+        restDayPremiumPercent: formatRateBp(t.restDayPremiumBp),
+        standardDailyHours: t.standardDailyHours,
+        standardWeeklyHours: t.standardWeeklyHours,
+      })),
+      endOfService: tables.endOfService.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        minimumAnnualRaisePercent: formatRateBp(t.minimumAnnualRaiseBp),
+        tiers: t.tiers.map((x) => ({ throughYears: x.throughYears, monthsPerYear: x.monthsPerYear })),
+      })),
+    });
+  });
 
   app.get("/payroll/runs", gate("hr.payroll.view"), async (c) => {
     return c.json((await deps.runs.list()).map(serializeRun));

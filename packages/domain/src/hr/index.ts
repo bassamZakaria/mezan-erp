@@ -195,7 +195,15 @@ export type {
   PayrollGlAccounts,
   PayrollPeriodBounds,
   PayrollUnimplementedRule,
+  PayslipLineSourceDefinition,
   UnpaidLeaveDaysProvider,
+  OvertimeHoursProvider,
+  PeriodOvertimeHours,
+  WorkedTimeProvider,
+  Garnishment,
+  GarnishmentProvider,
+  PayrollDayDivisorBasis,
+  PayrollDayDivisorBasisDefinition,
 } from "./payroll-run.js";
 export {
   PAYROLL_RUN_STATUS_DEFINITIONS,
@@ -204,6 +212,11 @@ export {
   canTransitionPayrollRun,
   PAYROLL_GL_ACCOUNTS,
   PAYROLL_UNIMPLEMENTED_RULES,
+  PAYSLIP_LINE_SOURCE_DEFINITIONS,
+  getPayslipLineSourceLabel,
+  PAYROLL_DAY_DIVISOR_BASIS_DEFINITIONS,
+  getPayrollDayDivisorBasisLabel,
+  payrollDayDivisor,
   daysInPayrollMonth,
   payrollPeriodBounds,
   inclusiveDays,
@@ -271,6 +284,8 @@ export {
   DuplicatePayrollPeriodError,
   NoPayableEmployeesError,
   NegativeNetPayError,
+  StatutoryRulesUnavailableError,
+  EmployeeStillEmployedError,
   LeaveBalanceExceededError,
   TreasuryDisbursementHeldError,
   TreasuryDisbursementUnavailableError,
@@ -278,3 +293,71 @@ export {
   PayrollComponentNotFoundError,
   DuplicatePayrollComponentError,
 } from "./errors.js";
+
+// --- Egyptian statutory payroll --------------------------------------------
+
+export type {
+  BasisPoints,
+  IncomeTaxBracket,
+  BracketEliminationTier,
+  IncomeTaxTable,
+  ContributionShare,
+  SocialInsuranceTable,
+  LevyBase,
+  LevySide,
+  PayrollLevy,
+  PayrollLevyTable,
+  OvertimeTable,
+  EndOfServiceTier,
+  EndOfServiceTable,
+  EgyptStatutoryRules,
+} from "./egypt-statutory.js";
+export {
+  BASIS_POINTS_PER_UNIT,
+  EGYPT_INCOME_TAX_TABLES,
+  EGYPT_SOCIAL_INSURANCE_TABLES,
+  EGYPT_PAYROLL_LEVY_TABLES,
+  EGYPT_OVERTIME_TABLES,
+  EGYPT_END_OF_SERVICE_TABLES,
+  resolveEgyptStatutoryRules,
+  listEgyptStatutoryTables,
+  totalShareBp,
+  formatRateBp,
+} from "./egypt-statutory.js";
+
+export type {
+  ContributionLine,
+  SocialInsuranceResult,
+  IncomeTaxResult,
+  MonthlyIncomeTaxInput,
+  LevyLine,
+  OvertimeKind,
+  OvertimeHours,
+  OvertimeLine,
+  EndOfServiceResult,
+} from "./statutory-payroll.js";
+export {
+  applyRateBp,
+  insurableWage,
+  socialInsuranceFor,
+  annualIncomeTax,
+  monthlyIncomeTax,
+  payrollLevies,
+  hourlyRate,
+  overtimePay,
+  overtimeKindForHour,
+  endOfServiceGratuity,
+  serviceYearsBetween,
+  NO_OVERTIME_HOURS,
+} from "./statutory-payroll.js";
+
+export type { OvertimeDerivationOptions } from "./attendance-overtime.js";
+export {
+  overtimeMinutesForEntry,
+  summarizeOvertime,
+  createOvertimeHoursProvider,
+  createWorkedTimeProvider,
+} from "./attendance-overtime.js";
+
+export type { EndOfServiceSettlement, EndOfServiceSettlementInput } from "./end-of-service.js";
+export { calculateEndOfServiceSettlement } from "./end-of-service.js";

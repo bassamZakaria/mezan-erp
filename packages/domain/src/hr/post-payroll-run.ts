@@ -24,14 +24,22 @@ import {
  * as they do to every other document.
  *
  *   Dr  مصروف الرواتب (5120)          gross earnings
- *   Dr  مساهمات صاحب العمل (5130)     employer contributions (none configured yet)
+ *   Dr  مساهمات صاحب العمل (5130)     employer social insurance
+ *   Cr  ضريبة كسب العمل مستحقة (2191) salary tax withheld
+ *   Cr  التأمينات الاجتماعية (2192)   BOTH insurance shares
+ *   Cr  حجوزات على الأجور (2193)      garnishments
  *   Cr  سلف الموظفين (1160)           advance recovery
  *   Cr  استقطاعات رواتب (2190)        other deductions
  *   Cr  رواتب مستحقة (2170)           net pay
  *
- * The credit side is the identity gross = deductions + net, so the entry is
- * balanced by construction; `postJournalEntry` re-asserts it and REJECTS the
- * run rather than post an unbalanced entry.
+ * Each statutory withholding lands in its OWN liability account because each is
+ * owed to a different authority on a different date, and the insurance and tax
+ * returns are reconciled against these balances.
+ *
+ * The credit side is the identity gross + employer contributions = deductions +
+ * employer liabilities + net, so the entry is balanced by construction;
+ * `postJournalEntry` re-asserts it and REJECTS the run rather than post an
+ * unbalanced entry.
  */
 
 export interface PostPayrollRunDeps {
@@ -57,7 +65,16 @@ function buildJournalLines(payslips: readonly Payslip[], accounts: PayrollGlAcco
         addTo(debits, line.glAccountId ?? accounts.salaryExpenseAccountId, line.amount);
       } else if (line.kind === "employer_contribution") {
         addTo(debits, line.glAccountId ?? accounts.employerContributionExpenseAccountId, line.amount);
-        addTo(credits, accounts.employerContributionLiabilityAccountId, line.amount);
+        // The credit follows WHO the money is owed to, which the line's source
+        // names — the insurance authority for the employer's share, the general
+        // withholdings pool for anything else.
+        addTo(
+          credits,
+          line.source === "social_insurance_employer"
+            ? accounts.socialInsurancePayableAccountId
+            : accounts.employerContributionLiabilityAccountId,
+          line.amount,
+        );
       } else if (line.source === "advance_recovery") {
         addTo(credits, accounts.employeeAdvanceAccountId, line.amount);
       } else {

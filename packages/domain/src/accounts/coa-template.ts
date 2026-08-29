@@ -69,6 +69,13 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "2170", code: "2170", nameAr: "رواتب مستحقة", nameEn: "Salaries Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2180", code: "2180", nameAr: "التزام إجازات مستحقة", nameEn: "Accrued Leave Liability", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2190", code: "2190", nameAr: "استقطاعات ومستحقات رواتب", nameEn: "Payroll Withholdings Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  // Statutory payroll withholdings get their own leaves rather than pooling in
+  // 2190: each is owed to a DIFFERENT authority on a different filing date, and
+  // the insurance and salary-tax returns are reconciled against these balances.
+  { id: "2191", code: "2191", nameAr: "ضريبة كسب العمل مستحقة", nameEn: "Salary Tax Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2192", code: "2192", nameAr: "التأمينات الاجتماعية مستحقة", nameEn: "Social Insurance Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2193", code: "2193", nameAr: "حجوزات على الأجور", nameEn: "Wage Garnishments Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2181", code: "2181", nameAr: "مخصص مكافأة نهاية الخدمة", nameEn: "End of Service Provision", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   // Egypt withholds tax on most local B2B payments: the supplier is settled in
   // full, the withheld slice is owed to the authority instead of to them. 2190
   // is payroll-only and must not be reused for it.
@@ -129,6 +136,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // Allowances routed away from basic pay, so a payroll component can post to
   // its own line of the P&L instead of vanishing into 5120 (R10.7).
   { id: "5121", code: "5121", nameAr: "بدلات ومزايا العاملين", nameEn: "Staff Allowances & Benefits", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5140", code: "5140", nameAr: "مكافأة نهاية الخدمة", nameEn: "End of Service Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5200", code: "5200", nameAr: "مصروفات الشحن والنقل", nameEn: "Freight & Shipping Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5210", code: "5210", nameAr: "المصاريف المحمّلة", nameEn: "Overhead Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5220", code: "5220", nameAr: "فاقد التصنيع غير الطبيعي", nameEn: "Abnormal Manufacturing Scrap", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },

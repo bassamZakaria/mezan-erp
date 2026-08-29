@@ -413,3 +413,32 @@ export class DuplicatePayrollComponentError extends Error {
     this.name = "DuplicatePayrollComponentError";
   }
 }
+
+/**
+ * Raised when no dated statutory table covers the period being calculated —
+ * the insurance floor and ceiling rise every 1 January, so a run for a year
+ * whose figures have not been entered REFUSES rather than computing on a
+ * superseded table. The message names each missing table so an admin knows
+ * exactly what to add.
+ */
+export class StatutoryRulesUnavailableError extends Error {
+  readonly code = "STATUTORY_RULES_UNAVAILABLE";
+  constructor(
+    readonly onDate: string,
+    readonly missing: readonly string[],
+  ) {
+    super(
+      `لا توجد قواعد قانونية سارية بتاريخ ${onDate}: ${missing.join("، ")}. أضف جدول السنة من الإعدادات قبل احتساب الرواتب.`,
+    );
+    this.name = "StatutoryRulesUnavailableError";
+  }
+}
+
+/** Raised when end-of-service is requested for an employee whose contract is still running. */
+export class EmployeeStillEmployedError extends Error {
+  readonly code = "EMPLOYEE_STILL_EMPLOYED";
+  constructor(readonly employeeId: string) {
+    super("لا تُحتسب مكافأة نهاية الخدمة إلا بعد إنهاء خدمة الموظف.");
+    this.name = "EmployeeStillEmployedError";
+  }
+}

@@ -57,6 +57,20 @@ import {
   type AccountRepository,
   type VanTripRepository,
   type EmployeeRepository,
+  type PayrollRunRepository,
+  type PayslipRepository,
+  type ContractRepository,
+  type AttendanceRepository,
+  type LeaveBalanceRepository,
+  type LeavePolicyRepository,
+  createPayrollRegisterReport,
+  createSocialInsuranceReturnReport,
+  createSalaryTaxReturnReport,
+  createAttendanceSummaryReport,
+  createLeaveLiabilityReport,
+  createEndOfServiceProvisionReport,
+  createHeadcountMovementReport,
+  createEmployeeDirectory,
   type RunReportOutcome,
   salesReturnGrandTotal,
   sumActive,
@@ -120,6 +134,21 @@ export interface ReportsRoutesDeps {
   readonly vanTrips?: VanTripRepository;
   /** Resolves van-trip crew ids to employee names; ids are shown verbatim when absent. */
   readonly employees?: EmployeeRepository;
+  /**
+   * HR data sources. Each block is optional and each gates ITS OWN routes: an
+   * install without payroll serves no payroll register rather than an empty
+   * one, which is the difference between "nothing to show" and "nothing built".
+   */
+  readonly hrPayroll?: {
+    readonly runs: Pick<PayrollRunRepository, "list">;
+    readonly payslips: Pick<PayslipRepository, "listByRunId">;
+  };
+  readonly hrContracts?: Pick<ContractRepository, "list">;
+  readonly hrAttendance?: Pick<AttendanceRepository, "list">;
+  readonly hrLeave?: {
+    readonly balances: Pick<LeaveBalanceRepository, "list">;
+    readonly policies: Pick<LeavePolicyRepository, "list">;
+  };
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
   readonly today?: () => string;
 }
@@ -462,6 +491,118 @@ export function createReportsRoutes(
         c,
         runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, boms: bomList, purchaseInvoices: invoices }),
       );
+    });
+  }
+
+  // --- الموارد البشرية والرواتب ----------------------------------------
+
+  /**
+   * Closing balance of the payroll control accounts, so a statutory return can
+   * be compared with the ledger it must agree with rather than read alone.
+   */
+  async function payrollControlBalances(): Promise<ReadonlyMap<string, Money>> {
+    const entries = await deps.ledger.list({ status: "posted" });
+    const controls = new Set(["2180", "2181", "2191", "2192"]);
+    const totals = new Map<string, bigint>();
+    for (const entry of entries) {
+      for (const line of entry.lines) {
+        if (!controls.has(line.accountId)) continue;
+        // A liability's balance is credits less debits — a filing that was
+        // already paid must not still show as owed.
+        totals.set(line.accountId, (totals.get(line.accountId) ?? 0n) + line.credit.scaled - line.debit.scaled);
+      }
+    }
+    return new Map([...totals].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
+  }
+
+  const hrPayroll = deps.hrPayroll;
+  const hrEmployees = deps.employees;
+  if (hrPayroll && hrEmployees) {
+    const payrollRuns = hrPayroll.runs;
+    const payslipStore = hrPayroll.payslips;
+    const directory = createEmployeeDirectory(hrEmployees);
+    /** Every payslip of every run — the fact set all three payroll reports read. */
+    const payrollFacts = async () => {
+      const runs = await payrollRuns.list();
+      const payslipLists = await Promise.all(runs.map((run) => payslipStore.listByRunId(run.id)));
+      const [employees, glBalancesByAccountId] = await Promise.all([directory.listActive(), payrollControlBalances()]);
+      return { runs, payslips: payslipLists.flat(), employees, glBalancesByAccountId };
+    };
+
+    app.get("/hr/payroll-register", gate("hr.payroll.view"), async (c) => {
+      const definition = createPayrollRegisterReport();
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, await payrollFacts()));
+    });
+
+    app.get("/hr/social-insurance-return", gate("hr.payroll.view"), async (c) => {
+      const definition = createSocialInsuranceReturnReport();
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, await payrollFacts()));
+    });
+
+    app.get("/hr/salary-tax-return", gate("hr.payroll.view"), async (c) => {
+      const definition = createSalaryTaxReturnReport();
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, await payrollFacts()));
+    });
+  }
+
+  const hrAttendance = deps.hrAttendance;
+  if (hrAttendance && hrEmployees) {
+    app.get("/hr/attendance-summary", gate("hr.attendance.view"), async (c) => {
+      const definition = createAttendanceSummaryReport();
+      const [employees, attendance] = await Promise.all([hrEmployees.list(), hrAttendance.list()]);
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { employees, attendance }));
+    });
+  }
+
+  const hrContracts = deps.hrContracts;
+  const hrLeave = deps.hrLeave;
+  if (hrContracts && hrLeave && hrEmployees) {
+    app.get("/hr/leave-liability", gate("hr.leave.view"), async (c) => {
+      const definition = createLeaveLiabilityReport();
+      const [employees, contracts, balances, policies, glBalancesByAccountId] = await Promise.all([
+        hrEmployees.list(),
+        hrContracts.list(),
+        hrLeave.balances.list(),
+        hrLeave.policies.list(),
+        payrollControlBalances(),
+      ]);
+      return respond(
+        c,
+        runReport(definition, { ...definition.defaultParams, asOfDate: todayIso(deps), ...queryParams(c) }, {
+          employees,
+          contracts,
+          balances,
+          policies,
+          glBalancesByAccountId,
+        }),
+      );
+    });
+  }
+
+  if (hrContracts && hrEmployees) {
+    app.get("/hr/end-of-service-provision", gate("hr.payroll.view"), async (c) => {
+      const definition = createEndOfServiceProvisionReport();
+      const [employees, contracts, glBalancesByAccountId] = await Promise.all([
+        hrEmployees.list(),
+        hrContracts.list(),
+        payrollControlBalances(),
+      ]);
+      return respond(
+        c,
+        runReport(definition, { ...definition.defaultParams, asOfDate: todayIso(deps), ...queryParams(c) }, {
+          employees,
+          contracts,
+          glBalancesByAccountId,
+        }),
+      );
+    });
+  }
+
+  if (hrEmployees) {
+    app.get("/hr/headcount-movement", gate("hr.employee.view"), async (c) => {
+      const definition = createHeadcountMovementReport();
+      const employees = await hrEmployees.list();
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { employees }));
     });
   }
 

@@ -261,3 +261,33 @@ export {
   type AccountLedgerParams,
   type AccountLedgerRow,
 } from "./account-ledger.js";
+export {
+  createPayrollRegisterReport,
+  createSocialInsuranceReturnReport,
+  createSalaryTaxReturnReport,
+  SOCIAL_INSURANCE_CONTROL_ACCOUNT,
+  SALARY_TAX_CONTROL_ACCOUNT,
+  type PayrollReportContext,
+  type PayrollPeriodParams,
+  type PayrollRegisterRow,
+  type SocialInsuranceReturnRow,
+  type SalaryTaxReturnRow,
+} from "./hr-payroll.js";
+export {
+  createAttendanceSummaryReport,
+  createLeaveLiabilityReport,
+  createEndOfServiceProvisionReport,
+  createHeadcountMovementReport,
+  LEAVE_LIABILITY_CONTROL_ACCOUNT,
+  END_OF_SERVICE_CONTROL_ACCOUNT,
+  type AttendanceSummaryContext,
+  type AttendanceSummaryParams,
+  type AttendanceSummaryRow,
+  type LeaveLiabilityContext,
+  type LeaveLiabilityParams,
+  type LeaveLiabilityRow,
+  type EndOfServiceProvisionContext,
+  type EndOfServiceProvisionRow,
+  type HeadcountMovementContext,
+  type HeadcountMovementRow,
+} from "./hr-workforce.js";

@@ -1878,6 +1878,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // مبيعات المندوبين reads the same van-trip store /field/van-trips writes.
       vanTrips,
       employees: hrEmployees,
+      // The HR reports read the SAME payroll runs, attendance and leave
+      // balances the HR screens write — no second source behind the returns.
+      hrPayroll: { runs: hrPayrollRuns, payslips: hrPayslips },
+      hrContracts,
+      hrAttendance,
+      hrLeave: { balances: hrLeaveBalances, policies: hrLeavePolicies },
     },
     financialReports: {
       ledger,

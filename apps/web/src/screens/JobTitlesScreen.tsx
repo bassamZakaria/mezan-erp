@@ -6,7 +6,7 @@ import { ApiError, useCreateJobTitle, useDepartments, useEmployees, useJobTitles
 import { useAppTranslation } from "../i18n";
 import { bilingualName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** المسميات الوظيفية (Job Titles) — docs/archive/catalog/06 §"المسميات الوظيفية". Department-scoped master data; department is locked once created. */
 
@@ -34,7 +34,10 @@ export function JobTitlesScreen() {
   const employees = employeesQuery.data ?? EMPTY;
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | "active" | "inactive",
+    (next: string) => void,
+  ];
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 

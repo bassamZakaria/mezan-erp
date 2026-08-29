@@ -35,7 +35,7 @@ import { QuoteDetailView } from "./QuoteDetailView";
 import { QuoteFormView } from "./QuoteFormView";
 import { STATUS_KEY, STATUS_TONE, daysExpired, isExpired, type QuoteFilterKey } from "./quote-model";
 import { EMPTY } from "../../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../../lib/url-state";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
@@ -89,12 +89,15 @@ export function SalesQuotesScreen() {
     subPage.open(...(customerId ? ["new", customerId] : ["new"]));
   });
 
-  const [statusFilter, setStatusFilter] = useState<QuoteFilterKey>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    QuoteFilterKey,
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [branchFilter, setBranchFilter] = useState("");
+  const [branchFilter, setBranchFilter] = useUrlParam("branch");
   const [customerFilter, setCustomerFilter] = useState<EntityPickerOption | null>(null);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 

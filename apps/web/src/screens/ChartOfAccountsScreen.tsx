@@ -40,7 +40,7 @@ import { SelectField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { EMPTY } from "../lib/empty";
-import { useUrlSearch } from "../lib/url-state";
+import { useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const TYPE_KEY: Record<AccountTypeDTO, AppTranslationKey> = {
   asset: "coa.type.asset",
@@ -278,8 +278,14 @@ export function ChartOfAccountsScreen() {
   const accounts = query.data ?? EMPTY;
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [typeFilter, setTypeFilter] = useState<AccountTypeDTO | "all">("all");
-  const [statusFilter, setStatusFilter] = useState<AccountStatusDTO | "all">("all");
+  const [typeFilter, setTypeFilter] = useUrlParam("type", "all") as [
+    AccountTypeDTO | "all",
+    (next: string) => void,
+  ];
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    AccountStatusDTO | "all",
+    (next: string) => void,
+  ];
   const [expandedOverride, setExpandedOverride] = useState<Set<string> | null>(null);
   const [activeTab, setActiveTab] = useState<"accounts" | "routing">("accounts");
 

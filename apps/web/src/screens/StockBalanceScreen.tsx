@@ -7,7 +7,7 @@ import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * أرصدة المخزون (Stock Balance) — docs/archive/catalog/03. Read-only cross-warehouse
@@ -21,8 +21,11 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 export function StockBalanceScreen() {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
-  const [warehouseFilter, setWarehouseFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [warehouseFilter, setWarehouseFilter] = useUrlParam("warehouse");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    StatusFilter,
+    (next: string) => void,
+  ];
   // NaN is this codebase's empty number, as NumberField already treats it.
   const [qtyFrom, setQtyFrom] = useState(Number.NaN);
   const [qtyTo, setQtyTo] = useState(Number.NaN);

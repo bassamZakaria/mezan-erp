@@ -52,7 +52,7 @@ import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** تسويات المخزون (Stock Adjustments) — docs/archive/catalog/03. List + detail + create, on the real document-framework API. */
 
@@ -129,9 +129,12 @@ export function StockAdjustmentsScreen() {
   const { t, locale } = useAppTranslation();
   const { label: domainLabel } = useDomainLabels();
   const [reasonFilter, setReasonFilter] = useState("");
-  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useUrlParam("warehouse");
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | DocumentStatusDTO,
+    (next: string) => void,
+  ];
 
   /**
    * R1.1: one filter feeds the rows, the chips and the KPI strip — the strip

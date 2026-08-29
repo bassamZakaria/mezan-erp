@@ -41,7 +41,7 @@ import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
   draft: "purchaseOrders.status.draft",
@@ -181,14 +181,17 @@ export function PurchaseOrdersScreen() {
   const users = useUsers().data ?? [];
   const filterBranches = useBranches().data ?? [];
   const filterWarehouses = useWarehouses().data ?? [];
-  const [branchFilter, setBranchFilter] = useState("");
-  const [warehouseFilter, setWarehouseFilter] = useState("");
-  const [supplierFilter, setSupplierFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [branchFilter, setBranchFilter] = useUrlParam("branch");
+  const [warehouseFilter, setWarehouseFilter] = useUrlParam("warehouse");
+  const [supplierFilter, setSupplierFilter] = useUrlParam("supplier");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const userName = (id: string) => users.find((u) => u.id === id)?.nameAr ?? id;
 
-  const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatusDTO | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    PurchaseOrderStatusDTO | "all",
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

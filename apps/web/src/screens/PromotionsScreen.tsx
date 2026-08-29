@@ -24,7 +24,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const TYPE_KEY: Record<PromotionTypeDTO, AppTranslationKey> = {
   percentage: "promotions.type.percentage",
@@ -229,7 +229,10 @@ export function PromotionsScreen() {
   const [draft, setDraft] = useState<PromotionDraft>(blankDraft());
   const [error, setError] = useState<string | null>(null);
 
-  const [statusFilter, setStatusFilter] = useState<"all" | DerivedState>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | DerivedState,
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
   const [couponOnly, setCouponOnly] = useState(false);
   const [cappedOnly, setCappedOnly] = useState(false);

@@ -18,7 +18,7 @@ import { ApiError, useBranches, useCreateDepreciationRun, useDepreciationRuns, u
 import { NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber } from "../lib/url-state";
+import { useUrlNumber, useUrlParam } from "../lib/url-state";
 
 /** الإهلاك (Depreciation Runs) — docs/archive/catalog/07 §"الإهلاك". List + detail + run-creation panel. */
 
@@ -62,7 +62,7 @@ export function DepreciationRunsScreen() {
   const runs = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? [];
 
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 

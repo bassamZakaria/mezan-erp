@@ -59,7 +59,7 @@ import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** Document states plus the payment states derived from the allocation sub-ledger. */
 type PurchaseInvoiceFilterKey = PurchaseInvoiceStatusDTO | "all" | "overdue" | "due_soon" | "partially_paid" | "paid";
@@ -470,14 +470,17 @@ export function PurchaseInvoicesScreen() {
   const users = useUsers().data ?? [];
   const filterBranches = useBranches().data ?? [];
   const filterWarehouses = useWarehouses().data ?? [];
-  const [branchFilter, setBranchFilter] = useState("");
-  const [warehouseFilter, setWarehouseFilter] = useState("");
-  const [supplierFilter, setSupplierFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [branchFilter, setBranchFilter] = useUrlParam("branch");
+  const [warehouseFilter, setWarehouseFilter] = useUrlParam("warehouse");
+  const [supplierFilter, setSupplierFilter] = useUrlParam("supplier");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const userName = (id: string) => users.find((u) => u.id === id)?.nameAr ?? id;
 
-  const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceFilterKey>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    PurchaseInvoiceFilterKey,
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
   const { navigate } = useNavigation();
   const [page, setPage] = useUrlNumber("page", 1);

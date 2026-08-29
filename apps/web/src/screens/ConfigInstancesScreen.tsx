@@ -33,7 +33,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 type Status = ConfigInstanceRecord["status"];
 
@@ -217,7 +217,10 @@ export function ConfigInstancesScreen() {
   }, [warehouses, nameOf]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    Status | "all",
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

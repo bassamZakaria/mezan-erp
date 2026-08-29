@@ -20,7 +20,7 @@ import { useAllowedCurrencies, useApproveExchangeRate, useCreateExchangeRate, us
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { TextField } from "../settings/form-controls";
 import { todayIso } from "../lib/dates";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const STATUS_KEY: Record<ExchangeRateStatusDTO, AppTranslationKey> = { pending: "fxRates.status.pending", approved: "fxRates.status.approved", locked: "fxRates.status.locked" };
 const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning", approved: "success", locked: "neutral" };
@@ -46,13 +46,16 @@ export function ExchangeRatesScreen() {
     value: c.code,
     label: `${c.code} — ${locale === "ar" ? c.nameAr : c.nameEn}`,
   }));
-  const [statusFilter, setStatusFilter] = useState<ExchangeRateStatusDTO | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    ExchangeRateStatusDTO | "all",
+    (next: string) => void,
+  ];
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ currency: "USD", rate: "", effectiveDate: todayIso() });
   const [error, setError] = useState<string | null>(null);
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [pendingId, setPendingId] = useState<string | null>(null);

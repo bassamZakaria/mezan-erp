@@ -40,7 +40,7 @@ import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** الموظفون (Employees) — docs/archive/catalog/06 §"الموظفون". The HR hub record: personal info, department/job-title/manager/branch, hire date, worker category, overtime/standard hours, probation end, prior-service years (Article 47), attendance clock-in flags. */
 
@@ -182,7 +182,10 @@ export function EmployeesScreen() {
   const allContracts = allContractsQuery.data ?? EMPTY;
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | EmployeeStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | EmployeeStatusDTO,
+    (next: string) => void,
+  ];
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

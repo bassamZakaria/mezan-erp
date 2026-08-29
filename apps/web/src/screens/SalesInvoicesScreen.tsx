@@ -79,7 +79,7 @@ import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** فواتير المبيعات (Sales Invoices) — docs/archive/catalog/01-sales.md. List + detail (with the
  * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm sub-page form with live
@@ -1702,13 +1702,16 @@ function InvoiceDetailView({
 
 export function SalesInvoicesScreen() {
   const { t } = useAppTranslation();
-  const [statusFilter, setStatusFilter] = useState<InvoiceFilterKey>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    InvoiceFilterKey,
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [branchFilter, setBranchFilter] = useState("");
-  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [branchFilter, setBranchFilter] = useUrlParam("branch");
+  const [warehouseFilter, setWarehouseFilter] = useUrlParam("warehouse");
   const [customerFilter, setCustomerFilter] = useState<EntityPickerOption | null>(null);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
 
   /**
    * One filter object drives the rows, the chip counts and the KPI strip

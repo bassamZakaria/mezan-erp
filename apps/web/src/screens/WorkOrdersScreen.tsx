@@ -48,7 +48,7 @@ import { useEntityName } from "../lib/entity-names";
 import { useNavigation } from "../navigation";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const STATUS_KEY: Record<WorkOrderStatusRecord, AppTranslationKey> = {
   planned: "workOrders.status.planned",
@@ -568,9 +568,12 @@ export function WorkOrdersScreen() {
   }, [warehouses, nameOf]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<WorkOrderStatusRecord | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    WorkOrderStatusRecord | "all",
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [priorityFilter, setPriorityFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useUrlParam("priority");
   const [stageFilter, setStageFilter] = useState("");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

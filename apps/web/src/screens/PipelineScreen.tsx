@@ -6,6 +6,7 @@ import { useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineSta
 import { CreateOpportunityForm } from "./OpportunitiesScreen";
 import { useAppTranslation } from "../i18n";
 import { majorOf, sumMajor } from "../lib/money";
+import { useUrlParam } from "../lib/url-state";
 
 /**
  * خط المبيعات (Sales Pipeline) — docs/archive/catalog/06 §"خط المبيعات". A kanban
@@ -35,8 +36,8 @@ export function PipelineScreen() {
   }, [customersQuery.data]);
 
   const [view, setView] = useState<"board" | "list">("board");
-  const [customerFilter, setCustomerFilter] = useState("");
-  const [branchFilter, setBranchFilter] = useState("");
+  const [customerFilter, setCustomerFilter] = useUrlParam("customer");
+  const [branchFilter, setBranchFilter] = useUrlParam("branch");
   const [valueFrom, setValueFrom] = useState(Number.NaN);
   const [valueTo, setValueTo] = useState(Number.NaN);
   const [formOpen, setFormOpen] = useState(false);

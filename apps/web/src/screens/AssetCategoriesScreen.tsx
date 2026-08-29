@@ -5,7 +5,7 @@ import { ApiError, useAssetCategories, useCreateAssetCategory } from "../data/ho
 import { NumberField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { matchesSearch } from "@mezan/domain";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** تصنيفات الأصول (Asset Categories) — docs/archive/catalog/07 §"تصنيفات الأصول". List + add panel; API supports list+create only. */
 
@@ -63,7 +63,10 @@ export function AssetCategoriesScreen() {
   const categories = query.data ?? [];
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | "active" | "inactive",
+    (next: string) => void,
+  ];
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 

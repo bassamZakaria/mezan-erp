@@ -31,7 +31,7 @@ import { usePayrollComponents } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** العقود (Contracts) — docs/archive/catalog/06 §"العقود". Formal employment contract per employee: type/pay-basis/frequency, salary, currency, allowances/deductions, leave-entitlement overrides. */
 
@@ -98,7 +98,10 @@ export function ContractsScreen() {
   const employees = employeesQuery.data ?? EMPTY;
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | ContractStatusDTO | "expiring_soon">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | ContractStatusDTO | "expiring_soon",
+    (next: string) => void,
+  ];
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 

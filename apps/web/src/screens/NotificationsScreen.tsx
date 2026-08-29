@@ -20,7 +20,7 @@ import { eventLabelByCode } from "../domain-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * مركز الإشعارات — the bell's "عرض جميع الإشعارات" destination (R1.6). The
@@ -48,7 +48,10 @@ export function NotificationsScreen() {
   const { t, locale } = useAppTranslation();
   const { navigate } = useNavigation();
   const [tab, setTab] = useState<"all" | "unread">("all");
-  const [priorityFilter, setPriorityFilter] = useState<"" | NotificationPriority>("");
+  const [priorityFilter, setPriorityFilter] = useUrlParam("priority") as [
+    "" | NotificationPriority,
+    (next: string) => void,
+  ];
   const [eventFilter, setEventFilter] = useState("");
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);

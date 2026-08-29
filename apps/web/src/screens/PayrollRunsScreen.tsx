@@ -31,7 +31,7 @@ import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** الرواتب (Payroll) — docs/archive/catalog/06 §"الرواتب". A run covers one month: مسودة → محتسب → معتمد (قيد محاسبي متوازن) → مصروف. */
 
@@ -96,7 +96,10 @@ export function PayrollRunsScreen() {
 
   const now = new Date();
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | PayrollRunStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | PayrollRunStatusDTO,
+    (next: string) => void,
+  ];
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [formOpen, setFormOpen] = useState(false);

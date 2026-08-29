@@ -18,7 +18,7 @@ import { useCreatePayrollComponent, usePayrollComponents, useUpdatePayrollCompon
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * مكوّنات الرواتب (Payroll components) — R10.7. The registry a contract's
@@ -70,7 +70,10 @@ export function PayrollComponentsScreen() {
   const components = query.data ?? EMPTY;
   const accounts = accountsQuery.data ?? EMPTY;
 
-  const [kindFilter, setKindFilter] = useState<"all" | PayrollComponentKindDTO>("all");
+  const [kindFilter, setKindFilter] = useUrlParam("kind", "all") as [
+    "all" | PayrollComponentKindDTO,
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

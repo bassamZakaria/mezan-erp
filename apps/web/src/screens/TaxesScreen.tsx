@@ -17,7 +17,7 @@ import { useCreateTaxGroup, useCreateTaxRate, useTaxGroups, useTaxRates, useUpda
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * الضرائب (Taxes) — docs/archive/catalog/04 §"الضرائب". List + add/edit dialog with
@@ -251,7 +251,10 @@ export function TaxesScreen() {
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [activeTab, setActiveTab] = useState<"rates" | "groups">("rates");
-  const [statusFilter, setStatusFilter] = useState<TaxRateStatusDTO | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    TaxRateStatusDTO | "all",
+    (next: string) => void,
+  ];
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 

@@ -33,7 +33,7 @@ import { majorOf } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const STATUS_KEY: Record<GoodsReceiptStatusDTO, AppTranslationKey> = {
   draft: "goodsReceipts.status.draft",
@@ -194,17 +194,20 @@ export function GoodsReceiptsScreen() {
   const filterBranches = useBranches().data ?? [];
   const filterWarehouses = useWarehouses().data ?? [];
   const warehousesForForm = filterWarehouses;
-  const [branchFilter, setBranchFilter] = useState("");
-  const [warehouseFilter, setWarehouseFilter] = useState("");
-  const [supplierFilter, setSupplierFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [branchFilter, setBranchFilter] = useUrlParam("branch");
+  const [warehouseFilter, setWarehouseFilter] = useUrlParam("warehouse");
+  const [supplierFilter, setSupplierFilter] = useUrlParam("supplier");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const userName = (id: string) => users.find((u) => u.id === id)?.nameAr ?? id;
 
   /** A receipt has no branch of its own — the branch picker only narrows which warehouses are offered below it. */
   const branchWarehouses = branchFilter ? filterWarehouses.filter((w) => w.branchId === branchFilter) : filterWarehouses;
 
-  const [statusFilter, setStatusFilter] = useState<GoodsReceiptStatusDTO | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    GoodsReceiptStatusDTO | "all",
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
   const { navigate } = useNavigation();
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.

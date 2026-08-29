@@ -29,7 +29,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber } from "../lib/url-state";
+import { useUrlNumber, useUrlParam } from "../lib/url-state";
 
 /** متابعة التحصيل (Collection Follow-ups) — docs/archive/catalog/05. A collections-agent worklog against customers with overdue installment balances. */
 
@@ -59,7 +59,10 @@ export function InstallmentFollowUpsScreen() {
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | FollowUpStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | FollowUpStatusDTO,
+    (next: string) => void,
+  ];
   // One filter for the rows, the status chips and the KPI strip (R1.1): the
   // screen used to derive all three from one client-side fetch, so the header
   // numbers stayed at the grand total no matter which status tab was active.

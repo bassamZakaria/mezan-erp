@@ -19,7 +19,7 @@ import { NumberField, SelectField, TextField, ToggleField } from "../settings/fo
 import { useConvertLead, useCreateLead, useLeads, usePipelineStages, useTransitionLead } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** العملاء المحتملون (Leads) — docs/archive/catalog/06 §"العملاء المحتملون". List + detail + create + status transitions + convert. */
 
@@ -127,7 +127,10 @@ export function LeadsScreen() {
   const stages = useMemo(() => [...(stagesQuery.data ?? [])].filter((s) => s.active).sort((a, b) => a.order - b.order), [stagesQuery.data]);
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | LeadStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | LeadStatusDTO,
+    (next: string) => void,
+  ];
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 

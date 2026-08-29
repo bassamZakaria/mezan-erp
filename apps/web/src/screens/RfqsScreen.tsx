@@ -42,7 +42,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * طلبات عروض الأسعار (RFQs — docs/archive/catalog/02 §"طلبات عروض الأسعار"): مسودة →
@@ -398,10 +398,13 @@ export function RfqsScreen() {
   const createRfqQuote = useCreateRfqQuote();
   const convertRfq = useConvertRfq();
 
-  const [statusFilter, setStatusFilter] = useState<PurchaseRfqStatusDTO | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    PurchaseRfqStatusDTO | "all",
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);

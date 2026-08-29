@@ -28,7 +28,7 @@ import {
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
-import { useUrlSearch } from "../lib/url-state";
+import { useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** مراكز التكلفة (Cost Centers) — docs/archive/catalog/04 §"مراكز التكلفة". Tree/list + detail panel, mirroring ChartOfAccountsScreen's tree pattern (no header/detail distinction here — any cost center may have children). */
 
@@ -111,7 +111,10 @@ export function CostCentersScreen() {
   const branches = branchesQuery.data ?? [];
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [typeFilter, setTypeFilter] = useState<CostCenterTypeDTO | "all">("all");
+  const [typeFilter, setTypeFilter] = useUrlParam("type", "all") as [
+    CostCenterTypeDTO | "all",
+    (next: string) => void,
+  ];
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const expandedInitialized = useRef(false);
 

@@ -31,7 +31,7 @@ import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** سلف الموظفين (Employee Advances) — docs/archive/catalog/06 §"سلف الموظفين". A cash advance is a DEBT on the employee (an asset, 1160), recovered from payroll in instalments — never an expense. */
 
@@ -84,7 +84,10 @@ export function EmployeeAdvancesScreen() {
   const branches = branchesQuery.data ?? [];
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | EmployeeAdvanceStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | EmployeeAdvanceStatusDTO,
+    (next: string) => void,
+  ];
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [formOpen, setFormOpen] = useState(false);

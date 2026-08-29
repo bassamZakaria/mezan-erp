@@ -22,7 +22,7 @@ import { useCreateOpportunity, useCustomers, useMoveOpportunityStage, useOpportu
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** الفرص (Opportunities) — docs/archive/catalog/06 §"الفرص". List + create. Stage moves happen from the Pipeline board. */
 
@@ -173,7 +173,10 @@ export function OpportunitiesScreen() {
   }, [stagesQuery.data]);
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | OpportunityStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | OpportunityStatusDTO,
+    (next: string) => void,
+  ];
   const [formOpen, setFormOpen] = useState(false);
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

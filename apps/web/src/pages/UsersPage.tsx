@@ -16,6 +16,7 @@ import {
 import { ALL_SCOPE, type ScopeSelection } from "@mezan/domain";
 import type { RoleDTO, ScopeSelectionDTO, UserDTO, UserStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlParam } from "../lib/url-state";
 
 export interface StoreResult<T> {
   ok: boolean;
@@ -94,7 +95,10 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
 
 export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus }: UsersPageProps) {
   const { t } = useAppTranslation();
-  const [statusFilter, setStatusFilter] = useState<UserStatusDTO | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    UserStatusDTO | "all",
+    (next: string) => void,
+  ];
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);

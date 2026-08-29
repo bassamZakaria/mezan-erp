@@ -39,7 +39,7 @@ import { useDocumentEffectText } from "../lib/document-effects";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** تحويلات المخزون (Stock Transfers) — docs/archive/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
@@ -116,7 +116,10 @@ export function StockTransfersScreen() {
   // opens on that item instead of making the user find it again.
   const routedItemId = firstSegment === "new" ? (subPage.segments[1] ?? null) : null;
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | DocumentStatusDTO,
+    (next: string) => void,
+  ];
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);

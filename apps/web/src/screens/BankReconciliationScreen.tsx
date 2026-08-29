@@ -38,7 +38,7 @@ import {
   useUnmatchStatementLine,
 } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * تسوية كشوف البنك — Bank Statement Reconciliation (docs/archive/catalog/04, route
@@ -68,10 +68,13 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function BankReconciliationScreen() {
   const { t } = useAppTranslation();
-  const [statusFilter, setStatusFilter] = useState<"all" | BankStatementStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | BankStatementStatusDTO,
+    (next: string) => void,
+  ];
   const [treasuryAccountId, setTreasuryAccountId] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

@@ -24,7 +24,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { YearEndCloseCard } from "./YearEndCloseCard";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber } from "../lib/url-state";
+import { useUrlNumber, useUrlParam } from "../lib/url-state";
 
 /**
  * الفترات المالية (Fiscal Periods) — docs/archive/catalog/04 §"الفترات المالية".
@@ -76,7 +76,10 @@ export function FiscalPeriodsScreen() {
   const periods = query.data ?? EMPTY;
 
   const [year, setYear] = useState<number | null>(null);
-  const [statusFilter, setStatusFilter] = useState<FiscalPeriodStatusDTO | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    FiscalPeriodStatusDTO | "all",
+    (next: string) => void,
+  ];
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [page, setPage] = useUrlNumber("page", 1);

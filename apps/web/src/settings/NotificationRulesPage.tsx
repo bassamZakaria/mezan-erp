@@ -28,6 +28,7 @@ import {
   useUsers,
 } from "../data/hooks";
 import { EMPTY } from "../lib/empty";
+import { useUrlParam } from "../lib/url-state";
 
 const PRIORITY_KEY: Record<NotificationPriority, AppTranslationKey> = {
   low: "notifRules.priority.low",
@@ -123,7 +124,10 @@ export function NotificationRulesPage() {
   // dead while one toggle was in flight.
   const [pendingRuleId, setPendingRuleId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | "active" | "inactive",
+    (next: string) => void,
+  ];
 
   const counts = useMemo(() => {
     const active = rules.filter((r) => r.active).length;

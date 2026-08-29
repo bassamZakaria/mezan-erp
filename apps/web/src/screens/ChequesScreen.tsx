@@ -38,7 +38,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * سجل الشيكات — Cheque Register (docs/archive/catalog/04, route `/financial-papers/cheques`
@@ -110,10 +110,16 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 export function ChequesScreen() {
   const { t, locale } = useAppTranslation();
   const [mode, setMode] = useState<"list" | "create">("list");
-  const [statusFilter, setStatusFilter] = useState<"all" | ChequeStatusDTO>("all");
-  const [directionFilter, setDirectionFilter] = useState<"all" | ChequeDirectionDTO>("all");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | ChequeStatusDTO,
+    (next: string) => void,
+  ];
+  const [directionFilter, setDirectionFilter] = useUrlParam("direction", "all") as [
+    "all" | ChequeDirectionDTO,
+    (next: string) => void,
+  ];
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

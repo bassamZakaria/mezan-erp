@@ -38,7 +38,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** التكاليف الإضافية (Landed Costs) — docs/archive/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
 
@@ -110,15 +110,18 @@ export function LandedCostsScreen() {
   }, [items]);
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | DocumentStatusDTO,
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useUrlParam("warehouse");
   const [methodFilter, setMethodFilter] = useState("");
   const [costTypeFilter, setCostTypeFilter] = useState("");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const [warehouseId, setWarehouseId] = useState("");
   const [invoiceId, setInvoiceId] = useState("");
   const [method, setMethod] = useState<LandedCostDistributionMethodDTO>("BY_VALUE");

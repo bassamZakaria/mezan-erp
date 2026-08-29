@@ -25,7 +25,7 @@ import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * قوائم الأسعار (Price Lists — docs/archive/catalog/01). Real data only: the list, the
@@ -242,7 +242,10 @@ export function PriceListsScreen() {
   const [isBase, setIsBase] = useState(false);
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | "active" | "inactive",
+    (next: string) => void,
+  ];
   const [baseOnly, setBaseOnly] = useState(false);
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

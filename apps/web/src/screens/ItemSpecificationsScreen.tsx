@@ -20,7 +20,7 @@ import {
 } from "../data/item-catalog-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * المواصفات — the reusable specification/attribute registry over the item
@@ -116,7 +116,10 @@ export function ItemSpecificationsScreen() {
   const specifications = query.data ?? EMPTY;
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [typeFilter, setTypeFilter] = useState<ItemSpecificationTypeDTO | "all">("all");
+  const [typeFilter, setTypeFilter] = useUrlParam("type", "all") as [
+    ItemSpecificationTypeDTO | "all",
+    (next: string) => void,
+  ];
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(blankDraft());

@@ -17,7 +17,7 @@ import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelActivity, useCompleteActivity, useCreateActivity, useCrmActivities } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** الأنشطة (CRM Activities / My Tasks) — docs/archive/catalog/06 §"مهامي / الأنشطة". List + create + complete/cancel row actions. */
 
@@ -54,7 +54,10 @@ export function ActivitiesScreen() {
   const activities = query.data ?? EMPTY;
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | ActivityStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | ActivityStatusDTO,
+    (next: string) => void,
+  ];
   const [formOpen, setFormOpen] = useState(false);
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

@@ -9,7 +9,7 @@ import { warehouseTypeLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { EMPTY } from "../lib/empty";
-import { useUrlSearch } from "../lib/url-state";
+import { useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * المستودعات (Warehouses) — docs/archive/catalog/09 §"إدارة المستودعات". Surfaces
@@ -28,7 +28,10 @@ export function WarehousesPage() {
   const warehouses = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? EMPTY;
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [typeFilter, setTypeFilter] = useState<WarehouseType | "all">("all");
+  const [typeFilter, setTypeFilter] = useUrlParam("type", "all") as [
+    WarehouseType | "all",
+    (next: string) => void,
+  ];
   const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", nameEn: "", code: "", branchId: "", type: "MAIN" as WarehouseType, isDefault: false });

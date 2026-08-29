@@ -57,7 +57,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { useNavigation } from "../navigation";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const TYPE_KEY: Record<ItemTypeDTO, AppTranslationKey> = {
   stock: "items.stockProduct",
@@ -709,7 +709,10 @@ export function ItemsScreen() {
   const [statusChipKey, setStatusChipKey] = useState("all");
   const [brandFilter, setBrandFilter] = useState("");
   const [seasonFilter, setSeasonFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useUrlParam("category", "all") as [
+    string,
+    (next: string) => void,
+  ];
   const [unitFilter, setUnitFilter] = useState<string>("all");
   const [sort, setSort] = useState<DocumentListSort>({ key: "code", direction: "asc" });
   const [page, setPage] = useUrlNumber("page", 1);

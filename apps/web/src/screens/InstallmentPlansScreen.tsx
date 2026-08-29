@@ -33,7 +33,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation, useScreenIntent } from "../navigation";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
-import { useUrlNumber } from "../lib/url-state";
+import { useUrlNumber, useUrlParam } from "../lib/url-state";
 
 /** خطط الأقساط (Installment Plans) — docs/archive/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
@@ -90,7 +90,10 @@ export function InstallmentPlansScreen() {
     if (prefilled) setInvoiceId(prefilled);
     setPanel("create");
   });
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | DocumentStatusDTO,
+    (next: string) => void,
+  ];
   // One filter for the rows, the status chips and the KPI strip (R1.1): the
   // screen used to derive all three from one client-side fetch, so the header
   // numbers stayed at the grand total no matter which status tab was active.

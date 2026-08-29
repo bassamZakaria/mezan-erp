@@ -69,7 +69,7 @@ import { useDebounced } from "../lib/use-debounced";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** السندات النقدية (Treasury Vouchers) — docs/archive/catalog/04, on the real `/vouchers` API. */
 
@@ -197,13 +197,17 @@ export function TreasuryVouchersScreen() {
     subPage.open("new");
   });
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "needs_allocation" | "needs_allocation_receipt" | "needs_allocation_payment" | VoucherStatusDTO
-  >("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | VoucherType>("all");
-  const [branchFilter, setBranchFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | "needs_allocation" | "needs_allocation_receipt" | "needs_allocation_payment" | VoucherStatusDTO,
+    (next: string) => void,
+  ];
+  const [typeFilter, setTypeFilter] = useUrlParam("type", "all") as [
+    "all" | VoucherType,
+    (next: string) => void,
+  ];
+  const [branchFilter, setBranchFilter] = useUrlParam("branch");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 

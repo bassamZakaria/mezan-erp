@@ -18,7 +18,7 @@ import { ApiError, useWarehouses, useCreateWritedownRun, useWritedownRuns, usePo
 import { NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber } from "../lib/url-state";
+import { useUrlNumber, useUrlParam } from "../lib/url-state";
 
 /**
  * هبوط قيمة المخزون (Inventory Aging Write-down Runs) — docs/archive/phase-backlog.md Phase 4
@@ -68,7 +68,7 @@ export function WritedownRunsScreen() {
   const runs = query.data ?? EMPTY;
   const warehouses = warehousesQuery.data ?? [];
 
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 

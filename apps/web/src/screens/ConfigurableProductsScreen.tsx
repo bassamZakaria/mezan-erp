@@ -27,7 +27,7 @@ import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsBomComponent } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 type Status = ConfigurableProductRecord["status"];
 
@@ -186,7 +186,10 @@ export function ConfigurableProductsScreen() {
     .map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.code }));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    Status | "all",
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

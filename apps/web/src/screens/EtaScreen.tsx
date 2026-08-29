@@ -46,7 +46,7 @@ import {
   useUpdateEtaConfig,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const STATUS_TONE: Record<EtaSubmissionStatusDTO, PillTone> = {
   ready: "info",
@@ -769,7 +769,10 @@ function UnitMappingTab() {
 function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatusDTO, AppTranslationKey> }) {
   const { t } = useAppTranslation();
   const submissionsQuery = useEtaSubmissions();
-  const [statusFilter, setStatusFilter] = useState<EtaSubmissionStatusDTO | "all">("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    EtaSubmissionStatusDTO | "all",
+    (next: string) => void,
+  ];
   const submitOneMutation = useSubmitEtaSubmission();
   const submitAllMutation = useSubmitAllReadyEta();
   const excludeMutation = useExcludeEtaSubmission();

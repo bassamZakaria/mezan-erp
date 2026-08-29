@@ -37,7 +37,7 @@ import { employeeDisplayName } from "./hr-employee-name";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** رحلات المندوبين (Van/Rep Trips — Field Sales) — docs/archive/catalog/07 §"رحلات المندوبين". List + open-trip form + detail with cash-movement/settle actions. */
 
@@ -162,7 +162,10 @@ export function VanTripsScreen() {
   }, [items]);
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusFilter, setStatusFilter] = useState<"all" | VanTripStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | VanTripStatusDTO,
+    (next: string) => void,
+  ];
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);

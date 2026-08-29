@@ -34,7 +34,7 @@ import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/archive/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
 
@@ -88,7 +88,10 @@ export function PurchaseReturnsScreen() {
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | DocumentStatusDTO,
+    (next: string) => void,
+  ];
   const [invoiceId, setInvoiceId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [reason, setReason] = useState<PurchaseReturnReasonDTO>("DEFECTIVE");
@@ -121,9 +124,9 @@ export function PurchaseReturnsScreen() {
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
-  const [supplierFilter, setSupplierFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [supplierFilter, setSupplierFilter] = useUrlParam("supplier");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
 
   /**
    * One filter for the rows, the chip counts and the KPI strip (R1.1) — the

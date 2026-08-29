@@ -40,7 +40,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
  * الجرد الفعلي (Physical Counts) — docs/archive/catalog/03: start → record counts →
@@ -104,7 +104,10 @@ export function PhysicalCountsScreen() {
   // `#/inventory/physical-counts` · `…/new` · `…/<id>` · `…/<id>/count` (the counting sheet)
   const subPage = useSubPage();
   const [firstSegment, secondSegment] = subPage.segments;
-  const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | PhysicalCountStatusDTO,
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);

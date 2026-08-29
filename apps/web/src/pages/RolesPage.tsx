@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Button, DocumentList, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
 import type { RoleDTO as Role } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlParam } from "../lib/url-state";
 
 export interface RolesPageProps {
   roles: Role[];
@@ -20,7 +21,10 @@ const KIND_TONE: Record<RoleKind, PillTone> = { system: "info", custom: "neutral
 
 export function RolesPage({ roles, usersByRoleId, onCreate, onEdit, onDuplicate, onDelete }: RolesPageProps) {
   const { t } = useAppTranslation();
-  const [kindFilter, setKindFilter] = useState<RoleKind | "all">("all");
+  const [kindFilter, setKindFilter] = useUrlParam("kind", "all") as [
+    RoleKind | "all",
+    (next: string) => void,
+  ];
   const [search, setSearch] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
 

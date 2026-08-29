@@ -41,7 +41,7 @@ import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
-import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/archive/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
@@ -123,11 +123,14 @@ export function SalesReturnsScreen() {
     () => customers.map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
     [customers],
   );
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | DocumentStatusDTO,
+    (next: string) => void,
+  ];
   const [searchText, setSearchText, search] = useUrlSearch();
   const [customerFilter, setCustomerFilter] = useState<EntityPickerOption | null>(null);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
   // The source invoice rides in the URL (`…/new/<invoiceId>`) when the user
   // arrived from «إنشاء مرتجع مبيعات» on that invoice's row.
   const [invoiceId, setInvoiceId] = useState(() => subPage.segments[1] ?? "");

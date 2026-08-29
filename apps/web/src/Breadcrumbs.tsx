@@ -16,6 +16,7 @@ interface Crumb {
  */
 const SEGMENT_LABEL_KEY: Record<string, AppTranslationKey> = {
   new: "breadcrumb.new",
+  print: "salesInvoices.share.print",
   templates: "items.tabs.templates",
   configurable: "items.tabs.configurable",
   specs: "items.tabs.specs",

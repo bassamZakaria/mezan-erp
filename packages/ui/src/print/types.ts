@@ -246,6 +246,16 @@ export interface PrintDocumentModel {
   party?: PrintPartyInfo;
   paymentTerms?: string;
   notes?: string;
+  /**
+   * The authority's own identifier for an accepted e-invoice.
+   *
+   * It exists in the domain the moment ETA accepts a submission, and it never
+   * reached the printed page — so a correctly wired print still omitted the
+   * one field that makes the paper copy traceable to the filing. Absent for a
+   * document that has not been accepted, which is most of them, and the block
+   * is simply not rendered then rather than printing an empty label.
+   */
+  etaUuid?: string;
   lines: PrintDocumentLine[];
   totals: PrintDocumentTotals;
 }

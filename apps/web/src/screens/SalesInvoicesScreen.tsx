@@ -37,6 +37,7 @@ import {
   type SalesInvoiceDiscountType,
   type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency,} from "@mezan/domain";
 import type { SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
+import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
   useAccounts,
   useBranches,
@@ -1061,10 +1062,12 @@ function InvoicePreviewPanel({
   invoice,
   onClose,
   onOpenFull,
+  onPrint,
 }: {
   invoice: SalesInvoiceDTO | null;
   onClose: () => void;
   onOpenFull: (invoice: SalesInvoiceDTO) => void;
+  onPrint: (invoice: SalesInvoiceDTO) => void;
 }) {
   const { t, locale } = useAppTranslation();
   const format = useFormat();
@@ -1122,7 +1125,11 @@ function InvoicePreviewPanel({
 
         <div className="flex flex-wrap gap-[8px]">
           <Button variant="primary" onClick={() => onOpenFull(invoice)}>{t("salesInvoices.preview.openFull")}</Button>
-          <Button onClick={() => window.print()}>{t("salesInvoices.share.print")}</Button>
+          {/* NOT `window.print()`. This panel shows customer, date, status and
+              total — no seller tax number, no VAT breakdown, no ETA identifier
+              — so printing it produced a document that is not a tax invoice.
+              «طباعة» opens the template engine's own page instead. */}
+          <Button onClick={() => onPrint(invoice)}>{t("salesInvoices.share.print")}</Button>
           <Button
             onClick={async () => {
               try {
@@ -1145,11 +1152,15 @@ function InvoicePreviewPanel({
 function InvoiceDetailView({
   invoice,
   today,
+  onPrint,
 }: {
   invoice: SalesInvoiceDTO;
   today: string;
+  onPrint: () => void;
 }) {
   const { t, locale } = useAppTranslation();
+  const detailConfirm = useConfirmSalesInvoice();
+  const [detailConfirmError, setDetailConfirmError] = useState<string | null>(null);
   const format = useFormat();
   const docCurrencyLabel = currencyLabelFor(invoice.currency, locale);
   const accountsQuery = useAccounts();
@@ -1296,7 +1307,44 @@ function InvoiceDetailView({
       title={invoice.docNo ?? t("salesInvoices.detailTitle")}
       statusLabel={salesInvoiceStatusLabel(invoice.status, t)}
       statusTone={STATUS_TONE[invoice.status]}
-      subtitle={overdue ? <span className="text-danger-ink">{t("salesInvoices.overdue")}</span> : undefined}
+      subtitle={
+        <>
+          {overdue ? <span className="text-danger-ink">{t("salesInvoices.overdue")}</span> : null}
+          {detailConfirmError ? (
+            <span role="alert" className="block text-[12.5px] font-semibold text-danger-ink">
+              {detailConfirmError}
+            </span>
+          ) : null}
+        </>
+      }
+      /**
+       * A draft used to be a DEAD END here: the confirm that posts stock, GL
+       * and AR lived only in the list row's kebab, so a rep following a quote's
+       * own "view invoice" link could not advance the document they had just
+       * been sent to (D39). Every state a document can reach needs a screen
+       * that moves it on.
+       */
+      actions={
+        <>
+          {invoice.status === "draft" ? (
+            <Button
+              variant="primary"
+              disabled={detailConfirm.isPending}
+              onClick={async () => {
+                setDetailConfirmError(null);
+                try {
+                  await detailConfirm.mutateAsync(invoice.id);
+                } catch (err) {
+                  setDetailConfirmError(errorMessage(err, t("common.failed")));
+                }
+              }}
+            >
+              {t("salesInvoices.confirm")}
+            </Button>
+          ) : null}
+          <Button onClick={onPrint}>{t("salesInvoices.share.print")}</Button>
+        </>
+      }
       summary={[
         { label: t("common.date"), value: <span className="mz-num">{invoice.date}</span> },
         { label: t("common.customer"), value: invoice.customerNameAr },
@@ -1843,10 +1891,14 @@ export function SalesInvoicesScreen() {
 
   if (firstSegment === "new") return <CreateInvoicePage onClose={subPage.close} initialCustomerId={subPage.segments[1] ?? null} />;
 
+  // `#/sell/sales-invoices/<docNo>/print` — a destination, not an overlay, so
+  // it survives a reload and leaves through the shell's own «رجوع».
+  if (selected && subPage.segments[1] === "print") return <SalesInvoicePrintPage invoice={selected} />;
+
   return (
     <>
       {selected ? (
-        <InvoiceDetailView invoice={selected} today={today} />
+        <InvoiceDetailView invoice={selected} today={today} onPrint={() => subPage.open(selected.docNo ?? selected.id, "print")} />
       ) : (
         <div className="w-full">
           {rowError ? (
@@ -1961,6 +2013,11 @@ export function SalesInvoicesScreen() {
               const menuItems: RowMenuItem[] = [
                 { key: "view", label: t("common.view"), onSelect: () => subPage.open(inv.docNo ?? inv.id) },
                 { key: "preview", label: t("salesInvoices.row.preview"), onSelect: () => setPreviewId(inv.id) },
+                {
+                  key: "print",
+                  label: t("salesInvoices.share.print"),
+                  onSelect: () => subPage.open(inv.docNo ?? inv.id, "print"),
+                },
                 ...(inv.status === "draft"
                   ? [
                       {
@@ -2051,6 +2108,10 @@ export function SalesInvoicesScreen() {
         onOpenFull={(inv) => {
           setPreviewId(null);
           subPage.open(inv.docNo ?? inv.id);
+        }}
+        onPrint={(inv) => {
+          setPreviewId(null);
+          subPage.open(inv.docNo ?? inv.id, "print");
         }}
       />
     </>

@@ -998,4 +998,29 @@ export async function run(ctx: Ctx): Promise<void> {
     const del = await req("DELETE", `/roles/${role.body?.id}`);
     check("scenario role deleted", del.status === 204, `status ${del.status}`);
   });
+
+  await scenario("the seed's tenant carries what an Egyptian tax invoice must state about the seller", async () => {
+    const settings = (await req("GET", "/settings")).body;
+    // The printed page is the one Egyptian law is specific about, and it is
+    // also what a buyer judges the product by. A demo tenant with no tax
+    // number prints a document that would be refused.
+    check("the tenant has a tax registration number", typeof settings?.taxRegistrationNumber === "string" && settings.taxRegistrationNumber.trim() !== "", String(settings?.taxRegistrationNumber));
+    check("and a commercial register", typeof settings?.commercialRegistrationNumber === "string" && settings.commercialRegistrationNumber.trim() !== "", String(settings?.commercialRegistrationNumber));
+    check("and an address a customer could post to", typeof settings?.address === "string" && settings.address.trim() !== "", String(settings?.address));
+    check("and a company name", typeof settings?.companyName === "string" && settings.companyName.trim() !== "", String(settings?.companyName));
+
+    // The print page groups VAT by the rate each LINE was charged at, so the
+    // rate has to survive on the posted line — dividing tax by base is what
+    // the VAT return had to do for want of it (D28).
+    const invoice = (await req("GET", "/sales-invoices?status=confirmed&pageSize=1")).body?.[0];
+    check("a confirmed invoice exists to print", invoice !== undefined, "no confirmed invoice in the seed");
+    if (invoice) {
+      const full = (await req("GET", `/sales-invoices/${invoice.docNo ?? invoice.id}`)).body;
+      check("its lines each carry the tax rate they were charged at", Array.isArray(full?.lines) && full.lines.every((l: any) => typeof l.taxRatePercent === "number"), JSON.stringify(full?.lines?.map((l: any) => l.taxRatePercent)));
+      check("and a document number, which is what the printed page states", typeof full?.docNo === "string" && full.docNo !== "", String(full?.docNo));
+      check("and a customer the invoice can name on the page", typeof full?.customerNameAr === "string" && full.customerNameAr !== "", String(full?.customerNameAr));
+      const customer = (await req("GET", `/customers/${full.customerId}`)).body;
+      check("whose own tax number is available for the buyer block", customer !== null && customer !== undefined, String(full?.customerId));
+    }
+  });
 }

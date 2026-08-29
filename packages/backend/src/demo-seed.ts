@@ -434,6 +434,14 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   const baseSettings = (await step(app, "GET", "/settings")) as Record<string, unknown>;
   await step(app, "PUT", "/settings", {
     ...baseSettings,
+    // An Egyptian tax invoice must carry the SELLER's tax registration number
+    // and commercial register; a demo tenant without them prints a document
+    // that would be refused, and the printed page is what a buyer judges.
+    taxRegistrationNumber: "203-456-789",
+    commercialRegistrationNumber: "112233",
+    phone: "0223456789",
+    email: "info@cyag.example",
+    address: "٣٤ شارع جامعة الدول العربية، المهندسين، الجيزة",
     multiCurrencyEnabled: true,
     // All ten foreign codes the platform supports, so the document currency
     // picker offers the eleven of R1.15 rather than a shorter historical list.

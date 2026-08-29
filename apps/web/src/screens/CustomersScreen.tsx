@@ -51,6 +51,7 @@ import {
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
 import { customerOwedById } from "../lib/partner-balances";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlFlag, useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { useNavigation } from "../navigation";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
@@ -754,18 +755,31 @@ export function CustomersScreen() {
   const createCustomer = useCreateCustomer();
   const updateCustomer = useUpdateCustomer();
 
+  /*
+   * The QUERY is in the URL; the transient UI is not.
+   *
+   * Which customers are on display — the status chip, the search text, the
+   * price list, the over-limit filter, the page — is a place in the app: it can
+   * be linked to, kept as a bookmark and reloaded into. The side panel, the
+   * row being edited, the half-typed draft and the error banner are not, and
+   * would invite someone to link a colleague into a half-finished form.
+   */
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | "active" | "inactive",
+    (next: string) => void,
+  ];
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
+  const [overLimitOnly, setOverLimitOnly] = useUrlFlag("overLimit");
+  const [priceListId, setPriceListId] = useUrlParam("priceList");
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<CustomerDraft>(BLANK_DRAFT);
   const [error, setError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
-  const [overLimitOnly, setOverLimitOnly] = useState(false);
-  const [priceListFilter, setPriceListFilter] = useState<EntityPickerOption | null>(null);
 
   const priceLists = usePriceLists().data ?? EMPTY;
   const priceListOptions = useMemo<EntityPickerOption[]>(
@@ -773,6 +787,8 @@ export function CustomersScreen() {
     [priceLists],
   );
   const priceListOption = (id: string): EntityPickerOption | null => priceListOptions.find((o) => o.id === id) ?? null;
+  // The URL carries the price list's ID; the picker wants the whole option.
+  const priceListFilter = priceListId ? priceListOption(priceListId) : null;
 
   /**
    * One filter for the rows, the chips and the KPI strip (R1.1). The four
@@ -806,7 +822,7 @@ export function CustomersScreen() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (overLimitOnly ? 1 : 0) + (priceListFilter ? 1 : 0);
 
@@ -1046,9 +1062,11 @@ export function CustomersScreen() {
           setStatusFilter(key as typeof statusFilter);
           setPage(1);
         }}
-        searchValue={search}
+        // The LIVE text, so the box stays responsive; the settled value is
+        // what reaches the URL and the query key.
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("customers.searchPlaceholder")}
@@ -1060,7 +1078,7 @@ export function CustomersScreen() {
               toggle
               active={overLimitOnly}
               onClick={() => {
-                setOverLimitOnly((on) => !on);
+                setOverLimitOnly(!overLimitOnly);
                 setPage(1);
               }}
             >
@@ -1070,7 +1088,7 @@ export function CustomersScreen() {
               <EntityPicker
                 value={priceListFilter}
                 onChange={(option) => {
-                  setPriceListFilter(option);
+                  setPriceListId(option?.id ?? "");
                   setPage(1);
                 }}
                 options={priceListOptions}

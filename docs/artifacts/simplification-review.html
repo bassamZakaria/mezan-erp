@@ -1,0 +1,1290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mezan Simplification Review</title>
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zain:wght@400;700;800&family=Readex+Pro:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --ground: #ECEEF2;
+    --surface: #FDFDFE;
+    --surface-2: #F5F6F9;
+    --ink: #14161C;
+    --ink-2: #3D4351;
+    --ink-3: #6C7385;
+    --rule: #D6DAE3;
+    --rule-2: #C2C8D4;
+    --lapis: #2E3A8C;
+    --lapis-soft: #DFE2F4;
+    --gold: #9A7418;
+    --gold-soft: #F2E9D2;
+    --blocker: #8E2A24;
+    --blocker-soft: #F4DEDC;
+    --risk: #96551B;
+    --risk-soft: #F6E7D6;
+    --simplify: #1F5C46;
+    --simplify-soft: #DDEBE4;
+    --enhance: #2A5378;
+    --enhance-soft: #DEE8F1;
+    --done: #1F5C46;
+    --done-soft: #DDEBE4;
+    --part: #96551B;
+    --part-soft: #F6E7D6;
+    --open: #6C7385;
+    --open-soft: #E7E9EF;
+    --shadow: 0 1px 0 rgba(20,22,28,.04), 0 8px 24px -18px rgba(20,22,28,.5);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0F1117;
+      --surface: #171A22;
+      --surface-2: #1D212B;
+      --ink: #E8EAF0;
+      --ink-2: #B9BFCD;
+      --ink-3: #868EA0;
+      --rule: #2A2F3B;
+      --rule-2: #363C4A;
+      --lapis: #93A2F2;
+      --lapis-soft: #212747;
+      --gold: #D9A93E;
+      --gold-soft: #33290F;
+      --blocker: #E38B84;
+      --blocker-soft: #3A1F1D;
+      --risk: #DFA766;
+      --risk-soft: #372516;
+      --simplify: #79C3A3;
+      --simplify-soft: #163026;
+      --enhance: #8CB6DC;
+      --enhance-soft: #17293A;
+      --done: #79C3A3;
+      --done-soft: #163026;
+      --part: #DFA766;
+      --part-soft: #372516;
+      --open: #868EA0;
+      --open-soft: #23272F;
+      --shadow: 0 1px 0 rgba(0,0,0,.3), 0 10px 30px -20px #000;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0F1117;
+    --surface: #171A22;
+    --surface-2: #1D212B;
+    --ink: #E8EAF0;
+    --ink-2: #B9BFCD;
+    --ink-3: #868EA0;
+    --rule: #2A2F3B;
+    --rule-2: #363C4A;
+    --lapis: #93A2F2;
+    --lapis-soft: #212747;
+    --gold: #D9A93E;
+    --gold-soft: #33290F;
+    --blocker: #E38B84;
+    --blocker-soft: #3A1F1D;
+    --risk: #DFA766;
+    --risk-soft: #372516;
+    --simplify: #79C3A3;
+    --simplify-soft: #163026;
+    --enhance: #8CB6DC;
+    --enhance-soft: #17293A;
+    --done: #79C3A3;
+    --done-soft: #163026;
+    --part: #DFA766;
+    --part-soft: #372516;
+    --open: #868EA0;
+    --open-soft: #23272F;
+    --shadow: 0 1px 0 rgba(0,0,0,.3), 0 10px 30px -20px #000;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Readex Pro", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 300;
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 20px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  /* ---- masthead ---- */
+  .masthead {
+    padding: 64px 0 28px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .kicker {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-family: "Zain", "Readex Pro", sans-serif;
+    font-weight: 800;
+    font-size: clamp(38px, 7vw, 66px);
+    line-height: .98;
+    letter-spacing: -.015em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 17px;
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0;
+  }
+  .byline {
+    margin-top: 22px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: var(--ink-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+  }
+
+  /* ---- tally ---- */
+  .tally {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 34px 0 0;
+  }
+  .tally > div { background: var(--surface); padding: 16px 18px; }
+  .tally .n {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 30px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    display: block;
+  }
+  .tally .l {
+    font-size: 12px;
+    color: var(--ink-3);
+    margin-top: 7px;
+    display: block;
+    letter-spacing: .02em;
+  }
+
+  /* ---- sections ---- */
+  section { margin-top: 60px; }
+  h2 {
+    font-family: "Zain", sans-serif;
+    font-weight: 700;
+    font-size: 30px;
+    line-height: 1.15;
+    margin: 0 0 6px;
+    letter-spacing: -.01em;
+  }
+  .sec-note {
+    color: var(--ink-3);
+    font-size: 14px;
+    margin: 0 0 22px;
+    max-width: 66ch;
+  }
+  h3 {
+    font-family: "Readex Pro", sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    margin: 0 0 10px;
+  }
+  p { max-width: 68ch; }
+
+  /* ---- panels ---- */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 22px 24px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow);
+  }
+  .panel.flag {
+    border-inline-start: 4px solid var(--gold);
+  }
+  .panel.flag-risk { border-inline-start: 4px solid var(--blocker); }
+  .panel p:last-child { margin-bottom: 0; }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    padding: 1px 5px;
+    word-break: break-word;
+  }
+
+  /* ---- priority list ---- */
+  ol.priority { list-style: none; counter-reset: p; margin: 0; padding: 0; }
+  ol.priority > li {
+    counter-increment: p;
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 16px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  ol.priority > li:first-child { border-top: 1px solid var(--rule-2); }
+  ol.priority > li::before {
+    content: counter(p, decimal-leading-zero);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    color: var(--lapis);
+    font-weight: 500;
+    padding-top: 2px;
+  }
+  ol.priority .claim { font-weight: 500; color: var(--ink); }
+  ol.priority .why { color: var(--ink-2); font-size: 14px; margin-top: 5px; }
+  ol.priority .ev {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--ink-3);
+    margin-top: 7px;
+    word-break: break-word;
+  }
+
+  /* ---- controls ---- */
+  .controls {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--ground);
+    padding: 14px 0 12px;
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .chip {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 7px 12px;
+    border: 1px solid var(--rule-2);
+    background: var(--surface);
+    color: var(--ink-2);
+    cursor: pointer;
+    line-height: 1;
+  }
+  .chip[aria-pressed="true"] {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--ground);
+  }
+  .chip:focus-visible, .srch:focus-visible { outline: 2px solid var(--lapis); outline-offset: 2px; }
+  .srch {
+    flex: 1 1 200px;
+    min-width: 180px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    padding: 7px 11px;
+    border: 1px solid var(--rule-2);
+    background: var(--surface);
+    color: var(--ink);
+  }
+  .count {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--ink-3);
+    margin-inline-start: auto;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- findings ---- */
+  .area { margin-top: 34px; }
+  .area-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 7px;
+    margin-bottom: 0;
+  }
+  .area-head h3 {
+    font-family: "Zain", sans-serif;
+    font-weight: 700;
+    font-size: 22px;
+    margin: 0;
+  }
+  .area-head .role {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--ink-3);
+    letter-spacing: .04em;
+  }
+  .f {
+    display: grid;
+    grid-template-columns: 96px 84px 1fr 58px;
+    gap: 14px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: start;
+  }
+  .sev {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 4px 7px;
+    text-align: center;
+    line-height: 1.3;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .sev-BLOCKER { color: var(--blocker); background: var(--blocker-soft); }
+  .sev-RISK    { color: var(--risk);    background: var(--risk-soft); }
+  .sev-SIMPLIFY{ color: var(--simplify);background: var(--simplify-soft); }
+  .sev-ENHANCE { color: var(--enhance); background: var(--enhance-soft); }
+
+  .st {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 4px 6px;
+    text-align: center;
+    line-height: 1.3;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .st-DONE { color: var(--done); background: var(--done-soft); }
+  .st-PART { color: var(--part); background: var(--part-soft); }
+  .st-OPEN { color: var(--open); background: transparent; border-style: dashed; }
+  .st-NOTE { color: var(--lapis); background: var(--lapis-soft); }
+
+  .pstat {
+    display: inline-block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    margin-inline-end: 8px;
+    border: 1px solid currentColor;
+    vertical-align: 2px;
+  }
+  .chip.chip-DONE[aria-pressed="true"] { background: var(--done); border-color: var(--done); }
+  .chip.chip-PART[aria-pressed="true"] { background: var(--part); border-color: var(--part); }
+  ol.priority .pnote {
+    margin-top: 10px;
+    padding: 10px 12px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    border-inline-start: 3px solid var(--rule-2);
+    background: var(--surface-2);
+  }
+  ol.priority .pnote-DONE { border-inline-start-color: var(--done); }
+  ol.priority .pnote-PART { border-inline-start-color: var(--part); }
+  ol.priority .pnote-OPEN { border-inline-start-color: var(--rule-2); }
+
+
+  ol.decisions { list-style: none; counter-reset: d; margin: 0; padding: 0; }
+  ol.decisions > li {
+    counter-increment: d;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  ol.decisions > li:first-child { border-top: 1px solid var(--rule-2); }
+  ol.decisions .dq {
+    font-family: "Zain", sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    line-height: 1.3;
+    color: var(--ink);
+    text-wrap: balance;
+  }
+  ol.decisions .dq::before {
+    content: counter(d, decimal-leading-zero);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gold);
+    margin-inline-end: 10px;
+    vertical-align: 3px;
+  }
+  ol.decisions .da { margin-top: 8px; color: var(--ink-2); font-size: 14.5px; max-width: 74ch; }
+  ol.decisions .da strong { color: var(--ink); font-weight: 600; }
+  ol.decisions .dw {
+    margin-top: 8px;
+    font-size: 12.5px;
+    color: var(--ink-3);
+    max-width: 74ch;
+  }
+  ol.decisions .dw::before {
+    content: "reverses it: ";
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  .statusnote {
+    margin: 18px 0 0;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+    font-size: 13.5px;
+    color: var(--ink-2);
+    max-width: 78ch;
+  }
+  .chip-sep {
+    width: 1px; height: 22px; background: var(--rule-2); margin-inline: 4px;
+  }
+  .f .claim { font-size: 14.5px; color: var(--ink); }
+  .f .ev {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--ink-3);
+    margin-top: 6px;
+    word-break: break-word;
+    line-height: 1.5;
+  }
+  .eff {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: var(--ink-2);
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
+  .eff::before { content: "effort "; color: var(--ink-3); font-size: 10px; }
+
+  .empty { padding: 40px 0; color: var(--ink-3); font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+
+  table.docs {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .scroll { overflow-x: auto; }
+  table.docs th, table.docs td {
+    text-align: start;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  table.docs th {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--rule-2);
+    white-space: nowrap;
+  }
+  table.docs td:first-child { font-weight: 500; white-space: nowrap; }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--ink-3);
+  }
+
+  @media (max-width: 620px) {
+    .f { grid-template-columns: 1fr; gap: 8px; }
+    .eff { text-align: start; }
+    .sev, .st { justify-self: start; }
+    ol.priority > li { grid-template-columns: 32px 1fr; gap: 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="kicker">Mezan ERP · review of 2026-08-28 · status 2026-08-29</p>
+    <h1>What to cut, what to fix</h1>
+    <p class="standfirst">Thirty-two reviewers — the domain panel, every buyer persona, and the craft specialists — read the docs and the code and answered one question: what would make this system simpler and better? Below is everything they found, ranked, with file evidence — and, added since, whether each one has actually been fixed.</p>
+    <div class="byline">
+      <span>Branch <strong>bassamZakaria/salp</strong></span>
+      <span>Status re-checked in code at <span class="mono">f8a1bb0</span></span>
+      <span>Gates: typecheck · lint · RTL · tokens · controls · theme — all passing</span>
+    </div>
+    <p class="statusnote"><strong>How to read the status.</strong> <span class="pstat st-DONE">done</span> the finding was verified fixed in the working tree, not assumed from a commit message. <span class="pstat st-PART">part</span> some of what the finding names has landed and the rest has not; the remainder is spelled out. <span class="pstat st-OPEN">open</span> the code still reads as the reviewer described it. <span class="pstat st-NOTE">no action</span> the finding was a confirmation that something is already correct, not a defect. Fifteen commits have landed since the review: the Arabic-voice pass, the keymap and dead-code pass, the three ledger-correctness fixes, the workflow-gate and settings-route pass, the receivables and roles pass, the batch-and-expiry pass, the hub/gear/breadcrumb simplification, the gear's leftovers, the authentication fix, the back-button relocation, and then three larger ones — the list-pagination and N+1 work, the controls-and-audit pass, and the destructive-action and error-text pass. Where a finding was answered by a judgement rather than by code, the judgement is recorded under <a href="#decisions">Decisions taken</a> rather than left implicit.</p>
+  </header>
+
+  <div class="tally" id="tally"></div>
+
+  <section>
+    <h2>Act on these first</h2>
+    <p class="sec-note">Ranked by value over effort. Each is either cross-cutting (it fixes the same shape in many places) or it is a correctness problem where the product currently tells someone something untrue.</p>
+    <ol class="priority">
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Three keyboard shortcuts are dead, including the one that opens the shortcuts sheet itself.</div>
+          <div class="why">Verified directly, not reported. <code>?</code> is matched as <code>event.key === "?"</code>, but the Arabic layout emits «؟» (U+061F) — so on the keyboard every Egyptian user actually types on, the cheat sheet's headline entry point does nothing. ⌘K has the same bug (<code>event.key.toLowerCase() === "k"</code> is «ن» on that layout). <code>j</code>/<code>k</code> call <code>preventDefault()</code> and then dispatch <code>mz:list-nav</code>, which nothing in the repository listens for — they don't just fail, they swallow the keystroke. The comment above the emitter claims <code>DocumentList</code> listens; it does not.</div>
+          <div class="ev">apps/web/src/keyboard/useGlobalShortcuts.ts:129,155 · packages/ui/src/shell/CommandBar.tsx:30 · apps/web/src/keyboard/shortcuts.ts:14,23</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">90e6420</span>. <code>latinLetter()</code> now backs <code>?</code> and <code>⌘K</code>, so both survive the Arabic layout; <code>DocumentList</code> listens for <code>mz:list-nav</code> and <code>j</code>/<code>k</code>/<code>Enter</code> move and open the selected row, with a stack so the topmost list wins.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Business routes trust client-supplied <code>x-permissions</code> / <code>x-user-id</code> headers as identity — and the LAN host binds 0.0.0.0.</div>
+          <div class="why">Any device on the shop wifi can set <code>x-permissions: *</code> and act as a full admin against real books, with no credential. This is the bypass that makes every other control in the review moot, so it outranks them.</div>
+          <div class="ev">packages/api/src/permission-gate.ts:15-28 · apps/desktop/src/main/lan-host.ts · packages/api/src/lan/gate.ts:24-38</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">2eca2cb</span>. Sessions live on the server: <code>/auth/login</code> mints an opaque 256-bit token and records the grant it resolved from the user's own role, keeping only the token's SHA-256. Every request carries <code>Authorization: Bearer</code> and the server re-reads permissions from ITS copy; a request with no token, or one it never issued, resolves to a context holding no permissions, so gated routes answer 403 instead of the permissive default. <code>/auth/logout</code> ends it — before this, clearing the client's copy left the token live until it idled out.
+            <br><br>Three things travelled on headers and moved with it, each its own hole. <strong>Role codes</strong> decided who may approve, so a clerk could send the finance manager's code and approve their own payment. <strong>The document actor</strong> (<code>x-user-id</code>) was what a document recorded and what the gate stored as <code>submittedBy</code>, so the audit trail and the approval chain were both writable by the caller — six routes now read the resolved user. <strong>Scope</strong> stays on the request, because narrowing to one branch is a choice the user makes in the topbar, but it is clamped to the session's grant and can only narrow.
+            <br><br>Verified against a live server rather than inferred: <code>x-permissions: *</code> → 403, no credential → 403, a token never issued → 403, a real sign-in → a 43-character token → 200, and that same token after logout → 403. Ten new scenario assertions guard it.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Two live mounts serve the same seven financial statements from different ledger slices.</div>
+          <div class="why"><code>/reports/accounting/*</code> loads posted entries only and no cash accounts; <code>/financial-reports/*</code> loads posted + reversed with them. A reversed original is dropped while its mirror is kept, so every balance is wrong by the reversal — and the statements hub and the trial-balance screen show two different ميزان مراجعة. Deleting one mount is a small change that removes a whole class of "which number is right".</div>
+          <div class="ev">packages/api/src/reports-routes.ts:160-170 vs packages/api/src/financial-reports-routes.ts:104-110</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">e2e57c9</span>. The duplicated routes are gone, the statements hub reads the surviving mount, and the account drill-down loads the same slice with a comment saying why.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-PART">part</span>Every list screen loads its entire filtered table, then paginates with <code>.slice()</code> in the browser.</div>
+          <div class="why">Zero of the ~40 persistence stores use <code>LIMIT</code>. Each parent row then triggers one more query to fetch its lines. At year-three volume a single list keystroke walks the whole table on Electron's single thread. The fix is one shared paginate-and-count helper plus 40 call-site changes — and <code>DocumentList</code> already takes a page, so no UI rewrite.</div>
+          <div class="ev">packages/persistence/src/sales-invoice-store.ts:463,500 · apps/web/src/data/hooks.ts:2367 · packages/backend/src/create-backend.ts:828-874</div>
+          <div class="pnote pnote-PART">The helper exists and the N+1 is gone (<span class="mono">ca5e02d</span>). <code>list-query.ts</code> holds <code>FilterClauses</code>, <code>selectPage</code>, <code>countMatching</code> and <code>childRowsByParent</code> — that last one closes the N+1 on its own, and journal entries, sales invoices, quotes, price lists and promotions now fetch a page's child rows in ONE query instead of one per parent. Sales invoices are paged end to end as the template: every filter the route used to apply in JS over a fully-loaded table — branch, warehouse, free text, own-visibility and the caller's SCOPE — is SQL now, so <code>?page=&amp;pageSize=</code> is a real <code>LIMIT</code>. Paging broke deep links, so <code>GET /:id</code> learned document numbers and the screen fetches the open invoice rather than searching the rows it holds. <strong>The remaining ~39 stores still return their whole filtered table</strong>; each is now a call-site change rather than a rewrite.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Reversal drops every dimension it should carry.</div>
+          <div class="why"><code>mirror()</code> copies only account, debit, credit and memo — so <code>costCenterId</code>, <code>currency</code>, <code>fxRate</code> and <code>taxRatePercent</code> vanish. Cost-centre P&amp;L never nets the reversal out, VAT buckets don't reverse into the rate they were charged at, and FX revaluation compounds because it can't see its own reversal. This is the same dimension-drop the register already records three times.</div>
+          <div class="ev">packages/domain/src/gl/reverse.ts:29-36 · packages/domain/src/fx-revaluation/revaluation.ts:152</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">e2e57c9</span>. <code>mirror()</code> now spreads the whole line and swaps the two sides, so every dimension travels — with a comment requiring the next field added to do the same.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>The year-end close entry is dated inside the year it closes.</div>
+          <div class="why">Nothing excludes closing entries from period aggregation, so that year's قائمة الدخل reads nil revenue and nil profit, and the result reappears as a financing inflow in التدفقات النقدية. The statement looks plausible, which is what makes it dangerous.</div>
+          <div class="ev">packages/domain/src/gl/year-end-close.ts:100 · packages/domain/src/reports/income-statement.ts:115 · cash-flow.ts:117</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">e2e57c9</span>. The entry carries <code>sourceDocType: "YEAR_END_CLOSE"</code> and the two performance statements exclude it; the balance sheet and the cash tie-out deliberately still count it.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Batch and expiry exist in the domain and in FEFO, but there is no field anywhere to enter them.</div>
+          <div class="why">Goods receipts and purchase invoices carry no batch/expiry input, and a stock transfer drops both on the destination leg. FEFO ordering, cost layers and the expiring-soon report are all correctly built on data the UI can never supply. Nothing stops selling an already-expired batch either. For a pharmacy buyer this is the whole decision.</div>
+          <div class="ev">apps/web/src/screens/GoodsReceiptsScreen.tsx:50-141 · packages/domain/src/inventory/stock-ledger-service.ts:574-586 · packages/domain/src/purchasing/goods-receipt.ts:54-55</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">1e67bee</span>, all three parts. The goods-receipt form shows a batch and an expiry field on a line whose item is batch-tracked — the contract had accepted both all along. A transfer no longer anonymises stock: <code>consumeLayers</code> reports the slices the OUT leg drew from and the IN leg recreates one layer per slice, each carrying its batch and expiry and each taking the transfer's own unit cost, so the leg stays valuation-neutral. And <code>postIssue</code> refuses an expired lot in Arabic, naming the batch and the date, while an EXPIRY write-off and a supplier return stay open — which is why the guard sits on the issue and not on the ledger. Twelve new scenario assertions cover the round trip; verified live, a batch survived a transfer with its expiry and quantity intact.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-OPEN">open</span>The Print button on a sales invoice bypasses the print-template engine entirely.</div>
+          <div class="why">It calls raw <code>window.print()</code> on a preview panel that shows customer, date, status and total — no seller tax number, no VAT breakdown, no ETA identifier. <code>PrintView</code>, which does carry them, is imported by no sales or purchase screen. The one document Egyptian law is specific about is the one that never renders through the compliant path.</div>
+          <div class="ev">apps/web/src/screens/SalesInvoicesScreen.tsx:1125,1089-1094 · packages/ui/src/print/PrintView.tsx</div>
+          <div class="pnote pnote-OPEN"><code>PrintView</code> is still imported only by the print-templates page and the label screen — no sales or purchase screen renders through it.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Three different answers to "what does this customer owe", and none of them counts cheques.</div>
+          <div class="why">The Customers list, the aging ladder and the GL reconciliation each compute it differently; a bounced cheque still nets as an unapplied credit and silently zeroes the customer's aging. A collector, an owner and an auditor looking at the same account see three numbers. Make them read one source.</div>
+          <div class="ev">apps/web/src/lib/partner-balances.ts:37-48 · packages/domain/src/reports/aging-customers.ts:148-183 · packages/api/src/reports-routes.ts:260-263</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">904eebc</span>. <code>customerOwedById</code> now subtracts incoming cheques — the twin of a fix the supplier side already had, whose own comment records that omitting them "overstated the payable by exactly the cheques issued". A bounced cheque stops counting as an unapplied credit in the aging ladder. That change made the ladder disagree with the dashboard tile by 1,750 and the D37 regression guard caught it: the two meant different things, so 1360 joined the tile and both now mean "money customers owe us". Ladder and tile agree again, at the figure that includes the bounced cheque.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Settings is reachable five ways; eight hub screens re-list what the bar above them already shows.</div>
+          <div class="why">The rail, the gear, the avatar menu, «كل الشاشات» and ⌘K all reach the same 15 setup screens, drawn by three components. Separately, eleven hub screens are the same 100-line layout copy-pasted, and their quick-action rows duplicate the screens bar one pixel above. Cutting both removes roughly 1,100 lines and one whole "where do I go" question.</div>
+          <div class="ev">apps/web/src/nav-config.tsx:227 · App.tsx:536-544,571-587,618-622 · apps/web/src/screens/hubs/SalesHubScreen.tsx:17-23</div>
+          <div class="pnote pnote-DONE">Finished across <span class="mono">66d6462</span>, <span class="mono">8f45880</span> and <span class="mono">15a7fbd</span>. The avatar menu carries only profile and sign-out; hub quick actions are verbs that open a create flow; the header gear is gone — with its popup, its rows, its prop, its key set and its stale "why this panel is portaled" note, 126 lines of <code>ChromeActions.tsx</code> — so الإعدادات has exactly one home, the rail. And the eleven copy-pasted hubs are one <code>WorkspaceHub</code> primitive: nine screens went from 1,120 lines to 933 <em>including</em> the primitive and the two shared fragments, and every tile now shows an em dash while its first load is in flight rather than a zero.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Three superseded shell components and one command palette are still exported and rendered by nothing.</div>
+          <div class="why"><code>Sidebar</code> (476 lines), <code>Topbar</code> (427 — its own comment says "SUPERSEDED"), <code>CommandPalette</code> (127) and 252 lines of their tests. Four inventory report routes are chunked, icon-mapped and reachable from nowhere. Two manufacturing side panels are wired and never opened. Deleting dead surface is the cheapest simplification available.</div>
+          <div class="ev">packages/ui/src/index.ts:176 · packages/ui/src/shell/Topbar.tsx:260 · apps/web/src/App.tsx:262-268 · apps/web/src/screens/WorkOrdersScreen.tsx:520,524</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">90e6420</span>. <code>Sidebar</code>, <code>Topbar</code> and <code>CommandPalette</code> are deleted with their tests, the two live types moved to their real owners, the work-order issue and receive panels are gone, and the four inventory reports are back on the nav.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-PART">part</span>Role editing starts from a blank 268-checkbox matrix, all 19 modules expanded.</div>
+          <div class="why">No presets, no duplicate-role action, and the <code>defaultCollapsedModuleKeys</code> prop the matrix already supports is never passed by its only caller. The largest driver of that count is a three-tier view / view_own / view_all model repeated per entity per module — one scope selector per entity would cut hundreds of checkboxes to dozens.</div>
+          <div class="ev">apps/web/src/pages/RoleEditorPage.tsx:38,166-172 · packages/ui/src/primitives/PermissionMatrix.tsx:55 · packages/domain/src/permissions/catalog.ts:88-96</div>
+          <div class="pnote pnote-PART">Two of the three landed in <span class="mono">904eebc</span>: modules the role grants nothing in start collapsed, and a role can be duplicated — code and name stay blank on a copy, because they must be unique and a prefilled one is the field most likely to be saved unchanged. Presets were left out deliberately (see <a href="#decisions">Decisions taken</a>). The three-tier view / view_own / view_all model is untouched and remains the largest single driver of the 268.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Administrative acts left no forensic record at all.</div>
+          <div class="why">A customer's credit-limit edit was logged with its before and after, while granting yourself approver rights, creating a user, editing tenant policy and closing or reopening a period wrote nothing — so the changes that decide who may do what were the ones with no trail.</div>
+          <div class="ev">packages/api/src/roles-routes.ts · users-routes.ts · settings-routes.ts · fiscal-periods-routes.ts · suppliers-routes.ts · treasury-accounts-routes.ts</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">4c651ee</span>. Six route families record through one <code>recordAdminEvent</code>, always with BOTH ends — which permissions a role gained and lost, which role a user moved to, which settings keys changed from what to what, which status a reopen undid. The actor is the resolved session, never a header: a log whose author field is writable by the person it incriminates is not evidence. Settings values are taken from the masked copies, so a password change is recorded as having happened without the log becoming a second place the password lives.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Two permissions that existed only in the catalogue.</div>
+          <div class="why"><code>sales.price.override</code> and <code>pos.discount.approve</code> were enforced nowhere: any user with plain <code>sales.invoice.create</code> could zero a unit price or apply a 100% discount, with no ceiling and no elevated permission. That is the invoice-side twin of the credit limit, and it is the shape a kickback takes.</div>
+          <div class="ev">packages/domain/src/permissions/catalog.ts:113,306 · packages/api/src/sales-invoices-routes.ts</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">4c651ee</span>, as two controls rather than one, because they are two separate acts. A giveaway — a zero unit price, a 100% discount, or a fixed discount equal to the whole line — always needs <code>sales.price.override</code>, since there is no reading under which selling for nothing is ordinary. A discount above the tenant's ceiling needs <code>pos.discount.approve</code>. The ceiling is a new setting defaulting to 100, so it ships off: one company's idea of a safe discount is not another's, and a limit nobody chose must refuse nothing.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>Destructive controls fired on click, and stack traces reached an Arabic UI.</div>
+          <div class="why">A holiday, a leave policy, a template attribute and a notification rule were deleted the instant an icon was tapped. Separately, thirty-six catch blocks fell back to <code>String(err)</code>, so a transport failure put <code>TypeError: Failed to fetch</code> on screens that post money.</div>
+          <div class="ev">HolidaysScreen.tsx · LeavePoliciesScreen.tsx · NotificationRulesPage.tsx · ProductTemplatesScreen.tsx · 17 screens for the error text</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">f8a1bb0</span>. <code>useConfirmAction</code> reaches the dialog the app already had without hand-rolling pending state per screen; every confirmation names what will be lost rather than asking "are you sure?", and the danger tone puts initial focus on Cancel so an unexpected Enter cancels. <code>errorMessage</code> draws the line where it belongs: only an <code>ApiError</code> carries text a person should read — the server writes its refusals in Arabic precisely so they can be shown verbatim — and everything else falls back to the caller's own Arabic message. The notification-rule list also stopped disabling every row for one row's mutation.</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-PART">part</span>Approval gates that are advertised and never enforced.</div>
+          <div class="why">Purchase order, receipt and invoice confirm skip the workflow engine entirely — the seed even configures a <code>PURCHASE_INVOICE_CONFIRM</code> chain nothing consults. Stock adjustment and transfer confirm set <code>gateActionType: null</code>, so any workflow configured for them is silently dead. And the engine never compares the approver to the submitter, so one person with both permissions approves their own payment.</div>
+          <div class="ev">packages/api/src/purchases-routes.ts:469-480 · packages/domain/src/inventory/stock-adjustment-document.ts:62 · packages/domain/src/workflow/gate.ts:218</div>
+          <div class="pnote pnote-PART">Stock adjustment and transfer now carry their action types and are held by the gate (<span class="mono">66d6462</span>, verified against a seeded backend). <strong>The approver-is-not-the-submitter check now exists</strong> (<span class="mono">4c651ee</span>): <code>decide</code> refuses a decision by the person who raised the request, and the admin bypass does not lift it — a bypass skips the ROLE a step names, not the separation the step is there for. Rejecting is covered too, because a submitter who withdraws their own request by rejecting it is still named as the approver of their own document. What is left is the three purchasing gates: purchase order, invoice and receipt still bypass the engine, marked <code>enforced: false</code> with «غير مُفعَّل بعد» on the config screen — honest, but not enforcement.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-DONE">done</span>CSV export writes UTF-8 with no BOM, so every Arabic report opens in Excel as mojibake.</div>
+          <div class="why">Three bytes. It is the single cheapest credibility fix in this list, and it affects every one of the 22 operational reports.</div>
+          <div class="ev">packages/ui/src/lib/report-export.ts:34-49</div>
+          <div class="pnote pnote-DONE">Fixed in <span class="mono">90e6420</span>. The export prepends <code>ef bb bf</code>; verified by decoding the bytes.</div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <div class="claim"><span class="pstat st-OPEN">open</span>Freeze the navigation structure.</div>
+          <div class="why">Eighteen of the last thirty-two commits restructure the same tree — a 25→15 screen merge, a revert of it, a re-flatten, a re-added overview — none of it driven by a user observation, while the genuinely open items sat untouched. Settle shelf-versus-bar once and stop; every restructure also silently reassigns the auto-derived <code>g</code>-chord letters.</div>
+          <div class="ev">git log --since="2026-08-27" (2b33b06…02632fe, revert 6d38395) · apps/web/src/keyboard/shortcuts.ts:104-144</div>
+          <div class="pnote pnote-OPEN">One more nav change landed after the review (<span class="mono">2fbbb0a</span> — the screens bar and two settings shelves). Defensible, but the freeze has not been declared.</div>
+        </div>
+      </li>
+
+    </ol>
+  </section>
+
+
+  <section id="decisions">
+    <h2>Decisions taken</h2>
+    <p class="sec-note">Sixteen findings were answered by a judgement rather than by code — a choice between two defensible readings, or a deliberate refusal to build what the reviewer asked for. Each is recorded here with what was decided, why, and what would reverse it, so the next person meets the reasoning instead of the silence.</p>
+
+    <ol class="decisions">
+      <li>
+        <div class="dq">Does the approver-is-not-the-submitter rule apply to an admin too?</div>
+        <div class="da"><strong>Yes — the admin bypass does not lift it.</strong> A bypass is a shortcut past the ROLE a step names, not past the separation the step exists for; letting <code>"*"</code> through would mean the control stops at exactly the account most likely to hold both permissions. It costs nothing in practice, because an admin's own submission never becomes pending in the first place — <code>startApproval</code> grants it outright — so the only request an admin can be the submitter of is one they raised before being promoted.</div>
+        <div class="dw">Nothing. A single-user shop that wants no separation configures no chain, which is the honest way to say so.</div>
+      </li>
+
+      <li>
+        <div class="dq">What should the new discount ceiling default to?</div>
+        <div class="da"><strong>100 — the ceiling ships off.</strong> One company's idea of a safe discount is not another's, and a limit nobody chose would refuse documents a tenant has always been allowed to raise. What does <em>not</em> depend on configuration is a giveaway: a zero unit price or a full discount always needs <code>sales.price.override</code>, because there is no reading under which selling for nothing is ordinary. So the control bites out of the box where the act is unambiguous, and waits for a decision where it is not.</div>
+        <div class="dw">Nothing; a tenant sets a number in الإعدادات when they have one. If it turns out every install sets the same figure, that figure is the better default.</div>
+      </li>
+
+      <li>
+        <div class="dq">Sales invoices are paged in SQL — but «مفتوحة» and «متأخرة» are not. Why the exception?</div>
+        <div class="da"><strong>Because no column holds them.</strong> Both are functions of the remaining balance, which is the invoice total less payments less return credits — three sources, one of them another module's. Faking a column would put a derived figure in the books where a stale copy could disagree with the ledger, which is the defect class this codebase already has three of. The two chips resolve over the filtered set and page afterwards; every OTHER filter is SQL by then, so what is loaded is that chip's own set rather than the table.</div>
+        <div class="dw">Reverse it if a materialised remaining-balance column is ever added for its own reasons — it must never be added FOR this.</div>
+      </li>
+      <li>
+        <div class="dq">Should the shortcuts sheet become a routed page?</div>
+        <div class="da"><strong>No — it stays an overlay.</strong> Two reviewers disagreed. A cheat sheet you must leave your work to read is a 119th route, and the complaint underneath the finding was discoverability, not addressing. It got a visible help button in the chrome instead, beside the gear.</div>
+        <div class="dw">Reverse it if support tickets show people wanting to link someone to the shortcut list.</div>
+      </li>
+
+      <li>
+        <div class="dq">Delete the <code>g</code>-chord, as two reviewers recommended?</div>
+        <div class="da"><strong>Not yet — the layout bug was fixed first.</strong> The chord's letters come from the English group key while the label is Arabic, and they silently reassign whenever the nav is restructured. But <code>?</code> and ⌘K were dead on the Arabic layout, so nobody had used the chord enough to have an opinion. Fix the keymap, then look again at what people actually press.</div>
+        <div class="dw">Delete it if the letters still drift after the navigation freeze, or pin them in a static map beside <code>navGroupSpecs</code>.</div>
+      </li>
+
+      <li>
+        <div class="dq">Delete the four unreachable inventory report routes, or wire them up?</div>
+        <div class="da"><strong>Wire them up.</strong> The reviewer offered both. They were routed, chunked, icon-mapped and named in both catalogues — everything except a nav entry, which reads as an omission during a restructure rather than a decision to retire them. Four working screens became reachable for one line of config, and the command palette picked them up for free because it builds from the nav.</div>
+        <div class="dw">Nothing; if they are genuinely unwanted, removing them is now a visible product choice rather than a silent one.</div>
+      </li>
+
+      <li>
+        <div class="dq">Two mounts served the seven statements. Fix the slice, or delete the duplicate?</div>
+        <div class="da"><strong>Both.</strong> Fixing only the slice would leave two implementations free to diverge again — which is what happened the first time. The duplicated routes are gone and the statements hub reads the surviving mount; the local helper that remains, feeding the account drill-down, was corrected to the same slice with a comment saying why.</div>
+        <div class="dw">Nothing.</div>
+      </li>
+
+      <li>
+        <div class="dq">The year-end close zeroes the P&amp;L. Move the entry's date, or exclude it from reports?</div>
+        <div class="da"><strong>Exclude it.</strong> Dating a closing entry on the last day of the year it closes is correct accounting, and moving it would trade a reporting bug for a ledger one. It now carries <code>sourceDocType: "YEAR_END_CLOSE"</code> and the two performance statements skip it. The balance sheet deliberately does not, because retained earnings is precisely what the close moved — and the cash-flow opening and closing balances keep every entry, since the close touches no cash account and that tie-out must stay exact.</div>
+        <div class="dw">Nothing.</div>
+      </li>
+
+      <li>
+        <div class="dq">A bounced cheque made the aging ladder and the dashboard tile disagree by 1,750. Which was right?</div>
+        <div class="da"><strong>Neither — they meant different things, so the meaning was settled.</strong> Bouncing reclassifies GL 1320 → 1360 and leaves AR alone: the money is still owed and still has to be chased. The tile summed 1105 and 1110 only. Since both screens claim to answer "what do customers owe us" for collections, 1360 joined the tile rather than the ladder dropping the debt. The D37 regression guard, which asserts the two agree, is what forced the question.</div>
+        <div class="dw">Reverse only if "receivables" is redefined product-wide to mean trade AR alone — in which case bounced cheques need a surface of their own.</div>
+      </li>
+
+      <li>
+        <div class="dq">Where should the expired-stock block sit?</div>
+        <div class="da"><strong>On the issue, not on the ledger.</strong> A hard stop at the ledger would also block the two things a shop must be able to do with expired goods: write them off through an EXPIRY adjustment, and return them to the supplier. <code>postIssue</code> refuses; adjustments and transfers do not, so moving a bad lot to quarantine still works. The check reads the FEFO head only — layers are consumed expiry-first, so if the first is good nothing behind it can be expired.</div>
+        <div class="dw">Add a tenant policy if a client genuinely needs to sell past expiry; nothing in Egyptian practice suggested one.</div>
+      </li>
+
+      <li>
+        <div class="dq">Three purchasing approval gates are advertised and never enforced. Enforce, or stop advertising?</div>
+        <div class="da"><strong>Stop advertising, for now.</strong> Enforcing them means a <code>pending</code> status, a <code>workflowRequestId</code> and a release path on three bespoke document types that do not go through <code>DocumentService</code> — a larger change than this pass. The two inventory gates, which do go through it, were genuinely enforced and verified against a seeded backend. The three purchasing ones are marked <code>enforced: false</code> and the config screen now reads «غير مُفعَّل بعد». A chain a tenant believes is holding spend when it is not is a worse control than none.</div>
+        <div class="dw">Build the hold-and-release path; the marker is a placeholder, not an answer.</div>
+      </li>
+
+      <li>
+        <div class="dq">Sessions in memory, or persisted?</div>
+        <div class="da"><strong>In memory.</strong> A desktop edition is one process; a restart asking the shopkeeper to sign in again is not a hardship, and it means a stolen database file carries no live sessions. Only the token's SHA-256 is stored even there, and SHA-256 rather than scrypt is deliberate: the token is 256 random bits, not a human-chosen secret, so there is nothing to brute-force and this runs on every request.</div>
+        <div class="dw">Persist them when a session has to survive a restart — a till mid-shift, say — and encrypt that table.</div>
+      </li>
+
+      <li>
+        <div class="dq">The branch/warehouse scope still travels on the request. Is that not the same hole?</div>
+        <div class="da"><strong>No, because it can only narrow.</strong> Choosing one branch in the topbar is a real user action and the request has to carry it. The granted scope comes from the session, and an id outside that grant is dropped rather than honoured — the same rule the return-quantity defect taught: a limit the caller supplies is not a limit.</div>
+        <div class="dw">Nothing. Widening from a header would be the original defect again.</div>
+      </li>
+
+      <li>
+        <div class="dq">The seed, smoke, coverage and the scenario harness all declared <code>x-permissions: "*"</code>. Exempt them, or make them sign in?</div>
+        <div class="da"><strong>Make them sign in.</strong> A test path that skips authentication stops testing the thing that broke. They log in as the seeded admin now; the seed additionally mints a session per identity, because HR leave derives the employee from the caller and the approval scenarios need named non-admin actors — which is exactly the impersonation the server stopped accepting.</div>
+        <div class="dw">Nothing.</div>
+      </li>
+
+      <li>
+        <div class="dq">Approver-is-not-submitter: fixed?</div>
+        <div class="da"><strong>Not yet — but it is now possible.</strong> The check itself is still missing from the workflow engine. What changed is that it can now mean something: the submitter and the approver's roles both come from resolved sessions, so a comparison would be between two facts rather than two headers the same person could write.</div>
+        <div class="dw">Add the comparison in <code>workflow/gate.ts</code>; the identities are trustworthy now.</div>
+      </li>
+
+      <li>
+        <div class="dq">Should role presets ship with the duplicate-role action?</div>
+        <div class="da"><strong>No — deliberately left to you.</strong> "Cashier" and "Sales Rep" are names for permission sets somebody has to choose, and choosing them in code would bake one company's idea of a cashier into every install. Duplicating an existing role gives the same relief without the guess.</div>
+        <div class="dw">Ships as soon as the preset contents are specified.</div>
+      </li>
+    </ol>
+
+    <div class="panel flag" style="margin-top:20px">
+      <h3>And one that is still open</h3>
+      <p><strong>Freezing the navigation.</strong> The finding asks for a decision, not a commit, and it is not mine to make. One more nav change landed after the review, and while this update was being written a second session was editing <code>nav-config.tsx</code> again — which is the behaviour the finding exists to stop.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>The shortcut surface</h2>
+    <p class="sec-note">You asked about the shortcut page. It exists — as an overlay, not a route — and it is reachable three ways. Two of those three are broken on an Arabic keyboard, and the sheet advertises a feature that does nothing.</p>
+
+    <div class="panel flag-risk">
+      <h3>What is actually there</h3>
+      <p><code>ShortcutsOverlay</code> renders a two-column cheat sheet: seven global keys on one side, and on the other the <code>g</code>-chord jumps derived live from the navigation tree. It is wired from the gear menu (<code>shell.utility.shortcuts</code>), from the command palette (<code>cmd-shortcuts</code>), and from the bare <code>?</code> key. The overlay itself is fine. Everything around it is not.</p>
+    </div>
+
+    <div class="panel flag-risk">
+      <h3>Three defects, all verified in source <span class="pstat st-DONE">all three fixed</span></h3>
+      <p><strong>«؟» is not <code>?</code>.</strong> <code>useGlobalShortcuts.ts:129</code> tests <code>event.key === "?"</code>. On the Arabic layout Shift+Q emits U+061F. The file already contains <code>latinLetter()</code>, written precisely so <code>g s</code> survives an Arabic keyboard by falling back to <code>event.code</code> — that fallback is never applied to <code>?</code>.</p>
+      <p><strong>⌘K is dead on the same layout,</strong> for the same reason, in a different file: <code>CommandBar.tsx:30</code> keeps its own document listener outside the "single global keydown listener", and matches <code>event.key</code> only. ⌘N and ⌘S work, because they go through the fallback. So the two doors that survive on an Arabic keyboard are the gear menu and nothing else.</p>
+      <p><strong><code>j</code>/<code>k</code>/<code>Enter</code> row navigation does not exist.</strong> <code>emitListNav</code> dispatches <code>mz:list-nav</code>; a repository-wide grep finds the event name in exactly two places, both of them the emitter. No listener was ever written. The handler calls <code>preventDefault()</code> first, so the keys are swallowed rather than passed through — and the sheet still advertises «J+K — تحريك التحديد في الجدول».</p>
+    </div>
+
+    <div class="panel flag">
+      <h3>What to do with it</h3>
+      <p>The panel split on whether it should become a page. Keep it an overlay — a 119th route you must leave your work to read is not an improvement — but fix the three defects, add one visible help control in the chrome so it is not folklore, and put <code>Kbd</code> hint chips on the create and save buttons, which is what the UX spec meant by "discoverable, not folklore".</p>
+      <p>On the <code>g</code>-chord: two reviewers independently recommended deleting it. Its letters are picked from the <em>English</em> group key while the user reads Arabic labels («البيع» → <code>g s</code>), the mapping is written down nowhere but the sheet, and it silently reassigns itself whenever the nav order changes — which it has, repeatedly, this week. ⌘K already reaches every one of those destinations by Arabic name. If it stays, pin the letters in a static map beside <code>navGroupSpecs</code>.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Yesterday's audits</h2>
+    <p class="sec-note">Four documents describe the state of this system and three of them disagree. That is a real cost: the defect register is supposed to be the only tracker, and right now reading it, reading STATUS.md and reading the parity audit gives three different answers about what is broken.</p>
+
+    <div class="scroll">
+      <table class="docs">
+        <thead>
+          <tr><th>Document</th><th>Dated</th><th>What it claims</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>docs/defects.md</td>
+            <td>2026-08-27</td>
+            <td><strong>One open defect</strong> (D62, cosmetic — a matched statement line labels its entry with a raw UUID). Everything D1–D61 fixed. <code>pnpm scenarios</code> passes 3,740 assertions, four invariants at exactly zero. The same pass repaired the register itself: 23 rows appeared in both the Open and Fixed tables, F13–F26 each appeared twice, and two defects shared the id D54.</td>
+          </tr>
+          <tr>
+            <td>docs/STATUS.md</td>
+            <td>2026-08-26 <em>(stale)</em></td>
+            <td><strong>Four failing</strong> assertions out of 1,412, and D43/D44/D45 newly filed. Also states treasury exposes 4 of 11 voucher types and that settings carries none of the document-behaviour toggles — a reviewer checked both and found all 11 types and the toggles present. This file is the one most likely to be read first and is the one most out of date.</td>
+          </tr>
+          <tr>
+            <td>docs/reference-parity/00-audit-status.md</td>
+            <td>2026-08-26</td>
+            <td>Uses <strong>D39–D42 for entirely different defects</strong> than the register does — here they are supplier payable, customer credit, treasury balances and a supplier-less landed cost. The numbering runs collided, exactly as the register records happening once already.</td>
+          </tr>
+          <tr>
+            <td>.claude/skills/mezan-erp</td>
+            <td>—</td>
+            <td>The project skill quotes D39, D40 and D42 with a <strong>third</strong> set of meanings, and presents D28 and D42 as open. Both are fixed (F86, F100 — verified in code this session). The skill is loaded into every session on this repo, so its stale ids propagate.</td>
+          </tr>
+          <tr>
+            <td>docs/superpowers/specs/2026-08-27-*</td>
+            <td>2026-08-27</td>
+            <td>The visual-identity and UI-revamp specs. Sound, and largely honoured — the colour-only theme rule is enforced by a lint check that passes. Worth noting the identity spec already carries its own "correction of record" about fonts, which is the right instinct applied to the wrong file: the corrections belong in the register.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel flag" style="margin-top:20px">
+      <h3>The one thing to do here</h3>
+      <p>Rewrite STATUS.md against the running app and delete the defect ids from the parity audit and from the project skill, replacing them with links to the register. A defect id that means three things is worse than no id: it is how a real regression gets waved through as "oh, that's the known one" — which is the register's own warning, now true of the register's neighbours.</p>
+      <p>Two reviewers also confirmed, in code, that defects the docs still describe as open are fixed: <code>resolveTaxRate</code> is wired end to end on the receipt-driven purchase-invoice path, and the VAT return now reads a real <code>taxRatePercent</code> off the posted line rather than dividing tax by base. The division survives only as a fallback for legacy entries — worth flagging those rows in the report rather than blending them.</p>
+    </div>
+
+    <div class="panel flag-risk" style="margin-top:20px">
+      <h3>A green gate that was not measuring anything</h3>
+      <p>Worth recording beside the documents, because it is the same class of problem. <code>pnpm smoke</code> only fails on a 5xx or a 404. When the authentication fix landed and <strong>193 of its 199 read surfaces began answering 403</strong>, it printed <code>ok 403</code> for each one and reported <em>"smoke passed"</em>. The suite that exists to prove the app is reachable would have certified an app nobody could reach.</p>
+      <p>It signs in as the seeded admin now and treats 401 and 403 as failures — an unauthenticated smoke run proves nothing. The same fix went to <code>check:seed</code>. While chasing it, a second cause surfaced: <code>demo-seed.ts</code> carried its own private copy of <code>ADMIN_HEADERS</code> beside the shared one, which is why the first attempt at the fix appeared to do nothing.</p>
+      <p>The lesson generalises past this repo: a gate's pass condition has to be "the thing worked", not "the thing did not explode". Everything between those two is where a false green lives.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Everything the panel found</h2>
+    <p class="sec-note">All findings, by reviewer. Filter by severity or search the text. <strong>Simplify</strong> removes something; <strong>enhance</strong> adds or completes something; <strong>risk</strong> is a correctness or control hole; <strong>blocker</strong> is a buyer persona saying they would not purchase. Each row also carries its status — filter to <em>open</em> to see only what is left. <em>No action</em> marks the rows where a reviewer checked something and confirmed it is already right; they were never work.</p>
+
+    <div class="controls">
+      <button class="chip" data-sev="SIMPLIFY" aria-pressed="false">Simplify</button>
+      <button class="chip" data-sev="ENHANCE" aria-pressed="false">Enhance</button>
+      <button class="chip" data-sev="RISK" aria-pressed="false">Risk</button>
+      <button class="chip" data-sev="BLOCKER" aria-pressed="false">Blocker</button>
+      <span class="chip-sep" aria-hidden="true"></span>
+      <button class="chip chip-DONE" data-st="DONE" aria-pressed="false">Done</button>
+      <button class="chip chip-PART" data-st="PART" aria-pressed="false">Part</button>
+      <button class="chip" data-st="OPEN" aria-pressed="false">Open</button>
+      <button class="chip" data-st="NOTE" aria-pressed="false">No action</button>
+      <input class="srch" id="q" type="search" placeholder="search findings…" aria-label="Search findings">
+      <span class="count" id="count"></span>
+    </div>
+
+    <div id="findings"></div>
+  </section>
+
+  <footer>
+    Compiled 2026-08-28 from 32 parallel reviewers over <span class="mono">bassamZakaria/salp</span>. Every claim carries its file evidence; three were re-verified by hand and are marked as such above. Nothing in this report was written from the docs alone. Statuses re-read against the code at <span class="mono">f8a1bb0</span> (2026-08-29) — a finding is marked done only where the fix was found in the tree, never on the strength of a commit message. The gate runs behind the later commits were made in an isolated worktree, because a second session was editing this one at the same time.
+  </footer>
+
+</div>
+
+<script>
+const AREAS = [
+  ["Product", "product owner"],
+  ["Shell &amp; UI", "designer"],
+  ["Daily operator", "end user"],
+  ["Support load", "helpdesk"],
+  ["Accessibility &amp; keyboard", "a11y"],
+  ["Arabic voice", "linguist"],
+  ["Performance", "performance engineer"],
+  ["Books &amp; close", "staff accountant"],
+  ["Audit integrity", "chartered accountant"],
+  ["Controls &amp; fraud", "internal auditor"],
+  ["Costing", "cost accountant"],
+  ["Fixed assets", "assets accountant"],
+  ["Tax &amp; ETA", "tax expert"],
+  ["Treasury", "cashier"],
+  ["Receivables", "credit controller"],
+  ["Sales", "sales manager"],
+  ["Purchasing", "procurement"],
+  ["Inventory", "warehouse keeper"],
+  ["Production floor", "production manager"],
+  ["Reporting", "reports analyst"],
+  ["Print output", "print specialist"],
+  ["Administration", "IT admin"],
+  ["Security", "security officer"],
+  ["Rollout", "implementation consultant"],
+  ["Owner's first impression", "business owner"],
+  ["Buyer · contracting", "مقاولات"],
+  ["Buyer · distribution", "جملة وتوزيع"],
+  ["Buyer · manufacturing", "ورشة تصنيع"],
+  ["Buyer · retail", "تجزئة متعددة الفروع"],
+  ["Buyer · pharmacy", "صيدلية وتوزيع دوائي"],
+  ["Buyer · restaurant", "مطاعم"],
+  ["Buyer · accounting bureau", "مكتب محاسبة"]
+];
+
+const F = [
+["Product","ENHANCE","⌘K — the headline shortcut, and the only one advertised in the topbar — is dead on an Arabic keyboard layout, while ⌘N and ⌘S survive via the event.code fallback written for exactly this reason.","packages/ui/src/shell/CommandBar.tsx:30 vs apps/web/src/keyboard/shortcuts.ts:49-58","S","DONE"],
+["Product","SIMPLIFY","Three command-palette actions with three different Arabic names — «تحصيل من عميل», «سند نقدي جديد», «دفع لمورد» — dispatch the identical navigate call, so two of the three lie about where they land.","apps/web/src/App.tsx:592-595 · i18n/catalog.ts:261-267","S","DONE"],
+["Product","SIMPLIFY","The 15 setup screens are reachable three ways at once — rail workspace, header gear, avatar menu — so the same tree is drawn by three components and \"where do I change settings\" has three answers.","apps/web/src/nav-config.tsx:227 · App.tsx:536-544,571-587,618-622","S","DONE"],
+["Product","SIMPLIFY","Delete the g-chord: letters are auto-assigned from the English group key while the user reads Arabic labels, the mapping lives only in the overlay, and it silently reassigns when nav order changes. ⌘K already reaches every destination by Arabic name.","apps/web/src/keyboard/shortcuts.ts:104-144 · useGlobalShortcuts.ts:138-153","S","OPEN"],
+["Product","SIMPLIFY","Collapse the 8 domain hubs (~975 lines): their quick-action rows re-list destinations sitting one pixel above on row two, and their tiles re-derive counts and money client-side in floats off a page of rows — the exact defect closed for all 20 lists.","apps/web/src/screens/hubs/SalesHubScreen.tsx:17-23,40-46 · InventoryHubScreen.tsx:27,74-76","M","DONE"],
+["Product","ENHANCE","Keep the shortcuts sheet an overlay, but it is undiscoverable: three entry points all behind chrome, and only 2 of ~10 primary actions carry a Kbd hint, against a spec that makes hint chips the discoverability mechanism.","docs/enhancements/ux-enhancement-spec.md:105 vs apps/web/src/nav-config.tsx:238,247","M","PART"],
+["Product","SIMPLIFY","Four inventory report screens are routed, chunked, icon-mapped and breadcrumb-mapped while appearing in no nav group — and since the palette's go-to list is generated from the nav, nothing in the product can reach them.","apps/web/src/App.tsx:262,266-268 vs nav-config.tsx:136-146","S","DONE"],
+["Product","SIMPLIFY","Freeze the navigation structure: 18 of the last 32 commits restructure the same tree, including a revert and a re-flatten, none driven by a user observation, while the two genuinely open items sat untouched.","git log --since=\"2026-08-27\" · docs/tasks.md §2.1, §2.2","S","OPEN"],
+
+["Shell &amp; UI","SIMPLIFY","Sidebar (476 lines), Topbar (427) and CommandPalette (127) are superseded by the rebuilt shell — nothing renders them, yet all three are still public exports plus 252 lines of tests. Topbar.tsx even self-declares \"SUPERSEDED\".","packages/ui/src/index.ts:176 · packages/ui/src/shell/Topbar.tsx:260","S","DONE"],
+["Shell &amp; UI","SIMPLIFY","Breadcrumbs renders a third orientation row that restates the rail and the screens bar — for any top-level screen its crumbs are exactly dashboard · workspace · chip. Render it only when there is a real sub-page.","apps/web/src/Breadcrumbs.tsx:50-65 · App.tsx:764","S","DONE"],
+["Shell &amp; UI","SIMPLIFY","الإعدادات is reachable five ways — rail, gear, user menu, «كل الشاشات», ⌘K. Drop the gear menu and the user-menu triplet, since setup is already a full rail workspace with its own section dropdowns.","apps/web/src/App.tsx:571,620-622 · packages/ui/src/shell/AppShell.tsx:269","S","DONE"],
+["Shell &amp; UI","ENHANCE","Selection colour drifts off the identity: every other surface marks \"current\" with gold, but the command bar and breadcrumbs use teal.","packages/ui/src/shell/CommandBar.tsx:145 vs WorkspaceScreensBar.tsx:52, AllScreensPanel.tsx:314","S","PART"],
+["Shell &amp; UI","SIMPLIFY","Every hub screen re-lists its workspace's screens as a quick-action row, duplicating the bar directly above it. Keep only genuine verbs (new invoice, new quote); drop the navigation buttons.","apps/web/src/screens/hubs/SalesHubScreen.tsx:17-23 vs nav-config.tsx:45,60","S","DONE"],
+["Shell &amp; UI","SIMPLIFY","Eleven hub screens are the same bespoke layout copy-pasted — title, description, action row, 4 stat cards, one recent list, ~100 lines each. One WorkspaceHub primitive collapses ~1,100 lines to eleven configs.","SalesHubScreen.tsx:53-104 is line-for-line TreasuryHubScreen.tsx:47-98","M","DONE"],
+["Shell &amp; UI","SIMPLIFY","1,577 arbitrary text-[Npx] literals bypass the nine-step --fs-* scale, including half-pixel sizes no token defines. lint:tokens only validates colour utilities, so nothing catches it.","packages/ui/src/tokens/tokens.css:145-153 · apps/web/tailwind.config.js:73-83","M","OPEN"],
+["Shell &amp; UI","SIMPLIFY","CostCentersScreen hand-rolls a 130-line indented tree table whose own in-code justification was already answered by the columnLabels prop added to AccountTree for exactly this case.","apps/web/src/screens/CostCentersScreen.tsx:300-308 vs packages/ui/src/primitives/AccountTree.tsx:29-38","M","OPEN"],
+
+["Daily operator","SIMPLIFY","Saving a sales invoice always closes the form and returns to the list — no \"save and start the next\", so booking ten invoices means ten round trips through the list.","apps/web/src/screens/SalesInvoicesScreen.tsx:637-639,1031-1039","M","OPEN"],
+["Daily operator","SIMPLIFY","Every line on every document needs a mouse click on «إضافة سطر» — no Tab-or-Enter-at-last-field auto-add, so a 15-line invoice costs 15 trips off the keyboard.","SalesInvoicesScreen.tsx:587-589 · PurchaseOrdersScreen.tsx:357 · GoodsReceiptsScreen.tsx:486 · StockTransfersScreen.tsx:413","S","OPEN"],
+["Daily operator","SIMPLIFY","The item picker matches only on label and sublabel (name, code, price) — a barcode is never in the haystack, so scanning a gun into the item picker finds nothing even though items carry barcodes.","packages/ui/src/primitives/EntityPicker.tsx:51-53 · SalesInvoicesScreen.tsx:509 · ItemsScreen.tsx:95","S","OPEN"],
+["Daily operator","ENHANCE","EntityPicker has no inline \"create new\" anywhere, so adding a walk-in customer mid-invoice means leaving the form — and the create form is a route, not state that survives leaving, so every typed line is lost.","packages/ui/src/primitives/EntityPicker.tsx · SalesInvoicesScreen.tsx:743","L","OPEN"],
+["Daily operator","SIMPLIFY","Every new sales invoice and goods receipt forces a \"how do you want to create this?\" step with its own «متابعة» click, even though the same method is used almost every time and nothing remembers the last choice.","SalesInvoicesScreen.tsx:384-385,660-691 · GoodsReceiptsScreen.tsx:366-411","S","OPEN"],
+["Daily operator","ENHANCE","Purchase orders and goods receipts take the document date as free text with a YYYY-MM-DD placeholder, while the sales invoice beside them uses a real date input — two conventions in one app invites a mistyped date.","PurchaseOrdersScreen.tsx:331 · GoodsReceiptsScreen.tsx:492 vs SalesInvoicesScreen.tsx:748","S","OPEN"],
+["Daily operator","ENHANCE","No duplicate action on the sales-invoice row menu — a customer who orders the same basket monthly rebuilds it line by line every time.","SalesInvoicesScreen.tsx:1951-1982","M","OPEN"],
+
+["Support load","SIMPLIFY","Destructive delete and revoke actions on several screens bypass the app's own confirm convention and fire immediately on click, with no confirmation at all.","HolidaysScreen.tsx:121-131 · settings/ApiKeysPage.tsx:146,176 · LeavePoliciesScreen.tsx:177-218 · ProductTemplatesScreen.tsx:162-172","S","DONE"],
+["Support load","SIMPLIFY","A catch-all «تعذّرت العملية.» is the fallback on twelve screens' save handlers, naming no field, no reason and no next step.","ChartOfAccountsScreen.tsx:392 · ItemsScreen.tsx:790 · TreasuryAccountsScreen.tsx:230 · i18n/catalog.ts:994","M","PART"],
+["Support load","SIMPLIFY","Per-row action buttons disable every row while any single row's mutation is pending, instead of scoping to the target id — a user mid-sale sees the whole list go dead.","HolidaysScreen.tsx:151 · LeavePoliciesScreen.tsx:218 · NotificationRulesPage.tsx:214,227","S","DONE"],
+["Support load","ENHANCE","One screen's error fallback is raw JS text — String(err) on all four of create, cancel, confirm and the overdue batch.","InstallmentPlansScreen.tsx:165,176,189,201","S","DONE"],
+["Support load","SIMPLIFY","First-run licence activation always reports success no matter what is typed (the comment admits the stub), and no screen anywhere shows licence state afterwards — a phone rep can never ask a caller to read it back.","apps/web/src/login/FirstRunWizard.tsx:108-113","L","OPEN"],
+["Support load","ENHANCE","No diagnostics or support-bundle export and no DB path anywhere; the one self-identification screen shows app version and two health pings.","apps/web/src/screens/hubs/SystemStatusScreen.tsx:1-118","M","OPEN"],
+["Support load","ENHANCE","ApiError.fieldErrors exists but the validation path never populates it — the backend returns details with no message, so per-field guidance falls through to a screen-wide generic error.","packages/backend/src/auth-routes.ts:101-102 · apps/web/src/data/hooks.ts:334-344","M","OPEN"],
+
+["Accessibility &amp; keyboard","ENHANCE","j/k/Enter row navigation — the app's own \"single highest-value speed feature\" — dispatches a CustomEvent nobody listens for, so it does nothing. The comment above the emitter claims DocumentList listens for it.","apps/web/src/keyboard/useGlobalShortcuts.ts:155-163 · shortcuts.ts:14-24 · packages/ui/src/primitives/DocumentList.tsx (no listener)","M","DONE"],
+["Accessibility &amp; keyboard","ENHANCE","AccountTree's primary row action has no keyboard path — a keyboard-only user can rename an account but can never open its ledger.","packages/ui/src/primitives/AccountTree.tsx:97-101 · ChartOfAccountsScreen.tsx:498-505","S","OPEN"],
+["Accessibility &amp; keyboard","SIMPLIFY","Three hand-rolled dialog focus traps with duplicated selector strings — and the one nobody re-derived, the shortcuts overlay, is missing its trap: it is aria-modal but Tab walks straight out behind it.","SidePanel.tsx:22-23,53-80 · feedback.tsx:275-276,307-332 · ShortcutsOverlay.tsx:22-30","S","DONE"],
+["Accessibility &amp; keyboard","SIMPLIFY","⌘K lives in its own document-keydown listener outside the \"single global listener\", and a second, unmounted command-palette component duplicates it.","packages/ui/src/shell/CommandBar.tsx:28-40 vs useGlobalShortcuts.ts:33-40 · CommandPalette.tsx","S","PART"],
+["Accessibility &amp; keyboard","SIMPLIFY","g-chord letters are computed from nav-config iteration order with a non-mnemonic fallback, so reordering the nav silently reassigns a memorised shortcut. A static map beside navGroupSpecs is no more code and never drifts.","apps/web/src/keyboard/shortcuts.ts:104-144","S","OPEN"],
+["Accessibility &amp; keyboard","ENHANCE","EntityPicker — the shared combobox used across the whole ERP — never tells assistive tech which option the arrow keys have highlighted: no aria-activedescendant, and the options carry no id to point at.","packages/ui/src/primitives/EntityPicker.tsx:84-91,121","S","OPEN"],
+["Accessibility &amp; keyboard","ENHANCE","No reusable grid primitive for arrow-key cell navigation, Enter-to-edit, Escape-to-cancel — no role=\"grid\" exists anywhere, so the ERP's named highest-value data-entry feature has nowhere to live once.","packages/ui/src/primitives/DocumentList.tsx:394-522 · AccountTree.tsx:96-131","L","OPEN"],
+["Accessibility &amp; keyboard","ENHANCE","The cheat sheet has zero visible chrome affordance — it exists only if you already know to press bare ?. Add one icon button in the topbar calling the same onShowHelp.","packages/ui/src/shell/Topbar.tsx / AppShell.tsx (no help trigger) · App.tsx:653","S","DONE"],
+
+["Arabic voice","SIMPLIFY","مخزن and مستودع name the same warehouse two ways on one screen — the van-trip strings say «مخزن التحميل» while the entity itself and every other screen say مستودع.","apps/web/src/i18n/catalog.ts:5195-5225 vs :674","S","DONE"],
+["Arabic voice","SIMPLIFY","The HR hub's nav item breaks the one-pattern rule: «لوحة الموارد البشرية» where all eight sibling hubs are uniformly «نظرة عامة».","apps/web/src/i18n/catalog.ts:197 vs :50,142,149,157,168,173,186,191,213","S","DONE"],
+["Arabic voice","SIMPLIFY","The stock workspace's daily section says «حركة المخزن» next to a workspace called «المخزون».","apps/web/src/i18n/catalog.ts:38 vs :27","S","DONE"],
+["Arabic voice","SIMPLIFY","Numeral systems are mixed: static prose uses Arabic-Indic digits («٨ أحرف», «آخر ٣٠ يوماً») while the settings screen frames Latin digits as the app's option.","apps/web/src/i18n/catalog.ts:5438,5439,5659,5938 vs :5437","S","DONE"],
+["Arabic voice","SIMPLIFY","\"Code already in use\" is worded two ways for the identical situation — one screen ends «أعد المحاولة», the four siblings end «اختر كوداً آخر».","apps/web/src/i18n/catalog.ts:2493 vs :3793,3937,4361,4464","S","DONE"],
+["Arabic voice","ENHANCE","Domain refusals are raw English and at least three screens render error.message verbatim — price lists, inventory, vouchers and GL all throw English where two other modules were already given Arabic.","packages/domain/src/price-lists/errors.ts:2-19 · inventory/errors.ts:10-45 · vouchers/errors.ts:39-58 · gl/errors.ts:9-52 · PriceListsScreen.tsx:495","L","DONE"],
+["Arabic voice","SIMPLIFY","Count-plus-singular-noun badges ignore Arabic plural agreement («٢ فاتورة»), and no plural helper exists. Cheapest correct fix is to stop needing agreement: natural plural noun, number trailing.","apps/web/src/i18n/catalog.ts:1257,2343,2363","M","DONE"],
+
+["Performance","SIMPLIFY","Every list screen fetches its entire filtered result set with no LIMIT or OFFSET, then paginates in the browser with .slice(). Zero of the ~40 persistence stores use LIMIT.","packages/persistence/src/sales-invoice-store.ts:463-465 · SalesInvoicesScreen.tsx:1747-1759 · data/hooks.ts:2367-2372","L","PART"],
+["Performance","SIMPLIFY","List hydration is N+1: every document store fetches child lines with one prepared-statement call per parent row inside a map. Combined with the unbounded list, page one issues tens of thousands of synchronous calls.","sales-invoice-store.ts:500 · ledger-store.ts:368 · price-list-store.ts:169 · sales-quote-store.ts:284","M","DONE"],
+["Performance","SIMPLIFY","The reconciliation and open-AR/AP reports do a worse version of the same thing — a full-table list plus a serial awaited lookup per row inside a for loop, walking the whole document history on the request thread.","packages/backend/src/create-backend.ts:828-874,877-887","M","DONE"],
+["Performance","ENHANCE","The server-side counts/stats half of the contract is already built and correct for sales invoices; wiring page and limit onto the same route is the cheapest fix in the audit and the template for the rest.","apps/web/src/data/hooks.ts:2414-2427","S","DONE"],
+["Performance","ENHANCE","Route-level code splitting is already done well — all 117 screens behind lazy imports through one gated map. No action needed; noted so effort is not spent re-splitting what is correct.","apps/web/src/App.tsx:41-49","S","NOTE"],
+["Performance","SIMPLIFY","stock_movement has five composite indexes, none leading with a date column — any report bounded only by date falls back to a full scan at 200,000 movements.","packages/persistence/src/stock-ledger-store.ts:48-52","S","DONE"],
+["Performance","SIMPLIFY","Every store's list() hand-builds its filter clause with no shared paginate-and-count helper — which is why the missing LIMIT is systemic rather than a one-off. One helper turns a 40-file rewrite into 40 call-site changes.","packages/persistence/src/sales-invoice-store.ts:444-465 and ~39 siblings","M","DONE"],
+["Performance","ENHANCE","DocumentList is already the right shape and needs no virtualization — every screen passes it one page. Once pagination moves server-side, the UI layer needs no change at all.","packages/ui/src/primitives/DocumentList.tsx · StockBalanceScreen.tsx:244 · ItemsScreen.tsx:1554","S","NOTE"],
+
+["Books &amp; close","ENHANCE","A purchase invoice's GL posting cannot be inspected from the invoice — the posting port returns no entry id and the contract has no journalEntryId, unlike the sales invoice beside it.","packages/domain/src/purchasing/types.ts:104 · packages/contracts/src/purchasing.ts:200-230 vs SalesInvoicesScreen.tsx:1161","M","OPEN"],
+["Books &amp; close","SIMPLIFY","A generic \"entries for this document\" lookup already exists server-side and no screen calls it, so every document type re-implements its own journal link one at a time.","packages/backend/src/create-backend.ts:1557","S","OPEN"],
+["Books &amp; close","SIMPLIFY","Closing a fiscal period is a single unconditional click — no check for unposted drafts, unreconciled bank statements or an unmatched sub-ledger, and the reconciliation screen that would answer all three is never surfaced here.","packages/domain/src/fiscal-periods/transitions.ts:14-19 · FiscalPeriodsScreen.tsx:108-119 · ReconciliationScreen.tsx","M","OPEN"],
+["Books &amp; close","SIMPLIFY","No recurring or template journal entry — every monthly accrual, prepaid amortisation and accrued expense is retyped from a blank form each close.","apps/web/src/screens/JournalsScreen.tsx:436-474","M","OPEN"],
+["Books &amp; close","ENHANCE","The manual journal form drops cost centre even though the posting engine supports it per line.","packages/domain/src/gl/post.ts:39 vs JournalsScreen.tsx:91-96","S","OPEN"],
+["Books &amp; close","ENHANCE","Manual journal entries cannot carry a supporting-document attachment — the entity-type enum lists invoices and vouchers but never journal entries.","packages/contracts/src/attachments.ts:13-27","M","OPEN"],
+["Books &amp; close","SIMPLIFY","The sub-ledger-to-control-account reconciliation is manual-refresh only and disconnected from the close flow — the accountant must remember to open a separate screen rather than it gating the close.","apps/web/src/screens/ReconciliationScreen.tsx:69 · never referenced by FiscalPeriodsScreen.tsx","S","OPEN"],
+["Books &amp; close","ENHANCE","Year-end close already shows a live pre-post preview before posting; monthly close has no counterpart, so accountants see the impact only after committing.","apps/web/src/screens/YearEndCloseCard.tsx:98-127","M","OPEN"],
+
+["Audit integrity","RISK","The year-end close entry is dated inside the year it closes, so that year's income statement nets every P&amp;L account to zero and the result reappears as a financing inflow in the cash-flow statement. Nothing excludes closing entries from period aggregation.","packages/domain/src/reports/income-statement.ts:115 · gl/year-end-close.ts:100 · reports/cash-flow.ts:117","M","DONE"],
+["Audit integrity","SIMPLIFY","Two live mounts serve the same seven statements from different ledger slices — one loads posted only and no cash accounts, the other posted-plus-reversed with them. A reversed original is dropped while its mirror is kept.","packages/api/src/reports-routes.ts:160-170 vs financial-reports-routes.ts:104-110","S","DONE"],
+["Audit integrity","RISK","The approval engine never compares the deciding actor to the submitter, and no route adds the check — so one user holding both the permission and the step role creates and approves the same payment. فصل المهام cannot be enforced by configuration alone.","packages/domain/src/workflow/gate.ts:218,117 · workflow-routes.ts:247","S","DONE"],
+["Audit integrity","ENHANCE","Role grants, user creation, settings and fiscal-period close/reopen/lock write no audit event at all — while a customer credit-limit edit is logged with before and after. Granting yourself approver rights leaves no trace.","packages/api/src/app.ts:1390-1391 · fiscal-periods-routes.ts:94 vs customers-routes.ts:107-123","M","DONE"],
+["Audit integrity","RISK","mirror() copies only account, debit, credit and memo — dropping costCenterId, currency, fxRate and taxRatePercent. Every reversal un-tags itself: the identical dimension-drop the register already records three times.","packages/domain/src/gl/reverse.ts:29-36","S","DONE"],
+["Audit integrity","RISK","FX revaluation re-reads its own output — it converts prior revaluation lines back into a phantom foreign amount, and the auto-reversal is invisible for the reason above, so a second revaluation at an unchanged rate posts a further gain.","packages/domain/src/fx-revaluation/revaluation.ts:152 · fx-revaluation-routes.ts:86","M","DONE"],
+["Audit integrity","ENHANCE","audit_event is protected by BEFORE UPDATE/DELETE triggers but journal_entry and journal_line have none — immutability rests on the repository never issuing the statement rather than the store refusing it.","packages/persistence/src/ledger-store.ts:50 vs audit-sink.ts:37-41","S","OPEN"],
+["Audit integrity","SIMPLIFY","annualReset is an admin-editable override, but the number format never carries the year and the period comes from the wall clock rather than the document date — so switching it on makes two years' INV-000001 indistinguishable.","packages/domain/src/numbering/sequences.ts:130 · next-number.ts:80-81","S","OPEN"],
+
+["Controls &amp; fraud","RISK","Purchase invoice cost is caller-supplied with no variance check against the PO or receipt it matches — no three-way match, unlike sales' pricing-variance warning. This is the invoice-price kickback shape.","packages/api/src/purchases-routes.ts:1002 vs packages/domain/src/sales-invoices/service.ts:298","M","OPEN"],
+["Controls &amp; fraud","RISK","Role and user routes have zero audit trail — deletion, edits and permission grants leave no forensic record, though the audit sink already exists and is used elsewhere.","packages/api/src/roles-routes.ts:113 vs customers-routes.ts:107","S","DONE"],
+["Controls &amp; fraud","RISK","sales.price.override and pos.discount.approve are catalogue permissions enforced nowhere — any user with plain invoice-create can zero a unit price or apply a 100% discount, with no ceiling and no elevated permission.","packages/domain/src/permissions/catalog.ts:113,306 · sales-invoices-routes.ts:408,442","M","DONE"],
+["Controls &amp; fraud","RISK","Stock adjustment and transfer confirm are advertised as configurable approval gates, but both document types set gateActionType to null — so any workflow configured for them is silently never enforced.","inventory/stock-adjustment-document.ts:62 · stock-transfer-document.ts:49 · documents/service.ts:147","M","DONE"],
+["Controls &amp; fraud","ENHANCE","Backdating is unbounded within an open period — the date is only a non-empty string, confirm checks period status but not proximity to today, and the stock issue carries that same backdated timestamp.","packages/contracts/src/sales-invoice.ts:59","M","OPEN"],
+["Controls &amp; fraud","ENHANCE","Supplier and treasury account edits carry no audit trail, unlike customers whose credit-limit changes are logged at WARNING severity through an existing reusable pattern.","packages/api/src/suppliers-routes.ts vs customers-routes.ts:107","S","DONE"],
+["Controls &amp; fraud","SIMPLIFY","No exception reports exist (sales below cost, discount above threshold, adjustments by user, backdated or voided documents). Rather than N bespoke modules, expose saved filtered views over the audit stream, which already filters by actor, module, severity and date.","packages/api/src/audit-routes.ts:24 · packages/domain/src/reports/index.ts","S","OPEN"],
+["Controls &amp; fraud","SIMPLIFY","The deletion and upsert surface is not theatre and needs no new controls — every financial document guards createDraft against id reuse and only cancels or reverses through the state machine. No separate void-trail work needed.","packages/domain/src/documents/service.ts:101 · sales-invoices/service.ts:239","S","NOTE"],
+
+["Costing","RISK","The cost-centre dimension cannot reach revenue, COGS, purchases or inventory write-off postings — only vouchers and manual journals carry it. PurchaseGlPostingLine and InventoryGlPostingLine have no costCenterId field at all, structurally.","purchasing/types.ts:66-87 · inventory/ports.ts:91-95 · sales-invoices/gl.ts:38-118","M","OPEN"],
+["Costing","SIMPLIFY","Carry the cost centre automatically from the document's warehouse or branch instead of a manual per-line pick only two document types expose. Warehouses have no defaultCostCenterId to derive from yet.","vouchers/voucher-document.ts:60,141-170 · settings/warehouse.ts","M","OPEN"],
+["Costing","SIMPLIFY","Drop the per-item costingMethod WAC/FIFO knob — nothing in the engine ever reads it and every item is costed weighted-average regardless.","items/item.ts:15,69 · inventory/wac.ts (no branch) · items/create-item.ts:58","S","OPEN"],
+["Costing","RISK","A GL line missing its cost centre is neither blocked nor flagged — it silently lands in the «غير مخصص» bucket forever.","gl/post.ts:115-176 · cost-center-pl/cost-center-pl.ts:34","S","OPEN"],
+["Costing","SIMPLIFY","Drop or properly back the BY_WEIGHT landed-cost distribution method — no item or product-template field stores weight anywhere.","landed-costs/distribution.ts:20,40-44,56 · items/item.ts","S","OPEN"],
+["Costing","SIMPLIFY","One valuation path, not two — the live write path and the ledger replay each reimplement the same moving-average arithmetic independently, with correctness held only by comment convention.","inventory/stock-ledger-service.ts:321-331 vs inventory/wac.ts:143-158","M","OPEN"],
+["Costing","ENHANCE","No margin or variance report exists anywhere, despite the cost being computed at confirm time and then discarded — sales-by-item and sales-by-customer carry no cost column.","inventory/stock-ledger-service.ts:216-230 · reports/sales-by-item.ts · sales-by-customer.ts","L","OPEN"],
+["Costing","ENHANCE","The three-way drift explanation (cached, recomputed, layer-derived) is fully computed and has no UI surface — surfacing it is what would satisfy \"the software must explain its costing method\".","packages/domain/src/inventory/wac.ts:176-231","S","OPEN"],
+
+["Fixed assets","RISK","createAsset always zeroes accumulated depreciation, so a legacy asset onboarded before go-live can never carry its prior history — the register understates accumulated depreciation against the GL opening balance from day one.","packages/domain/src/fixed-assets/create-asset.ts:6-25,80 · data-migration-routes.ts:655","S","OPEN"],
+["Fixed assets","ENHANCE","Capitalisation is fully re-keyed by hand: acquisition cost is a typed input with no link back to the purchase invoice or receipt that bought the asset, and no capitalised-cost lines (freight, installation) exist on the entity.","AssetRegisterScreen.tsx:509-512 · fixed-assets/create-asset.ts:6-25","M","OPEN"],
+["Fixed assets","RISK","A wrongly-created draft depreciation run can never be corrected — the domain models \"cancelled\" and re-permits the period once cancelled, but no route ever sets that status, so a bad draft permanently blocks that period and branch.","fixed-assets/create-depreciation-run.ts:44 · errors.ts:78-89 vs fixed-assets-routes.ts:346-419","S","OPEN"],
+["Fixed assets","ENHANCE","No update path exists for an asset at all — branch, warehouse, useful life, salvage value and GL overrides are frozen at creation, so a physical transfer is unreachable and depreciation expense can never follow the asset.","packages/api/src/fixed-assets-routes.ts:150-419 (GET/POST only)","M","OPEN"],
+["Fixed assets","SIMPLIFY","under_maintenance is a decorative status — shown in the KPI strip and the pill map, but nothing in the domain or API ever transitions an asset into or out of it. Wire a real toggle or drop the tile.","apps/web/src/screens/AssetRegisterScreen.tsx:33-45","S","OPEN"],
+["Fixed assets","ENHANCE","Physical count and tagging are entirely absent — no tag or barcode field, no periodic count, no reconciliation against the register. Later-phase, not required for the accounts to be correct today.","packages/domain/src/fixed-assets/* · AssetRegisterScreen.tsx","L","OPEN"],
+["Fixed assets","SIMPLIFY","The depreciation-run detail lists each line by raw assetId instead of the asset's name or code, forcing manual cross-referencing before posting.","apps/web/src/screens/DepreciationRunsScreen.tsx:264-267","S","OPEN"],
+["Fixed assets","SIMPLIFY","Book value on the register is computed with float subtraction instead of the exact Money arithmetic used server-side — display-only today, but a bad precedent in a codebase otherwise careful about money-as-bigint.","AssetRegisterScreen.tsx:52-58 vs fixed-assets/depreciation.ts:37-40","S","OPEN"],
+
+["Tax &amp; ETA","RISK","The ETA transmit port is a hard-coded stub that always throws — no invoice can ever reach مرسل or مقبول in production.","packages/domain/src/eta/service.ts:38-45","L","OPEN"],
+["Tax &amp; ETA","RISK","Confirmed sales returns never enqueue an ETA credit note despite credit_note being a modelled document type — the auto-submit bridge filters on SALES_INVOICE only.","packages/backend/src/create-backend.ts:382,400","M","OPEN"],
+["Tax &amp; ETA","RISK","Production ETA requires a signed v1.0 document with an e-seal; the shipped build produces unsigned v0.9 test-mode payloads, with signing deferred.","docs/plan.md:395","L","OPEN"],
+["Tax &amp; ETA","ENHANCE","Per-rate output and input VAT account overrides configured on a TaxRate are silently ignored — every line's VAT posts to one invoice-wide account, so a configured override never reaches the ledger.","tax-rates/tax-rate.ts:67-69 · sales-invoices/gl.ts:92 · purchasing/purchase-invoice.ts:455,458","M","OPEN"],
+["Tax &amp; ETA","SIMPLIFY","Withholding rate is a bare number the clerk types per voucher — no service-type rate table and no printable شهادة خصم for the supplier to keep.","TreasuryVouchersScreen.tsx:1093-1096 · vouchers/voucher-service.ts:145-147","M","OPEN"],
+["Tax &amp; ETA","ENHANCE","Both historical tax defects are fixed, but the VAT return keeps a division-based fallback for lines missing taxRatePercent (manual entries, pre-migration history). Flag those rows in the report rather than blending them into a derived rate.","packages/domain/src/reports/vat-return.ts:102-131,199-222 · fixes at sales-invoices/gl.ts:87, create-backend.ts:1248","S","OPEN"],
+["Tax &amp; ETA","SIMPLIFY","Exemption is modelled only at customer level; item-level exempt-versus-zero-rated is left entirely to a free-choice ETA subtype, so a clerk who forgets the override files an exempt sale as \"not subject\".","sales-invoices/service.ts:517 · totals.ts:194-198 · tax-rates/tax-rate.ts:37-49","S","OPEN"],
+["Tax &amp; ETA","SIMPLIFY","Immutability and sequencing are already sound — a confirmed invoice cannot transition to cancelled, only reversed, and the 25+ sequences are catalogue data with no reuse path. No action needed here.","sales-invoices/status.ts:18-27 · numbering/sequences.ts:37-79","S","NOTE"],
+
+["Treasury","ENHANCE","Choosing «شيك» as a voucher payment method posts straight to cash or bank and never touches the cheque register — a post-dated cheque logged this way inflates today's cash and is invisible to the due-date calendar. The two systems share no id.","TreasuryVouchersScreen.tsx:1044-1056 · vouchers/voucher-types.ts:19-33 vs cheques/cheque-service.ts:18-30","M","OPEN"],
+["Treasury","ENHANCE","A bounced customer cheque reclassifies GL but never reverses the voucher allocation, so the invoice stays paid and the debt drops out of aging and collections while still being owed.","cheques/cheque-service.ts:235-271 vs reports/aging-customers.ts:8-16","M","OPEN"],
+["Treasury","SIMPLIFY","STATUS.md's \"treasury exposes 4 of 11 voucher types\" is stale — the code already ships one unified type-picker covering all eleven generically.","TreasuryVouchersScreen.tsx:990-1002 · vouchers/voucher-service.ts:193 vs docs/STATUS.md:50","S","NOTE"],
+["Treasury","ENHANCE","No daily cash-close screen exists — opening balance, movements, closing balance and a counted-versus-system variance are nowhere in the app, only per-account statements.","TreasuryAccountsScreen.tsx · docs/plan.md:1524","L","OPEN"],
+["Treasury","ENHANCE","Custody / عهدة has no domain module at all — employee advances ride on the generic other_expense voucher with no pending, approved, disbursed or repaid tracking.","no custody module under packages/domain/src · docs/plan.md:1488","M","OPEN"],
+["Treasury","SIMPLIFY","Cheque endorsement (تظهير) has no lifecycle transition, so it can only be faked as a bounce plus a manual journal, which breaks the trail. Rather than a full endorsement flow, explicitly disallow or flag it so cashiers do not invent the workaround.","cheques/cheque-service.ts:106-198 · docs/plan.md:1376","M","OPEN"],
+["Treasury","ENHANCE","The workflow gate has no amount threshold — approval is all-or-nothing per action type, so \"require approval above 10,000 EGP\" cannot be configured.","packages/domain/src/workflow/action-types.ts:42 · docs/plan.md:428","L","OPEN"],
+["Treasury","SIMPLIFY","The cheque due-date view is buried in generic date-range filters and status chips rather than a purpose-built \"due this week, incoming versus outgoing\" scan.","apps/web/src/screens/ChequesScreen.tsx:106-129","S","OPEN"],
+
+["Receivables","RISK","A bounced incoming cheque still counts as an unapplied credit and zeroes the customer's aging — the loop adds every incoming cheque with no status filter, and the bounce deliberately leaves AR where it is.","packages/api/src/reports-routes.ts:260-263 · create-backend.ts:917-925","M","DONE"],
+["Receivables","RISK","Credit blocking checks the limit and nothing else — no overdue-days rule, no bounced-cheque history, no manual hold, and the Customer entity has no hold field at all.","credit-control/credit-check.ts:40-54 · customers/customer.ts:16-39","M","OPEN"],
+["Receivables","RISK","Three non-reconciled answers to \"what does this customer owe\" — the list column ignores returns, cheques and unallocated payments; the aging report nets them; the GL reconciliation adds voucher and cheque effects.","lib/partner-balances.ts:37-48 vs reports/aging-customers.ts:148-183 vs create-backend.ts:928-943","M","PART"],
+["Receivables","SIMPLIFY","Collections work is split across four disconnected screens with no cross-links — a collector chasing one account opens Customers, then Aging, then Cheques, then Follow-ups separately.","CustomersScreen.tsx:737-742 · ChequesScreen.tsx","L","OPEN"],
+["Receivables","SIMPLIFY","A follow-up / promise-to-pay entity already exists and is customer-scoped, but is wired only into the installment screen — so ordinary AR, the majority of receivables, has no dunning surface at all.","installments/follow-up.ts:1-9 · InstallmentFollowUpsScreen.tsx","S","OPEN"],
+["Receivables","ENHANCE","Credit-limit BLOCK mode has no override path — no named-approver bypass, so the only way past a hard block is editing the customer's limit, which is not logged as an override.","packages/domain/src/sales-invoices/service.ts:420-436","M","OPEN"],
+["Receivables","ENHANCE","The aging screen is read-only — no way to log a follow-up, open the cheque register, or jump to the statement from a row.","reports/ReportScreen.tsx:186 · reports/aging-customers.ts:128","S","OPEN"],
+["Receivables","ENHANCE","The one tie-out check that exists — statement closing balance versus aging — is buried in a single tab. Generalise that pattern (aging ⇄ control account ⇄ list) instead of maintaining three balance calculators.","apps/web/src/screens/CustomersScreen.tsx:490-495","S","OPEN"],
+
+["Sales","ENHANCE","The invoice detail page is a dead end for a draft — only «رجوع» renders, and the confirm that posts stock, GL and AR lives solely in the list row's kebab. A rep following the quote's own \"view invoice\" link cannot advance it. Sales returns' detail page does carry its confirm.","SalesInvoicesScreen.tsx:1300-1301,1954-1961 vs SalesReturnsScreen.tsx:490-494","S","OPEN"],
+["Sales","ENHANCE","Credit exposure is invisible where the order is written — the quote form shows amount owed but not the limit or headroom, and the invoice form shows neither. The limit is enforced as a 422 after the whole document is built.","sales-quotes/QuoteFormView.tsx:94-99 · SalesInvoicesScreen.tsx:743 · sales-invoices-routes.ts:291","M","OPEN"],
+["Sales","ENHANCE","No minimum price or discount ceiling anywhere — line discount runs to the full line gross and price-list tiers carry no floor, so nothing stops a rep discounting to zero without approval.","sales-invoices/sales-invoice.ts:84-89 · PriceListsScreen.tsx:33-138","L","OPEN"],
+["Sales","ENHANCE","The coupon field is free text resolved only at confirm — the rep learns whether the code is valid, or what it discounts, only after posting.","apps/web/src/screens/SalesInvoicesScreen.tsx:802-808","S","OPEN"],
+["Sales","SIMPLIFY","Invoice creation forces a \"from quote or manual\" chooser before the form renders. Fold quote selection into the customer step and default to the customer's accepted quote.","apps/web/src/screens/SalesInvoicesScreen.tsx:685-731","S","OPEN"],
+["Sales","SIMPLIFY","Quote and invoice each maintain their own ~400-line line-item editor kept in sync by hand — and they have already drifted, which is exactly how the detail-page dead end above happened.","sales-quotes/QuoteFormView.tsx vs SalesInvoicesScreen.tsx:740-1040","M","OPEN"],
+
+["Purchasing","ENHANCE","Purchase order, receipt and invoice confirm skip the approval-workflow engine entirely — an RBAC permission check and nothing else. The seed even configures a PURCHASE_INVOICE_CONFIRM chain nothing consults.","packages/api/src/purchases-routes.ts:469-480 · create-backend.ts:1231-1300 · demo-seed/platform.ts:85,109","M","PART"],
+["Purchasing","ENHANCE","requireGrnForInvoice and requirePoForGrn both default to false, so out of the box a purchase invoice can be created and confirmed with hand-typed lines, no PO and no receipt — booking AP and stock with zero physical check.","packages/backend/src/create-backend.ts:157-158 · purchasing/purchase-invoice.ts:349-351","S","OPEN"],
+["Purchasing","ENHANCE","Even the happy path cannot catch a price variance: the invoice line copies the receipt's unit cost verbatim with no field for the supplier's actual billed price, so PO, receipt and invoice can never disagree by construction.","purchasing/purchase-invoice.ts:291-305 · PurchaseInvoicesScreen.tsx:661-673","M","OPEN"],
+["Purchasing","ENHANCE","Goods receipt from an order always receives the full outstanding quantity — the form exposes no editable qty, though the contract already accepts a lines override for exactly this.","GoodsReceiptsScreen.tsx:262-268,322-327 vs packages/contracts/src/purchasing.ts:108-119","S","OPEN"],
+["Purchasing","ENHANCE","No last-purchase-price or per-supplier price history exists — the PO picker prefills from the item's average inventory cost, so the buyer negotiates against a number that is not even a purchase price.","apps/web/src/screens/PurchaseOrdersScreen.tsx:339-342","M","OPEN"],
+["Purchasing","SIMPLIFY","The receipt and invoice create forms force a \"choose method → continue\" click even when only one method is legally usable — the alternative tile is rendered permanently disabled and you must still press continue.","apps/web/src/screens/GoodsReceiptsScreen.tsx:366-411","S","OPEN"],
+["Purchasing","SIMPLIFY","There is no purchase requisition and there should not be — the chain starting at RFQ/PO is right for this buyer; a requisition-approval layer would just be routed around.","apps/web/src/screens/PurchaseOrdersScreen.tsx:227-236","S","OPEN"],
+["Purchasing","ENHANCE","Verified fixed: resolveTaxRate is now wired end to end, so auto-filled invoice-from-receipt lines get real tax rates instead of 0%. Recorded because the docs still describe it as open.","create-backend.ts:1248 → purchases-routes.ts:1014 → purchasing/purchase-invoice.ts:289-301","S","NOTE"],
+
+["Inventory","ENHANCE","Receiving against a PO always books the full outstanding quantity with no way to enter what actually arrived or why it differs, even though the backend accepts custom lines.","GoodsReceiptsScreen.tsx:262-268,322-337 vs packages/contracts/src/purchasing.ts:108-119","M","OPEN"],
+["Inventory","SIMPLIFY","Stock Balance — the screen a keeper actually watches — has no action to jump into an adjustment or transfer for that row, though the prefilled deep link already exists and is used from Items.","StockBalanceScreen.tsx:288-303 vs ItemsScreen.tsx:1391-1394","S","OPEN"],
+["Inventory","SIMPLIFY","Goods receipt is a two-step draft-then-confirm across two screens, while adjustments and transfers already chain create-and-confirm behind one button.","GoodsReceiptsScreen.tsx:322-342 vs StockAdjustmentsScreen.tsx:632-654","S","OPEN"],
+["Inventory","SIMPLIFY","A monthly provision-only accounting batch (write-down runs) sits flat on the same daily bar as the four screens a warehouse keeper actually uses.","apps/web/src/nav-config.tsx:122-136","S","OPEN"],
+["Inventory","SIMPLIFY","Every stock adjustment forces a full-screen reason picker before the form itself — an extra navigation on the highest-frequency inventory document. Fold the eight reasons into a select on the form.","StockAdjustmentsScreen.tsx:254-281,283-297","S","OPEN"],
+["Inventory","SIMPLIFY","A physical count needs a second screen visit to turn a completed count into its adjustment, though the next step is always the same single action.","PhysicalCountsScreen.tsx:428-442,553-560","M","OPEN"],
+["Inventory","SIMPLIFY","The receipt method chooser is shown even when tenant policy leaves one real choice — the ad-hoc option is rendered disabled rather than the picker being skipped.","GoodsReceiptsScreen.tsx:366-411,384-401","S","OPEN"],
+["Inventory","ENHANCE","No barcode-scan entry point on any stock document — lines are added only through a name search, so a handheld scanner has nowhere to land despite barcodes being first-class in labels and settings.","StockAdjustmentsScreen.tsx:702-710 · GoodsReceiptsScreen.tsx:459-474 vs settings/BarcodeConfigPage.tsx","M","OPEN"],
+
+["Production floor","SIMPLIFY","Delete the orphaned Issue Materials and Receive Product side panels — the Build Assembly button supersedes them, but the old flow was never removed. The open handlers are declared, rendered and never invoked.","apps/web/src/screens/WorkOrdersScreen.tsx:520,524,764-899,1017-1019","S","DONE"],
+["Production floor","ENHANCE","A work order can only be received once — a run finished across two shifts, or short of plan today and topped up tomorrow, has no second receipt.","packages/domain/src/manufacturing/work-order.ts:569-628","M","OPEN"],
+["Production floor","ENHANCE","A work order cannot be reopened or cancelled once material is issued — cancel allows only not_started and started, so a spec change mid-run forces a new order and a manual write-off of the old WIP.","packages/domain/src/manufacturing/work-order.ts:698-707","M","OPEN"],
+["Production floor","ENHANCE","Extra-issue and scrap logging capture item, quantity, station and operator but no reason, even though the domain's waste entry already carries optional notes — scrap is attributed to an order but never to a cause.","apps/web/src/screens/WorkOrdersScreen.tsx:113-233","S","OPEN"],
+["Production floor","ENHANCE","Shortage is surfaced only at Build time, not while picking the BOM and quantity, so a supervisor can release an order before learning what is missing.","WorkOrdersScreen.tsx:601-654 vs 784-791","S","OPEN"],
+["Production floor","SIMPLIFY","Flattening التصنيع onto one bar removed only duplicate quick-action buttons, not capability — no routing, work-centre or shift concept existed before or after. Confirmed harmless; no code change needed.","apps/web/src/nav-config.tsx:150-174 · manufacturing/bom.ts · work-order.ts","S","NOTE"],
+["Production floor","ENHANCE","No routing or per-operation timing exists — labour and overhead are lump costs and WorkStation is only an attribution tag, so \"does tomorrow's work fit tomorrow's shifts\" is unanswerable.","manufacturing/bom.ts:34-48 · work-station.ts","L","OPEN"],
+["Production floor","SIMPLIFY","BOM has no substitute-component field, only optional — an out-of-stock material with an approved alternate forces a BOM edit. Confirm it is in scope before building.","packages/domain/src/manufacturing/bom.ts:22-30","M","OPEN"],
+
+["Reporting","SIMPLIFY","CSV export ships raw UTF-8 with no BOM, so Arabic headers and values render as mojibake the instant a finance user opens the file in Excel.","packages/ui/src/lib/report-export.ts:34-49","S","DONE"],
+["Reporting","ENHANCE","No report implements the branch filter the catalogue itself requires for sales, purchases and the balance sheet — \"all branches\" is the only option in a multi-branch business.","docs/catalog/08-reports.md:40,104,113,292 vs zero branchId across packages/domain/src/reports","L","OPEN"],
+["Reporting","ENHANCE","كشف حساب has no drill-down from a row to its journal entry — the entry number renders as plain text, while aging rows already open the drill-down panel and the backend endpoint already exists.","reports/account-ledger.ts:80 vs aging-customers.ts · reports-routes.ts:717-753","S","OPEN"],
+["Reporting","SIMPLIFY","Every report handler loads the entire table with no server-side date or branch bound, then filters in memory — a year of invoices is reloaded on every run regardless of the range picked.","packages/api/src/reports-routes.ts:315,360,396,415","L","OPEN"],
+["Reporting","SIMPLIFY","~23 near-identical wrapper screens exist purely to route a report id to ReportScreen plus an apiPath. Collapse the lazy-import and route-map pairs into one data-driven registry.","apps/web/src/App.tsx:143-269 · screens/reports/SalesReportsScreens.tsx:16-33","M","OPEN"],
+["Reporting","ENHANCE","Export loses the filters that produced it, so an exported file gives no way to know what range or parameters it represents.","report-export.ts:34-49 · ReportRunner.tsx:351-364","S","OPEN"],
+["Reporting","ENHANCE","The comparative-period engine already exists but is wired into only 2 of 32 report definitions, though the catalogue lists «مقارنة بالعام الماضي» for several period reports.","reports/comparative-period.ts imported only by income-statement.ts:8 and cash-flow.ts:10","M","OPEN"],
+["Reporting","SIMPLIFY","Correction of record: the counts-from-page defect does not apply to the reports engine — its summary strip and grand totals are computed server-side over the whole filtered result. That warning describes the generic list screens.","data/reports-hooks.ts:19-25 · reports/engine.ts · dashboard/dashboard-hooks.ts:17-23","S","NOTE"],
+
+["Print output","RISK","The Print button on a sales invoice bypasses the print-template engine entirely — raw window.print() on a panel showing only customer, date, status and total. PrintView is imported by no sales or purchase screen.","SalesInvoicesScreen.tsx:1125,1089-1094 · PrintView imported only by PrintTemplatesPage.tsx:157 and LabelPrintingScreen.tsx","M","OPEN"],
+["Print output","RISK","The ETA-accepted authority UUID exists in the domain but never reaches the printable document, so even a correctly wired print omits the identifier and QR an e-invoice legally needs.","eta/submission.ts:54 vs packages/ui/src/print/types.ts:235-251","M","OPEN"],
+["Print output","RISK","Thermal receipts are not covered at all — page size is only A4 or A5, and the POS-receipt config tab has zero consuming component: no 58mm or 80mm width, no cut command. It configures a feature that does not exist.","print/types.ts:14 · settings/print-template-config.ts:72-77","L","OPEN"],
+["Print output","SIMPLIFY","Collapse the four pure field-visibility tabs into one — header, content, columns and totals are all boolean toggles with no interdependent logic, spread across four clicks for no structural reason.","apps/web/src/settings/PrintTemplatesPage.tsx:216-271","S","OPEN"],
+["Print output","RISK","PrintView has no multi-page handling — no repeated header, no page X of Y, no page-break-inside on rows. A long document lets native pagination decide where the table splits and where totals land.","packages/ui/src/print/PrintView.tsx:42-254","M","OPEN"],
+["Print output","RISK","Line and total amounts on the printed document are typed number, not the exact-decimal Money string every other money path uses — risking a printed total that diverges from the posted figure on a legal tax invoice. The label view one file over does this correctly.","print/types.ts:206-233 vs print/LabelSheetView.tsx:44,68-71","M","OPEN"],
+["Print output","SIMPLIFY","The per-document override tab exposes ~16 boolean fields across 9 document types — 144 knobs — with no indication of which types already have overrides and no bulk reset.","apps/web/src/settings/PrintTemplatesPage.tsx:37-62,329-356","S","OPEN"],
+["Print output","SIMPLIFY","Merge the two-field Watermark tab into Identity — neither needs a dedicated slot in a nine-tab designer.","apps/web/src/settings/PrintTemplatesPage.tsx:163-213,307-315","S","OPEN"],
+
+["Administration","SIMPLIFY","The role editor has no presets — every custom role starts from a blank 268-checkbox matrix rather than a \"Cashier\" or \"Sales Rep\" starting point.","apps/web/src/pages/RoleEditorPage.tsx:38","M","OPEN"],
+["Administration","SIMPLIFY","Row actions are only Edit and Delete — there is no duplicate-role, so a working role cannot be cloned and lightly tweaked to build the next one.","apps/web/src/pages/RolesPage.tsx:58-83","S","DONE"],
+["Administration","SIMPLIFY","The permission matrix already supports collapsed modules, but its only caller never passes the prop — all 19 modules render expanded, dumping ~268 checkboxes on screen at once.","RoleEditorPage.tsx:166-172 vs PermissionMatrix.tsx:55,80,86","S","PART"],
+["Administration","SIMPLIFY","The three-tier view / view_own / view_all model is encoded as 2-3 separate codes per entity across ~19 modules — the largest single driver of catalogue size. One scope selector per entity cuts hundreds of checkboxes to dozens.","packages/domain/src/permissions/catalog.ts:88-96","L","OPEN"],
+["Administration","ENHANCE","No sensitive-only filter in the permission matrix — auditing \"can this role see cost prices\" means scanning every subgroup for a warning glyph, since search matches only label and code.","packages/ui/src/primitives/PermissionMatrix.tsx:145-150,67-70","S","OPEN"],
+["Administration","ENHANCE","Two of ten documented policy tabs are still missing — but this supersedes STATUS.md's stale claim: the document-behaviour toggles it calls out (credit-control mode, backorders, negative stock, require-PO-before-GRN, negative-cash block) are in fact already built.","settings/SettingsGeneral.tsx:107-408,283-396 vs docs/catalog/09-settings-dashboard-ux.md:236","M","OPEN"],
+["Administration","ENHANCE","No Backup/Restore or Licence screen exists anywhere under Settings — the two worst-day admin tasks have no UI surface, and the licence check is a stubbed env var rather than the real verification chain.","apps/web/src/settings/ (no BackupPage or LicensePage) · docs/distribution.md:57-66,91-98","L","OPEN"],
+
+["Security","RISK","Business routes default to trusting client-supplied x-permissions and x-user-id headers as identity, with no session-token verification — used as the fallback in every one of ~50 route files. On the LAN mount any device on the shop wifi can set x-permissions: * and act as admin.","packages/api/src/permission-gate.ts:15-28 · customers-routes.ts:82 · apps/desktop/src/main/lan-host.ts","L","DONE"],
+["Security","RISK","LAN seat-management endpoints are gated only on the licence feature flag, not on caller identity — any LAN client can list connected tills, register a fake seat, or disconnect another till.","packages/api/src/lan/gate.ts:24-38 · lan/routes.ts:63-101","M","OPEN"],
+["Security","RISK","The session is plaintext JSON — permissions, isCompanyAdmin, roleCode — in the renderer's localStorage, not sealed with Electron safeStorage as the plan requires. No safeStorage reference exists anywhere in apps/desktop.","apps/web/src/data/session.ts:1-38 vs docs/plan.md:74,262,374","M","OPEN"],
+["Security","SIMPLIFY","PIN login has no rate limiting or lockout. Do not strengthen the hash — scrypt is already right and heavier crypto is theatre against a 10,000-value space. Add a per-user failed-attempt counter with escalating delay.","packages/backend/src/auth-routes.ts:64-83 · persistence/secret-hasher.ts:17-36","S","OPEN"],
+["Security","SIMPLIFY","Unsigned auto-updates are honestly scoped as a Phase-0 TODO and today's build only checks and logs — but autoInstallOnAppQuit is already true, so this must be a hard release gate: no auto-download until signing and notarisation land.","apps/desktop/src/main/updater.ts:1-20 · electron-builder.yml","L","OPEN"],
+["Security","RISK","The SQLite file and file-based backups are unencrypted, and this is nowhere stated as a compensating-control decision. A stolen laptop or a copied backups folder yields the entire customer list, every price and every transaction.","persistence/sqlite-connection.ts · desktop/src/backup/backup-service.ts · main/env.ts:60-64","M","OPEN"],
+["Security","SIMPLIFY","Electron process hardening is already correctly minimal — contextIsolation, sandbox, no nodeIntegration, one narrow preload bridge. Leave it. The one real gap is small: no CSP and no will-navigate / setWindowOpenHandler guard.","apps/desktop/src/main/window.ts:12-22 · preload/index.ts:45-55","S","OPEN"],
+["Security","SIMPLIFY","Licence verification is well designed for the threat model — Ed25519, monotonic-clock rollback guard, machine fingerprint, grace-then-read-only, never destroys data. No crypto changes; just verify the clock high-water-mark store is keychain-backed rather than a plain file.","packages/domain/src/licensing/license.ts:149-238 · docs/plan.md:262","S","OPEN"],
+
+["Rollout","ENHANCE","Customer and supplier openingBalance saves silently but never posts to GL 1105/2100 and is excluded from the AR/AP reconciliation — so a rollout's opening receivables will not tie to the trial balance.","SuppliersScreen.tsx:771 · packages/backend/src/create-backend.ts:928-964","M","OPEN"],
+["Rollout","SIMPLIFY","Bulk opening-stock import has a working domain function with no route and no UI, forcing the consultant to key every SKU's opening quantity as a separate adjustment line.","data-migration/import-opening-balances.ts:27 (zero references) · StockAdjustmentsScreen.tsx:598-752","M","OPEN"],
+["Rollout","SIMPLIFY","The migration wizard's customer and supplier templates omit the openingBalance column even though the domain layer accepts it — so bulk opening AR/AP is impossible even after the fix above.","import-customers.ts:25 · import-suppliers.ts:22 vs settings/data-migration-steps.ts:117-148","S","OPEN"],
+["Rollout","SIMPLIFY","No chart-of-accounts import and no old-to-new code mapping — the CoA is a fixed 78-account seed and any client-specific account is hand-created one at a time through the tree form.","accounts/coa-template.ts:16-151 · ChartOfAccountsScreen.tsx (811 lines, no import)","L","OPEN"],
+["Rollout","SIMPLIFY","The first-run licence step is a synchronous no-op that still gates progression to its own screen — folding it into admin creation removes a click with zero functional loss today.","apps/web/src/login/FirstRunWizard.tsx:110-115,26-31","S","OPEN"],
+["Rollout","ENHANCE","The wizard's import step is a text pointer with no link into the real Data Migration screen, so the consultant must remember to navigate to Settings afterwards.","apps/web/src/login/FirstRunWizard.tsx:280-289","S","OPEN"],
+["Rollout","ENHANCE","The 13-step migration wizard requires opening, previewing and committing each step independently with no batch action, even when every file is already staged.","apps/web/src/settings/DataMigrationPage.tsx:244-285","S","OPEN"],
+["Rollout","SIMPLIFY","No default notification rules ship for any of the 39 catalogue events and there is no bulk enable, so baseline alerts at go-live are hand-created one by one.","settings/NotificationRulesPage.tsx:101 · no seed in create-backend.ts","S","OPEN"],
+
+["Owner's first impression","ENHANCE","Licence-gated modules never hide from the rail — a tenant licensed for sell, buy and accounting still sees manufacturing, CRM, installments, HR and assets, so module licensing is invisible in the product itself.","apps/web/src/App.tsx:39-47 vs docs/catalog/09-settings-dashboard-ux.md:118","L","OPEN"],
+["Owner's first impression","ENHANCE","The dashboard has no \"today\" range — the owner's literal first question is how much we sold today, and the tightest granularity is a full month.","apps/web/src/dashboard/DashboardScreen.tsx:43-47","S","OPEN"],
+["Owner's first impression","SIMPLIFY","Drop the «بيانات النظام» block (account, journal-entry and user counts) from the home dashboard — it answers none of the owner's three questions and sits at the same weight as receivables, reading like a debug panel on the screen meant to prove the money is trustworthy.","apps/web/src/dashboard/DashboardScreen.tsx:291-298,484-495","S","OPEN"],
+["Owner's first impression","SIMPLIFY","Seven quick-action buttons plus a three-chip range row sit above the KPI strip, pushing the numbers the owner opens the app for below two rows of controls.","apps/web/src/dashboard/DashboardScreen.tsx:33-41,307-327","S","OPEN"],
+["Owner's first impression","SIMPLIFY","Two top-level rail workspaces exist for capability most SMEs will not touch daily — installments and fixed assets. Fold each into a shelf rather than a permanent row competing with sales and purchases.","apps/web/src/nav-config.tsx:69-78,202-210","S","OPEN"],
+["Owner's first impression","SIMPLIFY","CRM's pipeline and pipeline-stages ride as two separate flat rail rows — stages is configuration of the pipeline screen, not a peer document list.","apps/web/src/nav-config.tsx:63-68","S","OPEN"],
+
+["Buyer · contracting","BLOCKER","No progress certificate (مستخلص) document exists anywhere — only a voucher subtype's subtitle mentions the word.","docs/tasks.md:1003-1006 · no certificate contract in packages/contracts/src","L","OPEN"],
+["Buyer · contracting","BLOCKER","No retention (محتجزات) posting exists — a chart-of-accounts line (1150 محتجزات ضمان مدينة) is the entire feature.","docs/catalog/04-accounting-treasury.md:61 · docs/scenarios/10-posting-trails.md:437","L","OPEN"],
+["Buyer · contracting","BLOCKER","No BOQ or بند schedule to bill progressively against — a Project is a flat header record (code, name, customer, manager, dates, budget, cost centre, notes) with no line items at all.","apps/web/src/screens/ProjectsScreen.tsx:63-91 · packages/contracts/src/project.ts","L","OPEN"],
+["Buyer · contracting","BLOCKER","Per-project P&amp;L infrastructure exists — an auto-created PRJ cost centre and a Cost Center P&amp;L report — but sales invoices and purchase bills carry no cost-centre field to tag revenue and cost to it, so the report can never show a real number.","projects/create-project.ts:42 · CostCenterPnLScreen.tsx:1-40 · no costCenterId in contracts/sales-invoice.ts","M","OPEN"],
+["Buyer · contracting","BLOCKER","Subcontractor accounts with their own certificates and retention do not exist; the only subcontracting concept in the codebase is manufacturing-side and can only be faked as a stock issue plus an unrelated purchase invoice.","docs/plan.md:1213,1343","L","OPEN"],
+["Buyer · contracting","SIMPLIFY","Ordinary vendors already work as subcontractors on the AP side — do not build a parallel subcontractor domain; add a retentionPercent to the existing vendor and bill flow.","apps/web/src/screens/PurchaseInvoicesScreen.tsx · packages/domain/src/purchase*","M","OPEN"],
+["Buyer · contracting","ENHANCE","An advance-payment voucher subtype already ships end to end («دفعة مقدمة من عميل مقاولات», \"recovered from certificates\") but is functionally orphaned — a minimal certificate document would make it work rather than decorate.","docs/catalog/04-accounting-treasury.md:527-528 · docs/tasks.md:1004","M","OPEN"],
+["Buyer · contracting","SIMPLIFY","Do not build a general WBS, timesheet or progress-percentage project-management layer — a contractor needs BOQ lines, certificates and retention on top of the cost centre that already exists. Skip tasks, Gantt and resource scheduling for v1.","docs/plan.md:1220 §6.3.7","S","NOTE"],
+
+["Buyer · distribution","BLOCKER","Customer credit limit and balance ignore cheques received — the exact instrument this business runs on. The supplier side had this identical bug fixed, with a comment saying it overstated the payable by exactly the cheques issued; the AR side was never fixed.","apps/web/src/lib/partner-balances.ts:37-48 vs :88-94","S","DONE"],
+["Buyer · distribution","BLOCKER","Cheques never appear on the customer statement, though an incoming cheque posts straight to the AR control account — so aging, trial balance and the statement can legitimately disagree by exactly the value of open cheques.","cheques/cheque-service.ts:17-18 · ChequesScreen.tsx:407-470 · CustomersScreen.tsx:336-467","M","OPEN"],
+["Buyer · distribution","ENHANCE","The credit-limit check fires only at confirm, after a full invoice is typed and a draft is already persisted — nothing shows the limit or headroom while composing lines.","credit-control/credit-check.ts:40-54 · SalesInvoicesScreen.tsx:594-644","S","OPEN"],
+["Buyer · distribution","SIMPLIFY","A credit-blocked confirm leaves an orphan draft behind — create succeeds and persists, confirm throws, and the catch only sets an error string. The draft is never rolled back.","apps/web/src/screens/SalesInvoicesScreen.tsx:602-644","S","OPEN"],
+["Buyer · distribution","SIMPLIFY","Quantity-tier pricing is set when the item is picked and never re-resolves as quantity crosses a tier break, and the server's own pricing-variance result is computed at confirm and displayed nowhere.","SalesInvoicesScreen.tsx:482-488,865 · sales-invoices/service.ts:494-507","M","OPEN"],
+["Buyer · distribution","SIMPLIFY","Invoice line entry is a tall vertical card per line with every field always expanded, instead of a compact one-row grid — booking a 20-line wholesale invoice means 20 card expansions and scrolling.","apps/web/src/screens/SalesInvoicesScreen.tsx:826-950","M","OPEN"],
+["Buyer · distribution","ENHANCE","Credit limit, balance and aging are not in one screen — aging is a separate report and only cross-checked as a banner inside the statement tab, so the number this owner checks most needs two navigations.","CustomersScreen.tsx:693-704,472-498","S","OPEN"],
+["Buyer · distribution","ENHANCE","No collection-route (جولة تحصيل) concept for مندوبين, despite van trips already implementing the exact expected-versus-counted settlement pattern that a collector's daily list would want.","VanTripsScreen.tsx:268-330","M","OPEN"],
+
+["Buyer · manufacturing","SIMPLIFY","Two issue and receive side panels and their handlers are dead code — never opened, only Build Assembly is reachable. Removing them cuts ~120 lines of confusing surface.","apps/web/src/screens/WorkOrdersScreen.tsx:520,524,674-707,764-882","S","DONE"],
+["Buyer · manufacturing","ENHANCE","Build Assembly does not hide work orders — it is a convenience wrapper over the same four-stage machine, with issue, return, waste and extra cost still reachable on the shop-floor tab. The QuickBooks vocabulary is safe to keep.","WorkOrdersScreen.tsx:620-672 · manufacturing/work-order.ts:325-604","S","NOTE"],
+["Buyer · manufacturing","ENHANCE","Costing is traceable and honest — weighted average plus immutable cost layers replayed from the ledger, with a drift report reconciling cached against recomputed. Surface it per work order, not only per item.","packages/domain/src/inventory/wac.ts:1-26,94-169,203-231","S","OPEN"],
+["Buyer · manufacturing","ENHANCE","Backdated price changes do not rewrite history — a new receipt creates a new immutable layer and revaluation is scoped to one source document. Document this in-app so the buyer trusts it without reading code.","inventory/wac.ts:104-124,150-158 · stock-ledger-service.ts:756-819","S","OPEN"],
+["Buyer · manufacturing","SIMPLIFY","Warehouses have no kind (raw, floor, finished) — the work order asks for two arbitrary pickers labelled input and output, so nothing stops picking the same warehouse twice or a sales warehouse by mistake.","manufacturing/work-order.ts:107-108,202-203 · WorkOrdersScreen.tsx:721-728","M","OPEN"],
+["Buyer · manufacturing","BLOCKER","WIP has no physical location — issued material leaves the raw warehouse straight into a value-only bucket on the work order, so a walk-the-floor count can never be reconciled against a system quantity, only a value.","manufacturing/work-order.ts:9-16,325-370","L","OPEN"],
+["Buyer · manufacturing","SIMPLIFY","A build fires once per order, so a short-shipped or partly finished batch permanently caps produced quantity and forces a new work order for the remainder, with no visible link between the two.","packages/domain/src/manufacturing/work-order.ts:569-604","M","OPEN"],
+["Buyer · manufacturing","SIMPLIFY","Scrap is modelled twice at different layers and never reconciled — BOM scrap percentage grosses up planned requirement while the work-order waste log is purely informational, so planned-versus-actual scrap cost is nowhere.","manufacturing/bom.ts:92-111 vs work-order.ts:510-533","M","OPEN"],
+
+["Buyer · retail","BLOCKER","The dashboard summary leaks whole-company GL totals to a branch-limited manager instead of narrowing by branch scope — the gate is permission-only and the ledger list is unscoped, while every other route uses the scoping pattern.","packages/backend/src/dashboard-routes.ts:90,97 vs sales-invoices-routes.ts:515-518","S","OPEN"],
+["Buyer · retail","ENHANCE","The home dashboard has no per-branch view at all — \"today's sales per branch at a glance\" exists only by opening Settings, then Branches, then each branch's tab, and even there the totals are all-time.","dashboard/DashboardScreen.tsx · settings/BranchesPage.tsx:112-130","M","OPEN"],
+["Buyer · retail","BLOCKER","No barcode-scan-to-add field anywhere in stock entry — receiving, adjustments and label printing all add lines by typing a name into a search picker.","LabelPrintingScreen.tsx:73-98 · GoodsReceiptsScreen.tsx:256,459","M","OPEN"],
+["Buyer · retail","SIMPLIFY","Branch and warehouse setup carries hierarchy a four-shop chain does not need — parent-branch nesting and a five-way warehouse type picker.","settings/branch.ts:13,17 · settings/warehouse.ts:14-20","S","OPEN"],
+["Buyer · retail","SIMPLIFY","Stock transfer between shops is already the right shape — one create-and-confirm step, no ship-then-receive dance. Keep it; do not add ceremony.","apps/web/src/screens/StockTransfersScreen.tsx:1,40","S","NOTE"],
+["Buyer · retail","ENHANCE","The transfer line picker shows no on-hand quantity at the source branch, so a shortfall is caught by a server error on confirm rather than while composing the transfer.","StockTransfersScreen.tsx:404-408 vs inventory/stock-ledger-service.ts:322-324","S","OPEN"],
+["Buyer · retail","SIMPLIFY","Treasury and branch scoping is already correct — cash accounts, vouchers and numbering sequences are branch-scoped by default. This needs a UI label, not new plumbing.","treasury-accounts-routes.ts:93 · numbering/sequences.ts:32-33,127-130","S","OPEN"],
+["Buyer · retail","ENHANCE","There is no daily cash-close or shift reconciliation anywhere in Treasury — a day's takings are entered manually as a receipt voucher with no count-and-compare step.","TreasuryVouchersScreen.tsx · TreasuryAccountsScreen.tsx","M","OPEN"],
+
+["Buyer · pharmacy","BLOCKER","Receiving screens have no batch or expiry input, so nobody can ever enter the data the FEFO engine needs — though the field exists in the domain type.","GoodsReceiptsScreen.tsx:50-141 · PurchaseInvoicesScreen.tsx vs purchasing/goods-receipt.ts:54-55","M","DONE"],
+["Buyer · pharmacy","BLOCKER","Stock transfers wipe batch and expiry on the destination leg, so any branch-to-branch move to clear near-expiry stock loses FEFO and expiring-soon visibility the moment it lands.","packages/domain/src/inventory/stock-ledger-service.ts:574-586","M","DONE"],
+["Buyer · pharmacy","BLOCKER","Selling an already-expired batch has no hard stop — the issue command never checks expiry against today.","inventory/stock-ledger-service.ts (issue path) · no expiry gate in sales-invoices or purchasing","S","DONE"],
+["Buyer · pharmacy","ENHANCE","Once entry is wired, FEFO itself is real and correctly designed — expiry beats receipt date, no-expiry items fall back to FIFO, and the expiring-soon report reads the exact order the next issue will draw from.","inventory/cost-layer.ts:43-65 · reports/inventory-expiring.ts:9-16,76-177","S","NOTE"],
+["Buyer · pharmacy","SIMPLIFY","Purchase returns cannot carry a batch and no reason is named near-expiry, so returning expiring stock to a supplier is not a distinct auditable flow. Add a reason value and a batch passthrough, not a new document type.","packages/domain/src/purchase-returns/purchase-return-document.ts:26-48","S","OPEN"],
+["Buyer · pharmacy","ENHANCE","Two-purchase-price costing already has the right shape — immutable per-receipt layers plus a live weighted average, with the item's cost tab openly explaining why they diverge. Keep as-is.","inventory/cost-layer.ts:1-13 · docs/catalog/03-inventory.md:49","S","NOTE"],
+["Buyer · pharmacy","SIMPLIFY","The \"expiry\" write-down path is really an aging provision measured in days since last movement, not days to expiry — relabel it so it is never read as the expiry control.","inventory/create-writedown-run.ts:3-11,23 vs reports/inventory-expiring.ts","S","OPEN"],
+["Buyer · pharmacy","SIMPLIFY","The batch and expiry toggle on Items is already one combined switch rather than two independent settings. Keep it that way.","apps/web/src/screens/ItemsScreen.tsx:250-251,1117-1120","S","NOTE"],
+
+["Buyer · restaurant","BLOCKER","Selling a dish never explodes its recipe — a sale decrements only the sold item's own stock, not its ingredients.","packages/domain/src/sales-invoices/service.ts:313-329","L","OPEN"],
+["Buyer · restaurant","BLOCKER","The dish cost estimate — the number an owner checks to catch a price move — is priced off a manually typed static item field, not the weighted-average ledger that purchase invoices actually feed.","packages/backend/src/create-backend.ts:1576-1579 · items/item.ts:72","M","OPEN"],
+["Buyer · restaurant","ENHANCE","The one path that does consume real weighted-average cost into recipe cost is the four-stage Work Order — correct arithmetic, wrong shape for à-la-carte kitchen tickets.","manufacturing/work-order.ts:319-370,564-604","L","OPEN"],
+["Buyer · restaurant","SIMPLIFY","Physical count and waste-with-reason are solid and GL-tied — do not touch, but surface them as the «جرد» and «هالك» entry points a line cook uses, instead of generic Adjustments.","inventory/physical-count.ts:1-60 · inventory/reasons.ts:16-125","S","OPEN"],
+["Buyer · restaurant","SIMPLIFY","Six item types with a capability matrix is factory-catalogue thinking a restaurant does not need — collapse to ingredient versus dish for this vertical.","items/item-type.ts:15-39 · ItemsScreen.tsx:60-73 (1,586-line item form)","M","OPEN"],
+["Buyer · restaurant","ENHANCE","BOM already supports per-line waste percentage that grosses up required quantity — extend it so waste also feeds live هالك reporting per dish, not just the planning estimate.","packages/domain/src/manufacturing/bom.ts:92-116","M","OPEN"],
+["Buyer · restaurant","SIMPLIFY","Unit conversion kg↔portion is exact and already wired into item alternates — reuse it for recipe lines rather than building a separate kitchen unit system.","packages/domain/src/units/conversion.ts:19-85","S","OPEN"],
+["Buyer · restaurant","BLOCKER","No delivery or dine-in channel concept in sales — invoices carry no order-type field, so delivery revenue and cost cannot be split from dine-in without a fake service line item.","packages/backend/src/demo-seed.ts:156 · no channel field in sales-invoices","L","OPEN"],
+
+["Buyer · accounting bureau","BLOCKER","A single fixed SQLite path per install with no company switcher — running 60 client files means 60 separate installs, not one bureau seat.","apps/desktop/src/main/env.ts:60 · docs/distribution.md:123","L","OPEN"],
+["Buyer · accounting bureau","BLOCKER","No export path exists anywhere in the app — a client's books can leave only as a proprietary .mezanbak archive, never as CSV or Excel to hand back.","apps/desktop/src/backup/archive.ts:7-8 · no export control in FinancialReportsScreen.tsx","M","OPEN"],
+["Buyer · accounting bureau","BLOCKER","ETA e-invoicing stops at the submission queue — clearance past that is manual, which does not scale to 60 clients' daily invoices.","docs/distribution.md:152 · packages/domain/src/eta/","L","OPEN"],
+["Buyer · accounting bureau","ENHANCE","Data migration covers only customers, items, suppliers and opening balances — no chart-of-accounts import and no journal-entry import, so bringing in existing books means retyping the CoA and history by hand.","packages/domain/src/data-migration/index.ts:1-9","M","OPEN"],
+["Buyer · accounting bureau","SIMPLIFY","The module gate that would let a per-client licence show only the modules that client needs is unwired — every install shows all twenty modules regardless of licence.","docs/distribution.md:38-52 · apps/web/src/nav-config.tsx never consults entitlements","M","OPEN"],
+["Buyer · accounting bureau","ENHANCE","Only one generic chart-of-accounts template exists — no selectable presets for the industries a bureau actually carries, so every onboarding edits the same generic tree by hand.","packages/domain/src/accounts/coa-template.ts:16-139","M","OPEN"],
+["Buyer · accounting bureau","SIMPLIFY","GL posting is already exactly right for a bureau — unbalanced lines, inactive or header accounts and closed periods are all rejected before any write, and reversal never mutates a posted entry. The only risk is a later \"edit posted entry\" shortcut; keep it off the roadmap.","packages/domain/src/gl/post.ts:145-156 · gl/reverse.ts:39-46","S","NOTE"],
+["Buyer · accounting bureau","SIMPLIFY","Fiscal-period locking is correctly terminal and the trial balance is computed from the same accounts and entries the ledger holds, so it ties by construction. No engineering needed; just keep it untouched as multi-company work lands.","fiscal-periods/transitions.ts:29-39 · reports/trial-balance.ts:9-20","S","NOTE"]];
+
+const SEVS = ["BLOCKER","RISK","SIMPLIFY","ENHANCE"];
+const active = new Set();
+const activeSt = new Set();
+let query = "";
+
+const tally = document.getElementById("tally");
+const counts = {};
+SEVS.forEach(s => counts[s] = F.filter(f => f[1] === s).length);
+const stCounts = {};
+["DONE","PART","OPEN","NOTE"].forEach(s => stCounts[s] = F.filter(f => f[5] === s).length);
+tally.innerHTML =
+  `<div><span class="n">${F.length}</span><span class="l">findings, all with file evidence</span></div>` +
+  `<div><span class="n" style="color:var(--done)">${stCounts.DONE}</span><span class="l">verified fixed since the review</span></div>` +
+  `<div><span class="n" style="color:var(--part)">${stCounts.PART}</span><span class="l">partly done, remainder named</span></div>` +
+  `<div><span class="n" style="color:var(--open)">${stCounts.OPEN}</span><span class="l">still open in the code</span></div>` +
+  `<div><span class="n" style="color:var(--lapis)">${stCounts.NOTE}</span><span class="l">confirmations — nothing to do</span></div>`;
+
+const root = document.getElementById("findings");
+const countEl = document.getElementById("count");
+
+function esc(s) { return s.replace(/&(?!amp;|lt;|gt;|#)/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+function render() {
+  const q = query.trim().toLowerCase();
+  let shown = 0;
+  let html = "";
+  for (const [name, role] of AREAS) {
+    const plain = name.replace(/&amp;/g, "&");
+    const rows = F.filter(f =>
+      f[0].replace(/&amp;/g, "&") === plain &&
+      (active.size === 0 || active.has(f[1])) &&
+      (activeSt.size === 0 || activeSt.has(f[5])) &&
+      (q === "" || (f[2] + " " + f[3] + " " + plain).toLowerCase().includes(q))
+    );
+    if (!rows.length) continue;
+    shown += rows.length;
+    html += `<div class="area"><div class="area-head"><h3>${name}</h3><span class="role">${role}</span></div>`;
+    for (const r of rows) {
+      const st = r[5];
+      html += `<div class="f"><span class="sev sev-${r[1]}">${r[1]}</span>` +
+              `<span class="st st-${st}">${st === "PART" ? "part" : st === "NOTE" ? "no action" : st.toLowerCase()}</span>` +
+              `<div><div class="claim">${esc(r[2])}</div><div class="ev">${esc(r[3])}</div></div>` +
+              `<div class="eff">${r[4]}</div></div>`;
+    }
+    html += `</div>`;
+  }
+  root.innerHTML = html || `<p class="empty">No findings match that filter.</p>`;
+  countEl.textContent = shown + " of " + F.length + " shown";
+}
+
+document.querySelectorAll(".chip").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const set = btn.dataset.sev ? active : activeSt;
+    const key = btn.dataset.sev || btn.dataset.st;
+    if (set.has(key)) { set.delete(key); btn.setAttribute("aria-pressed", "false"); }
+    else { set.add(key); btn.setAttribute("aria-pressed", "true"); }
+    render();
+  });
+});
+document.getElementById("q").addEventListener("input", e => { query = e.target.value; render(); });
+
+render();
+</script>
+</body>
+</html>

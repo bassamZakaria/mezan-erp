@@ -341,6 +341,17 @@ HR dashboard charts (**R10.1**), asset status chips.
 # 3. Open now
 
 
+> **Two review artifacts sit alongside this section and are not folded into it.**
+> `artifacts/simplification-review.html` — 134 findings from 32 reviewers over the code and
+> the docs, each with file evidence and a status re-read against the tree; filter it to
+> *open* to see what is left. `artifacts/egypt-scope-and-compliance.html` — fourteen
+> Egyptian statutory obligations audited against the code, and a verdict on all 115 nav
+> entries. Both are point-in-time and were compiled on branches other than `main`; their
+> open items are candidates for this section, not entries in it, until each is re-checked
+> against the running app. **The largest single one: Egypt's B2C e-receipt regime
+> (الإيصال الإلكتروني) is a separate mandate from e-invoicing, already in force, and this
+> build has nothing for it — it blocks the retail, restaurant and pharmacy buyers.**
+
 **Re-verified 2026-08-27.** Two items are genuinely open. Seven that used to sit here were
 finished work whose boxes were never ticked, and are now in §2; one described a field that
 no longer exists. §3.3 records what moved and why, so nothing is silently dropped.
@@ -553,7 +564,20 @@ necessarily the person who sold it.
 
 ---
 
-## 6.2 Longer-standing product decisions
+## 6.2 Proposed, not yet opened
+
+Seven decisions are proposed in `artifacts/egypt-scope-and-compliance.html` §10, each with
+its options stated. They are recorded here by reference rather than transcribed, because
+none has been put to anyone yet: **DEC-8** which QuickBooks is the baseline · **DEC-9** does
+the e-receipt build assume POS · **DEC-10** ship without a wired e-seal · **DEC-11** is
+contracting in scope · **DEC-12** does HR come back, and against what · **DEC-13** do we
+claim Law 6/2025 support, and when · **DEC-14** hide or delete the cut screens. Taking any
+of them means moving it into §6.1 or §6.3 with the option chosen and why.
+
+DEC-13 is the one with a clock on it: no competitor models the Law 6/2025 turnover regime
+today, and any of them could build it in a sprint.
+
+## 6.3 Longer-standing product decisions
 
 These predate the build and are carried in `plan.md` §6.3 (`backlog.md`, which also held them, was merged into `plan.md` on 2026-08-27);
 none of them blocks ongoing development, but each blocks calling its specific
@@ -563,7 +587,7 @@ conversion mechanism, projects progress billing (مستخلصات), and a third 
 
 ---
 
-## 6.3 Decided
+## 6.4 Decided
 
 | # | Decision | Taken |
 |---|---|---|

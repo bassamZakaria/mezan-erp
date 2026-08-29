@@ -37,6 +37,8 @@ Six documents and three directories. Start with the one that answers your questi
 | Who do we compete with, and where are the gaps? | `plan.md` §8 |
 | What is the plan for HR / POS / Cloud? | `plan.md` §9 |
 | What does the reference app actually do? | `catalog/01..10`, then `reference-parity/REQUIREMENTS.md` for what was read from it running |
+| What did the review panel find, and what is still open from it? | `artifacts/simplification-review.html` |
+| What does Egyptian law require that we do not have? | `artifacts/egypt-scope-and-compliance.html` |
 | What should the UI look like? | `artifacts/mezan-enhanced-mockups.html`, then `design/ux-enhancement-spec.md` for why |
 | Where do I put a mockup, a generated page, or an Artifact I just published? | `artifacts/` — always, and add a row to its `README.md` |
 

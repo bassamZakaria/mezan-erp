@@ -283,12 +283,12 @@ export function AppShell({
                column is the only chrome left, so the brand is its header rather
                than a thing floating in a band above the page.
 
-               The inboxes sit BESIDE it as icons rather than as rows in the
-               list below. They are single destinations, not workspaces: every
-               other row in the column opens a whole shelf of screens, these
-               open exactly one each. They are also the same two in every
-               workspace, and they carry live counts — a badge that scrolls out
-               of view with the list is a badge nobody sees. */
+               لوحة التحكم and the two inboxes sit BESIDE it as icons rather
+               than as rows in the list below. They are single destinations,
+               not workspaces: every other row in the column opens a whole shelf
+               of screens, these open exactly one each. They are also the same
+               three in every workspace, and two carry live counts — a badge
+               that scrolls out of view with the list is a badge nobody sees. */
             <div className="flex min-h-[var(--h-topbar)] flex-none items-center gap-[4px] pe-[8px] ps-[14px]">
               <button
                 type="button"

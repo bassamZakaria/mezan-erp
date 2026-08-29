@@ -248,20 +248,20 @@ export function AppLayout() {
   // plain link. Its group (سير العمل) then holds nothing and drops out of the
   // tabs — «كل الشاشات» still lists it, since it is handed the whole tree.
   /**
-   * صندوق الوارد and الموافقات, drawn as icons beside the wordmark rather than
-   * as rows in the column.
+   * لوحة التحكم، صندوق الوارد and الموافقات, drawn as icons beside the wordmark
+   * rather than as rows in the column.
    *
-   * لوحة التحكم is deliberately NOT among them. The brand lockup beside these
-   * icons already opens it — that is what `onNavigateHome` does — so adding a
-   * dashboard icon next to the brand would put two controls a centimetre apart
-   * that do exactly the same thing. It had a named row while the brand was the
-   * only other way home; now that the row is gone from the column, the
-   * wordmark is the single, labelled way there.
+   * لوحة التحكم leads them even though the brand lockup beside it opens the
+   * same screen. Clicking a logo to get home is a convention people who know it
+   * rely on and people who do not never discover — nothing on the screen says
+   * the wordmark is a button. A named, hoverable icon costs 32px and removes
+   * the guess; the lockup stays a link for everyone who already reaches for it.
    */
-  const directNavItems = useMemo(
-    () => groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key)),
-    [groups],
-  );
+  const directNavItems = useMemo(() => {
+    const pinned = groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key));
+    const home: NavItem = { ...buildTopNavItem(t), onClick: () => navigate("dashboard") };
+    return [home, ...pinned];
+  }, [groups, navigate, t]);
 
   /**
    * The six workspaces of the column, الإعداد والصلاحيات among them.

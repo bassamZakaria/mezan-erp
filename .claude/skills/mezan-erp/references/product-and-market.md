@@ -107,9 +107,18 @@ manufacturing, cheques, installments and offline POS. Mezan's real edge is deplo
 model and execution quality, not "features they lack". Do not reuse those overstated
 claims.
 
-Catalog gaps worth verifying before finalizing those modules: BOQ / progress
-certificates / retention billing for contracting, FEFO for pharma, cheque
+Catalog gaps worth verifying before finalizing those modules: FEFO for pharma, cheque
 endorsement/replacement states, own-fleet delivery tracking, IAS-21 FX gain/loss depth.
+
+**Contracting is researched — see `docs/contracting/`.** Two corrections to the
+picture above came out of that pass. Daftra **does** ship مستخلصات المقاولات and
+خصم ضمان الأعمال, so contracting is not one of its gaps and must not be claimed as
+one. And of fourteen Egyptian, Saudi and Gulf products checked, **not one advertises
+خطابات الضمان** — either a market-wide convention that guarantees are a bank matter,
+or the cheapest differentiator available. QuickBooks and Odoo both fail at retainage,
+at progress certificates, and at getting stock cost onto a project; Odoo's
+`stock.move` carries no analytic dimension, which is the same hole this repo has, in
+the same place.
 
 ## What Egyptian compliance actually demands (measured 2026-08-25)
 
@@ -127,8 +136,13 @@ Scoped in `docs/scenarios/09-cross-module.md` X40–X51 and partly asserted in
   input deduction. Per-line rates post correctly; the VAT return cannot report them
   separately (D28) and a partial taxable base cannot be expressed at all.
 - **Withholding tax** on local B2B payments — the payment is net, the withheld amount
-  is owed to the authority, and the supplier must still read as settled in full. No
-  account, no field, no report exists (D27).
+  is owed to the authority, and the supplier must still read as settled in full. D27
+  is **fixed** (F71): vouchers carry `withholdingAmount` / `withholdingRatePercent` /
+  `withholdingGlAccountId`, account 2210 is in the template, and
+  `reports/withholding-tax.ts` files it. What remains is that it lives on the
+  **payable** side only — there is no debtor account for tax a customer withholds from
+  our own invoice or certificate, and the GL account is caller-supplied per voucher
+  rather than routed.
 - **Statutory payroll** — income tax, social insurance as **two** liabilities
   (employee share and employer cost), Article 47 seniority, end-of-service gratuity.
   None is computed, and the honest requirement is that every payslip *says so* rather

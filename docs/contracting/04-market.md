@@ -103,6 +103,59 @@ new-project cutoff in March 2027.
 Not researched, and honestly so: ERPNext/Frappe construction verticals, Dynamics 365
 Business Central construction add-ons, SAP Business One construction add-ons.
 
+## The Arabic market — the one that matters
+
+Fourteen Egyptian, Saudi and Gulf products were checked against seven Arabic feature
+terms on their own pages: مستخلصات، جدول الكميات، المحتجزات، الدفعة المقدمة،
+مقاولي الباطن، أوامر التغيير، خطابات الضمان.
+
+A ✗ below means "not advertised where we looked", not "confirmed absent" — these are
+marketing pages, and several vendors blocked automated reading.
+
+| Product | مستخلصات | جدول الكميات | Retention | دفعة مقدمة | مقاولي الباطن | أوامر التغيير | خطابات ضمان |
+|---|---|---|---|---|---|---|---|
+| **DoubleClick** (EG) | ✅ عملاء + باطن | ✅ + تحليل | ~ as تأمين الأعمال | ✅ خصم الدفعة المقدمة | ✅ عقود باطن | ✗ | ✗ |
+| **Daftra** (EG, SaaS) | ✅ مستخلصات المقاولات | ✗ | ✅ خصم ضمان الأعمال | ✗ | ✗ | ✗ | ✗ |
+| **Odoo Construction** (MENA partner vertical) | ✅ مالك + باطن | ✅ BOQ | ✗ | ✗ | ✅ | ✗ | ✗ |
+| **AccFlex** (EG) | ✅ مستخلصات مقاولي الباطن والمالكين | ✗ | ✗ | ✗ | ✅ implied | ✗ | ✗ |
+| **DEXEF** (EG/SA/IQ) | ✗ | ✗ | ✗ | ✗ | ✅ متابعة مقاولي الباطن | ✅ أوامر التغيير | ✗ |
+| **Namasoft** (SA) | ✅ باطن, billed independently | ✗ | ✗ | ✗ | ✅ | ~ ملاحق only | ✗ |
+| **Babel ERP** (EG/SA) | ~ article text only | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| **Focus Softnet**, **Horizon EBS** (Gulf) | English marketing only; retention and subcontractor management named in English | | | | | | |
+| **Onyx Pro** | ✗ verified negative — none of the seven terms appear | | | | | | |
+| **Al Motammem / المتمم** (Microtech) | ✗ verified negative — generic توجيه القيود للمشروعات only | | | | | | |
+
+Three leads did not resolve: "Delta" is a school-management vendor (the contracting
+"Delta" is a *client* in a Babel case study, not a vendor); "TSS" matched no
+contracting product; "Elmohasib / المحاسب" is a blog and Excel-template site, not a
+packaged product.
+
+### What this changes
+
+**Daftra ships مستخلصات المقاولات and خصم ضمان الأعمال today.** That is a correction
+to this repo's standing competitive note, which lists contracting among Daftra's
+gaps. It is not a gap. The honest position is the one already recorded elsewhere:
+Mezan's edge is deployment model and execution quality, not features the nearest
+competitor lacks.
+
+**The Egyptian market defines contracting software as مستخلصات.** The two
+best-verified products both lead with progress certificates and subcontractor
+certificates, not with scheduling, WBS or field management. That independently
+confirms what every stakeholder in our own panel said, and it settles the priority
+question: the certificate is the product.
+
+**Only one product pairs مستخلصات with an explicit BOQ** — the Odoo MENA vertical,
+priced at $3,500 for source or $11,000 implemented. Coverage of جدول الكميات,
+retention and advance recovery is thin across the rest. Thin advertising is not proof
+of a thin product, but it does say what these vendors think sells.
+
+**Nobody in the entire scan advertises خطابات الضمان.** Bid bonds, performance bonds
+and advance-payment guarantees are central to Egyptian government and large-private
+contracting, and not one of fourteen products markets them. Either the whole local
+market treats guarantees as a bank back-office matter outside the software, or this is
+an unserved need. Worth asking a real contractor which — it is the cheapest possible
+differentiator if it is the second.
+
 ## What this means for Mezan
 
 The differentiator is not "features they lack" — that is the overstated claim the

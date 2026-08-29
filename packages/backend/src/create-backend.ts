@@ -1519,6 +1519,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         treasury: hrTreasuryDisbursement,
         payrollComponents: hrPayrollComponents,
         garnishmentRegister: hrGarnishments,
+        settings,
       },
       users: uow.users,
       numbering: ledger.numbering,

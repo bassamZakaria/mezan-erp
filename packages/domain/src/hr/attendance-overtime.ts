@@ -91,15 +91,22 @@ export function summarizeOvertime(
   return { day: minutesToHours(dayMinutes), night: minutesToHours(nightMinutes), restDay: minutesToHours(restDayMinutes) };
 }
 
-/** Binds a live attendance repository to payroll's overtime seam. */
+/**
+ * Binds a live attendance repository to payroll's overtime seam.
+ *
+ * `resolveOptions` is called per calculation, not captured at wiring time: the
+ * standard day, the weekend and the holiday calendar all live in tenant data
+ * that changes without a restart, and a rest-day premium that misses an actual
+ * public holiday is a silently wrong payslip.
+ */
 export function createOvertimeHoursProvider(
   repo: Pick<AttendanceRepository, "list">,
   table: OvertimeTable,
-  options: OvertimeDerivationOptions,
+  resolveOptions: () => Promise<OvertimeDerivationOptions> | OvertimeDerivationOptions,
 ): OvertimeHoursProvider {
   return {
     async overtimeHoursFor(employeeId, periodStart, periodEnd) {
-      const entries = await repo.list({ employeeId, from: periodStart, to: periodEnd });
+      const [entries, options] = await Promise.all([repo.list({ employeeId, from: periodStart, to: periodEnd }), resolveOptions()]);
       return summarizeOvertime(entries, table, options);
     },
   };
@@ -113,11 +120,11 @@ export function createOvertimeHoursProvider(
  */
 export function createWorkedTimeProvider(
   repo: Pick<AttendanceRepository, "list">,
-  options: Pick<OvertimeDerivationOptions, "standardDailyHours">,
+  resolveOptions: () => Promise<Pick<OvertimeDerivationOptions, "standardDailyHours">> | Pick<OvertimeDerivationOptions, "standardDailyHours">,
 ): WorkedTimeProvider {
   return {
     async workedTimeFor(employeeId, periodStart, periodEnd) {
-      const entries = await repo.list({ employeeId, from: periodStart, to: periodEnd });
+      const [entries, options] = await Promise.all([repo.list({ employeeId, from: periodStart, to: periodEnd }), resolveOptions()]);
       let minutes = 0;
       let days = 0;
       for (const entry of entries) {

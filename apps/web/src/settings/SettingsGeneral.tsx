@@ -420,12 +420,20 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   onChange={(v) => patch({ hrContractExpiryWarningDays: v })}
                   hint={t("settingsGeneral.allowedRange7365Default")}
                 />
-                <NumberField
-                  label={t("settingsGeneral.overtimeMultiplier")}
-                  value={draft.overtimeMultiplier}
-                  step={0.1}
-                  min={1}
-                  onChange={(v) => patch({ overtimeMultiplier: v })}
+                {/*
+                  There is no overtime-multiplier field: 35% by day, 70% by
+                  night and 100% on a rest day are statute, not preference, and
+                  they live in the dated tables payroll computes against.
+                */}
+                <SelectField
+                  label={t("settingsGeneral.payrollDayDivisorBasis")}
+                  value={draft.payrollDayDivisorBasis}
+                  onChange={(v) => patch({ payrollDayDivisorBasis: v as TenantSettingsDTO["payrollDayDivisorBasis"] })}
+                  options={[
+                    { value: "FIXED_30", label: t("settingsGeneral.dayDivisorFixed30") },
+                    { value: "CALENDAR_DAYS", label: t("settingsGeneral.dayDivisorCalendarDays") },
+                  ]}
+                  hint={t("settingsGeneral.payrollDayDivisorBasisHint")}
                 />
                 <NumberField
                   label={t("settingsGeneral.standardWorkingHoursADay")}

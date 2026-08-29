@@ -52,6 +52,7 @@ import {
   type GarnishmentRepository,
   type OvertimeHoursProvider,
   type PayrollDayDivisorBasis,
+  type SettingsRepository,
   type WorkedTimeProvider,
   type ContractRepository,
   type JournalPostingDeps,
@@ -110,7 +111,14 @@ export interface HrPayrollRoutesDeps {
   readonly garnishmentRegister?: GarnishmentRepository;
   /** Overrides the register-derived provider; for tests and alternative sources. */
   readonly garnishments?: GarnishmentProvider;
-  /** أساس قسمة اليوم from tenant settings; defaults to the Egyptian FIXED_30 convention. */
+  /**
+   * Tenant settings, read PER CALCULATION rather than captured at wiring time —
+   * a day-divisor changed in the settings screen has to reach the next run
+   * without a restart, which is exactly the gap that made seven policy toggles
+   * stored-but-never-read before.
+   */
+  readonly settings?: Pick<SettingsRepository, "get">;
+  /** Overrides the settings-derived basis; for tests. */
   readonly dayDivisorBasis?: PayrollDayDivisorBasis;
   readonly standardDailyHours?: number;
   /** The payroll-component registry (R10.7); absent = the component routes are not mounted and every line posts to the run defaults. */
@@ -306,11 +314,19 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     overtime: deps.overtime,
     workedTime: deps.workedTime,
     garnishments: deps.garnishments ?? (deps.garnishmentRegister ? createGarnishmentProvider(deps.garnishmentRegister) : undefined),
-    dayDivisorBasis: deps.dayDivisorBasis,
-    standardDailyHours: deps.standardDailyHours,
     payrollComponents: deps.payrollComponents,
     idGen,
   };
+
+  /** The calculation deps plus whatever the tenant's settings say right now. */
+  async function currentCalculationDeps() {
+    const settings = await deps.settings?.get();
+    return {
+      ...calculationDeps,
+      dayDivisorBasis: deps.dayDivisorBasis ?? settings?.payrollDayDivisorBasis ?? "FIXED_30",
+      standardDailyHours: deps.standardDailyHours ?? settings?.standardDailyWorkHours,
+    };
+  }
 
   // --- Payroll components (GL routing) -------------------------------------
 
@@ -607,7 +623,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
 
   app.post("/payroll/runs/:id/calculate", gate("hr.payroll.calculate"), async (c) => {
     try {
-      const run = await calculatePayrollRun(c.req.param("id"), calculationDeps);
+      const run = await calculatePayrollRun(c.req.param("id"), await currentCalculationDeps());
       const payslips = await deps.payslips.listByRunId(run.id);
       return c.json({ ...serializeRun(run), payslips: payslips.map(serializePayslip) });
     } catch (err) {

@@ -791,8 +791,20 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     // router so that router stays free of attendance's shape — and so a build
     // without attendance still runs payroll, saying on the run that it did.
     const overtimeTable = EGYPT_OVERTIME_TABLES[EGYPT_OVERTIME_TABLES.length - 1];
-    const derivationOptions = { standardDailyHours: overtimeTable?.standardDailyHours ?? 8 };
     const attendanceRepo = deps.attendance;
+    const holidaysRepo = deps.holidays;
+    const settingsRepo = deps.payroll.settings;
+    // Resolved per run, not captured here: the standard day, the weekend and
+    // the holiday calendar are tenant data, and a rest-day premium that misses
+    // a real public holiday is a wrong payslip that looks right.
+    const resolveDerivationOptions = async () => {
+      const settings = await settingsRepo?.get();
+      return {
+        standardDailyHours: settings?.standardDailyWorkHours ?? overtimeTable?.standardDailyHours ?? 8,
+        weeklyOffDays: settings?.weekendDays,
+        holidays: await holidaysRepo.list(),
+      };
+    };
     app.route(
       "/",
       createHrPayrollRoutes(
@@ -804,9 +816,9 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
           unpaidLeave: deps.payroll.unpaidLeave ?? createUnpaidLeaveDaysProvider(deps.leaveRequests),
           overtime:
             deps.payroll.overtime ??
-            (attendanceRepo && overtimeTable ? createOvertimeHoursProvider(attendanceRepo, overtimeTable, derivationOptions) : undefined),
+            (attendanceRepo && overtimeTable ? createOvertimeHoursProvider(attendanceRepo, overtimeTable, resolveDerivationOptions) : undefined),
           workedTime:
-            deps.payroll.workedTime ?? (attendanceRepo ? createWorkedTimeProvider(attendanceRepo, derivationOptions) : undefined),
+            deps.payroll.workedTime ?? (attendanceRepo ? createWorkedTimeProvider(attendanceRepo, resolveDerivationOptions) : undefined),
         },
         resolveAuthContext,
       ),

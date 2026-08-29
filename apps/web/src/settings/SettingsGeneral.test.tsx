@@ -27,7 +27,7 @@ const baseSettings: TenantSettingsDTO = {
   email: "info@cyag.example",
   address: "القاهرة الجديدة، القاهرة",
   hrContractExpiryWarningDays: 30,
-  overtimeMultiplier: 1.5,
+  payrollDayDivisorBasis: "FIXED_30",
   standardDailyWorkHours: 8,
   taxEnabled: true,
   defaultTaxRate: 14,

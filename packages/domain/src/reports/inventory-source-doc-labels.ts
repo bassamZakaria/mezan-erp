@@ -1,6 +1,6 @@
 import type { StockSourceDocType } from "../inventory/movement.js";
 
-/** Arabic labels for `StockSourceDocType` — shared by the movement and ledger reports (docs/catalog/08 §"نوع المرجع"). */
+/** Arabic labels for `StockSourceDocType` — shared by the movement and ledger reports (docs/archive/catalog/08 §"نوع المرجع"). */
 export const STOCK_SOURCE_DOC_TYPE_LABELS_AR: Record<StockSourceDocType, string> = {
   ADJUSTMENT: "تسوية مخزون",
   TRANSFER: "تحويل مخزون",

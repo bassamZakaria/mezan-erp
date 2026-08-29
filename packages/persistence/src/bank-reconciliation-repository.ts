@@ -14,7 +14,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed persistence for Bank Statement Reconciliation (docs/catalog/04
+ * SQLite-backed persistence for Bank Statement Reconciliation (docs/archive/catalog/04
  * "تسوية كشوف البنك"): statements, their lines, and the per-treasury-account
  * column mapping ("يحفظ التعيين لكل حساب").
  */

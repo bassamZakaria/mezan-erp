@@ -50,11 +50,11 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Cost center routes (docs/catalog/04 "مراكز التكلفة"): list/tree, get one,
+ * Cost center routes (docs/archive/catalog/04 "مراكز التكلفة"): list/tree, get one,
  * create, edit.
  *
  * PERMISSION NOTE: the permission catalog's accounting module (17 codes,
- * docs/catalog/09 §permission matrix line ~413) has no dedicated
+ * docs/archive/catalog/09 §permission matrix line ~413) has no dedicated
  * `accounting.cost_center.*` entry — cost centers are dimensional master
  * data closely tied to the Chart of Accounts (they feed the "أرباح مراكز
  * التكلفة" report the same way accounts feed the trial balance), so this

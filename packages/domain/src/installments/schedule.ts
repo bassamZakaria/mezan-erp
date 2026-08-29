@@ -1,5 +1,5 @@
 /**
- * Installment schedule generation (docs/catalog/05 §"خطط الأقساط" — "معاينة
+ * Installment schedule generation (docs/archive/catalog/05 §"خطط الأقساط" — "معاينة
  * الجدول"): splits an invoice's remaining balance (total − down payment) into
  * N equal installments at a fixed frequency, first one due on the plan's own
  * start date (verified example: INV-000014, 375.00 ج.م, 6 monthly
@@ -10,7 +10,7 @@
 import { Money, allocate } from "../money/index.js";
 import { InvalidInstallmentScheduleError } from "./errors.js";
 
-/** docs/catalog/05 §"التكرار *" — full option set observed on the create form. */
+/** docs/archive/catalog/05 §"التكرار *" — full option set observed on the create form. */
 export const INSTALLMENT_FREQUENCIES = ["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY"] as const;
 export type InstallmentFrequency = (typeof INSTALLMENT_FREQUENCIES)[number];
 

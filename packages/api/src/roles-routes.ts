@@ -49,7 +49,7 @@ function roleErrorResponse(c: Context, err: unknown) {
 }
 
 /**
- * Roles CRUD — every route is permission-gated (docs/catalog/09 §الأدوار).
+ * Roles CRUD — every route is permission-gated (docs/archive/catalog/09 §الأدوار).
  * Mirrors `createAccountsRouter` / `createSettingsRoutes`'s shape: a plain
  * `resolveAuthContext` parameter defaulting to `headerAuthContextResolver`.
  * `resolveEntitlements` has no repo-wide default (yet) — module licensing

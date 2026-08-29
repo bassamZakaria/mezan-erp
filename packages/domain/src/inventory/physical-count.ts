@@ -1,5 +1,5 @@
 /**
- * الجرد الفعلي (Physical Count) — docs/catalog/03 §"الجرد الفعلي": a session
+ * الجرد الفعلي (Physical Count) — docs/archive/catalog/03 §"الجرد الفعلي": a session
  * over one warehouse that loads system quantities, records counted quantities,
  * computes variance, and — on demand — generates the reconciling stock
  * adjustment (reason `PHYSICAL_COUNT`).

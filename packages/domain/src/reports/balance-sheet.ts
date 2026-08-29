@@ -12,7 +12,7 @@ import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
 
 /**
- * الميزانية العمومية — Balance Sheet (docs/catalog/08-reports.md), point in
+ * الميزانية العمومية — Balance Sheet (docs/archive/catalog/08-reports.md), point in
  * time. Assets, liabilities and equity as of a date, verifying الأصول =
  * الالتزامات + حقوق الملكية (the catalog's explicit balance check → this
  * report's `reconciliation`). Net income for the period-to-date is folded into

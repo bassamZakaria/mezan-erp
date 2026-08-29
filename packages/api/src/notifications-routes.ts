@@ -35,7 +35,7 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * The top-bar bell panel's own data surface (docs/catalog/09 §الإشعارات):
+ * The top-bar bell panel's own data surface (docs/archive/catalog/09 §الإشعارات):
  * every route scopes to the CALLING user's own notifications — there is no
  * "view anyone's notifications" mode, so unlike `/notification-rules` these
  * routes are not permission-gated beyond "you are someone."

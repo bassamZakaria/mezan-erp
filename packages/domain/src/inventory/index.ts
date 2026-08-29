@@ -1,6 +1,6 @@
 /**
- * Inventory — the Tier-2 shared costing + stock-ledger engine (docs/plan.md
- * §2.3 / §3, docs/catalog/03). Weighted-average costing with immutable cost
+ * Inventory — the Tier-2 shared costing + stock-ledger engine (docs/archive/plan.md
+ * §2.3 / §3, docs/archive/catalog/03). Weighted-average costing with immutable cost
  * layers, a movements ledger, valuation, drift/rebuild, 8 adjustment reasons
  * (incl. INITIAL_STOCK opening balances) and valuation-neutral transfers.
  */

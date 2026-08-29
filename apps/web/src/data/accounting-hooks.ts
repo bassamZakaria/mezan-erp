@@ -23,7 +23,7 @@ async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Pr
 }
 
 /* -------------------------------------------------------------------- */
-/* أسعار الصرف — Exchange Rates (docs/catalog/04)                        */
+/* أسعار الصرف — Exchange Rates (docs/archive/catalog/04)                        */
 /* -------------------------------------------------------------------- */
 
 export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
@@ -79,7 +79,7 @@ export function useLockExchangeRate() {
 }
 
 /* -------------------------------------------------------------------- */
-/* إعادة تقييم العملات الأجنبية — FX Revaluation (docs/catalog/04)        */
+/* إعادة تقييم العملات الأجنبية — FX Revaluation (docs/archive/catalog/04)        */
 /* -------------------------------------------------------------------- */
 
 /** Carries the missing currency (when applicable) so the screen can render the same Arabic message the in-browser domain call used to produce. */
@@ -138,7 +138,7 @@ export function useFxRevaluationPost() {
 }
 
 /* -------------------------------------------------------------------- */
-/* مطابقة الأرصدة — Balance Reconciliation (docs/catalog/04)             */
+/* مطابقة الأرصدة — Balance Reconciliation (docs/archive/catalog/04)             */
 /* -------------------------------------------------------------------- */
 
 export function useReconciliationReport(): UseQueryResult<ReconciliationReportDTO, ApiError> {
@@ -156,7 +156,7 @@ export function useReconciliationReport(): UseQueryResult<ReconciliationReportDT
 }
 
 /* -------------------------------------------------------------------- */
-/* أرباح مراكز التكلفة — Cost Center P&L (docs/catalog/04)                */
+/* أرباح مراكز التكلفة — Cost Center P&L (docs/archive/catalog/04)                */
 /* -------------------------------------------------------------------- */
 
 export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResult<CostCenterPnLReportDTO, ApiError> {
@@ -178,7 +178,7 @@ export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResu
 }
 
 /* -------------------------------------------------------------------- */
-/* الفاتورة الإلكترونية — ETA e-Invoicing (docs/catalog/04)               */
+/* الفاتورة الإلكترونية — ETA e-Invoicing (docs/archive/catalog/04)               */
 /* -------------------------------------------------------------------- */
 
 export interface EtaConfigWithReadinessDTO {

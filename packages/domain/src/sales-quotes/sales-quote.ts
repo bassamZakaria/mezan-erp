@@ -1,5 +1,5 @@
 /**
- * Sales Quotation (عرض سعر, docs/catalog/01-sales.md §"عروض الأسعار") — the
+ * Sales Quotation (عرض سعر, docs/archive/catalog/01-sales.md §"عروض الأسعار") — the
  * pre-sale document a customer is quoted before any invoice exists. It mirrors
  * the sales-invoice document shape (header + lines + a lifecycle) but is
  * strictly informational: a quote NEVER posts to the GL and NEVER moves stock.

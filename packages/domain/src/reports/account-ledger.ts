@@ -5,7 +5,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 
 /**
- * دفتر حساب — Account Ledger / statement (docs/catalog/08-reports.md). All
+ * دفتر حساب — Account Ledger / statement (docs/archive/catalog/08-reports.md). All
  * transactions and a running balance for one selected account over a period,
  * like a bank statement for any GL account. On-demand, and the account picker
  * is required. The running balance is debit-normal (debit − credit

@@ -459,7 +459,7 @@ export function App() {
   const branches = branchesQuery.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
   const entitlements = entitlementsQuery.data ?? null;
-  // The user form links a login to its HR employee record (docs/catalog/09 §الموظف المرتبط).
+  // The user form links a login to its HR employee record (docs/archive/catalog/09 §الموظف المرتبط).
   const employees = useMemo(() => {
     const jobTitleById = new Map((jobTitlesQuery.data ?? []).map((j) => [j.id, j.nameAr ?? j.name]));
     return (employeesQuery.data ?? []).map((e) => ({
@@ -494,7 +494,7 @@ export function App() {
     const wire = (items: NavItem[]): NavItem[] =>
       items.map((item) => {
         const key = item.key;
-        // الموافقات carries a global pending-count badge (docs/catalog/09
+        // الموافقات carries a global pending-count badge (docs/archive/catalog/09
         // §الموافقات inbox nav item) — a real count off /workflow/requests/
         // pending-count, not a placeholder.
         const tag =

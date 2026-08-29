@@ -157,7 +157,7 @@ function handleDomainError(c: Context, err: unknown): Response {
 }
 
 /**
- * Treasury voucher routes (docs/catalog/04 §"السندات النقدية"), mounted under
+ * Treasury voucher routes (docs/archive/catalog/04 §"السندات النقدية"), mounted under
  * `/vouchers`:
  *   GET  /vouchers                          list (type/status filters)     view
  *   GET  /vouchers/:id                      one voucher + allocation summary view

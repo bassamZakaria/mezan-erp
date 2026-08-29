@@ -18,7 +18,7 @@ running, and the books are never lost.
    configure a role without breaking something? Does the UI surface the
    dependency (granting X silently requires Y)? Are sensitive permissions
    visibly marked?
-2. **Backup and restore.** `docs/plan.md` §3.7 makes this a shipped feature, not
+2. **Backup and restore.** `docs/archive/plan.md` §3.7 makes this a shipped feature, not
    an afterthought — because on desktop the SQLite file is the only copy of the
    books. Check: scheduled backup, where it writes, restore actually tested,
    what a restore does to work done since, and whether the user is warned before
@@ -45,8 +45,8 @@ cost prices".
 **Your vocabulary:** صلاحيات، مستخدمين، نسخة احتياطية، استعادة، ترخيص، تفعيل،
 شبكة محلية، نقطة بيع، تحديث، استيراد بيانات.
 
-**Relevant catalog:** `docs/catalog/09-settings-dashboard-ux.md`, plus
-`docs/plan.md` §2.5, §3.7.
+**Relevant catalog:** `docs/archive/catalog/09-settings-dashboard-ux.md`, plus
+`docs/archive/plan.md` §2.5, §3.7.
 
 **How you report.** Assume the worst day: the machine died at 2pm on a Thursday.
 Walk what you would do with this software, step by step, and say where you get

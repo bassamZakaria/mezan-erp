@@ -6,7 +6,7 @@ import { NumberField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { matchesSearch } from "@mezan/domain";
 
-/** تصنيفات الأصول (Asset Categories) — docs/catalog/07 §"تصنيفات الأصول". List + add panel; API supports list+create only. */
+/** تصنيفات الأصول (Asset Categories) — docs/archive/catalog/07 §"تصنيفات الأصول". List + add panel; API supports list+create only. */
 
 const DEPRECIATION_METHOD_KEY = "assetCategories.straightLine" as const;
 const STATUS_TONE: Record<"active" | "inactive", PillTone> = { active: "success", inactive: "neutral" };

@@ -4,12 +4,12 @@ import { withSqliteTransaction } from "./sqlite-connection.js";
 
 /**
  * Generic SQLite-backed {@link DocumentRepository} for a document-framework
- * consumer (docs/plan.md §3). One table per concrete document type (Stock
+ * consumer (docs/archive/plan.md §3). One table per concrete document type (Stock
  * Adjustment, Stock Transfer, …); `lines` is stored as one JSON blob column —
  * the type-specific line shape is opaque to this store, so it never needs its
  * own schema. `lineToWire`/`lineFromWire` do the Money/Qty <-> exact-decimal-
  * string boundary conversion the same way every other wire boundary in this
- * codebase does (docs/plan.md §2.3 "no floats, ever").
+ * codebase does (docs/archive/plan.md §2.3 "no floats, ever").
  */
 
 interface DocumentRow {

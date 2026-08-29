@@ -14,7 +14,7 @@ import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-conne
 /**
  * phase4/inventory-ops persistence composition root: one SQLite connection
  * backing the Stock Adjustment document table, the Stock Transfer document
- * table, and the Physical Count table (docs/catalog/03). Mirrors
+ * table, and the Physical Count table (docs/archive/catalog/03). Mirrors
  * `createSqliteStockLedgerStore`'s one-connection-per-related-tables shape.
  */
 

@@ -2,7 +2,7 @@ import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
 /**
  * Drizzle SQLite schema. Money is stored as INTEGER at scale 1e-6 (see
- * docs/plan.md §2.3) — never REAL/NUMERIC, which would silently degrade to
+ * docs/archive/plan.md §2.3) — never REAL/NUMERIC, which would silently degrade to
  * IEEE-754 double.
  */
 /**
@@ -37,7 +37,7 @@ export const journalLine = sqliteTable("uow_journal_line", {
 });
 
 /**
- * Numbering counter (docs/plan.md §2.3 rule 5). One row per (code, period);
+ * Numbering counter (docs/archive/plan.md §2.3 rule 5). One row per (code, period);
  * `period` is "" for a never-resetting sequence or the calendar year for an
  * annual-reset one. Bumped under BEGIN IMMEDIATE so numbers have no gaps/dupes.
  */
@@ -48,7 +48,7 @@ export const sequenceCounter = sqliteTable("sequence_counter", {
 });
 
 /**
- * Append-only audit trail (docs/plan.md §5.7). BEFORE UPDATE/DELETE triggers in
+ * Append-only audit trail (docs/archive/plan.md §5.7). BEFORE UPDATE/DELETE triggers in
  * the store enforce append-only at the storage layer; `details` is JSON text.
  */
 export const auditEvent = sqliteTable("audit_event", {
@@ -66,7 +66,7 @@ export const auditEvent = sqliteTable("audit_event", {
 
 /**
  * Custom role — permission grants stored as a JSON array of raw (pre
- * dependency-resolution) permission codes (docs/plan.md §5.2 / roles/role.ts).
+ * dependency-resolution) permission codes (docs/archive/plan.md §5.2 / roles/role.ts).
  */
 export const role = sqliteTable("role", {
   id: text("id").primaryKey(),

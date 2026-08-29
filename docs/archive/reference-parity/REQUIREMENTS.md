@@ -1,5 +1,10 @@
 # Requirements captured from the reference product
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../../ROADMAP.md` for what is
+> built and open, and `../../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `../README.md` in the archive root maps them.
+
+
 Round 3 of the parity audit, run through the UI with the `site-feature-audit`
 method. Each requirement below was **observed in a running screen**, not inferred
 from prose. Reference screenshots have been deleted; the read API contract is in

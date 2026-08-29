@@ -61,7 +61,7 @@ function validate(cmd: SaveNotificationRuleCommand): EventCode {
   return cmd.eventCode as EventCode;
 }
 
-/** Creates a new notification rule (docs/catalog/09 §"إضافة قاعدة" dialog). */
+/** Creates a new notification rule (docs/archive/catalog/09 §"إضافة قاعدة" dialog). */
 export async function saveNotificationRule(
   cmd: SaveNotificationRuleCommand,
   repo: NotificationRuleRepository,

@@ -68,7 +68,7 @@ function handleError(c: Context, err: unknown): Response {
 }
 
 /**
- * إعادة تقييم العملات الأجنبية — FX Revaluation (docs/catalog/04), mounted under
+ * إعادة تقييم العملات الأجنبية — FX Revaluation (docs/archive/catalog/04), mounted under
  * `/revaluation`:
  *   POST /preview  — معاينة: compute the revaluation without posting.
  *   POST /post     — post the FX gain/loss entry (+ next-day auto-reversal).

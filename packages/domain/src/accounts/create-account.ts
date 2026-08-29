@@ -13,7 +13,7 @@ export interface CreateAccountCommand {
 }
 
 /**
- * Validates a new-account command against the existing chart (docs/catalog/04
+ * Validates a new-account command against the existing chart (docs/archive/catalog/04
  * "دليل الحسابات"): the code must be unique, and a parent — when given — must
  * exist and must itself be a header account (only header/رئيسي accounts may
  * group children; a detail/تفصيلي leaf can never gain a child).
@@ -37,7 +37,7 @@ export function validateNewAccount(command: CreateAccountCommand, existing: read
 
 /**
  * Creates and persists a new account. New accounts always start `active`
- * (docs/catalog/04 — status is toggled later via edit, never at creation).
+ * (docs/archive/catalog/04 — status is toggled later via edit, never at creation).
  */
 export async function createAccount(command: CreateAccountCommand, repo: AccountRepository): Promise<Account> {
   const existing = await repo.list();

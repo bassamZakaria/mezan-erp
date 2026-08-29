@@ -13,7 +13,7 @@ Thousands of SKUs, every one with a batch number and an expiry date, prices
 largely fixed by regulation so your only margin lever is not losing stock to
 expiry. Near-expiry goods must go back to the supplier before the window closes.
 
-`docs/plan.md` names FEFO (first-expiry-first-out) as a possible catalog gap.
+`docs/archive/plan.md` names FEFO (first-expiry-first-out) as a possible catalog gap.
 Verify it concretely rather than assuming either way.
 
 **What you open the app to check, in this order:**
@@ -36,4 +36,4 @@ Verify it concretely rather than assuming either way.
 **Your vocabulary:** تشغيلة، تاريخ صلاحية، منتهي الصلاحية، مرتجع مورد، إشعار
 خصم، صنف، رصيد فرع.
 
-**Relevant catalog:** `docs/catalog/03-inventory.md`, `02-purchases.md`.
+**Relevant catalog:** `docs/archive/catalog/03-inventory.md`, `02-purchases.md`.

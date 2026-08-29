@@ -1,5 +1,5 @@
 /**
- * Historical purchase-document import (docs/catalog/02 §"فواتير المشتريات" /
+ * Historical purchase-document import (docs/archive/catalog/02 §"فواتير المشتريات" /
  * §"مرتجعات المشتريات" — "استيراد فواتير سابقة" / "استيراد مرتجعات سابقة"):
  * bulk go-live migration of ALREADY-SETTLED historical purchase invoices and
  * returns from an Excel/CSV upload (one row per item line, header fields
@@ -10,7 +10,7 @@
  * remaining balance posts ONLY that remaining amount as a payable (Dr an
  * opening-balance/equity account, Cr accounts payable — never inventory,
  * which is deliberately untouched, since the goods were already physically in
- * the warehouse before go-live). Pure domain — ports only (docs/plan.md §3.2).
+ * the warehouse before go-live). Pure domain — ports only (docs/archive/plan.md §3.2).
  */
 
 import { Money, Qty } from "../money/index.js";

@@ -1,6 +1,6 @@
 /**
  * AuthContext — the identity + authority object the adapter builds and hands to
- * the domain (docs/plan.md §3.3). Its permission checks are identical in both
+ * the domain (docs/archive/plan.md §3.3). Its permission checks are identical in both
  * editions: cloud derives it from JWT claims, desktop from the local user store.
  *
  * Two orthogonal dimensions, exactly as the catalog documents (§add-user form):

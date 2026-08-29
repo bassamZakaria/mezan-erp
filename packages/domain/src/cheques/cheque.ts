@@ -1,7 +1,7 @@
 import type { Money } from "../money/index.js";
 
 /**
- * Cheque register — core entity (docs/catalog/04-accounting-treasury.md "سجل
+ * Cheque register — core entity (docs/archive/catalog/04-accounting-treasury.md "سجل
  * الشيكات"). Tracks a single physical/post-dated cheque received from a
  * customer (`incoming`) or issued to a supplier (`outgoing`) through its
  * 7-state lifecycle, distinct from the treasury-voucher module.
@@ -42,7 +42,7 @@ export interface ChequeStatusDefinition {
 }
 
 /**
- * Ordered exactly as docs/catalog/04 lists the status filter tabs.
+ * Ordered exactly as docs/archive/catalog/04 lists the status filter tabs.
  *
  * `under_collection` and `due_today` are DERIVED from a still-`pending`
  * cheque's due date — nobody has handed the paper to a bank yet. They used to

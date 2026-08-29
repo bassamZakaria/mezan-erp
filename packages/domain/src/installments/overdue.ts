@@ -1,10 +1,10 @@
 /**
- * معالجة المتأخرات (docs/catalog/05 §"خطط الأقساط") — the overdue batch:
+ * معالجة المتأخرات (docs/archive/catalog/05 §"خطط الأقساط") — the overdue batch:
  * flips any `pending` installment whose due date has passed into `overdue`,
  * and (per the product's own confirm-dialog copy: "تطبيق غرامات التأخير —
  * تلقائي") applies a late-payment penalty.
  *
- * LATE-FEE CONFIG IS UNDEFINED (docs/catalog/05 §"إعدادات الأقساط — NOT
+ * LATE-FEE CONFIG IS UNDEFINED (docs/archive/catalog/05 §"إعدادات الأقساط — NOT
  * FOUND AS A DEDICATED SCREEN"): the recon confirms the batch is supposed to
  * apply penalties, but no settings screen/field for the rate, grace period,
  * or flat-vs-percent shape was found anywhere — flagged there as possibly

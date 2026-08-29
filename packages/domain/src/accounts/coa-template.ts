@@ -5,7 +5,7 @@ import { createAccount } from "./create-account.js";
 /**
  * The standard Chart-of-Accounts template — the 5 top-level roots and their
  * best-attested header/detail children, transcribed from
- * docs/catalog/04-accounting-treasury.md ("Root account types observed").
+ * docs/archive/catalog/04-accounting-treasury.md ("Root account types observed").
  * `id === code` throughout: account codes are unique and stable, so they
  * double as the id (this also matches the account codes already used as
  * `accountId` in the journal-posting spike, e.g. "1300-1", "4000", "2200").
@@ -39,7 +39,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "1510", code: "1510", nameAr: "معدات", nameEn: "Equipment", type: "asset", naturalBalance: "debit", parentId: "1500", isHeader: false },
   { id: "1520", code: "1520", nameAr: "مركبات", nameEn: "Vehicles", type: "asset", naturalBalance: "debit", parentId: "1500", isHeader: false },
   // phase11/crm-projects-assets-field — Fixed Assets' system-default GL accounts
-  // (docs/catalog/07 §تصنيفات الأصول "افتراضيات الإهلاك"). 1590 is a
+  // (docs/archive/catalog/07 §تصنيفات الأصول "افتراضيات الإهلاك"). 1590 is a
   // contra-asset (credit natural balance), same modeling as 1190 above.
   { id: "1590", code: "1590", nameAr: "مجمع إهلاك الأصول", nameEn: "Accumulated Depreciation", type: "asset", naturalBalance: "credit", parentId: "1500", isHeader: false },
 

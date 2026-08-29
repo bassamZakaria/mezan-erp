@@ -13,7 +13,7 @@ import { sendTestEmail } from "./smtp-client.js";
 import { changedKeys, recordAdminEvent } from "./admin-audit.js";
 
 /**
- * Settings routes (docs/catalog/09 §"الإعدادات — عام"): a single tenant
+ * Settings routes (docs/archive/catalog/09 §"الإعدادات — عام"): a single tenant
  * config bag, `GET /` reads it (seeding catalog defaults on first read so the
  * UI always has something to render) and `PUT /` applies a partial patch
  * through `updateSettings`, so an invalid combination never persists. Every

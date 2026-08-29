@@ -1,6 +1,6 @@
 /**
  * Ports for the sales-quote module. The domain depends only on this
- * interface — never on SQL or HTTP (docs/plan.md §3.2). Unlike sales
+ * interface — never on SQL or HTTP (docs/archive/plan.md §3.2). Unlike sales
  * invoices, a quote has no GL/stock/workflow hook ports: it never posts and
  * never requires approval. It DOES reuse the document framework's
  * `DocumentNumberingHook` (documents/hooks.ts) for its number.

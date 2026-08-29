@@ -1,5 +1,5 @@
 /**
- * Credit control (الرقابة الائتمانية) — docs/catalog/01/09. Enforced on sales
+ * Credit control (الرقابة الائتمانية) — docs/archive/catalog/01/09. Enforced on sales
  * invoice confirm against the customer's credit limit, in either WARNING or
  * BLOCK mode (tenant setting).
  */

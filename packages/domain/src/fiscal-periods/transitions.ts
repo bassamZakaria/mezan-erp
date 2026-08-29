@@ -3,7 +3,7 @@ import { InvalidPeriodTransitionError, PeriodNotOpenForPostingError } from "./er
 
 /**
  * Pure state-transition functions for the three-tier fiscal-period lifecycle
- * (docs/catalog/04 "الفترات المالية"): مفتوحة (open) → مغلقة (closed) →
+ * (docs/archive/catalog/04 "الفترات المالية"): مفتوحة (open) → مغلقة (closed) →
  * مقفلة (locked). A closed period may be reopened (مطابق لصلاحية
  * `accounting.period.reopen`); a locked period is terminal — there is no
  * unlock action, matching the permission catalog (no "unlock"/"reopen from

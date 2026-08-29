@@ -16,7 +16,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed Fixed Assets stores (docs/catalog/07-mfg-projects-assets.md
+ * SQLite-backed Fixed Assets stores (docs/archive/catalog/07-mfg-projects-assets.md
  * "الأصول الثابتة"): asset categories and the asset register are simple
  * single-table scalar-field repos (mirroring `cost-center-repository.ts`);
  * depreciation runs are document-shaped, so their per-asset lines are stored

@@ -437,7 +437,7 @@ export async function run(ctx: Ctx): Promise<void> {
         lines: [{ itemId: "ITEM-DEMO-4", qty: "15", unitCost: "210" }],
       });
       check(
-        "receiving 15 against an order for 10 is ACCEPTED at create (default policy has blockOverReceipt: false, docs/catalog/09)",
+        "receiving 15 against an order for 10 is ACCEPTED at create (default policy has blockOverReceipt: false, docs/archive/catalog/09)",
         grn.status === 201,
         `status ${grn.status}: ${JSON.stringify(grn.body).slice(0, 150)}`,
       );

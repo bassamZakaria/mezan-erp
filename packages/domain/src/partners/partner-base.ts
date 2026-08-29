@@ -2,7 +2,7 @@ import type { Money } from "../money/index.js";
 
 /**
  * Fields shared by every business-partner master record — Customer
- * (docs/catalog/01-sales.md "العملاء") and Supplier (docs/catalog/02-purchases.md
+ * (docs/archive/catalog/01-sales.md "العملاء") and Supplier (docs/archive/catalog/02-purchases.md
  * "الموردون"). Both entities are flat master data (no document-style workflow,
  * just نشط/غير نشط), so they share this base plus the field-level validation
  * below; each entity still declares its own full interface explicitly rather

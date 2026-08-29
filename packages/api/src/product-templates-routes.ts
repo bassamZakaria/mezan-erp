@@ -38,7 +38,7 @@ import {
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * Product Templates routes (docs/catalog/03-inventory.md §"قوالب المنتجات"):
+ * Product Templates routes (docs/archive/catalog/03-inventory.md §"قوالب المنتجات"):
  * template CRUD, attribute CRUD (guarded delete), and the variant/SKU
  * generator (creates REAL Items via `@mezan/domain`'s `createItem`, reused
  * wholesale through `generateVariants`). Root-relative — a parent app mounts

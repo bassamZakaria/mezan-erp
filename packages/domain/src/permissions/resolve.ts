@@ -1,7 +1,7 @@
 /**
  * Permission dependency resolution.
  *
- * The catalog encodes an enforced dependency graph (docs/plan.md §5.2):
+ * The catalog encodes an enforced dependency graph (docs/archive/plan.md §5.2):
  * "granting `.confirm` implies `.view_own`". A role stores only the raw set of
  * checkboxes an admin ticked; the effective set is that raw set closed over all
  * transitive prerequisites. Resolving once, up front, keeps `can()` a plain set

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the historical sales-document import (docs/catalog/01
+ * Wire contracts for the historical sales-document import (docs/archive/catalog/01
  * §"استيراد فواتير سابقة" / §"استيراد مرتجعات سابقة"). Money/Qty cross the
  * wire as EXACT decimal strings, same convention as sales.ts.
  */

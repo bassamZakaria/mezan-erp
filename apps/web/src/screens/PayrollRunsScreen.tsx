@@ -31,7 +31,7 @@ import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { employeeDisplayName } from "./hr-employee-name";
 
-/** الرواتب (Payroll) — docs/catalog/06 §"الرواتب". A run covers one month: مسودة → محتسب → معتمد (قيد محاسبي متوازن) → مصروف. */
+/** الرواتب (Payroll) — docs/archive/catalog/06 §"الرواتب". A run covers one month: مسودة → محتسب → معتمد (قيد محاسبي متوازن) → مصروف. */
 
 const STATUS_KEY: Record<PayrollRunStatusDTO, AppTranslationKey> = {
   draft: "payroll.status.draft",

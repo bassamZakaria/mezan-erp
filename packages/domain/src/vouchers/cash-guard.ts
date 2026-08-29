@@ -1,5 +1,5 @@
 /**
- * Cash-negative guard (docs/catalog/04 + docs/catalog/09 §"سياسة الخزينة").
+ * Cash-negative guard (docs/archive/catalog/04 + docs/archive/catalog/09 §"سياسة الخزينة").
  *
  * Two independent tenant switches, one per account type — the pair the settings
  * screen presents under سياسة الخزينة:

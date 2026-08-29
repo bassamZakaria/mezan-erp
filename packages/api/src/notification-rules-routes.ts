@@ -45,7 +45,7 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * قواعد الإشعارات routes (docs/catalog/09 §قواعد الإشعارات): list/create/edit/
+ * قواعد الإشعارات routes (docs/archive/catalog/09 §قواعد الإشعارات): list/create/edit/
  * delete/toggle over the 39-event catalog, plus two read-only lookups the
  * builder screen uses — `/events` for the raw "الحدث" combobox, and
  * `/triggers` for the same catalog annotated with what this build can actually

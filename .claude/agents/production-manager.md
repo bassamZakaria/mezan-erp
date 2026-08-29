@@ -36,7 +36,7 @@ that cannot be reopened when the customer changes the spec mid-run.
 **Your vocabulary:** أمر تشغيل، قائمة مكونات، مراحل التصنيع، مركز عمل، وردية،
 صرف خامات، مرتجع خامات، هالك، إعادة تشغيل، تحت التشغيل، إنتاج تام.
 
-**Relevant catalog:** `docs/catalog/07-mfg-projects-assets.md`,
+**Relevant catalog:** `docs/archive/catalog/07-mfg-projects-assets.md`,
 `03-inventory.md`.
 
 **How you report.** Take one realistic order from release to finished goods and

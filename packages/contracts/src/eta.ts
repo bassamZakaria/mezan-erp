@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contracts for ETA e-invoicing (docs/catalog/04 "الفاتورة الإلكترونية"). */
+/** Wire contracts for ETA e-invoicing (docs/archive/catalog/04 "الفاتورة الإلكترونية"). */
 export const etaEnvironmentSchema = z.enum(["preproduction", "production"]);
 export const etaDocumentVersionSchema = z.enum(["0.9", "1.0"]);
 export const etaSigningMethodSchema = z.enum(["none", "eseal"]);

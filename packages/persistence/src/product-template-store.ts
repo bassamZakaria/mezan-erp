@@ -12,7 +12,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed store for Product Templates (docs/catalog/03-inventory.md
+ * SQLite-backed store for Product Templates (docs/archive/catalog/03-inventory.md
  * §"قوالب المنتجات"): the template row (scalar fields + an `attributes` JSON
  * column, mirroring how `depreciation_run.lines` is stored) and the generated
  * variants table (one row per real Item the generator has produced). Money

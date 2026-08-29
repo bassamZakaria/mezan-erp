@@ -1,6 +1,6 @@
 /**
  * أمر التصنيع (Work Order) — a discrete production run against a BOM
- * (docs/catalog/07 §Work Orders). It executes through a 4-stage machine:
+ * (docs/archive/catalog/07 §Work Orders). It executes through a 4-stage machine:
  *
  *   بدء العمل (start) → صرف المواد (issue raw materials, stock OUT) →
  *   استلام المنتج (receive finished product, stock IN) → إكمال أمر العمل
@@ -955,7 +955,7 @@ export interface CompleteWorkOrderResult {
 
 /**
  * Build the balanced WIP-capitalisation posting for a received work order
- * (docs/catalog/07 — FG receipt / raw / labour / overhead).
+ * (docs/archive/catalog/07 — FG receipt / raw / labour / overhead).
  *
  * Lines are NETTED by account, not merely merged by side. The finished-goods
  * and raw-materials roles usually resolve to the SAME inventory control

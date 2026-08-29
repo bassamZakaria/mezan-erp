@@ -6,7 +6,7 @@ import { useConfirmAction } from "../lib/use-confirm-action";
 import { ApiError, useCreateHoliday, useDeleteHoliday, useHolidays, useUpdateHoliday } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
-/** الإجازات الرسمية (Official Holidays) — docs/catalog/06 §"الإجازات الرسمية". Year-scoped company calendar; recurring holidays repeat every year. */
+/** الإجازات الرسمية (Official Holidays) — docs/archive/catalog/06 §"الإجازات الرسمية". Year-scoped company calendar; recurring holidays repeat every year. */
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
 const YEAR_OPTIONS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];

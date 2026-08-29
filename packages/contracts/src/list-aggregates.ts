@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * The two companion endpoints every list resource carries alongside its rows:
  * `<resource>/counts` for the status chips and `<resource>/stats` for the KPI
- * strip (docs/reference-parity/REQUIREMENTS.md R1.1).
+ * strip (docs/archive/reference-parity/REQUIREMENTS.md R1.1).
  *
  * Both are computed server-side over the WHOLE filtered set. Deriving them
  * from the rows the client happens to hold makes them wrong the moment the

@@ -4,7 +4,7 @@ import { clickSidebarItem, expandSidebarGroup } from "./support/nav";
 
 /**
  * قواعد الإشعارات builder (apps/web/src/settings/NotificationRulesPage.tsx,
- * docs/catalog/09 §قواعد الإشعارات) + the top-bar notifications bell
+ * docs/archive/catalog/09 §قواعد الإشعارات) + the top-bar notifications bell
  * (packages/ui/src/shell/NotificationsPanel.tsx). Real backend, real SQLite —
  * the demo tenant starts with zero configured rules and zero notifications.
  */

@@ -1,4 +1,4 @@
-/** Typed errors for the manufacturing module (docs/catalog/07). Each carries a
+/** Typed errors for the manufacturing module (docs/archive/catalog/07). Each carries a
  *  stable machine `code` the API maps to an HTTP status. */
 
 export class BomNotFoundError extends Error {
@@ -50,7 +50,7 @@ export class InvalidManufacturingDocumentError extends Error {
 }
 
 /**
- * A work-order action was attempted from the wrong stage (docs/catalog/07 — the
+ * A work-order action was attempted from the wrong stage (docs/archive/catalog/07 — the
  * 4-stage machine بدء العمل → صرف المواد → استلام المنتج → إكمال).
  */
 export class WorkOrderStageError extends Error {

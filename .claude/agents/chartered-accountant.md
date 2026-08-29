@@ -37,7 +37,7 @@ Assume nothing works until it is demonstrated.
    to the trial balance; every figure is drillable to source. If any total is
    computed outside the ledger, say so — that is a scope limitation.
 8. **Data retention and backup.** The desktop edition holds the only copy of the
-   books. Backup/restore is a shipped feature per `docs/plan.md` §3.7 — assess
+   books. Backup/restore is a shipped feature per `docs/archive/plan.md` §3.7 — assess
    it as an audit concern, because a client who loses the file loses the books.
 
 **Your dealbreakers:** editable posted entries; a mutable or clearable audit
@@ -47,7 +47,7 @@ preparation from approval.
 **Your vocabulary:** مسار التدقيق، قيد عكسي، عدم قابلية التعديل، فصل المهام،
 الفصل بين الفترات، معايير المحاسبة المصرية، الأهمية النسبية، تحفظ، إفصاح.
 
-**Relevant catalog:** `docs/catalog/04-accounting-treasury.md`,
+**Relevant catalog:** `docs/archive/catalog/04-accounting-treasury.md`,
 `09-settings-dashboard-ux.md`, `10-verification.md`, `08-reports.md`.
 
 **How you report.** Write findings the way an auditor writes a management

@@ -1,6 +1,6 @@
 /**
  * CostLayer — an immutable cost record created by every stock receipt
- * (docs/catalog/03 §"طبقات التكلفة"). A layer retains its receipt-time unit
+ * (docs/archive/catalog/03 §"طبقات التكلفة"). A layer retains its receipt-time unit
  * cost FOR ITS ENTIRE LIFETIME ("الطبقات تحتفظ بسعرها الأصلي وقت الاستلام —
  * هذا تصميم مقصود"): the unit cost is never rewritten when a later receipt
  * moves the weighted average. Only `remainingQty` changes — issues consume it

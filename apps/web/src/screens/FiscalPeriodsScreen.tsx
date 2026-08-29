@@ -25,7 +25,7 @@ import { todayIso } from "../lib/dates";
 import { YearEndCloseCard } from "./YearEndCloseCard";
 
 /**
- * الفترات المالية (Fiscal Periods) — docs/catalog/04 §"الفترات المالية".
+ * الفترات المالية (Fiscal Periods) — docs/archive/catalog/04 §"الفترات المالية".
  * Period grid with the three-tier lifecycle (مفتوحة → مغلقة → مقفلة); the
  * close/lock/reopen/generate-year actions all run against the real
  * `/fiscal-periods` API, which enforces the transitions server-side (open

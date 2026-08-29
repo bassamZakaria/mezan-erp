@@ -1,6 +1,6 @@
 /**
  * Treasury voucher as a document-framework consumer
- * (docs/catalog/04 §"السندات النقدية") — the unified 10+1-type receipt /
+ * (docs/archive/catalog/04 §"السندات النقدية") — the unified 10+1-type receipt /
  * payment / transfer document.
  *
  * The voucher is ONE document type ("TREASURY_VOUCHER") with a `voucherType`

@@ -16,7 +16,7 @@ import {
 } from "../data/hooks";
 
 /**
- * نقل البيانات (Data Migration wizard) — docs/catalog/09 §"نقل البيانات": the
+ * نقل البيانات (Data Migration wizard) — docs/archive/catalog/09 §"نقل البيانات": the
  * one-time, dependency-ordered go-live import tool. 13 steps, each openable
  * independently ("الترتيب إرشاد مش قفل" — order is guidance, not a lock),
  * each with a downloadable Excel template, a dry-run preview, and an

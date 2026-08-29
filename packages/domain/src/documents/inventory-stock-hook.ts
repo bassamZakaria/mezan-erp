@@ -1,6 +1,6 @@
 /**
  * Binds the costing + stock-ledger engine (../inventory/) behind the document
- * framework's generic {@link DocumentStockHook} (docs/plan.md §3). Mirrors how
+ * framework's generic {@link DocumentStockHook} (docs/archive/plan.md §3). Mirrors how
  * `journal-document.ts` binds the GL engine behind `DocumentGlHook` — this file
  * is the "impure", engine-binding half of the framework (the framework core in
  * document.ts/hooks.ts/effects.ts/service.ts never imports a concrete engine).

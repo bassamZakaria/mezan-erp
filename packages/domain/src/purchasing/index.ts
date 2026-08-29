@@ -1,5 +1,5 @@
 /**
- * purchasing/ — the purchase chain (docs/catalog/02): أوامر الشراء (Purchase
+ * purchasing/ — the purchase chain (docs/archive/catalog/02): أوامر الشراء (Purchase
  * Orders) → استلام البضائع (Goods Receipts) → فواتير المشتريات (Purchase
  * Invoices), built on the shared numbering, workflow, costing/stock-ledger and
  * GL engines. Pure domain — ports only.

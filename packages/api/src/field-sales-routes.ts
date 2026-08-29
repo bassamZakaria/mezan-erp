@@ -28,7 +28,7 @@ import { createVanSchema, openVanTripSchema, recordVanCashMovementSchema, settle
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * Field/Van Sales routes (docs/catalog/07-mfg-projects-assets.md "رحلات
+ * Field/Van Sales routes (docs/archive/catalog/07-mfg-projects-assets.md "رحلات
  * المندوبين"). Root-relative — a parent app mounts this router under
  * `/field/van-trips`.
  */

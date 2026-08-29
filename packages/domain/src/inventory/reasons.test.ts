@@ -6,7 +6,7 @@ import {
   getAdjustmentReasonDefinition,
 } from "./reasons.js";
 
-describe("adjustment reasons — the 8 documented reasons (docs/catalog/03)", () => {
+describe("adjustment reasons — the 8 documented reasons (docs/archive/catalog/03)", () => {
   it("encodes exactly 8 reasons including INITIAL_STOCK", () => {
     expect(ADJUSTMENT_REASONS).toHaveLength(8);
     expect(ADJUSTMENT_REASON_DEFINITIONS).toHaveLength(8);

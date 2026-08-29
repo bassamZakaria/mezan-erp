@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contract for Balance Reconciliation (docs/catalog/04 "مطابقة الأرصدة"). */
+/** Wire contract for Balance Reconciliation (docs/archive/catalog/04 "مطابقة الأرصدة"). */
 export const reconciliationRowSchema = z.object({
   key: z.string(),
   label: z.string(),

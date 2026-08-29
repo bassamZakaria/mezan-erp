@@ -2,7 +2,7 @@ import type { Money, Qty } from "../money/index.js";
 import { InvalidPriceListError } from "./errors.js";
 
 /**
- * Price lists — master data (docs/catalog/01 "قوائم الأسعار"). A price list
+ * Price lists — master data (docs/archive/catalog/01 "قوائم الأسعار"). A price list
  * carries per-item absolute sell-price overrides; it does not encode a
  * discount percentage. An item may appear more than once on the same list,
  * once per MINIMUM-QUANTITY tier: 100.00 from 1, 92.00 from 10, 85.00 from 50.
@@ -30,7 +30,7 @@ export interface PriceList {
   readonly nameAr: string;
   readonly nameEn: string | null;
   readonly description: string | null;
-  /** "قائمة أساسية" — marks this as the tenant's base/default list (docs/catalog/01 §"قوائم الأسعار"). */
+  /** "قائمة أساسية" — marks this as the tenant's base/default list (docs/archive/catalog/01 §"قوائم الأسعار"). */
   readonly isBase: boolean;
   readonly active: boolean;
   readonly lines: readonly PriceListLine[];

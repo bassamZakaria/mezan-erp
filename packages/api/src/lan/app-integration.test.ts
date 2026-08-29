@@ -5,7 +5,7 @@ import { createApp } from "../app.js";
 
 /**
  * Proves the LAN routes mount onto the SAME shared app `createApp` returns
- * (docs/plan.md §2.2's "one HTTP app, two mount points") — not a separately
+ * (docs/archive/plan.md §2.2's "one HTTP app, two mount points") — not a separately
  * wired instance — and that /journal-entries keeps working unchanged when
  * `/lan` is mounted alongside it.
  */

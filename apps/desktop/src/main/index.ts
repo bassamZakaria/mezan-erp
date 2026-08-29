@@ -19,7 +19,7 @@ import { startLanHost, type LanHostHandle } from "./lan-host.js";
  * on — is that there is NO HTTP server and NO port on desktop. The renderer
  * marshals a request over IPC (preload/index.ts + main/ipc.ts); the main
  * process calls the SAME Hono app via `app.fetch()` in-process and returns
- * the response. See docs/plan.md §2.2.
+ * the response. See docs/archive/plan.md §2.2.
  *
  * This module has real side effects on import (`app.whenReady()`, window
  * creation) and is only ever loaded by the actual Electron binary — never
@@ -56,13 +56,13 @@ app.whenReady().then(async () => {
     backupConn = new Database(dbPath);
     backupConn.pragma("busy_timeout = 5000");
 
-    // Pre-migration auto-backup (docs/plan.md §2.3/§3.7). No real migration
+    // Pre-migration auto-backup (docs/archive/plan.md §2.3/§3.7). No real migration
     // runner exists yet, so `migrate` is a no-op today — see backup-hooks.ts.
     await backupThenMigrate({ sqlite: backupConn, appVersion: app.getVersion() });
     disposeBackupSchedule = scheduleBackups({ sqlite: backupConn, appVersion: app.getVersion() });
   }
 
-  // Same shared Hono app both mounts serve (docs/plan.md §2.2): the IPC
+  // Same shared Hono app both mounts serve (docs/archive/plan.md §2.2): the IPC
   // bridge below (no port, host-local only) and, when the license carries
   // `lan.multi_till`, a LAN-visible socket for other tills/tablets in the
   // shop (§6.3.3). `/lan/sessions` seat enforcement lives on this one app

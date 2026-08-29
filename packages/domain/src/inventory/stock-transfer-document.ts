@@ -1,5 +1,5 @@
 /**
- * Stock Transfer as a document-framework consumer (docs/catalog/03
+ * Stock Transfer as a document-framework consumer (docs/archive/catalog/03
  * §"تحويلات المخزون" — valuation-neutral, one-way confirm; "لا يمكن إلغاء
  * تحويل مؤكد ... لعكس الحركة أنشئ تحويلاً جديداً بالاتجاه المعاكس").
  *

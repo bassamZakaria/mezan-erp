@@ -5,7 +5,7 @@ import { sumRows } from "./kpi.js";
 import { aggregateItemSales } from "./sales-item-aggregation.js";
 
 /**
- * المبيعات حسب الصنف — Sales by Item (docs/catalog/08-reports.md): top
+ * المبيعات حسب الصنف — Sales by Item (docs/archive/catalog/08-reports.md): top
  * revenue-generating items in a period, with each item's share of total
  * revenue (نسبة المساهمة).
  */

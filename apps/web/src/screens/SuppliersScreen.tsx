@@ -47,7 +47,7 @@ import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
- * الموردون (Suppliers) — docs/catalog/02-purchases.md "الموردون". The mirror
+ * الموردون (Suppliers) — docs/archive/catalog/02-purchases.md "الموردون". The mirror
  * of CustomersScreen.tsx: same DocumentList/DocumentDetail/SidePanel shape,
  * backed by the real `/suppliers` API.
  *

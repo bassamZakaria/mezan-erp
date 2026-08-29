@@ -3,14 +3,14 @@ import { InvalidLeavePolicyError, UnknownLeavePolicyPresetError } from "./errors
 import type { LeaveType } from "./leave-request.js";
 
 /**
- * Leave policies — docs/catalog/06-crm-hr.md "سياسات الإجازات"
+ * Leave policies — docs/archive/catalog/06-crm-hr.md "سياسات الإجازات"
  * (`/settings/leave-policies`). One row per leave type carrying the catalog's
  * six matrix columns: نوع الإجازة, الرصيد الأساسي, وتيرة الاستحقاق, الترحيل,
  * صرف عند الإنهاء, إجباري قانوناً.
  *
  * The reference tenant ships this table EMPTY with an "apply a preset" entry
  * point, so nothing here is seeded: `LEAVE_POLICY_PRESETS` is versioned, dated
- * legal reference data (docs/plan.md §6.2 — "model legal constants as
+ * legal reference data (docs/archive/plan.md §6.2 — "model legal constants as
  * versioned, dated data, never as hardcoded logic") that an admin explicitly
  * applies.
  */

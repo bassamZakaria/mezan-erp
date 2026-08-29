@@ -1,5 +1,5 @@
 /**
- * Sales Returns (مرتجعات المبيعات، docs/catalog/01) — a document-framework
+ * Sales Returns (مرتجعات المبيعات، docs/archive/catalog/01) — a document-framework
  * consumer. Restocks at cost, reverses AR/revenue/COGS via one balanced GL
  * entry, never auto-refunds cash (see `isAwaitingRefund`).
  */

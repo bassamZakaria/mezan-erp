@@ -37,7 +37,7 @@ import { employeeDisplayName } from "./hr-employee-name";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 
-/** رحلات المندوبين (Van/Rep Trips — Field Sales) — docs/catalog/07 §"رحلات المندوبين". List + open-trip form + detail with cash-movement/settle actions. */
+/** رحلات المندوبين (Van/Rep Trips — Field Sales) — docs/archive/catalog/07 §"رحلات المندوبين". List + open-trip form + detail with cash-movement/settle actions. */
 
 const STATUS_KEY: Record<VanTripStatusDTO, AppTranslationKey> = { ongoing: "vanTrips.statusOngoing", settled: "vanTrips.statusSettled", cancelled: "vanTrips.statusCancelled" };
 const STATUS_TONE: Record<VanTripStatusDTO, PillTone> = { ongoing: "info", settled: "success", cancelled: "neutral" };

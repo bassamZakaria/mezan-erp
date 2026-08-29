@@ -1,9 +1,9 @@
 /**
- * Installment Plan as a document-framework consumer (docs/catalog/05
+ * Installment Plan as a document-framework consumer (docs/archive/catalog/05
  * §"خطط الأقساط"): splits an existing sales invoice's balance into a
  * scheduled series of payments. Posts nothing to the GL and moves no stock —
  * collecting an installment is a Treasury cash-voucher concern, out of this
- * PR's scope (docs/catalog/01: "لا استرداد/تحصيل تلقائي" pattern repeats
+ * PR's scope (docs/archive/catalog/01: "لا استرداد/تحصيل تلقائي" pattern repeats
  * here) — so this type declares neither `buildGlPosting` nor `buildStockPlan`
  * and plugs into the plain `DocumentService` directly (no wrapper service
  * needed, unlike landed cost).
@@ -17,7 +17,7 @@ import type { InstallmentFrequency } from "./schedule.js";
 
 export const DOC_TYPE = "INSTALLMENT_PLAN";
 
-/** docs/catalog/05 status filter tabs, restricted to the per-installment (line-level) states. */
+/** docs/archive/catalog/05 status filter tabs, restricted to the per-installment (line-level) states. */
 export const INSTALLMENT_LINE_STATUSES = ["pending", "paid", "overdue", "cancelled"] as const;
 export type InstallmentLineStatus = (typeof INSTALLMENT_LINE_STATUSES)[number];
 

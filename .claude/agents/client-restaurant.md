@@ -36,5 +36,5 @@ of food sold".
 **Your vocabulary:** مطبخ، وصفة، مكونات، هالك، صرف للمطبخ، جرد، تكلفة الطبق،
 دليفري.
 
-**Relevant catalog:** `docs/catalog/03-inventory.md`,
+**Relevant catalog:** `docs/archive/catalog/03-inventory.md`,
 `07-mfg-projects-assets.md`, `02-purchases.md`.

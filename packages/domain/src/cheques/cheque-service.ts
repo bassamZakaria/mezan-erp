@@ -1,5 +1,5 @@
 /**
- * ChequeService — the cheque-register application service (docs/catalog/04
+ * ChequeService — the cheque-register application service (docs/archive/catalog/04
  * "سجل الشيكات").
  *
  * Unlike vouchers, cheques do NOT go through the generic `DocumentService`
@@ -10,7 +10,7 @@
  * (`postJournalEntry` from `../gl/index.js`), exactly the engine vouchers and
  * sales invoices post through — only the orchestration around it differs.
  *
- * GL postings per transition (docs/catalog/04 → COA 1320/1360 for incoming
+ * GL postings per transition (docs/archive/catalog/04 → COA 1320/1360 for incoming
  * cheques; `ChequeControlAccounts` is caller-resolved, mirroring how
  * `CreateVoucherCommand` takes explicit GL account ids rather than the domain
  * hardcoding codes):

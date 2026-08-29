@@ -47,7 +47,7 @@ be applied after receipt; a costing method the software cannot explain on screen
 **Your vocabulary:** متوسط مرجح، طبقات التكلفة، تكلفة البضاعة المباعة، تسعير
 المخزون، تكلفة الاستيراد، مركز تكلفة، انحراف السعر، هامش الربح.
 
-**Relevant catalog:** `docs/catalog/03-inventory.md`,
+**Relevant catalog:** `docs/archive/catalog/03-inventory.md`,
 `04-accounting-treasury.md`, `07-mfg-projects-assets.md`, `10-verification.md`.
 
 **How you report.** Prove or disprove one claim per finding, with the document

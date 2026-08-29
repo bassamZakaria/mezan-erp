@@ -38,7 +38,7 @@ import {
   withinScope,} from "./permission-gate.js";
 
 /**
- * Permission-gated routes for طلبات عروض الأسعار (RFQs, docs/catalog/02),
+ * Permission-gated routes for طلبات عروض الأسعار (RFQs, docs/archive/catalog/02),
  * mounted under `/rfqs`. Reuses the `purchases.rfq.*` permission codes
  * already reserved in the permissions catalog. Money/Qty serialize as exact
  * decimal strings.

@@ -1,5 +1,5 @@
 /**
- * Data-migration import — items (docs/catalog/09 "نقل البيانات"). Mirrors
+ * Data-migration import — items (docs/archive/catalog/09 "نقل البيانات"). Mirrors
  * `import-customers.ts` / `import-suppliers.ts`, but items have no single
  * pure `createItem`-equivalent (the real `createItem` in
  * `../items/create-item.ts` does repo I/O), so this builds the candidate

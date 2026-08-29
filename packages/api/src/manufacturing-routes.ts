@@ -78,7 +78,7 @@ import {
 } from "./permission-gate.js";
 
 /**
- * Permission-gated routes for the manufacturing module (docs/catalog/07),
+ * Permission-gated routes for the manufacturing module (docs/archive/catalog/07),
  * mounted under `/manufacturing`. Reuses the documented `manufacturing.*`
  * permission codes (permissions/catalog.ts): bom.view/manage for BOMs +
  * configurable products, wo.view/create/execute for work orders + custom
@@ -1036,7 +1036,7 @@ export function createManufacturingRoutes(
     }
   });
 
-  // --- Production Dashboard (docs/catalog/07 §لوحة الإنتاج) -----------------
+  // --- Production Dashboard (docs/archive/catalog/07 §لوحة الإنتاج) -----------------
 
   app.get("/dashboard", gate("manufacturing.wo.view"), async (c) => {
     const orders = await deps.workOrders.list();

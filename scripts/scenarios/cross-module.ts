@@ -1755,7 +1755,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("10 units sell", sale.confirmed.status === 200, JSON.stringify(sale.confirmed.body).slice(0, 200));
     checkEq(
       "costing is weighted-average, so COGS charges 10 × 14 — the blended cost of both batches. FEFO decides WHICH physical batch leaves, it does not price it: " +
-        "a pharmacy asking 'what did the October batch cost me' cannot get that answer from COGS, by design (docs/plan.md §6.3.6 — FIFO/batch costing is an open decision)",
+        "a pharmacy asking 'what did the October batch cost me' cannot get that answer from COGS, by design (docs/archive/plan.md §6.3.6 — FIFO/batch costing is an open decision)",
       (await gl(COGS)) - cogsBefore,
       140,
     );

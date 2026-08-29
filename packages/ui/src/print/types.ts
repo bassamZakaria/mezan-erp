@@ -1,7 +1,7 @@
 /**
- * The 9-tab print-template designer, modeled as data (docs/catalog/09
+ * The 9-tab print-template designer, modeled as data (docs/archive/catalog/09
  * §"قوالب الطباعة" — identity/header/content/columns/totals/footer/
- * watermark/POS-receipt/per-document override; docs/plan.md §2.4). One
+ * watermark/POS-receipt/per-document override; docs/archive/plan.md §2.4). One
  * `PrintTemplateConfig` is stored per tenant; `PrintView` (see PrintView.tsx)
  * is the single renderer every document type reuses.
  *

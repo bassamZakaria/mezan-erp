@@ -13,7 +13,7 @@ export interface UpdatePriceListCommand {
 }
 
 /**
- * Edits an existing price list (docs/catalog/01 "قوائم الأسعار"). Re-validates
+ * Edits an existing price list (docs/archive/catalog/01 "قوائم الأسعار"). Re-validates
  * the shape (name, duplicate lines, non-negative prices) whenever `nameAr` or
  * `lines` are part of the patch.
  */

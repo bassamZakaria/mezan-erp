@@ -1,5 +1,5 @@
 /**
- * أسعار الصرف — Exchange Rates master data (docs/catalog/04). A rate quotes a
+ * أسعار الصرف — Exchange Rates master data (docs/archive/catalog/04). A rate quotes a
  * foreign currency against the base currency (EGP): `rate` base units per one
  * foreign unit (e.g. 50.25 EGP per 1 USD). Rates are effective-dated and go
  * through a pending → approved (and lockable) lifecycle mirroring the catalog's

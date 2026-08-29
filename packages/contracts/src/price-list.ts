@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contract for price lists (docs/catalog/01 "قوائم الأسعار"). Money is
+ * Wire contract for price lists (docs/archive/catalog/01 "قوائم الأسعار"). Money is
  * always a decimal string on the wire — `price` here is an absolute
  * sell-price override for the line's item, not a discount percentage.
  * An item may repeat across lines, once per `minQty` tier.

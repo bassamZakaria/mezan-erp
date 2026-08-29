@@ -98,7 +98,7 @@ function emptyForm(): FormState {
 }
 
 /**
- * قواعد الإشعارات builder (docs/catalog/09 §قواعد الإشعارات, `/notifications/rules`):
+ * قواعد الإشعارات builder (docs/archive/catalog/09 §قواعد الإشعارات, `/notifications/rules`):
  * create/edit rules over the 39-event catalog with an optional condition,
  * recipient-by-permission/role/user, priority, channels, and an Arabic
  * title/body template editor. Real data only — list/create/toggle/delete all

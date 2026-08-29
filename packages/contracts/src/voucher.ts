@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for Treasury Vouchers (docs/catalog/04 §"السندات النقدية") —
+ * Wire contracts for Treasury Vouchers (docs/archive/catalog/04 §"السندات النقدية") —
  * the unified receipt/payment/transfer document + invoice allocation. Money
- * crosses the wire as an exact decimal string, never a float (docs/plan.md
+ * crosses the wire as an exact decimal string, never a float (docs/archive/plan.md
  * §2.3); the domain re-parses via `Money.fromMajor`.
  */
 

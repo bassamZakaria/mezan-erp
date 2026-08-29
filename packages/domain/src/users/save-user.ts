@@ -107,7 +107,7 @@ function isScopeEmpty(scope: ScopeSelection): boolean {
 /**
  * Creates or updates a user account. Enforces the two-dimensional scoping
  * model: exactly one of `roleId` / `isCompanyAdmin` (WHAT), and at least one
- * branch (WHERE — `docs/catalog/09`: "at least one required"). Secrets are
+ * branch (WHERE — `docs/archive/catalog/09`: "at least one required"). Secrets are
  * hashed through the injected `SecretHasher` port, never touched in the clear
  * beyond this function's stack frame.
  */

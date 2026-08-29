@@ -1,5 +1,5 @@
 /**
- * التخلص من أصل — Asset disposal (docs/catalog/07 §الأصول الثابتة).
+ * التخلص من أصل — Asset disposal (docs/archive/catalog/07 §الأصول الثابتة).
  *
  * Retiring an asset removes its remaining book value from the balance sheet and
  * recognises the gain or loss against the proceeds. The status value and the

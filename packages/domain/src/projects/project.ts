@@ -1,7 +1,7 @@
 import { Money } from "../money/index.js";
 
 /**
- * Projects — core entity (docs/catalog/07-mfg-projects-assets.md "المشاريع
+ * Projects — core entity (docs/archive/catalog/07-mfg-projects-assets.md "المشاريع
  * والمقاولات"). A `Project` is project/contract master data used to track
  * cost and billing; creating one auto-creates a linked `PRJ-{code}` cost
  * center for project costing (see create-project.ts).

@@ -1,5 +1,5 @@
 /**
- * The hook ports a document type may plug into (docs/plan.md §3: numbering,
+ * The hook ports a document type may plug into (docs/archive/plan.md §3: numbering,
  * GL-posting, stock-movement, workflow-gate). Each is OPTIONAL per document
  * type — a treasury voucher uses GL + workflow but no stock; a journal uses GL +
  * workflow + numbering; a stock transfer uses stock but no GL.
@@ -118,7 +118,7 @@ export interface DocumentStockPlan {
   /**
    * Present only on an adjustment plan: the {@link AdjustmentReason} code
    * (kept as a plain string here so the document framework stays decoupled
-   * from the inventory module — see docs/catalog/03). Drives reason-aware
+   * from the inventory module — see docs/archive/catalog/03). Drives reason-aware
    * direction validation and GL account routing at the stock-hook adapter.
    */
   readonly reason?: string;

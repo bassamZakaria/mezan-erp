@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for Product Templates (docs/catalog/03-inventory.md
+ * Wire contracts for Product Templates (docs/archive/catalog/03-inventory.md
  * §"قوالب المنتجات"): attribute-driven variant/SKU generation. Money fields
  * cross the wire as exact decimal strings, never a float.
  */

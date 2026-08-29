@@ -1,12 +1,12 @@
 import { z } from "zod";
 
 /**
- * Shared shapes for Label Printing (docs/catalog/03-inventory.md
+ * Shared shapes for Label Printing (docs/archive/catalog/03-inventory.md
  * §"طباعة الملصقات"). This screen never crosses an HTTP boundary — it's a
  * stateless client-side builder over live item data the existing `/items`
  * API already serves — but the schemas still give the domain's pure
  * `buildLabelBatch`/`checkBarcodeFit` and the web layer one shared, validated
- * shape (docs/plan.md's "no floats" discipline: price crosses as a decimal
+ * shape (docs/archive/plan.md's "no floats" discipline: price crosses as a decimal
  * string, exactly like every other Money field in this codebase).
  */
 

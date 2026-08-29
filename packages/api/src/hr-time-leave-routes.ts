@@ -67,7 +67,7 @@ import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAut
 
 /**
  * HR time & leave routes — الحضور والانصراف, سياسات الإجازات, أرصدة الإجازات,
- * استحقاقات الإجازات and the ADMIN half of طلبات الإجازات (docs/catalog/06).
+ * استحقاقات الإجازات and the ADMIN half of طلبات الإجازات (docs/archive/catalog/06).
  * Mounted inside `createHrRoutes` so every path stays under `/hr`.
  *
  * Leave approval routes through the existing workflow gate

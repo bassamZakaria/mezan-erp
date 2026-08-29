@@ -29,7 +29,7 @@ import {
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * Item master-data catalogs (docs/catalog/03 §"وحدة القياس" / §"تصنيفات
+ * Item master-data catalogs (docs/archive/catalog/03 §"وحدة القياس" / §"تصنيفات
  * الأصناف"), mounted at `/item-units` and `/item-categories`. Both are item
  * master data, so they reuse the item permissions (`inventory.item.view` to
  * read, `.create` / `.edit` to write) rather than introducing new codes.

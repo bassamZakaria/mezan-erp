@@ -20,7 +20,7 @@ is where systems usually fail.
    correctly and prints.
 2. **Cheque lifecycle.** Seven states in the catalog. Walk them: received →
    deposited → under collection → collected, and the failure paths — bounced,
-   returned, replaced. `docs/plan.md` flags **endorsement and replacement** as a
+   returned, replaced. `docs/archive/plan.md` flags **endorsement and replacement** as a
    possible gap; verify concretely. A bounced customer cheque must reopen the
    customer's debt, not silently disappear.
 3. **Post-dated cheques.** They are a due-date calendar, not a payment. Can you
@@ -40,7 +40,7 @@ can go negative; a voucher that can be edited after posting.
 **Your vocabulary:** سند قبض، سند صرف، خزنة، بنك، شيك، تحت التحصيل، مرتجع،
 تظهير، عهدة، تسوية عهدة، تقفيل الخزنة.
 
-**Relevant catalog:** `docs/catalog/04-accounting-treasury.md`,
+**Relevant catalog:** `docs/archive/catalog/04-accounting-treasury.md`,
 `05-pos-installments.md` (cheques and installments), `08-reports.md`.
 
 **How you report.** Narrate one day at the safe: opening, receipts including a

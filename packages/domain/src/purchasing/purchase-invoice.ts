@@ -1,5 +1,5 @@
 /**
- * فاتورة المشتريات (Purchase Invoice) — the AP document (docs/catalog/02
+ * فاتورة المشتريات (Purchase Invoice) — the AP document (docs/archive/catalog/02
  * §Purchase Invoices). مسودة (draft) → مؤكد (confirmed). On confirmation it
  * posts the accounting effect (Dr Inventory + Dr Input VAT / Cr Accounts
  * Payable, with freight/expense lines debiting a freight account) through the GL
@@ -572,7 +572,7 @@ export async function confirmPurchaseInvoice(
 }
 
 /**
- * إلغاء الفاتورة (Cancel invoice) — docs/catalog/09 §"تتبع البضاعة المستهلكة
+ * إلغاء الفاتورة (Cancel invoice) — docs/archive/catalog/09 §"تتبع البضاعة المستهلكة
  * من فواتير الشراء": a draft invoice (no GL/stock effect yet) cancels
  * trivially. A confirmed invoice may be cancelled too — UNLESS
  * `trackSoldPurchaseItems` is on and any of its inventory-line goods have

@@ -3,7 +3,7 @@ import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-conne
 import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream } from "@mezan/domain";
 
 /**
- * SQLite-backed AuditSink (docs/plan.md §5.7).
+ * SQLite-backed AuditSink (docs/archive/plan.md §5.7).
  *
  * Append-only is enforced at the storage layer: BEFORE UPDATE / BEFORE DELETE
  * triggers RAISE(ABORT), so even a stray SQL statement cannot mutate history.

@@ -53,7 +53,7 @@ import {
 } from "./errors.js";
 
 /**
- * Credit-control deps (docs/catalog/01/09 §"الرقابة الائتمانية"), optional so
+ * Credit-control deps (docs/archive/catalog/01/09 §"الرقابة الائتمانية"), optional so
  * every existing caller/test that doesn't configure it keeps confirming
  * exactly as before. When present, `confirm()` checks the customer's exposure
  * (their current live-invoice balance + this invoice's own total) against
@@ -95,7 +95,7 @@ export interface PricingVariance {
   readonly chargedPrice: Money;
 }
 
-/** The workflow action gated on confirm (docs/catalog/09). */
+/** The workflow action gated on confirm (docs/archive/catalog/09). */
 const GATE_ACTION: GateableActionType = "SALES_INVOICE_CONFIRM";
 
 /** The tenant's VAT rules as a document sees them (settings §"الضريبة"). */
@@ -409,7 +409,7 @@ export class SalesInvoiceService {
 
   /**
    * Evaluates the promotion engine against the invoice as it stands at confirm
-   * and stamps the resulting SNAPSHOT onto it (docs/catalog/01 §"العروض").
+   * and stamps the resulting SNAPSHOT onto it (docs/archive/catalog/01 §"العروض").
    * Nothing is re-resolved from the promotion later, so editing or
    * deactivating the promotion cannot rewrite what this invoice granted.
    */
@@ -424,7 +424,7 @@ export class SalesInvoiceService {
   }
 
   /**
-   * Runs the credit-control check (docs/catalog/01/09 §"الرقابة الائتمانية")
+   * Runs the credit-control check (docs/archive/catalog/01/09 §"الرقابة الائتمانية")
    * when `creditControl` deps are configured; no-op (returns null) otherwise.
    * BLOCK-mode violations throw {@link CreditLimitExceededError} — the caller
    * never sees a "blocked" result, only "warning" or null.

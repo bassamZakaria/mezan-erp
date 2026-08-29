@@ -69,9 +69,9 @@ export interface SalesInvoiceRoutesDeps {
   readonly gl: DocumentGlHook;
   readonly stock: SalesInvoiceStockHook;
   readonly workflow?: DocumentWorkflowGate;
-  /** Credit control on confirm (docs/catalog/01/09 §"الرقابة الائتمانية"); omit for no check at all. */
+  /** Credit control on confirm (docs/archive/catalog/01/09 §"الرقابة الائتمانية"); omit for no check at all. */
   readonly creditControl?: SalesInvoiceCreditControlDeps;
-  /** Evaluates promotions on confirm (docs/catalog/01 §"العروض"); omit and no invoice records one. */
+  /** Evaluates promotions on confirm (docs/archive/catalog/01 §"العروض"); omit and no invoice records one. */
   readonly promotions?: SalesInvoicePromotionHook;
   /** The customer's own price list, so a line under it is surfaced rather than silently accepted (D35). */
   readonly pricing?: SalesInvoicePricingDeps;
@@ -312,7 +312,7 @@ function handleDomainError(c: Context, err: unknown): Response {
 }
 
 /**
- * Sales-invoice routes (docs/catalog/01 §"فواتير المبيعات"), mounted under
+ * Sales-invoice routes (docs/archive/catalog/01 §"فواتير المبيعات"), mounted under
  * `/sales-invoices`:
  *   POST /                     create a draft            (sales.invoice.create)
  *   GET  /                     list (status/customer/date) (sales.invoice.view)

@@ -18,7 +18,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed VanTripRepository (docs/catalog/07-mfg-projects-assets.md
+ * SQLite-backed VanTripRepository (docs/archive/catalog/07-mfg-projects-assets.md
  * "رحلات المندوبين"). `VanTrip` is mostly a document-owned bag of nested
  * collections (crew, loadedStock, cashMovements, settlement) with no
  * independent query need, so — following purchasing-stores.ts's convention —

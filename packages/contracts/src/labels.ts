@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for تخطيطات الملصقات (label layouts, docs/catalog/03
+ * Wire contracts for تخطيطات الملصقات (label layouts, docs/archive/catalog/03
  * §"طباعة الباركود والملصقات") — the printable geometry of one sticker sheet.
  * Millimetre geometry crosses the wire as plain numbers: it is layout
  * configuration, not money or quantity.

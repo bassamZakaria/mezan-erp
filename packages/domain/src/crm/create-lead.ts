@@ -22,7 +22,7 @@ function validate(command: CreateLeadCommand): string[] {
   return reasons;
 }
 
-/** Creates and persists a new lead. New leads always start `new` (docs/catalog/06 "العملاء المحتملون"). */
+/** Creates and persists a new lead. New leads always start `new` (docs/archive/catalog/06 "العملاء المحتملون"). */
 export async function createLead(command: CreateLeadCommand, repo: LeadRepository): Promise<Lead> {
   const reasons = validate(command);
   if (reasons.length > 0) throw new InvalidLeadError(reasons);

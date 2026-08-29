@@ -1,5 +1,5 @@
 /**
- * Offline license verification — Ed25519-signed `license.mezan` (docs/plan.md
+ * Offline license verification — Ed25519-signed `license.mezan` (docs/archive/plan.md
  * §2.5). Pure: crypto via `@noble/ed25519` (no native module), machine + clock
  * sources injected as ports. Verification is the ONLY place the app decides
  * whether writes are allowed; keeping it tiny and centralized is deliberate so

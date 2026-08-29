@@ -38,7 +38,7 @@ import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 
-/** القيود المحاسبية (Journal Entries) — docs/catalog/04. List + detail + create, on the real GL posting engine (/gl). */
+/** القيود المحاسبية (Journal Entries) — docs/archive/catalog/04. List + detail + create, on the real GL posting engine (/gl). */
 
 type JournalDoc = JournalEntryDTO;
 

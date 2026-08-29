@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { CostCenter, CostCenterRepository, CostCenterStatus, CostCenterType } from "@mezan/domain";
 
-/** SQLite-backed CostCenterRepository (docs/catalog/04 "مراكز التكلفة"). Standalone, mirroring `createSqliteAccountRepository`. */
+/** SQLite-backed CostCenterRepository (docs/archive/catalog/04 "مراكز التكلفة"). Standalone, mirroring `createSqliteAccountRepository`. */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS cost_center (

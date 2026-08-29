@@ -8,7 +8,7 @@ import { withinDateRange } from "./period-bucket.js";
 import { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
 
 /**
- * سجل المخزون — Stock Ledger (docs/catalog/08-reports.md): the full
+ * سجل المخزون — Stock Ledger (docs/archive/catalog/08-reports.md): the full
  * chronological event-by-event ledger with a running balance per item/
  * warehouse position — the inventory analogue of a GL account ledger.
  * Blank دون تاريخ (no date bounds) is the catalog's own default — "full

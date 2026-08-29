@@ -66,7 +66,7 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
 }
 
 /**
- * Real auth + first-run bootstrap routes (docs/plan.md — desktop username+PIN):
+ * Real auth + first-run bootstrap routes (docs/archive/plan.md — desktop username+PIN):
  *   POST /auth/login          verify user + PIN, return the resolved session
  *   POST /bootstrap/seed      idempotently seed an empty DB (wizard seed step)
  *   POST /bootstrap/admin     create the first-run admin, return their session

@@ -10,7 +10,7 @@ import { resolvePrintTemplateConfig, type PrintDocumentModel, type PrintTemplate
  * The single renderer every printable document (A4/A5 invoice, quote, PO,
  * GRN, voucher, ...) reuses: it consumes a `PrintTemplateConfig` (the 9-tab
  * designer, as data) and a generic `PrintDocumentModel`, and renders the
- * page with a `@media print` stylesheet (docs/plan.md §2.4). Same DOM for
+ * page with a `@media print` stylesheet (docs/archive/plan.md §2.4). Same DOM for
  * both output paths — browser calls `window.print()`, desktop calls
  * `webContents.printToPDF` through `useElectronPrintToPdf` — so there is
  * nothing platform-specific inside the render tree itself.

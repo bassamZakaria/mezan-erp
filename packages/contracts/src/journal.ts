@@ -5,7 +5,7 @@ import { z } from "zod";
  *
  * Money crosses the wire as an exact decimal string, never a float — this is
  * the boundary that keeps the "no floats, ever" ledger invariant true end to
- * end (docs/plan.md §2.3). The domain re-parses these strings into `Money`.
+ * end (docs/archive/plan.md §2.3). The domain re-parses these strings into `Money`.
  */
 export const journalLineSchema = z.object({
   accountId: z.string().min(1),

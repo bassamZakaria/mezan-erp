@@ -6,7 +6,7 @@ import { useCreatePipelineStage, useMovePipelineStage, usePipelineStages } from 
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
- * مراحل خط المبيعات (Pipeline Stages) — docs/catalog/06 §"مراحل خط المبيعات".
+ * مراحل خط المبيعات (Pipeline Stages) — docs/archive/catalog/06 §"مراحل خط المبيعات".
  * This MVP's API only supports create + up/down reorder (no edit/deactivate
  * endpoint), so this screen intentionally does not build an edit/deactivate UI.
  */

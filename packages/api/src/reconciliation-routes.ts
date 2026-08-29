@@ -25,7 +25,7 @@ export interface ReconciliationRoutesDeps {
 }
 
 /**
- * مطابقة الأرصدة — Balance Reconciliation (docs/catalog/04), mounted under
+ * مطابقة الأرصدة — Balance Reconciliation (docs/archive/catalog/04), mounted under
  * `/reconciliation`. `GET /` returns the summary (sub-ledger vs GL control
  * account) and the القيود غير المرتبطة (unlinked control-account lines).
  * Permission: `accounting.reports.view`.

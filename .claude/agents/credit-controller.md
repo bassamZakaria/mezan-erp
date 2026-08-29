@@ -39,7 +39,7 @@ allocated to invoices; a bounced cheque that leaves the customer looking clean.
 **Your vocabulary:** أعمار الديون، حد ائتماني، إيقاف التعامل، متأخرات، تحصيل،
 وعد بالسداد، شيك مرتجع، كشف حساب، مخصص ديون مشكوك فيها، إعدام دين.
 
-**Relevant catalog:** `docs/catalog/01-sales.md`, `04-accounting-treasury.md`,
+**Relevant catalog:** `docs/archive/catalog/01-sales.md`, `04-accounting-treasury.md`,
 `08-reports.md`.
 
 **How you report.** Work a collections week: pull the aging, pick the worst

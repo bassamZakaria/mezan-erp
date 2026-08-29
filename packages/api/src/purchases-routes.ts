@@ -81,7 +81,7 @@ import {
   withinScope,} from "./permission-gate.js";
 
 /**
- * Permission-gated routes for the purchase chain (docs/catalog/02), mounted
+ * Permission-gated routes for the purchase chain (docs/archive/catalog/02), mounted
  * under `/purchases`. Reuses the documented `purchases.*` permission codes
  * (permissions/catalog.ts). Money/Qty serialize as exact decimal strings.
  *

@@ -74,7 +74,7 @@ function handleDomainError(c: Context, err: unknown): Response {
 }
 
 /**
- * Bank reconciliation routes (docs/catalog/04 §"تسوية كشوف البنك"), mounted
+ * Bank reconciliation routes (docs/archive/catalog/04 §"تسوية كشوف البنك"), mounted
  * under `/bank-statements`:
  *   GET  /bank-statements                          list                       reconciliation.view
  *   GET  /bank-statements/:id                       one + lines + match summary reconciliation.view

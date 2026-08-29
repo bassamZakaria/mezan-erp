@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contract for a Customer (docs/catalog/01-sales.md "العملاء"). Money
+ * Wire contract for a Customer (docs/archive/catalog/01-sales.md "العملاء"). Money
  * crosses the wire as an exact decimal string, never a float (same boundary
  * rule as journal.ts) — the domain re-parses these strings into `Money`.
  */

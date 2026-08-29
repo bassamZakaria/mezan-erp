@@ -22,7 +22,7 @@ import { ApiError, useCreateProject, useCustomers, useProjects, useUpdateProject
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-/** المشاريع والمقاولات (Projects & Contracting) — docs/catalog/07 §"المشاريع والمقاولات". List + detail + new-project panel. */
+/** المشاريع والمقاولات (Projects & Contracting) — docs/archive/catalog/07 §"المشاريع والمقاولات". List + detail + new-project panel. */
 
 const STATUS_KEY: Record<ProjectStatusDTO, AppTranslationKey> = {
   planned: "projects.status.planned",

@@ -327,7 +327,7 @@ const PROJECTS = [
 
 /**
  * Asset categories. GL account ids match the system-default fixed-assets
- * accounts seeded by the core chart of accounts (docs/catalog/07
+ * accounts seeded by the core chart of accounts (docs/archive/catalog/07
  * "تصنيفات الأصول": 1500/1510/1520 assets, 5400 depreciation expense, 1590
  * accumulated depreciation, 4500/5450 gain/loss on disposal).
  */

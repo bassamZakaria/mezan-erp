@@ -28,7 +28,7 @@ function fmt(value: string, digits = 2): string {
 }
 
 /**
- * إعادة تقييم العملات الأجنبية — FX Revaluation (docs/catalog/04). Revalues open
+ * إعادة تقييم العملات الأجنبية — FX Revaluation (docs/archive/catalog/04). Revalues open
  * foreign-currency balances at the approved closing rate and posts the FX
  * gain/loss — auto-reversing the next day by default. Runs the REAL
  * `computeFxRevaluation` / `postFxRevaluation` domain services server-side

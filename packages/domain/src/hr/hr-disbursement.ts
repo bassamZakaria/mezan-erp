@@ -20,7 +20,7 @@ import {
  * voucher whose counterparty GL account is supplied here).
  *
  *   advance  : Dr 1160 سلف الموظفين  / Cr treasury  (an ASSET, never an expense
- *              — docs/catalog/06 "السلفة دين على الموظف (أصل)")
+ *              — docs/archive/catalog/06 "السلفة دين على الموظف (أصل)")
  *   payroll  : Dr 2170 رواتب مستحقة  / Cr treasury  (clears the accrued payable)
  */
 

@@ -6,8 +6,8 @@ and was **not** entered — no login was attempted, so everything below is from
 public marketing pages, not from inside the product. Treat it as the vendor's
 own claims, not verified behavior.
 
-This is the product Mezan's `docs/catalog/` was recon'd from, and the "competing
-Egyptian ERP" whose module pricing appears in `docs/plan.md`. The pricing there
+This is the product Mezan's `docs/archive/catalog/` was recon'd from, and the "competing
+Egyptian ERP" whose module pricing appears in `docs/archive/plan.md`. The pricing there
 matches this site exactly, so the plan's competitive section is current.
 
 ## Positioning
@@ -23,7 +23,7 @@ Trial: 14 days, no credit card. Annual billing = two months free.
 ## Login shape
 
 `رمز المنشأة` (company code, placeholder MAIN) + email + password. Matches the
-tenant-resolution shape recorded in `docs/plan.md` §1.
+tenant-resolution shape recorded in `docs/archive/plan.md` §1.
 
 ## Modules (their packaging)
 
@@ -94,7 +94,7 @@ advanced banking).
 - A live pricing calculator that lets a buyer self-qualify before talking to
   sales.
 
-## The three gaps `docs/plan.md` flagged as "possible catalog gaps" are real
+## The three gaps `docs/archive/plan.md` flagged as "possible catalog gaps" are real
 
 FEFO, BOQ/progress-certificates/retention, and own-fleet delivery tracking are
 all marketed features here. They are competitive requirements for the pharmacy,

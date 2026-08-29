@@ -1,6 +1,6 @@
 /**
  * Unit-of-measure conversion — turning a quantity ENTERED in an alternate unit
- * into the BASE quantity the stock ledger moves (docs/catalog/03 §"وحدات
+ * into the BASE quantity the stock ledger moves (docs/archive/catalog/03 §"وحدات
  * القياس", e.g. "كرتونة = 12 قطعة").
  *
  * An item's alternate units carry a `factor` as a plain JS number because that

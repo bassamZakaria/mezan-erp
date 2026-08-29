@@ -34,7 +34,7 @@ const NOOP_HANDLE: LanHostHandle = {
 };
 
 /**
- * Binds the SAME shared Hono app (docs/plan.md §2.2's "one HTTP app, two
+ * Binds the SAME shared Hono app (docs/archive/plan.md §2.2's "one HTTP app, two
  * mount points") to a LAN-visible HTTP socket, ALONGSIDE — never instead of
  * — the host's own no-port IPC mount (main/ipc.ts). Tills/tablets on the shop
  * LAN then reach the exact app the host itself uses in-process, including

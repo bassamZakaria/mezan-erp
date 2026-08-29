@@ -5,7 +5,7 @@ import { withinDateRange } from "./period-bucket.js";
 
 /**
  * Shared per-item revenue aggregation behind المبيعات حسب الصنف and أفضل
- * المنتجات (docs/catalog/08-reports.md) — both are the same underlying
+ * المنتجات (docs/archive/catalog/08-reports.md) — both are the same underlying
  * "revenue by item" rollup, one paginated/sorted-by-revenue, the other
  * ranked/limited. Revenue per line is its post-discount taxable base (or +tax
  * when `taxMode: "inc"`), matching `computeInvoiceTotals`'s per-line split.

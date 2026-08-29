@@ -9,7 +9,7 @@ import { sumRows, countRows } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
- * التصنيع أم الشراء — Make vs Buy (docs/catalog/07 §التصنيع مقابل الشراء):
+ * التصنيع أم الشراء — Make vs Buy (docs/archive/catalog/07 §التصنيع مقابل الشراء):
  * for every item with an active BOM, compares the standard cost to
  * manufacture it against the real cost history of buying it, and says which
  * side is cheaper. BOTH sides are read off documents that were actually

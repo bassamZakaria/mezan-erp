@@ -1,5 +1,10 @@
 # Mezan (ميزان) — Enhancement Workflows (Beyond Parity)
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../../ROADMAP.md` for what is
+> built and open, and `../../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `../README.md` in the archive root maps them.
+
+
 > **These are ENHANCEMENT workflows beyond 1:1 parity with the reference app.** They live **only on the `enhancements` branch**, which **tracks `main`** (parity). Nothing here is merged into `main`.
 >
 > Each workflow is end-to-end and step-by-step, with **bilingual screen names** (English / العربية). Screen names in **bold** are net-new or materially-changed surfaces introduced by an enhancement; plain names are existing parity screens. Each workflow cites the requirements it realizes (`ENH-###`, see `requirements.md`).

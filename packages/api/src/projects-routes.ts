@@ -55,7 +55,7 @@ export interface ProjectsRoutesDeps {
 }
 
 /**
- * Project routes (docs/catalog/07 "المشاريع والمقاولات"): list, get one,
+ * Project routes (docs/archive/catalog/07 "المشاريع والمقاولات"): list, get one,
  * create (auto-creates a linked `PRJ-{code}` cost center), edit.
  *
  * PERMISSION NOTE: the permission catalog (packages/domain/src/permissions/

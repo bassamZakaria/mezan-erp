@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PRINT_TEMPLATE_CONFIG, resolvePrintTemplateConfig, type PrintTemplateConfig } from "./types";
 
 describe("DEFAULT_PRINT_TEMPLATE_CONFIG", () => {
-  it("covers all 9 tabs (docs/catalog/09 §قوالب الطباعة)", () => {
+  it("covers all 9 tabs (docs/archive/catalog/09 §قوالب الطباعة)", () => {
     const config = DEFAULT_PRINT_TEMPLATE_CONFIG;
     expect(Object.keys(config).sort()).toEqual(
       [

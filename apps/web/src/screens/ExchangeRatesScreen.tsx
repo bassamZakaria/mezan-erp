@@ -25,7 +25,7 @@ const STATUS_KEY: Record<ExchangeRateStatusDTO, AppTranslationKey> = { pending: 
 const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning", approved: "success", locked: "neutral" };
 
 /**
- * أسعار الصرف — Exchange Rates (docs/catalog/04). Master data feeding FX
+ * أسعار الصرف — Exchange Rates (docs/archive/catalog/04). Master data feeding FX
  * revaluation, with the بانتظار الاعتماد → معتمد → مقفل approval lifecycle.
  * Base currency is EGP; every rate is quoted foreign→EGP.
  */

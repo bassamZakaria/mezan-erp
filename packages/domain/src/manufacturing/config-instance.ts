@@ -1,6 +1,6 @@
 /**
  * التصنيع المخصص (Custom Manufacturing Order / Config Instance) — one make-to-
- * order production against a configurable product (docs/catalog/07 §Config
+ * order production against a configurable product (docs/archive/catalog/07 §Config
  * Instances). The customer picks parameters; the system evaluates the product's
  * sandboxed formulas into concrete materials/price/labour/overhead, then AUTO-
  * GENERATES a linked work order (أمر التشغيل) by first materialising an ad-hoc

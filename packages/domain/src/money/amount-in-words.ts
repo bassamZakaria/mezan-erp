@@ -1,5 +1,5 @@
 /**
- * Arabic number-to-words for printed amounts (docs/plan.md §2.4 —
+ * Arabic number-to-words for printed amounts (docs/archive/plan.md §2.4 —
  * "Arabic amount-in-words implementation (masculine/feminine agreement,
  * currency + subunit naming)").
  *
@@ -181,7 +181,7 @@ function integerToWords(value: number, mainNoun: ArabicCurrencyNoun): string {
  * Spells out a monetary amount in Arabic words, e.g.
  * `amountInWords(1092.5, SAR_WORDS)` →
  * "ألف واثنان وتسعون ريال سعودي وخمسون هللة فقط لا غير"
- * (matches the reference system's print-template preview, docs/catalog/09 §"المجاميع").
+ * (matches the reference system's print-template preview, docs/archive/catalog/09 §"المجاميع").
  */
 export function amountInWords(value: number, currency: ArabicCurrencyWords = EGP_WORDS): string {
   if (!Number.isFinite(value)) throw new RangeError("amountInWords: value must be finite");

@@ -91,7 +91,7 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Items routes (docs/catalog/03-inventory.md "الأصناف"): list, get one with its
+ * Items routes (docs/archive/catalog/03-inventory.md "الأصناف"): list, get one with its
  * real on-hand position, create, edit. Every route is permission-gated via the
  * permissions engine (`inventory.item.view` / `.create` / `.edit`).
  *

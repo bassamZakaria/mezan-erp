@@ -5,7 +5,7 @@ import { sumRows, averageOf } from "./kpi.js";
 import { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
 
 /**
- * المشتريات حسب الفترة — Purchases by Period (docs/catalog/08-reports.md):
+ * المشتريات حسب الفترة — Purchases by Period (docs/archive/catalog/08-reports.md):
  * day/week/month purchase-cost trend, structurally a mirror of المبيعات حسب
  * الفترة but with no discount column — purchase invoices don't carry a
  * document-level discount. Only `confirmed` invoices count (a draft invoice

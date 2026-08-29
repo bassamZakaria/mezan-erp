@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contract for FX revaluation (docs/catalog/04 "إعادة تقييم العملات الأجنبية"). */
+/** Wire contract for FX revaluation (docs/archive/catalog/04 "إعادة تقييم العملات الأجنبية"). */
 
 /** Request to preview/post a revaluation as of a closing date. */
 export const fxRevaluationRequestSchema = z.object({

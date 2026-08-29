@@ -8,7 +8,7 @@ const defaultT: SampleTranslate = (key, params) => translate(uiCatalogs, DEFAULT
 /**
  * A realistic sample فاتورة مبيعات (sales invoice) — the "wire ONE example"
  * proof that `PrintTemplateConfig` + `PrintView` render a real document
- * (docs/catalog/09 §"قوالب الطباعة" live-preview: "فاتورة مبيعات (INV-000123)").
+ * (docs/archive/catalog/09 §"قوالب الطباعة" live-preview: "فاتورة مبيعات (INV-000123)").
  *
  * Kept domain-agnostic on purpose (@mezan/ui doesn't depend on
  * @mezan/domain, same rule as PermissionMatrix.tsx) — `amountInWords` is

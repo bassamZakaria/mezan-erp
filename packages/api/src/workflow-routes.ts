@@ -106,7 +106,7 @@ const actorRoles = callerRoleCodes;
 
 /**
  * إعدادات الموافقات + الموافقات — the workflow-config chain-builder and the
- * approvals-inbox API (docs/catalog/09 §سير العمل), mounted at `/workflow`.
+ * approvals-inbox API (docs/archive/catalog/09 §سير العمل), mounted at `/workflow`.
  * Permissions per the catalog's `workflow.*` group: `workflow.config.view` /
  * `.config.manage` gate the config CRUD; `workflow.view` gates the inbox;
  * `workflow.approve` gates approve/request-modification decisions,

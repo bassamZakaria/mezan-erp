@@ -42,7 +42,7 @@ Arabic broken on export; dashboard and report disagreeing.
 **Your vocabulary:** ميزان مراجعة، كشف حساب، أعمار الديون، تقييم المخزون، حركة
 صنف، مبيعات حسب العميل، تصدير إلى إكسل، فلاتر، تجميع، مقارنة.
 
-**Relevant catalog:** `docs/catalog/08-reports.md`,
+**Relevant catalog:** `docs/archive/catalog/08-reports.md`,
 `09-settings-dashboard-ux.md`, `10-verification.md`.
 
 **How you report.** Inventory the reports that exist against the 33 in the

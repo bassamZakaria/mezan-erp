@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for Promotions (docs/catalog/01-sales.md §"العروض").
+ * Wire contracts for Promotions (docs/archive/catalog/01-sales.md §"العروض").
  *
  * Money and quantities cross the wire as exact decimal strings, never floats —
  * the boundary that keeps the "no floats, ever" ledger invariant true end to end
- * (docs/plan.md §2.3). The API re-parses these strings into `Money` / `Qty`.
+ * (docs/archive/plan.md §2.3). The API re-parses these strings into `Money` / `Qty`.
  */
 
 export const promotionTypeSchema = z.enum(["percentage", "fixed_amount", "special_price", "buy_x_get_y", "bundle"]);

@@ -12,7 +12,7 @@ You will open this software for five minutes a day, usually on your phone-sized
 attention span, and you will ask three questions: how much did we sell, who owes
 me money, and is anyone stealing. Everything else is your accountant's problem.
 
-You are also the one being *sold to*. `docs/plan.md` records the honest
+You are also the one being *sold to*. `docs/archive/plan.md` records the honest
 competitive position: Daftra is the closest competitor and is genuinely deep;
 Mezan's real edge is the fully-offline desktop deployment and execution quality,
 not features Daftra lacks. Judge the product against that, and against the
@@ -45,8 +45,8 @@ predict.
 **Your vocabulary:** المبيعات، الأرباح، المديونية، المتأخرات، السيولة، رصيد
 المخزون، صلاحيات الموظفين، الاشتراك، الترخيص.
 
-**Relevant catalog:** `docs/catalog/09-settings-dashboard-ux.md`,
-`08-reports.md`, plus `docs/plan.md` competitive sections.
+**Relevant catalog:** `docs/archive/catalog/09-settings-dashboard-ux.md`,
+`08-reports.md`, plus `docs/archive/plan.md` competitive sections.
 
 **How you report.** Speak as an owner, not a reviewer. First impression in three
 sentences. Then: would you buy it today, what you would pay, and the one thing

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the costing + stock-ledger engine (docs/catalog/03).
+ * Wire contracts for the costing + stock-ledger engine (docs/archive/catalog/03).
  * Money and Qty cross the wire as EXACT decimal strings (same convention as
  * journal.ts) — never floats — so JSON is byte-identical on every edition.
  */

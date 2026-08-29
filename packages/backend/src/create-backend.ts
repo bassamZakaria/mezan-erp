@@ -172,7 +172,7 @@ import { createFetchWebhookTransport, createHmacWebhookSigner } from "./webhook-
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
- * docs/catalog/04's standard COA (packages/domain/src/accounts/coa-template.ts):
+ * docs/archive/catalog/04's standard COA (packages/domain/src/accounts/coa-template.ts):
  * inventory (1200), trade payables (2100), input VAT (1400), freight (5200),
  * other purchase expenses (5910).
  */
@@ -190,7 +190,7 @@ const PURCHASE_GL_ACCOUNTS = {
 };
 
 /**
- * System-default fixed-assets GL accounts (docs/catalog/07 §تصنيفات الأصول
+ * System-default fixed-assets GL accounts (docs/archive/catalog/07 §تصنيفات الأصول
  * "افتراضيات الإهلاك" helper text) — used whenever a depreciation run posts
  * for an asset/category that didn't override its own account mapping.
  */
@@ -310,7 +310,7 @@ const LANDED_COST_GL_ACCOUNTS = {
  * `packages/domain/src/documents/hooks.ts`, "decoupled from the notification
  * catalog" by design) onto a real catalog `EventCode` published on the ONE
  * shared `EventBus` the notification-rules engine subscribes to. This is the
- * translation step docs/plan.md §5.6 anticipates but does not itself provide.
+ * translation step docs/archive/plan.md §5.6 anticipates but does not itself provide.
  *
  * `enrich` lets a document type attach extra template fields (this repo only
  * has one so far: sales invoices' customerName/amount) beyond the generic
@@ -603,33 +603,33 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // --- inv/labels-templates-writedown — Product Templates (attribute CRUD + variant generator). ---
   const productTemplateStore = createSqliteProductTemplateStore(sqlite);
 
-  // --- sweep/finish-and-mount — manufacturing (docs/catalog/07: BOMs, work
+  // --- sweep/finish-and-mount — manufacturing (docs/archive/catalog/07: BOMs, work
   // orders, configurable products, custom manufacturing) and RFQ + historical
-  // purchase import (docs/catalog/02). ---
+  // purchase import (docs/archive/catalog/02). ---
   const manufacturing = createSqliteManufacturingStores(sqlite);
   const rfqStores = createSqliteRfqStores(sqlite);
   const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);
   const salesHistoricalImportArchives = createSqliteHistoricalSalesArchiveStore(sqlite);
 
-  // --- w8/print-migration — Print Template designer config (docs/catalog/09
+  // --- w8/print-migration — Print Template designer config (docs/archive/catalog/09
   // §"قوالب الطباعة"). The Data Migration wizard's department/employee steps
   // reuse hr/master-data's own `hrDepartments`/`hrEmployees` stores below. ---
   const printTemplateConfig = createSqlitePrintTemplateConfigStore(sqlite);
 
   // --- sweep/finish-and-mount — مرتجعات المبيعات/المشتريات, التكاليف
-  // الإضافية, خطط الأقساط + متابعة التحصيل (docs/catalog/01, 02, 05). ---
+  // الإضافية, خطط الأقساط + متابعة التحصيل (docs/archive/catalog/01, 02, 05). ---
   const salesReturnStore = createStandaloneSqliteSalesReturnStore(sqlite);
   const purchaseReturnStore = createStandaloneSqlitePurchaseReturnStore(sqlite);
   const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
   const followUps = createStandaloneSqliteFollowUpStore(sqlite);
 
   // --- phase4/inventory-ops — Stock Adjustments, Stock Transfers, Physical
-  // Counts document layer (docs/catalog/03), on the SAME shared connection
+  // Counts document layer (docs/archive/catalog/03), on the SAME shared connection
   // (createSqliteInventoryOpsStore reuses `sqlite` here rather than opening
   // its own — see packages/persistence/src/sqlite-connection.ts). ---
   const inventoryOps = createSqliteInventoryOpsStore(sqlite);
 
-  // --- hr/master-data — departments, job titles, employees, contracts, holidays, leave requests (docs/catalog/06 §"الموارد البشرية"). ---
+  // --- hr/master-data — departments, job titles, employees, contracts, holidays, leave requests (docs/archive/catalog/06 §"الموارد البشرية"). ---
   const hrDepartments = createSqliteDepartmentRepository(sqlite);
   const hrJobTitles = createSqliteJobTitleRepository(sqlite);
   const hrEmployees = createSqliteEmployeeRepository(sqlite);
@@ -693,7 +693,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   // --- w8/workflow-ui — إعدادات الموافقات chain-builder + الموافقات inbox
-  // (docs/catalog/09 §سير العمل). `workflowConfigs` is also the REAL
+  // (docs/archive/catalog/09 §سير العمل). `workflowConfigs` is also the REAL
   // `resolveConfig` behind `createDocumentWorkflowGate` below — a tenant that
   // configures a chain for e.g. SALES_RETURN_CONFIRM has that document type
   // actually held بانتظار الموافقة on confirm, not just a config the /workflow
@@ -740,7 +740,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   // Sales invoices are the one document type the catalog's own email-template
   // preview names explicitly ("تم إنشاء الفاتورة INV-000123 بقيمة 1,150.00 ج.م
-  // للعميل" — docs/catalog/09 §البريد الإلكتروني), so this bridge enriches the
+  // للعميل" — docs/archive/catalog/09 §البريد الإلكتروني), so this bridge enriches the
   // generic documentNumber with the two other named template fields.
   const salesInvoiceEventMapping = {
     SALES_INVOICE: { DOCUMENT_CONFIRMED: "SALES_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "SALES_INVOICE_VOIDED" },
@@ -826,7 +826,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   /**
-   * مطابقة الأرصدة — Balance Reconciliation's sub-ledger side (docs/catalog/04):
+   * مطابقة الأرصدة — Balance Reconciliation's sub-ledger side (docs/archive/catalog/04):
    * the SAME AR/AP/inventory control accounts the purchase/sales-return/landed-
    * cost postings above already use (1105 trade receivables, 2100 trade
    * payables, 1200 inventory). AR/inventory sub-ledger totals are recomputed

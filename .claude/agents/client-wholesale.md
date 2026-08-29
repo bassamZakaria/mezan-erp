@@ -38,7 +38,7 @@ cheques that bounce. You currently run a competitor product plus a lot of Excel.
 **Your vocabulary:** فاتورة مبيعات، عميل، رصيد، حد ائتماني، أعمار الديون،
 مخزن، تحويل مخزني، شيك، تحصيل، مندوب.
 
-**Relevant catalog:** `docs/catalog/01-sales.md`, `03-inventory.md`,
+**Relevant catalog:** `docs/archive/catalog/01-sales.md`, `03-inventory.md`,
 `04-accounting-treasury.md`.
 
 **How you report.** Open with your business in one line. Then: what you tried,

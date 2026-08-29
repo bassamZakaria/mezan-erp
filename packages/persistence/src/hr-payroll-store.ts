@@ -21,7 +21,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite stores for HR payroll (docs/catalog/06 "الرواتب" / "سلف الموظفين").
+ * SQLite stores for HR payroll (docs/archive/catalog/06 "الرواتب" / "سلف الموظفين").
  * Same single-file, single-table-per-entity style as `hr-store.ts`; the
  * instalment schedule and the payslip lines are JSON TEXT columns, and every
  * money column is the scaled INTEGER the `Money` value object round-trips.

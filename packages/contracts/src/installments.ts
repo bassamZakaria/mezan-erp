@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { documentStatusSchema } from "./documents.js";
 
-/** Wire contracts for Installments (خطط الأقساط + متابعة التحصيل، docs/catalog/05). */
+/** Wire contracts for Installments (خطط الأقساط + متابعة التحصيل، docs/archive/catalog/05). */
 
 const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
 

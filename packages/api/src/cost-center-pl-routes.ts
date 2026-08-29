@@ -14,7 +14,7 @@ export interface CostCenterPnLRoutesDeps {
 }
 
 /**
- * أرباح مراكز التكلفة — Cost Center P&L (docs/catalog/04), mounted under
+ * أرباح مراكز التكلفة — Cost Center P&L (docs/archive/catalog/04), mounted under
  * `/cost-center-pl`. `GET /?fromDate&toDate` groups posted revenue/expense lines
  * by their cost-center dimension. Permission: `accounting.reports.view`.
  */

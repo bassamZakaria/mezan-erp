@@ -26,7 +26,7 @@ export interface CreateProjectDeps {
 
 /**
  * Creates and persists a new project, auto-creating a linked `PRJ-{code}`
- * cost center via the real cost-centers domain (docs/catalog/07
+ * cost center via the real cost-centers domain (docs/archive/catalog/07
  * "المشاريع والمقاولات") — the module's whole point. New projects always
  * start `planned`.
  */

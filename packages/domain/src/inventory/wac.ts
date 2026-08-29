@@ -11,7 +11,7 @@
  *     average against the LAYER-derived average — the three figures the catalog
  *     shows on the item cost tab and the valuation report.
  *
- * Costing rules (docs/plan.md §2.3 / docs/catalog/03):
+ * Costing rules (docs/archive/plan.md §2.3 / docs/archive/catalog/03):
  *   - Receipt (IN): value += qty × unitCost; a new immutable layer is created
  *     at that receipt-time unit cost.
  *   - Issue (OUT): stock leaves at the CURRENT moving average; the average is
@@ -198,7 +198,7 @@ export interface DriftReport {
 /**
  * Reconcile a cached snapshot against the ledger and the layers. `tolerance`
  * (a Money magnitude, default exact-zero) bounds the acceptable cache drift —
- * mirrors the tenant's `wacDriftTolerance` knob (docs/plan.md §2.3).
+ * mirrors the tenant's `wacDriftTolerance` knob (docs/archive/plan.md §2.3).
  */
 export function checkDrift(
   cached: WacPosition,

@@ -18,7 +18,7 @@ import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
- * الضرائب (Taxes) — docs/catalog/04 §"الضرائب". List + add/edit dialog with
+ * الضرائب (Taxes) — docs/archive/catalog/04 §"الضرائب". List + add/edit dialog with
  * GL posting-account overrides and the Egyptian ETA e-invoice VAT sub-type
  * mapping (V001–V009).
  */

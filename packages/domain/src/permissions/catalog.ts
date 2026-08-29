@@ -2,8 +2,8 @@
  * Mezan permission catalog — a versioned TS data manifest.
  *
  * Single source of truth for the ~268 permissions across 19 modules captured in
- * `docs/catalog/09-settings-dashboard-ux.md` §permission matrix and mandated as
- * "data (a versioned TS manifest)" by `docs/plan.md` §5.2. The role editor, the
+ * `docs/archive/catalog/09-settings-dashboard-ux.md` §permission matrix and mandated as
+ * "data (a versioned TS manifest)" by `docs/archive/plan.md` §5.2. The role editor, the
  * API guards, and the docs are all meant to read this one manifest.
  *
  * Codes use `module.entity.action` dot notation. A few carry the ⚠ `sensitive`
@@ -65,8 +65,8 @@ export const MODULES: readonly ModuleDef[] = [
   { id: "audit", labelAr: "المراجعة", count: 1 },
   { id: "transactions", labelAr: "المعاملات", count: 2 },
   // --- phase11/crm-projects-assets-field — Projects & Contracting isn't part of
-  // the original 268-permission/19-module matrix (docs/catalog/09); it's added
-  // fresh per docs/catalog/07-mfg-projects-assets.md "المشاريع والمقاولات".
+  // the original 268-permission/19-module matrix (docs/archive/catalog/09); it's added
+  // fresh per docs/archive/catalog/07-mfg-projects-assets.md "المشاريع والمقاولات".
   { id: "projects", labelAr: "المشاريع", count: 2 },
 ];
 
@@ -397,7 +397,7 @@ const ROWS: readonly Row[] = [
   ["transactions.view"],
   ["transactions.view_all", "transactions.view"],
 
-  // 20. projects — 2 (phase11/crm-projects-assets-field, docs/catalog/07 §المشاريع)
+  // 20. projects — 2 (phase11/crm-projects-assets-field, docs/archive/catalog/07 §المشاريع)
   ["projects.project.view"],
   ["projects.project.manage", "projects.project.view"],
 ];

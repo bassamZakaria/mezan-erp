@@ -13,7 +13,7 @@ import type {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed item master-data catalogs (docs/catalog/03 §"وحدة القياس" /
+ * SQLite-backed item master-data catalogs (docs/archive/catalog/03 §"وحدة القياس" /
  * §"تصنيفات الأصناف"). One connection backs both tables, mirroring
  * `createSqliteInventoryOpsStore`'s shape.
  */

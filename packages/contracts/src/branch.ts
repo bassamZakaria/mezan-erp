@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contract for a branch (docs/catalog/09 §"إدارة الفروع"). */
+/** Wire contract for a branch (docs/archive/catalog/09 §"إدارة الفروع"). */
 export const branchSchema = z.object({
   id: z.string().min(1),
   code: z.string().regex(/^[A-Z0-9_-]{1,20}$/),

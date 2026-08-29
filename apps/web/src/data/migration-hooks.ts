@@ -12,7 +12,7 @@ import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
 /**
- * Data-migration import wizard hooks (docs/catalog/09 "نقل البيانات") — kept
+ * Data-migration import wizard hooks (docs/archive/catalog/09 "نقل البيانات") — kept
  * out of `data/hooks.ts` (per file ownership for this task) but following the
  * exact same pattern as `account-hooks.ts`: a typed TanStack Query hook per
  * endpoint, real backend calls, no sample data. Historical purchase-document

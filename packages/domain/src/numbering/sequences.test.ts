@@ -21,7 +21,7 @@ describe("sequence definitions", () => {
   });
 
   it("matches the catalog's next-number previews", () => {
-    // current value + 1, formatted (docs/catalog/09).
+    // current value + 1, formatted (docs/archive/catalog/09).
     expect(formatSequenceNumber(getSequenceDefinition("SALES_INVOICE"), 15)).toBe(
       "INV-000015",
     );

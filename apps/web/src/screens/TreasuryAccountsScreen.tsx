@@ -50,7 +50,7 @@ const OPENING_BALANCE_EQUITY_ACCOUNT = "3210";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
-/** حسابات الخزينة (Treasury Accounts) — docs/catalog/04 §"حسابات الخزينة". List + detail + add dialog. */
+/** حسابات الخزينة (Treasury Accounts) — docs/archive/catalog/04 §"حسابات الخزينة". List + detail + add dialog. */
 
 const STATUS_KEY: Record<TreasuryAccountStatusDTO, AppTranslationKey> = { active: "treasuryAcc.status.active", inactive: "treasuryAcc.status.inactive" };
 const STATUS_TONE: Record<TreasuryAccountStatusDTO, PillTone> = { active: "success", inactive: "neutral" };

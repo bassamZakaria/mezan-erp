@@ -7,7 +7,7 @@ import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
- * المبيعات حسب المندوب — Sales by Salesperson (docs/catalog/08-reports.md).
+ * المبيعات حسب المندوب — Sales by Salesperson (docs/archive/catalog/08-reports.md).
  * One row per HR employee credited on a live invoice in the period: how many
  * sales they closed, what they billed, what of it is still outstanding, and
  * what share of the period's revenue they carried.

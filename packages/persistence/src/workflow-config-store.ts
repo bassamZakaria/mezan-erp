@@ -9,7 +9,7 @@ import type {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed {@link WorkflowConfigRepository} (docs/catalog/09 §إعدادات
+ * SQLite-backed {@link WorkflowConfigRepository} (docs/archive/catalog/09 §إعدادات
  * الموافقات). One row per action type — `action_type` is UNIQUE so the DB
  * itself backstops the domain's "one config per action type" rule.
  */

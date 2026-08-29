@@ -1,6 +1,6 @@
 /**
  * Workflow gate — a pure, sequential, role-based approval state machine
- * (docs/catalog/09 §workflow config).
+ * (docs/archive/catalog/09 §workflow config).
  *
  * A gate config for an action type is an ordered list of steps, each naming an
  * approver ROLE (not a user — recon constraint). A submitted request walks the

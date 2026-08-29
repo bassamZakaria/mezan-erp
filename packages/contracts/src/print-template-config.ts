@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the tenant-wide Print Template Config (docs/catalog/09
+ * Wire contracts for the tenant-wide Print Template Config (docs/archive/catalog/09
  * §"قوالب الطباعة"). Mirrors @mezan/domain's `PrintTemplateConfig`
  * (packages/domain/src/settings/print-template-config.ts), which itself
  * duplicates @mezan/ui's `PrintTemplateConfig` shape (packages/ui/src/print/

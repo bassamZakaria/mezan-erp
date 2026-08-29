@@ -13,7 +13,7 @@ import { createLabelLayoutSchema, updateLabelLayoutSchema } from "@mezan/contrac
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * `/label-layouts` — تخطيطات الملصقات (docs/catalog/03 §"طباعة الباركود
+ * `/label-layouts` — تخطيطات الملصقات (docs/archive/catalog/03 §"طباعة الباركود
  * والملصقات"): the sticker-sheet geometry the label-printing screen renders
  * through the shared print pipeline. Reference data for the item catalog, so
  * it is gated with the same `inventory.item.*` permissions.

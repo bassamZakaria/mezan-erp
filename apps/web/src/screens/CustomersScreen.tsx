@@ -55,7 +55,7 @@ import { useNavigation } from "../navigation";
 import { majorOf } from "../lib/money";
 
 /**
- * العملاء (Customers) — docs/catalog/01-sales.md "العملاء (Customers —
+ * العملاء (Customers) — docs/archive/catalog/01-sales.md "العملاء (Customers —
  * Customer master)". List + detail (DocumentList/DocumentDetail) + add/edit
  * form (SidePanel), backed by the real `/customers` API.
  *

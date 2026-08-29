@@ -31,7 +31,7 @@ export { averageOf, countDistinct, countRows, diffOf, maxOf, percentOf, sumRows 
 export { aggregateItemSales, type ItemSalesAggregate } from "./sales-item-aggregation.js";
 export { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
 
-// --- المبيعات — Sales reports (docs/catalog/08-reports.md) -------------
+// --- المبيعات — Sales reports (docs/archive/catalog/08-reports.md) -------------
 
 export {
   createSalesByPeriodReport,

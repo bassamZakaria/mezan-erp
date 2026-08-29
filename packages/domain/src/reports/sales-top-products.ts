@@ -5,7 +5,7 @@ import { sumRows } from "./kpi.js";
 import { aggregateItemSales } from "./sales-item-aggregation.js";
 
 /**
- * أفضل المنتجات — Top Products (docs/catalog/08-reports.md): a ranked/
+ * أفضل المنتجات — Top Products (docs/archive/catalog/08-reports.md): a ranked/
  * limited variant of المبيعات حسب الصنف, sortable by revenue or quantity,
  * capped at `limit` rows instead of paginated.
  */

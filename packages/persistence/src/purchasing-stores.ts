@@ -19,7 +19,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * Self-contained SQLite stores for the purchase chain (docs/catalog/02),
+ * Self-contained SQLite stores for the purchase chain (docs/archive/catalog/02),
  * following the same standalone-store pattern as item-store.ts. Document lines
  * are small, document-owned collections with no independent query need, so they
  * are kept as JSON text columns (Money/Qty serialized as EXACT decimal strings,

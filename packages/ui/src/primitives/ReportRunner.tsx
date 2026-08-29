@@ -9,7 +9,7 @@ import { TextInput } from "./form";
 import { useUiTranslation } from "../i18n";
 
 /**
- * `<ReportRunner>` — the generic report UI shell (docs/plan.md §2.4): renders
+ * `<ReportRunner>` — the generic report UI shell (docs/archive/plan.md §2.4): renders
  * a param bar from a declarative field list, runs the report (or gates on an
  * explicit "عرض التقرير" click for on-demand reports), and shows the table +
  * totals + optional chart + an always-available Export button.
@@ -120,7 +120,7 @@ export interface ReportRunnerProps<Row> {
   onParamsChange: (params: Record<string, string>) => void;
   /** Field-scoped validation messages, keyed the same way as `params`. */
   fieldErrors?: Record<string, string>;
-  /** Heavy reports require an explicit "عرض التقرير" click (docs/catalog/08-reports.md). */
+  /** Heavy reports require an explicit "عرض التقرير" click (docs/archive/catalog/08-reports.md). */
   onDemand?: boolean;
   /** Present whenever a run can be triggered — required when `onDemand`, optional otherwise (e.g. a manual refresh). */
   onRun?: () => void;

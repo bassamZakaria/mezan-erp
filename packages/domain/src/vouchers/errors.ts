@@ -20,7 +20,7 @@ export class InvalidVoucherError extends Error {
  * Raised when confirming a payment/transfer would push a treasury account below
  * zero while the tenant guards that account's type: cash under "منع الرصيد
  * السالب للحسابات النقدية", bank when "السماح بالرصيد السالب للحسابات البنكية"
- * is off — docs/catalog/04 + docs/catalog/09.
+ * is off — docs/archive/catalog/04 + docs/archive/catalog/09.
  */
 export class CashBalanceWouldGoNegativeError extends Error {
   readonly code = "CASH_BALANCE_NEGATIVE";

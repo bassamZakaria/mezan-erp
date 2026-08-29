@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for Fixed Assets (docs/catalog/07-mfg-projects-assets.md
+ * Wire contracts for Fixed Assets (docs/archive/catalog/07-mfg-projects-assets.md
  * "الأصول الثابتة"): Asset Categories, the Asset Register, and Depreciation
  * Runs. Money fields cross the wire as exact decimal strings, never a float —
  * the domain re-parses them via `Money.fromMajor`.

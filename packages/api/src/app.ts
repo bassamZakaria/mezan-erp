@@ -251,7 +251,7 @@ function serialize(entry: JournalEntry) {
 
 export interface CreateAppOptions {
   /**
-   * Mounts `/lan/*` (docs/plan.md §2.6/§6.3.3) on this same app instance when
+   * Mounts `/lan/*` (docs/archive/plan.md §2.6/§6.3.3) on this same app instance when
    * present. Desktop passes this so the SAME app answers both over IPC
    * (host-local) and a LAN socket (till/tablet clients) — omit it and the app
    * behaves exactly as before (no `/lan` routes at all), which is what
@@ -264,7 +264,7 @@ export interface CreateAppOptions {
     readonly sseHeartbeatMs?: number;
   };
   /**
-   * Mounts `/accounts/*` (docs/catalog/04 "دليل الحسابات") when present. The
+   * Mounts `/accounts/*` (docs/archive/catalog/04 "دليل الحسابات") when present. The
    * Chart of Accounts isn't part of the journal-posting `UnitOfWork` yet, so
    * its repository is injected separately — omit it and the app behaves
    * exactly as before (no `/accounts` routes), same as any existing caller.
@@ -274,7 +274,7 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
-   * Mounts `/items` (docs/catalog/03 "الأصناف") when present. Items aren't
+   * Mounts `/items` (docs/archive/catalog/03 "الأصناف") when present. Items aren't
    * part of the journal-posting `UnitOfWork` yet, so its repository is
    * injected separately — omit it and the app behaves exactly as before (no
    * `/items` routes), same as any existing caller.
@@ -286,7 +286,7 @@ export interface CreateAppOptions {
     readonly snapshots?: WacSnapshotRepository;
   };
   /**
-   * Mounts `/item-units` and `/item-categories` (docs/catalog/03 §"وحدة
+   * Mounts `/item-units` and `/item-categories` (docs/archive/catalog/03 §"وحدة
    * القياس" / §"تصنيفات الأصناف") when present — the item master-data
    * catalogs an item's `baseUnitCode` / `categoryId` resolve against.
    */
@@ -314,7 +314,7 @@ export interface CreateAppOptions {
     readonly usage: ItemSpecificationUsageCounter;
     readonly resolveAuthContext?: AuthContextResolver;
   };
-  /** Mounts `/sequences` (docs/catalog/09 §"تسلسلات الترقيم") when present. */
+  /** Mounts `/sequences` (docs/archive/catalog/09 §"تسلسلات الترقيم") when present. */
   readonly sequences?: SequencesRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/barcode-config` when present. */
   readonly barcodeConfigStore?: BarcodeConfigRepository;
@@ -337,28 +337,28 @@ export interface CreateAppOptions {
   };
   /** Mounts `/financial-reports` (the 7 statements over the live posted ledger) when present. */
   readonly financialReports?: FinancialReportsRoutesDeps;
-  /** Mounts `/settings` (docs/catalog/09) when present — omit it for no `/settings` route. */
+  /** Mounts `/settings` (docs/archive/catalog/09) when present — omit it for no `/settings` route. */
   readonly settingsStore?: SettingsRepository;
-  /** Mounts `/branches` (docs/catalog/09) when present — omit it for no `/branches` route. */
+  /** Mounts `/branches` (docs/archive/catalog/09) when present — omit it for no `/branches` route. */
   readonly branchStore?: BranchRepository;
-  /** Mounts `/warehouses` (docs/catalog/09) when present — omit it for no `/warehouses` route. */
+  /** Mounts `/warehouses` (docs/archive/catalog/09) when present — omit it for no `/warehouses` route. */
   readonly warehouseStore?: WarehouseRepository;
-  /** Mounts `/customers` (docs/catalog/01 "العملاء") when present — omit it for no `/customers` route. */
+  /** Mounts `/customers` (docs/archive/catalog/01 "العملاء") when present — omit it for no `/customers` route. */
   readonly customerStore?: CustomerRepository;
-  /** Mounts `/suppliers` (docs/catalog/02 "الموردون") when present — omit it for no `/suppliers` route. */
+  /** Mounts `/suppliers` (docs/archive/catalog/02 "الموردون") when present — omit it for no `/suppliers` route. */
   readonly supplierStore?: SupplierRepository;
   /** مجموعات الضرائب (R6.4) — mounts `/tax-groups` when present. */
   readonly taxGroupRepo?: TaxGroupRepository;
-  /** Mounts `/tax-rates` (docs/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
+  /** Mounts `/tax-rates` (docs/archive/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
   readonly taxRateRepo?: TaxRateRepository;
-  /** Mounts `/cost-centers` (docs/catalog/04 "مراكز التكلفة") when present — omit it for no `/cost-centers` route. */
+  /** Mounts `/cost-centers` (docs/archive/catalog/04 "مراكز التكلفة") when present — omit it for no `/cost-centers` route. */
   readonly costCenterRepo?: CostCenterRepository;
-  /** Mounts `/treasury-accounts` (docs/catalog/04 "حسابات الخزينة") when present — omit it for no `/treasury-accounts` route. */
+  /** Mounts `/treasury-accounts` (docs/archive/catalog/04 "حسابات الخزينة") when present — omit it for no `/treasury-accounts` route. */
   readonly treasuryAccountRepo?: TreasuryAccountRepository;
-  /** Mounts `/fiscal-periods` (docs/catalog/04 "الفترات المالية") when present — omit it for no `/fiscal-periods` route. */
+  /** Mounts `/fiscal-periods` (docs/archive/catalog/04 "الفترات المالية") when present — omit it for no `/fiscal-periods` route. */
   readonly fiscalPeriodRepo?: FiscalPeriodRepository;
   /**
-   * Mounts `/inventory` (docs/catalog/03 — the costing + stock-ledger engine)
+   * Mounts `/inventory` (docs/archive/catalog/03 — the costing + stock-ledger engine)
    * when present. The caller builds the `StockLedgerService` (wiring the SQLite
    * store, the negative-stock policy, and any event/GL adapters) — omit it and
    * the app behaves exactly as before (no `/inventory` routes).
@@ -370,7 +370,7 @@ export interface CreateAppOptions {
     readonly reservations?: StockReservationSource;
   };
   /**
-   * Mounts `/inventory/stock-adjustments` (docs/catalog/03 §"تسويات المخزون")
+   * Mounts `/inventory/stock-adjustments` (docs/archive/catalog/03 §"تسويات المخزون")
    * — the document-layer draft/confirm CRUD built on `stockAdjustmentDocumentType`
    * — when present. Omit it for no such route (the raw `/inventory/adjustments`
    * engine endpoint above is unaffected either way).
@@ -379,12 +379,12 @@ export interface CreateAppOptions {
     readonly service: DocumentService<StockAdjustmentDocLine>;
     readonly resolveAuthContext?: AuthContextResolver;
   };
-  /** Mounts `/inventory/stock-transfers` (docs/catalog/03 §"تحويلات المخزون") when present. */
+  /** Mounts `/inventory/stock-transfers` (docs/archive/catalog/03 §"تحويلات المخزون") when present. */
   readonly stockTransfers?: {
     readonly service: DocumentService<StockTransferDocLine>;
     readonly resolveAuthContext?: AuthContextResolver;
   };
-  /** Mounts `/inventory/physical-counts` (docs/catalog/03 §"الجرد الفعلي") when present. */
+  /** Mounts `/inventory/physical-counts` (docs/archive/catalog/03 §"الجرد الفعلي") when present. */
   readonly physicalCounts?: {
     readonly service: PhysicalCountService;
     readonly resolveAuthContext?: AuthContextResolver;
@@ -399,13 +399,13 @@ export interface CreateAppOptions {
    */
   readonly inventoryWritedown?: InventoryWritedownRoutesDeps;
   /**
-   * Mounts `/inventory/product-templates` (docs/catalog/03-inventory.md
+   * Mounts `/inventory/product-templates` (docs/archive/catalog/03-inventory.md
    * §"قوالب المنتجات") when present: attribute-driven templates + the
    * variant/SKU generator (creates REAL Items).
    */
   readonly productTemplates?: ProductTemplatesRoutesDeps;
   /**
-   * Mounts the GL posting engine under `/gl` (docs/catalog/04 §القيود المحاسبية)
+   * Mounts the GL posting engine under `/gl` (docs/archive/catalog/04 §القيود المحاسبية)
    * when present — omit it for no `/gl` routes. Bundles its own ledger,
    * account/period lookups and numbering engine (all connection-shared for
    * atomic no-gap numbering); optional audit sink + domain-event publisher.
@@ -413,7 +413,7 @@ export interface CreateAppOptions {
   readonly gl?: GlRoutesDeps;
 
   /**
-   * Sales invoices (docs/catalog/01). Mounted under `/sales-invoices` when
+   * Sales invoices (docs/archive/catalog/01). Mounted under `/sales-invoices` when
    * supplied. When `creditControl` isn't already set on these deps AND both
    * `settingsStore` and `customerStore` are also supplied, `createApp` wires
    * a REAL credit-control check automatically (tenant settings' الرقابة
@@ -423,7 +423,7 @@ export interface CreateAppOptions {
    */
   readonly salesInvoices?: SalesInvoiceRoutesDeps;
   /**
-   * Mounts the historical sales-document import (docs/catalog/01 §"استيراد
+   * Mounts the historical sales-document import (docs/archive/catalog/01 §"استيراد
    * فواتير سابقة" / §"استيراد مرتجعات سابقة") under `/sales/historical-import`
    * when present — omit it for no such routes. `gl`/`accounts` are optional:
    * omit them to archive documents without ever posting a remaining-balance
@@ -436,11 +436,11 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
     readonly now?: () => string;
   };
-  /** Mounts `/price-lists` (docs/catalog/01 "قوائم الأسعار") when present. */
+  /** Mounts `/price-lists` (docs/archive/catalog/01 "قوائم الأسعار") when present. */
   readonly priceListRepo?: PriceListRepository;
-  /** Mounts `/promotions` (docs/catalog/01 "العروض") when present. */
+  /** Mounts `/promotions` (docs/archive/catalog/01 "العروض") when present. */
   readonly promotionRepo?: PromotionRepository;
-  /** Mounts `/notification-rules` (docs/catalog/09 §قواعد الإشعارات) when present. */
+  /** Mounts `/notification-rules` (docs/archive/catalog/09 §قواعد الإشعارات) when present. */
   readonly notificationRuleRepo?: NotificationRuleRepository;
   /**
    * The event codes this deployment really publishes onto the event bus —
@@ -453,24 +453,24 @@ export interface CreateAppOptions {
   /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
   readonly notificationRepo?: NotificationRepository;
   /**
-   * Mounts `/sales-quotes` (docs/catalog/01 "عروض الأسعار") when present. Its
+   * Mounts `/sales-quotes` (docs/archive/catalog/01 "عروض الأسعار") when present. Its
    * `invoice` bridge (for "إنشاء من عرض سعر") is auto-filled from
    * `salesInvoices`'s repo/numbering/gl/stock when both are supplied and the
    * caller didn't already set `invoice` themselves.
    */
   readonly salesQuotes?: SalesQuoteRoutesDeps;
-  /** Mounts `/exchange-rates` (docs/catalog/04 "أسعار الصرف") when present. */
+  /** Mounts `/exchange-rates` (docs/archive/catalog/04 "أسعار الصرف") when present. */
   readonly exchangeRateRepo?: ExchangeRateRepository;
-  /** Mounts `/cost-center-pl` (docs/catalog/04 "أرباح مراكز التكلفة") when present. */
+  /** Mounts `/cost-center-pl` (docs/archive/catalog/04 "أرباح مراكز التكلفة") when present. */
   readonly costCenterPl?: CostCenterPnLRoutesDeps;
-  /** Mounts `/revaluation` (docs/catalog/04 "إعادة تقييم العملات الأجنبية") when present. */
+  /** Mounts `/revaluation` (docs/archive/catalog/04 "إعادة تقييم العملات الأجنبية") when present. */
   readonly fxRevaluation?: FxRevaluationRoutesDeps;
-  /** Mounts `/reconciliation` (docs/catalog/04 "مطابقة الأرصدة") when present. */
+  /** Mounts `/reconciliation` (docs/archive/catalog/04 "مطابقة الأرصدة") when present. */
   readonly reconciliation?: ReconciliationRoutesDeps;
-  /** Mounts `/eta` (docs/catalog/04 "الفاتورة الإلكترونية") when present. */
+  /** Mounts `/eta` (docs/archive/catalog/04 "الفاتورة الإلكترونية") when present. */
   readonly eta?: EtaRoutesDeps;
   /**
-   * Mounts the Treasury Vouchers routes (docs/catalog/04 §"السندات النقدية") —
+   * Mounts the Treasury Vouchers routes (docs/archive/catalog/04 §"السندات النقدية") —
    * `/vouchers/*` plus the root `/allocations/:id/reverse` and `/open-invoices`
    * — when present. Bundles the voucher/allocation/invoice repositories with the
    * GL posting engine, numbering, treasury-account lookup and settings the
@@ -478,13 +478,13 @@ export interface CreateAppOptions {
    */
   readonly vouchers?: VoucherRoutesDeps;
   /**
-   * Mounts the Cheque Register routes (docs/catalog/04 §"سجل الشيكات") under
+   * Mounts the Cheque Register routes (docs/archive/catalog/04 §"سجل الشيكات") under
    * `/cheques` when present. Bundles the cheque repository with the GL
    * posting engine deps the `ChequeService` composes (see cheques-routes.ts).
    */
   readonly cheques?: ChequeRoutesDeps;
   /**
-   * Mounts the Bank Statement Reconciliation routes (docs/catalog/04
+   * Mounts the Bank Statement Reconciliation routes (docs/archive/catalog/04
    * §"تسوية كشوف البنك") under `/bank-statements` when present. Bundles the
    * statement/column-mapping repositories with a `TreasuryLedgerReader`
    * (bind `createTreasuryLedgerReader` from `@mezan/domain` over the real
@@ -492,36 +492,36 @@ export interface CreateAppOptions {
    */
   readonly bankReconciliation?: BankReconciliationRoutesDeps;
   /**
-   * Mounts CRM (docs/catalog/06 "إدارة علاقات العملاء") under `/crm` when
+   * Mounts CRM (docs/archive/catalog/06 "إدارة علاقات العملاء") under `/crm` when
    * present: leads, opportunities, pipeline stages, activities.
    */
   readonly crm?: CrmRoutesDeps;
   /**
-   * Mounts HR master data (docs/catalog/06 "الموارد البشرية") under `/hr`
+   * Mounts HR master data (docs/archive/catalog/06 "الموارد البشرية") under `/hr`
    * when present: departments, job titles, employees, contracts, holidays,
    * the HR dashboard, and the leave-request slice backing إجازاتي (My Leave).
    */
   readonly hr?: HrRoutesDeps;
   /**
-   * Mounts Projects (docs/catalog/07 "المشاريع والمقاولات") under `/projects`
+   * Mounts Projects (docs/archive/catalog/07 "المشاريع والمقاولات") under `/projects`
    * when present. Creating a project auto-creates its linked `PRJ-{code}`
    * cost center via the real cost-centers domain.
    */
   readonly projects?: ProjectsRoutesDeps;
   /**
-   * Mounts Fixed Assets (docs/catalog/07 "الأصول الثابتة") under `/assets`
+   * Mounts Fixed Assets (docs/archive/catalog/07 "الأصول الثابتة") under `/assets`
    * when present: asset categories, the asset register, and depreciation
    * runs (posting a REAL balanced GL entry through the GL posting engine).
    */
   readonly fixedAssets?: FixedAssetsRoutesDeps;
   /**
-   * Mounts Field/Van Sales (docs/catalog/07 "رحلات المندوبين") under
+   * Mounts Field/Van Sales (docs/archive/catalog/07 "رحلات المندوبين") under
    * `/field/van-trips` when present: open (crew, van warehouse, opening cash
    * float, stock load) through settle (cash + stock variance).
    */
   readonly fieldSales?: FieldSalesRoutesDeps;
   /**
-   * Mounts the purchase chain under `/purchases` (docs/catalog/02): أوامر الشراء
+   * Mounts the purchase chain under `/purchases` (docs/archive/catalog/02): أوامر الشراء
    * → استلام البضائع → فواتير المشتريات. The caller supplies the three document
    * repositories, the numbering engine, the costing/stock-ledger service (for
    * stock IN on receipt/manual-invoice confirmation) and the GL posting deps
@@ -551,7 +551,7 @@ export interface CreateAppOptions {
     /**
      * A static policy value. Omit it (and supply `settingsStore`) to instead
      * derive the 3-gate procurement strictness policy from the LIVE tenant
-     * settings on every request (docs/catalog/09 §"التحكم في المشتريات") — no
+     * settings on every request (docs/archive/catalog/09 §"التحكم في المشتريات") — no
      * server restart needed to see a toggle take effect.
      */
     readonly policy?: PurchasePolicy;
@@ -572,7 +572,7 @@ export interface CreateAppOptions {
     readonly now?: () => string;
   };
   /**
-   * Mounts the manufacturing module under `/manufacturing` (docs/catalog/07):
+   * Mounts the manufacturing module under `/manufacturing` (docs/archive/catalog/07):
    * BOMs, work orders (4-stage), configurable products and custom manufacturing.
    * The caller supplies the four document repositories, the numbering engine,
    * the costing/stock-ledger service (raw OUT on issue, finished-goods IN on
@@ -606,7 +606,7 @@ export interface CreateAppOptions {
     readonly now?: () => string;
   };
   /**
-   * Mounts طلبات عروض الأسعار (RFQs, docs/catalog/02) under `/rfqs` when
+   * Mounts طلبات عروض الأسعار (RFQs, docs/archive/catalog/02) under `/rfqs` when
    * present — omit it for no `/rfqs` routes. Reuses `options.purchases.orders`
    * + `.numbering` at wiring time so a converted RFQ becomes a real PO.
    */
@@ -619,7 +619,7 @@ export interface CreateAppOptions {
     readonly now?: () => string;
   };
   /**
-   * Mounts the historical purchase-document import (docs/catalog/02 §"استيراد
+   * Mounts the historical purchase-document import (docs/archive/catalog/02 §"استيراد
    * فواتير سابقة") under `/purchases/historical-import` when present — omit it
    * for no such routes. `gl`/`accounts` are optional: omit them to archive
    * documents without ever posting a remaining-balance journal entry.
@@ -632,7 +632,7 @@ export interface CreateAppOptions {
     readonly now?: () => string;
   };
   /**
-   * Mounts the 9-tab print-template designer's persisted config (docs/catalog/09
+   * Mounts the 9-tab print-template designer's persisted config (docs/archive/catalog/09
    * §"قوالب الطباعة") under `/print-template-config` when present — GET
    * returns the tenant's saved config or the shared default, PUT validates
    * and saves. Omit for no such routes.
@@ -642,7 +642,7 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
-   * Mounts the Data Migration wizard's 9 master-data steps (docs/catalog/09
+   * Mounts the Data Migration wizard's 9 master-data steps (docs/archive/catalog/09
    * §"نقل البيانات", steps 1-9 — الأقسام through الأصول الثابتة) under
    * `/data-migration` when present. The 4 historical-document steps (10-13)
    * are NOT here — they reuse `/purchases/historical-import` and the sibling
@@ -671,7 +671,7 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
-   * Mounts `/sales-returns` (docs/catalog/01 §"مرتجعات المبيعات") when
+   * Mounts `/sales-returns` (docs/archive/catalog/01 §"مرتجعات المبيعات") when
    * present. The caller builds the `DocumentService` (repo + numbering + GL
    * hook + `createInventoryStockHook` + workflow gate) — omit it for no
    * `/sales-returns` routes.
@@ -684,7 +684,7 @@ export interface CreateAppOptions {
     /** Treasury seam behind «استرداد للعميل» — without it the refund route 503s instead of faking a state change (R3.9). */
     readonly refunds?: SalesReturnRefundPort;
   };
-  /** Mounts `/purchase-returns` (docs/catalog/02 §"مرتجعات المشتريات") when present — mirrors `salesReturns`. */
+  /** Mounts `/purchase-returns` (docs/archive/catalog/02 §"مرتجعات المشتريات") when present — mirrors `salesReturns`. */
   readonly purchaseReturns?: {
     readonly service: DocumentService<PurchaseReturnLine>;
     readonly resolveAuthContext?: AuthContextResolver;
@@ -692,7 +692,7 @@ export interface CreateAppOptions {
     readonly invoices?: PurchaseInvoiceLookupPort;
   };
   /**
-   * Mounts `/landed-costs` (docs/catalog/02 §"التكاليف الإضافية") when
+   * Mounts `/landed-costs` (docs/archive/catalog/02 §"التكاليف الإضافية") when
    * present. `documents` drives list/create/cancel; `service` (the same
    * document service wrapped by `LandedCostService`) drives confirm so the
    * cost-layer revaluation runs alongside the GL post.
@@ -702,10 +702,10 @@ export interface CreateAppOptions {
     readonly service: LandedCostService;
     readonly resolveAuthContext?: AuthContextResolver;
   };
-  /** Mounts `/installments` (docs/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل") when present. */
+  /** Mounts `/installments` (docs/archive/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل") when present. */
   readonly installments?: InstallmentsRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
   /**
-   * Mounts `/reports` (docs/catalog/08 — operational reports) when present.
+   * Mounts `/reports` (docs/archive/catalog/08 — operational reports) when present.
    * Independent of `options.inventory`/`options.purchases`/etc. — it takes
    * its own repository references directly (not the higher-level services
    * those blocks wrap) since reports only ever READ, never post GL/stock
@@ -723,7 +723,7 @@ export interface CreateAppOptions {
   readonly resolveAuthContext?: AuthContextResolver;
   /**
    * Entitlements resolver the `/roles` route validates permission grants
-   * against (docs/catalog/09 §الأدوار — only licensed-module permissions are
+   * against (docs/archive/catalog/09 §الأدوار — only licensed-module permissions are
    * grantable), and that `GET /entitlements` reports. Defaults to
    * `DEFAULT_ACTIVE_MODULES` until a real per-tenant source is wired up.
    */
@@ -731,7 +731,7 @@ export interface CreateAppOptions {
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
   readonly hasher?: ReturnType<typeof createScryptHasher>;
   /**
-   * Mounts `/workflow` (docs/catalog/09 §سير العمل — إعدادات الموافقات
+   * Mounts `/workflow` (docs/archive/catalog/09 §سير العمل — إعدادات الموافقات
    * chain-builder + الموافقات inbox) when present: `/workflow/configs` CRUD
    * over the persisted `GateConfig` per action type, `/workflow/requests` for
    * submitting/listing/deciding approval instances.
@@ -746,7 +746,7 @@ export interface CreateAppOptions {
 }
 
 /**
- * Derive the purchase chain's 3-gate strictness policy (docs/catalog/09
+ * Derive the purchase chain's 3-gate strictness policy (docs/archive/catalog/09
  * §"التحكم في المشتريات") from the live tenant settings — the settings UI's
  * three toggles map 1:1 onto `PurchasePolicy`'s fields (aside from the
  * over-receipt guard, which isn't part of that settings tab).
@@ -978,7 +978,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.salesInvoices) {
     const salesInvoices = options.salesInvoices;
-    // Auto-wire credit control (docs/catalog/01/09 §"الرقابة الائتمانية") when
+    // Auto-wire credit control (docs/archive/catalog/01/09 §"الرقابة الائتمانية") when
     // the caller supplied the tenant-settings + customer stores but didn't
     // already hand-wire `creditControl` themselves.
     const creditControl =
@@ -1139,7 +1139,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.eta) {
     app.route("/eta", createEtaRoutes(options.eta, resolveAuth));
   }
-  // Generic document framework (docs/plan.md §3): read-only type
+  // Generic document framework (docs/archive/plan.md §3): read-only type
   // registry + pure effects computation. No persistence, so always mounted.
   app.route("/documents", createDocumentsRoutes(resolveAuth));
 

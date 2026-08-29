@@ -266,7 +266,7 @@ function nextItemCode(items: ItemDTO[]): string {
   return `ITM-${String(items.length + 1).padStart(6, "0")}`;
 }
 
-/** الأصناف (Items) — docs/catalog/03-inventory.md. List (KPI strip + filters + table + pager), item detail (tabs), add/edit form. */
+/** الأصناف (Items) — docs/archive/catalog/03-inventory.md. List (KPI strip + filters + table + pager), item detail (tabs), add/edit form. */
 /** المخزون حسب المستودع — where this item's stock actually sits (D43). */
 function ItemStockTab({ itemId }: { itemId: string }) {
   const { t } = useAppTranslation();

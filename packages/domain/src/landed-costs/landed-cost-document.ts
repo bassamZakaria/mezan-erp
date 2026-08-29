@@ -1,5 +1,5 @@
 /**
- * Landed Cost as a document-framework consumer (docs/catalog/02
+ * Landed Cost as a document-framework consumer (docs/archive/catalog/02
  * §"التكاليف الإضافية"): distributes freight/customs/insurance/etc across one
  * confirmed purchase invoice's item costs, raising their landed unit cost.
  *

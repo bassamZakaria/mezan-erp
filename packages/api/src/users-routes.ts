@@ -56,7 +56,7 @@ function userErrorResponse(c: Context, err: unknown) {
 }
 
 /**
- * Users CRUD — every route is permission-gated (docs/catalog/09 §المستخدمون).
+ * Users CRUD — every route is permission-gated (docs/archive/catalog/09 §المستخدمون).
  * Mirrors `createAccountsRouter` / `createSettingsRoutes`'s shape: a plain
  * `resolveAuthContext` parameter defaulting to `headerAuthContextResolver`.
  */

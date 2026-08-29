@@ -12,7 +12,7 @@ import type {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed {@link NotificationRuleRepository} (docs/catalog/09
+ * SQLite-backed {@link NotificationRuleRepository} (docs/archive/catalog/09
  * §قواعد الإشعارات). Single-table store, raw better-sqlite3 (the dominant
  * pattern in this package — see `price-list-store.ts`/`audit-sink.ts`), not
  * Drizzle. `condition` and `channels` are stored as JSON text.

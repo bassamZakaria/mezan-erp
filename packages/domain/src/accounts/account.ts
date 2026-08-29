@@ -1,5 +1,5 @@
 /**
- * Chart of Accounts — core entity (docs/catalog/04-accounting-treasury.md
+ * Chart of Accounts — core entity (docs/archive/catalog/04-accounting-treasury.md
  * "دليل الحسابات"). An `Account` is either:
  *   - a "header" account (حساب رئيسي) — a non-postable grouping node that owns
  *     children and rolls their balances up, or
@@ -33,7 +33,7 @@ export interface Account {
 
 /**
  * Persistence port for the Chart of Accounts. The domain depends on this
- * interface only (docs/plan.md §2.2) — no SQL, no driver.
+ * interface only (docs/archive/plan.md §2.2) — no SQL, no driver.
  */
 export interface AccountRepository {
   findById(id: string): Promise<Account | null>;

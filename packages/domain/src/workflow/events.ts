@@ -1,5 +1,5 @@
 /**
- * Typed workflow events (docs/catalog/09 §notification rules — Workflow group).
+ * Typed workflow events (docs/archive/catalog/09 §notification rules — Workflow group).
  * The gate state machine emits these; the notification bus (§2.6) consumes them.
  */
 

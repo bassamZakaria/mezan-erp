@@ -92,7 +92,7 @@ export interface PromotionsRoutesUsageDeps {
 }
 
 /**
- * Promotion routes (docs/catalog/01 §"العروض"): list, get one, create, edit,
+ * Promotion routes (docs/archive/catalog/01 §"العروض"): list, get one, create, edit,
  * deactivate, a cart-preview `/evaluate`, and `/report` usage aggregation. Every
  * CRUD route is permission-gated via `sales.promotion.view` / `.manage`.
  */

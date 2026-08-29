@@ -4,7 +4,7 @@
  * The shared spine (draft → pending → confirmed → reversed, plus a draft-level
  * cancel) mirrors the document framework's own state machine (documents/
  * status.ts) — the same "confirmed/posted documents are append-only, corrected
- * only by reversal" rule (docs/plan.md §3). It extends that spine with the AR
+ * only by reversal" rule (docs/archive/plan.md §3). It extends that spine with the AR
  * payment states the catalog documents: a live invoice is collected against
  * (confirmed → partially_paid → paid) before it can be reversed.
  */

@@ -7,7 +7,7 @@ import { DisclosureChevron } from "./DisclosureChevron";
 
 /**
  * PermissionMatrix — the grouped checkbox matrix behind the role editor
- * (docs/catalog/09 §"تعديل الدور — THE PERMISSION MATRIX"): a search box,
+ * (docs/archive/catalog/09 §"تعديل الدور — THE PERMISSION MATRIX"): a search box,
  * one collapsible section per module with a "selected/total" badge and a
  * module-level select-all checkbox, sub-grouped permission cards showing the
  * dot-notation code, a ⚠ sensitive treatment, and a "depends on" line.

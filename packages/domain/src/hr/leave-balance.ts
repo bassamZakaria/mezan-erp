@@ -5,7 +5,7 @@ import { accrualDaysPerPeriod, type LeaveAccrualFrequency, type LeavePolicy, typ
 import { isUnpaidLeaveType, type LeaveRequestRepository, type LeaveType } from "./leave-request.js";
 
 /**
- * Leave balances + accrual batches — docs/catalog/06-crm-hr.md
+ * Leave balances + accrual batches — docs/archive/catalog/06-crm-hr.md
  * "استحقاقات الإجازات" (`/hr/leave/batches`). A balance is one employee's
  * running position in one leave type for one year; an accrual batch is the
  * periodic run that credits entitlement across every eligible employee.

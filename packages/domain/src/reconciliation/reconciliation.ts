@@ -2,7 +2,7 @@ import { Money } from "../money/index.js";
 import type { PostedLine } from "../gl/ledger.js";
 
 /**
- * مطابقة الأرصدة — Balance Reconciliation (docs/catalog/04). A control-account
+ * مطابقة الأرصدة — Balance Reconciliation (docs/archive/catalog/04). A control-account
  * integrity check: each sub-ledger balance (inventory valuation, treasury cash,
  * AR, AP) is compared against its GL control-account balance, and any journal
  * line posted directly to a control account without going through its sub-ledger
@@ -57,7 +57,7 @@ export interface UnlinkedEntryLine {
 
 /**
  * Flag lines posted directly to a control account without a sub-ledger link.
- * Heuristic (docs/catalog/04): sub-ledger postings are system-generated
+ * Heuristic (docs/archive/catalog/04): sub-ledger postings are system-generated
  * (source "system"), so a "manual" line hitting a control account is one a user
  * posted straight to it, bypassing the sub-ledger — exactly what this tab
  * surfaces ("القيود غير المرتبطة"). Newest first.

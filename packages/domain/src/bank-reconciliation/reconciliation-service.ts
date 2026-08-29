@@ -1,6 +1,6 @@
 /**
  * BankReconciliationService — the bank-statement-reconciliation application
- * service (docs/catalog/04 "تسوية كشوف البنك").
+ * service (docs/archive/catalog/04 "تسوية كشوف البنك").
  *
  * Owns the CSV-import → auto/manual-match → finalize workflow: import parses
  * the file through the per-account persisted column mapping (csv.ts) and

@@ -4,7 +4,7 @@ import type { DeviceSessionDTO, LanSessionsListDTO, LanStatusDTO } from "@mezan/
 import { useAppTranslation } from "../i18n";
 
 /**
- * Admin panel for LAN multi-till (docs/plan.md §6.3.3): shows the connected
+ * Admin panel for LAN multi-till (docs/archive/plan.md §6.3.3): shows the connected
  * devices holding a seat, with a per-row disconnect action. Reads/writes the
  * `/lan/status`, `/lan/sessions` routes exposed by @mezan/api's lan/routes.ts
  * — this panel is a thin view over that API, no business logic of its own.

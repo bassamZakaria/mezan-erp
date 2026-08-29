@@ -18,7 +18,7 @@ import { useAppTranslation } from "../../i18n";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
 /**
- * المخزون — Inventory reports (docs/catalog/08-reports.md), each a thin
+ * المخزون — Inventory reports (docs/archive/catalog/08-reports.md), each a thin
  * `ReportScreen` over `/reports/inventory/*`.
  *
  * FOUR ENTRIES, EIGHT REPORTS. The nav used to list all eight side by side,

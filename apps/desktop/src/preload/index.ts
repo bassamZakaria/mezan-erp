@@ -15,7 +15,7 @@ import {
  *
  * `window.mezan.fetch` marshals a `Request` over IPC to the main process,
  * which calls the shared Hono app's `app.fetch()` in-process and returns the
- * response (docs/plan.md §2.2). The renderer's HTTP client abstraction swaps
+ * response (docs/archive/plan.md §2.2). The renderer's HTTP client abstraction swaps
  * this in for real `fetch` on desktop and never has to branch on platform.
  */
 function normalizeInit(init?: RequestInit): Omit<IpcFetchRequest, "url"> {

@@ -45,8 +45,8 @@ function mirror(line: JournalLine): JournalLine {
 }
 
 /**
- * Reverse a posted entry the ONLY correct way (docs/plan.md §3 rule 1;
- * docs/catalog/04): never mutate or delete the posted entry — post a new,
+ * Reverse a posted entry the ONLY correct way (docs/archive/plan.md §3 rule 1;
+ * docs/archive/catalog/04): never mutate or delete the posted entry — post a new,
  * mirror-image reversing entry and mark the original "reversed", linked to it.
  *
  * The reversing entry is itself a normal posted entry (source "system"): it is

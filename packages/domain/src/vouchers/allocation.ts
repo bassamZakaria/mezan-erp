@@ -1,5 +1,5 @@
 /**
- * Invoice allocation subsystem (docs/catalog/04 §"تخصيص على الفواتير").
+ * Invoice allocation subsystem (docs/archive/catalog/04 §"تخصيص على الفواتير").
  *
  * A customer-collection or supplier-payment voucher can be APPLIED across the
  * counterparty's open invoices — the cash-application step that matches money

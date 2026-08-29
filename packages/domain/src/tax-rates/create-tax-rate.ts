@@ -20,7 +20,7 @@ function assertValidRate(rate: number): void {
 }
 
 /**
- * Validates a new-tax-rate command against the existing list (docs/catalog/04
+ * Validates a new-tax-rate command against the existing list (docs/archive/catalog/04
  * "الضرائب"): the code must be unique and the rate must be a 0–100 percentage.
  */
 export function validateNewTaxRate(command: CreateTaxRateCommand, existing: readonly TaxRate[]): void {

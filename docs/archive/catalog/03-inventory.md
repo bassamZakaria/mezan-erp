@@ -1,5 +1,10 @@
 # Inventory Domain — Reference System Catalog
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../../ROADMAP.md` for what is
+> built and open, and `../../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `../README.md` in the archive root maps them.
+
+
 Capture pass 3 — Inventory. Read-only exploration; only the login form was submitted. All "create/new" dialogs and forms below were opened, documented, and closed/navigated away from without saving (except where explicitly noted as an already-existing record being viewed).
 
 ## Screen Inventory (everything found in scope)

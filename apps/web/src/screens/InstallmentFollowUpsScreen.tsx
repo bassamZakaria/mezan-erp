@@ -29,7 +29,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 
-/** متابعة التحصيل (Collection Follow-ups) — docs/catalog/05. A collections-agent worklog against customers with overdue installment balances. */
+/** متابعة التحصيل (Collection Follow-ups) — docs/archive/catalog/05. A collections-agent worklog against customers with overdue installment balances. */
 
 const TYPE_KEY: Record<FollowUpTypeDTO, AppTranslationKey> = { CALL: "followUps.typeCall", VISIT: "followUps.typeVisit", SMS: "followUps.typeSms", EMAIL: "followUps.typeEmail", NOTE: "followUps.typeNote" };
 const STATUS_KEY: Record<FollowUpStatusDTO, AppTranslationKey> = { pending: "followUps.statusPending", completed: "followUps.statusCompleted", cancelled: "followUps.statusCancelled" };

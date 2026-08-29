@@ -3,7 +3,7 @@
  * the preload bridge and the main-process handler. Both sides marshal a
  * `Request`/`Response` pair through structured-clone-safe plain objects,
  * mirroring the same Hono `app.fetch()` contract the HTTP mount uses
- * (docs/plan.md §2.2) so the renderer's data layer sees byte-identical
+ * (docs/archive/plan.md §2.2) so the renderer's data layer sees byte-identical
  * semantics regardless of which `fetch` implementation it is handed.
  */
 
@@ -35,7 +35,7 @@ export interface PrintToPdfOptions {
  * abstraction only has to swap the `fetch` implementation between editions
  * (real `fetch` online, `window.mezan.fetch` on desktop), never branch on
  * platform. `printToPDF` backs the desktop path of @mezan/ui's
- * `useElectronPrintToPdf` (docs/plan.md §2.4) — it renders the SAME print
+ * `useElectronPrintToPdf` (docs/archive/plan.md §2.4) — it renders the SAME print
  * DOM the browser edition prints via `window.print()`, just via
  * `webContents.printToPDF` on the main-process side (main/ipc.ts) instead.
  */

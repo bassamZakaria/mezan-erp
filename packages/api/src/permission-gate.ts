@@ -10,7 +10,7 @@ export type AuthContextResolver = (c: Context) => AuthContext | Promise<AuthCont
  * tenant admin; `x-branch-scope` / `x-warehouse-scope`: comma-separated ids or
  * `"*"` for all). Real cloud/desktop editions swap this for one that derives
  * the context from the JWT claims or the local user store — the permission
- * gate itself only depends on the `AuthContext` shape (docs/plan.md §3.3).
+ * gate itself only depends on the `AuthContext` shape (docs/archive/plan.md §3.3).
  */
 export function headerAuthContextResolver(c: Context): AuthContext {
   const permissions = (c.req.header("x-permissions") ?? "")

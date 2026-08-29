@@ -2,7 +2,7 @@ import type { Money } from "../money/index.js";
 import type { DepreciationMethod } from "./asset-category.js";
 
 /**
- * Fixed Assets — Asset Register (docs/catalog/07-mfg-projects-assets.md
+ * Fixed Assets — Asset Register (docs/archive/catalog/07-mfg-projects-assets.md
  * "سجل الأصول"). Each asset carries its own depreciation schedule inputs
  * (method/useful life/salvage, seeded from its category but overridable) and
  * tracks running `accumulatedDepreciation` as depreciation runs post against it.

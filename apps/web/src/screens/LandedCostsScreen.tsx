@@ -38,7 +38,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 
-/** التكاليف الإضافية (Landed Costs) — docs/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
+/** التكاليف الإضافية (Landed Costs) — docs/archive/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
 
 const COST_TYPE_KEY: Record<LandedCostTypeDTO, AppTranslationKey> = {
   SHIPPING: "landedCosts.type.SHIPPING",

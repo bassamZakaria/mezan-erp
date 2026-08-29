@@ -10,7 +10,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite store for the historical purchase-document archive (docs/catalog/02
+ * SQLite store for the historical purchase-document archive (docs/archive/catalog/02
  * §"استيراد فواتير سابقة" / §"استيراد مرتجعات سابقة") — one row per archived
  * document (lines as JSON, document-owned), following the same
  * standalone-store pattern as purchasing-stores.ts.

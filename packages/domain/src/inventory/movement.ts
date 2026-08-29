@@ -1,5 +1,5 @@
 /**
- * StockMovement — one immutable line of the stock ledger (docs/catalog/03
+ * StockMovement — one immutable line of the stock ledger (docs/archive/catalog/03
  * §"عرض سجل الحركات" / the movement log). Every quantity change in the system
  * is one of these: a receipt, an issue, or one leg of a transfer. Movements are
  * the source of truth from which balances and weighted-average valuation are

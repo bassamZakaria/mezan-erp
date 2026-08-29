@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the GL posting engine (docs/catalog/04 §القيود المحاسبية).
+ * Wire contracts for the GL posting engine (docs/archive/catalog/04 §القيود المحاسبية).
  *
  * Money crosses the wire as an exact decimal string, never a float — the
  * boundary that keeps the "no floats, ever" ledger invariant true end to end
- * (docs/plan.md §2.3). The domain re-parses these strings into `Money`.
+ * (docs/archive/plan.md §2.3). The domain re-parses these strings into `Money`.
  */
 export const journalEntrySourceSchema = z.enum(["manual", "system"]);
 export const journalEntryStatusSchema = z.enum(["draft", "pending", "posted", "reversed"]);

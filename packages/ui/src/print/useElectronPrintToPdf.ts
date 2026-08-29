@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 
 /**
- * Desktop print-to-PDF capability hook (docs/plan.md §2.4 — "Desktop:
+ * Desktop print-to-PDF capability hook (docs/archive/plan.md §2.4 — "Desktop:
  * `webContents.printToPDF()` for silent PDF ... Identical DOM in both
  * [browser/desktop]"). apps/desktop exposes this over the same narrow
  * `window.mezan` IPC bridge used for `fetch` (see

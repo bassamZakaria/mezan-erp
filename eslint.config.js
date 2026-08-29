@@ -3,7 +3,7 @@ import tseslint from "typescript-eslint";
 /**
  * Layer-boundary specifiers that packages/domain must never import.
  *
- * Encodes the rule in docs/plan.md §3.2: the domain core is transport- and
+ * Encodes the rule in docs/archive/plan.md §3.2: the domain core is transport- and
  * database-agnostic — it may depend on PORTS only, never on api, persistence,
  * web, electron, node:fs/node:http, or any driver. Enforced here on the raw
  * import specifier (no module resolver involved) so it is deterministic and
@@ -36,7 +36,7 @@ const domainForbiddenPatterns = [
 ];
 
 const boundaryMessage =
-  "packages/domain may not import api/persistence/web/electron/node:fs/node:http/drivers (layer-boundary rule, docs/plan.md §3.2).";
+  "packages/domain may not import api/persistence/web/electron/node:fs/node:http/drivers (layer-boundary rule, docs/archive/plan.md §3.2).";
 
 export default tseslint.config(
   {

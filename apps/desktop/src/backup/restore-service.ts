@@ -12,7 +12,7 @@ export interface RestoreResult {
 }
 
 /**
- * The guided, verified restore flow from docs/plan.md §3.7:
+ * The guided, verified restore flow from docs/archive/plan.md §3.7:
  * extract → validate manifest → verify checksum → integrity-check → mount.
  *
  * "Mount" means atomically placing the restored database at `targetDbPath`:

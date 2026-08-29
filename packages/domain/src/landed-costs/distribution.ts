@@ -1,5 +1,5 @@
 /**
- * Landed-cost distribution math (docs/catalog/02 §"التكاليف الإضافية" —
+ * Landed-cost distribution math (docs/archive/catalog/02 §"التكاليف الإضافية" —
  * freight/customs/insurance/clearance/other allocated across a target
  * invoice's item costs "حسب القيمة" [by value] or "حسب الكمية" [by
  * quantity]). Pure; the LANDED_COST_DISTRIBUTION rounding boundary this uses
@@ -12,11 +12,11 @@ import { Money, Qty, allocate } from "../money/index.js";
 import { extend, unitCostOf } from "../inventory/wac-math.js";
 import { EmptyLandedCostTargetsError, ZeroLandedCostWeightError } from "./errors.js";
 
-/** docs/catalog/02 §"نوع التكلفة *" on the cost-line table. */
+/** docs/archive/catalog/02 §"نوع التكلفة *" on the cost-line table. */
 export const LANDED_COST_TYPES = ["SHIPPING", "CUSTOMS", "INSURANCE", "CLEARANCE", "OTHER"] as const;
 export type LandedCostType = (typeof LANDED_COST_TYPES)[number];
 
-/** docs/catalog/02 §"طريقة التوزيع *" — حسب القيمة / حسب الكمية / حسب الوزن (R4.7). */
+/** docs/archive/catalog/02 §"طريقة التوزيع *" — حسب القيمة / حسب الكمية / حسب الوزن (R4.7). */
 export const LANDED_COST_DISTRIBUTION_METHODS = ["BY_VALUE", "BY_QUANTITY", "BY_WEIGHT"] as const;
 export type LandedCostDistributionMethod = (typeof LANDED_COST_DISTRIBUTION_METHODS)[number];
 
@@ -60,7 +60,7 @@ function basisWeight(target: LandedCostAllocationTarget, method: LandedCostDistr
 /**
  * Distributes `Σ costItems.amount` across `targets` by value (qty × unitCost),
  * by quantity or by shipped weight, largest-remainder rounded so the allocated
- * amounts sum EXACTLY to the total cost entered (docs/catalog/02: "إجمالي
+ * amounts sum EXACTLY to the total cost entered (docs/archive/catalog/02: "إجمالي
  * التكلفة").
  */
 export function distributeLandedCost(

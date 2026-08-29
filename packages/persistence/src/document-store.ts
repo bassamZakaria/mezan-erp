@@ -9,11 +9,11 @@ import type {
 
 /**
  * Generic SQLite-backed {@link DocumentRepository} for the document framework
- * (docs/plan.md §3). ONE `framework_document` table holds every concrete
+ * (docs/archive/plan.md §3). ONE `framework_document` table holds every concrete
  * type's header, partitioned by `doc_type`; `lines` is stored as a JSON array
  * of the type's own wire-shaped line objects (Money/Qty already turned into
  * exact decimal strings by the caller's `serializeLine`, same "never a float"
- * convention as everywhere else — see docs/plan.md §2.3 — just carried as JSON
+ * convention as everywhere else — see docs/archive/plan.md §2.3 — just carried as JSON
  * text instead of a scaled-INTEGER column, since a document type's line shape
  * varies too much to normalize into one shared column set without a table per
  * type). `deserializeLine` is the exact inverse, so a round trip through the

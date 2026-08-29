@@ -1,6 +1,6 @@
 /**
  * Day/week/month bucketing shared by the period-trend reports (المبيعات حسب
- * الفترة, المشتريات حسب الفترة — docs/catalog/08-reports.md). Dates are plain
+ * الفترة, المشتريات حسب الفترة — docs/archive/catalog/08-reports.md). Dates are plain
  * ISO `YYYY-MM-DD` strings everywhere in this codebase; bucketing them only
  * needs UTC-safe integer date math, not a date library.
  */

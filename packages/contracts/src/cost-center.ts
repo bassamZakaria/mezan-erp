@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contract for cost centers (docs/catalog/04 "مراكز التكلفة"). */
+/** Wire contract for cost centers (docs/archive/catalog/04 "مراكز التكلفة"). */
 export const costCenterTypeSchema = z.enum(["general", "department", "project", "branch"]);
 export const costCenterStatusSchema = z.enum(["active", "inactive"]);
 

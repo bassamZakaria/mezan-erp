@@ -1,7 +1,7 @@
 import { ActivityNotPendingError, InvalidActivityError } from "./errors.js";
 
 /**
- * Activities — core entity (docs/catalog/06-crm-hr.md "مهامي / الأنشطة"). A
+ * Activities — core entity (docs/archive/catalog/06-crm-hr.md "مهامي / الأنشطة"). A
  * personal task/follow-up log (calls, meetings, to-dos) tied to a lead and/or
  * opportunity.
  */

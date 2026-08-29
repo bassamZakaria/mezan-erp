@@ -41,7 +41,7 @@ import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 
-/** مرتجعات المبيعات (Sales Returns) — docs/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
+/** مرتجعات المبيعات (Sales Returns) — docs/archive/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
 const REASON_KEY: Record<SalesReturnReasonDTO, AppTranslationKey> = {
   DEFECTIVE: "salesReturns.reason.DEFECTIVE",

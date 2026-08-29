@@ -7,7 +7,7 @@ import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
- * المشتريات حسب المورد — Purchases by Supplier (docs/catalog/08-reports.md):
+ * المشتريات حسب المورد — Purchases by Supplier (docs/archive/catalog/08-reports.md):
  * supplier concentration and outstanding payables. Purchase invoices don't
  * yet track payments made against them (no `amountPaid`, unlike
  * `SalesInvoice` — supplier settlement lands in a later treasury phase), so

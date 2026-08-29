@@ -88,7 +88,7 @@ type HrTimeLeaveDeps = Pick<HrTimeLeaveRoutesDeps, "attendance" | "leavePolicies
 export type HrPayrollDeps = Omit<HrPayrollRoutesDeps, "employees" | "contracts" | "numbering">;
 
 /**
- * HR master-data routes (docs/catalog/06-crm-hr.md "الموارد البشرية" —
+ * HR master-data routes (docs/archive/catalog/06-crm-hr.md "الموارد البشرية" —
  * hr/master-data scope: departments, job titles, employees, contracts,
  * holidays, the دashboard, and the minimal leave-request slice backing
  * إجازاتي (My Leave). Paths are root-relative — mounted under `/hr` by the
@@ -99,7 +99,7 @@ export type HrPayrollDeps = Omit<HrPayrollRoutesDeps, "employees" | "contracts" 
  * leave/attendance-adjacent config, same shape as `/settings/leave-policies`).
  */
 export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
-  /** Payroll runs, payslips and employee advances (docs/catalog/06 §"الرواتب"/"سلف الموظفين"). */
+  /** Payroll runs, payslips and employee advances (docs/archive/catalog/06 §"الرواتب"/"سلف الموظفين"). */
   readonly payroll?: HrPayrollDeps;
   readonly departments: DepartmentRepository;
   readonly jobTitles: JobTitleRepository;

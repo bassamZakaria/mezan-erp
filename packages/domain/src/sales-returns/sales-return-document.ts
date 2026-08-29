@@ -1,5 +1,5 @@
 /**
- * Sales Return as a document-framework consumer (docs/catalog/01
+ * Sales Return as a document-framework consumer (docs/archive/catalog/01
  * §"مرتجعات المبيعات"): a return processed against a specific confirmed sales
  * invoice — restocks inventory at the invoice line's cost and reduces the
  * customer's receivable; it never auto-refunds cash. Paying the credit note
@@ -21,7 +21,7 @@ import { InvalidDocumentError } from "../documents/errors.js";
 
 export const DOC_TYPE = "SALES_RETURN";
 
-/** docs/catalog/01 §"سبب الإرجاع *" — the closed reason enum on the return form. */
+/** docs/archive/catalog/01 §"سبب الإرجاع *" — the closed reason enum on the return form. */
 export const SALES_RETURN_REASONS = [
   "DEFECTIVE",
   "WRONG_ITEM",
@@ -57,7 +57,7 @@ export interface SalesReturnLine {
 
 export type SalesReturnDocument = FrameworkDocument<SalesReturnLine>;
 
-/** GL account mapping the return posts against (tenant-level config, docs/catalog/04 GL mapping). */
+/** GL account mapping the return posts against (tenant-level config, docs/archive/catalog/04 GL mapping). */
 export interface SalesReturnGlAccounts {
   readonly accountsReceivableId: string;
   readonly salesReturnsAccountId: string;

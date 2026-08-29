@@ -1,7 +1,7 @@
 import { DuplicatePipelineStageWinError, PipelineStageNotFoundError } from "./errors.js";
 
 /**
- * Pipeline stages — core entity (docs/catalog/06-crm-hr.md "مراحل خط
+ * Pipeline stages — core entity (docs/archive/catalog/06-crm-hr.md "مراحل خط
  * المبيعات"). An ordered, reorderable list of stages an `Opportunity` moves
  * through; exactly one active stage may be flagged as the win stage, and
  * marks the deal `won` when an opportunity reaches it.

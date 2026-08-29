@@ -35,7 +35,7 @@ import { createAssetCategorySchema, createAssetSchema, createDepreciationRunSche
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 /**
- * Fixed Assets routes (docs/catalog/07-mfg-projects-assets.md "الأصول
+ * Fixed Assets routes (docs/archive/catalog/07-mfg-projects-assets.md "الأصول
  * الثابتة"): asset categories, the asset register, and depreciation runs
  * (including posting them to the REAL GL). Root-relative — a parent app
  * mounts this whole router under `/assets`.

@@ -18,7 +18,7 @@ async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Pr
 }
 
 /* -------------------------------------------------------------------- */
-/* وحدات القياس — Units of measure (docs/catalog/03)                      */
+/* وحدات القياس — Units of measure (docs/archive/catalog/03)                      */
 /* -------------------------------------------------------------------- */
 
 export function useItemUnits(): UseQueryResult<ItemUnitDTO[], ApiError> {
@@ -50,7 +50,7 @@ export function useCreateItemUnit() {
 }
 
 /* -------------------------------------------------------------------- */
-/* تصنيفات الأصناف — Item categories (docs/catalog/03)                    */
+/* تصنيفات الأصناف — Item categories (docs/archive/catalog/03)                    */
 /* -------------------------------------------------------------------- */
 
 export function useItemCategories(): UseQueryResult<ItemCategoryDTO[], ApiError> {

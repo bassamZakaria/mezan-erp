@@ -1,5 +1,5 @@
 /**
- * The 26 workflow-gateable action types (docs/catalog/09 §workflow), as data.
+ * The 26 workflow-gateable action types (docs/archive/catalog/09 §workflow), as data.
  *
  * Each is a business action that a tenant MAY put behind a multi-step, sequential,
  * role-based approval chain via `/settings/workflow`. The list is authoritative:

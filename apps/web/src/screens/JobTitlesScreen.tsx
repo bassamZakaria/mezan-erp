@@ -6,7 +6,7 @@ import { ApiError, useCreateJobTitle, useDepartments, useEmployees, useJobTitles
 import { useAppTranslation } from "../i18n";
 import { bilingualName } from "./hr-employee-name";
 
-/** المسميات الوظيفية (Job Titles) — docs/catalog/06 §"المسميات الوظيفية". Department-scoped master data; department is locked once created. */
+/** المسميات الوظيفية (Job Titles) — docs/archive/catalog/06 §"المسميات الوظيفية". Department-scoped master data; department is locked once created. */
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 

@@ -19,7 +19,7 @@ import { useAppTranslation } from "../i18n";
 import { useDomainLabels } from "../lib/domain-labels";
 
 /**
- * الموافقات (docs/reference-parity/REQUIREMENTS.md R12.1, R14.1) — three
+ * الموافقات (docs/archive/reference-parity/REQUIREMENTS.md R12.1, R14.1) — three
  * scoped views over the same approval log:
  *
  * - **الوارد** requests whose CURRENT step's role the signed-in user holds,

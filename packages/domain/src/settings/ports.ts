@@ -8,14 +8,14 @@ export interface SettingsRepository {
   save(settings: TenantSettings): Promise<void>;
 }
 
-/** Port for branch CRUD (docs/catalog/09 §"إدارة الفروع"). */
+/** Port for branch CRUD (docs/archive/catalog/09 §"إدارة الفروع"). */
 export interface BranchRepository {
   findAll(): Promise<readonly Branch[]>;
   findById(id: string): Promise<Branch | null>;
   save(branch: Branch): Promise<void>;
 }
 
-/** Port for warehouse CRUD (docs/catalog/09 §"إدارة المستودعات"). */
+/** Port for warehouse CRUD (docs/archive/catalog/09 §"إدارة المستودعات"). */
 export interface WarehouseRepository {
   findAll(): Promise<readonly Warehouse[]>;
   findByBranch(branchId: string): Promise<readonly Warehouse[]>;

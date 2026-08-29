@@ -146,7 +146,7 @@ function handleDomainError(c: Context, err: unknown): Response {
 }
 
 /**
- * Sales-quote routes (docs/catalog/01 §"عروض الأسعار"), mounted under
+ * Sales-quote routes (docs/archive/catalog/01 §"عروض الأسعار"), mounted under
  * `/sales-quotes`:
  *   POST /                  create a draft                 (sales.quote.create)
  *   GET  /                  list (status/customer/date)     (sales.quote.view)
@@ -416,7 +416,7 @@ export function createSalesQuotesRoutes(
   });
 
   /**
-   * "إنشاء من عرض سعر" (docs/catalog/01) — only an مقبول (accepted) quote
+   * "إنشاء من عرض سعر" (docs/archive/catalog/01) — only an مقبول (accepted) quote
    * converts; the created invoice is a مسودة (draft), confirmed separately
    * through the normal `/sales-invoices/:id/confirm` flow (stock/GL/credit
    * control all run there, not here — converting never posts anything).

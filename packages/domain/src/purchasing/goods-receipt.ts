@@ -1,6 +1,6 @@
 /**
  * إيصال الاستلام (Goods Receipt) — records physical receipt of goods against a
- * confirmed purchase order (docs/catalog/02 §Goods Receipts). مسودة (draft) →
+ * confirmed purchase order (docs/archive/catalog/02 §Goods Receipts). مسودة (draft) →
  * مؤكد (confirmed). On confirmation it posts stock IN through the shared
  * costing/stock-ledger engine (raising on-hand and the weighted-average cost)
  * BEFORE any payable — tax and the payable are recognised later on the matching
@@ -173,7 +173,7 @@ export function goodsReceiptTotalCost(receipt: {
 
 /**
  * Build draft receipt lines from a PO's outstanding quantities (create-from-PO
- * auto-fill, docs/catalog/02 §Goods Receipts). Unit cost defaults to the PO
+ * auto-fill, docs/archive/catalog/02 §Goods Receipts). Unit cost defaults to the PO
  * unit price. Fully-received lines are skipped.
  */
 export function buildReceiptLinesFromOrder(order: PurchaseOrder): GoodsReceiptLine[] {
@@ -421,7 +421,7 @@ export async function confirmGoodsReceipt(
 }
 
 /**
- * إلغاء (Cancel) a goods receipt (docs/catalog/09 §"تتبع البضاعة المستهلكة").
+ * إلغاء (Cancel) a goods receipt (docs/archive/catalog/09 §"تتبع البضاعة المستهلكة").
  * A draft receipt (no stock/PO effect yet) cancels trivially. A confirmed
  * receipt may only be cancelled if (a) it has not yet been invoiced, and (b)
  * — when `trackSoldPurchaseItems` is on — none of the stock it brought in has

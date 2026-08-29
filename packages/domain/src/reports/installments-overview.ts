@@ -6,7 +6,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
 
 /**
- * نظرة عامة على الأقساط — Installments Overview (docs/catalog/08-reports.md):
+ * نظرة عامة على الأقساط — Installments Overview (docs/archive/catalog/08-reports.md):
  * portfolio status and collection rate per confirmed plan
  * (`InstallmentPlanDocument` — packages/domain/src/installments/, the real
  * document-framework aggregate `afacfc1`/#27 shipped). A plan carries no

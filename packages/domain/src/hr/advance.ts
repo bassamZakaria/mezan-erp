@@ -2,7 +2,7 @@ import { Money, allocate } from "../money/index.js";
 import { InvalidEmployeeAdvanceError, InvalidEmployeeAdvanceTransitionError } from "./errors.js";
 
 /**
- * Employee cash advances — docs/catalog/06-crm-hr.md "سلف الموظفين". A cash
+ * Employee cash advances — docs/archive/catalog/06-crm-hr.md "سلف الموظفين". A cash
  * advance is recovered from future payroll runs in equal instalments.
  *
  * The catalog's own helper text is the accounting contract: "السلفة دين على
@@ -89,7 +89,7 @@ export function employeeOutstandingBalance(advances: readonly EmployeeAdvance[])
 }
 
 /**
- * docs/catalog/06 "سلف الموظفين" filter chips: في انتظار الاعتماد → معتمدة →
+ * docs/archive/catalog/06 "سلف الموظفين" filter chips: في انتظار الاعتماد → معتمدة →
  * مصروفة → مسددة. "rejected" is the reject half of the approve decision the
  * `hr.advance.approve` permission implies; both it and "repaid" are terminal.
  */

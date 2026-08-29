@@ -8,7 +8,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, maxOf, percentOf } from "./kpi.js";
 
 /**
- * أعمار المخزون — Inventory Aging (docs/catalog/08-reports.md): the age of
+ * أعمار المخزون — Inventory Aging (docs/archive/catalog/08-reports.md): the age of
  * the OLDEST surviving unit of each item/warehouse position, from the
  * immutable cost layers (FIFO receipt order) — the same layers the WAC engine
  * draws down on issue (packages/domain/src/inventory/wac.ts). Stock older

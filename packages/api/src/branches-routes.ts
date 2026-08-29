@@ -3,7 +3,7 @@ import { createBranch, updateBranch, InvalidBranchError, type BranchRepository }
 import { createBranchSchema, updateBranchSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
-/** Branch CRUD routes (docs/catalog/09 §"إدارة الفروع"), gated by admin.branches.*. */
+/** Branch CRUD routes (docs/archive/catalog/09 §"إدارة الفروع"), gated by admin.branches.*. */
 export function createBranchesRoutes(
   store: BranchRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,

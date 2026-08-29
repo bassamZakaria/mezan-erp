@@ -18,12 +18,12 @@ import {
  * SQLite-backed store for the costing + stock-ledger engine. ONE connection
  * owns all three tables (movements, cost layers, WAC snapshots) so the
  * StockLedgerService can commit a movement + layer + snapshot (+ GL posting)
- * atomically via `transaction()` (docs/plan.md §2.2).
+ * atomically via `transaction()` (docs/archive/plan.md §2.2).
  *
- * Money/Qty are stored as scaled INTEGER (scale 1e-6, docs/plan.md §2.3) — never
+ * Money/Qty are stored as scaled INTEGER (scale 1e-6, docs/archive/plan.md §2.3) — never
  * REAL. The ledger is append-only and cost-layer unit costs are immutable, both
  * enforced by BEFORE-triggers so a stray UPDATE/DELETE can't corrupt the audit
- * trail or a layer's receipt-time price (docs/catalog/03).
+ * trail or a layer's receipt-time price (docs/archive/catalog/03).
  */
 
 const CREATE_TABLES = `

@@ -69,7 +69,7 @@ import { useDebounced } from "../lib/use-debounced";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
-/** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
+/** السندات النقدية (Treasury Vouchers) — docs/archive/catalog/04, on the real `/vouchers` API. */
 
 const STATUS_KEY: Record<VoucherStatusDTO, AppTranslationKey> = {
   draft: "vouchers.status.draft",

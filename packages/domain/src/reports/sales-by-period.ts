@@ -7,7 +7,7 @@ import { sumRows, averageOf } from "./kpi.js";
 import { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
 
 /**
- * المبيعات حسب الفترة — Sales by Period (docs/catalog/08-reports.md): day/
+ * المبيعات حسب الفترة — Sales by Period (docs/archive/catalog/08-reports.md): day/
  * week/month sales trend for a period, net of discounts, with tax. Computed
  * from real confirmed/partially-paid/paid `SalesInvoice`s — each invoice's
  * totals come from the SAME `computeInvoiceTotals` the invoice screen and GL

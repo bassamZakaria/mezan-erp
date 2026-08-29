@@ -44,7 +44,7 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Treasury account routes (docs/catalog/04 "حسابات الخزينة"): list, chip
+ * Treasury account routes (docs/archive/catalog/04 "حسابات الخزينة"): list, chip
  * counts, KPI stats, get one, create, edit (PATCH doubles as "إضافة رصيد
  * افتتاحي" — adjusting the opening balance after creation). Gated by
  * `treasury.account.view` / `.manage`, matching the permission catalog's

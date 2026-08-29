@@ -25,7 +25,7 @@ import {
  * together, because number allocation and the entry insert must be atomic:
  * `transaction()` opens `BEGIN IMMEDIATE` (SQLite's write lock at statement
  * start), and the numbering `increment` runs plain SQL *inside* that lock, so
- * two concurrent posts can never share or skip a JE number (docs/plan.md §2.3
+ * two concurrent posts can never share or skip a JE number (docs/archive/plan.md §2.3
  * rule 5 / §3 rule 5). Money is stored as INTEGER at scale 1e-6 and read back
  * with `safeIntegers()` so a large ledger's sums never touch IEEE-754.
  */

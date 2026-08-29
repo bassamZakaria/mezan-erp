@@ -44,7 +44,7 @@ supplier bank-detail changes unlogged; no exception report of any kind.
 **Your vocabulary:** الرقابة الداخلية، فصل المهام، صلاحيات، تعديل بعد الترحيل،
 إلغاء مستند، تقارير استثنائية، عجز، تلاعب، مسار التدقيق.
 
-**Relevant catalog:** `docs/catalog/09-settings-dashboard-ux.md`,
+**Relevant catalog:** `docs/archive/catalog/09-settings-dashboard-ux.md`,
 `03-inventory.md`, `02-purchases.md`, `08-reports.md`.
 
 **How you report.** One finding per attack you actually attempted: **what I

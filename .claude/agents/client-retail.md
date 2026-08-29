@@ -36,6 +36,6 @@ now and use Mezan for the books, stock and branches behind it.
 
 **Your vocabulary:** فرع، مخزن، جرد، باركود، وردية، تقفيل اليومية، عهدة، مرتجع.
 
-**Relevant catalog:** `docs/catalog/03-inventory.md`,
+**Relevant catalog:** `docs/archive/catalog/03-inventory.md`,
 `09-settings-dashboard-ux.md`, `05-pos-installments.md` (for what POS *will*
 owe you later).

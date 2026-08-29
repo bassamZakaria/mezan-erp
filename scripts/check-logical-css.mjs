@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * RTL logical-properties check (docs/plan.md §2.1 — "RTL-first rules").
+ * RTL logical-properties check (docs/archive/plan.md §2.1 — "RTL-first rules").
  *
  * Flags hardcoded physical `left`/`right` in CSS and TSX/TS in favour of CSS
  * logical properties (margin-inline / padding-inline / inset-inline and

@@ -6,7 +6,7 @@ ever made sense read together: a task is open *because* a defect is open, or *be
 decision has not been taken.
 
 Companion: `TESTING.md` — the testing policy, the regression plan, and all 1,686 scenarios.
-`plan.md` is the durable reference underneath both: architecture (§1–§3), the market and
+`archive/plan.md` is the durable reference underneath both: architecture (§1–§3), the market and
 competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 
 **Updated 2026-08-29.** v1 = Electron desktop, SQLite, real data, Arabic-first.
@@ -139,7 +139,7 @@ caught several "works until you look again" bugs.
 ## 2.2 Parity, item by item
 
 The ordered work list. Every item traces to a requirement id in
-`reference-parity/audit/REQUIREMENTS.md` (R…) or a gap id in
+`archive/reference-parity/REQUIREMENTS.md` (R…) or a gap id in
 `archive/gap-inventory.md` (A…/H…), or to a defect in `archive/defect-register.md`.
 Scenarios that verify them are in `TESTING.md` §15.
 
@@ -421,7 +421,7 @@ than silently computing a wrong net.
 
 ## 4.2 Do not copy
 
-X1–X8 in `reference-parity/audit/REQUIREMENTS.md` and C1–C13 in
+X1–X8 in `archive/reference-parity/REQUIREMENTS.md` and C1–C13 in
 `archive/gap-inventory.md`. In particular: keep report export, keep the hubs
 linked, keep the daily attendance list, do not reproduce the 0.00 treasury balance bug,
 and label a purchase return correctly.
@@ -429,7 +429,7 @@ and label a purchase return correctly.
 ## 4.3 The deferred build plan
 
 The build plan for the deferred areas — HR/Payroll (27 tasks), POS (26 tasks) and the
-Cloud/SaaS edition (20 tasks) — is `plan.md` §9. It is not repeated here.
+Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated here.
 
 ---
 
@@ -579,7 +579,7 @@ today, and any of them could build it in a sprint.
 
 ## 6.3 Longer-standing product decisions
 
-These predate the build and are carried in `plan.md` §6.3 (`backlog.md`, which also held them, was merged into `plan.md` on 2026-08-27);
+These predate the build and are carried in `archive/plan.md` §6.3 (`backlog.md`, which also held them, was merged into `archive/plan.md` on 2026-08-27);
 none of them blocks ongoing development, but each blocks calling its specific
 issue done: licensing mechanism finalization, the installment late-fee rule,
 FIFO-in-v1 scope, delivery notes, branch-scoped numbering, lead → opportunity
@@ -614,7 +614,7 @@ reads looks identical, on screen, to one that is enforced.
 
 > **These are ENHANCEMENTS beyond 1:1 parity with the reference app.** **None is started, and none is on `main`** — `main` remains parity-only. Work on any of them belongs on its own branch tracking `main`.
 >
-> This is a **phased backlog of candidate issues**, ready to turn into tracker tickets later. Each candidate cites its requirement (`ENH-###`, `enhancements/requirements.md`) and enabling workflow (`WF-##`, `enhancements/workflows.md`). Sizes: S ≤1wk · M 1–3wk · L 3–6wk · XL >6wk. Estimates are relative to an already-built parity module and are planning inputs, not commitments.
+> This is a **phased backlog of candidate issues**, ready to turn into tracker tickets later. Each candidate cites its requirement (`ENH-###`, `archive/enhancements/requirements.md`) and enabling workflow (`WF-##`, `archive/enhancements/workflows.md`). Sizes: S ≤1wk · M 1–3wk · L 3–6wk · XL >6wk. Estimates are relative to an already-built parity module and are planning inputs, not commitments.
 
 ---
 
@@ -697,7 +697,7 @@ Deliberately deferred; not scheduled. Revisit after E3.
 | WhatsApp order intake / catalog | High local demand; large integration + compliance surface. |
 | Loyalty & promotions deepening | Beyond the parity loyalty add-on; retail vertical polish. |
 | BOQ / progress-certificate / retention billing | Contracting vertical (named catalog gap); scope its own epic. |
-| Multi-currency as a licensable module + IAS-21 FX depth | Packaging + accounting-depth decision, per `plan.md` §8. |
+| Multi-currency as a licensable module + IAS-21 FX depth | Packaging + accounting-depth decision, per `archive/plan.md` §8. |
 | Cheque endorsement/replacement states | Extends the 7-state lifecycle; niche but real. |
 
 ---
@@ -712,7 +712,7 @@ Deliberately deferred; not scheduled. Revisit after E3.
 | Horizon | 6 | unsized |
 | **Total scheduled** | **27 candidates** (28 requirements; ENH-042 & ENH-040 share WF-11, all mapped) | — |
 
-All candidates trace to a requirement in `enhancements/requirements.md` and a workflow in `enhancements/workflows.md`. Beyond-parity; not on `main`; each belongs on its own branch tracking `main`.
+All candidates trace to a requirement in `archive/enhancements/requirements.md` and a workflow in `archive/enhancements/workflows.md`. Beyond-parity; not on `main`; each belongs on its own branch tracking `main`.
 
 ---
 

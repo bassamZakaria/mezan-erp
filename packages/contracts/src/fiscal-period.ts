@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contract for fiscal periods (docs/catalog/04 "الفترات المالية"). */
+/** Wire contract for fiscal periods (docs/archive/catalog/04 "الفترات المالية"). */
 export const fiscalPeriodStatusSchema = z.enum(["open", "closed", "locked"]);
 
 export const fiscalPeriodSchema = z.object({

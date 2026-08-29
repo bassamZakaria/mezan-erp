@@ -6,7 +6,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
 
 /**
- * أعمار ديون الموردين — Supplier Debt Aging (docs/catalog/08-reports.md): the
+ * أعمار ديون الموردين — Supplier Debt Aging (docs/archive/catalog/08-reports.md): the
  * AP mirror of أعمار ديون العملاء. Purchase invoices don't track payments
  * outstanding — each invoice's total less whatever the allocation sub-ledger
  * has settled against it, bucketed by days past

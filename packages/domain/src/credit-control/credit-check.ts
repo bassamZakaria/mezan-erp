@@ -1,12 +1,12 @@
 /**
- * Credit control — "الرقابة الائتمانية" (docs/catalog/09 §Settings, docs/catalog/01
+ * Credit control — "الرقابة الائتمانية" (docs/archive/catalog/09 §Settings, docs/archive/catalog/01
  * §"العملاء" credit-limit fields). A pure check: given the tenant's
  * `creditControlEnabled`/`creditControlMode` settings, a customer's credit
  * limit, their current outstanding balance and the exposure a new invoice
  * would add, decide whether confirming is fine, should warn, or must block.
  *
  * WARNING mode never blocks — it only informs the confirming user/UI. BLOCK
- * mode stops the sales-invoice confirm outright (docs/catalog/01: "warn vs
+ * mode stops the sales-invoice confirm outright (docs/archive/catalog/01: "warn vs
  * block modes ... enforced on sales invoice confirm against customer credit
  * limit"). A credit limit of zero (the catalog's default "no limit set") never
  * triggers a check, matching the customer add-form's "الحد الائتماني" default

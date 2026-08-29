@@ -14,7 +14,7 @@ import { ATTENDANCE_STATUS_KEY, ATTENDANCE_STATUS_TONE, formatWorkedDuration } f
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { employeeDisplayName } from "./hr-employee-name";
 
-/** الحضور والانصراف (Attendance) — docs/catalog/06 §"الحضور والانصراف". Per-employee daily check-in/out with a computed worked duration and a day status resolved against the official holiday calendar and approved leave. */
+/** الحضور والانصراف (Attendance) — docs/archive/catalog/06 §"الحضور والانصراف". Per-employee daily check-in/out with a computed worked duration and a day status resolved against the official holiday calendar and approved leave. */
 
 function monthBounds(month: string): { from: string; to: string } {
   const [year, monthPart] = month.split("-").map(Number);

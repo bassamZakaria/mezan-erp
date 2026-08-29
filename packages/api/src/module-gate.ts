@@ -3,7 +3,7 @@ import { hasModule, type Entitlements } from "@mezan/domain";
 
 /**
  * Module-gate middleware — rejects calls into a module the current
- * entitlements do not license, with 403 (docs/plan.md §2.5, §5.2).
+ * entitlements do not license, with 403 (docs/archive/plan.md §2.5, §5.2).
  *
  * The domain owns the actual capability check (`hasModule`); this is only the
  * transport binding. The entitlements themselves are resolved per request via

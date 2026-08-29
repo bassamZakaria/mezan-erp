@@ -6,7 +6,7 @@ import { ApiError, useCancelLeaveRequest, useCreateLeaveRequest, useMyLeave } fr
 import { LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation } from "../i18n";
 
-/** إجازاتي (My Leave — employee self-service) — docs/catalog/06 §"إجازاتي". Lets the logged-in user request leave and see their own leave-request history, gated on their account being linked to an HR employee record. */
+/** إجازاتي (My Leave — employee self-service) — docs/archive/catalog/06 §"إجازاتي". Lets the logged-in user request leave and see their own leave-request history, gated on their account being linked to an HR employee record. */
 
 interface LeaveDraft {
   leaveType: LeaveTypeDTO;

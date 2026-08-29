@@ -20,7 +20,7 @@ import {
 } from "./permission-gate.js";
 
 /**
- * Routes for the historical purchase-document import (docs/catalog/02
+ * Routes for the historical purchase-document import (docs/archive/catalog/02
  * §"استيراد فواتير سابقة" / §"استيراد مرتجعات سابقة"), mounted under
  * `/purchases/historical-import`. `/preview` is a pure dry-run (no writes, no
  * GL); `/commit` archives every valid document and posts a GL entry for JUST

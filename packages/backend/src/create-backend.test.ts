@@ -73,7 +73,7 @@ describe("createBackend — seeded app", () => {
     expect(result.users).toBeGreaterThanOrEqual(1);
   });
 
-  it("mounts /reports/* over the real seeded repositories (docs/catalog/08)", async () => {
+  it("mounts /reports/* over the real seeded repositories (docs/archive/catalog/08)", async () => {
     const app = await newBackend();
     const res = await app.fetch(
       new Request("http://local/reports/sales/by-period?groupBy=day", { headers: { "x-permissions": "*" } }),
@@ -201,7 +201,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
     expect(create.status).toBe(201);
     const quote = (await create.json()) as { id: string };
 
-    // send -> accept (status machine, per docs/catalog/01: مسودة -> مرسل -> مقبول -> محول)
+    // send -> accept (status machine, per docs/archive/catalog/01: مسودة -> مرسل -> مقبول -> محول)
     const send = await authedPost(app, `/sales-quotes/${quote.id}/send`, {});
     expect(send.status).toBe(200);
     const accept = await authedPost(app, `/sales-quotes/${quote.id}/accept`, {});
@@ -1070,7 +1070,7 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
 });
 
 /**
- * القوائم المالية over the REAL posted GL (docs/catalog/08, docs/archive/phase-backlog.md Phase 8).
+ * القوائم المالية over the REAL posted GL (docs/archive/catalog/08, docs/archive/phase-backlog.md Phase 8).
  * Proves the seven financial statements compute from actual posted journal
  * entries — not the static fixture ledger the screen used to render — by seeding
  * balanced posted entries through the real `/gl/journal-entries` poster against

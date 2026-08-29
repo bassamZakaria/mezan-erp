@@ -1,6 +1,6 @@
 /**
  * أمر الشراء (Purchase Order) — the first document in the purchase chain
- * (docs/catalog/02 §Purchase Orders). A PO carries no stock or GL effect; it is
+ * (docs/archive/catalog/02 §Purchase Orders). A PO carries no stock or GL effect; it is
  * numbering + workflow only: مسودة (draft) → مرسل (sent) → مستلم جزئياً /
  * مستلم بالكامل (partially / fully received) as goods receipts confirm against
  * it, with ملغي (cancelled) as the cancel path.
@@ -46,7 +46,7 @@ export interface PurchaseOrder {
   readonly createdAt: string;
 }
 
-/** Persistence port. The domain depends on this interface only (docs/plan.md §2.2). */
+/** Persistence port. The domain depends on this interface only (docs/archive/plan.md §2.2). */
 export interface PurchaseOrderRepository {
   findById(id: string): Promise<PurchaseOrder | null>;
   list(): Promise<PurchaseOrder[]>;

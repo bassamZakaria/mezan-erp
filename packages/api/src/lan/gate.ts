@@ -11,7 +11,7 @@ export interface LanGateVariables {
 
 /**
  * LAN gate middleware — rejects every gated `/lan/*` call with 403 unless the
- * current entitlements carry the `lan.multi_till` feature flag (docs/plan.md
+ * current entitlements carry the `lan.multi_till` feature flag (docs/archive/plan.md
  * §6.3.3: "gate it behind a license flag"). Same shape as `createModuleGate`
  * in ../module-gate.ts (and reuses its `EntitlementsResolver` type), but
  * reads a feature flag rather than a module, since LAN serving is a

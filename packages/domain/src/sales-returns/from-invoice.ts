@@ -1,5 +1,5 @@
 /**
- * Builds return lines from a source invoice snapshot (docs/catalog/01 §"بنود
+ * Builds return lines from a source invoice snapshot (docs/archive/catalog/01 §"بنود
  * المرتجع" — one row per original invoice line, "المتاح للإرجاع" = original
  * qty − already returned, "كمية الإرجاع" user-entered and capped at that).
  * Pure; no I/O. The caller resolves the `SourceSalesInvoice` itself (today: a

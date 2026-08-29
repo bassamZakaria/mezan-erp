@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contract for treasury accounts (docs/catalog/04 "حسابات الخزينة").
+ * Wire contract for treasury accounts (docs/archive/catalog/04 "حسابات الخزينة").
  * Money (opening balance) crosses the wire as an exact decimal string, never
  * a float — the domain re-parses it via `Money.fromMajor`.
  */

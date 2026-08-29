@@ -7,7 +7,7 @@ import { sumRows, averageOf } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
- * تقييم المخزون — Inventory Valuation (docs/catalog/08-reports.md): current
+ * تقييم المخزون — Inventory Valuation (docs/archive/catalog/08-reports.md): current
  * stock valuation per item (qty × average cost), aggregated across every
  * warehouse the item has a WAC position in.
  */

@@ -1,5 +1,10 @@
 # Mezan (ميزان) — Enhancement Requirements (Beyond Parity)
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../../ROADMAP.md` for what is
+> built and open, and `../../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `../README.md` in the archive root maps them.
+
+
 > **These are ENHANCEMENTS beyond 1:1 parity with the reference app.** They live **only on the `enhancements` branch**, which **tracks `main`** (parity). `main` stays parity-only; nothing here is merged back into `main`. This document captures a simulated stakeholder requirements meeting and turns each persona's pain points into concrete features/workflows the reference app lacks.
 >
 > Grounding for competitive framing (offline-first edge, module licensing, Daftra depth, ETA e-invoicing, 39 notification events / 26 workflow action types, weighted-average costing, van warehouses, cheque lifecycle): `docs/plan.md`, `docs/catalog/01..09-*.md`.

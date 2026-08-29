@@ -3,7 +3,7 @@ import { createWarehouse, updateWarehouse, InvalidWarehouseError, type Warehouse
 import { createWarehouseSchema, updateWarehouseSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
-/** Warehouse CRUD routes (docs/catalog/09 §"إدارة المستودعات"), gated by admin.warehouses.*. */
+/** Warehouse CRUD routes (docs/archive/catalog/09 §"إدارة المستودعات"), gated by admin.warehouses.*. */
 export function createWarehousesRoutes(
   store: WarehouseRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,

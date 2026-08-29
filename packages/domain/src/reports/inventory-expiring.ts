@@ -7,7 +7,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 
 /**
- * أصناف قاربت على الانتهاء — Expiring Soon / FEFO (docs/catalog/08-reports.md):
+ * أصناف قاربت على الانتهاء — Expiring Soon / FEFO (docs/archive/catalog/08-reports.md):
  * every surviving cost layer that carries an expiry date, earliest first —
  * the SAME order `orderLayersForConsumption` issues them in, so the report is
  * a literal read of what the next goods issue will take. Layers with no expiry

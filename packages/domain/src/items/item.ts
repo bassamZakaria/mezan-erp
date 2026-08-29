@@ -4,7 +4,7 @@ import type { ItemType } from "./item-type.js";
 export type { ItemType };
 
 /**
- * Items — inventory master data (docs/catalog/03-inventory.md "الأصناف").
+ * Items — inventory master data (docs/archive/catalog/03-inventory.md "الأصناف").
  * An `Item` is either a stock item (تتبع المخزون — carries a quantity
  * balance tracked/costed through warehouses) or a service item (لا يتتبع
  * مخزون — sold without a quantity balance). Phase 1 ships the master-data
@@ -14,12 +14,12 @@ export type { ItemType };
 
 export type CostingMethod = "WAC" | "FIFO";
 export type ItemStatus = "active" | "inactive";
-/** Egyptian e-invoice (ETA) code classification (docs/catalog/03 "تصنيف الفاتورة الإلكترونية"). */
+/** Egyptian e-invoice (ETA) code classification (docs/archive/catalog/03 "تصنيف الفاتورة الإلكترونية"). */
 export type EtaCodeType = "EGS" | "GPC";
 
 /**
  * An alternate unit of measure, defined relative to the item's base unit
- * (docs/catalog/03 "وحدات القياس", e.g. "لفة = 12 متر"). `factor` base units
+ * (docs/archive/catalog/03 "وحدات القياس", e.g. "لفة = 12 متر"). `factor` base units
  * make up one of this unit.
  */
 export interface AlternateUnit {
@@ -82,7 +82,7 @@ export interface Item {
    */
   readonly imageAttachmentId: string | null;
   readonly reorderQty: number | null;
-  /** GL mapping overrides (docs/catalog/03 "الحسابات") — null means "use the system default for this item type". */
+  /** GL mapping overrides (docs/archive/catalog/03 "الحسابات") — null means "use the system default for this item type". */
   readonly revenueAccountId: string | null;
   readonly cogsAccountId: string | null;
   readonly inventoryAccountId: string | null;
@@ -94,7 +94,7 @@ export interface Item {
 
 /**
  * Persistence port for Items. The domain depends on this interface only
- * (docs/plan.md §2.2) — no SQL, no driver.
+ * (docs/archive/plan.md §2.2) — no SQL, no driver.
  */
 export interface ItemRepository {
   findById(id: string): Promise<Item | null>;

@@ -1,12 +1,12 @@
 import type { EventCode } from "../events/catalog.js";
 
 /**
- * Notification rules engine — types (docs/catalog/09 §قواعد الإشعارات,
- * docs/plan.md §5.6). A rule maps ONE catalog event code to an optional
+ * Notification rules engine — types (docs/archive/catalog/09 §قواعد الإشعارات,
+ * docs/archive/plan.md §5.6). A rule maps ONE catalog event code to an optional
  * condition, a recipient (by permission / role / specific user), a priority,
  * a set of delivery channels, and optional Arabic title/body templates.
  *
- * `docs/plan.md` §5.6 asymmetry to preserve: unlike the workflow gate's
+ * `docs/archive/plan.md` §5.6 asymmetry to preserve: unlike the workflow gate's
  * unconditional action types, a notification rule's condition is OPTIONAL —
  * `null` means "fires on every occurrence of the event."
  */
@@ -20,10 +20,10 @@ export const NOTIFICATION_PRIORITIES: readonly NotificationPriority[] = [
 ];
 
 /**
- * Delivery channels (docs/catalog/09: داخل التطبيق / بريد إلكتروني / إشعار
+ * Delivery channels (docs/archive/catalog/09: داخل التطبيق / بريد إلكتروني / إشعار
  * فوري). In-app is generated and persisted for real; email/push are recorded
  * as "queued" only — this repo has no outbound mail/push transport yet
- * (docs/plan.md line 535: "the rules engine must degrade per channel, not
+ * (docs/archive/plan.md line 535: "the rules engine must degrade per channel, not
  * per rule").
  */
 export type NotificationChannel = "in_app" | "email" | "push";

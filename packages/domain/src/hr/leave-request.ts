@@ -2,9 +2,9 @@ import type { GateableActionType } from "../workflow/action-types.js";
 import { InvalidLeaveRequestError, InvalidLeaveRequestTransitionError } from "./errors.js";
 
 /**
- * LeaveRequest — docs/catalog/06-crm-hr.md "طلبات الإجازات". The leave-type
+ * LeaveRequest — docs/archive/catalog/06-crm-hr.md "طلبات الإجازات". The leave-type
  * taxonomy is the 8 types the workflow catalog's 9 granular leave gates name
- * (docs/catalog/09 §سير العمل — HR_LEAVE_APPROVE_* minus the "all types"
+ * (docs/archive/catalog/09 §سير العمل — HR_LEAVE_APPROVE_* minus the "all types"
  * catch-all), so every type maps 1:1 onto its own gateable action type.
  */
 
@@ -116,7 +116,7 @@ function validate(command: Pick<CreateLeaveRequestCommand, "employeeId" | "start
   return reasons;
 }
 
-/** Creates and persists a new leave request. New requests always start "pending" (docs/catalog/06 approval workflow). */
+/** Creates and persists a new leave request. New requests always start "pending" (docs/archive/catalog/06 approval workflow). */
 export async function createLeaveRequest(command: CreateLeaveRequestCommand, repo: LeaveRequestRepository): Promise<LeaveRequest> {
   const reasons = validate(command);
   if (reasons.length > 0) throw new InvalidLeaveRequestError(reasons);
@@ -142,7 +142,7 @@ export async function createLeaveRequest(command: CreateLeaveRequestCommand, rep
   return request;
 }
 
-/** docs/catalog/06 "طلبات الإجازات" workflow: بانتظار الموافقة → موافق عليه/مرفوض/ملغى; موافق عليه → ملغى; both مرفوض/ملغى are terminal. */
+/** docs/archive/catalog/06 "طلبات الإجازات" workflow: بانتظار الموافقة → موافق عليه/مرفوض/ملغى; موافق عليه → ملغى; both مرفوض/ملغى are terminal. */
 export const ALLOWED_LEAVE_REQUEST_TRANSITIONS: Record<LeaveRequestStatus, readonly LeaveRequestStatus[]> = {
   pending: ["approved", "rejected", "cancelled"],
   approved: ["cancelled"],

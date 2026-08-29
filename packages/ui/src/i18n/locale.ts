@@ -7,7 +7,7 @@ export const DEFAULT_LOCALE: Locale = "ar";
 
 const DIRECTION_BY_LOCALE: Record<Locale, Direction> = { ar: "rtl", en: "ltr" };
 
-/** Direction is DERIVED from the locale — never stored, never passed in (docs/plan.md §2.1). */
+/** Direction is DERIVED from the locale — never stored, never passed in (docs/archive/plan.md §2.1). */
 export function directionOf(locale: Locale): Direction {
   return DIRECTION_BY_LOCALE[locale];
 }

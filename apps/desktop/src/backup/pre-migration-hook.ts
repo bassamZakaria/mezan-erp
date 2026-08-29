@@ -4,7 +4,7 @@ import { createBackup, type BackupResult } from "./backup-service.js";
 /**
  * Runs one "pre-migration" backup. Wired to run before any schema-changing
  * startup step — currently that's just `createSqliteUnitOfWork`'s idempotent
- * `CREATE TABLE IF NOT EXISTS`, but this is the seam docs/plan.md §2.3
+ * `CREATE TABLE IF NOT EXISTS`, but this is the seam docs/archive/plan.md §2.3
  * requires ("Desktop upgrades run migrations on launch, after an automatic
  * pre-migration backup ... with a rollback-to-backup path if anything
  * throws") for once a real migration runner lands. Call this, then run

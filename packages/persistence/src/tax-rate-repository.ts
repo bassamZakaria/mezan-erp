@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus } from "@mezan/domain";
 
-/** SQLite-backed TaxRateRepository (docs/catalog/04 "الضرائب"). Standalone, mirroring `createSqliteAccountRepository`. */
+/** SQLite-backed TaxRateRepository (docs/archive/catalog/04 "الضرائب"). Standalone, mirroring `createSqliteAccountRepository`. */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS tax_rate (

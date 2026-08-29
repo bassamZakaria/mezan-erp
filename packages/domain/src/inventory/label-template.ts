@@ -1,5 +1,5 @@
 /**
- * Label Printing (docs/catalog/03-inventory.md §"طباعة الملصقات") — the 3
+ * Label Printing (docs/archive/catalog/03-inventory.md §"طباعة الملصقات") — the 3
  * preset label sizes the reference builder offers. This screen is a
  * stateless print builder (the reference catalog notes: "nothing persisted
  * until printed" — no document, no lifecycle), so unlike the rest of

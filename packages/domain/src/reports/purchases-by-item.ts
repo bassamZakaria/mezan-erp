@@ -7,7 +7,7 @@ import { sumRows, averageOf } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
- * المشتريات حسب الصنف — Purchases by Item (docs/catalog/08-reports.md):
+ * المشتريات حسب الصنف — Purchases by Item (docs/archive/catalog/08-reports.md):
  * highest-cost purchased items in a period. Only مخزني (inventory) lines
  * count — مصروف شحن (freight/expense) lines never carry an `itemId`.
  */

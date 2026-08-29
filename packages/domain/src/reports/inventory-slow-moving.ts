@@ -8,7 +8,7 @@ import { sumRows, countRows, maxOf } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
- * أصناف بطيئة الحركة — Slow-Moving Items (docs/catalog/08-reports.md): items
+ * أصناف بطيئة الحركة — Slow-Moving Items (docs/archive/catalog/08-reports.md): items
  * tying up capital because they haven't sold (or sold long ago). "Last sale
  * date" per item is the max `date` across confirmed/partially-paid/paid
  * `SalesInvoice` lines referencing it — real sales history, not a cached flag.

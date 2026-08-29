@@ -7,8 +7,8 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 
 /**
- * ميزان المراجعة — Trial Balance (docs/catalog/08-reports.md), the report
- * engine's one wired example (docs/plan.md §2.4). Chosen because it needs no
+ * ميزان المراجعة — Trial Balance (docs/archive/catalog/08-reports.md), the report
+ * engine's one wired example (docs/archive/plan.md §2.4). Chosen because it needs no
  * bespoke query beyond the ledger types already in this package (`Account`,
  * `JournalEntry`, `Money`), and because the catalog's own description of it —
  * "إجمالي المدين = إجمالي الدائن, shown with a literal '=' sign" — is exactly

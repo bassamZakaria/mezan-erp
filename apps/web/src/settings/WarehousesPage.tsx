@@ -10,7 +10,7 @@ import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 
 /**
- * المستودعات (Warehouses) — docs/catalog/09 §"إدارة المستودعات". Surfaces
+ * المستودعات (Warehouses) — docs/archive/catalog/09 §"إدارة المستودعات". Surfaces
  * all 5 catalog warehouse types (رئيسي / مستودع وسيط / مرتجعات / إنتاج / ڤان)
  * both as a filter row and in the add-warehouse dialog, matching the
  * catalog's captured "Add warehouse" fields.

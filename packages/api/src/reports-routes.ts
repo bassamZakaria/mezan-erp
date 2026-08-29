@@ -68,7 +68,7 @@ import {
 import { createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * التقارير — operational reports (docs/catalog/08-reports.md), mounted under
+ * التقارير — operational reports (docs/archive/catalog/08-reports.md), mounted under
  * `/reports`. Every route follows the SAME shape: fetch the real persisted
  * rows this report needs (straight off the repositories other modules
  * already use — no report-specific data duplication), hand them to the
@@ -105,7 +105,7 @@ export interface ReportsRoutesDeps {
   readonly wacSnapshots: WacSnapshotRepository;
   readonly installmentPlans: DocumentRepository<InstallmentLine>;
   /**
-   * القوائم المالية data source (docs/catalog/08 — الميزان/قائمة الدخل/الميزانية/
+   * القوائم المالية data source (docs/archive/catalog/08 — الميزان/قائمة الدخل/الميزانية/
    * التدفقات/الإقرار الضريبي/الأستاذ العام/دفتر حساب). The seven financial
    * statements aggregate over the SAME posted GL the journal/dashboard read —
    * `ledger` supplies the posted entries, `accounts` the chart to classify them.
@@ -524,7 +524,7 @@ export function createReportsRoutes(
     });
   }
 
-  // --- القوائم المالية — Financial statements (docs/catalog/08) -------------
+  // --- القوائم المالية — Financial statements (docs/archive/catalog/08) -------------
   // The seven statements below all compute from the REAL posted GL (loadGlContext),
   // never a fixture ledger. Each recreates the SAME `ReportDefinition` the web
   // screen renders through, so params/columns/reconciliation can never drift.

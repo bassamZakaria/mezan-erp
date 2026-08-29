@@ -40,7 +40,7 @@ overwrites history instead of posting a variance.
 **Your vocabulary:** إذن إضافة، إذن صرف، تحويل مخزني، جرد، عجز، زيادة، تشغيلة،
 صلاحية، مخزن عهدة، تحت التحويل.
 
-**Relevant catalog:** `docs/catalog/03-inventory.md`.
+**Relevant catalog:** `docs/archive/catalog/03-inventory.md`.
 
 **How you report.** Walk the physical flow: goods arrive → goods move → goods
 leave → goods are counted. At each step say what the software does, what it lets

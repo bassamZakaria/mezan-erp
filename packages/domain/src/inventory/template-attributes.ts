@@ -15,7 +15,7 @@ import type {
 } from "./product-template.js";
 
 /**
- * Attribute CRUD on a Product Template (docs/catalog/03-inventory.md
+ * Attribute CRUD on a Product Template (docs/archive/catalog/03-inventory.md
  * §"قوالب المنتجات" — الخصائص section). Delete of an attribute or a single
  * value is guarded: it's rejected while at least one generated variant still
  * references it, mirroring the reference UI's disabled-delete tooltip

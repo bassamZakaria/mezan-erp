@@ -6,7 +6,7 @@ const SCALE = 1_000_000n; // 10^6, the Money scale
 /**
  * Raised when a multi-currency amount must be converted (or an open FX balance
  * revalued) but no exchange rate is available for the currency/date — the
- * "strict fx-rate-missing policy" (docs/catalog/04 §FX Revaluation): rather than
+ * "strict fx-rate-missing policy" (docs/archive/catalog/04 §FX Revaluation): rather than
  * silently posting at 1:1 or skipping, the operation fails loudly.
  */
 export class FxRateMissingError extends Error {

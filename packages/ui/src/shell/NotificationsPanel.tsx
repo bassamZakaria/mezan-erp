@@ -51,7 +51,7 @@ const PRIORITY_DOT_CLASS: Record<NonNullable<NotificationPanelItem["priority"]>,
 };
 
 /**
- * NotificationsPanel — a MODAL (docs/catalog/09 §الإشعارات): الكل/غير مقروء
+ * NotificationsPanel — a MODAL (docs/archive/catalog/09 §الإشعارات): الكل/غير مقروء
  * tabs, mark-all-read, a scrollable list.
  *
  * It was a dropdown anchored to the bell. The bell now lives at the BOTTOM of

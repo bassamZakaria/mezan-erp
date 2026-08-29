@@ -6,7 +6,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
 
 /**
- * أعمار ديون العملاء — Customer Debt Aging (docs/catalog/08-reports.md): the
+ * أعمار ديون العملاء — Customer Debt Aging (docs/archive/catalog/08-reports.md): the
  * standard 5-bucket AR aging ladder (جاري / 31-60 / 61-90 / 91-120 / أكثر من
  * 120 يوم) as of a snapshot date, from every live (confirmed/partially-paid/
  * paid) `SalesInvoice`'s own `dueDate` and outstanding balance

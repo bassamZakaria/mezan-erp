@@ -7,7 +7,7 @@ import type {
 } from "../hr-shared/employee-ref.js";
 
 /**
- * Employee — docs/catalog/06-crm-hr.md "الموظفون", the HR hub record every
+ * Employee — docs/archive/catalog/06-crm-hr.md "الموظفون", the HR hub record every
  * other HR/attendance/payroll screen scopes against. Field set matches the
  * catalog's create-form sections (personal info / employment info / address /
  * emergency contact) plus the two Egyptian-labor-law-flagged fields called
@@ -132,7 +132,7 @@ export function toEmployeeRef(employee: Employee): EmployeeRef {
 }
 
 /**
- * The employee status state machine (docs/catalog/06 "الموظفون" summary-strip
+ * The employee status state machine (docs/archive/catalog/06 "الموظفون" summary-strip
  * categories: نشط / في إجازة / موقوف / منتهية خدمته). "terminated" is
  * terminal — reached only via the dedicated `terminateEmployee` command
  * (docs/catalog "المزيد → إنهاء الخدمة"), never a plain status edit.

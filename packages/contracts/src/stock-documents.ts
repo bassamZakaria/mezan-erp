@@ -6,7 +6,7 @@ import { adjustmentReasonSchema } from "./inventory.js";
  * Wire contracts for the phase4/inventory-ops document layer built on the
  * generic document framework (documents.ts) + the stock-ledger engine
  * (inventory.ts): Stock Adjustments, Stock Transfers, Physical Counts, and the
- * read-only Stock Balance rollup (docs/catalog/03).
+ * read-only Stock Balance rollup (docs/archive/catalog/03).
  *
  * Money/Qty cross the wire as exact decimal strings (same convention as
  * inventory.ts / journal.ts) — never floats.

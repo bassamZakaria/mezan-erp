@@ -18,7 +18,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * Self-contained SQLite stores for CRM (docs/catalog/06 "العملاء المحتملون /
+ * Self-contained SQLite stores for CRM (docs/archive/catalog/06 "العملاء المحتملون /
  * الفرص / خط المبيعات / الأنشطة"). Four simple scalar-field entities, no
  * line-item arrays, so each mirrors `cost-center-repository.ts`'s
  * single-table style.

@@ -13,7 +13,7 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** "قبل N دقيقة/ساعة/يوم" — matches the reference panel's relative timestamps (docs/catalog/09 §الإشعارات). */
+/** "قبل N دقيقة/ساعة/يوم" — matches the reference panel's relative timestamps (docs/archive/catalog/09 §الإشعارات). */
 function relativeTime(iso: string, now: number, t: AppI18n["t"]): string {
   const diff = Math.max(0, now - new Date(iso).getTime());
   if (diff < MINUTE) return t("notifications.justNow");
@@ -34,7 +34,7 @@ function toPanelItem(n: NotificationDTO, now: number, t: AppI18n["t"]): Notifica
 }
 
 /**
- * The top-bar bell's real data container (docs/catalog/09 §الإشعارات):
+ * The top-bar bell's real data container (docs/archive/catalog/09 §الإشعارات):
  * fetches the current user's own notifications + unread count off
  * `/notifications`, renders them through the presentational
  * `NotificationsPanel`, and marks read on click / "تحديد الكل كمقروء".

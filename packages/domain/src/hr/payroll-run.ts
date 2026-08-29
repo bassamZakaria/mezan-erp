@@ -1,7 +1,7 @@
 import type { Money } from "../money/index.js";
 
 /**
- * Payroll runs and payslips — docs/catalog/06-crm-hr.md "الرواتب".
+ * Payroll runs and payslips — docs/archive/catalog/06-crm-hr.md "الرواتب".
  *
  * A run covers one calendar month (the catalog's create dialog offers exactly
  * السنة + الشهر), computes one payslip per employee from that employee's
@@ -38,7 +38,7 @@ export function getPayrollRunStatusLabel(status: PayrollRunStatus): string {
   return PAYROLL_RUN_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
 }
 
-/** docs/catalog/06 "الرواتب" filter chips: مسودة → محتسب → معتمد → مصروف, or ملغى. */
+/** docs/archive/catalog/06 "الرواتب" filter chips: مسودة → محتسب → معتمد → مصروف, or ملغى. */
 export const ALLOWED_PAYROLL_RUN_TRANSITIONS: Record<PayrollRunStatus, readonly PayrollRunStatus[]> = {
   draft: ["calculated", "cancelled"],
   calculated: ["calculated", "approved", "cancelled"],

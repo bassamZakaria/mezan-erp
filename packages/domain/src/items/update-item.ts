@@ -5,7 +5,7 @@ import { InvalidItemError, ItemNotFoundError } from "./errors.js";
 import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
 
 /**
- * Every field but `code` (docs/catalog/03: the item code is auto-generated
+ * Every field but `code` (docs/archive/catalog/03: the item code is auto-generated
  * and disabled on edit — a full replace of any other field is expected via
  * the same form that creates an item).
  */
@@ -42,7 +42,7 @@ export interface UpdateItemCommand {
 }
 
 /**
- * Edits an existing item (docs/catalog/03's "Add Item" dialog doubles as the
+ * Edits an existing item (docs/archive/catalog/03's "Add Item" dialog doubles as the
  * edit form). Re-validates every field-level and GL-mapping rule that still
  * applies after the change — `accounts`, when supplied, checks any GL
  * mapping overrides the same way `createItem` does.

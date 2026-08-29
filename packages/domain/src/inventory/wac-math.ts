@@ -1,7 +1,7 @@
 /**
  * Exact scaled-integer arithmetic for the costing engine.
  *
- * Money and Qty are both held as signed bigints at scale 1e-6 (docs/plan.md
+ * Money and Qty are both held as signed bigints at scale 1e-6 (docs/archive/plan.md
  * §2.3). Two costing operations cross those types and therefore need an
  * EXPLICIT, documented rounding step — they are the only places the WAC engine
  * rounds, and both round HALF_UP on the magnitude (symmetric about zero) so a

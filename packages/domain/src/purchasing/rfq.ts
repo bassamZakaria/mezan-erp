@@ -1,12 +1,12 @@
 /**
- * طلب عرض سعر (RFQ / Purchase Quote Request) — docs/catalog/02 §"طلبات عروض
+ * طلب عرض سعر (RFQ / Purchase Quote Request) — docs/archive/catalog/02 §"طلبات عروض
  * الأسعار": مسودة → مرسل → مغلق, with ملغي as a cancel path. The pre-PO
  * document: capture the items needed, collect supplier quotes against it,
  * compare them, then convert the chosen quote into a Purchase Order — the
- * "compare supplier quotes → generate a PO" flow (docs/catalog/02).
+ * "compare supplier quotes → generate a PO" flow (docs/archive/catalog/02).
  *
  * Carries no stock or GL effect of its own (mirrors the PO: numbering +
- * workflow only) — pure domain, ports only (docs/plan.md §3.2).
+ * workflow only) — pure domain, ports only (docs/archive/plan.md §3.2).
  */
 
 import { Money, Qty } from "../money/index.js";
@@ -316,7 +316,7 @@ export function compareRfqQuotes(
 }
 
 /**
- * Convert a chosen supplier's quote into a Purchase Order (docs/catalog/02 —
+ * Convert a chosen supplier's quote into a Purchase Order (docs/archive/catalog/02 —
  * "generate a PO" from a compared quote) and close the RFQ, linked to the new
  * PO. Every RFQ line must have a matching quote line from that supplier.
  */

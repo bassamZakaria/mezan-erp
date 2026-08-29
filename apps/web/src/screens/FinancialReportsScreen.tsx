@@ -18,7 +18,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso, yearStartIso } from "../lib/dates";
 
 /**
- * التقارير المالية (docs/catalog/08-reports.md) — the seven financial
+ * التقارير المالية (docs/archive/catalog/08-reports.md) — the seven financial
  * statements as tabs on one page (`/accounting/reports`). Every tab is the SAME
  * generic `<ReportScreen>` the operational reports use: it renders a
  * `ReportDefinition`'s metadata (title/params/columns) locally and fetches the

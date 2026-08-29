@@ -54,7 +54,7 @@ export function rendererRoot(): string {
  * per-user app-data directory; backups are written OUTSIDE it (a sibling
  * "Mezan Backups" folder under the OS documents/user-data root) so an
  * uninstall — which typically wipes `userData` — never destroys them
- * (docs/plan.md §3.7).
+ * (docs/archive/plan.md §3.7).
  */
 export function defaultDbPath(): string {
   return path.join(app.getPath("userData"), "mezan.db");

@@ -1,5 +1,5 @@
 /**
- * ETA submission queue + lifecycle (docs/catalog/04 §"الإرسالات"). Every
+ * ETA submission queue + lifecycle (docs/archive/catalog/04 §"الإرسالات"). Every
  * confirmed document that must be reported becomes a submission whose status
  * moves جاهز → بانتظار التوقيع → مرسل → مقبول, with أخطاء (error) and مستبعد
  * (excluded) as side states. Submission is a legal obligation — exclusion is

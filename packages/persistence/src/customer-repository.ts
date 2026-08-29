@@ -3,7 +3,7 @@ import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-conne
 import { Money, type Customer, type CustomerRepository, type EtaBuyerType } from "@mezan/domain";
 
 /**
- * SQLite-backed CustomerRepository (docs/catalog/01 "العملاء"). Standalone —
+ * SQLite-backed CustomerRepository (docs/archive/catalog/01 "العملاء"). Standalone —
  * like {@link import("./account-repository.js").createSqliteAccountRepository}
  * — it owns its own connection/table rather than folding into
  * `createSqliteUnitOfWork`. Money columns (`credit_limit`, `opening_balance`)

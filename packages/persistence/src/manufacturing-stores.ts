@@ -31,7 +31,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * Self-contained SQLite stores for the manufacturing module (docs/catalog/07),
+ * Self-contained SQLite stores for the manufacturing module (docs/archive/catalog/07),
  * following the same standalone-store pattern as purchasing-stores.ts. Nested
  * collections (lines, materials, logs, spec) are document-owned with no
  * independent query need, so they are kept as JSON text columns — Money/Qty

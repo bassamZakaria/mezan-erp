@@ -1,6 +1,6 @@
 /**
  * Sales Invoice — the document that deducts stock and books a customer
- * receivable (docs/catalog/01-sales.md §"فواتير المبيعات").
+ * receivable (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
  *
  * It builds ON the document framework: it reuses the framework's lifecycle
  * concepts (draft → confirmed → …), its GL / stock / numbering / workflow hook
@@ -218,7 +218,7 @@ export function isOverdue(invoice: SalesInvoice, today: string): boolean {
   );
 }
 
-/** The Arabic status label shown on the status pill (docs/catalog/01). */
+/** The Arabic status label shown on the status pill (docs/archive/catalog/01). */
 export const SALES_INVOICE_STATUS_LABELS_AR: Record<SalesInvoiceStatus, string> = {
   draft: "مسودة",
   pending: "بانتظار الموافقة",

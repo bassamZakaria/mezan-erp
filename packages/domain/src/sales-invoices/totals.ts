@@ -1,10 +1,10 @@
 /**
  * Sales-invoice totals — the pure, exact arithmetic behind every amount on an
- * invoice (docs/catalog/01-sales.md §"بنود الفاتورة" / summary).
+ * invoice (docs/archive/catalog/01-sales.md §"بنود الفاتورة" / summary).
  *
  * All money is scaled-int `Money` at 1e-6; every cross-type / percentage step
  * rounds HALF_UP to the currency minor unit (2 dp) at a NAMED boundary
- * (LINE_EXTENSION, DISCOUNT_ALLOCATION, TAX_COMPUTATION — docs/plan.md §2.3),
+ * (LINE_EXTENSION, DISCOUNT_ALLOCATION, TAX_COMPUTATION — docs/archive/plan.md §2.3),
  * never a float. The invoice-level discount is spread across lines by the
  * largest-remainder method (`allocate`) so the parts reconcile to the total to
  * the cent, and per-line tax is computed on the post-discount taxable base.

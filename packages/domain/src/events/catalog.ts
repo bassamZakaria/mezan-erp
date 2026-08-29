@@ -1,12 +1,12 @@
 /**
  * Unified domain-event catalog.
  *
- * docs/plan.md §5.6: define ONE versioned event catalog in packages/domain and
+ * docs/archive/plan.md §5.6: define ONE versioned event catalog in packages/domain and
  * let all consumers read it — the workflow gate, the notification-rules engine,
  * and the realtime transport. Three separate hardcoded lists is the failure
  * mode to avoid.
  *
- * These are the 39 notification-rule trigger events from docs/catalog/09
+ * These are the 39 notification-rule trigger events from docs/archive/catalog/09
  * (قواعد الإشعارات, `/notifications/rules`). Bump EVENT_CATALOG_VERSION on any
  * change so consumers can detect drift.
  */

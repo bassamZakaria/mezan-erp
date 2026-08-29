@@ -5,7 +5,7 @@ import { AppProviders } from "./data/AppProviders";
 import "./index.css";
 
 // `lang` and `dir` on <html> are stamped by AppI18nProvider from the active
-// locale (docs/plan.md §2.1 — direction is derived, never stored). index.html's
+// locale (docs/archive/plan.md §2.1 — direction is derived, never stored). index.html's
 // ar/rtl attributes are only the pre-mount default.
 
 const rootEl = document.getElementById("root");

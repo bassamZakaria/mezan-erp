@@ -1,6 +1,6 @@
 /**
  * Licensing ports — the seams the domain depends on so it stays pure and
- * portable (docs/plan.md §2.5). Adapters bind the real sources: the desktop
+ * portable (docs/archive/plan.md §2.5). Adapters bind the real sources: the desktop
  * app reads the OS machine id + a persisted last-seen clock; tests pass stubs.
  */
 

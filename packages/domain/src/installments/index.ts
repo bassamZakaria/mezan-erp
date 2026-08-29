@@ -1,5 +1,5 @@
 /**
- * Installments (خطط الأقساط، docs/catalog/05) — schedule generation from an
+ * Installments (خطط الأقساط، docs/archive/catalog/05) — schedule generation from an
  * invoice, the plan as a document-framework consumer, معالجة المتأخرات
  * overdue batch (late-fee stubbed, see `overdue.ts`), and متابعة التحصيل
  * collection follow-ups.

@@ -8,7 +8,7 @@ import { reportChartPoints } from "./chart-points";
 import { ReportDrillDownPanel } from "./ReportDrillDownPanel";
 
 /**
- * The generic operational-report screen (docs/catalog/08-reports.md): every
+ * The generic operational-report screen (docs/archive/catalog/08-reports.md): every
  * one of the 18 reports below is this SAME component, parameterized by a
  * `ReportDefinition`'s metadata (title/params/columns — shared with the
  * server so the two can never drift) and the API path that computes it. This

@@ -4,7 +4,7 @@ const TOKEN_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 
 /**
  * Renders `{{customerName}}`/`{{amount}}`/`{{documentNumber}}`-style tokens
- * (docs/catalog/09 §قواعد الإشعارات) against the triggering event's payload.
+ * (docs/archive/catalog/09 §قواعد الإشعارات) against the triggering event's payload.
  * An unknown/missing token renders as an empty string rather than leaking the
  * literal `{{token}}` into a user-facing notification.
  */

@@ -1,5 +1,5 @@
 /**
- * Data-migration import — customers (docs/catalog/09 "نقل البيانات"). A CSV
+ * Data-migration import — customers (docs/archive/catalog/09 "نقل البيانات"). A CSV
  * go-live upload of the customer master, one row per customer. Pure — no I/O:
  * the caller supplies `existingCodes` (a snapshot of codes already in the
  * repo) and an `idFactory`; reuses `createCustomer` for field validation so

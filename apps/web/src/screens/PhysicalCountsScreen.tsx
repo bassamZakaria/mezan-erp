@@ -41,7 +41,7 @@ import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 
 /**
- * الجرد الفعلي (Physical Counts) — docs/catalog/03: start → record counts →
+ * الجرد الفعلي (Physical Counts) — docs/archive/catalog/03: start → record counts →
  * complete → generate the reconciling stock adjustment, backed by
  * `/inventory/physical-counts`.
  */

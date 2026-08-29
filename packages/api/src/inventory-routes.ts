@@ -33,8 +33,8 @@ import {
 import { createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * Permission-gated routes for the costing + stock-ledger engine (docs/catalog/03).
- * Reuses the documented inventory permission codes (docs/catalog/09 §permission
+ * Permission-gated routes for the costing + stock-ledger engine (docs/archive/catalog/03).
+ * Reuses the documented inventory permission codes (docs/archive/catalog/09 §permission
  * matrix): `inventory.stock.view`, `inventory.adjustment.create`,
  * `inventory.transfer.create`, `inventory.valuation.view`,
  * `inventory.valuation.rebuild`. Money/Qty serialize as exact decimal strings.
@@ -245,7 +245,7 @@ export function createInventoryRoutes(
     });
   });
 
-  // أرصدة المخزون (docs/catalog/03) — cross-warehouse rollup, one row per item.
+  // أرصدة المخزون (docs/archive/catalog/03) — cross-warehouse rollup, one row per item.
   app.get("/stock-balance", gate("inventory.stock.view"), async (c) => {
     const { positions } = await service.getValuation();
     const warehouseId = c.req.query("warehouseId");

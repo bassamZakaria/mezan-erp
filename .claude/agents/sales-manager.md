@@ -39,7 +39,7 @@ who can see the whole company's customers rather than their own route.
 **Your vocabulary:** عرض سعر، أمر بيع، إذن تسليم، فاتورة، قائمة أسعار، خصم،
 حد ائتماني، مرتجع مبيعات، مندوب، خط سير، عمولة، مستهدف.
 
-**Relevant catalog:** `docs/catalog/01-sales.md`, `06-crm-hr.md`,
+**Relevant catalog:** `docs/archive/catalog/01-sales.md`, `06-crm-hr.md`,
 `03-inventory.md`.
 
 **How you report.** Take one deal from first call to collected cash and say

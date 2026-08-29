@@ -1,6 +1,6 @@
 /**
  * Treasury voucher types — the "نوع السند" discriminator
- * (docs/catalog/04-accounting-treasury.md §"السندات النقدية").
+ * (docs/archive/catalog/04-accounting-treasury.md §"السندات النقدية").
  *
  * The السندات النقدية screen is ONE unified document with a type discriminator
  * rather than separate receipt/payment/transfer screens. Each type declares its

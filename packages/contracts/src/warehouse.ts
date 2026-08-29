@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** The 5 warehouse types (docs/catalog/09 §"إدارة المستودعات"). Duplicated here
+/** The 5 warehouse types (docs/archive/catalog/09 §"إدارة المستودعات"). Duplicated here
  *  (rather than imported from @mezan/domain) because @mezan/contracts has no
  *  runtime dependency on domain — see packages/contracts/src/index.ts header. */
 export const warehouseTypeSchema = z.enum(["MAIN", "TRANSIT", "RETURNS", "PRODUCTION", "VAN"]);

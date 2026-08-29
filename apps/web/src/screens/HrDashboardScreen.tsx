@@ -3,7 +3,7 @@ import { useBranches, useHrDashboard } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { LEAVE_TYPE_KEY } from "./hr-leave-labels";
 
-/** لوحة الموارد البشرية (HR Dashboard) — docs/catalog/06 §"لوحة الموارد البشرية". Headcount/attendance/leave KPIs, four charts (department, branch, attendance mix, headcount movement), the leave-consumption table and alert tiles (R10.1). */
+/** لوحة الموارد البشرية (HR Dashboard) — docs/archive/catalog/06 §"لوحة الموارد البشرية". Headcount/attendance/leave KPIs, four charts (department, branch, attendance mix, headcount movement), the leave-consumption table and alert tiles (R10.1). */
 
 const CHART_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"];
 

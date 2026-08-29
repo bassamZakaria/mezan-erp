@@ -19,7 +19,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed ETA config + submission-queue stores (docs/catalog/04 "الفاتورة
+ * SQLite-backed ETA config + submission-queue stores (docs/archive/catalog/04 "الفاتورة
  * الإلكترونية"). The client secret is held in its own column and NEVER returned
  * through the config port — the port surfaces only `hasClientSecret`.
  */

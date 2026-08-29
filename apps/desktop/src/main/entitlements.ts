@@ -15,14 +15,14 @@ const UNLICENSED_ENTITLEMENTS: EntitlementsView = createEntitlements({
 });
 
 /**
- * Resolves the desktop edition's current `Entitlements` (docs/plan.md §2.5).
+ * Resolves the desktop edition's current `Entitlements` (docs/archive/plan.md §2.5).
  *
  * STUBBED SEAM: the real path is the Ed25519 offline license file (§2.5) —
  * `verifyLicense()` in @mezan/domain/licensing, wired to a real machine
  * `FingerprintSource` and a persisted monotonic-clock store. That activation
  * flow (fingerprinting per OS, the request/response air-gapped code UX, the
  * signing-key/public-key distribution) is its own, larger piece of work
- * (docs/plan.md Phase 8 "Licensing service + activation portal") and is
+ * (docs/archive/plan.md Phase 8 "Licensing service + activation portal") and is
  * OUT OF SCOPE here — this issue only needs a real `Entitlements` object to
  * gate LAN mode against, not the full activation UX.
  *

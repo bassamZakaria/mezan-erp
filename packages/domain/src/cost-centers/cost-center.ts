@@ -1,5 +1,5 @@
 /**
- * Cost centers — core entity (docs/catalog/04-accounting-treasury.md "مراكز
+ * Cost centers — core entity (docs/archive/catalog/04-accounting-treasury.md "مراكز
  * التكلفة"). A `CostCenter` is an optional dimensional tag used to track
  * profit/expenses per department, project, or branch — independent of, or
  * linked 1:1 to, the org's department/branch structure, and nestable under a

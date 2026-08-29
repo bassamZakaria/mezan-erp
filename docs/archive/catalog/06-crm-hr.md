@@ -1,5 +1,10 @@
 # CRM & HR Domains — Reference System Catalog
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../../ROADMAP.md` for what is
+> built and open, and `../../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `../README.md` in the archive root maps them.
+
+
 Captured: 2026-08-21 · Login: <redacted> / <redacted> (session pre-authenticated via storageState.json)
 Tenant: "النور للتجارة والتوزيع" (demo company).
 

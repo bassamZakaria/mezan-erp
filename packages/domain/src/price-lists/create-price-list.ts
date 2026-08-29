@@ -13,7 +13,7 @@ export interface CreatePriceListCommand {
 }
 
 /**
- * Validates a new-price-list command against the existing list (docs/catalog/01
+ * Validates a new-price-list command against the existing list (docs/archive/catalog/01
  * "قوائم الأسعار"): the code must be unique and the shape must pass
  * `assertValidPriceListShape`.
  */

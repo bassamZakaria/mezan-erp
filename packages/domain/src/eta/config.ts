@@ -1,5 +1,5 @@
 /**
- * الفاتورة الإلكترونية المصرية (ETA) — configuration (docs/catalog/04). Company
+ * الفاتورة الإلكترونية المصرية (ETA) — configuration (docs/archive/catalog/04). Company
  * registration data, connection environment/credentials and the auto-submit
  * policy. The client secret is never stored in the clear — only a flag that a
  * secret is on file (the real secret lives encrypted in the persistence layer,
@@ -50,7 +50,7 @@ export const DEFAULT_ETA_CONFIG: EtaConfig = {
   hasClientSecret: false,
 };
 
-/** One readiness checklist item (docs/catalog/04 "الجاهزية: 22%"). */
+/** One readiness checklist item (docs/archive/catalog/04 "الجاهزية: 22%"). */
 export interface EtaReadinessItem {
   readonly key: string;
   readonly labelAr: string;

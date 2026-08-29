@@ -20,7 +20,7 @@ export function interpolate(template: string, params?: TranslationParams): strin
 /**
  * Last-resort text for a key that exists in NO catalog. The reference app leaks
  * raw keys like `customers.openingBalance` into its UI
- * (docs/reference-parity/) — this renders human words
+ * (docs/archive/reference-parity/) — this renders human words
  * instead so a typo degrades to readable text rather than developer noise.
  */
 export function humanizeKey(key: string): string {

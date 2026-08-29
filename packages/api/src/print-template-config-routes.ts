@@ -4,7 +4,7 @@ import { printTemplateConfigSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * Print Template Config routes (docs/catalog/09 §"قوالب الطباعة"): a single
+ * Print Template Config routes (docs/archive/catalog/09 §"قوالب الطباعة"): a single
  * tenant-wide print-template settings object feeding the 9-tab designer UI.
  * `GET /` reads it (falling back to the catalog default so the UI always has
  * something to render) and `PUT /` validates and replaces it wholesale — same

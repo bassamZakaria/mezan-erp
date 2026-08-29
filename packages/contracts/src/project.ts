@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contract for projects (docs/catalog/07-mfg-projects-assets.md
+ * Wire contract for projects (docs/archive/catalog/07-mfg-projects-assets.md
  * "المشاريع والمقاولات"). Money (budget) crosses the wire as an exact
  * decimal string, never a float — the domain re-parses it via
  * `Money.fromMajor`.

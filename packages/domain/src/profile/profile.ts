@@ -3,7 +3,7 @@ import { InvalidUserError, DuplicateUserEmailError, UserNotFoundError } from "..
 import type { SecretHasher, User } from "../users/user.js";
 
 /**
- * Self-service profile actions (docs/catalog/09 profile screen). Unlike
+ * Self-service profile actions (docs/archive/catalog/09 profile screen). Unlike
  * `saveUser` (admin-gated, any user, full field set), every function here is
  * scoped to the CALLING user's own id — no permission check, no ability to
  * touch role/scope/status. The caller (API route) resolves `userId` from the

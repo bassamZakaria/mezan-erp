@@ -2,7 +2,7 @@ import { Money } from "../money/index.js";
 import { validatePartnerBase, type PartnerBase } from "../partners/partner-base.js";
 
 /**
- * Customer — docs/catalog/01-sales.md "العملاء (Customers — Customer master)".
+ * Customer — docs/archive/catalog/01-sales.md "العملاء (Customers — Customer master)".
  * Central customer master: contact info, credit terms/limit, pricing category,
  * ETA (e-invoicing) buyer classification and tax-exemption flag. The rollup of
  * invoices/statement/installments/returns/loyalty is Phase-2 (document) work —

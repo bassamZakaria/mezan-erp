@@ -7,7 +7,7 @@ Mezan is, what is actually built today, and what a review is allowed to assume.
 
 An Arabic-first, RTL, Egypt-focused ERP for SMB trading, retail, restaurant and
 light-manufacturing businesses. It is an authorized rebuild of a captured
-system: the target is **parity with the feature catalog in `docs/catalog/`**,
+system: the target is **parity with the feature catalog in `docs/archive/catalog/`**,
 not feature invention. One TypeScript domain core compiles into a fully-offline
 Electron desktop app and (later) a multi-tenant cloud web app.
 
@@ -30,7 +30,7 @@ dashboard (لوحة التحكم), chart of accounts (دليل الحسابات)
 
 Every other nav item is a placeholder tagged **قريباً** (coming soon). Flagging
 "module X is missing" is not a finding unless the catalog says it belongs in a
-phase that is already claimed done. Check `docs/plan.md` §4 before calling
+phase that is already claimed done. Check `docs/archive/plan.md` §4 before calling
 something a gap.
 
 ## Non-negotiable invariants
@@ -53,10 +53,10 @@ something a gap.
 
 | Question | File |
 |---|---|
-| Build plan, phasing, risks, open decisions | `docs/plan.md` |
-| Per-domain feature catalog (parity target) | `docs/catalog/*.md` |
+| Build plan, phasing, risks, open decisions | `docs/archive/plan.md` |
+| Per-domain feature catalog (parity target) | `docs/archive/catalog/*.md` |
 | Backlog | `docs/ROADMAP.md` |
-| Approved visual direction | `docs/artifacts/mezan-ui-mockups.html` |
+| Approved visual direction | `docs/archive/mezan-ui-mockups.html` |
 | Shared UI primitives | `packages/ui/src/` |
 | Screens under review | `apps/web/src/` |
 

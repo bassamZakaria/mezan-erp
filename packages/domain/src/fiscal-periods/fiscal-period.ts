@@ -1,5 +1,5 @@
 /**
- * Fiscal periods — core entity (docs/catalog/04-accounting-treasury.md
+ * Fiscal periods — core entity (docs/archive/catalog/04-accounting-treasury.md
  * "الفترات المالية"). A `FiscalPeriod` is one calendar month within a fiscal
  * year, carrying a three-tier lifecycle: مفتوحة (open, posting allowed) →
  * مغلقة (closed, posting blocked) → مقفلة (locked, posting blocked and

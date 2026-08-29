@@ -1,5 +1,5 @@
 /**
- * Sales Quotations (عروض الأسعار, docs/catalog/01-sales.md) — the pre-sale
+ * Sales Quotations (عروض الأسعار, docs/archive/catalog/01-sales.md) — the pre-sale
  * document a customer is quoted before any invoice exists. Mirrors the
  * sales-invoice document shape but never posts to the GL and never moves
  * stock; conversion to a sales invoice is implemented outside this module.

@@ -1,6 +1,6 @@
 /**
  * Role-editor selection helpers — the dependency-aware checkbox behaviour the
- * permission matrix needs (docs/catalog/09 §"تعتمد على"): checking a
+ * permission matrix needs (docs/archive/catalog/09 §"تعتمد على"): checking a
  * permission auto-checks every prerequisite it transitively depends on;
  * unchecking one cascades to un-check anything currently selected that
  * depends on it (directly or transitively), so the selection never drifts

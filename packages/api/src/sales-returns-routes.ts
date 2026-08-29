@@ -68,7 +68,7 @@ function serialize(doc: FrameworkDocument<SalesReturnLine>, refunds: readonly Sa
 }
 
 /**
- * Sales Returns routes (docs/catalog/01 §"مرتجعات المبيعات"), mounted under
+ * Sales Returns routes (docs/archive/catalog/01 §"مرتجعات المبيعات"), mounted under
  * `/sales-returns`. `service` is a fully-wired `DocumentService<SalesReturnLine>`
  * (repo + numbering + GL hook + stock hook + workflow gate) — building it is
  * the caller's job (apps/server / apps/desktop composition root, or the web

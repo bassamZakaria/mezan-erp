@@ -68,7 +68,7 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Price list routes (docs/catalog/01 "قوائم الأسعار"): list, get one, create,
+ * Price list routes (docs/archive/catalog/01 "قوائم الأسعار"): list, get one, create,
  * edit, activate/deactivate. Every route is permission-gated via
  * `sales.price_list.view` / `.manage`.
  */
@@ -94,7 +94,7 @@ export function createPriceListsRoutes(
   });
 
   /**
-   * Applies a price list to a line (docs/catalog/01 §"قوائم الأسعار" —
+   * Applies a price list to a line (docs/archive/catalog/01 §"قوائم الأسعار" —
    * per-customer/category sell prices). Thin wrapper around the pure
    * `resolvePrice` domain function: the MINIMUM-QUANTITY tier the line's `qty`
    * reaches if the list is active and quotes one, else `fallback` (the item's

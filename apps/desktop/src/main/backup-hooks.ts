@@ -7,7 +7,7 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Runs the pre-migration backup, then the migration step, with a
- * rollback-to-backup path if the migration throws (docs/plan.md §2.3).
+ * rollback-to-backup path if the migration throws (docs/archive/plan.md §2.3).
  * Desktop has no migration runner yet (Phase 0 only creates tables
  * idempotently), so `migrate` defaults to a no-op — this is the seam a
  * later issue wires a real `drizzle-kit` migration runner into.
@@ -39,7 +39,7 @@ export async function backupThenMigrate(params: {
 
 /**
  * Schedules a daily backup (in addition to the always-on pre-migration
- * hook) and one on app close, per docs/plan.md §3.7's "on every launch,
+ * hook) and one on app close, per docs/archive/plan.md §3.7's "on every launch,
  * before every migration, and on a configurable schedule (default daily +
  * on app close)". Returns a disposer to clear the interval/listener.
  */

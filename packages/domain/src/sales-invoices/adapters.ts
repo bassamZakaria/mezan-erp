@@ -1,6 +1,6 @@
 /**
  * Adapters binding the REAL engines behind the sales-invoice hook ports — the
- * document layer never imports the engines directly (docs/plan.md §3.2).
+ * document layer never imports the engines directly (docs/archive/plan.md §3.2).
  *
  * - the GL hook posts a document-driven journal entry through the GL posting
  *   engine (source = "system"), and reverses one for corrections;

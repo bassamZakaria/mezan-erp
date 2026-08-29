@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for HR master data (docs/catalog/06-crm-hr.md "الموارد
+ * Wire contracts for HR master data (docs/archive/catalog/06-crm-hr.md "الموارد
  * البشرية"): departments, job titles, employees, contracts, holidays, and the
  * minimal leave-request slice backing إجازاتي (My Leave). Money crosses the
- * wire as an exact decimal string, never a float (docs/plan.md §2.3); the
+ * wire as an exact decimal string, never a float (docs/archive/plan.md §2.3); the
  * domain re-parses via `Money.fromMajor`.
  */
 

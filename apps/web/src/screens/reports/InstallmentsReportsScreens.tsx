@@ -2,7 +2,7 @@ import { createInstallmentsOverviewReport, createInstallmentsOverdueReport } fro
 import { ReportScreen } from "./ReportScreen";
 import { todayIso } from "../../lib/dates";
 
-/** الأقساط — Installment reports (docs/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/installments/*`. */
+/** الأقساط — Installment reports (docs/archive/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/installments/*`. */
 
 const TODAY = todayIso();
 

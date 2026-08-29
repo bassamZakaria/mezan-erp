@@ -8,7 +8,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, countRows, maxOf } from "./kpi.js";
 
 /**
- * انحراف تقييم المخزون — Inventory Valuation Drift (docs/catalog/08-reports.md):
+ * انحراف تقييم المخزون — Inventory Valuation Drift (docs/archive/catalog/08-reports.md):
  * a data-integrity report reconciling the three independent costing sources —
  * the cached WAC snapshot, the ledger replayed from scratch, and the
  * immutable cost layers — using the engine's own `checkDrift`

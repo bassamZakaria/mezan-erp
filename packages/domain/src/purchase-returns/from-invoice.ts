@@ -1,5 +1,5 @@
 /**
- * Builds return lines from a source purchase-invoice snapshot (docs/catalog/02
+ * Builds return lines from a source purchase-invoice snapshot (docs/archive/catalog/02
  * §"بنود المرتجع"). Pure; no I/O — mirrors `../sales-returns/from-invoice.ts`.
  */
 

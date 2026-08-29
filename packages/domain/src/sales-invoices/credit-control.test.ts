@@ -20,7 +20,7 @@ import { InMemorySalesInvoiceRepository } from "./test-helpers/in-memory-sales-i
 
 /**
  * Confirms that `SalesInvoiceService.confirm()` actually enforces credit
- * control end to end (docs/catalog/01/09 §"الرقابة الائتمانية") — WARNING mode
+ * control end to end (docs/archive/catalog/01/09 §"الرقابة الائتمانية") — WARNING mode
  * surfaces `creditWarning` and still posts; BLOCK mode throws
  * `CreditLimitExceededError` and posts nothing. `credit-check.test.ts` covers
  * the pure decision function in isolation; this covers the wiring, including

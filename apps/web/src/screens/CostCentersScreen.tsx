@@ -28,7 +28,7 @@ import {
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-/** مراكز التكلفة (Cost Centers) — docs/catalog/04 §"مراكز التكلفة". Tree/list + detail panel, mirroring ChartOfAccountsScreen's tree pattern (no header/detail distinction here — any cost center may have children). */
+/** مراكز التكلفة (Cost Centers) — docs/archive/catalog/04 §"مراكز التكلفة". Tree/list + detail panel, mirroring ChartOfAccountsScreen's tree pattern (no header/detail distinction here — any cost center may have children). */
 
 const STATUS_KEY: Record<CostCenterStatusDTO, AppTranslationKey> = { active: "costCentres.status.active", inactive: "costCentres.status.inactive" };
 const STATUS_TONE: Record<CostCenterStatusDTO, PillTone> = { active: "success", inactive: "neutral" };

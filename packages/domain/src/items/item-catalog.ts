@@ -1,5 +1,5 @@
 /**
- * Item master-data catalogs (docs/catalog/03 §"وحدة القياس" / §"تصنيفات
+ * Item master-data catalogs (docs/archive/catalog/03 §"وحدة القياس" / §"تصنيفات
  * الأصناف"): units of measure and item categories. Both are tenant records an
  * `Item` points at — `baseUnitCode`/alternate-unit codes resolve to an
  * `ItemUnit`, `categoryId` to an `ItemCategory`.

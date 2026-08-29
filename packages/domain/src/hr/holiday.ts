@@ -1,7 +1,7 @@
 import { InvalidHolidayError } from "./errors.js";
 
 /**
- * Holiday — docs/catalog/06-crm-hr.md "الإجازات الرسمية". Company-wide public
+ * Holiday — docs/archive/catalog/06-crm-hr.md "الإجازات الرسمية". Company-wide public
  * holiday calendar, year-scoped in the list UI (2025/2026/2027 tabs). A
  * `recurringAnnual` holiday is stored ONCE with an anchor date; `listForYear`
  * below projects it onto any requested year by month/day, so a single
@@ -73,7 +73,7 @@ function projectToYear(holiday: Holiday, year: number): Holiday | null {
   return { ...holiday, date: `${year}-${month}-${day}` };
 }
 
-/** Lists the holidays that apply to `year`, projecting recurring holidays onto it (docs/catalog/06 year tabs). */
+/** Lists the holidays that apply to `year`, projecting recurring holidays onto it (docs/archive/catalog/06 year tabs). */
 export function listHolidaysForYear(holidays: readonly Holiday[], year: number): Holiday[] {
   return holidays
     .map((h) => projectToYear(h, year))

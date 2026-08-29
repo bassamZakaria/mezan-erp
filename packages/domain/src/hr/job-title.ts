@@ -1,5 +1,5 @@
 /**
- * JobTitle — docs/catalog/06-crm-hr.md "المسميات الوظيفية". Department-scoped
+ * JobTitle — docs/archive/catalog/06-crm-hr.md "المسميات الوظيفية". Department-scoped
  * master data (one department per title, per the catalog's dependent-dropdown
  * behaviour on the Employee form) — same thin, edit-dialog-only shape as
  * `Department`.

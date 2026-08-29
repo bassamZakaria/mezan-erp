@@ -8,7 +8,7 @@ import type {
   ExchangeRateType,
 } from "@mezan/domain";
 
-/** SQLite-backed {@link ExchangeRateRepository} (docs/catalog/04 "أسعار الصرف"). */
+/** SQLite-backed {@link ExchangeRateRepository} (docs/archive/catalog/04 "أسعار الصرف"). */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS exchange_rate (

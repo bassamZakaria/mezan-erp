@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Warehouse, WarehouseRepository, WarehouseType } from "@mezan/domain";
 
-/** SQLite-backed WarehouseRepository (docs/catalog/09 §"إدارة المستودعات"). */
+/** SQLite-backed WarehouseRepository (docs/archive/catalog/09 §"إدارة المستودعات"). */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS warehouse (

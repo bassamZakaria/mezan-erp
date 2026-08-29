@@ -45,7 +45,7 @@ function serialize(doc: FrameworkDocument<PurchaseReturnLine>) {
   };
 }
 
-/** Purchase Returns routes (docs/catalog/02 §"مرتجعات المشتريات"), mounted under `/purchase-returns`. Mirrors sales-returns-routes.ts. */
+/** Purchase Returns routes (docs/archive/catalog/02 §"مرتجعات المشتريات"), mounted under `/purchase-returns`. Mirrors sales-returns-routes.ts. */
 export function createPurchaseReturnsRoutes(
   service: DocumentService<PurchaseReturnLine>,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,

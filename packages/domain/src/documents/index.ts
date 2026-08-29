@@ -1,5 +1,5 @@
 /**
- * Document framework (Tier 2 shared abstraction, docs/plan.md §3 + docs/
+ * Document framework (Tier 2 shared abstraction, docs/archive/plan.md §3 + docs/
  * execution-plan.md W4).
  *
  * The generic draft → confirm/post → (cancel | reverse) lifecycle every

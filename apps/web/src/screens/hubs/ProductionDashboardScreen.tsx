@@ -8,7 +8,7 @@ import type { ScreenKey } from "../../App";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
- * لوحة الإنتاج (docs/catalog/07 §"لوحة الإنتاج") — the reference app's
+ * لوحة الإنتاج (docs/archive/catalog/07 §"لوحة الإنتاج") — the reference app's
  * `/manufacturing/dashboard` screen. `GET /manufacturing/dashboard` already
  * exists (packages/api/src/manufacturing-routes.ts ~line 662) and computes
  * every figure below server-side from the real work-order repository; this

@@ -1,5 +1,10 @@
 # Mezan — the customer-facing workflows, per bundle
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../ROADMAP.md` for what is
+> built and open, and `../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `./README.md` in the archive root maps them.
+
+
 > The everyday flow behind each bundle, written the way a business owner would describe
 > it — no accounting vocabulary, no screen names, no document-status enums. This is the
 > copy that goes in front of a prospect during a demo.

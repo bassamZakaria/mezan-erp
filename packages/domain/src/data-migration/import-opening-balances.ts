@@ -1,5 +1,5 @@
 /**
- * Data-migration import — item opening balances (docs/catalog/09 "نقل
+ * Data-migration import — item opening balances (docs/archive/catalog/09 "نقل
  * البيانات"). There is no separate opening-balance entity: an opening
  * balance IS a `STOCK_ADJUSTMENT` document line with reason `INITIAL_STOCK`
  * (`../inventory/reasons.ts`) — this module only validates the raw CSV rows

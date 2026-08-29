@@ -1,7 +1,7 @@
 import type { Money } from "../money/index.js";
 
 /**
- * Fixed Assets — Depreciation Runs (docs/catalog/07-mfg-projects-assets.md
+ * Fixed Assets — Depreciation Runs (docs/archive/catalog/07-mfg-projects-assets.md
  * "تشغيل الإهلاك"). A run is a draft batch of per-asset depreciation lines for
  * one period (+ optional branch scope); posting it produces one REAL balanced
  * GL journal entry (see post-depreciation-run.ts).

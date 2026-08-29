@@ -1,5 +1,5 @@
 /**
- * تخطيطات الملصقات (label layouts) — docs/catalog/03 §"طباعة الباركود
+ * تخطيطات الملصقات (label layouts) — docs/archive/catalog/03 §"طباعة الباركود
  * والملصقات". A layout is the printable geometry of one label sheet: how many
  * labels fit across and down a page, the size of each label, and which item
  * fields (name, code, price, unit, barcode) appear on it.

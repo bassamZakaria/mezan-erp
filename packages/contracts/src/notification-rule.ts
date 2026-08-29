@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contract for قواعد الإشعارات / notification rules (docs/catalog/09
+ * Wire contract for قواعد الإشعارات / notification rules (docs/archive/catalog/09
  * §قواعد الإشعارات). `eventCode` is validated as a non-empty string here —
  * the authoritative closed set of the 39 catalog codes lives in
  * `@mezan/domain`'s `DOMAIN_EVENT_CATALOG`, which both ends import — same

@@ -4,7 +4,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 
 /**
- * إقرار ضريبة الخصم والتحصيل — Withholding Tax (docs/catalog/08-reports.md).
+ * إقرار ضريبة الخصم والتحصيل — Withholding Tax (docs/archive/catalog/08-reports.md).
  *
  * Egypt withholds tax on most local B2B payments: the supplier is discharged in
  * full while a slice of the payment is retained and owed to the authority

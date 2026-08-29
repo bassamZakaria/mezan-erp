@@ -3,7 +3,7 @@ import type { ItemSpecificationUsageCounter } from "../items/item-specification.
 import type { Money } from "../money/index.js";
 
 /**
- * Product Templates (docs/catalog/03-inventory.md §"قوالب المنتجات") —
+ * Product Templates (docs/archive/catalog/03-inventory.md §"قوالب المنتجات") —
  * attribute-driven variant/SKU generation: define a product once with named
  * characteristics (e.g. color, size), enumerate each attribute's values, and
  * mass-generate the resulting SKU combinations as independent, stockable

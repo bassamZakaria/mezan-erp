@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for CRM (docs/catalog/06-crm-hr.md "العملاء المحتملون /
+ * Wire contracts for CRM (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون /
  * الفرص / خط المبيعات / مراحل خط المبيعات / الأنشطة"). Money crosses the
- * wire as an exact decimal string, never a float (docs/plan.md §2.3); the
+ * wire as an exact decimal string, never a float (docs/archive/plan.md §2.3); the
  * domain re-parses via `Money.fromMajor`.
  */
 

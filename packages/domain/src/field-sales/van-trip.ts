@@ -1,5 +1,5 @@
 /**
- * Van trips — core entity (docs/catalog/07-mfg-projects-assets.md "رحلات
+ * Van trips — core entity (docs/archive/catalog/07-mfg-projects-assets.md "رحلات
  * المندوبين" / Van-Rep Trips, Field Sales). A `VanTrip` tracks a delivery/sales
  * van's lifecycle: load stock and cash with a crew, let them sell/collect in
  * the field, then settle expected-vs-counted cash and stock when the van

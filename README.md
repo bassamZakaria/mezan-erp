@@ -146,7 +146,7 @@ pnpm build
 
 ## Branch strategy
 
-- **`main`** — tracks parity with the reference application's captured catalog (`docs/catalog/`). This is the v1 desktop scope: every module listed above, built to functional completeness against the catalog, in Mezan's own UI — not a pixel clone.
+- **`main`** — tracks parity with the reference application's captured catalog (`docs/archive/catalog/`). This is the v1 desktop scope: every module listed above, built to functional completeness against the catalog, in Mezan's own UI — not a pixel clone.
 - **Beyond-parity work** lives on its own branch off `main`, never on `main` itself — anything that improves on the reference system rather than just matching it. Parity work always lands on `main` first; enhancement branches rebase onto it, not the other way around.
 
-See [`docs/README.md`](docs/README.md) for the documentation map, [`docs/plan.md`](docs/plan.md) for the full architecture rationale and module build order, [`docs/ROADMAP.md`](docs/ROADMAP.md) for what is done, what is open and the whole task list, [`docs/TESTING.md`](docs/TESTING.md) for the testing policy and every scenario, and [`docs/catalog/`](docs/catalog) for the per-domain functional specification everything above is grounded in.
+See [`docs/README.md`](docs/README.md) for the documentation map, [`docs/archive/plan.md`](docs/archive/plan.md) for the full architecture rationale and module build order, [`docs/ROADMAP.md`](docs/ROADMAP.md) for what is done, what is open and the whole task list, [`docs/TESTING.md`](docs/TESTING.md) for the testing policy and every scenario, and [`docs/archive/catalog/`](docs/catalog) for the per-domain functional specification everything above is grounded in.

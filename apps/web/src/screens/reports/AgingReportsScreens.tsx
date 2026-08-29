@@ -2,7 +2,7 @@ import { createAgingCustomersReport, createAgingSuppliersReport } from "@mezan/d
 import { ReportScreen } from "./ReportScreen";
 import { todayIso } from "../../lib/dates";
 
-/** أعمار الديون — Aging reports (docs/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/aging/*`. */
+/** أعمار الديون — Aging reports (docs/archive/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/aging/*`. */
 
 const TODAY = todayIso();
 

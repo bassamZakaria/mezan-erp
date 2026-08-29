@@ -47,7 +47,7 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Chart of Accounts routes (docs/catalog/04 "دليل الحسابات"): list/tree, get
+ * Chart of Accounts routes (docs/archive/catalog/04 "دليل الحسابات"): list/tree, get
  * one (with a movements stub — real movements wire in once journal posting is
  * a full ledger in Phase 2), create, edit. Every route is permission-gated via
  * the permissions engine (`accounting.coa.view` / `accounting.coa.manage`).

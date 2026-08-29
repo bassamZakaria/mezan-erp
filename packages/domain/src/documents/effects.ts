@@ -3,7 +3,7 @@
  *
  * Before a user confirms a document the UI shows a plain-language panel of what
  * confirming WILL do: which GL entry it posts, which stock it moves, which
- * balances it shifts (docs/catalog/04 §"تأثيرات هذا السند"; the @mezan/ui
+ * balances it shifts (docs/archive/catalog/04 §"تأثيرات هذا السند"; the @mezan/ui
  * `DocumentDetail` renders exactly this list). Computing it is a pure function
  * of the document, so the same descriptor drives the effects panel, the confirm
  * gate, and tests. It never performs I/O.

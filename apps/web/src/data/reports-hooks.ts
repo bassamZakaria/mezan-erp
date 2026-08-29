@@ -6,7 +6,7 @@ import { readReportFieldErrors } from "./report-errors";
 import { useAppTranslation } from "../i18n";
 
 /**
- * التقارير التشغيلية data hook (docs/catalog/08-reports.md). Every operational-
+ * التقارير التشغيلية data hook (docs/archive/catalog/08-reports.md). Every operational-
  * report screen goes through this one query hook: it hits `/reports${path}`
  * over the SAME `useApi().request` transport (with the session's permission
  * headers merged in) that the dashboard uses — so reports read the live seeded

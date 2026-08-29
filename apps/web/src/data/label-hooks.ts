@@ -4,7 +4,7 @@ import { ApiError } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
-/** تخطيطات الملصقات — label layouts (docs/catalog/03, /label-layouts). */
+/** تخطيطات الملصقات — label layouts (docs/archive/catalog/03, /label-layouts). */
 
 async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
   const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };

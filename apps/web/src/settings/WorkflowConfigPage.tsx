@@ -13,7 +13,7 @@ import { actionTypeLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
 
 /**
- * إعدادات الموافقات — the workflow chain-builder (docs/catalog/09 §إعدادات
+ * إعدادات الموافقات — the workflow chain-builder (docs/archive/catalog/09 §إعدادات
  * الموافقات): pick one of the 26 gateable action types, add ordered steps,
  * each assigning an approver ROLE from the tenant's CUSTOM roles only (built-
  * in/admin roles hold `"*"` and bypass every gate — see gate.ts's

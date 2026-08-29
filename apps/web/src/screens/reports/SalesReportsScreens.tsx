@@ -8,7 +8,7 @@ import {
 import { ReportScreen } from "./ReportScreen";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
-/** المبيعات — Sales reports (docs/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/sales/*`. */
+/** المبيعات — Sales reports (docs/archive/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/sales/*`. */
 
 const TODAY = todayIso();
 const MONTH_START = monthStartIso();

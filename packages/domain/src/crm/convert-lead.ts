@@ -34,7 +34,7 @@ export interface ConvertLeadResult {
 
 /**
  * Converts a "qualified" lead into a real `Customer` and/or `Opportunity`
- * (docs/catalog/06 "العملاء المحتملون" — محول status). A lead must be
+ * (docs/archive/catalog/06 "العملاء المحتملون" — محول status). A lead must be
  * "qualified" to convert; once converted its status is "converted", which is
  * terminal, so it cannot be converted a second time (the same guard rejects
  * it, since "converted" !== "qualified").

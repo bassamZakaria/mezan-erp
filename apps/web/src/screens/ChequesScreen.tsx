@@ -40,7 +40,7 @@ import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 
 /**
- * سجل الشيكات — Cheque Register (docs/catalog/04, route `/financial-papers/cheques`
+ * سجل الشيكات — Cheque Register (docs/archive/catalog/04, route `/financial-papers/cheques`
  * + `/financial-papers/cheques/new`). Real data only: the list, its 7-state status
  * tabs and every lifecycle action (إيداع/تحصيل/ارتداد/استبدال) go through
  * `/cheques`; the party and branch typeaheads are real customers/suppliers/branches.

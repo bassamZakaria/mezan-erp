@@ -17,7 +17,7 @@ import {
 } from "./errors.js";
 
 /**
- * Posting a payroll run (docs/catalog/06 "الرواتب" — معتمد). Approval is what
+ * Posting a payroll run (docs/archive/catalog/06 "الرواتب" — معتمد). Approval is what
  * makes the run real in the books: ONE balanced journal entry for the whole
  * run, through the REAL GL posting engine, so the fiscal-period gate, the
  * postable/active-account checks and the balance assertion all apply exactly

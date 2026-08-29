@@ -20,7 +20,7 @@ function fmt(value: string): string {
 }
 
 /**
- * أرباح مراكز التكلفة — Cost Center P&L (docs/catalog/04). Groups posted
+ * أرباح مراكز التكلفة — Cost Center P&L (docs/archive/catalog/04). Groups posted
  * revenue/expense by the cost-center dimension carried on each journal line,
  * on the real `GET /cost-center-pl` route (packages/api/src/cost-center-pl-routes.ts),
  * which runs the SAME `computeCostCenterPnL` domain function server-side.

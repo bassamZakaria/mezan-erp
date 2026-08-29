@@ -5,7 +5,7 @@ import { useAppTranslation } from "../i18n";
 import { entityName } from "./entity-names";
 
 /**
- * Display labels for the item master-data catalogs (docs/catalog/03). Both
+ * Display labels for the item master-data catalogs (docs/archive/catalog/03). Both
  * units and categories are tenant records served by `/item-units` and
  * `/item-categories`, so a screen that only needs the label resolves it
  * through these hooks instead of holding its own copy of the catalog.

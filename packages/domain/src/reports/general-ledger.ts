@@ -4,7 +4,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, countDistinct } from "./kpi.js";
 
 /**
- * دفتر الأستاذ العام — General Ledger (docs/catalog/08-reports.md). Every
+ * دفتر الأستاذ العام — General Ledger (docs/archive/catalog/08-reports.md). Every
  * posted journal-entry line across all accounts for a period, grouped by
  * account. Heavy, so it is on-demand (عرض التقرير) rather than auto-run.
  * إجمالي المدين = إجمالي الدائن is the natural GL-reconciliation check.

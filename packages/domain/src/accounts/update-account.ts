@@ -18,7 +18,7 @@ export interface UpdateAccountCommand {
 }
 
 /**
- * Edits an existing account (docs/catalog/04's "Add Account" dialog doubles
+ * Edits an existing account (docs/archive/catalog/04's "Add Account" dialog doubles
  * as the edit form). Re-validates the hierarchy rules that still apply after
  * the change:
  *   - a new parent must exist and must be a header account,

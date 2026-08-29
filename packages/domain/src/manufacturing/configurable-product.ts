@@ -1,7 +1,7 @@
 /**
  * المنتج القابل للتهيئة (Configurable Product) — a template product whose
  * materials, price, labour and overhead are computed from customer-entered
- * parameters (docs/catalog/07 §Configurable Products). Each config input is a
+ * parameters (docs/archive/catalog/07 §Configurable Products). Each config input is a
  * formula variable (e.g. `width`, `height`); material quantities, unit price,
  * labour and overhead are all sandboxed formulas over those variables (see
  * formula.ts — NO eval/Function). A التصنيع المخصص order (config-instance.ts)

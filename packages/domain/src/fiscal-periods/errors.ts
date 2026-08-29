@@ -40,7 +40,7 @@ export class InvalidPeriodTransitionError extends Error {
 /**
  * Raised by `assertOpenForPosting` when a journal line is dated into a
  * period that isn't مفتوحة (open) — the guard the GL posting engine calls
- * before writing any journal line (docs/catalog/04's "الفترات المالية"
+ * before writing any journal line (docs/archive/catalog/04's "الفترات المالية"
  * section: this is the period-control mechanism referenced by Journal
  * Entries).
  */

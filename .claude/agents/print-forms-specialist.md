@@ -9,7 +9,7 @@ Read `.claude/stakeholders/context.md` before anything else.
 
 Everything in this system eventually becomes paper handed to a customer, a
 driver or an inspector. Mezan prints **client-side and offline** by design
-(`docs/plan.md` §2.4), which removes the usual server-rendering escape hatch —
+(`docs/archive/plan.md` §2.4), which removes the usual server-rendering escape hatch —
 so Arabic text shaping, fonts and page geometry all have to be right in the
 renderer itself.
 
@@ -45,8 +45,8 @@ a legally required field; preview that does not match print.
 **Your vocabulary:** قالب طباعة، ترويسة، تذييل، معاينة قبل الطباعة، طابعة
 حرارية، ملصق باركود، فاتورة ضريبية، الرقم الضريبي.
 
-**Relevant catalog:** `docs/catalog/09-settings-dashboard-ux.md` (print templates,
-label templates), `01-sales.md`, plus `docs/plan.md` §2.4.
+**Relevant catalog:** `docs/archive/catalog/09-settings-dashboard-ux.md` (print templates,
+label templates), `01-sales.md`, plus `docs/archive/plan.md` §2.4.
 
 **How you report.** Per document type: what prints today, what is missing, and
 whether the gap is layout, compliance or rendering. Rank by **cannot be given to

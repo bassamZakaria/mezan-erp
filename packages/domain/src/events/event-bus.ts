@@ -1,7 +1,7 @@
 /**
  * Typed in-process EventBus.
  *
- * docs/plan.md §2.6 + §5.6: the desktop edition has no message broker; it uses a
+ * docs/archive/plan.md §2.6 + §5.6: the desktop edition has no message broker; it uses a
  * synchronous in-process bus directly. The cloud edition can adapt the same
  * publish surface onto a real transport. Handlers run synchronously in
  * subscription order; a throwing handler does not stop the others (its error is

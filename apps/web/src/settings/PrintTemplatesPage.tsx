@@ -15,7 +15,7 @@ import { TextField, NumberField, SelectField, ToggleField, SectionCard, Field } 
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
- * قوالب الطباعة (Print templates) — docs/catalog/09 §"قوالب الطباعة": the
+ * قوالب الطباعة (Print templates) — docs/archive/catalog/09 §"قوالب الطباعة": the
  * full 9-tab designer over a typed, versioned `PrintTemplateConfig`, real
  * API-backed (GET/PUT `/print-template-config`), with a live preview of a
  * sample sales invoice through the shared `PrintView` renderer (the same

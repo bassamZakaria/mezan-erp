@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the seven financial statements (docs/catalog/08-reports.md
+ * Wire contracts for the seven financial statements (docs/archive/catalog/08-reports.md
  * — القوائم المالية), served by `/financial-reports/*` over the live posted
  * general ledger. Every endpoint answers with the report engine's
  * `RunReportOutcome`: the echoed params, the rows, the per-group subtotals, the

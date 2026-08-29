@@ -1,6 +1,6 @@
 /**
  * Ports for the stock-ledger / costing engine. The domain depends only on
- * these interfaces — never on SQL, HTTP, or the GL module (docs/plan.md §3.2).
+ * these interfaces — never on SQL, HTTP, or the GL module (docs/archive/plan.md §3.2).
  * A SQLite adapter implements the repositories; the GL module subscribes to the
  * event publisher and/or implements the posting port, so inventory posts COGS
  * and inventory journal entries WITHOUT importing accounting.

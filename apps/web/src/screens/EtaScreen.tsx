@@ -97,7 +97,7 @@ const TABS: Array<{ id: EtaTab; labelKey: AppTranslationKey }> = [
 ];
 
 /**
- * الفاتورة الإلكترونية (ETA) — e-invoicing (docs/catalog/04). The readiness
+ * الفاتورة الإلكترونية (ETA) — e-invoicing (docs/archive/catalog/04). The readiness
  * meter over the five registration prerequisites, then a tab per surface:
  * عام (company registration + auto-send), بيانات الربط (credentials and the
  * connection test), ربط الأصناف, ربط الوحدات, and الإرسالات — the submission

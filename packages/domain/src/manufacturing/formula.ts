@@ -1,6 +1,6 @@
 /**
  * Sandboxed arithmetic-formula evaluator for configurable products
- * (docs/catalog/07 §المنتجات القابلة للتهيئة — material/price/labour/overhead
+ * (docs/archive/catalog/07 §المنتجات القابلة للتهيئة — material/price/labour/overhead
  * formulas such as `2*width`, `2*(width+height)/100`, `width*height*rate`).
  *
  * SECURITY INVARIANT: this evaluator NEVER uses `eval`, `Function`, `with`, or
@@ -12,7 +12,7 @@
  * no way to reach global scope — an untrusted formula can only ever compute a
  * number from its declared inputs.
  *
- * EXACTNESS: to honour the "no floats, ever" rule (docs/plan.md §2.3) every
+ * EXACTNESS: to honour the "no floats, ever" rule (docs/archive/plan.md §2.3) every
  * intermediate value is an exact rational (bigint numerator / bigint
  * denominator). Division stays exact; the single rounding step happens only when
  * the final rational is projected onto the canonical scale-1e6 integer used by

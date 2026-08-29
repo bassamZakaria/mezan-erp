@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the item master-data catalogs (docs/catalog/03
+ * Wire contracts for the item master-data catalogs (docs/archive/catalog/03
  * §"وحدة القياس" / §"تصنيفات الأصناف"): units of measure and item categories.
  * Both are tenant data, not fixed enums — an item's `baseUnitCode` and
  * `categoryId` point at these records.

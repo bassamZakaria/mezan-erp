@@ -40,7 +40,7 @@ import {
 import { useAppTranslation } from "../i18n";
 
 /**
- * تسوية كشوف البنك — Bank Statement Reconciliation (docs/catalog/04, route
+ * تسوية كشوف البنك — Bank Statement Reconciliation (docs/archive/catalog/04, route
  * `/treasury/bank-reconciliation`). Real data only: the list, the CSV import
  * with its per-account persisted column mapping, and every match/unmatch/
  * finalize action go through `/bank-statements`.

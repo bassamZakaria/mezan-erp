@@ -1,5 +1,5 @@
 /**
- * Role — a named, tenant-defined set of permission grants (docs/catalog/09 §
+ * Role — a named, tenant-defined set of permission grants (docs/archive/catalog/09 §
  * الأدوار والصلاحيات). A role stores the RAW set of permission codes an admin
  * ticked in the matrix (see `permissions/resolve.ts`'s header comment) — the
  * dependency-resolved effective set is computed downstream, once, when an

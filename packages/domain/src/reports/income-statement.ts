@@ -11,7 +11,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 
 /**
- * قائمة الدخل — Income Statement (docs/catalog/08-reports.md), a period P&L.
+ * قائمة الدخل — Income Statement (docs/archive/catalog/08-reports.md), a period P&L.
  * Revenue is shown positive, expense sections negative, so the grand total is
  * صافي الدخل = الإيرادات − تكلفة المبيعات − المصروفات. Grouped into the three
  * sections the catalog lists (الإيرادات / تكلفة البضاعة المباعة / المصاريف

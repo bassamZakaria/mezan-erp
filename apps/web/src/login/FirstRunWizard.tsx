@@ -78,7 +78,7 @@ function StubNote({ children }: { children: string }) {
 }
 
 /**
- * First-run wizard skeleton — docs/catalog/09-settings-dashboard-ux.md
+ * First-run wizard skeleton — docs/archive/catalog/09-settings-dashboard-ux.md
  * (نقل البيانات wizard + Dashboard's `GET /api/dashboard/setup` onboarding
  * checklist) plus the Phase-1 task's step sequence: activate license → create
  * admin → seed COA/tax/numbering/branch/warehouse → optional import. Every
@@ -109,7 +109,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
 
   function handleActivate() {
     setActivateStatus("activating");
-    // Stubbed: no license service wired yet (see docs/plan.md §2.5 / packages/domain/src/licensing).
+    // Stubbed: no license service wired yet (see docs/archive/plan.md §2.5 / packages/domain/src/licensing).
     // Resolves synchronously here purely to drive the demo stepper forward.
     setActivateStatus("done");
   }

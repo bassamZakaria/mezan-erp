@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contract for exchange rates (docs/catalog/04 "أسعار الصرف"). */
+/** Wire contract for exchange rates (docs/archive/catalog/04 "أسعار الصرف"). */
 export const exchangeRateTypeSchema = z.enum(["standard", "buy", "sell"]);
 export const exchangeRateSourceSchema = z.enum(["manual", "api"]);
 export const exchangeRateStatusSchema = z.enum(["pending", "approved", "locked"]);

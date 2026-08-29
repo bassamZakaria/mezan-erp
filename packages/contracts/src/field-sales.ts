@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contract for the Field/Van Sales module (docs/catalog/07-mfg-projects-assets.md
+ * Wire contract for the Field/Van Sales module (docs/archive/catalog/07-mfg-projects-assets.md
  * "رحلات المندوبين"). Money and Qty cross the wire as exact decimal strings —
  * never floats — the domain re-parses them via `Money.fromMajor` / `Qty.fromMajor`.
  */

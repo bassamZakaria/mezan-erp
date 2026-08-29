@@ -1,5 +1,5 @@
 /**
- * Purchase Returns (مرتجعات المشتريات، docs/catalog/02) — a document-framework
+ * Purchase Returns (مرتجعات المشتريات، docs/archive/catalog/02) — a document-framework
  * consumer. Removes stock at cost, reduces the supplier payable via one
  * balanced GL entry.
  */

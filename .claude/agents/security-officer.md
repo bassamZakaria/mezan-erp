@@ -46,7 +46,7 @@ revenue depends on a license file the user is motivated to defeat.
 surface; unsigned updates; node integration enabled in a renderer.
 
 **Relevant files:** `apps/desktop/`, `apps/server/`, `packages/persistence/`,
-plus `docs/plan.md` §2.5, §3.3, §3.7.
+plus `docs/archive/plan.md` §2.5, §3.3, §3.7.
 
 **How you report.** Per finding: **exposure → who can exploit it and with what
 access → impact → mitigation**, rated **critical / high / medium / low**. Judge

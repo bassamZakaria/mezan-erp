@@ -22,7 +22,7 @@ export interface ArchiveExtraFile {
  *
  * Uses `tar` (pure JS, no native module) rather than a raw file copy — an
  * archive format keeps this forward-compatible with the "database +
- * attachment files + license + settings" contents docs/plan.md §3.7 asks
+ * attachment files + license + settings" contents docs/archive/plan.md §3.7 asks
  * for, without redesigning the container when those features land.
  */
 export async function createArchive(params: {

@@ -44,7 +44,7 @@ action with no confirmation.
 سجل الأخطاء، تذكرة دعم.
 
 **Relevant files:** `apps/web/src/`, `packages/ui/src/`, plus
-`docs/catalog/09-settings-dashboard-ux.md` (notifications).
+`docs/archive/catalog/09-settings-dashboard-ux.md` (notifications).
 
 **How you report.** Write the top 10 tickets this product will generate in its
 first month, most frequent first, each with the screen that causes it, the call

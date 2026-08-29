@@ -1,7 +1,7 @@
 import type { Money } from "../money/index.js";
 
 /**
- * Contract — docs/catalog/06-crm-hr.md "العقود". The formal employment
+ * Contract — docs/archive/catalog/06-crm-hr.md "العقود". The formal employment
  * contract per employee: type/pay-basis/frequency, currency, allowance/
  * deduction line items and optional leave-entitlement overrides (blank =
  * inherit the company leave-policy default, out of scope here — HR-3).

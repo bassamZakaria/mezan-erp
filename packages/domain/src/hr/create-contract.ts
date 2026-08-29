@@ -65,7 +65,7 @@ export async function createContract(command: CreateContractCommand, repo: Contr
   return contract;
 }
 
-/** Terminates an active contract (docs/catalog/06 "إنهاء العقد"). */
+/** Terminates an active contract (docs/archive/catalog/06 "إنهاء العقد"). */
 export function terminateContract(contract: Contract, terminatedAt: string = new Date().toISOString()): Contract {
   if (contract.status !== "active") throw new ContractNotActiveError(contract.id);
   return { ...contract, status: "terminated", terminatedAt };

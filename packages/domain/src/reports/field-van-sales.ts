@@ -7,7 +7,7 @@ import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
- * مبيعات المندوبين — Van Sales (docs/catalog/07-mfg-projects-assets.md
+ * مبيعات المندوبين — Van Sales (docs/archive/catalog/07-mfg-projects-assets.md
  * §"رحلات المندوبين"). One row per `VanTrip` in the period: what the van
  * carried out, what came back at settlement, what cash the crew recorded in
  * the field, and the settlement cash variance.

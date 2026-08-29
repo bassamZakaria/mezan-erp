@@ -11,7 +11,7 @@ import {
 /**
  * Registers the single IPC handler that carries every renderer request into
  * the shared Hono app. There is no HTTP server and no port on desktop
- * (docs/plan.md §2.2): the preload bridge marshals a `Request` over IPC and
+ * (docs/archive/plan.md §2.2): the preload bridge marshals a `Request` over IPC and
  * this handler calls `honoApp.fetch(new Request(...))` in-process, returning
  * the response as a structured-clone-safe plain object.
  */
@@ -40,7 +40,7 @@ export function registerHonoOverIpc(honoApp: App): void {
 }
 
 /**
- * Registers the `printToPDF` IPC handler (docs/plan.md §2.4). `event.sender`
+ * Registers the `printToPDF` IPC handler (docs/archive/plan.md §2.4). `event.sender`
  * is the `webContents` of whichever renderer window invoked the call, so
  * this needs no window reference of its own — it prints exactly the page
  * that asked, the same print DOM the browser edition renders via

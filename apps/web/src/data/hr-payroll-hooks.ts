@@ -17,7 +17,7 @@ import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
 /* -------------------------------------------------------------------- */
-/* سلف الموظفين + الرواتب — docs/catalog/06 (/hr/advances, /hr/payroll)  */
+/* سلف الموظفين + الرواتب — docs/archive/catalog/06 (/hr/advances, /hr/payroll)  */
 /* -------------------------------------------------------------------- */
 
 async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {

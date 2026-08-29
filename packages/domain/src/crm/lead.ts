@@ -1,7 +1,7 @@
 import type { Money } from "../money/index.js";
 
 /**
- * Leads — core entity (docs/catalog/06-crm-hr.md "العملاء المحتملون"). A
+ * Leads — core entity (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون"). A
  * `Lead` is a prospect captured before it becomes a sales opportunity and/or
  * customer; it moves through a small status state machine and, once
  * "qualified", may be converted into a `Customer` and/or `Opportunity`.
@@ -70,7 +70,7 @@ export interface LeadRepository {
 }
 
 /**
- * The lead status state machine (docs/catalog/06 "العملاء المحتملون"
+ * The lead status state machine (docs/archive/catalog/06 "العملاء المحتملون"
  * workflow chips): جديد → تم التواصل → مؤهل → محول, with خسارة/غير مؤهل as
  * terminal alternate states reachable from "new"/"contacted", and loss is
  * reachable from "qualified" too. "converted", "lost" and "unqualified" are

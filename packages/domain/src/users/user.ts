@@ -3,7 +3,7 @@ import type { ScopeSelection } from "../permissions/auth-context.js";
 export type UserStatus = "active" | "inactive";
 
 /**
- * A tenant user account (docs/catalog/09 §المستخدمون). Scoping is
+ * A tenant user account (docs/archive/catalog/09 §المستخدمون). Scoping is
  * two-dimensional and orthogonal, matching the reference UX exactly:
  *   - WHAT it may do: either a single custom `roleId`, or the
  *     `isCompanyAdmin` bypass flag (full permissions, independent of the
@@ -62,7 +62,7 @@ export interface UserRepository {
 /**
  * Secret-hashing port. Kept out of the domain core deliberately (see
  * `licensing/encoding.ts`) — the domain only ever handles opaque hashes; a
- * persistence-layer adapter binds the real algorithm (docs/plan.md §3.2 layer
+ * persistence-layer adapter binds the real algorithm (docs/archive/plan.md §3.2 layer
  * boundary: no `node:crypto` inside packages/domain).
  */
 export interface SecretHasher {

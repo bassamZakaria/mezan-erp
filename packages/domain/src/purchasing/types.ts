@@ -1,11 +1,11 @@
 /**
- * Shared types + ports for the purchase chain (docs/catalog/02-purchases.md
+ * Shared types + ports for the purchase chain (docs/archive/catalog/02-purchases.md
  * §"Document chain"): أوامر الشراء (Purchase Orders) → استلام البضائع (Goods
  * Receipts) → فواتير المشتريات (Purchase Invoices).
  *
  * The three document types are built on the shared engines (numbering, workflow,
  * the costing/stock-ledger engine, and the GL posting engine) and depend on
- * PORTS only — never on SQL, HTTP, or a specific driver (docs/plan.md §3.2).
+ * PORTS only — never on SQL, HTTP, or a specific driver (docs/archive/plan.md §3.2).
  * The GL posting port mirrors the inventory engine's `InventoryGlPostingPort`:
  * the purchase chain builds a balanced Dr/Cr posting and hands it off, so it
  * never imports the accounting module directly.
@@ -14,7 +14,7 @@
 import type { Money } from "../money/index.js";
 import type { PostReceiptCommand, ReverseReceiptCommand } from "../inventory/index.js";
 
-/** أمر الشراء lifecycle (docs/catalog/02 §Purchase Orders §Workflows/statuses). */
+/** أمر الشراء lifecycle (docs/archive/catalog/02 §Purchase Orders §Workflows/statuses). */
 export type PurchaseOrderStatus =
   | "draft"
   | "sent"
@@ -22,19 +22,19 @@ export type PurchaseOrderStatus =
   | "fully_received"
   | "cancelled";
 
-/** إيصال الاستلام lifecycle (docs/catalog/02 §Goods Receipts). */
+/** إيصال الاستلام lifecycle (docs/archive/catalog/02 §Goods Receipts). */
 export type GoodsReceiptStatus = "draft" | "confirmed" | "cancelled";
 
-/** فاتورة المشتريات lifecycle (docs/catalog/02 §Purchase Invoices). */
+/** فاتورة المشتريات lifecycle (docs/archive/catalog/02 §Purchase Invoices). */
 export type PurchaseInvoiceStatus = "draft" | "confirmed" | "cancelled";
 
 /**
- * The purchase-strictness gates (docs/catalog/09 §"التحكم في المشتريات"): a
+ * The purchase-strictness gates (docs/archive/catalog/09 §"التحكم في المشتريات"): a
  * 3-gate procurement strictness model — PO→GRN→Invoice enforcement, plus a
  * cancellation-safety guard. Threaded through the create/confirm/cancel
  * use-cases; every gate defaults OFF (except `trackSoldPurchaseItems`, which
  * defaults ON) so the lenient/manual paths work out of the box
- * (docs/catalog/09 lines 316-319).
+ * (docs/archive/catalog/09 lines 316-319).
  */
 export interface PurchasePolicy {
   /**
@@ -138,7 +138,7 @@ export interface PurchaseStockPostingPort {
 
 /**
  * The GL reversal hook a confirmed purchase invoice's cancellation uses to
- * mirror-reverse its posted journal entry (docs/catalog/04 — "never mutate a
+ * mirror-reverse its posted journal entry (docs/archive/catalog/04 — "never mutate a
  * posted entry, post a reversing one"). A separate, optional port from
  * {@link PurchaseGlPostingPort} so existing confirm-only callers are unaffected.
  */

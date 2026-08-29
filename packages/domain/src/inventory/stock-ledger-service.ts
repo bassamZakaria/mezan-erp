@@ -11,7 +11,7 @@
  *
  * Compound operations (adjustment, transfer) run inside `deps.transaction` when
  * provided, so the movement, the layer, the snapshot and the GL posting commit
- * atomically (docs/plan.md §2.2). Without it they run directly (tests / simple
+ * atomically (docs/archive/plan.md §2.2). Without it they run directly (tests / simple
  * callers).
  */
 
@@ -52,7 +52,7 @@ import type {
 } from "./ports.js";
 
 export interface StockLedgerPolicy {
-  /** docs/catalog/09 §"سياسة المخزون" → `allowNegativeStock`: any OUT may drive a position below zero. */
+  /** docs/archive/catalog/09 §"سياسة المخزون" → `allowNegativeStock`: any OUT may drive a position below zero. */
   readonly allowNegativeStock: boolean;
   /**
    * §"سياسة المخزون" → `allowBackorder`: a SALE may be confirmed short, and the
@@ -186,7 +186,7 @@ export interface ReceiptLine {
  * (on-hand, layers, weighted-average) — it deliberately posts NO GL entry: the
  * purchase chain recognises the payable + inventory journal at invoice
  * confirmation, so the stock ledger and the GL are driven separately
- * (docs/catalog/02 §"Document chain").
+ * (docs/archive/catalog/02 §"Document chain").
  */
 export interface PostReceiptCommand {
   readonly receiptId: string;
@@ -215,7 +215,7 @@ export interface ReverseReceiptPosition {
 }
 
 /**
- * Reverse a prior `postReceipt` (docs/catalog/02 — cancelling a purchase
+ * Reverse a prior `postReceipt` (docs/archive/catalog/02 — cancelling a purchase
  * receipt/invoice whose "sold-item" guard passed). Unlike `postIssue`, this
  * does NOT draw layers down in consumption order: it removes precisely the cost layer(s) this
  * `sourceDocId` created, at THEIR OWN immutable cost, and refuses if any of
@@ -244,7 +244,7 @@ export interface IssueLine {
 }
 
 /**
- * Issue stock OUT against a source document (docs/catalog/01 — a confirmed sales
+ * Issue stock OUT against a source document (docs/archive/catalog/01 — a confirmed sales
  * invoice deducts stock). Each line leaves at the position's moving-average cost,
  * so the caller learns the cost of goods issued (for a Dr COGS / Cr Inventory
  * posting) without re-deriving WAC. Optionally the engine posts that balancing
@@ -498,7 +498,7 @@ export class StockLedgerService {
     return consumed;
   }
 
-  /** Post a stock adjustment (docs/catalog/03 §"تسويات المخزون"). Value-impacting. */
+  /** Post a stock adjustment (docs/archive/catalog/03 §"تسويات المخزون"). Value-impacting. */
   async postAdjustment(command: PostAdjustmentCommand): Promise<void> {
     this.validateAdjustment(command);
     const occurredAt = command.occurredAt ?? this.now();
@@ -606,7 +606,7 @@ export class StockLedgerService {
     });
   }
 
-  /** Opening balance — a specialised INITIAL_STOCK adjustment (docs/catalog/03). */
+  /** Opening balance — a specialised INITIAL_STOCK adjustment (docs/archive/catalog/03). */
   async recordOpeningBalance(command: Omit<PostAdjustmentCommand, "reason" | "lines"> & {
     readonly lines: readonly { itemId: string; qty: Qty; unitCost: Money }[];
   }): Promise<void> {
@@ -623,7 +623,7 @@ export class StockLedgerService {
   }
 
   /**
-   * Post a stock transfer (docs/catalog/03 §"تحويلات المخزون") — VALUATION
+   * Post a stock transfer (docs/archive/catalog/03 §"تحويلات المخزون") — VALUATION
    * NEUTRAL: each line issues from the source at the source's moving average
    * and receives into the destination at that SAME unit cost, so total system
    * inventory value is unchanged. Never posts to the GL.
@@ -699,7 +699,7 @@ export class StockLedgerService {
   }
 
   /**
-   * Post a purchase stock IN (docs/catalog/02 — a goods receipt confirming, or a
+   * Post a purchase stock IN (docs/archive/catalog/02 — a goods receipt confirming, or a
    * manual purchase invoice confirming without a prior receipt). Each line adds
    * an immutable cost layer at its receipt cost and updates the moving average.
    * Stock-only: NO GL posting (the invoice books inventory + payable + tax).
@@ -739,7 +739,7 @@ export class StockLedgerService {
   }
 
   /**
-   * Reverse a prior `postReceipt` by `sourceDocId` (docs/catalog/02 — cancelling
+   * Reverse a prior `postReceipt` by `sourceDocId` (docs/archive/catalog/02 — cancelling
    * a purchase receipt/invoice). For each supplied position, finds the cost
    * layer(s) this `sourceDocId` created and — only if untouched since
    * (`remainingQty === originalQty`) — removes them, subtracts their value from
@@ -811,7 +811,7 @@ export class StockLedgerService {
    * posted separately by the document framework's GL hook), it only moves qty/
    * cost-layers/snapshot. Structurally identical to `DocumentStockPlan` (kept as
    * a local shape so this engine stays decoupled from the documents module —
-   * docs/plan.md §3.2).
+   * docs/archive/plan.md §3.2).
    */
   async applyDocumentStockPlan(plan: {
     readonly sourceDocType: StockSourceDocType;
@@ -853,7 +853,7 @@ export class StockLedgerService {
   }
 
   /**
-   * Landed-cost revaluation (docs/catalog/02 §"التكاليف الإضافية"): raises the
+   * Landed-cost revaluation (docs/archive/catalog/02 §"التكاليف الإضافية"): raises the
    * cost basis of an EXISTING position by `valueDelta` with NO quantity change —
    * freight/customs/insurance allocated onto goods already received.
    *

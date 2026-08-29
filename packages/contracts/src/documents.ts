@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the generic document framework (docs/plan.md §3 document
+ * Wire contracts for the generic document framework (docs/archive/plan.md §3 document
  * lifecycle + "تأثيرات هذا المستند" effects panel). These shapes are shared by
  * every document module's api routes and the web effects panel. Money crosses
- * the wire as an exact decimal string, never a float (docs/plan.md §2.3).
+ * the wire as an exact decimal string, never a float (docs/archive/plan.md §2.3).
  */
 
 export const documentStatusSchema = z.enum([

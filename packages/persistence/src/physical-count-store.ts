@@ -10,7 +10,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed {@link PhysicalCountRepository} (docs/catalog/03 §"الجرد
+ * SQLite-backed {@link PhysicalCountRepository} (docs/archive/catalog/03 §"الجرد
  * الفعلي"). Lines are stored as one JSON blob column — same convention as
  * `framework-document-store.ts` — since a count's line shape (system/counted
  * qty) is specific to this module and doesn't need its own normalized table.

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contract for the Cost Center P&L report (docs/catalog/04 "أرباح مراكز التكلفة"). */
+/** Wire contract for the Cost Center P&L report (docs/archive/catalog/04 "أرباح مراكز التكلفة"). */
 export const costCenterPnLRowSchema = z.object({
   costCenterId: z.string().nullable(),
   code: z.string(),

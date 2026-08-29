@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contract for the tenant settings config bag (docs/catalog/09 §"عام"). */
+/** Wire contract for the tenant settings config bag (docs/archive/catalog/09 §"عام"). */
 export const tenantSettingsSchema = z.object({
   currency: z.string().length(3),
   secondaryCurrencies: z.array(z.string().length(3)),

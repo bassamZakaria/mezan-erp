@@ -3,7 +3,7 @@ import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-conne
 import type { Account, AccountRepository, AccountStatus, AccountType, NaturalBalance } from "@mezan/domain";
 
 /**
- * SQLite-backed AccountRepository (docs/catalog/04 "دليل الحسابات"). Standalone,
+ * SQLite-backed AccountRepository (docs/archive/catalog/04 "دليل الحسابات"). Standalone,
  * like {@link import("./sequence-store.js").createSqliteSequenceStore} — the
  * Chart of Accounts isn't part of the journal-posting UnitOfWork yet (movements
  * wiring is Phase 2), so it owns its own connection/table rather than folding

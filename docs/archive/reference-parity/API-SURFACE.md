@@ -1,5 +1,10 @@
 # Reference API surface
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../../ROADMAP.md` for what is
+> built and open, and `../../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `../README.md` in the archive root maps them.
+
+
 Captured 2026-08-26 by instrumenting `fetch`/`XHR` in an authenticated session and
 walking every route. **201 distinct GET endpoints** were observed (plus one
 `POST /cdn-cgi/rum` telemetry beacon from the CDN, not the product).

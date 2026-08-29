@@ -346,7 +346,7 @@ Stated once here; each part then adds only what is specific to its domain.
 
 ### Sources
 
-- `docs/catalog/01-sales.md` — capture of the reference product's running UI (what the product is *supposed* to do).
+- `docs/archive/catalog/01-sales.md` — capture of the reference product's running UI (what the product is *supposed* to do).
 - Actual implementation, read in full: `apps/web/src/screens/CustomersScreen.tsx`, `SalesQuotesScreen.tsx`, `SalesInvoicesScreen.tsx`, `SalesReturnsScreen.tsx`, `PriceListsScreen.tsx`, `PromotionsScreen.tsx`, `apps/web/src/screens/hubs/SalesHubScreen.tsx`, plus `apps/web/src/nav-config.ts` and `apps/web/src/App.tsx` for routing/nav wiring.
 - Domain/validation: `packages/domain/src/sales-invoices/*`, `packages/domain/src/sales-returns/*`, `packages/domain/src/promotions/promotion.ts`, `packages/domain/src/money/{money,qty}.ts`.
 - Seed data: `packages/backend/src/demo-seed.ts`, `demo-seed/purchasing.ts`, `demo-seed/treasury.ts`, `demo-seed/platform.ts`.
@@ -1297,7 +1297,7 @@ Assert: Labels flip, layout mirrors, digits render Latin; the 4 promotion-type l
 # 6. Purchases
 
 
-Sources: `docs/catalog/02-purchases.md` (captured from the running reference
+Sources: `docs/archive/catalog/02-purchases.md` (captured from the running reference
 product) cross-checked against the actual build — `apps/web/src/screens/{SuppliersScreen,RfqsScreen,PurchaseOrdersScreen,GoodsReceiptsScreen,PurchaseInvoicesScreen,PurchaseReturnsScreen,LandedCostsScreen}.tsx`,
 `apps/web/src/screens/hubs/PurchasesHubScreen.tsx`, `apps/web/src/nav-config.ts`,
 and the seed generator `packages/backend/src/demo-seed/purchasing.ts` (plus the
@@ -2026,8 +2026,8 @@ each gate.
 
 Exhaustive UI test scenarios for the Inventory and Manufacturing screens, built against
 **this build** (`apps/web/src/screens/*`, `apps/web/src/nav-config.ts`) and checked line
-by line against the captured reference product (`docs/catalog/03-inventory.md` and the
-manufacturing half of `docs/catalog/07-mfg-projects-assets.md`). Every screen listed in
+by line against the captured reference product (`docs/archive/catalog/03-inventory.md` and the
+manufacturing half of `docs/archive/catalog/07-mfg-projects-assets.md`). Every screen listed in
 the task brief is covered: Items, Item Specifications, Product Templates, Configurable
 Products, Stock Balance, Stock Transfers, Stock Adjustments, Physical Counts, Label
 Printing, Inventory Write-downs, Work Orders, Bills of Materials, Custom Manufacturing
@@ -2318,7 +2318,7 @@ D2's exact mechanism.
 
 ### 2. المواصفات (Item Specifications)
 
-`[NOT IN CATALOG]` — build-only feature, absent from `docs/catalog/03-inventory.md`
+`[NOT IN CATALOG]` — build-only feature, absent from `docs/archive/catalog/03-inventory.md`
 entirely; documented here from code alone. Feeds the "من سجل المواصفات" attribute
 shortcut on Product Templates (see INV-060).
 
@@ -3312,7 +3312,7 @@ Accounting (`FinancialReportsScreen`'s seven tabs and the standalone `TrialBalan
 POS, and every non-financial report under the sidebar's "التقارير" group, are out of
 scope for this file.
 
-**Sources**: `docs/catalog/04-accounting-treasury.md`, `docs/catalog/08-reports.md` (reference
+**Sources**: `docs/archive/catalog/04-accounting-treasury.md`, `docs/archive/catalog/08-reports.md` (reference
 product, captured live) cross-read against the actual implementation in
 `apps/web/src/screens/{ChartOfAccounts,CostCenters,CostCenterPnL,Journals,FiscalPeriods,
 Taxes,ExchangeRates,FxRevaluation,Reconciliation,Eta,TrialBalanceReport,FinancialReports,
@@ -3754,7 +3754,7 @@ empty regardless of how many documents are confirmed elsewhere in the app.
 # 9. HR and payroll
 
 
-Sources: `docs/catalog/06-crm-hr.md` (HR half, captured from the reference product on an
+Sources: `docs/archive/catalog/06-crm-hr.md` (HR half, captured from the reference product on an
 almost-empty tenant) cross-checked against the actual build —
 `apps/web/src/screens/{Employees,Departments,JobTitles,Contracts,Attendance,Holidays,
 LeaveRequests,LeavePolicies,LeaveBalances,LeaveAccrualBatches,PayrollRuns,
@@ -5057,9 +5057,9 @@ seeding script linked to **محمد الشهابي** (EMP-DEMO-3), so its own th
 # 10. CRM, projects, assets, field sales, installments
 
 
-Sources: `docs/catalog/06-crm-hr.md` (CRM half only — HR is out of scope here),
-`docs/catalog/07-mfg-projects-assets.md` (Projects / Fixed Assets / Field
-Sales sections only — Manufacturing is out of scope), `docs/catalog/05-pos-installments.md`
+Sources: `docs/archive/catalog/06-crm-hr.md` (CRM half only — HR is out of scope here),
+`docs/archive/catalog/07-mfg-projects-assets.md` (Projects / Fixed Assets / Field
+Sales sections only — Manufacturing is out of scope), `docs/archive/catalog/05-pos-installments.md`
 (Installments half only — POS is out of scope), cross-checked against the
 actual code in `apps/web/src/screens/` (`LeadsScreen`, `OpportunitiesScreen`,
 `PipelineScreen`, `PipelineStagesScreen`, `ActivitiesScreen`, `ProjectsScreen`,
@@ -5878,7 +5878,7 @@ Exhaustive UI test scenarios for every settings and platform-administration scre
 in the built app: `apps/web/src/settings/*`, `apps/web/src/pages/{Users,Roles,RoleEditor}Page.tsx`,
 `apps/web/src/screens/{ApprovalsInbox,AuditLog}Screen.tsx`, and the settings-adjacent
 chrome in `packages/ui/src/shell/*` (language toggle, theme toggle, branch/warehouse
-scope switchers). Cross-checked against `docs/catalog/09-settings-dashboard-ux.md`
+scope switchers). Cross-checked against `docs/archive/catalog/09-settings-dashboard-ux.md`
 (the reference product capture) — every place this build differs from, exceeds, or
 falls short of the reference is called out inline.
 
@@ -7991,7 +7991,7 @@ above is either a smaller UI gap or a fixture-data defect in
 # 12. Shell, dashboard and reports
 
 
-Sources: `docs/catalog/09-settings-dashboard-ux.md` (dashboard/global-UX half), `docs/catalog/08-reports.md`, and the running implementation — `packages/ui/src/shell/*`, `packages/ui/src/primitives/{ReportRunner,SidePanel,beams,Kbd}.tsx`, `apps/web/src/dashboard/*`, `apps/web/src/screens/hubs/*`, `apps/web/src/screens/reports/*`, `packages/domain/src/reports/*`, `apps/web/src/keyboard/*`, `apps/web/src/i18n/*`, `apps/web/src/nav-config.ts`, `apps/web/src/App.tsx`.
+Sources: `docs/archive/catalog/09-settings-dashboard-ux.md` (dashboard/global-UX half), `docs/archive/catalog/08-reports.md`, and the running implementation — `packages/ui/src/shell/*`, `packages/ui/src/primitives/{ReportRunner,SidePanel,beams,Kbd}.tsx`, `apps/web/src/dashboard/*`, `apps/web/src/screens/hubs/*`, `apps/web/src/screens/reports/*`, `packages/domain/src/reports/*`, `apps/web/src/keyboard/*`, `apps/web/src/i18n/*`, `apps/web/src/nav-config.ts`, `apps/web/src/App.tsx`.
 
 ### How this build actually works (read before running anything below)
 
@@ -8442,7 +8442,7 @@ concurrency, permissions and year-end. It runs **last** of all, prefixes its ids
 `SCN-S-`, and is written up under "Currency, tax, compliance and platform seams"
 below.
 
-**Sources**: the module scenarios `01`–`08` for each leg, `docs/catalog/04`
+**Sources**: the module scenarios `01`–`08` for each leg, `docs/archive/catalog/04`
 (الخزينة) for the treasury rules, and the wiring in
 `packages/backend/src/create-backend.ts` where the modules are actually joined.
 
@@ -8618,11 +8618,11 @@ Crosses: items ▸ sales ▸ tax ▸ GL.
 - **Assert**: a July-dated entry posted while July is open restates July's income statement, leaves August's untouched, reaches the cumulative ledger, and does not break the aging report's date handling.
 
 #### X38 — Module licensing is designed but not enforced
-- **Assert**: manufacturing, fixed assets, installments, field sales and HR all answer 200 for a caller with no entitlement. `createModuleGate` (403 `MODULE_NOT_LICENSED`) exists and `hasModule` exists; there is no call site in `create-backend.ts`, so the licensing model in `plan.md` §2.5 is unenforced at runtime. Nothing in the API can express "this tenant did not buy Manufacturing".
+- **Assert**: manufacturing, fixed assets, installments, field sales and HR all answer 200 for a caller with no entitlement. `createModuleGate` (403 `MODULE_NOT_LICENSED`) exists and `hasModule` exists; there is no call site in `create-backend.ts`, so the licensing model in `archive/plan.md` §2.5 is unenforced at runtime. Nothing in the API can express "this tenant did not buy Manufacturing".
 
 #### X39 — Batch, expiry and what FEFO actually decides
 - **Steps**: receive two batches of one item — cheap stock expiring next year, dearer stock expiring in two months — invoice them, then sell exactly one batch's worth.
-- **Assert**: the earliest-expiring batch is consumed first (the expiring report shows it gone and the later one untouched), **and** COGS charges the blended weighted-average cost, not that batch's own. FEFO decides which goods leave; it does not price them. A pharmacy asking "what did the October batch cost me" cannot get that answer today — `plan.md` §6.3.6 leaves FIFO/batch costing open.
+- **Assert**: the earliest-expiring batch is consumed first (the expiring report shows it gone and the later one untouched), **and** COGS charges the blended weighted-average cost, not that batch's own. FEFO decides which goods leave; it does not price them. A pharmacy asking "what did the October batch cost me" cannot get that answer today — `archive/plan.md` §6.3.6 leaves FIFO/batch costing open.
 
 ---
 
@@ -8705,7 +8705,7 @@ Crosses: sales ▸ notifications ▸ webhooks ▸ GL.
 
 #### X57 — Branch-prefixed numbering
 - **Steps**: create a second branch and warehouse, confirm a sale in each.
-- **Measured**: the two branches share one tenant-global counter and no prefix says where a document came from (**D33**); the sequence definition has no branch dimension to configure. Open product decision (`plan.md` §6.3.8), now measured rather than assumed.
+- **Measured**: the two branches share one tenant-global counter and no prefix says where a document came from (**D33**); the sequence definition has no branch dimension to configure. Open product decision (`archive/plan.md` §6.3.8), now measured rather than assumed.
 
 #### X58 — Permissions are a graph, and some are sensitive
 - **Steps**: call the API as a `sales.invoice.confirm` holder, a plain `sales.invoice.view` holder, and an `hr.contract.view` holder.
@@ -8780,7 +8780,7 @@ Crosses: sales ▸ e-invoicing ▸ printing.
 Crosses: e-invoicing ▸ desktop edition ▸ shell.
 
 - **Steps**: with no connectivity, confirm several invoices, then let time pass.
-- **Assert**: the unsent queue shows a count **and the age of the oldest unsent document**; the warning escalates as that age approaches the statutory deadline; reconnecting drains the queue in document order and never submits the same document twice. `plan.md` §5.5 records this as an open product decision — the scenario exists so the decision cannot be forgotten.
+- **Assert**: the unsent queue shows a count **and the age of the oldest unsent document**; the warning escalates as that age approaches the statutory deadline; reconnecting drains the queue in document order and never submits the same document twice. `archive/plan.md` §5.5 records this as an open product decision — the scenario exists so the decision cannot be forgotten.
 
 #### X43 — Registration threshold and late-submission penalties
 - **Assert**: the tenant can record its ETA registration status and threshold basis, and the product warns when the tenant's own annual revenue crosses the registration threshold (EGP 250,000 since Resolution 281/2025). Late submissions must be countable — the ETA's penalties escalate on how many late submissions fall inside a rolling 12-month window, so a tenant needs that number visible, not buried.
@@ -8815,23 +8815,23 @@ scenarios test the **honesty** of that gap first, and the computation later.
 - **Assert (when built)**: gratuity accrues as a liability over service, terminating an employee settles it from that liability rather than as a fresh expense, and the P&L is not distorted in the month someone leaves.
 
 #### X51 — Legal constants are versioned data, not code
-- **Assert**: leave presets and any statutory rate carry the law and article they came from and the date they took effect; adopting a new preset changes future calculations only and never restates a balance already earned under the old one. `plan.md` §6.2 lists Egyptian regulatory change as permanent recurring work — this scenario is what keeps it cheap.
+- **Assert**: leave presets and any statutory rate carry the law and article they came from and the date they took effect; adopting a new preset changes future calculations only and never restates a balance already earned under the old one. `archive/plan.md` §6.2 lists Egyptian regulatory change as permanent recurring work — this scenario is what keeps it cheap.
 
 ---
 
-### Integrity at scale — the risks `plan.md` §6.2 names
+### Integrity at scale — the risks `archive/plan.md` §6.2 names
 
 #### X52 — Rounding, swept rather than sampled
 **Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 #### X53 — The same books on both engines
-- **Assert**: a golden set of documents posted through SQLite and through Postgres produces identical ledgers to the minor unit — same balances, same rounding, same ordering. `plan.md` calls dual-dialect drift the worst class of bug this product can have; nothing else in this file would catch it.
+- **Assert**: a golden set of documents posted through SQLite and through Postgres produces identical ledgers to the minor unit — same balances, same rounding, same ordering. `archive/plan.md` calls dual-dialect drift the worst class of bug this product can have; nothing else in this file would catch it.
 
 #### X54 — Five years of data, on a laptop
 - **Assert**: with a five-year seeded tenant, each report returns inside its budget and none times out; the heavy ledger reports stay usable on-demand. Measure and record the numbers — a report that takes 40 seconds is a defect even when its figures are right.
 
 #### X55 — Restore is part of the product
-- **Assert**: back up, destroy, restore — then compare the ledger, the sub-ledgers and every document count against the pre-backup state. `plan.md` §6.2 lists an untested restore path as total-data-loss risk for a desktop customer.
+- **Assert**: back up, destroy, restore — then compare the ledger, the sub-ledgers and every document count against the pre-backup state. `archive/plan.md` §6.2 lists an untested restore path as total-data-loss risk for a desktop customer.
 
 #### X56 — Two people, one second
 **Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
@@ -8856,7 +8856,7 @@ scenarios test the **honesty** of that gap first, and the computation later.
 **Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 #### X62 — Delivery notes, if they arrive
-- **Assert (design guard)**: stock currently leaves on invoice confirm. If delivery notes are introduced, the same goods must never be able to leave twice, and an invoice raised from a delivery note must not move stock again. `plan.md` §6.3.7 leaves this open — the scenario exists so the answer is chosen, not stumbled into.
+- **Assert (design guard)**: stock currently leaves on invoice confirm. If delivery notes are introduced, the same goods must never be able to leave twice, and an invoice raised from a delivery note must not move stock again. `archive/plan.md` §6.3.7 leaves this open — the scenario exists so the answer is chosen, not stumbled into.
 
 #### X63 — Price list, promotion and credit limit in one document
 **Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
@@ -8878,7 +8878,7 @@ scenarios test the **honesty** of that gap first, and the computation later.
 - [Egypt E-Receipt Requirements: ETA Guide for 2026](https://invoicedataextraction.com/blog/egypt-e-receipt-requirements) — B2B pre-clearance vs B2C post-clearance within 72 hours, QR code on printed receipts.
 - [PwC — Egypt, Corporate: Other taxes](https://taxsummaries.pwc.com/egypt/corporate/other-taxes) and [Withholding Tax in Egypt](https://www.flick.network/en-eg/withholding-tax-in-egypt) — withholding regime on local and cross-border payments.
 - [VATupdate — Egypt VAT decrees effective October 2025](https://www.vatupdate.com/2025/11/19/vat-law-amendments-new-rules-for-construction-contracts-and-tax-obligations-in-egypt/) — 14% on 36% of value for pre-18-July-2025 construction contracts, no input deduction.
-- [ERP Systems in Egypt: a 2026 guide](https://buildn.tech/en/blog/erp-system-egypt) and the competitive review already recorded in `docs/plan.md` §"Market & competitive notes" — what an Egyptian SMB buyer compares Mezan against.
+- [ERP Systems in Egypt: a 2026 guide](https://buildn.tech/en/blog/erp-system-egypt) and the competitive review already recorded in `docs/archive/plan.md` §"Market & competitive notes" — what an Egyptian SMB buyer compares Mezan against.
 
 ---
 

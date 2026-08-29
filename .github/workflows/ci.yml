@@ -85,7 +85,7 @@ jobs:
   #   - publish electron-updater release artifacts
   #
   # Intentionally left as a documented stub so packaging/signing is a later
-  # issue, not something half-wired now. See docs/plan.md §2.7 (CI section).
+  # issue, not something half-wired now. See docs/archive/plan.md §2.7 (CI section).
   #
   # release:
   #   name: electron E2E + signed installers (TODO)

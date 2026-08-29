@@ -13,7 +13,7 @@ const defaultT: ImportTranslate = (key, params) => translate(uiCatalogs, DEFAULT
 
 /**
  * File I/O for the نقل البيانات (Data Migration) go-live wizard
- * (docs/catalog/09 §"نقل البيانات") — ONE generic Excel template
+ * (docs/archive/catalog/09 §"نقل البيانات") — ONE generic Excel template
  * builder/parser, driven by a per-step column spec, reused across all 13
  * steps (9 master-data steps + the 4 historical-document steps, which share
  * the same row-per-line-item shape as the existing purchase-only

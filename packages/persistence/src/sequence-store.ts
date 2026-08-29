@@ -5,7 +5,7 @@ import type { SequenceStore } from "@mezan/domain";
 /**
  * SQLite-backed SequenceStore.
  *
- * Atomicity contract (docs/plan.md §2.3 rule 5): each `increment` runs inside a
+ * Atomicity contract (docs/archive/plan.md §2.3 rule 5): each `increment` runs inside a
  * `BEGIN IMMEDIATE` transaction, which acquires SQLite's RESERVED write lock at
  * the START of the statement rather than lazily on first write. That closes the
  * read-modify-write race entirely — a second caller blocks until the first

@@ -20,7 +20,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed persistence for Treasury Vouchers (docs/catalog/04 §"السندات
+ * SQLite-backed persistence for Treasury Vouchers (docs/archive/catalog/04 §"السندات
  * النقدية"): the voucher document itself (a framework document whose single
  * economic line is denormalised onto the row), its invoice allocations, and the
  * thin open-invoice sub-ledger allocations apply against. Money is stored as

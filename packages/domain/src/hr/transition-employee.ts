@@ -9,7 +9,7 @@ export function transitionEmployee(employee: Employee, to: EmployeeStatus): Empl
   return { ...employee, status: to };
 }
 
-/** Terminates an employee's service (docs/catalog/06 "المزيد → إنهاء الخدمة") — the one path into the terminal "terminated" status. */
+/** Terminates an employee's service (docs/archive/catalog/06 "المزيد → إنهاء الخدمة") — the one path into the terminal "terminated" status. */
 export function terminateEmployee(employee: Employee, terminatedAt: string = new Date().toISOString()): Employee {
   if (!canTransitionEmployee(employee.status, "terminated")) {
     throw new InvalidEmployeeTransitionError(employee.status, "terminated");

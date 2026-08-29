@@ -7,7 +7,7 @@ import { sumRows, countRows } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
- * مستويات المخزون — Stock Levels (docs/catalog/08-reports.md): point-in-time
+ * مستويات المخزون — Stock Levels (docs/archive/catalog/08-reports.md): point-in-time
  * stock status per item (aggregated across warehouses, or one warehouse when
  * filtered), flagging items at/under their reorder point. Sourced from the
  * cached WAC snapshots (`WacSnapshotRepository`) — the same fast-read cache

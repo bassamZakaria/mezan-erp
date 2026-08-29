@@ -16,5 +16,5 @@ const port = Number(process.env.PORT ?? 3000);
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`[server] Mezan API listening on http://127.0.0.1:${info.port} (db: ${dbPath}${seedDemoData ? ", demo seed ON" : ""})`);
   console.log(`[server] try: POST /auth/login , GET /dashboard/summary`);
-  console.log(`[server] try: GET /reports/sales/by-period , /reports/inventory/valuation , /reports/aging/customers , etc. (docs/catalog/08-reports.md)`);
+  console.log(`[server] try: GET /reports/sales/by-period , /reports/inventory/valuation , /reports/aging/customers , etc. (docs/archive/catalog/08-reports.md)`);
 });

@@ -19,7 +19,7 @@ import { NumberField, SelectField, TextField, ToggleField } from "../settings/fo
 import { useConvertLead, useCreateLead, useLeads, usePipelineStages, useTransitionLead } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-/** العملاء المحتملون (Leads) — docs/catalog/06 §"العملاء المحتملون". List + detail + create + status transitions + convert. */
+/** العملاء المحتملون (Leads) — docs/archive/catalog/06 §"العملاء المحتملون". List + detail + create + status transitions + convert. */
 
 const STATUS_KEY: Record<LeadStatusDTO, AppTranslationKey> = {
   new: "leads.status.new",
@@ -51,7 +51,7 @@ const LEAD_STATUSES: LeadStatusDTO[] = ["new", "contacted", "qualified", "conver
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
-/** The lifecycle transitions legal from a lead's CURRENT status (docs/catalog/06 state machine). */
+/** The lifecycle transitions legal from a lead's CURRENT status (docs/archive/catalog/06 state machine). */
 function validTransitions(status: LeadStatusDTO): LeadStatusDTO[] {
   switch (status) {
     case "new":

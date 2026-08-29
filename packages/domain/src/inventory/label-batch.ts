@@ -3,7 +3,7 @@ import { checkBarcodeFit } from "./barcode-fit.js";
 import { getLabelTemplate, type LabelTemplate, type LabelTemplateCode } from "./label-template.js";
 
 /**
- * The label-print builder's batch model (docs/catalog/03-inventory.md
+ * The label-print builder's batch model (docs/archive/catalog/03-inventory.md
  * §"طباعة الملصقات"): a selected-items table + a chosen template, with the
  * per-line barcode-fit check computed up front so the web layer can render
  * the warning inline and disable "معاينة وطباعة" while any line is blocked.

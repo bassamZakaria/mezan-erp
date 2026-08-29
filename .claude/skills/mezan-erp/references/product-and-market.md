@@ -1,9 +1,9 @@
 # Product, architecture and market context
 
-Full detail lives in `docs/plan.md` (architecture, licensing, phases),
-`docs/ROADMAP.md` (phased scope), `docs/catalog/01..10` (the captured spec) and
+Full detail lives in `docs/archive/plan.md` (architecture, licensing, phases),
+`docs/ROADMAP.md` (phased scope), `docs/archive/catalog/01..10` (the captured spec) and
 `docs/ROADMAP.md §1` (the single status document — everything else under `docs/` is
-durable reference; point-in-time audit evidence lives in `docs/reference-parity/audit/` and is kept for
+durable reference; point-in-time audit evidence lives in `docs/archive/reference-parity/` and is kept for
 their evidence, not their conclusions).
 
 ## What Mezan is

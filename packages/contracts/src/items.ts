@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contract for Items (docs/catalog/03-inventory.md "الأصناف"). Money
+ * Wire contract for Items (docs/archive/catalog/03-inventory.md "الأصناف"). Money
  * crosses the wire as an exact decimal string, never a float (mirrors
  * journal.ts) — the domain re-parses these strings into `Money`. The
  * alternate-unit conversion `factor` is a plain ratio, not a ledger amount,

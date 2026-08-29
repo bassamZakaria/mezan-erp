@@ -3,9 +3,9 @@
  *
  * Same discipline as {@link Money}: a signed integer held as a bigint at a fixed
  * scale of 10^-6 (six decimal places), so quantity arithmetic is EXACT — never
- * IEEE-754. docs/plan.md §2.3 mandates scale-6 for "every monetary amount, unit
+ * IEEE-754. docs/archive/plan.md §2.3 mandates scale-6 for "every monetary amount, unit
  * cost, quantity and FX rate": weighted-average costing and formula-priced
- * configurable products (`width*height*3.5`, docs/catalog/03) need sub-unit
+ * configurable products (`width*height*3.5`, docs/archive/catalog/03) need sub-unit
  * precision, and stock is stored as INTEGER in SQLite / BIGINT in Postgres.
  *
  * Qty is intentionally a DISTINCT type from Money: the compiler must reject

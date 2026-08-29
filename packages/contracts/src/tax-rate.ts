@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Wire contract for tax rates (docs/catalog/04 "الضرائب"). */
+/** Wire contract for tax rates (docs/archive/catalog/04 "الضرائب"). */
 export const taxCalculationTypeSchema = z.enum(["exclusive", "inclusive"]);
 export const taxRateStatusSchema = z.enum(["active", "inactive"]);
 export const etaVatSubTypeSchema = z.enum([

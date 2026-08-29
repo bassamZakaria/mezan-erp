@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for Sales Invoices (docs/catalog/01-sales.md §"فواتير المبيعات").
+ * Wire contracts for Sales Invoices (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
  *
  * Money and quantities cross the wire as exact decimal strings, never floats —
  * the boundary that keeps the "no floats, ever" ledger invariant true end to end
- * (docs/plan.md §2.3). The API re-parses these strings into `Money` / `Qty`.
+ * (docs/archive/plan.md §2.3). The API re-parses these strings into `Money` / `Qty`.
  */
 
 export const salesInvoiceStatusSchema = z.enum([

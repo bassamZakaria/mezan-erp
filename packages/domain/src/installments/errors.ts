@@ -1,6 +1,6 @@
 import { FOLLOW_UP_STATUS_LABELS_AR, type FollowUpStatus } from "./follow-up.js";
 
-/** Errors raised by the installments module (docs/catalog/05 §"خطط الأقساط"). */
+/** Errors raised by the installments module (docs/archive/catalog/05 §"خطط الأقساط"). */
 
 export class InvalidInstallmentScheduleError extends Error {
   readonly code = "INVALID_INSTALLMENT_SCHEDULE";

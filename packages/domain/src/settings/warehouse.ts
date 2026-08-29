@@ -1,9 +1,9 @@
 /**
- * Warehouse — docs/catalog/09 §"إدارة المستودعات (Warehouses)". Warehouses
+ * Warehouse — docs/archive/catalog/09 §"إدارة المستودعات (Warehouses)". Warehouses
  * model *purpose*, not just a name: the catalog's "Full warehouse-type
  * catalog (5 types)" (line ~527) is transcribed verbatim below, in the order
  * documented, including the van/distribution-vehicle type used for field
- * sales (docs/catalog/09 §"المبيعات الميدانية").
+ * sales (docs/archive/catalog/09 §"المبيعات الميدانية").
  */
 
 export interface WarehouseTypeDefinition {

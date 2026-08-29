@@ -6,7 +6,7 @@ import { readReportFieldErrors } from "./report-errors";
 import { useAppTranslation } from "../i18n";
 
 /**
- * القوائم المالية data hook (docs/catalog/08-reports.md) — the seven
+ * القوائم المالية data hook (docs/archive/catalog/08-reports.md) — the seven
  * financial-statement screens' counterpart to `./reports-hooks.ts`. Same
  * shape, different server mount: it hits `/financial-reports${path}`, which
  * computes each statement over the live posted general ledger (never a

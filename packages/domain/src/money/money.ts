@@ -3,7 +3,7 @@
  *
  * Canonical representation: a signed integer at a fixed scale of 10^-6 (six
  * decimal places), held as a bigint so arithmetic is EXACT — never IEEE-754.
- * This mirrors the storage contract in docs/plan.md §2.3: BIGINT in Postgres,
+ * This mirrors the storage contract in docs/archive/plan.md §2.3: BIGINT in Postgres,
  * INTEGER in SQLite, no floats anywhere in the ledger path.
  */
 

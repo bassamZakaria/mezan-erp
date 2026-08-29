@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for Bank Statement Reconciliation (docs/catalog/04
+ * Wire contracts for Bank Statement Reconciliation (docs/archive/catalog/04
  * §"تسوية كشوف البنك"). Money crosses the wire as an exact decimal string.
  */
 

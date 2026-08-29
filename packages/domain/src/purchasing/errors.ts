@@ -1,4 +1,4 @@
-/** Typed errors for the purchase chain (docs/catalog/02). Each carries a stable
+/** Typed errors for the purchase chain (docs/archive/catalog/02). Each carries a stable
  *  machine `code` the API maps to an HTTP status. */
 
 export class PurchaseOrderNotFoundError extends Error {

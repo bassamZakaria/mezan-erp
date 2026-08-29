@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contract for a Supplier (docs/catalog/02-purchases.md "الموردون") —
+ * Wire contract for a Supplier (docs/archive/catalog/02-purchases.md "الموردون") —
  * the mirror of customers.ts minus the customer-only credit-limit/ETA fields,
  * plus a street address. Money crosses the wire as an exact decimal string.
  */

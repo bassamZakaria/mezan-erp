@@ -2,7 +2,7 @@ import type { NotificationCondition } from "./types.js";
 
 /**
  * Evaluates a rule's optional condition against the triggering event's
- * payload. `null` condition always passes (docs/plan.md §5.6: the condition
+ * payload. `null` condition always passes (docs/archive/plan.md §5.6: the condition
  * is optional, unlike the workflow gate's unconditional action types).
  *
  * Missing/non-object payload or a missing field fails the match rather than

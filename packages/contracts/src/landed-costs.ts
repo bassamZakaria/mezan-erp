@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { documentStatusSchema } from "./documents.js";
 
-/** Wire contracts for Landed Costs (التكاليف الإضافية، docs/catalog/02). */
+/** Wire contracts for Landed Costs (التكاليف الإضافية، docs/archive/catalog/02). */
 
 const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
 

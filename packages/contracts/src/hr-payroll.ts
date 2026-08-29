@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for HR payroll (docs/catalog/06-crm-hr.md "الرواتب" and
+ * Wire contracts for HR payroll (docs/archive/catalog/06-crm-hr.md "الرواتب" and
  * "سلف الموظفين"). Money crosses the wire as an exact decimal string, never a
- * float (docs/plan.md §2.3); the domain re-parses via `Money.fromMajor`.
+ * float (docs/archive/plan.md §2.3); the domain re-parses via `Money.fromMajor`.
  */
 
 // --- Employee advances -----------------------------------------------------

@@ -37,5 +37,5 @@ piece cost you, including scrap, before you quote the next one.
 **Your vocabulary:** أمر تشغيل، خامات، تحت التشغيل، هالك، تكلفة معيارية، متوسط
 مرجح، مخزن خامات، إنتاج تام.
 
-**Relevant catalog:** `docs/catalog/07-mfg-projects-assets.md`,
+**Relevant catalog:** `docs/archive/catalog/07-mfg-projects-assets.md`,
 `03-inventory.md`, `04-accounting-treasury.md`.

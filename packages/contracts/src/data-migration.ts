@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the data-migration import wizard (docs/catalog/09 "نقل
+ * Wire contracts for the data-migration import wizard (docs/archive/catalog/09 "نقل
  * البيانات"): customers, suppliers, items, and item opening balances. Money/
  * Qty cross the wire as exact decimal strings (mirrors historical-import.ts).
  * The historical purchase-document import kind reuses the EXISTING

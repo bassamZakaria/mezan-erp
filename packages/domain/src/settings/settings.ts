@@ -1,5 +1,5 @@
 /**
- * Tenant Settings — the config bag documented in docs/catalog/09 §"Settings —
+ * Tenant Settings — the config bag documented in docs/archive/catalog/09 §"Settings —
  * عام (General settings hub)": the `/settings` tabbed screen (عام / بيانات
  * المنشأة / الضريبة / الرقابة الائتمانية / سياسة المخزون / التحكم في
  * المشتريات / سياسة الخزينة) plus the raw tenant `settings` payload captured
@@ -129,7 +129,7 @@ const LANGUAGES: readonly SettingsLanguage[] = ["ar", "en", "de"];
 const SMTP_SECURITIES: readonly SmtpSecurity[] = ["NONE", "STARTTLS", "TLS"];
 
 /**
- * Defaults mirroring the captured tenant payload (docs/catalog/09 lines
+ * Defaults mirroring the captured tenant payload (docs/archive/catalog/09 lines
  * 44-115), minus the couple of fields the catalog flags as platform-managed
  * (multi-currency activation itself, WAC drift knobs) which are out of this
  * tenant-settings surface.

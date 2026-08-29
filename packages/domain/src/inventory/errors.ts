@@ -2,13 +2,13 @@
  * Messages here reach the UI verbatim: the api serves `message: err.message`
  * and screens render it directly, so every message must be Arabic.
  */
-/** Errors raised by the stock-ledger / costing engine (docs/catalog/03). */
+/** Errors raised by the stock-ledger / costing engine (docs/archive/catalog/03). */
 
 import { Qty } from "../money/index.js";
 
 /**
  * Raised when an issue/transfer/OUT adjustment would drive on-hand stock below
- * zero and the tenant's `allowNegativeStock` policy is off (docs/catalog/09
+ * zero and the tenant's `allowNegativeStock` policy is off (docs/archive/catalog/09
  * §"سياسة المخزون"). Carries the numbers so the API can surface them.
  */
 export class NegativeStockError extends Error {
@@ -170,7 +170,7 @@ export class DuplicateAttributeValueError extends Error {
   }
 }
 
-/** Raised when trying to delete an attribute that at least one generated variant still uses (docs/catalog/03: "احذف المتغيرات أولاً"). */
+/** Raised when trying to delete an attribute that at least one generated variant still uses (docs/archive/catalog/03: "احذف المتغيرات أولاً"). */
 export class AttributeInUseError extends Error {
   readonly code = "ATTRIBUTE_IN_USE";
   constructor(

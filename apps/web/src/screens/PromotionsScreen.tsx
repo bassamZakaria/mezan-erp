@@ -65,7 +65,7 @@ const STATE_TONE: Record<DerivedState, "success" | "info" | "warning" | "neutral
 };
 
 /**
- * العروض / Promotions (docs/catalog/01 — رمز الخصم, النوع, النطاق, الفترة).
+ * العروض / Promotions (docs/archive/catalog/01 — رمز الخصم, النوع, النطاق, الفترة).
  * Real data only: list, create and edit go through `GET/POST/PATCH
  * /promotions`. Active / scheduled / expiring-soon are derived from
  * start/end dates.

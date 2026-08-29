@@ -1,5 +1,5 @@
 /**
- * أرصدة المخزون (Stock Balance) — the cross-warehouse rollup (docs/catalog/03
+ * أرصدة المخزون (Stock Balance) — the cross-warehouse rollup (docs/archive/catalog/03
  * §"أرصدة المخزون": "cross-item stock levels list"). Pure aggregation over the
  * cached `WacSnapshot`s the stock-ledger engine already maintains
  * (`StockLedgerService.getValuation()`) — no new persistence, no new engine

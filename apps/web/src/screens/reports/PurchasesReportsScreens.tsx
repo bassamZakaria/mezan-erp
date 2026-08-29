@@ -2,7 +2,7 @@ import { createPurchasesByPeriodReport, createPurchasesBySupplierReport, createP
 import { ReportScreen } from "./ReportScreen";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
-/** المشتريات — Purchases reports (docs/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/purchases/*`. */
+/** المشتريات — Purchases reports (docs/archive/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/purchases/*`. */
 
 const TODAY = todayIso();
 const MONTH_START = monthStartIso();

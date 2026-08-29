@@ -221,7 +221,7 @@ function handleDomainError(c: Context, err: unknown): Response {
 }
 
 /**
- * GL posting routes (docs/catalog/04 §القيود المحاسبية), mounted under `/gl`:
+ * GL posting routes (docs/archive/catalog/04 §القيود المحاسبية), mounted under `/gl`:
  *   POST /journal-entries            create + post in one step (post gate)
  *   POST /journal-entries/draft      save a draft            (create gate)
  *   POST /journal-entries/:id/post   post an existing draft  (post gate)

@@ -1,7 +1,7 @@
 /**
  * Document-numbering sequence definitions.
  *
- * The document-type sequences — the 25 from docs/catalog/09 (تسلسلات
+ * The document-type sequences — the 25 from docs/archive/catalog/09 (تسلسلات
  * الترقيم, `/settings/sequences`) plus SALES_RETURN and SALES_QUOTE (phase5/6)
  * and WORK_ORDER (manufacturing) — encoded as data: one source of truth for the
  * numbering engine, the settings UI and the docs. Each definition carries the

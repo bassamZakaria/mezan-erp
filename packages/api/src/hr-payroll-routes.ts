@@ -61,7 +61,7 @@ import {
 import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * Payroll + employee-advance routes (docs/catalog/06-crm-hr.md "الرواتب" and
+ * Payroll + employee-advance routes (docs/archive/catalog/06-crm-hr.md "الرواتب" and
  * "سلف الموظفين"). Paths are root-relative — a parent app mounts this router
  * under `/hr` alongside the master-data and time/leave HR routers.
  *

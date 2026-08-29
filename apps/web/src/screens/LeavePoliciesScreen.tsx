@@ -15,7 +15,7 @@ import { useConfirmAction } from "../lib/use-confirm-action";
 import { ACCRUAL_FREQUENCY_KEY, formatDays, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-/** سياسات الإجازات (Leave Policies) — docs/catalog/06 §"سياسات الإجازات" (`/settings/leave-policies`). The matrix starts empty; the two dated Egyptian Labour Law presets fill it in one action. */
+/** سياسات الإجازات (Leave Policies) — docs/archive/catalog/06 §"سياسات الإجازات" (`/settings/leave-policies`). The matrix starts empty; the two dated Egyptian Labour Law presets fill it in one action. */
 
 interface PolicyDraft {
   leaveType: LeaveTypeDTO;

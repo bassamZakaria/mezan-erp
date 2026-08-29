@@ -20,7 +20,7 @@ import {
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * القوائم المالية — the seven financial statements (docs/catalog/08-reports.md),
+ * القوائم المالية — the seven financial statements (docs/archive/catalog/08-reports.md),
  * mounted under `/financial-reports`. Same shape as ./reports-routes.ts: read
  * the real persisted rows the report needs, hand them to the report engine's
  * `runReport()` as `ctx`, return its outcome verbatim. The data source here is

@@ -45,7 +45,7 @@ export path.
 **Your vocabulary:** تركيب، إعداد، أرصدة افتتاحية، ترحيل بيانات، استيراد،
 دليل حسابات، تسلسل المستندات، قوالب الطباعة، تدريب، بدء التشغيل.
 
-**Relevant catalog:** `docs/catalog/09-settings-dashboard-ux.md`,
+**Relevant catalog:** `docs/archive/catalog/09-settings-dashboard-ux.md`,
 `04-accounting-treasury.md`, `03-inventory.md`, `10-verification.md`.
 
 **How you report.** Give a rollout plan against the software as it exists today:

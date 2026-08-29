@@ -28,7 +28,7 @@ import {
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-/** سجل الأصول (Asset Register) — docs/catalog/07 §"سجل الأصول". List + detail + register-asset panel. */
+/** سجل الأصول (Asset Register) — docs/archive/catalog/07 §"سجل الأصول". List + detail + register-asset panel. */
 
 const STATUS_KEY: Record<AssetStatusDTO, AppTranslationKey> = {
   active: "common.active",

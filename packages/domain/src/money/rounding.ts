@@ -1,7 +1,7 @@
 /**
  * Rounding policy and allocation.
  *
- * docs/plan.md §2.3: domain arithmetic uses exact scaled integers and applies
+ * docs/archive/plan.md §2.3: domain arithmetic uses exact scaled integers and applies
  * **explicit rounding at documented boundaries only**. Those boundaries are:
  *
  *   - LINE_EXTENSION     — qty × unit price → a line amount

@@ -2,7 +2,7 @@ import { Money } from "../money/index.js";
 import { InvalidOpportunityError } from "./errors.js";
 
 /**
- * Opportunities — core entity (docs/catalog/06-crm-hr.md "الفرص"). An
+ * Opportunities — core entity (docs/archive/catalog/06-crm-hr.md "الفرص"). An
  * `Opportunity` tracks a deal in progress against a customer, moving through
  * a pipeline stage until it's won or lost.
  */

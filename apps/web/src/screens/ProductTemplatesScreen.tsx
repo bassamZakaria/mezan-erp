@@ -28,7 +28,7 @@ import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
- * قوالب المنتجات (Product Templates) — docs/catalog/03-inventory.md §"قوالب
+ * قوالب المنتجات (Product Templates) — docs/archive/catalog/03-inventory.md §"قوالب
  * المنتجات". Attribute-driven variant/SKU generation: define a product once
  * with named characteristics (color, size, ...), enumerate each attribute's
  * values, then mass-generate the resulting combinations as real, independent

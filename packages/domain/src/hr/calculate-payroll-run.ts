@@ -28,7 +28,7 @@ import {
 } from "./errors.js";
 
 /**
- * The payroll calculation engine (docs/catalog/06 "الرواتب").
+ * The payroll calculation engine (docs/archive/catalog/06 "الرواتب").
  *
  * WHAT IT COMPUTES — and nothing else:
  *   - gross = the active contract's monthly salary + its allowance lines,

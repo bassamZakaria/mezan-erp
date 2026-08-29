@@ -3,7 +3,7 @@ import type { AppTranslationKey } from "../i18n";
 import type { AttendanceStatusDTO, LeaveAccrualFrequencyDTO, LeaveRequestStatusDTO, LeaveTypeDTO } from "@mezan/contracts";
 
 /**
- * Shared catalogue KEYS for the HR leave/attendance screens (docs/catalog/06
+ * Shared catalogue KEYS for the HR leave/attendance screens (docs/archive/catalog/06
  * §"الموارد البشرية"). Six screens read from here, so the vocabulary is stated
  * once and each screen translates at render.
  */

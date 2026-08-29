@@ -6,7 +6,7 @@ import { ApiError, useCreateDepartment, useDepartments, useEmployees, useUpdateD
 import { useAppTranslation } from "../i18n";
 import { bilingualName } from "./hr-employee-name";
 
-/** الأقسام (Departments) — docs/catalog/06 §"الأقسام". Thin master data: list + a combined edit/detail panel + create panel, no standalone detail page (matches the catalog's "no dedicated detail page" note). */
+/** الأقسام (Departments) — docs/archive/catalog/06 §"الأقسام". Thin master data: list + a combined edit/detail panel + create panel, no standalone detail page (matches the catalog's "no dedicated detail page" note). */
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 

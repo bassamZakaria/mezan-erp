@@ -8,7 +8,7 @@ import { useAppTranslation } from "../i18n";
 import { majorOf, sumMajor } from "../lib/money";
 
 /**
- * خط المبيعات (Sales Pipeline) — docs/catalog/06 §"خط المبيعات". A kanban
+ * خط المبيعات (Sales Pipeline) — docs/archive/catalog/06 §"خط المبيعات". A kanban
  * board over the same opportunity/stage data as OpportunitiesScreen and
  * PipelineStagesScreen; no drag-and-drop (out of scope), stage moves happen
  * through a compact per-card SelectField instead.

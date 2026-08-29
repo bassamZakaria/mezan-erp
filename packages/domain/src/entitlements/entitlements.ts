@@ -1,6 +1,6 @@
 /**
  * Entitlements — the one capability object every gate in the codebase reads
- * (docs/plan.md §2.5). It has the SAME shape in both editions: cloud derives it
+ * (docs/archive/plan.md §2.5). It has the SAME shape in both editions: cloud derives it
  * from the subscription record / JWT, desktop from the signed license file. A
  * gate calls `has('pos')` / `hasFeature('pos.restaurant_mode')` and neither
  * knows nor cares which source produced it.

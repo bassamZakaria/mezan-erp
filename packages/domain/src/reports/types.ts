@@ -2,9 +2,9 @@ import type { z } from "zod";
 
 /**
  * ReportDefinition — the Tier 2 shared "report engine" abstraction
- * (docs/plan.md §2.4: "Build a `ReportDefinition` abstraction (params schema
+ * (docs/archive/plan.md §2.4: "Build a `ReportDefinition` abstraction (params schema
  * → query plan → column/format spec) so reports are declarations rather than
- * 33 bespoke screens"). Every one of the 33 reports in docs/catalog/08-reports.md
+ * 33 bespoke screens"). Every one of the 33 reports in docs/archive/catalog/08-reports.md
  * is, structurally, a parameter bar + an aggregate query/plan + a table (with
  * optional grouping/totals/charts) + export. This module models exactly that
  * shape; concrete reports (e.g. `./trial-balance.ts`) are just data.
@@ -65,7 +65,7 @@ export type ReportParamField =
   | { readonly kind: "text"; readonly key: string; readonly label: string; readonly placeholder?: string };
 
 /**
- * A GL-reconciliation banner (docs/catalog/08-reports.md: five reports
+ * A GL-reconciliation banner (docs/archive/catalog/08-reports.md: five reports
  * cross-check their own total against a reference — most simply the general
  * ledger itself, e.g. ميزان المراجعة's "إجمالي المدين = إجمالي الدائن").
  */
@@ -91,7 +91,7 @@ export interface ReportDefinition<TParams, Row, Ctx = unknown> {
   readonly paramFields: readonly ReportParamField[];
   /**
    * Heavy ledger reports require an explicit "عرض التقرير" click rather than
-   * auto-running on every filter change (docs/catalog/08-reports.md: دفتر
+   * auto-running on every filter change (docs/archive/catalog/08-reports.md: دفتر
    * الأستاذ العام / دفتر حساب). Defaults to false (auto-run).
    */
   readonly onDemand?: boolean;

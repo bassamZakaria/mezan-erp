@@ -10,7 +10,7 @@ import type {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed {@link ApprovalRequestRepository} (docs/catalog/09 §الموافقات
+ * SQLite-backed {@link ApprovalRequestRepository} (docs/archive/catalog/09 §الموافقات
  * inbox). Steps/decisions are small, per-request, and never queried by their
  * own fields directly — so, like `settings-store.ts`, they're stored as JSON
  * text and the domain never sees the column shape. `listPendingForRoles`

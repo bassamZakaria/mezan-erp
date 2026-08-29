@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type Project, type ProjectRepository, type ProjectStatus } from "@mezan/domain";
 
-/** SQLite-backed ProjectRepository (docs/catalog/07 "المشاريع والمقاولات"). Standalone, mirroring `createSqliteAccountRepository`. */
+/** SQLite-backed ProjectRepository (docs/archive/catalog/07 "المشاريع والمقاولات"). Standalone, mirroring `createSqliteAccountRepository`. */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS project (

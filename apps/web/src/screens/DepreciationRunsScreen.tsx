@@ -18,7 +18,7 @@ import { ApiError, useBranches, useCreateDepreciationRun, useDepreciationRuns, u
 import { NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-/** الإهلاك (Depreciation Runs) — docs/catalog/07 §"الإهلاك". List + detail + run-creation panel. */
+/** الإهلاك (Depreciation Runs) — docs/archive/catalog/07 §"الإهلاك". List + detail + run-creation panel. */
 
 const STATUS_KEY: Record<DepreciationRunStatusDTO, AppTranslationKey> = { draft: "depreciation.status.draft", posted: "depreciation.status.posted", cancelled: "depreciation.status.cancelled" };
 const STATUS_TONE: Record<DepreciationRunStatusDTO, PillTone> = { draft: "neutral", posted: "success", cancelled: "danger" };

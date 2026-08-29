@@ -12,7 +12,7 @@ type ImportTranslate = (key: UiTranslationKey, params?: TranslationParams) => st
 const defaultT: ImportTranslate = (key, params) => translate(uiCatalogs, DEFAULT_LOCALE, key, params);
 
 /**
- * File I/O for the historical purchase-document import (docs/catalog/02
+ * File I/O for the historical purchase-document import (docs/archive/catalog/02
  * §"استيراد فواتير سابقة" / §"استيراد مرتجعات سابقة"): builds the
  * downloadable Excel template and parses an uploaded file back into raw rows
  * — one row per item line, header fields (document number, supplier, date…)

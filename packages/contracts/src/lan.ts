@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for LAN multi-till session management (docs/plan.md
+ * Wire contracts for LAN multi-till session management (docs/archive/plan.md
  * §2.6/§6.3.3). A "device session" is one connected till/tablet; these
  * schemas validate the `/lan/sessions` request/response bodies exposed by
  * @mezan/api and consumed by the connected-devices admin panel in apps/web.

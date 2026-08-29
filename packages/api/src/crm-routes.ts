@@ -46,7 +46,7 @@ import {
 import { branchScopeOf, createPermissionGate, headerAuthContextResolver, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * CRM routes (docs/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
+ * CRM routes (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
  * المبيعات / مراحل خط المبيعات / الأنشطة"). Paths are root-relative — a
  * parent app mounts this whole router under `/crm`.
  */

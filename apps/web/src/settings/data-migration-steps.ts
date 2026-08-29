@@ -8,7 +8,7 @@ import type {
 } from "../data/hooks";
 
 /**
- * The go-live wizard's per-step column contract (docs/catalog/09 «نقل البيانات»).
+ * The go-live wizard's per-step column contract (docs/archive/catalog/09 «نقل البيانات»).
  *
  * Lifted out of the page so the test-fixture generator builds its workbooks
  * from the SAME spec the app parses. A hand-copied fixture would drift the

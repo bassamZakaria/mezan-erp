@@ -3,7 +3,7 @@ import type { RoleRepository } from "./roles/role.js";
 import type { UserRepository } from "./users/user.js";
 
 /**
- * How a journal entry came into being (docs/catalog/04 §القيود المحاسبية): the
+ * How a journal entry came into being (docs/archive/catalog/04 §القيود المحاسبية): the
  * "المصدر" column distinguishes entries typed by a user ("manual") from those
  * auto-posted by another document/module — invoice, voucher, work order
  * ("system"). The overwhelming majority in a live tenant are system-generated.
@@ -11,15 +11,15 @@ import type { UserRepository } from "./users/user.js";
 export type JournalEntrySource = "manual" | "system";
 
 /**
- * The journal-entry lifecycle from docs/catalog/04 (status filter tabs مسودة /
+ * The journal-entry lifecycle from docs/archive/catalog/04 (status filter tabs مسودة /
  * بانتظار الموافقة / مرحل / معكوس): draft → pending → posted → reversed. Posted
  * entries are append-only — a correction is a *reversing entry*, never a
- * mutation (docs/plan.md §3 rule 1). The spike modelled only the terminal
+ * mutation (docs/archive/plan.md §3 rule 1). The spike modelled only the terminal
  * "posted" value; the GL engine (gl/) uses the full union.
  */
 export type JournalEntryStatus = "draft" | "pending" | "posted" | "reversed";
 
-/** A single debit/credit line of a journal entry (docs/catalog/04). */
+/** A single debit/credit line of a journal entry (docs/archive/catalog/04). */
 export interface JournalLine {
   readonly accountId: string;
   readonly debit: Money;
@@ -29,11 +29,11 @@ export interface JournalLine {
   /**
    * Optional cost-center dimension ("مركز التكلفة") carried by the line — the
    * basis of the "أرباح مراكز التكلفة" (Cost Center P&L) report which groups
-   * revenue/expense lines by this tag (docs/catalog/04). Null = unattributed.
+   * revenue/expense lines by this tag (docs/archive/catalog/04). Null = unattributed.
    */
   readonly costCenterId?: string | null;
   /**
-   * Original transaction currency for a multi-currency line (docs/catalog/04
+   * Original transaction currency for a multi-currency line (docs/archive/catalog/04
    * §"أسعار الصرف"/§FX Revaluation). `debit`/`credit` are ALWAYS the base
    * (EGP) amounts; these two record what foreign currency + rate produced them
    * at confirmation time, so the line can be revalued at the closing rate.
@@ -100,7 +100,7 @@ export interface JournalEntry {
 /**
  * Persistence port. The domain depends on this interface only — it imports no
  * SQL, no driver, no HTTP. Any dialect (SQLite now, Postgres later) slots in
- * behind it. See docs/plan.md §2.2. The richer GL ledger port lives in
+ * behind it. See docs/archive/plan.md §2.2. The richer GL ledger port lives in
  * gl/ledger.ts; this minimal one backs the spike's `postJournalEntry`.
  */
 export interface JournalRepository {

@@ -121,7 +121,7 @@ function handleError(c: Context, err: unknown): Response {
 }
 
 /**
- * الفاتورة الإلكترونية (ETA) routes (docs/catalog/04), mounted under `/eta`:
+ * الفاتورة الإلكترونية (ETA) routes (docs/archive/catalog/04), mounted under `/eta`:
  *   GET  /config                       config + readiness
  *   PUT  /config                       update config (clientSecret stored, never returned)
  *   GET  /submissions[?status=]        the submission queue

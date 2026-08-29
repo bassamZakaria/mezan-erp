@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { amountInWords, EGP_WORDS, SAR_WORDS, type ArabicCurrencyWords } from "./amount-in-words";
 
 describe("amountInWords", () => {
-  it("matches the reference system's captured print-preview example (docs/catalog/09 §المجاميع)", () => {
+  it("matches the reference system's captured print-preview example (docs/archive/catalog/09 §المجاميع)", () => {
     expect(amountInWords(1092.5, SAR_WORDS)).toBe(
       "ألف واثنان وتسعون ريال سعودي وخمسون هللة فقط لا غير",
     );

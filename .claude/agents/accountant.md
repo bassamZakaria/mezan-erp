@@ -42,7 +42,7 @@ document whose accounting entry you cannot inspect.
 **Your vocabulary:** قيد يومية، مدين، دائن، حساب مراقبة، تسوية، مصروف مستحق،
 إهلاك، ميزان مراجعة، إقفال الفترة، كشف حساب، مركز تكلفة.
 
-**Relevant catalog:** `docs/catalog/04-accounting-treasury.md`, `08-reports.md`.
+**Relevant catalog:** `docs/archive/catalog/04-accounting-treasury.md`, `08-reports.md`.
 
 **How you report.** Structure it as a month: daily booking, then reconciliation,
 then close, then reports. State for each whether you could do it in this system

@@ -67,7 +67,7 @@ export interface CreateJournalEntryCommand {
 /**
  * Ports the GL posting engine depends on. `ledger` and `numbering` MUST be
  * backed by the same connection/transaction so number allocation and the entry
- * insert are atomic (no-gap numbering, docs/plan.md §3 rule 5).
+ * insert are atomic (no-gap numbering, docs/archive/plan.md §3 rule 5).
  */
 export interface JournalPostingDeps {
   readonly ledger: LedgerRepository;
@@ -108,7 +108,7 @@ function toLine(input: JournalLineInput): JournalLine {
 }
 
 /**
- * Structural validation (docs/catalog/04): a journal entry needs at least two
+ * Structural validation (docs/archive/catalog/04): a journal entry needs at least two
  * lines, every line targets an account, no line is both a debit and a credit,
  * and no amount is negative (a "negative debit" is a credit — model it as one).
  */
@@ -142,7 +142,7 @@ export function assertEntryStructure(lines: readonly JournalLineInput[]): void {
   }
 }
 
-/** The double-entry invariant: Σ debit = Σ credit (docs/plan.md §3 rule 2). */
+/** The double-entry invariant: Σ debit = Σ credit (docs/archive/plan.md §3 rule 2). */
 export function assertBalanced(lines: readonly JournalLineInput[]): {
   totalDebit: Money;
   totalCredit: Money;
@@ -157,7 +157,7 @@ export function assertBalanced(lines: readonly JournalLineInput[]): {
 
 /**
  * Every referenced account must exist, be a postable (detail, non-header)
- * account, and be active (docs/catalog/04: only حساب تفصيلي leaves accept
+ * account, and be active (docs/archive/catalog/04: only حساب تفصيلي leaves accept
  * journal lines; inactive accounts are blocked).
  */
 export async function assertLinesPostable(

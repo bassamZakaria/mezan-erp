@@ -1,5 +1,5 @@
 /**
- * Historical sales-document import (docs/catalog/01 §"فواتير المبيعات" /
+ * Historical sales-document import (docs/archive/catalog/01 §"فواتير المبيعات" /
  * §"مرتجعات المبيعات" — "استيراد فواتير سابقة" / "استيراد مرتجعات سابقة"):
  * bulk go-live migration of ALREADY-SETTLED historical sales invoices and
  * returns from an Excel/CSV upload (one row per item line, header fields
@@ -10,7 +10,7 @@
  * remaining balance posts ONLY that remaining amount as a receivable (Dr
  * accounts receivable, Cr an opening-balance/equity account — never
  * inventory, which is deliberately untouched, since the goods already left
- * the warehouse before go-live). Pure domain — ports only (docs/plan.md §3.2).
+ * the warehouse before go-live). Pure domain — ports only (docs/archive/plan.md §3.2).
  */
 
 import { Money, Qty } from "../money/index.js";

@@ -13,7 +13,7 @@ import { createPermissionGate, getAuthContext, headerAuthContextResolver, type A
 
 /**
  * Read/config surface for the numbering engine (`/settings/sequences`,
- * docs/catalog/09). The allocation engine itself (`NextNumberService`) is
+ * docs/archive/catalog/09). The allocation engine itself (`NextNumberService`) is
  * untouched — these routes only read the compiled-in {@link SEQUENCE_DEFINITIONS}
  * plus any admin override, and peek at (never increment) the live counter.
  */

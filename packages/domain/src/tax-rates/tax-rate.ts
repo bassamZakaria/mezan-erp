@@ -1,5 +1,5 @@
 /**
- * Tax rates — core entity (docs/catalog/04-accounting-treasury.md "الضرائب").
+ * Tax rates — core entity (docs/archive/catalog/04-accounting-treasury.md "الضرائب").
  * A `TaxRate` is the master record used when building sales/purchase invoice
  * lines: it carries the percentage applied, whether that percentage is
  * exclusive (added on top of the line price) or inclusive (already baked into
@@ -11,7 +11,7 @@ export type TaxCalculationType = "exclusive" | "inclusive";
 export type TaxRateStatus = "active" | "inactive";
 
 /**
- * Egyptian ETA e-invoice VAT sub-type codes (docs/catalog/04's "الضرائب"
+ * Egyptian ETA e-invoice VAT sub-type codes (docs/archive/catalog/04's "الضرائب"
  * section transcribes V001–V009 from the tax dialog's helper text). "auto"
  * mirrors the mockup's default option — "تلقائي (أساسي عند وجود ضريبة، غير
  * خاضع عند 0%)" — which lets the invoicing engine pick V009 (basic sales) or

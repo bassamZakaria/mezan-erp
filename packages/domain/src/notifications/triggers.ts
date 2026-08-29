@@ -3,7 +3,7 @@ import type { NotificationChannel } from "./types.js";
 
 /**
  * Notification trigger catalog — the events a tenant may bind a rule to
- * (docs/catalog/09 §قواعد الإشعارات), annotated with what this build can
+ * (docs/archive/catalog/09 §قواعد الإشعارات), annotated with what this build can
  * actually deliver.
  *
  * The trigger list is NOT a second copy of the event taxonomy: it is

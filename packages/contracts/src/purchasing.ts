@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the purchase chain (docs/catalog/02): أوامر الشراء →
+ * Wire contracts for the purchase chain (docs/archive/catalog/02): أوامر الشراء →
  * استلام البضائع → فواتير المشتريات. Money and Qty cross the wire as EXACT
  * decimal strings (same convention as journal.ts / inventory.ts) — never floats.
  */

@@ -1,5 +1,5 @@
 /**
- * Document lifecycle state machine (Tier 2 document framework, docs/plan.md §3
+ * Document lifecycle state machine (Tier 2 document framework, docs/archive/plan.md §3
  * "the document lifecycle").
  *
  * Every document module in Mezan — sales invoice, purchase invoice, treasury
@@ -7,7 +7,7 @@
  * بانتظار الموافقة (pending approval) → مؤكد/مرحل (confirmed/posted) → and from
  * there only ملغي (cancelled) or معكوس (reversed). Confirmed/posted documents
  * are append-only: a correction is a reversing document, never a mutation
- * (docs/plan.md §3 rule 1). This module is the single authority on which
+ * (docs/archive/plan.md §3 rule 1). This module is the single authority on which
  * transitions are legal; the `DocumentService` calls `assertTransition` before
  * every state change.
  */

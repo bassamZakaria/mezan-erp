@@ -1,5 +1,5 @@
 /**
- * محرك فروقات الجرد (physical-count variance engine) — docs/catalog/03
+ * محرك فروقات الجرد (physical-count variance engine) — docs/archive/catalog/03
  * §"الجرد الفعلي". `physical-count.ts` owns the SESSION (snapshot → record →
  * complete → generate adjustment); this module owns the READ side of that
  * session: the signed per-line variance, its value at the weighted-average

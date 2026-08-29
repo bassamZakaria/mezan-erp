@@ -2,7 +2,7 @@ import { z } from "zod";
 import { documentStatusSchema } from "./documents.js";
 
 /**
- * Wire contracts for Sales Returns (مرتجعات المبيعات، docs/catalog/01), a
+ * Wire contracts for Sales Returns (مرتجعات المبيعات، docs/archive/catalog/01), a
  * document-framework consumer. Money/Qty cross the wire as exact decimal
  * strings (same convention as journal.ts/inventory.ts) — never floats.
  */

@@ -1,4 +1,4 @@
-/** Errors raised by the landed-cost allocation math (docs/catalog/02 §"التكاليف الإضافية"). */
+/** Errors raised by the landed-cost allocation math (docs/archive/catalog/02 §"التكاليف الإضافية"). */
 
 export class EmptyLandedCostTargetsError extends Error {
   readonly code = "EMPTY_LANDED_COST_TARGETS";

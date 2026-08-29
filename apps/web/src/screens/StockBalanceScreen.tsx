@@ -8,7 +8,7 @@ import { useEntityName } from "../lib/entity-names";
 import { majorOf } from "../lib/money";
 
 /**
- * أرصدة المخزون (Stock Balance) — docs/catalog/03. Read-only cross-warehouse
+ * أرصدة المخزون (Stock Balance) — docs/archive/catalog/03. Read-only cross-warehouse
  * rollup, one row per item, on the real `GET /inventory/stock-balance` route
  * (packages/api/src/inventory-routes.ts), which runs the SAME
  * `rollupStockBalance` domain function server-side.

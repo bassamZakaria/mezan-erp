@@ -17,7 +17,7 @@ import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelActivity, useCompleteActivity, useCreateActivity, useCrmActivities } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-/** الأنشطة (CRM Activities / My Tasks) — docs/catalog/06 §"مهامي / الأنشطة". List + create + complete/cancel row actions. */
+/** الأنشطة (CRM Activities / My Tasks) — docs/archive/catalog/06 §"مهامي / الأنشطة". List + create + complete/cancel row actions. */
 
 const TYPE_KEY: Record<ActivityTypeDTO, AppTranslationKey> = { call: "activities.type.call", meeting: "activities.type.meeting", todo: "activities.type.todo", email: "activities.typeEmail" };
 const STATUS_KEY: Record<ActivityStatusDTO, AppTranslationKey> = { pending: "activities.status.pending", completed: "activities.status.completed", cancelled: "activities.status.cancelled" };

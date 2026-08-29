@@ -1,5 +1,5 @@
 /**
- * Stock Adjustment as a document-framework consumer (docs/catalog/03
+ * Stock Adjustment as a document-framework consumer (docs/archive/catalog/03
  * §"تسويات المخزون" — 8 reasons incl. INITIAL_STOCK opening balances). The
  * second module to prove the framework end to end (`journal-document.ts` was
  * the first).

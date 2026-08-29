@@ -5,7 +5,7 @@ import { createPermissionGate, headerAuthContextResolver, type AuthContextResolv
 
 /**
  * Read-only query surface over the append-only audit trail (`/audit`,
- * docs/plan.md §5.7). The write side (`AuditSink.append`, wired per-module via
+ * docs/archive/plan.md §5.7). The write side (`AuditSink.append`, wired per-module via
  * `recordSensitiveEvent`/`recordSecurityEvent`) is unaffected — this mounts
  * only a filtered `GET`. No PATCH/DELETE exists on this router by design: an
  * audit row is evidence, not editable state.

@@ -1,7 +1,7 @@
 import type { LabelTemplate } from "./label-template.js";
 
 /**
- * Barcode-fit validation (docs/catalog/03-inventory.md §"طباعة الملصقات"):
+ * Barcode-fit validation (docs/archive/catalog/03-inventory.md §"طباعة الملصقات"):
  * "الباركود لا يناسب هذا القالب — هذه الأصناف باركودها أطول من أن يطبع بحجم
  * قابل للقراءة على هذا المقاس. اختر قالباً أكبر." Estimates a Code128
  * barcode's printed width from its character count (a fixed per-module width

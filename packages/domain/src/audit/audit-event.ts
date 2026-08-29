@@ -1,7 +1,7 @@
 /**
  * Audit trail.
  *
- * docs/plan.md §5.7 + docs/catalog/09 (سجلات المراجعة والأمان, `/audit/reports`):
+ * docs/archive/plan.md §5.7 + docs/archive/catalog/09 (سجلات المراجعة والأمان, `/audit/reports`):
  * an append-only forensic record with two streams and a severity taxonomy. On
  * desktop this matters MORE, not less — it is the only forensic record when
  * there is no server.
@@ -14,7 +14,7 @@
 /**
  * Severity taxonomy. `CRITICAL` and `WARNING` were observed in the captured app
  * (account lockout = CRITICAL, HR contract creation = WARNING); `INFO`/`ERROR`
- * complete the set per docs/plan.md §5.7.
+ * complete the set per docs/archive/plan.md §5.7.
  */
 export const AUDIT_SEVERITIES = [
   "CRITICAL",

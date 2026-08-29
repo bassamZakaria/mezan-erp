@@ -40,7 +40,7 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Tax rate routes (docs/catalog/04 "الضرائب"): list, get one, create, edit.
+ * Tax rate routes (docs/archive/catalog/04 "الضرائب"): list, get one, create, edit.
  * Every route is permission-gated via `accounting.tax.view` / `.manage`,
  * matching the permission catalog's accounting module row 13.
  */

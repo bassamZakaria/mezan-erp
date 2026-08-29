@@ -24,7 +24,7 @@ function assertNoNegativeCashBalance(id: string, type: TreasuryAccountType, open
 
 /**
  * Validates a new-treasury-account command against the existing list
- * (docs/catalog/04 "حسابات الخزينة"): the code must be unique, and a cash
+ * (docs/archive/catalog/04 "حسابات الخزينة"): the code must be unique, and a cash
  * account's opening balance may not be negative (bank accounts may, per the
  * tenant's overdraft-allowed policy).
  */

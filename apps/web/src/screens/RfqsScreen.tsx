@@ -43,7 +43,7 @@ import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 
 /**
- * طلبات عروض الأسعار (RFQs — docs/catalog/02 §"طلبات عروض الأسعار"): مسودة →
+ * طلبات عروض الأسعار (RFQs — docs/archive/catalog/02 §"طلبات عروض الأسعار"): مسودة →
  * مرسل → مغلق (ملغي as a cancel path). Pre-PO document — capture requested
  * items, collect supplier quotes once sent, compare them, then convert the
  * chosen quote into a Purchase Order via the real `/rfqs` routes.

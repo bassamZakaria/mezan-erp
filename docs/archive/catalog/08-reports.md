@@ -1,5 +1,10 @@
 # التقارير — Reports
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../../ROADMAP.md` for what is
+> built and open, and `../../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `../README.md` in the archive root maps them.
+
+
 Full inventory and per-report documentation of the REPORTS area (سايدبار → "التقارير") plus the standalone Financial Reports page and Cost-Center P&L, which live under the Accounting module but are themselves reports. Sales module also has one report (تقرير العروض) reachable from its own submenu — cross-referenced here, fully documented in `01-sales.md`.
 
 All routes require an authenticated session (JWT via localStorage). Currency is EGP (`ج.م`). Negative amounts are shown either with a leading `‎-` / en-dash or in parentheses `( 123.00 ج.م )` depending on the widget. Dates in filter inputs use `YYYY-MM-DD`; dates in tables use `DD/MM/YYYY`. All list-style reports share a pagination footer ("عرض 1 - N من N" + a "صفوف لكل صفحة" page-size selector, default 25) and most cell values that reference a customer/supplier/item/account/warehouse are clickable buttons that open a slide-over side panel ("يفتح في لوحة جانبية") with drill-down detail — this is noted once here rather than repeated per report.

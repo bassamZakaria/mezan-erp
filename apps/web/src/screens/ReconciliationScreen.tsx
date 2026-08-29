@@ -9,7 +9,7 @@ function fmt(value: string): string {
 }
 
 /**
- * مطابقة الأرصدة — Balance Reconciliation (docs/catalog/04). Cross-checks each
+ * مطابقة الأرصدة — Balance Reconciliation (docs/archive/catalog/04). Cross-checks each
  * sub-ledger balance against its GL control account and flags journal lines
  * posted directly to a control account (القيود غير المرتبطة), on the real
  * `GET /reconciliation` route (packages/api/src/reconciliation-routes.ts),

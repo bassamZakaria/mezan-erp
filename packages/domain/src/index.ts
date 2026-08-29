@@ -158,7 +158,7 @@ export * from "./vouchers/index.js";
 // --- manufacturing/ — BOMs, work orders, configurable products (phase11/manufacturing) ---
 export * from "./manufacturing/index.js";
 
-// --- phase5/6: returns, landed costs, installments (docs/catalog/01, 02, 05) ---
+// --- phase5/6: returns, landed costs, installments (docs/archive/catalog/01, 02, 05) ---
 export * from "./sales-returns/index.js";
 export * from "./purchase-returns/index.js";
 export * from "./landed-costs/index.js";

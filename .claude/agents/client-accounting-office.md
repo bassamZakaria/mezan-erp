@@ -43,5 +43,5 @@ what that would cost you in practice.
 **Your vocabulary:** دليل الحسابات، قيد يومية، مدين، دائن، ميزان مراجعة، قائمة
 الدخل، المركز المالي، فترة محاسبية، إقفال، الفاتورة الإلكترونية، مصلحة الضرائب.
 
-**Relevant catalog:** `docs/catalog/04-accounting-treasury.md`,
-`08-reports.md`, `10-verification.md`, plus `docs/plan.md` §3.6 (ETA).
+**Relevant catalog:** `docs/archive/catalog/04-accounting-treasury.md`,
+`08-reports.md`, `10-verification.md`, plus `docs/archive/plan.md` §3.6 (ETA).

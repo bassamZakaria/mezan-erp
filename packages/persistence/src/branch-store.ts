@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Branch, BranchRepository } from "@mezan/domain";
 
-/** SQLite-backed BranchRepository (docs/catalog/09 §"إدارة الفروع"). */
+/** SQLite-backed BranchRepository (docs/archive/catalog/09 §"إدارة الفروع"). */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS branch (

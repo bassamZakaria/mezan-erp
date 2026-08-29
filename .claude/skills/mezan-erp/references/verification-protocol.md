@@ -92,7 +92,7 @@ are expected non-reactions.
 
 ## Before building or reviewing a document screen
 
-`docs/catalog/` is a **label snapshot, not a spec of controls**. Its line
+`docs/archive/catalog/` is a **label snapshot, not a spec of controls**. Its line
 `البنود: الصنف, الكمية, سعر الوحدة, الإجمالي` reads identically whether الصنف is a
 combobox over `/items` or a bare `<input type="text">`. A screen can match the catalog
 word for word and still let a user type an item that does not exist. It also omits

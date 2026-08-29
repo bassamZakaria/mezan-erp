@@ -19,7 +19,7 @@ export interface LanRoutesOptions {
 
 /**
  * LAN multi-till routes — mounted at `/lan` on the shared Hono app (both the
- * IPC mount and the LAN-socket mount, per docs/plan.md §2.2's "one HTTP app,
+ * IPC mount and the LAN-socket mount, per docs/archive/plan.md §2.2's "one HTTP app,
  * two mount points"). Session-level seat enforcement lives in the injected
  * `SeatSessionRegistry` (@mezan/domain); this layer validates, keeps the
  * registry's cap in sync with the freshly-resolved `entitlements.seats` on
@@ -35,7 +35,7 @@ export interface LanRoutesOptions {
  *   POST   /sessions        — connect a device; idempotent by sessionId
  *   DELETE /sessions/:id    — disconnect a device (frees its seat; also the
  *                              admin panel's "disconnect" action)
- *   GET    /events          — SSE keep-alive stream (docs/plan.md §2.6: tills
+ *   GET    /events          — SSE keep-alive stream (docs/archive/plan.md §2.6: tills
  *                              connect over http+SSE)
  */
 export function createLanRoutes(options: LanRoutesOptions) {

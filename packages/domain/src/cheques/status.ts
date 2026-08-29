@@ -4,7 +4,7 @@ import { InvalidChequeTransitionError } from "./errors.js";
 /**
  * Days before `dueDate` a still-pending cheque is considered "تحت التحصيل"
  * (sent for bank collection ahead of its due date) rather than plain "قيد
- * الانتظار". Not configurable per docs/catalog/04 — no such setting is
+ * الانتظار". Not configurable per docs/archive/catalog/04 — no such setting is
  * documented; a fixed, generous window keeps the derivation deterministic.
  */
 export const COLLECTION_WINDOW_DAYS = 3;
@@ -29,7 +29,7 @@ export function effectiveChequeStatus(cheque: Pick<Cheque, "status" | "dueDate">
   return "pending";
 }
 
-/** Legal stored-status transitions per manual action (docs/catalog/04's 7-state lifecycle). */
+/** Legal stored-status transitions per manual action (docs/archive/catalog/04's 7-state lifecycle). */
 const ALLOWED_FROM: Record<"deposit" | "collect" | "bounce" | "replace", ChequeStoredStatus> = {
   deposit: "pending",
   collect: "deposited",

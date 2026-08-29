@@ -30,7 +30,7 @@ import type { BootstrapSeedResultDTO } from "@mezan/contracts";
 
 /**
  * Default tenant identity for a freshly-seeded, EMPTY database. These are seed
- * values only (docs/catalog/09 — "Cyag" / محمد الشهابي); they are NOT sample
+ * values only (docs/archive/catalog/09 — "Cyag" / محمد الشهابي); they are NOT sample
  * data driving any screen — once a real tenant edits settings / creates users,
  * the seed is never consulted again.
  */
@@ -62,7 +62,7 @@ export interface SeedStores {
   readonly uow: UnitOfWork;
   readonly hasher: SecretHasher;
   /**
-   * Optional — seeds the 7 standard pipeline stages (docs/catalog/06 "مراحل
+   * Optional — seeds the 7 standard pipeline stages (docs/archive/catalog/06 "مراحل
    * خط المبيعات") on an empty DB when supplied. Omit it and the CRM pipeline
    * simply starts with zero stages (same as omitting any other optional
    * seed block).
@@ -70,12 +70,12 @@ export interface SeedStores {
   readonly pipelineStages?: PipelineStageRepository;
   /**
    * Optional — seeds the standard units of measure and a starter category
-   * tree (docs/catalog/03 §"وحدة القياس" / §"تصنيفات الأصناف") on an empty DB
+   * tree (docs/archive/catalog/03 §"وحدة القياس" / §"تصنيفات الأصناف") on an empty DB
    * when supplied. Omit it and the item catalogs simply start empty.
    */
   readonly itemCatalog?: { readonly units: ItemUnitRepository; readonly categories: ItemCategoryRepository };
   /**
-   * Optional — seeds the standard sticker-sheet geometries (docs/catalog/03
+   * Optional — seeds the standard sticker-sheet geometries (docs/archive/catalog/03
    * §"طباعة الباركود والملصقات") on an empty DB when supplied. Configuration
    * every tenant would otherwise have to measure by hand, not demo data; a
    * tenant is free to edit or delete them. Omit it and the layout catalog
@@ -85,7 +85,7 @@ export interface SeedStores {
 }
 
 /** True when the tenant has never been seeded (no chart of accounts yet). */
-/** The unit codes docs/catalog/03's "وحدة القياس" picker ships with. */
+/** The unit codes docs/archive/catalog/03's "وحدة القياس" picker ships with. */
 const SEED_ITEM_UNITS: readonly ItemUnit[] = [
   { code: "PCS", nameAr: "قطعة", nameEn: "Piece", status: "active" },
   { code: "CTN", nameAr: "كرتونة", nameEn: "Carton", status: "active" },
@@ -97,7 +97,7 @@ const SEED_ITEM_UNITS: readonly ItemUnit[] = [
   { code: "SVC", nameAr: "خدمة", nameEn: "Service", status: "active" },
 ];
 
-/** A starter category tree (docs/catalog/03 §"تصنيفات الأصناف"); editable like any other tenant record. */
+/** A starter category tree (docs/archive/catalog/03 §"تصنيفات الأصناف"); editable like any other tenant record. */
 const SEED_ITEM_CATEGORIES: readonly ItemCategory[] = [
   { id: "cat-food", nameAr: "مواد غذائية", nameEn: "Food", parentId: null, status: "active" },
   { id: "cat-office", nameAr: "مستلزمات مكتبية", nameEn: "Office supplies", parentId: null, status: "active" },
@@ -215,7 +215,7 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
 
   if (stores.labelLayouts) {
     // Standard off-the-shelf A4 sticker sheets, described once so the label
-    // screen has something real to print onto (docs/catalog/03).
+    // screen has something real to print onto (docs/archive/catalog/03).
     const seedLayouts: readonly CreateLabelLayoutCommand[] = [
       {
         id: "LBL-A4-24",
@@ -272,7 +272,7 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
   }
 
   if (stores.pipelineStages) {
-    // Seed values only (docs/catalog/06 "مراحل خط المبيعات") — the same 7
+    // Seed values only (docs/archive/catalog/06 "مراحل خط المبيعات") — the same 7
     // stages/probabilities/win-loss flags the reference system ships with.
     const seedStages: ReadonlyArray<{
       readonly id: string;

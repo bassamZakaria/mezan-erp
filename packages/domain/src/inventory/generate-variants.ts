@@ -15,7 +15,7 @@ import {
 } from "./product-template.js";
 
 /**
- * The variant/SKU generator (docs/catalog/03-inventory.md §"توليد المتغيرات"):
+ * The variant/SKU generator (docs/archive/catalog/03-inventory.md §"توليد المتغيرات"):
  * turns a set of chosen attribute-value combinations into real, independent
  * stockable `Item`s. Already-generated combinations are silently skipped
  * (idempotent re-run of the same selection), mirroring the reference UI

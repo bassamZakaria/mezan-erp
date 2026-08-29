@@ -43,7 +43,7 @@ function money(value: unknown): number {
 }
 
 /**
- * عروض الأسعار / Sales Quotations (docs/catalog/01) — list, create and detail,
+ * عروض الأسعار / Sales Quotations (docs/archive/catalog/01) — list, create and detail,
  * matched field for field against the live reference product's own quotes
  * screen (enumerated 2026-08-25), not against the written catalog: the catalog
  * records labels, and a label cannot tell you whether a field is a picker over

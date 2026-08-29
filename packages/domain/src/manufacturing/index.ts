@@ -1,5 +1,5 @@
 /**
- * manufacturing/ — the manufacturing module (docs/catalog/07): قوائم المواد
+ * manufacturing/ — the manufacturing module (docs/archive/catalog/07): قوائم المواد
  * (BOMs), أوامر التصنيع (Work Orders, 4-stage), المنتجات القابلة للتهيئة
  * (Configurable Products) and التصنيع المخصص (Custom Manufacturing). Built on
  * the shared numbering, costing/stock-ledger and GL engines. Pure domain —

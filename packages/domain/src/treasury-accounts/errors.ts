@@ -18,7 +18,7 @@ export class TreasuryAccountNotFoundError extends Error {
 
 /**
  * Raised when a cash-type treasury account would have a negative opening
- * balance. Mirrors the tenant policy documented in docs/catalog/09
+ * balance. Mirrors the tenant policy documented in docs/archive/catalog/09
  * §"منع الرصيد السالب للحسابات النقدية": cash-drawer accounts can never go
  * negative, while bank accounts are explicitly exempt (overdraft allowed).
  */

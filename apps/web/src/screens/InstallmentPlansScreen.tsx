@@ -34,7 +34,7 @@ import { useNavigation, useScreenIntent } from "../navigation";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 
-/** خطط الأقساط (Installment Plans) — docs/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
+/** خطط الأقساط (Installment Plans) — docs/archive/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
 const FREQUENCY_KEY: Record<InstallmentFrequencyDTO, AppTranslationKey> = {
   WEEKLY: "instalments.frequencyWeekly",

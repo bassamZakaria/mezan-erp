@@ -21,7 +21,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * Self-contained SQLite stores for the HR time & leave layer (docs/catalog/06
+ * Self-contained SQLite stores for the HR time & leave layer (docs/archive/catalog/06
  * "الحضور والانصراف" / "سياسات الإجازات" / "استحقاقات الإجازات"). Same
  * single-file, table-per-entity style as `hr-store.ts`; `Qty` day counts are
  * stored as the scaled INTEGER the value object carries, never as a REAL.

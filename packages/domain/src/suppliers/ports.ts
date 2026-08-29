@@ -1,6 +1,6 @@
 import type { Supplier } from "./supplier.js";
 
-/** Persistence port for the supplier master (docs/catalog/02 "الموردون"). */
+/** Persistence port for the supplier master (docs/archive/catalog/02 "الموردون"). */
 export interface SupplierRepository {
   findAll(): Promise<readonly Supplier[]>;
   findById(id: string): Promise<Supplier | null>;

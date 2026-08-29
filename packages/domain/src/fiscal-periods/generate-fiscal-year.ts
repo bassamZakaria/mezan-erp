@@ -12,7 +12,7 @@ function pad2(n: number): string {
 
 /**
  * Builds the 12 monthly periods for a fiscal year starting in January
- * (docs/catalog/04 "الفترات المالية": "إنشاء السنة التالية" — generates the
+ * (docs/archive/catalog/04 "الفترات المالية": "إنشاء السنة التالية" — generates the
  * whole year pre-opened, "مفتوحة", up front rather than period-by-period).
  * Pure — does not touch a repository.
  */
@@ -34,7 +34,7 @@ export function buildFiscalYearPeriods(year: number, idFactory: (year: number, p
 
 /**
  * Generates and persists a full fiscal year's 12 periods. Rejects if any
- * period in the target year already exists (docs/catalog/04: generating a
+ * period in the target year already exists (docs/archive/catalog/04: generating a
  * year that's already been generated would silently double the period
  * count).
  */

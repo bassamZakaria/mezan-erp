@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Wire/serialization contracts for entitlements and the offline license payload
- * (docs/plan.md §2.5). The entitlements object has the same shape in both
+ * (docs/archive/plan.md §2.5). The entitlements object has the same shape in both
  * editions: the cloud stamps it into the JWT, the desktop reads it from the
  * signed license file. These schemas validate either source before the domain
  * trusts it.

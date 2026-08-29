@@ -9,7 +9,7 @@ import {
   type ChequeStoredStatus,
 } from "@mezan/domain";
 
-/** SQLite-backed ChequeRepository (docs/catalog/04 "سجل الشيكات"). Standalone, mirroring `createSqliteTreasuryAccountRepository`. */
+/** SQLite-backed ChequeRepository (docs/archive/catalog/04 "سجل الشيكات"). Standalone, mirroring `createSqliteTreasuryAccountRepository`. */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS cheque (

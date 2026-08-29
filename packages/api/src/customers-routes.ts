@@ -72,7 +72,7 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Customer routes (docs/catalog/01 "العملاء"): list, get one, create, edit.
+ * Customer routes (docs/archive/catalog/01 "العملاء"): list, get one, create, edit.
  * Every route is permission-gated via the permissions engine
  * (`sales.customer.view` / `sales.customer.create` / `sales.customer.edit`).
  * Statement/balance rollups are Phase-2 (document) work — not exposed here.

@@ -34,7 +34,7 @@ import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 
-/** مرتجعات المشتريات (Purchase Returns) — docs/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
+/** مرتجعات المشتريات (Purchase Returns) — docs/archive/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
 
 const REASON_KEY: Record<PurchaseReturnReasonDTO, AppTranslationKey> = {
   DEFECTIVE: "purchaseReturns.reason.DEFECTIVE",

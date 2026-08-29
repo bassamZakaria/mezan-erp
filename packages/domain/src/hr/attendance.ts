@@ -3,7 +3,7 @@ import type { Holiday } from "./holiday.js";
 import { listHolidaysForYear } from "./holiday.js";
 
 /**
- * Attendance — docs/catalog/06-crm-hr.md "الحضور والانصراف". One row per
+ * Attendance — docs/archive/catalog/06-crm-hr.md "الحضور والانصراف". One row per
  * employee per calendar day, carrying the clock-in/clock-out pair, the worked
  * duration and the day's status code. The catalog's grid legend is the
  * authoritative status set: P/A/H/L/HO/— (present / absent / half day /

@@ -1,5 +1,5 @@
 /**
- * GL posting engine (Tier 2 shared engine, docs/plan.md §4 "the heart").
+ * GL posting engine (Tier 2 shared engine, docs/archive/plan.md §4 "the heart").
  *
  * Double-entry posting with balance enforcement and the fiscal-period gate;
  * the draft → posted → reversed lifecycle; append-only posted entries corrected

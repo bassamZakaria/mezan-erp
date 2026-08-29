@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { documentStatusSchema } from "./documents.js";
 
-/** Wire contracts for Purchase Returns (مرتجعات المشتريات، docs/catalog/02). Mirrors sales-returns.ts. */
+/** Wire contracts for Purchase Returns (مرتجعات المشتريات، docs/archive/catalog/02). Mirrors sales-returns.ts. */
 
 const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
 

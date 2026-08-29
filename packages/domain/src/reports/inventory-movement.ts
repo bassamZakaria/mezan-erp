@@ -8,7 +8,7 @@ import { withinDateRange } from "./period-bucket.js";
 import { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
 
 /**
- * حركة المخزون — Stock Movement (docs/catalog/08-reports.md): every stock-
+ * حركة المخزون — Stock Movement (docs/archive/catalog/08-reports.md): every stock-
  * affecting transaction (in/out) in a period, one row per `StockMovement` —
  * the ledger IS the report; nothing here is derived beyond formatting.
  */

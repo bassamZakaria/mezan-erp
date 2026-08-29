@@ -1,5 +1,5 @@
 /**
- * Branch — docs/catalog/09 §"إدارة الفروع (Branches list)" / §"صفحة الفرع —
+ * Branch — docs/archive/catalog/09 §"إدارة الفروع (Branches list)" / §"صفحة الفرع —
  * MAIN (Branch detail / Branch 360)". A branch is a first-class operational
  * unit (own treasury accounts, inventory, staff roster) that can be flagged
  * "main" and can nest under a parent branch (the catalog's "الفرع الرئيسي"

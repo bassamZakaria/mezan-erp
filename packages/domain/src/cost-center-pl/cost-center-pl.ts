@@ -4,7 +4,7 @@ import type { CostCenter } from "../cost-centers/cost-center.js";
 import type { PostedLine } from "../gl/ledger.js";
 
 /**
- * أرباح مراكز التكلفة — Cost Center P&L (docs/catalog/04). Groups the P&L
+ * أرباح مراكز التكلفة — Cost Center P&L (docs/archive/catalog/04). Groups the P&L
  * (revenue − expense) of posted journal lines by the cost-center dimension the
  * line carries (`JournalLine.costCenterId`). Lines with no cost center fall
  * into a single "غير مخصص" (unassigned) bucket so the totals always reconcile

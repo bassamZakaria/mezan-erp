@@ -49,7 +49,7 @@ export interface DataMigrationTransactor {
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * نقل البيانات (Data Migration wizard) — docs/catalog/09 §"نقل البيانات":
+ * نقل البيانات (Data Migration wizard) — docs/archive/catalog/09 §"نقل البيانات":
  * the one-time go-live bulk-import tool. This module covers the 9
  * MASTER-DATA steps (steps 1-9 of the 13-step dependency-ordered import —
  * الأقسام، الموظفين، حسابات الخزينة، الموردين، العملاء، الأصناف، وحدات

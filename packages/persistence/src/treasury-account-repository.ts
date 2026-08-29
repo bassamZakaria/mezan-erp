@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type TreasuryAccount, type TreasuryAccountRepository, type TreasuryAccountStatus, type TreasuryAccountType } from "@mezan/domain";
 
-/** SQLite-backed TreasuryAccountRepository (docs/catalog/04 "حسابات الخزينة"). Standalone, mirroring `createSqliteAccountRepository`. */
+/** SQLite-backed TreasuryAccountRepository (docs/archive/catalog/04 "حسابات الخزينة"). Standalone, mirroring `createSqliteAccountRepository`. */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS treasury_account (

@@ -3,7 +3,7 @@ import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-conne
 import { Money, type Supplier, type SupplierRepository } from "@mezan/domain";
 
 /**
- * SQLite-backed SupplierRepository (docs/catalog/02 "الموردون") — the mirror
+ * SQLite-backed SupplierRepository (docs/archive/catalog/02 "الموردون") — the mirror
  * of {@link import("./customer-repository.js").createSqliteCustomerRepository}.
  * Standalone connection/table, same as the account/customer/branch stores.
  */

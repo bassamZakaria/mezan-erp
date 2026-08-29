@@ -32,7 +32,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * Self-contained SQLite stores for HR master data (docs/catalog/06
+ * Self-contained SQLite stores for HR master data (docs/archive/catalog/06
  * "الموارد البشرية" — hr/master-data). Mirrors `crm-store.ts`'s single-file,
  * single-table-per-entity style; nested value objects (allowances/deductions/
  * leave-entitlement on Contract, address/emergency-contact on Employee) are

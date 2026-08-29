@@ -8,7 +8,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 
-/** استحقاقات الإجازات (Leave Accrual Batches) — docs/catalog/06 §"استحقاقات الإجازات". Manual and scheduled runs that credit entitlement across every eligible employee; a period already run is never credited twice. */
+/** استحقاقات الإجازات (Leave Accrual Batches) — docs/archive/catalog/06 §"استحقاقات الإجازات". Manual and scheduled runs that credit entitlement across every eligible employee; a period already run is never credited twice. */
 
 const RUN_TYPE_FILTERS: Array<{ key: string; labelKey: AppTranslationKey }> = [
   { key: "", labelKey: "leaveAccrual.filterAll" },

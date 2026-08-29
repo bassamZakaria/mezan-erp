@@ -2,7 +2,7 @@ import { Money } from "../money/index.js";
 import { validatePartnerBase, type PartnerBase } from "../partners/partner-base.js";
 
 /**
- * Supplier — docs/catalog/02-purchases.md "الموردون (Suppliers)". Master list
+ * Supplier — docs/archive/catalog/02-purchases.md "الموردون (Suppliers)". Master list
  * of vendors: contact info, payment terms, category, and address — the mirror
  * of `Customer` (packages/domain/src/customers/customer.ts) minus the
  * customer-only credit-limit/ETA fields, plus a street address (catalog's

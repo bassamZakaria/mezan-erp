@@ -13,7 +13,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite stores for طلبات عروض الأسعار (RFQs, docs/catalog/02) — an RFQ
+ * SQLite stores for طلبات عروض الأسعار (RFQs, docs/archive/catalog/02) — an RFQ
  * header + its requested lines (JSON, document-owned) and the separate
  * supplier-quotes table (one row per submitted quote, also JSON lines),
  * following the same standalone-store pattern as purchasing-stores.ts.

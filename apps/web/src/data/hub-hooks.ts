@@ -65,7 +65,7 @@ export interface ProductionDashboardDTO {
   readonly activeOrders: readonly ProductionActiveOrderDTO[];
 }
 
-/** لوحة الإنتاج (docs/catalog/07 §"لوحة الإنتاج") — the real, already-mounted `GET /manufacturing/dashboard`. */
+/** لوحة الإنتاج (docs/archive/catalog/07 §"لوحة الإنتاج") — the real, already-mounted `GET /manufacturing/dashboard`. */
 export function useManufacturingDashboard(): UseQueryResult<ProductionDashboardDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();

@@ -13,7 +13,7 @@ export interface UpdateTaxRateCommand {
 }
 
 /**
- * Edits an existing tax rate (docs/catalog/04's "Add Tax" dialog doubles as
+ * Edits an existing tax rate (docs/archive/catalog/04's "Add Tax" dialog doubles as
  * the edit form). Re-validates the rate range and re-applies the
  * single-default invariant when `isDefault` flips to true.
  */

@@ -1,7 +1,7 @@
 /**
  * NextNumber service.
  *
- * Allocates gap-free, sequential document numbers (docs/plan.md §2.3 rule 5):
+ * Allocates gap-free, sequential document numbers (docs/archive/plan.md §2.3 rule 5):
  * "Sequential document numbers with no gaps under concurrency. Numbering is a
  * transactional counter row (SELECT ... FOR UPDATE on Postgres, BEGIN IMMEDIATE
  * on SQLite) inside the same transaction as the document insert."

@@ -5,7 +5,7 @@ import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
 
 /**
- * إقرار ضريبة القيمة المضافة — VAT Return (docs/catalog/08-reports.md).
+ * إقرار ضريبة القيمة المضافة — VAT Return (docs/archive/catalog/08-reports.md).
  * Output tax (sales) vs input tax (purchases), broken down by rate. Journal
  * entries carry no rate metadata, so each rate is derived per entry from the
  * VAT line against its taxable base: for a sales entry the base is the revenue

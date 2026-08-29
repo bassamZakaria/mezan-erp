@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { LabelLayout, LabelLayoutRepository, LabelPageSize } from "@mezan/domain";
 
-/** SQLite-backed LabelLayoutRepository (docs/catalog/03 §"طباعة الباركود والملصقات"). */
+/** SQLite-backed LabelLayoutRepository (docs/archive/catalog/03 §"طباعة الباركود والملصقات"). */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS label_layout (

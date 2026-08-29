@@ -180,7 +180,7 @@ export function GoodsReceiptsScreen() {
   }, [items]);
   const orderById = useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
 
-  /** Only sent / partially-received POs can be received against (docs/catalog/02). */
+  /** Only sent / partially-received POs can be received against (docs/archive/catalog/02). */
   const receivableOrders = orders.filter((o) => o.status === "sent" || o.status === "partially_received");
   const orderOptions: EntityPickerOption[] = receivableOrders.map((o) => ({
     id: o.id,

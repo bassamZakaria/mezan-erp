@@ -7,7 +7,7 @@ import { sumRows, averageOf } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
- * المبيعات حسب العميل — Sales by Customer (docs/catalog/08-reports.md): top
+ * المبيعات حسب العميل — Sales by Customer (docs/archive/catalog/08-reports.md): top
  * customers by revenue and outstanding balance. Revenue is tax-inclusive
  * (`grandTotal`) per the catalog's "عرض الإيرادات: شامل/غير شامل الضريبة"
  * toggle; outstanding is the invoice's own `total − amountPaid`, the SAME

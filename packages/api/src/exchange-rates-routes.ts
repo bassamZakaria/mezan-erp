@@ -16,7 +16,7 @@ function serialize(rate: ExchangeRate) {
 }
 
 /**
- * Exchange-rate routes (docs/catalog/04 "أسعار الصرف"), mounted under
+ * Exchange-rate routes (docs/archive/catalog/04 "أسعار الصرف"), mounted under
  * `/exchange-rates`: list, create, and the approval/lock lifecycle actions.
  * Permissions: `accounting.exchange_rate.manage` (view/create),
  * `accounting.exchange_rate.approve` (approve/lock).

@@ -4,7 +4,7 @@ import { Money } from "../money/index.js";
 
 /**
  * Shared GL helpers for the financial-statement reports
- * (docs/catalog/08-reports.md — القوائم المالية). Every statement below is a
+ * (docs/archive/catalog/08-reports.md — القوائم المالية). Every statement below is a
  * `ReportDefinition` that aggregates the same primitive: net (debit − credit)
  * movement per account over posted journal entries. This module owns that one
  * aggregation plus the account classification the statements group by, so the

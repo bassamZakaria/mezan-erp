@@ -1,5 +1,5 @@
 /**
- * The 8 stock-adjustment reasons (docs/catalog/03-inventory.md §"تسويات
+ * The 8 stock-adjustment reasons (docs/archive/catalog/03-inventory.md §"تسويات
  * المخزون" — the reason picker with 8 cards). Transcribed verbatim, in the
  * documented order. `INITIAL_STOCK` is the opening-balance mechanism (there is
  * no separate opening-balance screen — it is a specialised entry point into

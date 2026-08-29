@@ -1,5 +1,5 @@
 /**
- * إقفال السنة المالية — Year-end close (docs/catalog/04).
+ * إقفال السنة المالية — Year-end close (docs/archive/catalog/04).
  *
  * Closing a year moves every revenue and expense balance into retained
  * earnings, so the P&L accounts start the new year at zero and the ledger

@@ -1,7 +1,7 @@
 /**
  * Treasury Vouchers (السندات النقدية) — the unified 11-type receipt / payment /
  * transfer document + invoice allocation, built on the document framework
- * (docs/catalog/04-accounting-treasury.md §"السندات النقدية").
+ * (docs/archive/catalog/04-accounting-treasury.md §"السندات النقدية").
  */
 
 export {

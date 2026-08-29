@@ -1,5 +1,5 @@
 /**
- * Promotion usage aggregation (docs/catalog/01 §"العروض" — تقرير استخدام
+ * Promotion usage aggregation (docs/archive/catalog/01 §"العروض" — تقرير استخدام
  * العروض): how much discount each campaign actually granted, and how much of
  * that a sales return has since taken back.
  *

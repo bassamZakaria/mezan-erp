@@ -1,5 +1,10 @@
 # Pass 9 — Settings, Dashboard, Global UX
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../../ROADMAP.md` for what is
+> built and open, and `../../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `../README.md` in the archive root maps them.
+
+
 Target: the reference system's staging environment (Arabic RTL). Tenant: النور للتجارة والتوزيع (code `<redacted>`), plan `ENTERPRISE`, industryType `TRADING`, businessProfile `FULL_ERP`.
 Logged in as: يوسف محمد (<redacted>), `isTenantAdmin: true`, `permissions: ["*"]` — full-access account, so permission-matrix docs below reflect the schema, not this user's restricted view.
 

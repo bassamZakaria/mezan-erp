@@ -47,7 +47,7 @@ export function parseCreatedAtFromFileName(fileName: string): Date | null {
  * Creates one backup: SQLite's online backup API (`better-sqlite3`'s
  * `.backup()`, which wraps SQLite's Online Backup API) copies a
  * transactionally-consistent snapshot of the *live* database — safe to run
- * against a WAL database mid-write, unlike a raw file copy (docs/plan.md
+ * against a WAL database mid-write, unlike a raw file copy (docs/archive/plan.md
  * §3.7). That snapshot + a manifest (schema version, app version, row
  * counts, checksum) are packaged into one archive, then GFS retention prunes
  * `backupsDir` down to the configured policy.

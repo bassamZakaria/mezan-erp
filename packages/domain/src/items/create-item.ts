@@ -76,7 +76,7 @@ function buildCandidate(command: CreateItemCommand): Item {
 }
 
 /**
- * Validates a new-item command against the existing catalog (docs/catalog/03
+ * Validates a new-item command against the existing catalog (docs/archive/catalog/03
  * "الأصناف"): the code must be unique, then every field-level and GL-mapping
  * rule from `./validation.js` must hold. Pure — does not touch the repo.
  */
@@ -95,7 +95,7 @@ export function validateNewItem(
 
 /**
  * Creates and persists a new item. New items always start `active`
- * (docs/catalog/03 — status is toggled later via edit, never at creation).
+ * (docs/archive/catalog/03 — status is toggled later via edit, never at creation).
  * `accounts`, when supplied, is used to validate any GL mapping overrides —
  * omit it to skip that check (every mapping is itself optional).
  */

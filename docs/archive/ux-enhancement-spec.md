@@ -1,5 +1,10 @@
 # Mezan — UX Enhancement Spec
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../ROADMAP.md` for what is
+> built and open, and `../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `./README.md` in the archive root maps them.
+
+
 **Status:** proposal (branch `enhancements`, worktree `enh/ui-design`)
 **Author:** Bassam Zakaria
 **Scope:** a distinctive, premium evolution of Mezan's visual identity. This does **not** change the parity app on `main`. It is a design direction plus a clickable mockup (`docs/artifacts/mezan-enhanced-mockups.html`).

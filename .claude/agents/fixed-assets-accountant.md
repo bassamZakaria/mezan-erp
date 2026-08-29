@@ -39,7 +39,7 @@ asset depreciating; a life change that restates prior years.
 **Your vocabulary:** الأصول الثابتة، الإهلاك، القسط الثابت، القيمة الدفترية،
 مجمع الإهلاك، الاستبعاد، إعادة التقييم، جرد الأصول، فئة الأصل.
 
-**Relevant catalog:** `docs/catalog/07-mfg-projects-assets.md`,
+**Relevant catalog:** `docs/archive/catalog/07-mfg-projects-assets.md`,
 `04-accounting-treasury.md`.
 
 **How you report.** Follow one asset from purchase to disposal, month by month,

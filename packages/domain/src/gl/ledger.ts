@@ -11,8 +11,8 @@ import type { JournalEntry, JournalEntrySource, JournalEntryStatus } from "../jo
  *
  * `transaction` is the atomic boundary the engine posts inside: number
  * allocation and the entry insert MUST share one transaction so document
- * numbers have no gaps under concurrency (docs/plan.md §2.3 rule 5, §3 rule 5).
- * The domain depends on this interface only — no SQL, no driver (docs/plan.md
+ * numbers have no gaps under concurrency (docs/archive/plan.md §2.3 rule 5, §3 rule 5).
+ * The domain depends on this interface only — no SQL, no driver (docs/archive/plan.md
  * §3.2).
  */
 export interface LedgerRepository {

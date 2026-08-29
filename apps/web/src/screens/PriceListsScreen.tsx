@@ -26,7 +26,7 @@ import { useAppTranslation } from "../i18n";
 import { majorOf } from "../lib/money";
 
 /**
- * قوائم الأسعار (Price Lists — docs/catalog/01). Real data only: the list, the
+ * قوائم الأسعار (Price Lists — docs/archive/catalog/01). Real data only: the list, the
  * create form and every count on this screen come from `GET/POST/PATCH
  * /price-lists` through TanStack Query — no sample arrays.
  *

@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for Sales Quotations (docs/catalog/01-sales.md §"عروض الأسعار").
+ * Wire contracts for Sales Quotations (docs/archive/catalog/01-sales.md §"عروض الأسعار").
  *
  * Money and quantities cross the wire as exact decimal strings, never floats —
  * the boundary that keeps the "no floats, ever" ledger invariant true end to end
- * (docs/plan.md §2.3). The API re-parses these strings into `Money` / `Qty`.
+ * (docs/archive/plan.md §2.3). The API re-parses these strings into `Money` / `Qty`.
  */
 
 export const salesQuoteStatusSchema = z.enum([
@@ -60,7 +60,7 @@ export const salesQuoteListQuerySchema = z.object({
 
 /**
  * "إنشاء من عرض سعر" — convert an accepted quote into a draft sales invoice
- * (docs/catalog/01 §"فواتير المبيعات"). A quote line carries no GL-account/
+ * (docs/archive/catalog/01 §"فواتير المبيعات"). A quote line carries no GL-account/
  * stock info, so the caller supplies it per line here, matched back to the
  * quote's own lines by `lineId`.
  */

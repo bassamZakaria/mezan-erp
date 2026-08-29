@@ -15,7 +15,7 @@ export interface CreateCostCenterCommand {
 
 /**
  * Validates a new-cost-center command against the existing list
- * (docs/catalog/04 "مراكز التكلفة"): the code must be unique, and a parent —
+ * (docs/archive/catalog/04 "مراكز التكلفة"): the code must be unique, and a parent —
  * when given — must exist. Unlike Chart of Accounts, cost centers have no
  * header/detail distinction, so any existing cost center may be a parent.
  */

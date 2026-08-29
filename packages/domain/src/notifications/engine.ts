@@ -25,8 +25,8 @@ export interface NotificationRulesEngineDeps {
 }
 
 /**
- * NotificationRulesEngine — the "قواعد الإشعارات" runtime (docs/catalog/09,
- * docs/plan.md §5.6). Subscribes to the domain `EventBus` (via `handle`,
+ * NotificationRulesEngine — the "قواعد الإشعارات" runtime (docs/archive/catalog/09,
+ * docs/archive/plan.md §5.6). Subscribes to the domain `EventBus` (via `handle`,
  * typically wired through `eventBus.subscribeAll`) and, for every ACTIVE rule
  * targeting the incoming event's code whose optional condition matches,
  * resolves the recipient set and persists one `Notification` per recipient.
@@ -34,7 +34,7 @@ export interface NotificationRulesEngineDeps {
  * In-app is the only channel actually delivered (a persisted, readable
  * notification row); email/push are recorded on the notification's
  * `channelStatus` as `"queued"` — this repo has no outbound transport for
- * either yet (docs/plan.md line 535: online-only channels must degrade, not
+ * either yet (docs/archive/plan.md line 535: online-only channels must degrade, not
  * block the in-app one).
  */
 export class NotificationRulesEngine {

@@ -14,7 +14,7 @@ export const MANIFEST_FORMAT = 1;
  * The current on-disk SQLite schema version this build writes. Desktop has
  * no migration runner yet (Phase 0 — only `journal_entry`/`journal_line`
  * exist, created idempotently by `createSqliteUnitOfWork`); this constant is
- * the seam the migration engine will bump once it exists (docs/plan.md
+ * the seam the migration engine will bump once it exists (docs/archive/plan.md
  * §2.3 "Migrations"). Kept local to the backup module rather than imported
  * from @mezan/persistence so backups stay decoupled from that package's
  * internal schema shape.

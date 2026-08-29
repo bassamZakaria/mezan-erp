@@ -3,13 +3,13 @@ import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-conne
 import { Money, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "@mezan/domain";
 
 /**
- * Self-contained SQLite-backed ItemRepository (docs/catalog/03-inventory.md
+ * Self-contained SQLite-backed ItemRepository (docs/archive/catalog/03-inventory.md
  * "الأصناف"), following the same standalone-store pattern as
  * warehouse-store.ts / branch-store.ts — Items aren't part of the
  * journal-posting UnitOfWork, so this owns its own connection/table.
  *
  * Money fields (`sale_price`/`cost_price`) are stored as the same scaled
- * INTEGER convention as journal_line.debit/credit (docs/plan.md §2.3) — never
+ * INTEGER convention as journal_line.debit/credit (docs/archive/plan.md §2.3) — never
  * REAL. `alternate_units` and `barcodes` are small, item-owned collections
  * with no independent query needs, so they're kept as JSON text columns
  * rather than child tables.

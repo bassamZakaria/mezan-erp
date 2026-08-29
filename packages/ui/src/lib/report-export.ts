@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 
 /**
  * Report export — generic over `Row`, so it works for every report without
- * per-report export code (docs/plan.md §2.4: "Mezan should export
+ * per-report export code (docs/archive/plan.md §2.4: "Mezan should export
  * everywhere; it is nearly free once one export pipeline exists"). Used by
  * `<ReportRunner>`'s always-on Export button.
  */

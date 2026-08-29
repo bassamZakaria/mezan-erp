@@ -1,5 +1,5 @@
 /**
- * Purchase Return as a document-framework consumer (docs/catalog/02
+ * Purchase Return as a document-framework consumer (docs/archive/catalog/02
  * §"مرتجعات المشتريات"): goods returned to a supplier against a confirmed
  * purchase invoice — removes stock at its (immutable) receipt/moving-average
  * cost and reduces the supplier payable.
@@ -22,7 +22,7 @@ import { InvalidDocumentError } from "../documents/errors.js";
 
 export const DOC_TYPE = "PURCHASE_RETURN";
 
-/** docs/catalog/02 §"السبب *" on the return form. */
+/** docs/archive/catalog/02 §"السبب *" on the return form. */
 export const PURCHASE_RETURN_REASONS = [
   "DEFECTIVE",
   "WRONG_ITEM",

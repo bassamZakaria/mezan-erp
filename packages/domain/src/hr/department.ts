@@ -1,6 +1,6 @@
 /**
- * Department — docs/catalog/06-crm-hr.md "الأقسام". Thin master data (no
- * detail page, edit-dialog-only in the reference UX — docs/plan.md pattern
+ * Department — docs/archive/catalog/06-crm-hr.md "الأقسام". Thin master data (no
+ * detail page, edit-dialog-only in the reference UX — docs/archive/plan.md pattern
  * mirrored from `packages/domain/src/settings/branch.ts`): a department can
  * nest under a parent, optionally names a manager (an employee id), and sets
  * the overtime-eligibility / standard-work-hours defaults employees inherit

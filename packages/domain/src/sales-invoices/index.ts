@@ -1,5 +1,5 @@
 /**
- * Sales Invoices (فواتير المبيعات, docs/catalog/01-sales.md) — the document that
+ * Sales Invoices (فواتير المبيعات, docs/archive/catalog/01-sales.md) — the document that
  * deducts stock and books a customer receivable. Built on the document framework
  * (lifecycle guards, effects descriptor, GL/stock/numbering/workflow hooks) and
  * the GL + stock-ledger engines; it never re-implements posting.

@@ -22,7 +22,7 @@ import { useCreateOpportunity, useCustomers, useMoveOpportunityStage, useOpportu
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 
-/** الفرص (Opportunities) — docs/catalog/06 §"الفرص". List + create. Stage moves happen from the Pipeline board. */
+/** الفرص (Opportunities) — docs/archive/catalog/06 §"الفرص". List + create. Stage moves happen from the Pipeline board. */
 
 const STATUS_KEY: Record<OpportunityStatusDTO, AppTranslationKey> = { open: "opportunities.status.open", won: "opportunities.status.won", lost: "opportunities.status.lost" };
 const STATUS_TONE: Record<OpportunityStatusDTO, PillTone> = { open: "info", won: "success", lost: "danger" };

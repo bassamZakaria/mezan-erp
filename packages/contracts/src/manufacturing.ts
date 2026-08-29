@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the manufacturing module (docs/catalog/07): قوائم المواد
+ * Wire contracts for the manufacturing module (docs/archive/catalog/07): قوائم المواد
  * (BOMs), أوامر التصنيع (Work Orders), المنتجات القابلة للتهيئة (Configurable
  * Products) and التصنيع المخصص (Custom Manufacturing). Money and Qty cross the
  * wire as EXACT decimal strings — never floats.

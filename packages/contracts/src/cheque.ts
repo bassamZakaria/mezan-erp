@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the Cheque Register (docs/catalog/04 §"سجل الشيكات").
+ * Wire contracts for the Cheque Register (docs/archive/catalog/04 §"سجل الشيكات").
  * Money crosses the wire as an exact decimal string, never a float — the
  * domain re-parses it via `Money.fromMajor`.
  */

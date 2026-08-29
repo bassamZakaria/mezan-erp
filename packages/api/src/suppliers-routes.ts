@@ -52,7 +52,7 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Supplier routes (docs/catalog/02 "الموردون"): list, get one, create, edit —
+ * Supplier routes (docs/archive/catalog/02 "الموردون"): list, get one, create, edit —
  * the mirror of customers-routes.ts. Every route is permission-gated via the
  * permissions engine (`purchases.supplier.view` / `.create` / `.edit`).
  * Balance-owed/statement rollups are Phase-2 (document) work — not exposed here.

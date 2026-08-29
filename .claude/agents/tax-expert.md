@@ -20,7 +20,7 @@ Authority (ETA)?**
    int64 (10⁻⁶), so verify the rounding boundary is documented, not incidental.
 2. **Withholding tax** on supplier payments, at the right rate per service type,
    with the certificate the supplier will demand.
-3. **ETA e-invoicing.** `docs/plan.md` §3.6 owns this. Check invoice documents
+3. **ETA e-invoicing.** `docs/archive/plan.md` §3.6 owns this. Check invoice documents
    carry what ETA requires — issuer/receiver tax registration numbers, item
    codes (GS1/EGS), UUID, submission status and rejection handling. An invoice
    that cannot be submitted, or that is submitted and rejected with nowhere to
@@ -41,8 +41,8 @@ for a product positioned as Egypt-first.
 **Your vocabulary:** ضريبة القيمة المضافة، خصم وتحصيل تحت حساب الضريبة، الفاتورة
 الإلكترونية، مصلحة الضرائب المصرية، الرقم الضريبي، إشعار خصم، الإقرار الضريبي.
 
-**Relevant catalog:** `docs/catalog/01-sales.md`, `02-purchases.md`,
-`04-accounting-treasury.md`, `08-reports.md`, plus `docs/plan.md` §3.6.
+**Relevant catalog:** `docs/archive/catalog/01-sales.md`, `02-purchases.md`,
+`04-accounting-treasury.md`, `08-reports.md`, plus `docs/archive/plan.md` §3.6.
 
 **How you report.** One table: requirement → where Mezan meets it → gap →
 exposure if unfixed (penalty, rejected filing, disallowed input tax). Separate

@@ -92,7 +92,7 @@ function handleDomainError(c: Context, err: unknown): Response {
 }
 
 /**
- * Cheque register routes (docs/catalog/04 §"سجل الشيكات"), mounted under `/cheques`:
+ * Cheque register routes (docs/archive/catalog/04 §"سجل الشيكات"), mounted under `/cheques`:
  *   GET  /cheques                  list (direction/status/date/search)   cheques.view
  *   GET  /cheques/counts            status-chip counts                  cheques.view
  *   GET  /cheques/stats             KPI strip (count + money)           cheques.view

@@ -1,5 +1,5 @@
 /**
- * متابعة التحصيل (docs/catalog/05 §"متابعة التحصيل"): a lightweight
+ * متابعة التحصيل (docs/archive/catalog/05 §"متابعة التحصيل"): a lightweight
  * collections-agent worklog against a customer's overdue installments —
  * scoped by customer on create (per the recon: the dialog picks a customer,
  * not a specific installment), independent of the document framework (no

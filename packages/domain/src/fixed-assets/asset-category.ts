@@ -1,7 +1,7 @@
 import { DuplicateAssetCategoryCodeError, InvalidAssetCategoryError } from "./errors.js";
 
 /**
- * Fixed Assets — Asset Categories (docs/catalog/07-mfg-projects-assets.md
+ * Fixed Assets — Asset Categories (docs/archive/catalog/07-mfg-projects-assets.md
  * "تصنيفات الأصول"). A category carries the defaults (depreciation method,
  * useful life, salvage %) new assets inherit, plus optional default GL account
  * overrides used at posting time when an asset itself has none configured.
@@ -11,7 +11,7 @@ export type DepreciationMethod = "straight_line";
 
 /**
  * Documented system-default GL account CODES for the catalog's asset
- * categories (docs/catalog/07-mfg-projects-assets.md "تصنيفات الأصول"). These
+ * categories (docs/archive/catalog/07-mfg-projects-assets.md "تصنيفات الأصول"). These
  * are for documentation/UI helper-text use only — this domain layer never
  * looks them up or enforces them; every entity here only ever stores explicit
  * account ids.

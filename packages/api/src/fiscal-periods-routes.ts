@@ -40,13 +40,13 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Fiscal period routes (docs/catalog/04 "الفترات المالية"): list (optionally
+ * Fiscal period routes (docs/archive/catalog/04 "الفترات المالية"): list (optionally
  * scoped to a year), get one, generate a fiscal year's 12 periods
  * ("إنشاء السنة التالية"), and the three-tier lifecycle actions
  * close/reopen/lock.
  *
  * PERMISSION NOTE: the permission catalog only defines `accounting.period
- * .view`, `.close` [dep:view], and `.reopen` [dep:close] (docs/catalog/09
+ * .view`, `.close` [dep:view], and `.reopen` [dep:close] (docs/archive/catalog/09
  * §permission matrix line ~415) — there is no dedicated "lock" permission.
  * Locking is the stricter half of the same "who controls period close-of-
  * books" capability as closing, so the `/lock` route reuses

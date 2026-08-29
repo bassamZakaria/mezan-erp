@@ -1,5 +1,5 @@
 /**
- * Journal Entry as a document-framework consumer (docs/catalog/04 §القيود
+ * Journal Entry as a document-framework consumer (docs/archive/catalog/04 §القيود
  * المحاسبية) — the first module to prove the framework end to end.
  *
  * A manual journal entry IS its own GL entry, so this type takes its number from

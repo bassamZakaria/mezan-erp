@@ -348,7 +348,7 @@ export class ApiError extends Error {
 }
 
 /**
- * Real login (docs/plan.md desktop username+PIN). On success the resolved
+ * Real login (docs/archive/plan.md desktop username+PIN). On success the resolved
  * session is stored in the ApiContext, so every subsequent query/mutation
  * sends the permission-gate headers it establishes.
  */
@@ -481,7 +481,7 @@ async function readError(res: { json<T>(): Promise<T> }, fallback: string): Prom
   return body.message ?? fallback;
 }
 
-/** الأصناف (docs/catalog/03) — list, create, edit. */
+/** الأصناف (docs/archive/catalog/03) — list, create, edit. */
 export interface ItemListFilter {
   /** A chip key: `all`, `active`, `inactive`, `low_stock`, `out_of_stock`, or an item type. */
   readonly status?: string;
@@ -583,7 +583,7 @@ export function useUpdateItem() {
   });
 }
 
-/** العملاء (docs/catalog/01) — list, create, edit; also used for pickers on other real-data screens (e.g. quotes). */
+/** العملاء (docs/archive/catalog/01) — list, create, edit; also used for pickers on other real-data screens (e.g. quotes). */
 export interface CustomerListFilter {
   /** `all` / `active` / `inactive` — the list's own chip axis. */
   readonly status?: string;
@@ -681,7 +681,7 @@ export function useUpdateCustomer() {
   });
 }
 
-/** الموردون (docs/catalog/02) — list, create, edit. */
+/** الموردون (docs/archive/catalog/02) — list, create, edit. */
 export interface SupplierListFilter {
   readonly status?: string;
   readonly q?: string;
@@ -770,7 +770,7 @@ export function useUpdateSupplier() {
   });
 }
 
-/** دليل الحسابات (docs/catalog/04) — list, create, edit. */
+/** دليل الحسابات (docs/archive/catalog/04) — list, create, edit. */
 export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -813,7 +813,7 @@ export function useUpdateAccount() {
   });
 }
 
-/** حسابات الخزينة (docs/catalog/04) — list, create, edit. */
+/** حسابات الخزينة (docs/archive/catalog/04) — list, create, edit. */
 export function useTreasuryAccounts(): UseQueryResult<TreasuryAccountDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -856,7 +856,7 @@ export function useUpdateTreasuryAccount() {
   });
 }
 
-/** قوائم الأسعار (docs/catalog/01) — real list off `/price-lists`. */
+/** قوائم الأسعار (docs/archive/catalog/01) — real list off `/price-lists`. */
 export function usePriceLists(): UseQueryResult<PriceListDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -888,7 +888,7 @@ export function useCreatePriceList() {
   });
 }
 
-/** العروض / promotions (docs/catalog/01) — real list off `/promotions`. */
+/** العروض / promotions (docs/archive/catalog/01) — real list off `/promotions`. */
 export function usePromotions(): UseQueryResult<PromotionDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -903,7 +903,7 @@ export function usePromotions(): UseQueryResult<PromotionDTO[], ApiError> {
   });
 }
 
-/** تقرير استخدام العروض (docs/catalog/01) — real usage off confirmed invoices, `/promotions/report`. */
+/** تقرير استخدام العروض (docs/archive/catalog/01) — real usage off confirmed invoices, `/promotions/report`. */
 export function usePromotionUsageReport(): UseQueryResult<PromotionUsageRowDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -961,7 +961,7 @@ function salesQuoteParams(filter: SalesQuoteListFilter): URLSearchParams {
   return params;
 }
 
-/** عروض الأسعار / sales quotes (docs/catalog/01) — real list off `/sales-quotes`. */
+/** عروض الأسعار / sales quotes (docs/archive/catalog/01) — real list off `/sales-quotes`. */
 export function useSalesQuotes(filter: SalesQuoteListFilter = {}): UseQueryResult<SalesQuoteRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1134,7 +1134,7 @@ function journalEntryParams(filter: JournalEntryListFilter): URLSearchParams {
   return params;
 }
 
-/** القيود المحاسبية (docs/catalog/04) — the GL posting engine mounted under /gl. */
+/** القيود المحاسبية (docs/archive/catalog/04) — the GL posting engine mounted under /gl. */
 export function useJournalEntries(filter: JournalEntryListFilter = {}): UseQueryResult<JournalEntryDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1213,7 +1213,7 @@ export function useReverseJournalEntry() {
   });
 }
 
-/** المستخدمون (docs/catalog/09) — list, create, edit, activate/deactivate. */
+/** المستخدمون (docs/archive/catalog/09) — list, create, edit, activate/deactivate. */
 export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1270,7 +1270,7 @@ export function useSetUserStatus() {
   });
 }
 
-/** الأدوار (docs/catalog/09) — list, create, edit, delete. */
+/** الأدوار (docs/archive/catalog/09) — list, create, edit, delete. */
 export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1328,10 +1328,10 @@ export function useDeleteRole() {
 }
 
 /* -------------------------------------------------------------------- */
-/* الإعدادات — عام (Tenant Settings) (docs/catalog/09)                    */
+/* الإعدادات — عام (Tenant Settings) (docs/archive/catalog/09)                    */
 /* -------------------------------------------------------------------- */
 
-/** إعدادات المنشأة (docs/catalog/09 §"الإعدادات — عام") — the single tenant config bag. */
+/** إعدادات المنشأة (docs/archive/catalog/09 §"الإعدادات — عام") — the single tenant config bag. */
 export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1361,10 +1361,10 @@ export function useUpdateSettings() {
 }
 
 /* -------------------------------------------------------------------- */
-/* الفروع (docs/catalog/09)                                              */
+/* الفروع (docs/archive/catalog/09)                                              */
 /* -------------------------------------------------------------------- */
 
-/** الفروع (docs/catalog/09 §"إدارة الفروع") — list, used by the branch typeahead on real-data forms. */
+/** الفروع (docs/archive/catalog/09 §"إدارة الفروع") — list, used by the branch typeahead on real-data forms. */
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1408,7 +1408,7 @@ export function useUpdateBranch() {
 }
 
 /* -------------------------------------------------------------------- */
-/* سجل الشيكات — Cheque Register (docs/catalog/04)                       */
+/* سجل الشيكات — Cheque Register (docs/archive/catalog/04)                       */
 /* -------------------------------------------------------------------- */
 
 export interface ChequeListFilters {
@@ -1547,7 +1547,7 @@ export function useReplaceCheque() {
 }
 
 /* -------------------------------------------------------------------- */
-/* تسوية كشوف البنك — Bank Statement Reconciliation (docs/catalog/04)     */
+/* تسوية كشوف البنك — Bank Statement Reconciliation (docs/archive/catalog/04)     */
 /* -------------------------------------------------------------------- */
 
 /** `GET /bank-statements/:id` — the statement plus its lines and match summary. */
@@ -1735,7 +1735,7 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
   });
 }
 
-/** المستودعات (docs/catalog/09 §"إدارة المستودعات") — list, create, edit; also a picker dependency for other real-data screens (e.g. sales invoices). */
+/** المستودعات (docs/archive/catalog/09 §"إدارة المستودعات") — list, create, edit; also a picker dependency for other real-data screens (e.g. sales invoices). */
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1784,7 +1784,7 @@ export interface VoucherRowDTO extends VoucherDTO {
   readonly allocationSummary: AllocationSummaryDTO;
 }
 
-/** السندات النقدية (docs/catalog/04) — list, create, confirm, reverse, allocate. */
+/** السندات النقدية (docs/archive/catalog/04) — list, create, confirm, reverse, allocate. */
 /** The one place the voucher list's filters become a query string (R8.2). */
 function voucherParams(filter: VoucherListQueryDTO): URLSearchParams {
   const params = new URLSearchParams();
@@ -2004,7 +2004,7 @@ function purchaseOrderParams(filter: PurchaseOrderListFilter): URLSearchParams {
   return params;
 }
 
-/** أوامر الشراء (docs/catalog/02) — list, create, confirm (draft → sent). */
+/** أوامر الشراء (docs/archive/catalog/02) — list, create, confirm (draft → sent). */
 export function usePurchaseOrders(filter: PurchaseOrderListFilter = {}): UseQueryResult<PurchaseOrderDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -2109,7 +2109,7 @@ function goodsReceiptParams(filter: GoodsReceiptListFilter): URLSearchParams {
   return params;
 }
 
-/** إيصالات الاستلام (docs/catalog/02) — list, create (from a sent/partially-received PO), confirm. */
+/** إيصالات الاستلام (docs/archive/catalog/02) — list, create (from a sent/partially-received PO), confirm. */
 export function useGoodsReceipts(filter: GoodsReceiptListFilter = {}): UseQueryResult<GoodsReceiptDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -2192,7 +2192,7 @@ export function useConfirmGoodsReceipt() {
   });
 }
 
-/** فواتير المشتريات (docs/catalog/02) — list, create (manual or from a confirmed receipt), confirm. */
+/** فواتير المشتريات (docs/archive/catalog/02) — list, create (manual or from a confirmed receipt), confirm. */
 /** The one place the purchase-invoice filters become a query string (R1.1). */
 function purchaseInvoiceParams(filter: PurchaseInvoiceListQueryDTO): URLSearchParams {
   const params = new URLSearchParams();
@@ -2357,7 +2357,7 @@ export interface SalesInvoiceDTO {
   readonly totals: SalesInvoiceTotalsDTO;
 }
 
-/** فواتير المبيعات (docs/catalog/01) — list, create, confirm, record a payment. */
+/** فواتير المبيعات (docs/archive/catalog/01) — list, create, confirm, record a payment. */
 export function useSalesInvoices(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -2505,7 +2505,7 @@ export function useRecordSalesInvoicePayment() {
 }
 
 // ---------------------------------------------------------------------------
-// CRM (docs/catalog/06 "إدارة علاقات العملاء") — phase11/crm-projects-assets-field
+// CRM (docs/archive/catalog/06 "إدارة علاقات العملاء") — phase11/crm-projects-assets-field
 // ---------------------------------------------------------------------------
 
 export function useLeads(): UseQueryResult<LeadDTO[], ApiError> {
@@ -2715,7 +2715,7 @@ export function useCancelActivity() {
 }
 
 // ---------------------------------------------------------------------------
-// Projects (docs/catalog/07 "المشاريع والمقاولات") — phase11/crm-projects-assets-field
+// Projects (docs/archive/catalog/07 "المشاريع والمقاولات") — phase11/crm-projects-assets-field
 // ---------------------------------------------------------------------------
 
 export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
@@ -2761,7 +2761,7 @@ export function useUpdateProject() {
 }
 
 // ---------------------------------------------------------------------------
-// Fixed Assets (docs/catalog/07 "الأصول الثابتة") — phase11/crm-projects-assets-field
+// Fixed Assets (docs/archive/catalog/07 "الأصول الثابتة") — phase11/crm-projects-assets-field
 // ---------------------------------------------------------------------------
 
 export function useAssetCategories(): UseQueryResult<AssetCategoryDTO[], ApiError> {
@@ -2984,7 +2984,7 @@ export function usePostWritedownRun() {
 }
 
 // ---------------------------------------------------------------------------
-// Product Templates (docs/catalog/03-inventory.md §"قوالب المنتجات") — inv/labels-templates-writedown
+// Product Templates (docs/archive/catalog/03-inventory.md §"قوالب المنتجات") — inv/labels-templates-writedown
 // ---------------------------------------------------------------------------
 
 export function useProductTemplates(): UseQueryResult<ProductTemplateDTO[], ApiError> {
@@ -3103,7 +3103,7 @@ export function useGenerateVariants() {
 }
 
 // ---------------------------------------------------------------------------
-// Field/Van Sales (docs/catalog/07 "رحلات المندوبين") — phase11/crm-projects-assets-field
+// Field/Van Sales (docs/archive/catalog/07 "رحلات المندوبين") — phase11/crm-projects-assets-field
 // ---------------------------------------------------------------------------
 
 export function useVanTrips(): UseQueryResult<VanTripDTO[], ApiError> {
@@ -3163,7 +3163,7 @@ export function useSettleVanTrip() {
 }
 
 /* -------------------------------------------------------------------- */
-/* التصنيع — Manufacturing (docs/catalog/07): BOMs, work orders,          */
+/* التصنيع — Manufacturing (docs/archive/catalog/07): BOMs, work orders,          */
 /* configurable products, custom manufacturing (config instances).       */
 /* Mounted under /manufacturing/*; @mezan/contracts only ships the       */
 /* create/command schemas for these resources, not the response shape,  */
@@ -3205,7 +3205,7 @@ export interface BomRecord {
   readonly estimate?: BomCostEstimateDTO;
 }
 
-/** قوائم المواد (docs/catalog/07) — the manufacturing recipe a work order is built from. */
+/** قوائم المواد (docs/archive/catalog/07) — the manufacturing recipe a work order is built from. */
 export function useBoms(): UseQueryResult<BomRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -3345,7 +3345,7 @@ function workOrderParams(filter: WorkOrderListFilter): URLSearchParams {
   return params;
 }
 
-/** أوامر التصنيع (docs/catalog/07) — a production run against a BOM, tracked through its 4-stage lifecycle. */
+/** أوامر التصنيع (docs/archive/catalog/07) — a production run against a BOM, tracked through its 4-stage lifecycle. */
 export function useWorkOrders(filter: WorkOrderListFilter = {}): UseQueryResult<WorkOrderRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -3662,7 +3662,7 @@ export interface ConfigurableProductRecord {
   readonly createdAt: string;
 }
 
-/** المنتجات القابلة للتهيئة (docs/catalog/07) — formula-driven master data consumed by التصنيع المخصص orders. */
+/** المنتجات القابلة للتهيئة (docs/archive/catalog/07) — formula-driven master data consumed by التصنيع المخصص orders. */
 export function useConfigurableProducts(): UseQueryResult<ConfigurableProductRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -3739,7 +3739,7 @@ export interface ConfigInstanceRecord {
   readonly createdAt: string;
 }
 
-/** التصنيع المخصص (docs/catalog/07) — one-off make-to-order production against a configurable product's formulas. */
+/** التصنيع المخصص (docs/archive/catalog/07) — one-off make-to-order production against a configurable product's formulas. */
 export function useConfigInstances(): UseQueryResult<ConfigInstanceRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -3829,7 +3829,7 @@ export function usePreviewConfigInstance() {
 /* sweep/finish-and-mount — Cost Centers, Fiscal Periods, Taxes          */
 /* -------------------------------------------------------------------- */
 
-/** مراكز التكلفة (docs/catalog/04) — list, create, edit. */
+/** مراكز التكلفة (docs/archive/catalog/04) — list, create, edit. */
 export function useCostCenters(): UseQueryResult<CostCenterDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -3872,7 +3872,7 @@ export function useUpdateCostCenter() {
   });
 }
 
-/** الفترات المالية (docs/catalog/04) — list, generate a fiscal year, and the three-tier close/reopen/lock lifecycle. */
+/** الفترات المالية (docs/archive/catalog/04) — list, generate a fiscal year, and the three-tier close/reopen/lock lifecycle. */
 export function useFiscalPeriods(): UseQueryResult<FiscalPeriodDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -4001,7 +4001,7 @@ export function useCloseFiscalYear() {
   });
 }
 
-/** الضرائب (docs/catalog/04) — list, create, edit. */
+/** الضرائب (docs/archive/catalog/04) — list, create, edit. */
 export function useTaxRates(): UseQueryResult<TaxRateDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -4045,7 +4045,7 @@ export function useUpdateTaxRate() {
 }
 
 /* -------------------------------------------------------------------- */
-/* أسعار الصرف — Exchange Rates (docs/catalog/04)                        */
+/* أسعار الصرف — Exchange Rates (docs/archive/catalog/04)                        */
 /* -------------------------------------------------------------------- */
 
 export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
@@ -4091,7 +4091,7 @@ export function useApproveExchangeRate() {
 }
 
 /* -------------------------------------------------------------------- */
-/* أرباح مراكز التكلفة — Cost Center P&L (docs/catalog/04)               */
+/* أرباح مراكز التكلفة — Cost Center P&L (docs/archive/catalog/04)               */
 /* -------------------------------------------------------------------- */
 
 /** Groups posted revenue/expense by the cost-center dimension over `[fromDate, toDate]`. */
@@ -4110,7 +4110,7 @@ export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResu
 }
 
 /* -------------------------------------------------------------------- */
-/* إعادة تقييم العملات الأجنبية — FX Revaluation (docs/catalog/04)       */
+/* إعادة تقييم العملات الأجنبية — FX Revaluation (docs/archive/catalog/04)       */
 /* -------------------------------------------------------------------- */
 
 export function useFxRevaluationPreview() {
@@ -4140,7 +4140,7 @@ export function useFxRevaluationPost() {
 }
 
 /* -------------------------------------------------------------------- */
-/* مطابقة الأرصدة — Balance Reconciliation (docs/catalog/04)             */
+/* مطابقة الأرصدة — Balance Reconciliation (docs/archive/catalog/04)             */
 /* -------------------------------------------------------------------- */
 
 export function useReconciliation(): UseQueryResult<ReconciliationReportDTO, ApiError> {
@@ -4158,7 +4158,7 @@ export function useReconciliation(): UseQueryResult<ReconciliationReportDTO, Api
 }
 
 /* -------------------------------------------------------------------- */
-/* الفاتورة الإلكترونية — ETA e-Invoicing (docs/catalog/04)              */
+/* الفاتورة الإلكترونية — ETA e-Invoicing (docs/archive/catalog/04)              */
 /* -------------------------------------------------------------------- */
 
 export interface EtaConfigResponse {
@@ -4440,7 +4440,7 @@ export function useEtaTaxSubTypes(): UseQueryResult<EtaTaxSubTypeRowDTO[], ApiEr
 }
 
 /* -------------------------------------------------------------------- */
-/* تسويات وتحويلات وجرد المخزون — Inventory Ops document layer (docs/catalog/03) */
+/* تسويات وتحويلات وجرد المخزون — Inventory Ops document layer (docs/archive/catalog/03) */
 /* -------------------------------------------------------------------- */
 
 export interface StockDocumentListFilter {
@@ -4823,7 +4823,7 @@ export interface StockBalanceFilter {
   readonly warehouseId?: string;
 }
 
-/** أرصدة المخزون (docs/catalog/03) — cross-warehouse rollup, one row per item (packages/api/src/inventory-routes.ts's `/inventory/stock-balance`). */
+/** أرصدة المخزون (docs/archive/catalog/03) — cross-warehouse rollup, one row per item (packages/api/src/inventory-routes.ts's `/inventory/stock-balance`). */
 export function useStockBalance(filter: StockBalanceFilter = {}): UseQueryResult<StockBalanceRowDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -4960,7 +4960,7 @@ function rfqParams(filter: RfqListFilter): URLSearchParams {
   return params;
 }
 
-/** طلبات عروض الأسعار / RFQs (docs/catalog/02) — list, create, and the draft → sent → closed/cancelled lifecycle. */
+/** طلبات عروض الأسعار / RFQs (docs/archive/catalog/02) — list, create, and the draft → sent → closed/cancelled lifecycle. */
 export function useRfqs(filter: RfqListFilter = {}): UseQueryResult<PurchaseRfqDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -5145,7 +5145,7 @@ function salesReturnParams(filter: SalesReturnListFilter): URLSearchParams {
   return params;
 }
 
-/** مرتجعات المبيعات (docs/catalog/01) — list, create draft (against a confirmed sales invoice), confirm, cancel/void. */
+/** مرتجعات المبيعات (docs/archive/catalog/01) — list, create draft (against a confirmed sales invoice), confirm, cancel/void. */
 export function useSalesReturns(filter: SalesReturnListFilter = {}): UseQueryResult<SalesReturnDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -5259,7 +5259,7 @@ function purchaseReturnParams(filter: PurchaseReturnListFilter): URLSearchParams
   return params;
 }
 
-/** مرتجعات المشتريات (docs/catalog/02) — list, create draft (against a confirmed purchase invoice), confirm, cancel/void. */
+/** مرتجعات المشتريات (docs/archive/catalog/02) — list, create draft (against a confirmed purchase invoice), confirm, cancel/void. */
 export function usePurchaseReturns(filter: PurchaseReturnListFilter = {}): UseQueryResult<PurchaseReturnDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -5350,7 +5350,7 @@ export function useCancelPurchaseReturn() {
   });
 }
 
-/** التكاليف الإضافية (docs/catalog/02) — list, create draft (server runs distributeLandedCost and persists the allocated lines), confirm (runs the cost-layer revaluation), cancel/void. */
+/** التكاليف الإضافية (docs/archive/catalog/02) — list, create draft (server runs distributeLandedCost and persists the allocated lines), confirm (runs the cost-layer revaluation), cancel/void. */
 export function useLandedCosts(status?: DocumentStatusDTO): UseQueryResult<LandedCostDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -5426,7 +5426,7 @@ function installmentPlanParams(filter: InstallmentPlanListFilter): URLSearchPara
   return params;
 }
 
-/** خطط الأقساط (docs/catalog/05) — list, create (server builds the payment schedule), confirm, cancel/void, and the معالجة المتأخرات overdue batch. */
+/** خطط الأقساط (docs/archive/catalog/05) — list, create (server builds the payment schedule), confirm, cancel/void, and the معالجة المتأخرات overdue batch. */
 export function useInstallmentPlans(filter: InstallmentPlanListFilter = {}): UseQueryResult<InstallmentPlanDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -5548,7 +5548,7 @@ function followUpParams(filters: FollowUpListFilters): URLSearchParams {
   return params;
 }
 
-/** متابعة التحصيل (docs/catalog/05) — list (filterable by status/customer), create, complete (records an outcome), cancel. */
+/** متابعة التحصيل (docs/archive/catalog/05) — list (filterable by status/customer), create, complete (records an outcome), cancel. */
 export function useFollowUps(filters: FollowUpListFilters = {}): UseQueryResult<CollectionFollowUpDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -5640,7 +5640,7 @@ export function useCancelFollowUp() {
 }
 
 // ---------------------------------------------------------------------------
-// HR master data (docs/catalog/06 "الموارد البشرية") — hr/master-data
+// HR master data (docs/archive/catalog/06 "الموارد البشرية") — hr/master-data
 // ---------------------------------------------------------------------------
 
 export function useDepartments(): UseQueryResult<DepartmentDTO[], ApiError> {
@@ -6004,7 +6004,7 @@ export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError
 }
 
 /* ------------------------------------------------------------------ */
-/* قواعد الإشعارات / Notification rules (docs/catalog/09) + top-bar panel */
+/* قواعد الإشعارات / Notification rules (docs/archive/catalog/09) + top-bar panel */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -6156,7 +6156,7 @@ export function useMarkAllNotificationsRead() {
 }
 
 /* ------------------------------------------------------------------ */
-/* قوالب الطباعة (Print Templates) — docs/catalog/09 §"قوالب الطباعة"    */
+/* قوالب الطباعة (Print Templates) — docs/archive/catalog/09 §"قوالب الطباعة"    */
 /* ------------------------------------------------------------------ */
 
 /** The tenant's saved print-template config, or the shared default if none was saved yet. */
@@ -6189,7 +6189,7 @@ export function useSavePrintTemplateConfig() {
 }
 
 /* ------------------------------------------------------------------ */
-/* نقل البيانات (Data Migration wizard) — docs/catalog/09 §"نقل البيانات" */
+/* نقل البيانات (Data Migration wizard) — docs/archive/catalog/09 §"نقل البيانات" */
 /* ------------------------------------------------------------------ */
 
 export interface DataMigrationRowErrorDTO {
@@ -6377,7 +6377,7 @@ export function useHistoricalImportCommit(kind: HistoricalImportKind) {
 
 /* -------------------------------------------------------------------- */
 /* w8/workflow-ui — إعدادات الموافقات chain-builder + الموافقات inbox    */
-/* (docs/catalog/09 §سير العمل), off the real /workflow API.             */
+/* (docs/archive/catalog/09 §سير العمل), off the real /workflow API.             */
 /* -------------------------------------------------------------------- */
 
 /** إعدادات الموافقات — the persisted approval-chain config per action type. */
@@ -6540,7 +6540,7 @@ export function useDecideApproval() {
 
 
 /* -------------------------------------------------------------------- */
-/* كتالوجات الأصناف — units + categories (docs/catalog/03)               */
+/* كتالوجات الأصناف — units + categories (docs/archive/catalog/03)               */
 /* -------------------------------------------------------------------- */
 
 /** وحدات القياس — the unit records an item's `baseUnitCode` resolves against. */

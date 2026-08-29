@@ -1,6 +1,6 @@
 /**
  * DocumentService — the generic lifecycle orchestrator every document module
- * reuses (docs/plan.md §3 "the document lifecycle").
+ * reuses (docs/archive/plan.md §3 "the document lifecycle").
  *
  * Given a {@link DocumentTypeDefinition} and a set of hook adapters, it drives
  * draft → confirm → (cancel | reverse) uniformly: it guards every transition,

@@ -1,6 +1,6 @@
 /**
  * Seat-session registry — session-level SEAT ENFORCEMENT for LAN multi-till
- * (docs/plan.md §2.5/§6.3.3, licensing memory: the license binds to the HOST;
+ * (docs/archive/plan.md §2.5/§6.3.3, licensing memory: the license binds to the HOST;
  * other devices connect over LAN as clients; `seats` is the max number of
  * CONCURRENT connected devices, enforced by the host).
  *

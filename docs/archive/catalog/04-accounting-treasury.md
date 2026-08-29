@@ -1,5 +1,10 @@
 # 04 — Accounting & Treasury Domain Catalog
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../../ROADMAP.md` for what is
+> built and open, and `../../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `../README.md` in the archive root maps them.
+
+
 Pass 4 of systematic feature capture. Scope: Accounting (chart of accounts, journal entries,
 cost centers, fiscal periods, multi-currency/FX, tax settings, ETA e-invoicing) and Treasury
 (cash registers/safes, bank accounts, vouchers, transfers, cheques). Read-only exploration;

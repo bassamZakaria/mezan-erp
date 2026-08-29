@@ -84,7 +84,7 @@ export interface InstallmentsRoutesDeps {
 }
 
 /**
- * Installments routes (docs/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل"),
+ * Installments routes (docs/archive/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل"),
  * mounted under `/installments`: `/installments/plans` (+ `/counts`, `/stats`
  * and `/overdue/process` — معالجة المتأخرات) and `/installments/follow-ups`
  * (+ its own `/counts` and `/stats`).
@@ -251,7 +251,7 @@ export function createInstallmentsRoutes(
   });
 
   // No dedicated "confirm" permission exists in the 8-entry installments
-  // catalog (docs/catalog/09) — the create form has one "حفظ" action with no
+  // catalog (docs/archive/catalog/09) — the create form has one "حفظ" action with no
   // separate post-creation confirm step observed, so confirming reuses the
   // create permission.
   plans.post("/:id/confirm", gate("installments.plan.create"), async (c) => {

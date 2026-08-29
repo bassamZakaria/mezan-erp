@@ -6,7 +6,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, countDistinct, maxOf } from "./kpi.js";
 
 /**
- * الأقساط المتأخرة — Overdue Installments (docs/catalog/08-reports.md):
+ * الأقساط المتأخرة — Overdue Installments (docs/archive/catalog/08-reports.md):
  * every overdue schedule line across every confirmed plan
  * (`InstallmentPlanDocument`, packages/domain/src/installments/), ranked by
  * urgency (days late, descending) — the standard 4-bucket overdue ladder

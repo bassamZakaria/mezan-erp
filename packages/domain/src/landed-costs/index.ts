@@ -1,5 +1,5 @@
 /**
- * Landed Costs (التكاليف الإضافية، docs/catalog/02) — allocates freight/
+ * Landed Costs (التكاليف الإضافية، docs/archive/catalog/02) — allocates freight/
  * customs/insurance/etc across a purchase invoice's item costs by value or by
  * quantity, raising their landed unit cost via the costing engine.
  */

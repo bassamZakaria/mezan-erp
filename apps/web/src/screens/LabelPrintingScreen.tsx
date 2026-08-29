@@ -13,7 +13,7 @@ import { useItems } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
- * طباعة الملصقات (Label Printing) — docs/catalog/03-inventory.md §"طباعة
+ * طباعة الملصقات (Label Printing) — docs/archive/catalog/03-inventory.md §"طباعة
  * الملصقات". A stateless print builder (nothing persisted until printed,
  * exactly like the reference screen): pick items + a label template, get a
  * live barcode-fit check per item (`checkBarcodeFit`/`buildLabelBatch` in

@@ -1,5 +1,5 @@
 /**
- * Data-migration import — suppliers (docs/catalog/09 "نقل البيانات"). Mirror
+ * Data-migration import — suppliers (docs/archive/catalog/09 "نقل البيانات"). Mirror
  * of `import-customers.ts` for `createSupplier`.
  */
 import { createSupplier, InvalidSupplierError, type Supplier } from "../suppliers/supplier.js";

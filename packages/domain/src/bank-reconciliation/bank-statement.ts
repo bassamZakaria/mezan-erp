@@ -1,7 +1,7 @@
 import type { Money } from "../money/index.js";
 
 /**
- * Bank Statement Reconciliation — core entities (docs/catalog/04-accounting-
+ * Bank Statement Reconciliation — core entities (docs/archive/catalog/04-accounting-
  * treasury.md "تسوية كشوف البنك"). A `BankStatement` is one imported CSV
  * period for a bank treasury account; each `StatementLine` is one row,
  * matched (or not) against a treasury GL movement.
@@ -16,7 +16,7 @@ export interface BankStatementStatusDefinition {
   readonly labelAr: string;
 }
 
-/** Ordered exactly as docs/catalog/04 lists the status filter tabs. */
+/** Ordered exactly as docs/archive/catalog/04 lists the status filter tabs. */
 export const BANK_STATEMENT_STATUS_DEFINITIONS: readonly BankStatementStatusDefinition[] = [
   { code: "imported", labelAr: "مستورد" },
   { code: "in_progress", labelAr: "قيد التسوية" },
@@ -89,7 +89,7 @@ export interface BankStatementRepository {
 
 /**
  * A CSV column mapping, persisted per treasury account ("يحفظ التعيين لكل
- * حساب" — docs/catalog/04). Exactly one amount strategy is set: either
+ * حساب" — docs/archive/catalog/04). Exactly one amount strategy is set: either
  * `amountColumn` (a single signed column) or both `debitColumn`+`creditColumn`
  * (a two-column statement; net amount = credit − debit).
  */

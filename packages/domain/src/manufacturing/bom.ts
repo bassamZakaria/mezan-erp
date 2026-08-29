@@ -1,6 +1,6 @@
 /**
  * قائمة المواد (Bill of Materials) — the versioned recipe for a finished product
- * (docs/catalog/07 §BOMs): raw-material lines with waste %, plus standard labour
+ * (docs/archive/catalog/07 §BOMs): raw-material lines with waste %, plus standard labour
  * and overhead cost, produced in a standard batch quantity. A work order is
  * built from a BOM. Versioning REPLACES rather than mutates: creating a new
  * version supersedes the prior active version (نشط → غير نشط) and bumps the
@@ -23,9 +23,9 @@ const BOM_SEQUENCE = "BOM";
 export interface BomLine {
   readonly itemId: string;
   readonly qty: Qty;
-  /** Expected material loss %, grossing up the required quantity (docs/catalog/07). */
+  /** Expected material loss %, grossing up the required quantity (docs/archive/catalog/07). */
   readonly wastePercent: number;
-  /** اختياري — an optional material (docs/catalog/07). */
+  /** اختياري — an optional material (docs/archive/catalog/07). */
   readonly optional: boolean;
   readonly notes: string | null;
 }
@@ -144,7 +144,7 @@ export interface BomCostEstimate {
   readonly unitCost: Money;
 }
 
-/** Full standard cost estimate for a BOM (docs/catalog/07 §التكلفة التقديرية). */
+/** Full standard cost estimate for a BOM (docs/archive/catalog/07 §التكلفة التقديرية). */
 export function bomCostEstimate(bom: Bom, resolveUnitCost: (itemId: string) => Money): BomCostEstimate {
   const materialCost = bomMaterialCost(bom, resolveUnitCost);
   const totalCost = materialCost.add(bom.laborCost).add(bom.overheadCost);

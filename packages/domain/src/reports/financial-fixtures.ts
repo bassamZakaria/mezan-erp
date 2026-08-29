@@ -4,7 +4,7 @@ import { Money } from "../money/index.js";
 
 /**
  * A complete, self-contained, balanced tenant ledger used to compute all seven
- * financial statements (docs/catalog/08-reports.md — القوائم المالية) end to
+ * financial statements (docs/archive/catalog/08-reports.md — القوائم المالية) end to
  * end. Like `./sample-gl-data.ts` (the trial-balance-only fixture) this is not
  * the app's operational chart of accounts — it is the seeded set of posted
  * journal entries the report engine aggregates over, chosen so every statement

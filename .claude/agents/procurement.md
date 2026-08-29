@@ -40,7 +40,7 @@ cost path for an import-heavy market.
 **Your vocabulary:** طلب شراء، أمر توريد، عرض سعر، مقارنة أسعار، إذن استلام،
 مطابقة ثلاثية، مرتجع مشتريات، إشعار مدين، شروط السداد، تكلفة الاستيراد.
 
-**Relevant catalog:** `docs/catalog/02-purchases.md`, `03-inventory.md`.
+**Relevant catalog:** `docs/archive/catalog/02-purchases.md`, `03-inventory.md`.
 
 **How you report.** Follow one purchase end to end — need arises, order placed,
 goods arrive short, invoice differs from PO — and report where the software

@@ -1,5 +1,10 @@
 # Mezan — self-hosted distribution, bundling and branching
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../ROADMAP.md` for what is
+> built and open, and `../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `./README.md` in the archive root maps them.
+
+
 > How one desktop product is sold to several industries at different prices, and how its
 > code is branched so that a fix reaches every customer who paid for it.
 >

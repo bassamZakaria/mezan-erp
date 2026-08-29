@@ -29,7 +29,7 @@ export interface CreatePromotionCommand {
 }
 
 /**
- * Creates and persists a new promotion (docs/catalog/01 §"العروض"). New
+ * Creates and persists a new promotion (docs/archive/catalog/01 §"العروض"). New
  * promotions default to `active: true`, no scope restriction ("all"), and no
  * coupon requirement — mirroring the mockup's create-dialog defaults.
  */

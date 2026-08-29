@@ -2,7 +2,7 @@ import { z } from "zod";
 import { scopeSelectionSchema } from "./roles.js";
 
 /**
- * Real desktop login (docs/plan.md — username + PIN). `POST /auth/login`
+ * Real desktop login (docs/archive/plan.md — username + PIN). `POST /auth/login`
  * verifies the PIN against the persisted user's hash and returns the
  * resolved session the web client turns into the permission-gate headers
  * (`x-user-id`, `x-permissions`, `x-branch-scope`, `x-warehouse-scope`) it

@@ -22,7 +22,7 @@ async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Pr
 }
 
 /* -------------------------------------------------------------------- */
-/* أرصدة المخزون — Stock Balance (docs/catalog/03, GET /inventory/stock-balance) */
+/* أرصدة المخزون — Stock Balance (docs/archive/catalog/03, GET /inventory/stock-balance) */
 /* -------------------------------------------------------------------- */
 
 export function useStockBalance(warehouseId?: string): UseQueryResult<StockBalanceRowDTO[], ApiError> {
@@ -42,7 +42,7 @@ export function useStockBalance(warehouseId?: string): UseQueryResult<StockBalan
 }
 
 /* -------------------------------------------------------------------- */
-/* تسويات المخزون — Stock Adjustments (docs/catalog/03, /inventory/stock-adjustments) */
+/* تسويات المخزون — Stock Adjustments (docs/archive/catalog/03, /inventory/stock-adjustments) */
 /* -------------------------------------------------------------------- */
 
 export function useStockAdjustments(status?: DocumentStatusDTO): UseQueryResult<StockAdjustmentDocumentDTO[], ApiError> {
@@ -99,7 +99,7 @@ export function useAdjustmentJournalEntry(docId: string | null): UseQueryResult<
 }
 
 /* -------------------------------------------------------------------- */
-/* تحويلات المخزون — Stock Transfers (docs/catalog/03, /inventory/stock-transfers) */
+/* تحويلات المخزون — Stock Transfers (docs/archive/catalog/03, /inventory/stock-transfers) */
 /* -------------------------------------------------------------------- */
 
 export function useStockTransfers(status?: DocumentStatusDTO): UseQueryResult<StockTransferDocumentDTO[], ApiError> {
@@ -140,7 +140,7 @@ export function useCreateStockTransfer() {
 }
 
 /* -------------------------------------------------------------------- */
-/* الجرد الفعلي — Physical Counts (docs/catalog/03, /inventory/physical-counts) */
+/* الجرد الفعلي — Physical Counts (docs/archive/catalog/03, /inventory/physical-counts) */
 /* -------------------------------------------------------------------- */
 
 export interface PhysicalCountListFilters {

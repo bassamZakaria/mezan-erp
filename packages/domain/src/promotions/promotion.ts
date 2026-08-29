@@ -1,5 +1,5 @@
 /**
- * Promotions — discount rules engine header entity (docs/catalog/01-sales.md
+ * Promotions — discount rules engine header entity (docs/archive/catalog/01-sales.md
  * §"العروض"). A `Promotion` is master data describing WHEN and HOW MUCH to
  * discount; the actual per-cart calculation lives in `./engine.ts`.
  */
@@ -21,7 +21,7 @@ export interface PromotionBundleComponent {
   readonly qty: Qty;
 }
 
-/** تقييد الأيام والساعات — restricts the promo to specific weekdays/hours (docs/catalog/01 §"العروض"). */
+/** تقييد الأيام والساعات — restricts the promo to specific weekdays/hours (docs/archive/catalog/01 §"العروض"). */
 export interface PromotionDayHourRestriction {
   /** 0 (Sunday) .. 6 (Saturday) — JS Date.getDay() convention. */
   readonly days: readonly number[];

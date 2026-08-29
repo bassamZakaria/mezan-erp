@@ -7,7 +7,7 @@ import { useAppTranslation } from "../i18n";
 import { todayIso } from "../lib/dates";
 
 /**
- * ميزان المراجعة (docs/catalog/08-reports.md), wired to `GET
+ * ميزان المراجعة (docs/archive/catalog/08-reports.md), wired to `GET
  * /financial-reports/trial-balance` — the report engine's `ReportDefinition`
  * (`createTrialBalanceReport`) only supplies the UI metadata (title, param
  * fields, columns); the rows/groups/totals/reconciliation all come from the

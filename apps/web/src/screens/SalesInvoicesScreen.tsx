@@ -79,7 +79,7 @@ import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation } from "../i18n";
 import { todayIso } from "../lib/dates";
 
-/** فواتير المبيعات (Sales Invoices) — docs/catalog/01-sales.md. List + detail (with the
+/** فواتير المبيعات (Sales Invoices) — docs/archive/catalog/01-sales.md. List + detail (with the
  * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm sub-page form with live
  * totals, wired to the real `/sales-invoices` API (numbering + GL + stock engines). */
 

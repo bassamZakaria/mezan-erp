@@ -4,7 +4,7 @@ import type { AlternateUnit, Item } from "./item.js";
 import { itemTypeTracksStock } from "./item-type.js";
 
 /**
- * Alternate-unit conversion rules (docs/catalog/03 "وحدات القياس"): every
+ * Alternate-unit conversion rules (docs/archive/catalog/03 "وحدات القياس"): every
  * alternate unit needs a non-blank, unique code distinct from the base unit,
  * and a strictly positive conversion factor.
  */
@@ -31,7 +31,7 @@ export function validateAlternateUnits(baseUnitCode: string, alternateUnits: rea
 }
 
 /**
- * Per-item GL account mapping refs (docs/catalog/03 "الحسابات"): when a
+ * Per-item GL account mapping refs (docs/archive/catalog/03 "الحسابات"): when a
  * mapping is supplied, it must resolve to a real, postable (active, detail)
  * account. `accounts` is optional — omit it (e.g. a unit test with no COA
  * fixture) to skip this check entirely, since every mapping is itself

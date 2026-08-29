@@ -22,7 +22,7 @@ import { TextField, ToggleField, SectionCard } from "./form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
- * الفروع (Branches) — docs/catalog/09 §"إدارة الفروع" list +
+ * الفروع (Branches) — docs/archive/catalog/09 §"إدارة الفروع" list +
  * §"صفحة الفرع — MAIN (Branch detail / Branch 360)" detail.
  *
  * Every Branch-360 tab is scoped by the `branchId` its source documents already

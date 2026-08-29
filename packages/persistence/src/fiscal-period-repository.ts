@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { FiscalPeriod, FiscalPeriodRepository, FiscalPeriodStatus } from "@mezan/domain";
 
-/** SQLite-backed FiscalPeriodRepository (docs/catalog/04 "الفترات المالية"). Standalone, mirroring `createSqliteAccountRepository`. */
+/** SQLite-backed FiscalPeriodRepository (docs/archive/catalog/04 "الفترات المالية"). Standalone, mirroring `createSqliteAccountRepository`. */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS fiscal_period (

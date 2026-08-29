@@ -1,6 +1,6 @@
 /**
  * Ports for the sales-invoice module. The domain depends only on these
- * interfaces — never on SQL, HTTP, or the GL/stock engines (docs/plan.md §3.2).
+ * interfaces — never on SQL, HTTP, or the GL/stock engines (docs/archive/plan.md §3.2).
  * The GL and workflow hooks reuse the document framework's hook ports verbatim;
  * the stock issue hook is sales-specific because it must return the cost of
  * goods sold so a single combined journal entry (revenue + COGS) can be posted.
@@ -90,7 +90,7 @@ export interface SalesInvoiceStockHook {
 }
 
 /**
- * Resolves a customer's outstanding balance for credit control (docs/catalog/01
+ * Resolves a customer's outstanding balance for credit control (docs/archive/catalog/01
  * §"الحد الائتماني"): the sum of (grandTotal − amountPaid) across their live
  * (confirmed/partially_paid) invoices. Bound to the sales-invoice repository
  * itself — see {@link createSalesInvoiceCustomerExposureHook} — so the service

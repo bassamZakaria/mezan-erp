@@ -1,7 +1,7 @@
 /**
  * Which catalogued events a subscription may actually be bound to.
  *
- * `events/catalog.ts` lists all 39 trigger events docs/catalog/09 captured, but
+ * `events/catalog.ts` lists all 39 trigger events docs/archive/catalog/09 captured, but
  * only a handful are really published onto the `EventBus` by this build. The
  * notification-rules screen already tells the truth about that
  * (`notifications/triggers.ts` — `emitted`); a webhook must go further and

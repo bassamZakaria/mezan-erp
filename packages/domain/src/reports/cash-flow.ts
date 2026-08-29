@@ -15,7 +15,7 @@ import { diffOf, sumRows } from "./kpi.js";
 
 /**
  * التدفقات النقدية — Cash Flow Statement, indirect method
- * (docs/catalog/08-reports.md). Because every posted entry balances, the sum
+ * (docs/archive/catalog/08-reports.md). Because every posted entry balances, the sum
  * of net (debit − credit) movements across all accounts is zero, so the net
  * change in cash equals the negation of the net change in every non-cash
  * account. Each non-cash account's period movement is assigned to an

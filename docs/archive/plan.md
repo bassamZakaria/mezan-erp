@@ -1,5 +1,10 @@
 # Mezan (ميزان) — Master Build Plan (DRAFT)
 
+> **Archived 2026-08-29 — a record, not current state.** Read `../ROADMAP.md` for what is
+> built and open, and `../TESTING.md` for how it is verified. Paths cited below may name
+> documents that have since moved; `./README.md` in the archive root maps them.
+
+
 > Authorized rebuild of the reference system's ERP. One codebase → two products: a multi-tenant cloud web app and a fully-offline, license-gated Electron desktop app.
 >
 > **Every scope claim in this document traces to `recon/source-recon.md` or `recon/catalog/01..09-*.md`.** Where the catalog says a screen was empty/unreachable in the demo tenant, this plan says so rather than inventing behaviour. Status: DRAFT for review — stack, phasing and sizing are recommendations, not commitments.

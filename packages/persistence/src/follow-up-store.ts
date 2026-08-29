@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { CollectionFollowUp, CollectionFollowUpListFilter, CollectionFollowUpRepository } from "@mezan/domain";
 
-/** SQLite-backed {@link CollectionFollowUpRepository} — متابعة التحصيل (docs/catalog/05). Its own small table (not a `FrameworkDocument` — see follow-up.ts's doc-comment). */
+/** SQLite-backed {@link CollectionFollowUpRepository} — متابعة التحصيل (docs/archive/catalog/05). Its own small table (not a `FrameworkDocument` — see follow-up.ts's doc-comment). */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS collection_follow_up (

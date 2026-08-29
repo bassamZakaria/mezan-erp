@@ -49,7 +49,7 @@ function serialize(doc: FrameworkDocument<LandedCostLine>) {
 }
 
 /**
- * Landed Costs routes (docs/catalog/02 §"التكاليف الإضافية"), mounted under
+ * Landed Costs routes (docs/archive/catalog/02 §"التكاليف الإضافية"), mounted under
  * `/landed-costs`. `documents` reads/creates/cancels via the plain
  * `DocumentService`; `landedCostService` (the same underlying document
  * service, wrapped) drives confirm so the cost-layer revaluation runs too

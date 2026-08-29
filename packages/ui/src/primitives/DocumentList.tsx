@@ -19,7 +19,7 @@ import { SkeletonTable } from "./feedback";
  * DocumentList — the reusable list-page pattern (KPI strip + status chips +
  * filter bar + sortable table + pager). This is the single shape reused
  * across ~40 "list of documents" screens (invoices, journals, customers…),
- * per docs/artifacts/mezan-ui-mockups.html's `pattern-list` section.
+ * per docs/archive/mezan-ui-mockups.html's `pattern-list` section.
  */
 
 export interface DocumentListColumn<Row> {
@@ -123,7 +123,7 @@ export interface DocumentListProps<Row> {
   /**
    * Rows per page. Supplying it renders the shared page-size selector in the
    * footer, so every list offers the same 10/25/50/100 the reference does
-   * (docs/reference-parity/REQUIREMENTS.md R1.12) instead of each screen
+   * (docs/archive/reference-parity/REQUIREMENTS.md R1.12) instead of each screen
    * growing its own.
    */
   pageSize?: number;

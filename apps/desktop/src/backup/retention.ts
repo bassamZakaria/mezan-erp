@@ -1,5 +1,5 @@
 /**
- * GFS (Grandfather-Father-Son) retention, per docs/plan.md §3.7: keep 7
+ * GFS (Grandfather-Father-Son) retention, per docs/archive/plan.md §3.7: keep 7
  * daily, 4 weekly, 12 monthly backups, size-capped by count rather than
  * bytes (a fixed cap is what keeps a long-lived offline install's backup
  * folder bounded without the app ever having to reason about disk quotas).

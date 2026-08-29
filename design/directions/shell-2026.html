@@ -1,0 +1,1071 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>الهيكل — ثلاثة اتجاهات وشاشة دخول لكل منها</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Readex+Pro:wght@300;400;500;600;700&family=Zain:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+/* ══ page chrome (the study itself, not the product) ══════════════════════ */
+*{box-sizing:border-box}
+body{margin:0;background:#0e0e11;color:#D4D4D8;font-family:"Readex Pro",system-ui,sans-serif;font-size:13.5px;line-height:1.8}
+.wrapx{max-width:1420px;margin:0 auto;padding:34px 22px 90px}
+h1{font-family:"Zain",sans-serif;font-size:30px;margin:0 0 6px;color:#FAFAFA;font-weight:800}
+.lede{color:#A1A1AA;font-size:13.5px;margin:0 0 6px;max-width:100ch}
+.lede b{color:#FAFAFA;font-weight:600}
+.toolbar{display:flex;gap:10px;align-items:center;margin:18px 0 8px;flex-wrap:wrap}
+.tgl{border:1px solid #3F3F46;background:#18181B;color:#D4D4D8;font-family:inherit;font-size:12.5px;
+  padding:7px 13px;border-radius:6px;cursor:pointer}
+.tgl:hover{border-color:#71717A;color:#FAFAFA}
+.tgl[aria-pressed="true"]{background:#D8B25F;border-color:#D8B25F;color:#1c1405;font-weight:600}
+.sec{margin-block-start:34px;border:1px solid #27272A;border-radius:10px;overflow:hidden;background:#131316}
+.sec > .hd{padding:15px 20px;border-block-end:1px solid #27272A;background:#18181B}
+.sec > .hd .kick{font-size:11px;letter-spacing:2px;color:#D8B25F;font-weight:600;margin-block-end:6px}
+.sec > .hd b.t{color:#FAFAFA;font-size:18px;display:block;margin-block-end:6px;font-family:"Zain",sans-serif;font-weight:700}
+.sec .why{color:#A1A1AA;font-size:12.5px;line-height:1.85;max-width:108ch}
+.sec .why b{color:#E4E4E7;font-weight:600}
+.sec .body{padding:20px}
+.metrics{display:flex;gap:8px;flex-wrap:wrap;margin-block-start:12px;font-size:11.5px}
+.metrics span{color:#A1A1AA;border:1px solid #27272A;background:#111114;padding:5px 10px;border-radius:5px}
+.metrics span b{color:#FAFAFA;font-weight:600;font-family:"IBM Plex Mono",monospace}
+.metrics .good{color:#8FBF9C;border-color:#2F5137;background:#122116}
+.metrics .bad{color:#D08A7A;border-color:#5A322A;background:#22120F}
+.cap{font-size:11.5px;color:#71717A;margin-block-start:9px}
+.cap b{color:#A1A1AA}
+
+/* ══ the frames that hold a real mockup ═══════════════════════════════════ */
+.frame{border:1px solid #27272A;border-radius:8px;overflow:hidden;background:var(--bg)}
+.frame + .frame{margin-block-start:14px}
+.frametag{font-size:11px;color:#71717A;margin:0 0 6px;letter-spacing:1px}
+
+/* ══ product tokens — the SHIPPED teal + gold palette ═════════════════════ */
+.f{--bg:#ece6da;--surface:#ffffff;--surface-2:#f6f2e9;--surface-3:#e6dfd0;
+   --border:#ddd5c3;--border-strong:#8a8171;
+   --text:#14231e;--text-muted:#424f48;--text-faint:#55665d;
+   --chrome:#0b3a34;--chrome-2:#072b27;--chrome-ink:#e4f1ec;--chrome-ink-muted:#a9c6bc;
+   --chrome-border:rgba(255,255,255,.09);--chrome-hover:rgba(255,255,255,.06);--chrome-accent:#cb9e3d;
+   --brand:#0c463e;--brand-soft:#e2efea;--brand-ink:#fff;
+   --accent:#b0862f;--accent-strong:#8a6620;--accent-soft:#f6efdb;--accent-ink:#1c1405;
+   --danger:#c0402f;--danger-soft:#f8e4df;--danger-on-chrome:#e37b67;--success:#2c8a57;--warning:#8a5f18;
+   font-family:"Readex Pro",sans-serif;color:var(--text);background:var(--bg)}
+.f[data-t="dark"]{--bg:#0a1310;--surface:#101c18;--surface-2:#152420;--surface-3:#1c2c27;
+   --border:#243530;--border-strong:#5b7a6d;
+   --text:#e9efea;--text-muted:#9db0a6;--text-faint:#83978c;
+   --chrome:#081310;--chrome-2:#050d0b;--chrome-ink:#e4f1ec;--chrome-ink-muted:#9dbdb1;
+   --chrome-border:rgba(255,255,255,.07);--chrome-hover:rgba(255,255,255,.05);--chrome-accent:#e7c77c;
+   --brand:#3fb39e;--brand-soft:#0f2a25;--brand-ink:#06110d;
+   --accent:#d8b25f;--accent-strong:#e7c77c;--accent-soft:#2b2412;--accent-ink:#1c1405;
+   --danger:#e37b67;--danger-soft:#3a1712;--danger-on-chrome:#e37b67;--success:#4cb07d;--warning:#d9a24c}
+.f button{font-family:inherit;cursor:pointer}
+.f button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.f .col button:focus-visible,.f .workbar button:focus-visible,.f .daystrip button:focus-visible,
+.f .lg-state button:focus-visible{outline-color:var(--chrome-accent)}
+.f .lat{font-family:"IBM Plex Mono",monospace;direction:ltr;unicode-bidi:isolate}
+.f .disp{font-family:"Zain",sans-serif;font-weight:700}
+
+/* shell skeleton shared by every direction */
+.f .shell{display:flex;flex-direction:column;min-height:430px}
+.f .cols{display:flex;flex:1;min-height:0}
+.f .col{width:200px;flex:none;background:var(--chrome);color:var(--chrome-ink);display:flex;flex-direction:column}
+.f .col .brand{display:flex;align-items:center;gap:9px;height:56px;padding-inline-start:14px;font-size:17px}
+.f .col .brand .mk{width:22px;height:22px;color:var(--accent)}
+.f .col .nav{padding-block:4px;flex:1;overflow:hidden}
+.f .col .it{display:flex;align-items:center;gap:9px;width:100%;height:34px;padding-inline:14px;
+  background:none;border:0;color:var(--chrome-ink-muted);font-size:12.5px;text-align:start}
+.f .col .it:hover{background:var(--chrome-hover);color:var(--chrome-ink)}
+.f .col .it{position:relative}
+/* was `box-shadow: inset 2px 0 0` — a PHYSICAL x offset, so the gold bar sat on the
+   item's left (inner) edge in RTL and read as a divider, not as "you are here". */
+.f .col .it[aria-current]{color:var(--chrome-accent);font-weight:600}
+.f .col .it[aria-current]::before{content:"";position:absolute;inset-block:6px;inset-inline-start:0;
+  inline-size:2px;border-radius:2px;background:var(--chrome-accent)}
+.f .col .sub{display:flex;align-items:center;gap:8px;width:100%;height:30px;padding-inline:34px;
+  background:none;border:0;color:var(--chrome-ink-muted);font-size:12px;text-align:start;opacity:.92}
+.f .col .sub[aria-current]{color:var(--chrome-accent);font-weight:600}
+.f .col .sub:hover{background:var(--chrome-hover);color:var(--chrome-ink)}
+.f .col .foot{border-block-start:1px solid var(--chrome-border);padding:8px;display:flex;align-items:center;gap:6px}
+.f .col .foot .ic{width:30px;height:30px;display:grid;place-items:center;border-radius:6px;border:0;
+  background:none;color:var(--chrome-ink-muted)}
+.f .col .foot .ic:hover{background:var(--chrome-hover);color:var(--chrome-ink)}
+.f .col .foot .me{display:flex;align-items:center;gap:7px;margin-inline-start:auto;padding-block:3px;padding-inline:3px 9px;
+  border-radius:99px;background:var(--chrome-hover);border:0;color:var(--chrome-ink);font-size:11px}
+.f .col .foot .av{width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+  display:grid;place-items:center;font-size:10px;font-weight:700}
+.f .main{flex:1;min-width:0;background:var(--bg);display:flex;flex-direction:column}
+.f .pagepad{padding:16px 18px;flex:1;overflow:hidden}
+
+/* a small realistic list so every direction shows the SAME screen */
+.f .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.f table{width:100%;border-collapse:collapse;font-size:12px}
+.f th{text-align:start;padding:9px 12px;color:var(--text-faint);font-weight:600;font-size:11px;
+  border-block-end:1px solid var(--border);background:var(--surface-2)}
+.f td{padding:9px 12px;border-block-end:1px solid var(--border);color:var(--text)}
+.f tr:last-child td{border-block-end:0}
+.f .pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:10.5px;font-weight:600}
+.f .pill.ok{background:var(--brand-soft);color:var(--brand)}
+.f .pill.due{background:var(--danger-soft);color:var(--danger)}
+.f .pill.dr{background:var(--surface-3);color:var(--text-muted)}
+.f .h1{font-family:"Zain",sans-serif;font-weight:700;font-size:20px;margin:0 0 2px}
+.f .sub1{color:var(--text-muted);font-size:11.5px;margin:0 0 12px}
+
+/* ── direction A: one line ─────────────────────────────────────────────── */
+.f .oneline{display:flex;align-items:center;gap:10px;height:52px;padding-inline:16px;
+  background:var(--surface);border-block-end:1px solid var(--border)}
+.f .crumb{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-muted)}
+.f .crumb b{color:var(--text);font-size:14px;font-weight:600}
+.f .crumb .cnt{color:var(--text-faint);font-size:11.5px}
+.f .oneline .grow{margin-inline-start:auto;display:flex;align-items:center;gap:7px}
+.f .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:7px;
+  border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font-size:12.5px;font-weight:600}
+.f .btn.p{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+.f .btn.g{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.f .btn.q{border-color:transparent;background:transparent;color:var(--text-muted);font-weight:500}
+.f .kbd{font-family:"IBM Plex Mono",monospace;font-size:10px;border:1px solid var(--border-strong);
+  border-radius:4px;padding:1px 5px;color:var(--text-faint)}
+
+/* ── direction B: the work bar ─────────────────────────────────────────── */
+.f .workbar{display:flex;align-items:stretch;gap:0;height:66px;background:var(--chrome);color:var(--chrome-ink)}
+.f .workbar .wb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  min-width:92px;padding:0 12px;border:0;background:none;color:var(--chrome-ink);font-size:11.5px;
+  border-inline-end:1px solid var(--chrome-border)}
+.f .workbar .wb:hover{background:var(--chrome-hover)}
+.f .workbar .wb svg{width:19px;height:19px;color:var(--chrome-accent)}
+.f .workbar .wb .k{font-family:"IBM Plex Mono",monospace;font-size:9px;color:var(--chrome-ink-muted)}
+.f .workbar .wb.first{background:var(--accent);color:var(--accent-ink)}
+.f .workbar .wb.first svg{color:var(--accent-ink)}
+.f .workbar .wb.first .k{color:rgba(28,20,5,.7)}
+.f .workbar .end{margin-inline-start:auto;display:flex;align-items:center;gap:8px;padding-inline:14px}
+.f .workbar .ctx{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 11px;border-radius:99px;
+  border:1px solid var(--chrome-border);background:var(--chrome-hover);color:var(--chrome-ink);font-size:11.5px}
+.f .workbar .ic{width:34px;height:34px;display:grid;place-items:center;border-radius:7px;border:0;background:none;color:var(--chrome-ink-muted)}
+
+/* ── direction C: the day strip ────────────────────────────────────────── */
+.f .daystrip{display:flex;align-items:stretch;height:66px;background:var(--chrome);color:var(--chrome-ink)}
+.f .daystrip .fig{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 16px;min-width:150px;
+  border-inline-end:1px solid var(--chrome-border);border-block-end:2px solid transparent;background:none;border-block-start:0;
+  border-inline-start:0;color:inherit;text-align:start}
+.f .daystrip .fig:hover{background:var(--chrome-hover)}
+.f .daystrip .fig .lbl{font-size:10.5px;color:var(--chrome-ink-muted)}
+.f .daystrip .fig .val{font-family:"IBM Plex Mono",monospace;font-size:15px;font-weight:600}
+.f .daystrip .fig.warn{border-block-end-color:var(--danger-on-chrome)}
+.f .daystrip .fig.warn .val{color:var(--danger-on-chrome)}
+.f .daystrip .fig.gold{border-block-end-color:var(--chrome-accent)}
+.f .daystrip .fig.gold .val{color:var(--chrome-accent)}
+.f .daystrip .end{margin-inline-start:auto;display:flex;align-items:center;gap:8px;padding-inline:14px}
+.f .screensbar{display:flex;align-items:center;gap:6px;height:44px;padding-inline:12px;background:var(--surface);
+  border-block-end:1px solid var(--border)}
+.f .screensbar .chip{display:inline-flex;align-items:center;height:30px;padding:0 11px;border-radius:7px;
+  border:1px solid var(--border);background:var(--bg);color:var(--text-muted);font-size:11.5px}
+.f .screensbar .chip[aria-current]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+
+/* ── login mockups ─────────────────────────────────────────────────────── */
+.f .login{display:flex;min-height:330px}
+.f .login .panel{flex:1;background:linear-gradient(150deg,var(--chrome),var(--chrome-2));color:var(--chrome-ink);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px}
+.f .login .panel .mk{width:46px;height:46px;color:var(--accent)}
+.f .login .panel .nm{font-family:"Zain",sans-serif;font-size:26px;font-weight:800}
+.f .login .panel .tag{font-size:11.5px;color:var(--chrome-ink-muted);max-width:34ch;text-align:center}
+.f .login .form{flex:1;display:flex;flex-direction:column;justify-content:center;gap:11px;padding:28px 34px;background:var(--surface)}
+.f .login .form h3{margin:0;font-family:"Zain",sans-serif;font-size:21px;font-weight:700}
+.f .login .form .lb{font-size:11.5px;color:var(--text-muted)}
+.f .login .in{height:38px;border:1px solid var(--border-strong);border-radius:8px;background:var(--bg);
+  display:flex;align-items:center;padding-inline:11px;font-size:12.5px;color:var(--text-faint)}
+.f .login .pins{display:flex;gap:8px}
+.f .login .pin{width:42px;height:44px;border:1px solid var(--border-strong);border-radius:8px;background:var(--bg);
+  display:grid;place-items:center;font-size:18px;color:var(--text)}
+.f .login .pin.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.f .login .who{display:flex;gap:10px;flex-wrap:wrap}
+.f .login .who .p{display:flex;flex-direction:column;align-items:center;gap:5px;width:78px;padding:9px 4px;
+  border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:10.5px;color:var(--text-muted)}
+.f .login .who .p[aria-current]{border-color:var(--accent);background:var(--accent-soft);color:var(--text);font-weight:600}
+.f .login .who .av{width:38px;height:38px;border-radius:50%;background:var(--brand);color:var(--brand-ink);
+  display:grid;place-items:center;font-size:13px;font-weight:700}
+.f .login .who .p[aria-current] .av{background:var(--accent);color:var(--accent-ink)}
+.f .login .state{display:flex;gap:8px;flex-wrap:wrap}
+.f .login .state .s{flex:1;min-width:104px;border:1px solid var(--chrome-border);border-radius:9px;padding:8px 10px;
+  background:rgba(255,255,255,.05)}
+.f .login .state .s .l{font-size:10px;color:var(--chrome-ink-muted)}
+.f .login .state .s .v{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:600}
+
+
+/* ── sub-page tabs: text, a gold underline, and a count. No boxes. ─────── */
+.f .tabs{display:flex;align-items:stretch;gap:2px;min-width:0;overflow:hidden;height:100%}
+.f .tab{position:relative;display:inline-flex;align-items:center;gap:6px;padding:0 13px;border:0;background:none;
+  color:var(--text-muted);font-size:13px;white-space:nowrap;height:100%}
+.f .tab:hover{color:var(--text)}
+.f .tab[aria-current]{color:var(--text);font-weight:600}
+.f .tab[aria-current]::after{content:"";position:absolute;inset-inline:9px;inset-block-end:-1px;height:3px;
+  border-radius:3px 3px 0 0;background:var(--accent)}
+.f .tab .n{font-family:"IBM Plex Mono","Readex Pro",monospace;min-inline-size:18px;text-align:center;font-variant-numeric:tabular-nums;font-size:10px;color:var(--text-faint);
+  background:var(--surface-2);border-radius:99px;padding:1px 6px}
+.f .tab .n.warn{color:var(--danger);background:var(--danger-soft)}
+.f .tab.more{color:var(--text-faint);font-size:12px;flex:none;margin-inline-start:auto}
+.f .col .it.all{margin-block-start:6px;color:var(--chrome-ink-muted);font-size:12px;opacity:.85}
+
+.f .segset{display:inline-flex;border:1px solid var(--border-strong);border-radius:10px;overflow:hidden;background:var(--bg)}
+.f .seg{border:0;background:none;padding:0 13px;height:36px;font-size:12.5px;color:var(--text-muted);
+  border-inline-end:1px solid var(--border)}
+.f .seg:last-child{border-inline-end:0}
+.f .seg[aria-current]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.f .seg .sn{font-family:"IBM Plex Mono","Readex Pro",monospace;font-size:10px;opacity:.8}
+.f .seg .sn.warn{color:var(--danger);opacity:1;font-weight:600}
+
+.f .scope{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 11px;border-radius:99px;
+  border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font-size:12px}
+.f .scope svg{width:14px;height:14px;color:var(--text-faint)}
+.f .scope .cv{color:var(--text-faint);font-size:10px}
+.f .scope.q{border-color:var(--border);color:var(--text-muted)}
+.f .fl{display:block;font-size:11px;color:var(--text-muted);margin-block-end:5px}
+.f .fi{display:flex;align-items:center;justify-content:space-between;height:36px;padding-inline:11px;
+  border:1px solid var(--border-strong);border-radius:8px;background:var(--bg);font-size:12.5px}
+
+.f .colsearch{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding-inline:10px;border-radius:8px;
+  border:1px solid var(--chrome-border);background:var(--chrome-hover);color:var(--chrome-ink-muted);font-size:12px}
+.f .colscope{display:flex;align-items:center;gap:8px;width:100%;height:32px;padding-inline:10px;border-radius:8px;
+  border:1px solid transparent;background:none;color:var(--chrome-ink);font-size:11.5px}
+.f .colscope:hover{background:var(--chrome-hover);border-color:var(--chrome-border)}
+.f .colscope .l{color:var(--chrome-ink-muted);font-size:10.5px}
+.f .colscope .v{margin-inline-start:auto}
+.f .kbd.dark{border-color:var(--chrome-border);color:var(--chrome-ink-muted)}
+.f .thinbar{display:flex;align-items:center;gap:8px;height:44px;background:var(--chrome);color:var(--chrome-ink);padding-inline-end:10px}
+.f .thinbar .mk{width:18px;height:18px;color:var(--accent);vertical-align:-3px;margin-inline-end:6px}
+.f .tscope{height:30px;padding-inline:11px;border-radius:99px;border:1px solid var(--chrome-border);
+  background:none;color:var(--chrome-ink);font-size:11.5px}
+.f .tsearch{flex:1;max-width:420px;margin-inline:auto;display:flex;align-items:center;gap:8px;height:32px;
+  padding-inline:11px;border-radius:8px;border:1px solid var(--chrome-border);background:var(--chrome-hover);
+  color:var(--chrome-ink-muted);font-size:12px}
+.f .tic{width:30px;height:30px;border-radius:7px;border:0;background:none;color:var(--chrome-ink-muted)}
+.f .tme{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;border:0;background:var(--accent);
+  color:var(--accent-ink);font-size:10px;font-weight:700}
+.f .tme .av{background:none;color:inherit;width:auto;height:auto}
+
+/* ── login, polished ───────────────────────────────────────────────────── */
+.f .lg{position:relative;min-height:340px;display:grid;place-items:center;background:var(--bg);overflow:hidden}
+.f .lg-wm{position:absolute;inset-block-end:-70px;inset-inline-end:-40px;width:300px;height:300px;
+  color:var(--accent-strong);opacity:.10;pointer-events:none}
+.f .lg-wm svg{width:100%;height:100%}
+.f .lg-card{position:relative;width:340px;background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;padding:28px 26px 18px;box-shadow:0 22px 48px -22px rgba(12,40,32,.30),0 6px 16px -8px rgba(12,40,32,.14);
+  display:flex;flex-direction:column;gap:0;align-items:stretch}
+.f .lg-card.flat{box-shadow:none;border:0;border-radius:0;width:320px}
+.f .lg-mk{width:34px;height:34px;color:var(--accent)}
+.f .lg-h{font-family:"Zain",sans-serif;font-weight:700;font-size:21px;line-height:1.35;margin:0}
+.f .lg-s{margin:2px 0 0;font-size:12px;line-height:1.7;color:var(--text-muted)}
+/* No letter-spacing on Arabic — it breaks cursive joining. Size and weight carry it. */
+.f .lg-eyebrow{margin:0;font-size:11px;color:var(--text-faint);font-weight:600}
+.f .lg-eyebrow.gold{color:var(--chrome-accent)}
+/* A 4-digit code is a NUMERIC RUN: isolated LTR like every figure in the system
+   (`.lat`), not an RTL row — the boxes fill in the order the digits are typed. */
+.f .lg-pins{display:flex;gap:10px;direction:ltr;margin-block-start:20px}
+.f .lg-pins .pin{inline-size:58px;block-size:64px;border:1px solid var(--border);border-radius:14px;background:var(--bg);
+  display:grid;place-items:center;color:var(--text);transition:box-shadow 120ms ease-out,border-color 120ms ease-out}
+.f .lg-pins .pin.f::after{content:"";inline-size:10px;block-size:10px;border-radius:50%;background:var(--text)}
+.f .lg-pins .pin.f{border-color:var(--border-strong)}
+.f .lg-pins .pin.on{border-color:var(--accent-strong);box-shadow:0 0 0 3px var(--accent-soft)}
+.f .lg-go{block-size:48px;margin-block-start:16px;border-radius:14px;border:0;background:var(--brand);color:var(--brand-ink);
+  font-size:14px;font-weight:600;font-family:"Zain",sans-serif}
+.f .lg-links{display:flex;align-items:center;gap:8px;margin-block-start:18px;font-size:11.5px;color:var(--text-faint)}
+.f .lg-links button{border:0;background:none;color:var(--text-muted);font-size:11.5px;padding:0}
+.f .lg-links .ver{margin-inline-start:auto;color:var(--text-faint);font-size:10.5px}
+.f .lg-who{display:flex;gap:9px;margin-block-start:14px}
+@keyframes pinwrong{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.f .lg-pins.wrong{animation:pinwrong 180ms cubic-bezier(.36,.07,.19,.97) 2}
+.f .lg-pins.wrong .pin{border-color:var(--danger)}
+@media (prefers-reduced-motion:reduce){.f .lg-pins.wrong{animation:none}}
+.f .lg-who .p{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px;
+  border-radius:12px;border:1px solid transparent;background:var(--surface-2);font-size:11px;color:var(--text-muted)}
+.f .lg-who .p[aria-current]{border-color:var(--accent-strong);background:var(--accent-soft);color:var(--text);font-weight:600}
+.f .lg-who .av{width:40px;height:40px;border-radius:50%;background:var(--brand);color:var(--brand-ink);
+  display:grid;place-items:center;font-size:13px;font-weight:700}
+.f .lg-who .p[aria-current] .av{background:var(--accent);color:var(--accent-ink)}
+.f .lg-who .av.more{background:var(--surface-3);color:var(--text-muted)}
+.f .lg-split{display:flex;place-items:stretch}
+.f .lg-state{width:46%;background:linear-gradient(155deg,var(--chrome),var(--chrome-2));color:var(--chrome-ink);
+  padding:26px 24px;display:flex;flex-direction:column;gap:9px;justify-content:center}
+.f .lg-state .row{display:flex;align-items:baseline;gap:10px;padding-block:5px;border-block-end:1px solid var(--chrome-border)}
+.f .lg-state .row:last-of-type{border-block-end:0}
+.f .lg-state .l{font-size:11.5px;color:var(--chrome-ink-muted)}
+.f .lg-state .v{margin-inline-start:auto;font-family:"IBM Plex Mono",monospace;font-size:15px;font-weight:600}
+.f .lg-state .v.warn{color:var(--danger-on-chrome)}
+.f .lg-state .bk{margin:6px 0 0;font-size:10.5px;color:var(--chrome-ink-muted)}
+.f .lg-split .lg-card{margin-inline:auto}
+
+/* ── the anatomy diagram ───────────────────────────────────────────────── */
+.diagram{background:#0f0f12;border:1px solid #27272A;border-radius:8px;padding:18px;overflow-x:auto}
+.diagram svg{display:block;margin-inline:auto;max-width:100%;height:auto}
+
+/* ── scorecard ─────────────────────────────────────────────────────────── */
+table.score{width:100%;border-collapse:collapse;font-size:12.5px;margin-block-start:6px}
+table.score th,table.score td{border:1px solid #27272A;padding:9px 11px;text-align:start;vertical-align:top}
+table.score th{background:#18181B;color:#FAFAFA;font-weight:600}
+table.score td.p{color:#E4E4E7;font-weight:600;background:#141417;white-space:nowrap}
+table.score .y{color:#8FBF9C}
+table.score .n{color:#D08A7A}
+table.score .m{color:#A1A1AA}
+</style>
+</head>
+<body>
+<div class="wrapx">
+
+  <h1>الهيكل — ثلاثة اتجاهات، ولكل اتجاه شاشة دخوله</h1>
+  <p class="lede">
+    الشريط العلوي الحالي شريط متصفّح جالس فوق نظام محاسبي: بحث، لغة، مظهر، جرس، اسم المستخدم.
+    كل واحد منها مفيد، ولا واحد منها هو <b>العمل</b>. هذه الصفحة تعرض ثلاثة اتجاهات مختلفة اختلافاً حقيقياً
+    لهيكل ميزان كلّه — العمود، الشريط، وشاشة الدخول — وكل اتجاه محكوم عليه بالخمسة أنفسهم:
+    <b>المُدخِل اليومي، أمين المخزن، المحاسب، صاحب المنشأة، الدعم</b>.
+  </p>
+  <p class="lede" style="border-inline-start:3px solid #D8B25F;padding-inline-start:12px;color:#D4D4D8">
+    <b>قاعدة ثابتة في الثلاثة:</b> العمود <b>نظيف</b> — مساحات العمل الست فقط، بلا تفريعات تحتها.
+    والشاشات الفرعية تعيش في <b>الأعلى</b>، بألسنة نصّية هادئة تحتها خط ذهبي، لا صناديق ولا رقائق.
+  </p>
+  <p class="lede" style="direction:ltr;text-align:start;color:#71717A">
+    Three whole-shell directions for Mezan, each judged against the same five people. Pick one, or say which pieces to graft.
+  </p>
+
+  <div class="toolbar">
+    <button class="tgl" id="tLight" aria-pressed="true">فاتح</button>
+    <button class="tgl" id="tDark" aria-pressed="false">داكن</button>
+    <span style="color:#52525B;font-size:12px">— يبدّل كل النماذج في الصفحة</span>
+  </div>
+
+  <!-- ══════════════ 0 · the problem, measured ══════════════ -->
+  <section class="sec">
+    <div class="hd">
+      <div class="kick">٠ · القياس</div>
+      <b class="t">ما الذي يشغله الهيكل اليوم قبل أن يبدأ العمل</b>
+      <p class="why">
+        قبل أن يرى المستخدم أول سطر من فاتورة، الشاشة أنفقت <b>١٠٢ بكسل</b> على شريطين أفقيين، وعموداً بعرض ٢٠٠ بكسل،
+        وخمس آليات تنقّل مختلفة (العمود، الشريط الثاني، «كل الشاشات»، ⌘K، والروابط داخل الصفحة).
+        الشريط العلوي — ٥٦ بكسل منها — لا يحمل ولا فعلاً واحداً من أفعال العمل اليومي.
+      </p>
+      <div class="metrics">
+        <span>ارتفاع الأثاث قبل المحتوى <b>102px</b></span>
+        <span>آليات التنقّل <b>5</b></span>
+        <span class="bad">أفعال العمل في الشريط العلوي <b>0</b></span>
+        <span class="bad">نقرات حتى «فاتورة جديدة» <b>2–3</b></span>
+      </div>
+    </div>
+    <div class="body">
+      <div class="diagram">
+        <svg viewBox="0 0 1180 232" role="img" aria-label="مخطّط: الهيكل الحالي مقابل الاتجاهات الثلاثة">
+          <style>
+            .ttl{font:700 13px "Zain",sans-serif;fill:#FAFAFA}
+            .num{font:600 11px "IBM Plex Mono",monospace;fill:#D8B25F}
+            .in{font:10.5px "Readex Pro",sans-serif}
+          </style>
+          <text x="1180" y="16" class="ttl" text-anchor="end">اليوم</text>
+          <rect x="900" y="30" width="280" height="26" fill="#0b3a34" stroke="#3F3F46"/>
+          <text x="908" y="47.0" class="in" fill="#a9c6bc">شريط عام ٥٦</text>
+          <rect x="1110" y="56" width="70" height="134" fill="#0b3a34" stroke="#3F3F46"/>
+          <text x="1145.0" y="78" class="in" fill="#a9c6bc" text-anchor="middle">عمود</text>
+          <rect x="900" y="56" width="210" height="22" fill="#f6f2e9" stroke="#3F3F46"/>
+          <text x="1005.0" y="71.0" class="in" fill="#424f48" text-anchor="middle">شاشات ٤٦</text>
+          <rect x="900" y="78" width="210" height="112" fill="#ece6da" stroke="#3F3F46"/>
+          <text x="1005.0" y="138.0" class="in" fill="#424f48" text-anchor="middle">المحتوى</text>
+          <text x="1180" y="212" class="num" text-anchor="end">102px أثاث · 5 آليات</text>
+
+          <text x="880" y="16" class="ttl" text-anchor="end">أ · سطر واحد</text>
+          <rect x="810" y="30" width="70" height="160" fill="#0b3a34" stroke="#3F3F46"/>
+          <text x="845.0" y="52" class="in" fill="#a9c6bc" text-anchor="middle">عمود</text>
+          <text x="845.0" y="70" class="in" fill="#cb9e3d" text-anchor="middle">+ الشاشات</text>
+          <rect x="600" y="30" width="210" height="24" fill="#ffffff" stroke="#3F3F46"/>
+          <text x="705.0" y="46.0" class="in" fill="#424f48" text-anchor="middle">سطر الشاشة ٥٢</text>
+          <rect x="600" y="54" width="210" height="136" fill="#ece6da" stroke="#3F3F46"/>
+          <text x="705.0" y="126.0" class="in" fill="#424f48" text-anchor="middle">المحتوى</text>
+          <text x="880" y="212" class="num" text-anchor="end">52px أثاث · 3 آليات</text>
+
+          <text x="580" y="16" class="ttl" text-anchor="end">ب · شريط العمل</text>
+          <rect x="300" y="30" width="280" height="34" fill="#0b3a34" stroke="#3F3F46"/>
+          <rect x="520" y="36" width="46" height="22" rx="3" fill="#cb9e3d" stroke="#cb9e3d"/>
+          <rect x="468" y="36" width="46" height="22" rx="3" fill="#0f4a42" stroke="#cb9e3d"/>
+          <rect x="416" y="36" width="46" height="22" rx="3" fill="#0f4a42" stroke="#cb9e3d"/>
+          <rect x="364" y="36" width="46" height="22" rx="3" fill="#0f4a42" stroke="#cb9e3d"/>
+          <rect x="510" y="64" width="70" height="126" fill="#0b3a34" stroke="#3F3F46"/>
+          <text x="545.0" y="86" class="in" fill="#a9c6bc" text-anchor="middle">عمود</text>
+          <rect x="300" y="64" width="210" height="20" fill="#f6f2e9" stroke="#3F3F46"/>
+          <text x="405.0" y="78.0" class="in" fill="#424f48" text-anchor="middle">ألسنة</text>
+          <rect x="300" y="84" width="210" height="106" fill="#ece6da" stroke="#3F3F46"/>
+          <text x="405.0" y="141.0" class="in" fill="#424f48" text-anchor="middle">المحتوى</text>
+          <text x="580" y="212" class="num" text-anchor="end">110px أثاث · 3 آليات</text>
+
+          <text x="280" y="16" class="ttl" text-anchor="end">ج · شريط اليوم</text>
+          <rect x="0" y="30" width="280" height="34" fill="#0b3a34" stroke="#3F3F46"/>
+          <rect x="220" y="36" width="46" height="22" rx="3" fill="#0f4a42" stroke="#cb9e3d"/>
+          <rect x="168" y="36" width="46" height="22" rx="3" fill="#0f4a42" stroke="#c0402f"/>
+          <rect x="116" y="36" width="46" height="22" rx="3" fill="#0f4a42" stroke="#cb9e3d"/>
+          <rect x="64" y="36" width="46" height="22" rx="3" fill="#0f4a42" stroke="#cb9e3d"/>
+          <rect x="210" y="64" width="70" height="126" fill="#0b3a34" stroke="#3F3F46"/>
+          <text x="245.0" y="86" class="in" fill="#a9c6bc" text-anchor="middle">عمود</text>
+          <rect x="0" y="64" width="210" height="20" fill="#f6f2e9" stroke="#3F3F46"/>
+          <text x="105.0" y="78.0" class="in" fill="#424f48" text-anchor="middle">ألسنة</text>
+          <rect x="0" y="84" width="210" height="106" fill="#ece6da" stroke="#3F3F46"/>
+          <text x="105.0" y="141.0" class="in" fill="#424f48" text-anchor="middle">المحتوى</text>
+          <text x="280" y="212" class="num" text-anchor="end">110px أثاث · 3 آليات</text>
+        </svg>
+      </div>
+<div style="display:flex;gap:14px;margin-block-start:12px;font-size:11.5px;color:#71717A;flex-wrap:wrap">
+        <span style="flex:1;min-width:180px"><b style="color:#A1A1AA">اليوم</b> — شريطان عامّان فوق كل شاشة</span>
+        <span style="flex:1;min-width:180px"><b style="color:#A1A1AA">أ</b> — الشريطان يندمجان في سطر واحد يحمل الألسنة وأفعال الشاشة معاً</span>
+        <span style="flex:1;min-width:180px"><b style="color:#A1A1AA">ب</b> — الشريط يصير أفعالاً، والعمود وحده للتصفّح</span>
+        <span style="flex:1;min-width:180px"><b style="color:#A1A1AA">ج</b> — شريط يقول حالة المنشأة، وألسنة الشاشات تحته</span>
+      </div>
+      <p class="cap">
+        الفرق ليس في الشكل بل في <b>وظيفة الشريط</b>: (أ) يُلغيه ويعطي مكانه للشاشة، (ب) يحوّله إلى أفعال،
+        (ج) يحوّله إلى حالة. الثلاثة يبقون على الهوية نفسها — أخضر عميق وذهب.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════ A ══════════════ -->
+  <section class="sec">
+    <div class="hd">
+      <div class="kick">أ</div>
+      <b class="t">سطر واحد — الأثاث يختفي، والشاشة تأخذ مكانه</b>
+      <p class="why">
+        الشريطان الأفقيان يندمجان في <b>سطر واحد ٥٢ بكسل يخصّ الشاشة المفتوحة</b>: مسار «البيع والتحصيل › فواتير المبيعات»
+        ثم أفعال هذه الشاشة تحديداً. شاشات مساحة العمل تنزل داخل العمود تحت اسمها، فيصير التنقّل في مكان واحد.
+        كل ما هو عام — أنا، الإشعارات، الإعدادات، اللغة — ينزل إلى <b>قدم العمود</b>، لأن العام يُفتح مرّة في اليوم لا كل دقيقة.
+      </p>
+      <div class="metrics">
+        <span class="good">الأثاث <b>52px</b> بدل 102</span>
+        <span class="good">آليات التنقّل <b>3</b> بدل 5</span><span class="good">العمود نظيف — ٦ مساحات فقط</span>
+        <span class="good">+50px محتوى في كل شاشة</span>
+        <span class="bad">صاحب المنشأة يفقد «واجهة» يتعرّف عليها</span>
+      </div>
+    </div>
+    <div class="body">
+      <p class="frametag">فواتير المبيعات — اتجاه أ</p>
+      <div class="frame">
+        <div class="f" data-t="light">
+          <div class="shell">
+            <div class="cols">
+              <nav class="col">
+                <div class="brand disp"><svg class="mk" viewBox="0 0 48 48" fill="none" aria-hidden="true"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="24" cy="15" r="2.4" fill="currentColor"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M16 34 H32 L29 41 H19 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>ميزان</div>
+                <div class="nav">
+                  <button class="it">الموافقات</button>
+                  <button class="it" aria-current="true">البيع والتحصيل</button>
+                  <button class="it">الشراء والتوريد</button>
+                  <button class="it">المخزون</button>
+                  <button class="it">التصنيع</button>
+                  <button class="it">الخزينة</button>
+                  <button class="it">المالية والإقفال</button>
+                  <button class="it all">☰ كل الشاشات</button>
+                </div>
+                <div class="foot">
+                  <button class="ic" aria-label="الإشعارات">🔔</button>
+                  <button class="ic" aria-label="الإعدادات">⚙</button>
+                  <button class="me"><span class="av">م.ا</span>محمد</button>
+                </div>
+              </nav>
+              <div class="main">
+                <div class="oneline">
+                  <nav class="tabs" aria-label="شاشات البيع والتحصيل">
+                    <button class="tab" aria-current="page">فواتير المبيعات<span class="n">٦</span></button>
+                    <button class="tab">عروض الأسعار</button>
+                    <button class="tab">المرتجعات</button>
+                    <button class="tab">التحصيل<span class="n warn">٣</span></button>
+                    <button class="tab more">المزيد ▾</button>
+                  </nav>
+                  <div class="grow">
+                    <button class="btn q">⌕ <span class="kbd">⌘K</span></button>
+                    <button class="btn p">+ فاتورة جديدة</button>
+                  </div>
+                </div>
+                <div class="pagepad">
+                  <div class="card">
+                    <table>
+                      <thead><tr><th>رقم</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+                      <tbody>
+                        <tr><td class="lat">INV-000212</td><td>مؤسسة النيل للتجارة</td><td class="lat">2026-08-27</td><td class="lat">12,480.00</td><td><span class="pill due">متأخرة</span></td></tr>
+                        <tr><td class="lat">INV-000211</td><td>شركة الدلتا</td><td class="lat">2026-08-27</td><td class="lat">3,900.50</td><td><span class="pill ok">مسدّدة</span></td></tr>
+                        <tr><td class="lat">INV-000210</td><td>محلات الحرمين</td><td class="lat">2026-08-26</td><td class="lat">18,220.00</td><td><span class="pill dr">مسودة</span></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap"><b>يكسب:</b> المُدخِل (مساحة وأفعال في مكان ثابت)، أمين المخزن (شاشة واحدة بلا أثاث)، الدعم (اسم الشاشة مكتوب دائماً في السطر). <b>يدفع:</b> صاحب المنشأة — لا يوجد شريط «يبدو كنظام»، والأرقام لا تظهر إلا بعد فتح لوحة التحكم.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════ B ══════════════ -->
+  <section class="sec">
+    <div class="hd">
+      <div class="kick">ب</div>
+      <b class="t">شريط العمل — الشريط يصير الأفعال السبعة التي تدير المنشأة</b>
+      <p class="why">
+        الشريط العلوي يتوقّف عن كونه تنقّلاً ويصير <b>ما يفعله النظام</b>: فاتورة مبيعات، سند قبض، استلام بضاعة،
+        فاتورة مشتريات، جرد، قيد يومية — أزرار كبيرة <b>بأسماء مكتوبة لا أيقونات</b>، في المكان نفسه دائماً، ولكل واحد اختصار.
+        التصفّح كله ينتقل إلى العمود و⌘K. الأزرار تُضبط حسب نشاط المنشأة (تجزئة، جملة، مصنع، صيدلية).
+      </p>
+      <div class="metrics">
+        <span class="good">نقرة واحدة <b>1</b> حتى أكثر مستند يُكتب</span>
+        <span class="good">صاحب المنشأة يرى ما يفعله النظام دون تدريب</span>
+        <span class="good">لا معنى مخفي في أيقونة</span>
+        <span class="bad">يحتاج ضبطاً لكل نشاط — إعداد إضافي عند التركيب</span>
+      </div>
+    </div>
+    <div class="body">
+      <p class="frametag">فواتير المبيعات — اتجاه ب</p>
+      <div class="frame">
+        <div class="f" data-t="light">
+          <div class="shell">
+            <div class="workbar">
+              <button class="wb first"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 3h10v14l-2.5-1.5L10 17l-2.5-1.5L5 17Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>فاتورة مبيعات<span class="k">F2</span></button>
+              <button class="wb"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="6" width="14" height="9" rx="1.6" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10.5" r="2" stroke="currentColor" stroke-width="1.5"/></svg>سند قبض<span class="k">F3</span></button>
+              <button class="wb"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="7" width="14" height="9" rx="1.2" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 7 10 3l7.5 4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>استلام بضاعة<span class="k">F4</span></button>
+              <button class="wb"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 5h12v11H4z" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h6M7 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>فاتورة مشتريات<span class="k">F5</span></button>
+              <button class="wb"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 16V8M9 16V4M14 16v-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>جرد<span class="k">F6</span></button>
+              <button class="wb"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 10h14M10 3v14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>قيد يومية<span class="k">F7</span></button>
+              <div class="end">
+                <button class="ctx">🏠 الفرع الرئيسي</button>
+                <button class="ic" aria-label="بحث">⌕</button>
+                <button class="ic" aria-label="الإشعارات">🔔</button>
+                <button class="ctx"><span style="display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:9px;font-weight:700">م.ا</span>محمد</button>
+              </div>
+            </div>
+            <div class="cols">
+              <nav class="col" style="width:172px;flex:0 0 172px">
+                <div class="nav" style="padding-block-start:10px">
+                  <button class="it">الموافقات</button>
+                  <button class="it" aria-current="true">البيع والتحصيل</button>
+                  <button class="it">الشراء والتوريد</button>
+                  <button class="it">المخزون</button>
+                  <button class="it">التصنيع</button>
+                  <button class="it">الخزينة</button>
+                  <button class="it">المالية والإقفال</button>
+                  <button class="it all">☰ كل الشاشات</button>
+                </div>
+              </nav>
+              <div class="main">
+                <div class="oneline">
+                  <nav class="tabs" aria-label="شاشات البيع والتحصيل">
+                    <button class="tab" aria-current="page">فواتير المبيعات<span class="n">٦</span></button>
+                    <button class="tab">عروض الأسعار</button>
+                    <button class="tab">المرتجعات</button>
+                    <button class="tab">التحصيل<span class="n warn">٣</span></button>
+                    <button class="tab more">المزيد ▾</button>
+                  </nav>
+                </div>
+                <div class="pagepad">
+                  <p class="h1">فواتير المبيعات</p>
+                  <p class="sub1">٦ فواتير تستحق خلال ٣٠ يوماً · ٤٣٬٨٨٨٫٨٨ ج.م</p>
+                  <div class="card">
+                    <table>
+                      <thead><tr><th>رقم</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+                      <tbody>
+                        <tr><td class="lat">INV-000212</td><td>مؤسسة النيل للتجارة</td><td class="lat">2026-08-27</td><td class="lat">12,480.00</td><td><span class="pill due">متأخرة</span></td></tr>
+                        <tr><td class="lat">INV-000211</td><td>شركة الدلتا</td><td class="lat">2026-08-27</td><td class="lat">3,900.50</td><td><span class="pill ok">مسدّدة</span></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap"><b>يكسب:</b> المُدخِل (F2 يفتح ما يكتبه ٦٠ مرّة يومياً)، أمين المخزن (استلام بضاعة مكتوبة بالاسم)، صاحب المنشأة (يقرأ النظام كقائمة أعمال). <b>يدفع:</b> المحاسب — التقارير والإقفال ينزلان درجة إلى العمود؛ والدعم يحتاج «ما الذي في شريطك؟» لأن الشريط يختلف بين العملاء.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════ C ══════════════ -->
+  <section class="sec">
+    <div class="hd">
+      <div class="kick">ج</div>
+      <b class="t">شريط اليوم — الشريط يقول حالة المنشأة، لا أدوات البرنامج</b>
+      <p class="why">
+        الأثاث يبقى كما هو، لكن الشريط العلوي يحمل <b>أربعة أرقام حيّة قابلة للنقر</b>: نقد اليوم، متأخرات العملاء،
+        أصناف تحت حد الطلب، قيود غير مرحّلة. كل رقم زرّ يفتح العمل الذي يعالجه. الفكرة أن مَن يفتح ميزان مرّتين في الأسبوع
+        يرى منشأته في ثلاث ثوانٍ، ومَن يجلس عليه طوال اليوم يرى ما تأخّر دون فتح لوحة التحكم.
+      </p>
+      <div class="metrics">
+        <span class="good">صاحب المنشأة: الحالة في <b>3s</b> بلا تدريب</span>
+        <span class="good">المحاسب: «غير مرحّلة» أمامه دائماً</span>
+        <span>الأثاث <b>110px</b> — شريطان</span>
+        <span class="bad">المُدخِل لا يستفيد — ليست شاشته</span>
+      </div>
+    </div>
+    <div class="body">
+      <p class="frametag">فواتير المبيعات — اتجاه ج</p>
+      <div class="frame">
+        <div class="f" data-t="light">
+          <div class="shell">
+            <div class="daystrip">
+              <div style="display:flex;align-items:center;gap:9px;padding-inline:14px;font-family:'Zain',sans-serif;font-weight:700;font-size:17px">
+                <svg style="width:22px;height:22px;color:var(--accent)" viewBox="0 0 48 48" fill="none" aria-hidden="true"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>
+                ميزان
+              </div>
+              <button class="fig gold"><span class="lbl">نقد اليوم</span><span class="val lat">148,485.12</span></button>
+              <button class="fig warn"><span class="lbl">متأخرات العملاء</span><span class="val lat">35,880.88</span></button>
+              <button class="fig"><span class="lbl">تحت حد الطلب</span><span class="val lat">2</span></button>
+              <button class="fig"><span class="lbl">قيود غير مرحّلة</span><span class="val lat">3</span></button>
+              <div class="end">
+                <button class="ic" aria-label="بحث" style="width:34px;height:34px;display:grid;place-items:center;border:0;background:none;color:var(--chrome-ink-muted)">⌕</button>
+                <button class="ctx" style="display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 11px;border-radius:99px;border:1px solid var(--chrome-border);background:var(--chrome-hover);color:var(--chrome-ink);font-size:11.5px"><span style="display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:9px;font-weight:700">م.ا</span>محمد</button>
+              </div>
+            </div>
+            <div class="cols">
+              <nav class="col" style="width:186px;flex:0 0 186px">
+                <div class="nav" style="padding-block-start:10px">
+                  <button class="it">الموافقات</button>
+                  <button class="it" aria-current="true">البيع والتحصيل</button>
+                  <button class="it">الشراء والتوريد</button>
+                  <button class="it">المخزون</button>
+                  <button class="it">التصنيع</button>
+                  <button class="it">الخزينة</button>
+                  <button class="it">المالية والإقفال</button>
+                  <button class="it all">☰ كل الشاشات</button>
+                </div>
+                <div class="foot"><button class="ic" aria-label="الإعدادات">⚙</button><button class="ic" aria-label="الإشعارات">🔔</button></div>
+              </nav>
+              <div class="main">
+                <div class="oneline">
+                  <nav class="tabs" aria-label="شاشات البيع والتحصيل">
+                    <button class="tab" aria-current="page">فواتير المبيعات<span class="n">٦</span></button>
+                    <button class="tab">عروض الأسعار</button>
+                    <button class="tab">المرتجعات</button>
+                    <button class="tab">التحصيل<span class="n warn">٣</span></button>
+                    <button class="tab more">المزيد ▾</button>
+                  </nav>
+                </div>
+                <div class="pagepad">
+                  <p class="h1">فواتير المبيعات</p>
+                  <p class="sub1">٦ فواتير تستحق خلال ٣٠ يوماً · ٤٣٬٨٨٨٫٨٨ ج.م</p>
+                  <div class="card">
+                    <table>
+                      <thead><tr><th>رقم</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+                      <tbody>
+                        <tr><td class="lat">INV-000212</td><td>مؤسسة النيل للتجارة</td><td class="lat">2026-08-27</td><td class="lat">12,480.00</td><td><span class="pill due">متأخرة</span></td></tr>
+                        <tr><td class="lat">INV-000211</td><td>شركة الدلتا</td><td class="lat">2026-08-27</td><td class="lat">3,900.50</td><td><span class="pill ok">مسدّدة</span></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="cap"><b>يكسب:</b> صاحب المنشأة (هذا هو سبب شرائه)، المحاسب (الإقفال مرئي). <b>يدفع:</b> المُدخِل وأمين المخزن — يبقى ١١٠ بكسل من الأثاث فوق شاشتهما، نصفها لا يخدمهما، والأرقام تحتاج بيانات حيّة في كل شاشة.</p>
+    </div>
+  </section>
+
+
+  <!-- ══════════════ sub-page bar treatments ══════════════ -->
+  <section class="sec">
+    <div class="hd">
+      <div class="kick">الشاشات الفرعية</div>
+      <b class="t">العمود نظيف — والشاشات في الأعلى: المعتمد ت١</b>
+      <p class="why">
+        العمود يحمل الست فقط. شاشات المساحة المفتوحة تظهر في الأعلى، وهذه ثلاث طرق لعرضها.
+        الفرق بينها ليس زخرفة: <b>عدد الشاشات المرئية دون فتح قائمة</b>، ووضوح الشاشة الحالية،
+        وكم تُكلّف من ارتفاع.
+      </p>
+    </div>
+    <div class="body">
+
+      <p class="frametag" style="color:#D8B25F"><b>✔ المعتمدة</b> · ت١ · ألسنة تحت خط ذهبي — نصّ عارٍ، لا صناديق. العدّاد يقول ما ينتظر داخل كل شاشة</p>
+      <div class="frame"><div class="f" data-t="light">
+        <div style="background:var(--surface);border-block-end:1px solid var(--border);height:52px;display:flex;align-items:center;padding-inline:16px">
+          <nav class="tabs" aria-label="مثال">
+            <button class="tab" aria-current="page">فواتير المبيعات<span class="n">٦</span></button>
+            <button class="tab">عروض الأسعار</button>
+            <button class="tab">المرتجعات</button>
+            <button class="tab">التحصيل<span class="n warn">٣</span></button>
+            <button class="tab more">المزيد ▾</button>
+          </nav>
+          <div class="grow" style="margin-inline-start:auto;display:flex;gap:7px">
+            <button class="btn q">⌕ <span class="kbd">⌘K</span></button><button class="btn p">+ فاتورة جديدة</button>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap">٤ شاشات مرئية · ٥٢ بكسل · الحالية واضحة بالوزن والخط الذهبي معاً (لا باللون وحده). الأهدأ، والأقرب لهوية ميزان.</p>
+
+      <p class="frametag" style="margin-block-start:20px">ت٢ · مجموعة مقسّمة — كتلة واحدة، الحالية ذهبية ممتلئة</p>
+      <div class="frame"><div class="f" data-t="light">
+        <div style="background:var(--surface);border-block-end:1px solid var(--border);height:52px;display:flex;align-items:center;padding-inline:16px;gap:10px">
+          <div class="segset">
+            <button class="seg" aria-current="page">فواتير المبيعات <span class="sn">٦</span></button>
+            <button class="seg">عروض الأسعار</button>
+            <button class="seg">المرتجعات</button>
+            <button class="seg">التحصيل <span class="sn warn">٣</span></button>
+          </div>
+          <button class="btn q">المزيد ▾</button>
+          <div style="margin-inline-start:auto;display:flex;gap:7px"><button class="btn p">+ فاتورة جديدة</button></div>
+        </div>
+      </div></div>
+      <p class="cap">أوضح حالة حالية على الإطلاق، وأثقل بصرياً: كتلة ذهبية تنافس زرّ الفعل الأساسي. تتضخّم بسرعة إذا زادت الشاشات عن أربع.</p>
+
+      <p class="frametag" style="margin-block-start:20px">ت٣ · العنوان ثم الأخوات — الشاشة الحالية عنوانٌ، وأخواتها روابط هادئة بعد فاصل شعري</p>
+      <div class="frame"><div class="f" data-t="light">
+        <div style="background:var(--surface);border-block-end:1px solid var(--border);height:56px;display:flex;align-items:center;padding-inline:16px;gap:14px">
+          <span class="disp" style="font-size:19px">فواتير المبيعات</span>
+          <span style="width:1px;height:22px;background:var(--border)"></span>
+          <nav style="display:flex;gap:14px;font-size:12.5px;color:var(--text-muted)">
+            <button class="btn q" style="height:auto;padding:0">عروض الأسعار</button>
+            <button class="btn q" style="height:auto;padding:0">المرتجعات</button>
+            <button class="btn q" style="height:auto;padding:0">التحصيل</button>
+            <button class="btn q" style="height:auto;padding:0">المزيد ▾</button>
+          </nav>
+          <div style="margin-inline-start:auto;display:flex;gap:7px"><button class="btn p">+ فاتورة جديدة</button></div>
+        </div>
+      </div></div>
+      <p class="cap">الأنيق فعلاً، ويقرأ كصفحة لا كتطبيق. الثمن: الشاشة الحالية لم تعد <b>في</b> الصف، فالانتقال بينها وبين أخواتها يفقد التماثل، وأمين المخزن لا يرى «أين أنا» بنفس السرعة.</p>
+
+      <p class="cap" style="margin-block-start:14px"><b>التوصية:</b> ت١ — يعطي أربع شاشات مرئية وعدّادات حيّة في ٥٢ بكسل، ويترك الذهب علامةً على «الحالي» كما هو في بقية النظام.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════ LOGIN ══════════════ -->
+  <section class="sec">
+    <div class="hd">
+      <div class="kick">شاشة الدخول</div>
+      <b class="t">أول ثلاث ثوانٍ — المعتمدة: ل٢ «مَن على الجهاز»</b>
+      <p class="why">
+        شاشة الدخول اليوم تنفق نصف الشاشة على لوحة تعريفية، وتطلب «اسم المستخدم» مكتوباً بلوحة مفاتيح
+        من شخص يفتحها ٦٠ مرّة في الشهر. عُرضت ثلاث معالجات على المصمّم، والمُدخِل، وصاحب المنشأة،
+        ومراجع الإتاحة. <b>القرار: ل٢ «مَن على الجهاز»</b> — الجهاز يعرض مَن عليه، ويُختار الوجه ثم الرمز.
+        شرطان قبل الشحن، رفعهما المراجعون: <b>قفل بعد محاولات فاشلة</b> و<b>أثر تدقيق لكل محاولة</b>،
+        لأن الحاجز كله صار أربعة أرقام. وصفّ الوجوه يُعلن أسماء الموظفين ومَن هو «مدير الشركة»
+        لمن يقف أمام الجهاز — مقبول على جهاز داخلي، لا على جهاز يراه العميل، وهناك تُستخدم ل١.
+        أرقام «اليوم» (ل٣) لم تُلغَ: انتقلت إلى <b>ما بعد إدخال الرمز</b>، لأن رصيد الخزينة
+        ومتأخرات العملاء كانا يُقرآن من على المنضدة قبل أن يسجّل أحد دخوله.
+      </p>
+    </div>
+    <div class="body">
+
+      <p class="frametag">ل١ · الهدوء (بديل، لأي جهاز يراه العميل) — بطاقة واحدة في وسط ورقة دافئة، والميزان علامة مائية خلفها</p>
+      <div class="frame">
+        <div class="f" data-t="light">
+          <div class="lg">
+            <div class="lg-wm" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M16 34 H32 L29 41 H19 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="lg-card">
+              <svg class="lg-mk" viewBox="0 0 48 48" fill="none" aria-hidden="true"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="24" cy="15" r="2.4" fill="currentColor"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M16 34 H32 L29 41 H19 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>
+              <h3 class="lg-h">أهلاً محمد</h3>
+              <p class="lg-s">الفرع الرئيسي · مدير الشركة</p>
+              <div class="lg-pins"><span class="pin f"></span><span class="pin f"></span><span class="pin on"></span><span class="pin"></span></div>
+              <button class="lg-go">دخول</button>
+              <div class="lg-links">
+                <button>مستخدم آخر</button><span class="dot">·</span><button>نسيت الرمز</button>
+                <span class="lat ver" lang="en">Mezan 2026.8</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="frametag" style="margin-block-start:22px;color:#D8B25F"><b>✔ المعتمدة</b> · ل٢ · مَن على الجهاز — الوجوه أولاً ثم الرمز، بلا اسم مستخدم مكتوب</p>
+      <div class="frame">
+        <div class="f" data-t="light">
+          <div class="lg">
+            <div class="lg-wm" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="lg-card">
+              <p class="lg-eyebrow">ميزان · الفرع الرئيسي</p>
+              <h3 class="lg-h">مَن يعمل الآن؟</h3>
+              <div class="lg-who">
+                <button class="p" aria-current="true"><span class="av" aria-hidden="true">م.ا</span><span>محمد</span></button>
+                <button class="p"><span class="av" aria-hidden="true">س.ع</span><span>سارة</span></button>
+                <button class="p"><span class="av" aria-hidden="true">أ.ح</span><span>أحمد</span></button>
+                <button class="p"><span class="av more" aria-hidden="true">+</span><span>آخر</span></button>
+              </div>
+              <p class="lg-s">الرمز السرّي لـ محمد الشهابي</p>
+              <div class="lg-pins"><span class="pin f"></span><span class="pin f"></span><span class="pin f"></span><span class="pin on"></span></div>
+              <button class="lg-go">دخول</button>
+              <div class="lg-links"><button>مستخدم آخر</button><span class="dot">·</span><button>نسيت الرمز</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="frametag" style="margin-block-start:22px">ل٣ · اليوم قبل الدخول — حالة المنشأة تُقرأ قبل الرمز</p>
+      <div class="frame">
+        <div class="f" data-t="light">
+          <div class="lg lg-split">
+            <aside class="lg-state">
+              <p class="lg-eyebrow gold">صباح الخميس · ٢٩ أغسطس</p>
+              <div class="row"><span class="l">النقد لدى المنشأة</span><span class="v lat">148,485.12</span></div>
+              <div class="row"><span class="l">متأخرات العملاء</span><span class="v lat warn">35,880.88</span></div>
+              <div class="row"><span class="l">فواتير أمس</span><span class="v lat">14</span></div>
+              <div class="row"><span class="l">آخر إقفال</span><span class="v lat">يوليو</span></div>
+              <p class="bk">آخر نسخة احتياطية: أمس ١١:٤٠ م ✓</p>
+            </aside>
+            <div class="lg-card flat">
+              <h3 class="lg-h">أهلاً محمد</h3>
+              <p class="lg-s">أدخل الرمز السرّي للمتابعة</p>
+              <div class="lg-pins"><span class="pin f"></span><span class="pin on"></span><span class="pin"></span><span class="pin"></span></div>
+              <button class="lg-go">دخول</button>
+              <div class="lg-links"><button>مستخدم آخر</button><span class="dot">·</span><button>نسيت الرمز</button><span class="lat ver" lang="en">Mezan 2026.8</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="cap"><b>لماذا ل١:</b> المصمّم — الوحيدة التي تصمد في الوضعين الفاتح والداكن، وتحترم أن هذه الشاشة بوّابة أربعة أرقام لا صفحة تعريف.
+      المُدخِل — نقرة واحدة أقل من ل٢ في ٥٩ دخولاً من كل ٦٠. صاحب المنشأة — «هذه ما أُريه لزائر».
+      <b>ما أُخذ من ل٢:</b> «مستخدم آخر» يفتح قائمة الوجوه للأجهزة المشتركة، فلا تدفع الحالة النادرة ثمنها كل يوم.
+      <b>ما أُخذ من ل٣:</b> شريط الحالة كاملاً، بعد الرمز لا قبله.<br>
+      الثلاثة تحذف حقل «اسم المستخدم» المكتوب — الجهاز يتذكّر مَن عليه والخادم يقرّر مَن هو، و«مستخدم آخر» يبقى للحالة النادرة. الفرق بينها: ل١ أهدأ، ل٢ أسرع لجهاز يتشاركه ثلاثة، ل٣ يعطي المالك سبباً قبل أن يكتب.</p>
+    </div>
+  </section>
+
+
+  <!-- ══════════════ where does scope live? ══════════════ -->
+  <section class="sec">
+    <div class="hd">
+      <div class="kick">نطاق العمل</div>
+      <b class="t">الفرع والمستودع يخرجان من الشريط العلوي — فإلى أين؟</b>
+      <p class="why">
+        القائمتان تشغلان اليوم ٣٥٢ بكسل من الشريط، وتقولان شيئاً <b>لا يتغيّر إلا مرّة في اليوم</b>.
+        لكن حذفهما وحده لا يكفي: النطاق يحدّد ما تراه كل شاشة تحته، فإن اختفى بلا بديل صار المستخدم
+        يُدخِل فاتورة في الفرع الخطأ دون أن يعرف. ثلاثة أماكن ممكنة، ولكل واحد ثمن مختلف.
+      </p>
+    </div>
+    <div class="body">
+
+      <p class="frametag">ن١ · مع الجلسة — يُختار عند الدخول (وهو مرسوم أصلاً في ل٢)، ويُبدَّل من قائمة المستخدم. الشريط يخلو تماماً</p>
+      <div class="frame"><div class="f" data-t="light">
+        <div style="display:flex">
+          <nav class="col" style="width:200px;flex:none;min-height:190px">
+            <div class="brand disp" style="height:52px"><svg class="mk" viewBox="0 0 48 48" fill="none" aria-hidden="true"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>ميزان</div>
+            <div class="nav"><button class="it" aria-current="true">البيع والتحصيل</button><button class="it">المخزون</button></div>
+            <div class="foot"><button class="me"><span class="av" aria-hidden="true">م.ا</span>محمد · الرئيسي</button></div>
+          </nav>
+          <div class="main">
+            <div class="oneline">
+              <nav class="tabs"><button class="tab" aria-current="page">فواتير المبيعات<span class="n">٦</span></button><button class="tab">التحصيل</button></nav>
+              <div class="grow"><button class="btn p">+ فاتورة جديدة</button></div>
+            </div>
+            <div class="pagepad"><div class="card"><table><thead><tr><th>رقم</th><th>العميل</th><th>الإجمالي</th></tr></thead><tbody><tr><td class="lat">INV-000212</td><td>مؤسسة النيل</td><td class="lat">12,480.00</td></tr></tbody></table></div></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>يكسب:</b> ٣٥٢ بكسل، وشريط بلا ضجيج. <b>يدفع:</b> أمين المخزن وأمين الخزنة — النطاق صار غير مرئي على الشاشة التي يعمل عليها، واسم الفرع في قدم العمود فقط. خطر «أدخلتُ في الفرع الخطأ» حقيقي هنا.</p>
+
+      <p class="frametag" style="margin-block-start:20px">ن٢ · مع الشاشة — النطاق شريحة في صفّ المرشِّحات، على الشاشات التي يعنيها فقط. المخزون يراها، دليل الحسابات لا</p>
+      <div class="frame"><div class="f" data-t="light">
+        <div style="display:flex">
+          <nav class="col" style="width:200px;flex:none;min-height:200px">
+            <div class="brand disp" style="height:52px"><svg class="mk" viewBox="0 0 48 48" fill="none" aria-hidden="true"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>ميزان</div>
+            <div class="nav"><button class="it" aria-current="true">البيع والتحصيل</button><button class="it">المخزون</button></div>
+            <div class="foot"><button class="me"><span class="av" aria-hidden="true">م.ا</span>محمد</button></div>
+          </nav>
+          <div class="main">
+            <div class="oneline">
+              <nav class="tabs"><button class="tab" aria-current="page">فواتير المبيعات<span class="n">٦</span></button><button class="tab">التحصيل</button></nav>
+              <div class="grow"><button class="btn p">+ فاتورة جديدة</button></div>
+            </div>
+            <div class="pagepad">
+              <div style="display:flex;align-items:center;gap:8px;margin-block-end:12px;flex-wrap:wrap">
+                <button class="scope"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 8.5 10 3l7 5.5V16a1 1 0 0 1-1 1h-3v-5H7v5H4a1 1 0 0 1-1-1V8.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>الفرع الرئيسي<span class="cv">▾</span></button>
+                <button class="scope"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="7" width="14" height="9" rx="1.2" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 7 10 3l7.5 4" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>كل المستودعات<span class="cv">▾</span></button>
+                <span style="width:1px;height:20px;background:var(--border)"></span>
+                <button class="scope q">هذا الشهر<span class="cv">▾</span></button>
+                <button class="scope q">الحالة<span class="cv">▾</span></button>
+              </div>
+              <div class="card"><table><thead><tr><th>رقم</th><th>العميل</th><th>الإجمالي</th></tr></thead><tbody><tr><td class="lat">INV-000212</td><td>مؤسسة النيل</td><td class="lat">12,480.00</td></tr></tbody></table></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>يكسب:</b> النطاق مرئي حيث يغيّر النتيجة فعلاً، وبجوار بقية المرشِّحات — وهذا ما يفعله كل نظام تقارير محترم. <b>يدفع:</b> يتكرّر على كل شاشة، ويحتاج قراراً لكل شاشة: أي الشاشات تعنيها؟ ولا يوجد «فرع الجلسة» واحد يرثه المستند الجديد ما لم يُضبط في ن١ أيضاً.</p>
+
+      <p class="frametag" style="margin-block-start:20px">ن٣ · مع المستند — لا نطاق عام إطلاقاً؛ الفرع والمستودع حقلان داخل الفاتورة نفسها، والقوائم تعرض الكل</p>
+      <div class="frame"><div class="f" data-t="light">
+        <div style="display:flex">
+          <nav class="col" style="width:200px;flex:none;min-height:200px">
+            <div class="brand disp" style="height:52px"><svg class="mk" viewBox="0 0 48 48" fill="none" aria-hidden="true"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>ميزان</div>
+            <div class="nav"><button class="it" aria-current="true">البيع والتحصيل</button><button class="it">المخزون</button></div>
+            <div class="foot"><button class="me"><span class="av" aria-hidden="true">م.ا</span>محمد</button></div>
+          </nav>
+          <div class="main">
+            <div class="oneline">
+              <nav class="tabs"><button class="tab" aria-current="page">فاتورة جديدة</button></nav>
+            </div>
+            <div class="pagepad">
+              <div class="card" style="padding:14px">
+                <div style="display:flex;gap:12px;flex-wrap:wrap">
+                  <label style="flex:1;min-width:150px"><span class="fl">الفرع</span><span class="fi">الفرع الرئيسي ▾</span></label>
+                  <label style="flex:1;min-width:150px"><span class="fl">المستودع</span><span class="fi">المستودع الرئيسي ▾</span></label>
+                  <label style="flex:1;min-width:150px"><span class="fl">العميل</span><span class="fi">مؤسسة النيل للتجارة ▾</span></label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>يكسب:</b> أصدق نموذج محاسبياً — الفرع خاصية المستند لا خاصية الجلسة، ويظهر في القيد. <b>يدفع:</b> المُدخِل يختار الفرع في كل فاتورة (٤٠–٨٠ مرّة يومياً)، والقوائم تعرض كل الفروع فيرى الموظف ما ليس من عمله. لا يصلح وحده — يصلح <b>فوق</b> ن١ كقيمة موروثة قابلة للتغيير.</p>
+
+      <p class="cap" style="margin-block-start:14px"><b>التوصية:</b> <b>ن١ + ن٢</b> — فرع الجلسة يُختار عند الدخول ويُبدَّل من قائمة المستخدم (فيرثه كل مستند جديد)، ويظهر <b>كشريحة مرشِّح</b> على الشاشات التي يعنيها فقط: المخزون، الجرد، التحويلات، الخزينة، والتقارير. دليل الحسابات وإعدادات الضرائب لا تعرضه لأنه لا يعنيها.</p>
+    </div>
+  </section>
+
+
+  <!-- ══════════════ where do the chrome tools live? ══════════════ -->
+  <section class="sec">
+    <div class="hd">
+      <div class="kick">أدوات الشريط</div>
+      <b class="t">البحث، والفرع/المستودع، وزرّ المظهر — ثلاث تركيبات كاملة</b>
+      <p class="why">
+        الثلاثة ليست قرارات منفصلة: كل واحد منها يأكل من العرض نفسه. هذه ثلاث <b>ميزانيات</b> للشريط،
+        كل واحدة تضع الثلاثة في مكان مختلف، مرسومة على الشاشة نفسها حتى تُقارَن بالعين لا بالوصف.
+        القاعدة في الثلاث: <b>ما يُستخدَم كل دقيقة يبقى ظاهراً، وما يُستخدَم مرّة في اليوم أو الشهر يُطوى.</b>
+      </p>
+      <div class="metrics">
+        <span>البحث <b>كل دقيقة</b></span>
+        <span>الفرع/المستودع <b>مرّة في اليوم</b></span>
+        <span>المظهر واللغة <b>مرّة في العمر</b></span>
+      </div>
+    </div>
+    <div class="body">
+
+      <p class="frametag" style="color:#D8B25F"><b>✔ الموصى بها</b> · ك١ «الشريط الفارغ» — لا شريط علوي أصلاً: البحث أيقونة تفتح لوحة في وسط الشاشة، والمظهر واللغة في قائمة المستخدم، والفرع شريحة مرشِّح على الشاشات التي تعنيه</p>
+      <div class="frame"><div class="f" data-t="light">
+        <div style="display:flex;min-height:210px">
+          <nav class="col" style="width:200px;flex:none">
+            <div class="brand disp" style="height:52px"><svg class="mk" viewBox="0 0 48 48" fill="none" aria-hidden="true"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>ميزان</div>
+            <div class="nav"><button class="it" aria-current="true">البيع والتحصيل</button><button class="it">الشراء والتوريد</button><button class="it">المخزون</button><button class="it">الخزينة</button><button class="it all">☰ كل الشاشات</button></div>
+            <div class="foot">
+              <button class="me"><span class="av" aria-hidden="true">م.ا</span>محمد · الرئيسي</button>
+            </div>
+          </nav>
+          <div class="main">
+            <div class="oneline">
+              <nav class="tabs"><button class="tab" aria-current="page">فواتير المبيعات<span class="n">٦</span></button><button class="tab">عروض الأسعار</button><button class="tab">التحصيل<span class="n warn">٣</span></button><button class="tab more">المزيد ▾</button></nav>
+              <div class="grow">
+                <button class="btn q" title="بحث"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true" style="width:15px;height:15px"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="kbd">⌘K</span></button>
+                <button class="btn p">+ فاتورة جديدة</button>
+              </div>
+            </div>
+            <div class="pagepad">
+              <div style="display:flex;align-items:center;gap:8px;margin-block-end:12px">
+                <button class="scope"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 8.5 10 3l7 5.5V16a1 1 0 0 1-1 1h-3v-5H7v5H4a1 1 0 0 1-1-1V8.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>الفرع الرئيسي<span class="cv">▾</span></button>
+                <button class="scope q">هذا الشهر<span class="cv">▾</span></button>
+              </div>
+              <div class="card"><table><thead><tr><th>رقم</th><th>العميل</th><th>الإجمالي</th></tr></thead><tbody><tr><td class="lat">INV-000212</td><td>مؤسسة النيل للتجارة</td><td class="lat">12,480.00</td></tr></tbody></table></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>الحساب:</b> صفر بكسل أفقي للأدوات · البحث نقرة أو ⌘K · المظهر واللغة خلف الوجه في قدم العمود · الفرع مرئي حيث يغيّر النتيجة. <b>الثمن:</b> «أين أبدّل المظهر؟» سؤال دعم لأول مرّة فقط — والإجابة: نفس مكانه في كل تطبيق يعرفه المستخدم.</p>
+
+      <p class="frametag" style="margin-block-start:20px">ك٢ «رأس العمود» — العمود يحمل البحث والفرع معاً تحت الاسم؛ الأعلى لا يحمل إلا الألسنة وزرّ الفعل</p>
+      <div class="frame"><div class="f" data-t="light">
+        <div style="display:flex;min-height:210px">
+          <nav class="col" style="width:200px;flex:none">
+            <div class="brand disp" style="height:52px"><svg class="mk" viewBox="0 0 48 48" fill="none" aria-hidden="true"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>ميزان</div>
+            <div style="padding:0 10px 8px;display:flex;flex-direction:column;gap:7px">
+              <button class="colsearch"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true" style="width:15px;height:15px"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>بحث…</span><span class="kbd dark">⌘K</span></button>
+              <button class="colscope"><span class="l">الفرع</span><span class="v">الرئيسي ▾</span></button>
+              <button class="colscope"><span class="l">المستودع</span><span class="v">الكل ▾</span></button>
+            </div>
+            <div class="nav"><button class="it" aria-current="true">البيع والتحصيل</button><button class="it">الشراء والتوريد</button><button class="it">المخزون</button><button class="it">الخزينة</button></div>
+            <div class="foot"><button class="me"><span class="av" aria-hidden="true">م.ا</span>محمد</button></div>
+          </nav>
+          <div class="main">
+            <div class="oneline"><nav class="tabs"><button class="tab" aria-current="page">فواتير المبيعات<span class="n">٦</span></button><button class="tab">عروض الأسعار</button><button class="tab">التحصيل<span class="n warn">٣</span></button><button class="tab more">المزيد ▾</button></nav><div class="grow"><button class="btn p">+ فاتورة جديدة</button></div></div>
+            <div class="pagepad"><div class="card"><table><thead><tr><th>رقم</th><th>العميل</th><th>الإجمالي</th></tr></thead><tbody><tr><td class="lat">INV-000212</td><td>مؤسسة النيل للتجارة</td><td class="lat">12,480.00</td></tr></tbody></table></div></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>الحساب:</b> الأدوات كلها في عمود موجود أصلاً · الفرع مرئي دائماً دون أن يكلّف عرضاً · البحث في المكان الذي تضعه فيه أدوات كثيرة يعرفها المستخدم. <b>الثمن:</b> العمود لم يعد «نظيفاً» — ثلاثة عناصر فوق مساحات العمل، والفرع مرئي حتى على الشاشات التي لا يعنيها (دليل الحسابات).</p>
+
+      <p class="frametag" style="margin-block-start:20px">ك٣ «شريط مركّز» — شريط علوي واحد رفيع (44) يحمل البحث في وسطه، والفرع شريحتين هادئتين، والمظهر واللغة خلف «⋯»</p>
+      <div class="frame"><div class="f" data-t="light">
+        <div style="display:flex;flex-direction:column;min-height:210px">
+          <div class="thinbar">
+            <span class="disp" style="font-size:15px;padding-inline:14px;color:var(--chrome-ink)"><svg class="mk" viewBox="0 0 48 48" fill="none" aria-hidden="true"><line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>ميزان</span>
+            <button class="tscope">الفرع الرئيسي ▾</button>
+            <button class="tscope">كل المستودعات ▾</button>
+            <div class="tsearch"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true" style="width:15px;height:15px"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>ابحث أو نفّذ أمراً…</span><span class="kbd dark">⌘K</span></div>
+            <button class="tic" aria-label="المزيد">⋯</button>
+            <button class="tme"><span class="av" aria-hidden="true">م.ا</span></button>
+          </div>
+          <div style="display:flex;flex:1">
+            <nav class="col" style="width:200px;flex:none"><div class="nav" style="padding-block-start:8px"><button class="it" aria-current="true">البيع والتحصيل</button><button class="it">الشراء والتوريد</button><button class="it">المخزون</button><button class="it">الخزينة</button></div></nav>
+            <div class="main">
+              <div class="oneline"><nav class="tabs"><button class="tab" aria-current="page">فواتير المبيعات<span class="n">٦</span></button><button class="tab">عروض الأسعار</button><button class="tab">التحصيل<span class="n warn">٣</span></button><button class="tab more">المزيد ▾</button></nav><div class="grow"><button class="btn p">+ فاتورة جديدة</button></div></div>
+              <div class="pagepad"><div class="card"><table><thead><tr><th>رقم</th><th>العميل</th><th>الإجمالي</th></tr></thead><tbody><tr><td class="lat">INV-000212</td><td>مؤسسة النيل للتجارة</td><td class="lat">12,480.00</td></tr></tbody></table></div></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>الحساب:</b> كل شيء مرئي وثابت المكان — أسهل ما يُشرح على الهاتف. <b>الثمن:</b> ١١٠ بكسل أثاث مرّة أخرى، و«⋯» هو بالضبط ما هربنا منه: زرّ لا يفتحه أحد. الفرع يأكل ٢٦٠ بكسل ليقول ما لا يتغيّر.</p>
+
+      <table class="score" style="margin-block-start:18px">
+        <thead><tr><th style="width:20%">الأداة</th><th>ك١ الشريط الفارغ</th><th>ك٢ رأس العمود</th><th>ك٣ شريط مركّز</th></tr></thead>
+        <tbody>
+          <tr><td class="p">البحث ⌘K</td><td class="y">أيقونة + لوحة وسط الشاشة — أوسع نتائج</td><td class="y">حقل في رأس العمود</td><td class="m">حقل في الشريط — يضيق تحت ١٢٨٠</td></tr>
+          <tr><td class="p">الفرع / المستودع</td><td class="y">شريحة مرشِّح على الشاشات المعنيّة فقط</td><td class="m">دائم في العمود، حتى حيث لا يعني شيئاً</td><td class="n">٢٦٠ بكسل دائمة في الشريط</td></tr>
+          <tr><td class="p">المظهر واللغة</td><td class="y">قائمة المستخدم — مكانها المتوقَّع</td><td class="y">قدم العمود</td><td class="n">خلف «⋯»</td></tr>
+          <tr><td class="p">الأثاث الأفقي</td><td class="y">٥٢ بكسل</td><td class="y">٥٢ بكسل</td><td class="n">٩٦ بكسل</td></tr>
+          <tr><td class="p">العمود</td><td class="y">نظيف — ٦ مساحات</td><td class="n">٣ أدوات فوق المساحات</td><td class="y">نظيف</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════ SCORECARD ══════════════ -->
+  <section class="sec">
+    <div class="hd">
+      <div class="kick">الحكم</div>
+      <b class="t">مَن يكسب ومَن يدفع — الخمسة بالاسم</b>
+    </div>
+    <div class="body">
+      <table class="score">
+        <thead><tr><th style="width:19%">الشخص</th><th>أ · سطر واحد</th><th>ب · شريط العمل</th><th>ج · شريط اليوم</th></tr></thead>
+        <tbody>
+          <tr><td class="p">المُدخِل اليومي</td>
+            <td class="y">✔ +٥٠ بكسل لكل شاشة، أفعال الشاشة ثابتة المكان</td>
+            <td class="y">✔ نقرة/اختصار واحد لأكثر مستند يكتبه</td>
+            <td class="n">✘ أثاث فوق شاشته لا يخدمه</td></tr>
+          <tr><td class="p">أمين المخزن</td>
+            <td class="y">✔ شاشة واحدة بلا أثاث، الشاشات في العمود</td>
+            <td class="y">✔ «استلام بضاعة» مكتوبة بالاسم لا أيقونة</td>
+            <td class="m">— يرى «تحت حد الطلب» وهو مفيد، والباقي لا</td></tr>
+          <tr><td class="p">المحاسب</td>
+            <td class="m">— التقارير في العمود، والمسار يبقى مقروءاً</td>
+            <td class="n">✘ التقارير والإقفال ينزلان درجة</td>
+            <td class="y">✔ «قيود غير مرحّلة» أمامه دائماً</td></tr>
+          <tr><td class="p">صاحب المنشأة</td>
+            <td class="n">✘ لا يرى شيئاً حتى يفتح لوحة التحكم</td>
+            <td class="y">✔ يقرأ النظام كقائمة أعمال بلا تدريب</td>
+            <td class="y">✔ منشأته في ثلاث ثوانٍ — سبب الشراء</td></tr>
+          <tr><td class="p">الدعم</td>
+            <td class="y">✔ اسم الشاشة مكتوب في السطر دائماً</td>
+            <td class="n">✘ الشريط يختلف بين العملاء حسب النشاط</td>
+            <td class="y">✔ لا شيء يتحرّك، الأرقام فقط تتغيّر</td></tr>
+        </tbody>
+      </table>
+      <p class="cap" style="margin-block-start:14px">
+        <b>الخلاصة:</b> (أ) أسرع شاشة وأنظفها وأسوأها للمشتري. (ب) أفضل ما يمكن للمُدخِل وصاحب المنشأة معاً، وأثقلها تركيباً.
+        (ج) أفضل ما للمشتري والمحاسب، ولا يعطي المُدخِل شيئاً.
+        والتركيب الممكن: <b>ب + أ</b> — شريط أفعال أعلى، وسطر شاشة واحد تحته بدل الشريطين، وأرقام (ج) داخل لوحة التحكم لا في الأثاث.
+      </p>
+    </div>
+  </section>
+
+</div>
+<script>
+  const frames = () => document.querySelectorAll('.f');
+  const bL = document.getElementById('tLight'), bD = document.getElementById('tDark');
+  function setTheme(t){
+    frames().forEach(f => f.setAttribute('data-t', t));
+    bL.setAttribute('aria-pressed', String(t === 'light'));
+    bD.setAttribute('aria-pressed', String(t === 'dark'));
+  }
+  bL.addEventListener('click', () => setTheme('light'));
+  bD.addEventListener('click', () => setTheme('dark'));
+</script>
+</body>
+</html>

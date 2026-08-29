@@ -46,12 +46,28 @@ const GAP_PX = 6;
 /** Sub-pixel slack so a rounding error never pushes the last chip past the row. */
 const SAFETY_PX = 4;
 
+/**
+ * TABS, NOT CHIPS (direction ت١). Bare text under a gold rule: a row of
+ * bordered boxes read as five competing buttons and cost 12px of fill each,
+ * and on a bar that is now the ONLY horizontal furniture in the shell the
+ * screens have to read as a place, not as controls.
+ *
+ * "Current" is carried twice — the weight AND the rule — so it survives
+ * greyscale and a colour-blind viewer; the rule is drawn as an explicit
+ * element rather than `::after` so it can sit 1px BELOW the bar's own hairline
+ * instead of anti-aliasing into it.
+ */
 const CHIP_BASE =
-  "relative inline-flex min-h-[var(--h-btn)] flex-none items-center gap-[7px] whitespace-nowrap border px-[12px] text-xs no-underline";
-const CHIP_IDLE = "border-border-strong bg-bg text-ink hover:bg-surface-2";
-const CHIP_ACTIVE = "border-accent bg-accent-soft font-semibold text-accent";
-/** A section dropdown reads as a container, not a destination — hence the recessed fill. */
-const CHIP_SECTION = "border-border-strong bg-surface-2 text-ink hover:bg-surface-3";
+  "relative inline-flex min-h-[var(--h-btn)] flex-none items-center gap-[7px] whitespace-nowrap border-0 bg-transparent px-[13px] text-sm no-underline transition-colors";
+const CHIP_IDLE = "text-ink-muted hover:text-ink";
+const CHIP_ACTIVE = "font-semibold text-ink";
+/** A section dropdown is a container, not a destination: same text, lighter ink. */
+const CHIP_SECTION = "text-ink-muted hover:text-ink";
+
+/** The gold rule that marks the open screen. */
+function TabRule() {
+  return <span aria-hidden className="absolute bottom-[-1px] inset-x-[9px] h-[3px] rounded-t-sm bg-accent" />;
+}
 
 function Caret() {
   return (
@@ -87,8 +103,11 @@ function chipContent(item: NavItem, active: boolean): ReactNode {
       {item.icon ? <span className="flex-none">{item.icon}</span> : null}
       {item.label}
       {item.tag ? (
-        <span className="mz-num flex-none border border-current px-[4px] text-2xs leading-[15px]">{item.tag.label}</span>
+        <span className="mz-num flex-none rounded-pill bg-surface-3 px-[6px] text-2xs leading-[16px] text-ink-faint">
+          {item.tag.label}
+        </span>
       ) : null}
+      {active ? <TabRule /> : null}
     </>
   );
 }
@@ -363,6 +382,7 @@ export function WorkspaceScreensBar({
               <>
                 {cell.section.label}
                 <Caret />
+                {cell.active ? <TabRule /> : null}
               </>
             }
           >
@@ -409,7 +429,7 @@ export function WorkspaceScreensBar({
         BAR_INSET,
         // The inline-start inset is shared with the header's scope switchers so
         // the first chip and the branch selector above it begin on one line.
-        "relative flex items-center gap-[6px] overflow-hidden border-y border-border bg-surface pe-[12px] py-[4px] text-ink",
+        "relative flex items-center gap-[6px] overflow-hidden border-b border-border bg-surface pe-[12px] py-[4px] text-ink",
         className,
       )}
     >
@@ -425,7 +445,12 @@ export function WorkspaceScreensBar({
             label={overflowLabel}
             triggerAriaLabel={`${overflowLabel} (${format.number(hiddenCount)})`}
             triggerClassName={cn(CHIP_BASE, CHIP_IDLE, "min-w-[var(--h-btn)] justify-center")}
-            triggerContent={<span className="mz-num">+{format.number(hiddenCount)}</span>}
+            triggerContent={
+              <>
+                <span className="mz-num">+{format.number(hiddenCount)}</span>
+                {hiddenCells.some((cell) => cell.active) ? <TabRule /> : null}
+              </>
+            }
           >
             {(close) => (
               <>

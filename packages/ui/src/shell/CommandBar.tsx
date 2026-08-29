@@ -9,6 +9,8 @@ export interface CommandBarProps {
   items: CommandItem[];
   placeholder?: string;
   className?: string;
+  /** Results open above the field — for the field's home at the column's foot. */
+  openUp?: boolean;
 }
 
 /**
@@ -17,7 +19,7 @@ export interface CommandBarProps {
  * the highlight, Enter runs the highlighted command and Escape dismisses the
  * results without leaving the field.
  */
-export function CommandBar({ items, placeholder, className }: CommandBarProps) {
+export function CommandBar({ items, placeholder, className, openUp }: CommandBarProps) {
   const { t } = useUiTranslation();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -122,7 +124,10 @@ export function CommandBar({ items, placeholder, className }: CommandBarProps) {
           id={listId}
           role="listbox"
           aria-label={t("shell.palette.title")}
-          className="absolute inset-x-0 top-[calc(100%+7px)] z-40 max-h-[min(420px,60vh)] animate-[mz-fade-in_160ms_ease_both] overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2"
+          className={cn(
+            "absolute inset-x-0 z-40 max-h-[min(420px,60vh)] animate-[mz-fade-in_160ms_ease_both] overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2",
+            openUp ? "bottom-[calc(100%+7px)]" : "top-[calc(100%+7px)]",
+          )}
         >
           {filtered.length === 0 ? (
             <p className="px-[11px] py-[14px] text-sm text-ink-faint">{t("shell.palette.empty")}</p>

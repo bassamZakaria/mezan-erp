@@ -1,19 +1,15 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
-import {
-  BrandMark,
-  Button,
-  TextInput,
-} from "@mezan/ui";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { BrandMark, Button, TextInput, cn } from "@mezan/ui";
 import { useLogin } from "../data/hooks";
 import { clearSessionExpired, sessionExpiredPending } from "../data/session";
 import { useAppTranslation } from "../i18n";
+import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
 
 const PIN_LENGTH = 4;
 /**
- * Prefilled login = the seed admin's EMAIL, not their display name. It used to
- * be «محمد الشهابي», which worked only because login matched the full name — a
- * field any admin can edit, and one two people can share. The PIN is always
- * verified against the real user store.
+ * The seed admin's EMAIL, not their display name — login used to match the full
+ * name, a field any admin can edit and two people can share. Only used as the
+ * fallback when this device remembers nobody.
  */
 const DEFAULT_USERNAME = "admin@cyag.example";
 
@@ -22,15 +18,34 @@ export interface LoginScreenProps {
 }
 
 /**
- * Desktop login — docs/catalog/09's "desktop user + PIN" login shape and the
- * approved mockup's `data-view="login"`. "دخول" verifies the username + PIN
- * against the real users store via `POST /auth/login`; a success establishes
- * the session in ApiContext, which is what dismisses this screen.
+ * Desktop login, direction ل٢ «مَن على الجهاز».
+ *
+ *   مَن يعمل الآن؟
+ *   (م.ا) محمد   (س.ع) سارة   (+) آخر
+ *   الرمز السرّي لـ محمد الشهابي
+ *   [•][•][•][ ]
+ *
+ * NO TYPED USERNAME in the common case. The clerk opens this ~60 times a month
+ * and is the same person almost every time, so the device offers the people it
+ * has actually seen and asks only for the PIN. «آخر» reveals the email field
+ * for the monthly-visit accountant, the new hire, and the first run.
+ *
+ * The face row is NOT the staff roster — it is only who has signed in HERE
+ * (see `device-users.ts`), because listing every employee and their role to
+ * whoever opens the machine leaks the org chart for no gain.
+ *
+ * The PIN auto-submits on the fourth digit: at 60 logins a month, a Tab to a
+ * button the form already knows how to press is pure friction.
  */
 export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const { t } = useAppTranslation();
   const login = useLogin();
-  const [username, setUsername] = useState(DEFAULT_USERNAME);
+
+  const remembered = useMemo(() => readDeviceUsers(), []);
+  const [selected, setSelected] = useState<DeviceUser | null>(remembered[0] ?? null);
+  /** True once «آخر» is chosen, or when the device remembers nobody at all. */
+  const [typing, setTyping] = useState(remembered.length === 0);
+  const [username, setUsername] = useState(remembered[0]?.email ?? DEFAULT_USERNAME);
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
   // Pure read at mount, cleared in the effect below — see `session.ts` for why
   // the two are not one call.
@@ -38,19 +53,77 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   useEffect(() => clearSessionExpired(), []);
   const [error, setError] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const submittedFor = useRef<string>("");
 
-  const pinComplete = pinDigits.every((d) => d !== "");
-  const canSubmit = username.trim() !== "" && pinComplete && !login.isPending;
+  const pin = pinDigits.join("");
+  const pinComplete = pin.length === PIN_LENGTH && pinDigits.every((d) => d !== "");
+  const identity = typing ? username.trim() : (selected?.email ?? "");
+  const canSubmit = identity !== "" && pinComplete && !login.isPending;
+
+  function submit() {
+    if (!canSubmit) return;
+    // Guard the auto-submit against React re-running the effect for the same
+    // completed PIN — otherwise a slow server turns one sign-in into several.
+    const attempt = `${identity}:${pin}`;
+    if (submittedFor.current === attempt) return;
+    submittedFor.current = attempt;
+    setError(null);
+    login.mutate(
+      { username: identity, pin },
+      {
+        onSuccess: (session) => rememberDeviceUser(session),
+        onError: (err) => {
+          setError(err.message || t("login.error.generic"));
+          setPinDigits(Array(PIN_LENGTH).fill(""));
+          inputRefs.current[0]?.focus();
+        },
+      },
+    );
+  }
+
+  /**
+   * The fourth digit submits. `submit()` is idempotent per (identity, pin) via
+   * `submittedFor`, so re-running this effect cannot fire two sign-ins for one
+   * PIN — which is why it does not need to be in the dependency list.
+   */
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  useEffect(() => {
+    if (pinComplete) submitRef.current();
+  }, [pinComplete, pin, identity]);
+
+  function pickUser(user: DeviceUser) {
+    setSelected(user);
+    setTyping(false);
+    setUsername(user.email);
+    setPinDigits(Array(PIN_LENGTH).fill(""));
+    setError(null);
+    inputRefs.current[0]?.focus();
+  }
 
   function handlePinChange(index: number, event: ChangeEvent<HTMLInputElement>) {
-    const digit = event.target.value.replace(/\D/g, "").slice(-1);
+    const raw = event.target.value.replace(/\D/g, "");
+    // The box keeps no `maxLength`, so a PASTED "1234" arrives whole — but that
+    // also means typing over a filled box arrives as old+new ("1" + "4" = "14").
+    // Drop the digit that was already there, or the stale one wins and the PIN
+    // silently becomes the wrong number.
+    const previous = pinDigits[index] ?? "";
+    let typed = previous !== "" && raw.startsWith(previous) ? raw.slice(previous.length) : raw;
+    if (typed === "") typed = raw.slice(-1);
+    if (raw === "") {
+      setPinDigits((prev) => prev.map((d, i) => (i === index ? "" : d)));
+      return;
+    }
+    // A pasted or fast-typed run fills forward from here rather than keeping
+    // only its last character — the reason a pasted 4-digit PIN used to vanish.
     setPinDigits((prev) => {
       const next = [...prev];
-      next[index] = digit;
+      for (let i = 0; i < typed.length && index + i < PIN_LENGTH; i += 1) next[index + i] = typed[i] ?? "";
       return next;
     });
     setError(null);
-    if (digit !== "" && index < PIN_LENGTH - 1) inputRefs.current[index + 1]?.focus();
+    const landed = Math.min(index + typed.length, PIN_LENGTH - 1);
+    inputRefs.current[landed]?.focus();
   }
 
   function handlePinKeyDown(index: number, event: KeyboardEvent<HTMLInputElement>) {
@@ -61,100 +134,174 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!canSubmit) return;
-    setError(null);
-    login.mutate(
-      { username: username.trim(), pin: pinDigits.join("") },
-      {
-        onError: (err) => setError(err.message || t("login.error.generic")),
-      },
-    );
+    submit();
   }
 
+  const pinLabel = typing
+    ? t("login.pin")
+    : t("login.who.pinFor", { name: selected?.name ?? "" });
+
   return (
-    <div className="grid min-h-screen grid-cols-1 bg-surface lg:grid-cols-[1.05fr_.95fr]">
-      <div className="hidden flex-col items-center justify-center gap-[24px] bg-gradient-to-br from-brand to-brand-strong p-[48px] text-brand-ink lg:flex">
-        <BrandMark className="h-[88px] w-[88px] text-accent" />
-        <h1 className="font-display text-[34px] font-extrabold text-brand-ink">{t("shell.brand.name")}</h1>
-        <p className="max-w-[300px] text-center text-[13.5px] leading-[1.7] text-brand-ink opacity-85">
-          {t("login.hero.tagline")}
-        </p>
-        <div className="mz-lat text-[10.5px] font-semibold uppercase tracking-[2px] text-brand-ink opacity-70">Mezan ERP · 2026.8</div>
-      </div>
+    <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
+      {/* The mark, oversized and barely there, anchors the empty quadrant
+          instead of sitting as a badge on the card. */}
+      <BrandMark
+        aria-hidden
+        className="pointer-events-none fixed bottom-[-70px] end-[-40px] h-[320px] w-[320px] text-accent-strong opacity-10"
+      />
 
-      <div className="flex items-center justify-center p-[48px]">
-        <form onSubmit={handleSubmit} className="w-full max-w-[372px]" noValidate>
-          <h2 className="font-display text-[22px] font-bold text-ink">{t("login.title")}</h2>
-          <p className="mb-[22px] mt-[6px] text-[12.5px] text-ink-muted">{t("login.subtitle")}</p>
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        className="relative w-full max-w-[380px] rounded-lg border border-border bg-surface p-[28px] pb-[18px] shadow-2"
+      >
+        <div className="flex items-center gap-[10px]">
+          <BrandMark className="h-[30px] w-[30px] flex-none text-accent" />
+          <span className="mz-disp text-[17px] font-bold text-ink">{t("shell.brand.name")}</span>
+          <span className="ms-auto text-2xs text-ink-faint">{t("login.branchHint")}</span>
+        </div>
 
-          {expired && error === null ? (
-            <div
-              role="status"
-              className="mb-[16px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-[12.5px] text-warning-ink"
+        {/* A session that ended says so, rather than looking like a fresh start
+            the user asked for. It sits above the face row, since that is where
+            the eye lands first. */}
+        {expired && error === null ? (
+          <div
+            role="status"
+            className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink"
+          >
+            {t("login.sessionExpired")}
+          </div>
+        ) : null}
+
+        <h2 className="mt-[14px] font-display text-[21px] font-bold leading-[1.35] text-ink">
+          {typing ? t("login.title") : t("login.who")}
+        </h2>
+
+        {remembered.length > 0 ? (
+          <div className="mt-[14px] flex gap-[9px]" role="radiogroup" aria-label={t("login.who")}>
+            {remembered.map((user) => {
+              const active = !typing && selected?.email === user.email;
+              return (
+                <button
+                  key={user.email}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={t("login.who.pick", { name: user.name })}
+                  onClick={() => pickUser(user)}
+                  className={cn(
+                    "flex min-w-0 flex-1 flex-col items-center gap-[6px] rounded-md border px-[4px] py-[10px] text-2xs transition-colors",
+                    active
+                      ? "border-accent-strong bg-accent-soft font-semibold text-ink"
+                      : "border-transparent bg-surface-2 text-ink-muted hover:bg-surface-3",
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full font-display text-[13px] font-extrabold",
+                      active ? "bg-accent text-accent-ink" : "bg-brand text-brand-ink",
+                    )}
+                  >
+                    {user.initials}
+                  </span>
+                  <span className="w-full truncate text-center" title={user.name}>
+                    {user.name}
+                  </span>
+                </button>
+              );
+            })}
+            {/* «آخر» is an ACTION, not a fourth person — it sits outside the
+                radiogroup so a screen reader does not count it as a choice. */}
+            <button
+              type="button"
+              onClick={() => {
+                setTyping(true);
+                setSelected(null);
+                setUsername("");
+                setError(null);
+              }}
+              className={cn(
+                "flex min-w-0 flex-1 flex-col items-center gap-[6px] rounded-md border px-[4px] py-[10px] text-2xs transition-colors",
+                typing ? "border-accent-strong bg-accent-soft font-semibold text-ink" : "border-transparent bg-surface-2 text-ink-muted hover:bg-surface-3",
+              )}
             >
-              {t("login.sessionExpired")}
-            </div>
-          ) : null}
+              <span
+                aria-hidden
+                className="flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full bg-surface-3 text-[16px] text-ink-muted"
+              >
+                +
+              </span>
+              <span className="w-full truncate text-center">{t("login.who.other")}</span>
+            </button>
+          </div>
+        ) : null}
 
-          <label className="flex flex-col gap-[6px]">
-            <span className="text-[12.5px] font-semibold text-ink">{t("login.email")}</span>
+        {typing ? (
+          <label className="mt-[14px] flex flex-col gap-[6px]">
+            <span className="text-xs font-semibold text-ink">{t("login.email")}</span>
             <TextInput
               type="email"
               value={username}
-              placeholder="admin@example.com"
+              placeholder={t("login.who.otherHint")}
               autoComplete="username"
               className="mz-lat"
               onChange={(e) => setUsername(e.target.value)}
             />
           </label>
+        ) : null}
 
-          <div className="mt-[16px] flex flex-col gap-[6px]">
-            <span className="text-[12.5px] font-semibold text-ink">
-              {t("login.pin")} <span className="mz-lat">PIN</span>
-            </span>
-            <div className="flex gap-[8px]" dir="ltr">
-              {pinDigits.map((digit, index) => (
-                <TextInput
-                  key={index}
-                  ref={(el) => {
-                    inputRefs.current[index] = el;
-                  }}
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={digit}
-                  aria-label={t("login.pin.digit", { index: index + 1 })}
-                  onChange={(e) => handlePinChange(index, e)}
-                  onKeyDown={(e) => handlePinKeyDown(index, e)}
-                  className="h-[46px] w-[46px] px-0 text-center text-[18px] font-bold"
-                />
-              ))}
-            </div>
-          </div>
+        <p className="mt-[16px] text-xs text-ink-muted">{pinLabel}</p>
 
-          {error ? (
-            <p role="alert" className="mt-[10px] text-[12px] font-semibold text-danger-ink">
-              {error}
-            </p>
+        <div className="mt-[8px] flex gap-[10px]" dir="ltr" role="group" aria-label={t("login.pin")}>
+          {pinDigits.map((digit, index) => (
+            <TextInput
+              key={index}
+              ref={(el) => {
+                inputRefs.current[index] = el;
+              }}
+              type="password"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={digit}
+              aria-label={t("login.pin.digit", { index: index + 1 })}
+              onChange={(e) => handlePinChange(index, e)}
+              onKeyDown={(e) => handlePinKeyDown(index, e)}
+              className="h-[56px] w-full px-0 text-center text-[20px] font-bold"
+            />
+          ))}
+        </div>
+
+        {error ? (
+          <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
+            {error}
+          </p>
+        ) : null}
+
+        <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[12px]">
+          {t("login.submit")}
+        </Button>
+
+        <div className="mt-[16px] flex items-center gap-[10px] text-2xs text-ink-faint">
+          {!typing ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTyping(true);
+                setSelected(null);
+                setUsername("");
+              }}
+              className="text-ink-muted hover:underline"
+            >
+              {t("login.otherUser")}
+            </button>
           ) : null}
-
-          <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[11px]">
-            {t("login.submit")}
-          </Button>
-
-          <div className="mt-[24px] border-t border-border pt-[18px] text-[11px] text-ink-faint">
-            <span className="mz-lat">Mezan 2026.8</span>
-          </div>
-
-          <button
-            type="button"
-            onClick={onStartWizard}
-            className="mt-[14px] w-full text-center text-[12px] font-semibold text-brand hover:underline"
-          >
-            {t("login.wizard")}
+          <button type="button" onClick={onStartWizard} className="text-ink-muted hover:underline">
+            {t("login.wizard.short")}
           </button>
-        </form>
-      </div>
+          <span className="mz-lat ms-auto">Mezan 2026.8</span>
+        </div>
+      </form>
     </div>
   );
 }

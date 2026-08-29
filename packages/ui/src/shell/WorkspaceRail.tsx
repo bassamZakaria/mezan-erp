@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from "react";
+import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { RAIL_WIDTH } from "./metrics";
 import type { NavGroup, NavItem } from "./types";
@@ -40,6 +40,15 @@ export interface WorkspaceRailProps {
   /** «كل الشاشات» — below the divider, the browse-everything entry point. */
   allScreensLabel: string;
   onOpenAllScreens?: () => void;
+  /** The brand lockup, pinned above the list — the column's own header. */
+  brand?: ReactNode;
+  /**
+   * THE FOOT: everything global — search, the working scope, appearance,
+   * language, notifications, the user. It sits at the BOTTOM of the column
+   * rather than in a bar of its own, because none of it is touched more than
+   * once or twice a day and all of it used to cost a full-width band.
+   */
+  footer?: ReactNode;
   className?: string;
 }
 
@@ -52,6 +61,8 @@ export function WorkspaceRail({
   ariaLabel,
   allScreensLabel,
   onOpenAllScreens,
+  brand,
+  footer,
   className,
 }: WorkspaceRailProps) {
   const refs = useRef<(HTMLElement | null)[]>([]);
@@ -86,19 +97,19 @@ export function WorkspaceRail({
       )}
     >
       {/*
-        The column stretches so its border runs the whole page, but its CONTENTS
-        stick under row one: the column and the workspace-screens bar share a top
-        edge (see `AppShell`), and a rail that scrolled away would leave that
-        shared edge attached to a blank 200px strip. `--h-topbar` is row one's own
-        height, which is the button height plus the padding that keeps the chrome
-        controls off its edges.
-        The list scrolls inside that sticky box once the open workspace's
-        sections push it past the viewport.
+        EXACTLY ONE VIEWPORT TALL, and sticky at the top — the column is now the
+        only chrome, carrying the brand at its head and every global control at
+        its foot. `h-screen` rather than min/max: the foot must land ON the
+        bottom edge, and the workspace list (`flex-1 overflow-y-auto`) absorbs
+        whatever is left, so a long list scrolls inside the column instead of
+        pushing the user menu off the end of the screen.
       */}
-      <div className="sticky top-[var(--h-topbar)] flex max-h-[calc(100vh-var(--h-topbar))] flex-col py-[8px]">
+      <div className="sticky top-0 flex h-screen flex-col pb-[10px]">
+        {brand}
+
         {pinnedItems.length > 0 ? (
           <>
-            <ul className="flex-none">
+            <ul className="flex-none pt-[4px]">
               {pinnedItems.map((item) => {
                 const active = item.key === activeItemKey;
                 return (
@@ -170,6 +181,8 @@ export function WorkspaceRail({
           </span>
           <span className="truncate">{allScreensLabel}</span>
         </button>
+
+        {footer}
       </div>
     </nav>
   );

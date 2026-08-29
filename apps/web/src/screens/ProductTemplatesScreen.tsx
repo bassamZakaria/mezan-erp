@@ -5,7 +5,6 @@ import {
   Checkbox,
   DocumentList,
   EmptyState,
-  SidePanel,
   StatusPill,
   TextInput,
   type DocumentListColumn,
@@ -23,7 +22,8 @@ import {
   useTemplateVariants,
 } from "../data/hooks";
 import { useConfirmAction } from "../lib/use-confirm-action";
-import { SelectField, TextField } from "../settings/form-controls";
+import { FormPage, SelectField, TextField } from "../settings/form-controls";
+import { useSubPage } from "../navigation";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { useAppTranslation } from "../i18n";
 import { EMPTY } from "../lib/empty";
@@ -88,11 +88,10 @@ export function ProductTemplatesScreen() {
     if (page > pageCount) setPage(1);
   }, [page, pageCount, setPage]);
 
-  const [formOpen, setFormOpen] = useState(false);
+  const subPage = useSubPage();
   const [draft, setDraft] = useState<CreateDraft>(blankCreateDraft());
   const [formError, setFormError] = useState<string | null>(null);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [attrError, setAttrError] = useState<string | null>(null);
   const confirm = useConfirmAction();
   const [newAttrName, setNewAttrName] = useState("");
@@ -100,7 +99,17 @@ export function ProductTemplatesScreen() {
   const [newAttrSpecCode, setNewAttrSpecCode] = useState("");
   const [selectedCombos, setSelectedCombos] = useState<Set<string>>(new Set());
 
-  const selected = selectedId ? templates.find((t) => t.id === selectedId) ?? null : null;
+  /**
+   * Both sub-pages live in the URL: `…/product-templates/new` creates, and
+   * `…/product-templates/<id>` opens that template's attributes and variants.
+   * The selected template is READ from the address rather than held in state,
+   * so a reload, a bookmark and the Back button all land where they should.
+   */
+  const [segment] = subPage.segments;
+  // The address carries the template CODE (`TPL-TEA`); a uuid still resolves so
+  // older links keep working.
+  const selected = segment && segment !== "new" ? (templates.find((t) => t.code === segment || t.id === segment) ?? null) : null;
+  const selectedId = selected?.id ?? null;
   const variantsQuery = useTemplateVariants(selectedId);
   const variants = variantsQuery.data ?? EMPTY;
   const existingKeys = useMemo(() => new Set(variants.map((v) => comboKey(v.values))), [variants]);
@@ -115,7 +124,7 @@ export function ProductTemplatesScreen() {
   function openCreateForm() {
     setDraft(blankCreateDraft());
     setFormError(null);
-    setFormOpen(true);
+    subPage.open("new");
   }
 
   async function handleCreateSubmit(event: FormEvent) {
@@ -134,8 +143,7 @@ export function ProductTemplatesScreen() {
     };
     try {
       const created = await createTemplate.mutateAsync(body);
-      setFormOpen(false);
-      setSelectedId(created.id);
+      subPage.open(created.code);
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : t("templates.theProductTemplateCouldNot"));
     }
@@ -224,62 +232,22 @@ export function ProductTemplatesScreen() {
 
   const newComboCount = combos.filter((c) => !existingKeys.has(comboKey(c))).length;
 
-  return (
-    <div className="w-full">
-      {query.isError ? (
-        <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("templates.productTemplatesCouldNotBe")}</p>
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            {t("common.retry")}
+  const createPage = (
+    <FormPage
+      eyebrow={t("eyebrow.items.productTemplates")}
+      title={t("templates.newProductTemplate")}
+      actions={
+        <>
+          <Button type="button" onClick={subPage.close}>
+            {t("common.cancel")}
           </Button>
-        </Card>
-      ) : null}
-
-      <DocumentList<ProductTemplateDTO>
-        title={t("templates.productTemplates")}
-        description={t("templates.defineAProductWithAttributes")}
-        actions={
-          <Button variant="primary" onClick={openCreateForm}>
-            {t("templates.newTemplate")}
+          <Button type="submit" form="product-template-form" variant="primary">
+            {t("templates.create")}
           </Button>
-        }
-        listKey="product-templates"
-        statsCollapsible
-        stats={[{ label: t("templates.totalTemplates"), value: <span className="mz-num">{templates.length}</span> }]}
-        columns={columns}
-        rows={pageRows}
-        loading={specificationsQuery.isLoading}
-        rowKey={(t) => t.id}
-        onRowClick={(t) => {
-          setSelectedId(t.id);
-          setSelectedCombos(new Set());
-          setAttrError(null);
-        }}
-        page={page}
-        pageCount={pageCount}
-        onPageChange={setPage}
-        pageSize={pageSize}
-        pageSizeOptions={PAGE_SIZES}
-        onPageSizeChange={(size) => {
-          setPageSize(size);
-          setPage(1);
-        }}
-        pageSummary={
-          <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{templates.length}</span> {t("templates.templates")}
-          </>
-        }
-        emptyState={
-          <EmptyState
-            title={t("templates.noProductTemplatesYetCreate")}
-            description={t("templates.emptyBody")}
-            action={{ label: t("templates.newTemplate"), onClick: openCreateForm }}
-          />
-        }
-      />
-
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("templates.newProductTemplate")}>
-        <form onSubmit={handleCreateSubmit} className="flex flex-col gap-[14px]">
+        </>
+      }
+    >
+        <form id="product-template-form" onSubmit={handleCreateSubmit} className="flex max-w-[560px] flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
               {formError}
@@ -290,18 +258,19 @@ export function ProductTemplatesScreen() {
           <TextField label={t("templates.baseUnitOfMeasure")} value={draft.baseUnitCode} onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))} />
           <TextField label={t("templates.defaultPrice")} value={draft.defaultSalePrice} onChange={(v) => setDraft((d) => ({ ...d, defaultSalePrice: v }))} placeholder="0.00" />
           <TextField label={t("templates.defaultCost")} value={draft.defaultCost} onChange={(v) => setDraft((d) => ({ ...d, defaultCost: v }))} placeholder="0.00" />
-          <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setFormOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button type="submit" variant="primary">
-              {t("templates.create")}
-            </Button>
-          </div>
         </form>
-      </SidePanel>
+    </FormPage>
+  );
 
-      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.nameAr : ""} description={selected ? selected.code : undefined}>
+  const detailPage = selected ? (
+    <FormPage
+      eyebrow={t("eyebrow.items.productTemplates")}
+      title={selected.nameAr}
+      description={selected.code}
+      actions={
+        <Button onClick={subPage.close}>{t("common.back")}</Button>
+      }
+    >
         {selected ? (
           <div className="flex flex-col gap-[18px]">
             {attrError ? (
@@ -450,7 +419,79 @@ export function ProductTemplatesScreen() {
             </div>
           </div>
         ) : null}
-      </SidePanel>
+      {confirm.dialog}
+    </FormPage>
+  ) : null;
+
+  if (segment === "new") return createPage;
+  if (selected) return detailPage;
+  if (segment !== undefined && !query.isLoading) {
+    return (
+      <div className="w-full p-8 text-center text-sm text-ink-muted">
+        {t("templates.notFound")}
+        <div className="mt-3">
+          <Button variant="default" onClick={subPage.close}>
+            {t("templates.backToList")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">{t("templates.productTemplatesCouldNotBe")}</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            {t("common.retry")}
+          </Button>
+        </Card>
+      ) : null}
+
+      <DocumentList<ProductTemplateDTO>
+        title={t("templates.productTemplates")}
+        description={t("templates.defineAProductWithAttributes")}
+        actions={
+          <Button variant="primary" onClick={openCreateForm}>
+            {t("templates.newTemplate")}
+          </Button>
+        }
+        listKey="product-templates"
+        statsCollapsible
+        stats={[{ label: t("templates.totalTemplates"), value: <span className="mz-num">{templates.length}</span> }]}
+        columns={columns}
+        rows={pageRows}
+        loading={specificationsQuery.isLoading}
+        rowKey={(t) => t.id}
+        onRowClick={(t) => {
+          setSelectedCombos(new Set());
+          setAttrError(null);
+          subPage.open(t.code);
+        }}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={
+          <>
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{templates.length}</span> {t("templates.templates")}
+          </>
+        }
+        emptyState={
+          <EmptyState
+            title={t("templates.noProductTemplatesYetCreate")}
+            description={t("templates.emptyBody")}
+            action={{ label: t("templates.newTemplate"), onClick: openCreateForm }}
+          />
+        }
+      />
+
       {confirm.dialog}
     </div>
   );

@@ -240,3 +240,41 @@ export function SectionCard({ title, description, children }: { title: string; d
     </div>
   );
 }
+
+/**
+ * The chrome a create/edit sub-page wears: eyebrow, title, optional
+ * description, and the actions that commit or abandon it — the same shape the
+ * sales-quote form page introduced, so a form reached at its own address looks
+ * the same wherever it opens from.
+ *
+ * `onCancel` is the ONLY way back: a sub-page has no side-panel scrim to
+ * dismiss, so a form whose cancel is missing strands the user on an address
+ * with no exit.
+ */
+export function FormPage({
+  eyebrow,
+  title,
+  description,
+  actions,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  description?: string;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{eyebrow}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{title}</h1>
+          {description ? <p className="mt-[4px] text-[12.5px] text-ink-muted">{description}</p> : null}
+        </div>
+        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+      </div>
+      {children}
+    </div>
+  );
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { matchesSearch } from "@mezan/domain";
 import {
   Button,
@@ -13,7 +13,6 @@ import {
   Qty,
   MoneyInput,
   Select,
-  SidePanel,
   StatusPill,
   TextInput,
   type DocumentDetailTab,
@@ -49,13 +48,13 @@ import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { entityName, useEntityName } from "../lib/entity-names";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAttachments } from "../data/attachment-hooks";
-import { TextAreaField } from "../settings/form-controls";
+import { FormPage, TextAreaField } from "../settings/form-controls";
 
 import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
-import { useNavigation } from "../navigation";
+import { useNavigation, useSubPage } from "../navigation";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -718,8 +717,15 @@ export function ItemsScreen() {
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 5);
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  /**
+   * The form is a sub-page: `…/items/items/new` adds and
+   * `…/items/items/<code>` edits. The target is READ from the address instead
+   * of being set by the click that opened a panel, so an edit form survives a
+   * reload and can be linked to.
+   */
+  const subPage = useSubPage();
+  const [formSegment] = subPage.segments;
+  const isEditing = formSegment !== undefined && formSegment !== "new";
   const [draft, setDraft] = useState<ItemDraft>(BLANK_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -784,18 +790,51 @@ export function ItemsScreen() {
 
   const selectedItem = selectedId ? (items.find((i) => i.id === selectedId) ?? null) : null;
 
-  function openCreateForm() {
-    setEditingId(null);
-    setDraft({ ...BLANK_DRAFT, code: nextItemCode(items) });
+  /**
+   * The address carries the item CODE — `IT-0001` reads, a uuid does not — but
+   * a uuid still resolves, so links written against the internal id keep
+   * working.
+   */
+  const editingItem = isEditing ? (items.find((i) => i.code === formSegment || i.id === formSegment) ?? null) : null;
+  const editingId = editingItem?.id ?? null;
+
+  /**
+   * Seeds the draft from whatever the address names, once per target.
+   *
+   * The ref guard is load-bearing: `items` is refetched after every mutation
+   * and on window focus, and re-seeding on each of those would wipe out what
+   * the user had typed mid-edit. It re-seeds only when the ADDRESS changes —
+   * or when a reloaded edit URL's item finally arrives from the server, which
+   * is the case a panel opened by a click never had to handle.
+   */
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (formSegment === undefined) {
+      seededFor.current = null;
+      return;
+    }
+    if (seededFor.current === formSegment) return;
+    if (formSegment === "new") {
+      // NOT before the catalogue has loaded: `nextItemCode([])` is ITM-000001,
+      // which is already taken, and the guard below would then keep that wrong
+      // code for the life of the form.
+      if (query.isLoading) return;
+      setDraft({ ...BLANK_DRAFT, code: nextItemCode(items) });
+    } else if (editingItem) {
+      setDraft(draftFromItem(editingItem));
+    } else {
+      return;
+    }
+    seededFor.current = formSegment;
     setFormError(null);
-    setFormOpen(true);
+  }, [formSegment, editingItem, items, query.isLoading]);
+
+  function openCreateForm() {
+    subPage.open("new");
   }
 
   function openEditForm(item: ItemDTO) {
-    setEditingId(item.id);
-    setDraft(draftFromItem(item));
-    setFormError(null);
-    setFormOpen(true);
+    subPage.open(item.code);
   }
 
   function openDetail(item: ItemDTO) {
@@ -819,7 +858,7 @@ export function ItemsScreen() {
       } else {
         await createItem.mutateAsync(draftToItem(draft, crypto.randomUUID()));
       }
-      setFormOpen(false);
+      subPage.close();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("common.failed"));
     }
@@ -923,14 +962,23 @@ export function ItemsScreen() {
     { key: "out_of_stock", label: t("items.chip.outOfStock"), count: outOfStockCount },
   ];
 
-  const formPanel = (
-    <SidePanel
-      open={formOpen}
-      onClose={() => setFormOpen(false)}
+  const formPage = (
+    <FormPage
+      eyebrow={t("eyebrow.items.catalogue")}
       title={editingId ? t("items.editItem") : t("items.addItem")}
       description={t("items.identityAndCategoryPricingUnits")}
+      actions={
+        <>
+          <Button type="button" onClick={subPage.close}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" form="item-form" variant="primary">
+            {editingId ? t("common.save") : t("common.add")}
+          </Button>
+        </>
+      }
     >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-[16px]">
+      <form id="item-form" onSubmit={handleSubmit} className="flex max-w-[760px] flex-col gap-[16px]">
         {formError ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
             {formError}
@@ -1211,18 +1259,29 @@ export function ItemsScreen() {
             ]}
           />
         ) : null}
+      </form>
+    </FormPage>
+  );
 
-        <div className="mt-[6px] flex justify-end gap-[9px]">
-          <Button type="button" onClick={() => setFormOpen(false)}>
-            {t("common.cancel")}
-          </Button>
-          <Button type="submit" variant="primary">
-            {editingId ? t("common.save") : t("common.add")}
+  /**
+   * An edit address whose item never resolves must say so. Falling through to
+   * the list would silently discard the edit the URL asked for.
+   */
+  if (formSegment === "new") return formPage;
+  if (isEditing) {
+    if (editingItem) return formPage;
+    if (query.isLoading) return <div className="w-full p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>;
+    return (
+      <div className="w-full p-8 text-center text-sm text-ink-muted">
+        {t("items.notFound")}
+        <div className="mt-3">
+          <Button variant="default" onClick={subPage.close}>
+            {t("items.backToList")}
           </Button>
         </div>
-      </form>
-    </SidePanel>
-  );
+      </div>
+    );
+  }
 
   if (view === "detail" && selectedItem) {
     const item = selectedItem;
@@ -1451,7 +1510,6 @@ export function ItemsScreen() {
           activeTabKey={detailTab}
           onTabChange={setDetailTab}
         />
-        {formPanel}
       </div>
     );
   }
@@ -1614,7 +1672,6 @@ export function ItemsScreen() {
           />
         }
       />
-      {formPanel}
     </div>
   );
 }

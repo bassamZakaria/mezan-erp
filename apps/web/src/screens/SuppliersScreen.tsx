@@ -45,6 +45,7 @@ import { supplierPayableById } from "../lib/partner-balances";
 import { majorOf } from "../lib/money";
 import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { EMPTY } from "../lib/empty";
 
 /**
@@ -620,10 +621,14 @@ export function SuppliersScreen() {
 
   const { navigate } = useNavigation();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  // The query is in the URL; see lib/url-state.ts for what belongs there.
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | "active" | "inactive",
+    (next: string) => void,
+  ];
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<SupplierDraft>(BLANK_DRAFT);
@@ -835,9 +840,9 @@ export function SuppliersScreen() {
           setStatusFilter(key as typeof statusFilter);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(v) => {
-          setSearch(v);
+          setSearchText(v);
           setPage(1);
         }}
         searchPlaceholder={t("suppliers.searchPlaceholder")}

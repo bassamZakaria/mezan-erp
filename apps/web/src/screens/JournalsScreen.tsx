@@ -34,6 +34,7 @@ import { SelectField, TextField } from "../settings/form-controls";
 import { errorMessage } from "../lib/error-message";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
@@ -121,13 +122,22 @@ export function JournalsScreen() {
   // shell's breadcrumb (and the «رجوع» that sits beside it) can lead out of it.
   const subPage = useSubPage();
   const [selectedId] = subPage.segments;
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | JournalEntryStatusDTO>("all");
-  const [moduleFilter, setModuleFilter] = useState<"" | JournalSourceModuleDTO>("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  // The query is in the URL; see lib/url-state.ts for what belongs there. A
+  // dated range over the ledger is exactly the thing an accountant sends to a
+  // colleague — "look at these entries" is a link now, not instructions.
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
+    "all" | JournalEntryStatusDTO,
+    (next: string) => void,
+  ];
+  const [moduleFilter, setModuleFilter] = useUrlParam("module") as [
+    "" | JournalSourceModuleDTO,
+    (next: string) => void,
+  ];
+  const [fromDate, setFromDate] = useUrlParam("from");
+  const [toDate, setToDate] = useUrlParam("to");
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   // One filter for the rows, the status chips and the KPI strip (R1.1): the
   // screen used to derive all three from one client-side fetch, so the header
@@ -157,7 +167,7 @@ export function JournalsScreen() {
   const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+  }, [page, pageCount, setPage]);
 
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) + (moduleFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
@@ -353,9 +363,9 @@ export function JournalsScreen() {
           setStatusFilter(k as "all" | JournalEntryStatusDTO);
           setPage(1);
         }}
-        searchValue={search}
+        searchValue={searchText}
         onSearchChange={(value) => {
-          setSearch(value);
+          setSearchText(value);
           setPage(1);
         }}
         searchPlaceholder={t("journals.searchByEntryNumber")}

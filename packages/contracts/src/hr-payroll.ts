@@ -251,3 +251,25 @@ export const createGarnishmentSchema = z.object({
 
 export type GarnishmentDTO = z.infer<typeof garnishmentSchema>;
 export type CreateGarnishmentDTO = z.infer<typeof createGarnishmentSchema>;
+
+// --- Statutory insurance-year overrides ------------------------------------
+
+export const socialInsuranceYearOverrideSchema = z.object({
+  year: z.number().int().min(2019).max(2100),
+  monthlyWageFloor: z.string().min(1),
+  monthlyWageCeiling: z.string().min(1),
+  note: z.string().nullable(),
+  enteredBy: z.string().min(1),
+  enteredAt: z.string().min(1),
+});
+
+export const upsertSocialInsuranceYearSchema = z.object({
+  year: z.number().int().min(2019).max(2100),
+  /** Exact decimal strings, transcribed from the published decree. */
+  monthlyWageFloor: z.string().regex(/^\d+(\.\d{1,2})?$/, "الحد الأدنى يجب أن يكون رقماً"),
+  monthlyWageCeiling: z.string().regex(/^\d+(\.\d{1,2})?$/, "الحد الأقصى يجب أن يكون رقماً"),
+  note: z.string().nullable().optional(),
+});
+
+export type SocialInsuranceYearOverrideDTO = z.infer<typeof socialInsuranceYearOverrideSchema>;
+export type UpsertSocialInsuranceYearDTO = z.infer<typeof upsertSocialInsuranceYearSchema>;

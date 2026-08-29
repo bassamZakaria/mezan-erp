@@ -100,6 +100,7 @@ function serializeAttendance(e: AttendanceEntry) {
     checkIn: e.checkIn,
     checkOut: e.checkOut,
     workedMinutes: e.workedMinutes,
+    approvedOvertimeMinutes: e.approvedOvertimeMinutes,
     status: e.status,
     notes: e.notes,
     createdAt: e.createdAt,

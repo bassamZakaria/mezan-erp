@@ -271,6 +271,51 @@ export const EGYPT_END_OF_SERVICE_TABLES: readonly EndOfServiceTable[] = [
 
 // --- Resolution -------------------------------------------------------------
 
+/**
+ * A year's insurance limits entered by an admin from the published decree.
+ *
+ * Only the floor and the ceiling move annually — the 11% / 18.75% split and the
+ * sub-fund breakdown are in the law itself and change only when the law does.
+ * So this is the ONE thing a tenant can add without an application update, and
+ * it is what stops payroll from stopping every January: the shipped tables
+ * cannot contain a figure that has not been published yet, and refusing to run
+ * until the vendor ships an update is not an acceptable answer to a payroll
+ * clerk on the 28th of January.
+ *
+ * It is an ADDITION, never an edit: an override for a year the app already
+ * ships takes precedence, so a mid-year correction is possible, but the shipped
+ * row stays as the record of what was originally computed.
+ */
+export interface SocialInsuranceYearOverride {
+  readonly year: number;
+  readonly monthlyWageFloor: string;
+  readonly monthlyWageCeiling: string;
+  readonly note: string | null;
+  readonly enteredBy: string;
+  readonly enteredAt: string;
+}
+
+export interface StatutoryOverrideRepository {
+  list(): Promise<SocialInsuranceYearOverride[]>;
+  findByYear(year: number): Promise<SocialInsuranceYearOverride | null>;
+  upsert(override: SocialInsuranceYearOverride): Promise<void>;
+  remove(year: number): Promise<void>;
+}
+
+/** Turns an admin-entered year into a table row the resolver can use. */
+export function overrideToSocialInsuranceTable(override: SocialInsuranceYearOverride): SocialInsuranceTable {
+  return {
+    code: `EG_SOCIAL_INSURANCE_${override.year}_OVERRIDE`,
+    effectiveFrom: `${override.year}-01-01`,
+    effectiveTo: `${override.year}-12-31`,
+    citationAr: `قانون التأمينات الاجتماعية والمعاشات 148 لسنة 2019 — حدود الأجر التأميني لعام ${override.year}، مُدخلة يدوياً${override.note ? ` (${override.note})` : ""}`,
+    monthlyWageFloor: override.monthlyWageFloor,
+    monthlyWageCeiling: override.monthlyWageCeiling,
+    employeeShares: EMPLOYEE_SHARES_148_2019,
+    employerShares: EMPLOYER_SHARES_148_2019,
+  };
+}
+
 export interface EgyptStatutoryRules {
   readonly onDate: string;
   readonly incomeTax: IncomeTaxTable;
@@ -301,16 +346,19 @@ function inForce<T extends DatedTable>(tables: readonly T[], onDate: string): T 
  * right, and the whole point of dating these tables is that it can never ship.
  * The error names every missing table so an admin knows exactly what to add.
  */
-export function resolveEgyptStatutoryRules(onDate: string): EgyptStatutoryRules {
+export function resolveEgyptStatutoryRules(onDate: string, overrides: readonly SocialInsuranceYearOverride[] = []): EgyptStatutoryRules {
   const incomeTax = inForce(EGYPT_INCOME_TAX_TABLES, onDate);
-  const socialInsurance = inForce(EGYPT_SOCIAL_INSURANCE_TABLES, onDate);
+  // An admin-entered year wins over a shipped one: it is either a year the app
+  // predates, or a correction to a figure that was revised after release.
+  const overrideTables = overrides.map(overrideToSocialInsuranceTable);
+  const socialInsurance = inForce(overrideTables, onDate) ?? inForce(EGYPT_SOCIAL_INSURANCE_TABLES, onDate);
   const levies = inForce(EGYPT_PAYROLL_LEVY_TABLES, onDate);
   const overtime = inForce(EGYPT_OVERTIME_TABLES, onDate);
   const endOfService = inForce(EGYPT_END_OF_SERVICE_TABLES, onDate);
 
   const missing: string[] = [];
   if (!incomeTax) missing.push("شرائح ضريبة كسب العمل");
-  if (!socialInsurance) missing.push("حدود ونسب التأمينات الاجتماعية");
+  if (!socialInsurance) missing.push(`حدود الأجر التأميني لسنة ${onDate.slice(0, 4)}`);
   if (!levies) missing.push("الرسوم المستقطعة من الأجر");
   if (!overtime) missing.push("معاملات الأجر الإضافي");
   if (!endOfService) missing.push("قواعد مكافأة نهاية الخدمة");
@@ -322,7 +370,7 @@ export function resolveEgyptStatutoryRules(onDate: string): EgyptStatutoryRules 
 }
 
 /** Every statutory table, for the settings screen that lists what the tenant is computing against. */
-export function listEgyptStatutoryTables(): {
+export function listEgyptStatutoryTables(overrides: readonly SocialInsuranceYearOverride[] = []): {
   readonly incomeTax: readonly IncomeTaxTable[];
   readonly socialInsurance: readonly SocialInsuranceTable[];
   readonly levies: readonly PayrollLevyTable[];
@@ -331,7 +379,7 @@ export function listEgyptStatutoryTables(): {
 } {
   return {
     incomeTax: EGYPT_INCOME_TAX_TABLES,
-    socialInsurance: EGYPT_SOCIAL_INSURANCE_TABLES,
+    socialInsurance: [...EGYPT_SOCIAL_INSURANCE_TABLES, ...overrides.map(overrideToSocialInsuranceTable)],
     levies: EGYPT_PAYROLL_LEVY_TABLES,
     overtime: EGYPT_OVERTIME_TABLES,
     endOfService: EGYPT_END_OF_SERVICE_TABLES,

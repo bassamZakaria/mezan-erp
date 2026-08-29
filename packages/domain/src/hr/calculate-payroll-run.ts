@@ -28,6 +28,7 @@ import {
   resolveEgyptStatutoryRules,
   formatRateBp,
   type EgyptStatutoryRules,
+  type StatutoryOverrideRepository,
 } from "./egypt-statutory.js";
 import {
   hourlyRate,
@@ -113,6 +114,11 @@ export interface PayrollCalculationDeps {
   readonly dayDivisorBasis?: PayrollDayDivisorBasis;
   /** Standard contracted hours in a working day; falls back to the statutory 8. */
   readonly standardDailyHours?: number;
+  /**
+   * Insurance limits an admin entered for a year the shipped tables predate.
+   * Absent = only the shipped years can be run, and a later year refuses.
+   */
+  readonly statutoryOverrides?: Pick<StatutoryOverrideRepository, "list">;
   /** Rate to convert a foreign-currency contract into the run's currency, keyed "FROM:TO". */
   readonly exchangeRates?: ReadonlyMap<string, string>;
   readonly idGen?: () => string;
@@ -229,7 +235,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
   // Resolved against the period END: a run for December 2025 computes on the
   // 2025 ceiling even if it is calculated in January. Throws when no dated
   // table covers the period, which is the whole point of dating them.
-  const statutory: EgyptStatutoryRules = resolveEgyptStatutoryRules(run.periodEnd);
+  const statutory: EgyptStatutoryRules = resolveEgyptStatutoryRules(run.periodEnd, (await deps.statutoryOverrides?.list()) ?? []);
 
   const now = deps.now?.() ?? new Date().toISOString();
   const idGen = deps.idGen ?? (() => `${runId}:${Math.random().toString(36).slice(2)}`);
@@ -336,13 +342,19 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     } else {
       const worked = (await deps.workedTime?.workedTimeFor(employee.id, run.periodStart, run.periodEnd)) ?? { days: 0, hours: 0 };
       const units = contract.payBasis === "daily" ? worked.days : worked.hours;
+      if (units <= 0) {
+        // No attendance means nothing to pay, and a zero-earnings payslip is
+        // worse than none: its fixed contract deductions would exceed earnings
+        // and refuse the whole run. The employee is excluded and SAID to be.
+        warnings.push(
+          `${employee.fullNameAr} (${employee.code}): لا توجد ساعات أو أيام حضور مسجّلة للفترة وأساس الدفع "${getPayBasisLabel(contract.payBasis)}" — تم استبعاده.`,
+        );
+        continue;
+      }
       basicEarned = Money.fromScaled((monthlySalary.scaled * BigInt(Math.round(units * 1000))) / 1000n);
       // A daily/hourly contract's "monthly wage" for insurance and tax is what
       // it actually earned this period — there is no other figure to use.
       contractualMonthly = basicEarned;
-      if (units <= 0) {
-        warnings.push(`${employee.fullNameAr} (${employee.code}): لا توجد ساعات أو أيام حضور مسجّلة للفترة — احتُسب صفر.`);
-      }
     }
 
     lines.push({

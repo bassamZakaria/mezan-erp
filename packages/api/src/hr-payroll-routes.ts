@@ -50,6 +50,8 @@ import {
   type GarnishmentProvider,
   type GarnishmentRecord,
   type GarnishmentRepository,
+  type SocialInsuranceYearOverride,
+  type StatutoryOverrideRepository,
   type OvertimeHoursProvider,
   type PayrollDayDivisorBasis,
   type SettingsRepository,
@@ -71,6 +73,7 @@ import {
   createEmployeeAdvanceSchema,
   createPayrollRunSchema,
   createGarnishmentSchema,
+  upsertSocialInsuranceYearSchema,
   createPayrollComponentSchema,
   updatePayrollComponentSchema,
   treasuryDisbursementSchema,
@@ -118,6 +121,12 @@ export interface HrPayrollRoutesDeps {
    * stored-but-never-read before.
    */
   readonly settings?: Pick<SettingsRepository, "get">;
+  /**
+   * Insurance limits an admin entered for a year the shipped tables predate.
+   * Supplying it mounts the routes AND feeds the calculation — the two go
+   * together, so the screen can never edit a figure payroll does not read.
+   */
+  readonly statutoryOverrides?: StatutoryOverrideRepository;
   /** Overrides the settings-derived basis; for tests. */
   readonly dayDivisorBasis?: PayrollDayDivisorBasis;
   readonly standardDailyHours?: number;
@@ -315,6 +324,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     workedTime: deps.workedTime,
     garnishments: deps.garnishments ?? (deps.garnishmentRegister ? createGarnishmentProvider(deps.garnishmentRegister) : undefined),
     payrollComponents: deps.payrollComponents,
+    statutoryOverrides: deps.statutoryOverrides,
     idGen,
   };
 
@@ -522,8 +532,9 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
   // The dated legal tables payroll computes against. Read-only and public to
   // anyone who can see payroll: an accountant must be able to check the ceiling
   // the system used against the gazette without opening the source.
-  app.get("/payroll/statutory-tables", gate("hr.payroll.view"), (c) => {
-    const tables = listEgyptStatutoryTables();
+  app.get("/payroll/statutory-tables", gate("hr.payroll.view"), async (c) => {
+    const overrides = (await deps.statutoryOverrides?.list()) ?? [];
+    const tables = listEgyptStatutoryTables(overrides);
     return c.json({
       incomeTax: tables.incomeTax.map((t) => ({
         code: t.code,
@@ -576,8 +587,46 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
         minimumAnnualRaisePercent: formatRateBp(t.minimumAnnualRaiseBp),
         tiers: t.tiers.map((x) => ({ throughYears: x.throughYears, monthsPerYear: x.monthsPerYear })),
       })),
+      insuranceYearOverrides: overrides,
     });
   });
+
+  /**
+   * حدود الأجر التأميني للسنة — the one statutory figure a tenant may enter.
+   *
+   * The floor and ceiling are republished every January and the app cannot ship
+   * a number that has not been published yet; without this, payroll would stop
+   * every New Year until a software update. The rates and the sub-fund split
+   * are NOT editable: those are in the law and a typo in them would be silent.
+   */
+  const statutoryOverrides = deps.statutoryOverrides;
+  if (statutoryOverrides) {
+    app.put("/payroll/statutory-tables/insurance-years/:year", gate("hr.payroll.create"), async (c) => {
+      const parsed = upsertSocialInsuranceYearSchema.safeParse({
+        ...(await c.req.json().catch(() => ({}))),
+        year: Number.parseInt(c.req.param("year"), 10),
+      });
+      if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      if (Money.fromMajor(parsed.data.monthlyWageCeiling).scaled <= Money.fromMajor(parsed.data.monthlyWageFloor).scaled) {
+        return c.json({ error: "INVALID_INSURANCE_LIMITS", message: "الحد الأقصى للأجر التأميني يجب أن يزيد عن الحد الأدنى." }, 422);
+      }
+      const override: SocialInsuranceYearOverride = {
+        year: parsed.data.year,
+        monthlyWageFloor: parsed.data.monthlyWageFloor,
+        monthlyWageCeiling: parsed.data.monthlyWageCeiling,
+        note: parsed.data.note ?? null,
+        enteredBy: actorOf(c),
+        enteredAt: new Date().toISOString(),
+      };
+      await statutoryOverrides.upsert(override);
+      return c.json(override);
+    });
+
+    app.delete("/payroll/statutory-tables/insurance-years/:year", gate("hr.payroll.create"), async (c) => {
+      await statutoryOverrides.remove(Number.parseInt(c.req.param("year"), 10));
+      return c.body(null, 204);
+    });
+  }
 
   app.get("/payroll/runs", gate("hr.payroll.view"), async (c) => {
     return c.json((await deps.runs.list()).map(serializeRun));

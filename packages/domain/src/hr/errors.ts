@@ -428,7 +428,7 @@ export class StatutoryRulesUnavailableError extends Error {
     readonly missing: readonly string[],
   ) {
     super(
-      `لا توجد قواعد قانونية سارية بتاريخ ${onDate}: ${missing.join("، ")}. أضف جدول السنة من الإعدادات قبل احتساب الرواتب.`,
+      `لا توجد قواعد قانونية سارية بتاريخ ${onDate}: ${missing.join("، ")}. أدخل حدود الأجر التأميني للسنة من إعدادات الرواتب قبل احتساب المسير.`,
     );
     this.name = "StatutoryRulesUnavailableError";
   }

@@ -71,19 +71,38 @@ export async function run(ctx: Ctx): Promise<void> {
   const branchId = await branchIdOf(ctx);
   const treasury = await bankTreasuryAccount(ctx);
 
-  await ctx.scenario("hr / payroll scope notice — unimplemented-rule set matches employee count", async () => {
+  // Several scenarios below open payroll runs in 2029 to stay clear of the
+  // seeded 2026 ones. The app ships insurance limits only for years that have
+  // actually been published, so 2029 is entered here the way an admin would —
+  // which also means every one of those scenarios is exercising the override
+  // path rather than assuming it works.
+  await ctx.req("PUT", "/hr/payroll/statutory-tables/insurance-years/2029", {
+    monthlyWageFloor: "4100",
+    monthlyWageCeiling: "25400",
+    note: "مُدخلة للسيناريوهات",
+  });
+
+  await ctx.scenario("hr / payroll scope notice — the remaining gaps are the ones that are actually still gaps", async () => {
+    // Flipped when Egyptian statutory payroll landed. This block used to assert
+    // that NO payslip line ever named tax, insurance, seniority, overtime or
+    // end-of-service — a faithful guard while the engine computed none of them,
+    // and a guard pointing the wrong way the moment it did.
     const universal = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => r.appliesToEveryPayslip);
     const situational = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => !r.appliesToEveryPayslip);
-    const universalCodes = ["income_tax", "social_insurance", "seniority_bonus", "overtime", "end_of_service"];
     ctx.check(
-      "PR-09 — exactly 5 universal scope gaps: tax, social insurance, Article 47 seniority, overtime, end-of-service",
-      universal.length === 5 && universalCodes.every((code) => universal.some((r) => r.code === code)),
+      "PR-09 — the only universal gap left is the December annual tax settlement",
+      universal.length === 1 && universal[0]?.code === "annual_tax_settlement",
       universal.map((r) => r.code).join(", "),
     );
     ctx.check(
-      "PR-10 — exactly 4 situational scope gaps (hourly/daily basis, pay frequency, multi-currency, loans/garnishments)",
-      situational.length === 4,
+      "PR-10 — two situational gaps remain: in-kind benefits and the FX difference on a foreign-currency contract",
+      situational.length === 2,
       situational.map((r) => r.code).join(", "),
+    );
+    ctx.check(
+      "PR-09b — nothing still claims tax, insurance, overtime or end-of-service are uncalculated",
+      !PAYROLL_UNIMPLEMENTED_RULES.some((r) => ["income_tax", "social_insurance", "overtime", "end_of_service", "seniority_bonus"].includes(r.code)),
+      PAYROLL_UNIMPLEMENTED_RULES.map((r) => r.code).join(", "),
     );
 
     const amr = (await ctx.req("GET", "/hr/employees/EMP-DEMO-8")).body;
@@ -92,20 +111,250 @@ export async function run(ctx: Ctx): Promise<void> {
     for (const runId of ["PR-DEMO-1", "PR-DEMO-2", "PR-DEMO-3"]) {
       const run = (await ctx.req("GET", `/hr/payroll/runs/${runId}`)).body;
       ctx.checkEq(`${runId} — the count in the scope notice equals the run's actual employeeCount`, run.employeeCount, run.payslips.length);
-      ctx.check(`PR-04 ${runId} — employeeCount excludes the hourly contract (7, not 8 or 9)`, run.employeeCount === 7, `got ${run.employeeCount}`);
+      ctx.check(`PR-04 ${runId} — employeeCount excludes the hourly contract with no attendance (7, not 8 or 9)`, run.employeeCount === 7, `got ${run.employeeCount}`);
 
-      const hourlyWarning = (run.warnings as string[]).find((w) => w.includes(amrName) && w.includes(amr.code));
+      // An employee can attract more than one warning (pay frequency AND pay
+      // basis), so this looks through ALL of them: matching only the first
+      // asserted whichever happened to be pushed earliest.
+      const named = (run.warnings as string[]).filter((w) => w.includes(amrName) && w.includes(amr.code));
       ctx.check(
         `PR-08/D15 ${runId} — hourly employee excluded with a NAMED warning that reads in Arabic, not the raw code "hourly"`,
-        !!hourlyWarning && hourlyWarning.includes("بالساعة") && !hourlyWarning.includes("hourly"),
-        hourlyWarning ?? "no warning found naming the employee",
+        named.some((w) => w.includes("بالساعة") && w.includes("استبعاده")) && !named.some((w) => w.includes("hourly")),
+        named.join(" | ") || "no warning found naming the employee",
       );
       ctx.check(`PR-08 ${runId} — no payslip issued for the excluded hourly employee (not a zero payslip, not a blank row)`, !run.payslips.some((p: any) => p.employeeId === "EMP-DEMO-8"));
       ctx.check(
-        `PR-13 ${runId} — no payslip line ever names tax/insurance/seniority/overtime/end-of-service`,
-        run.payslips.every((p: any) => p.lines.every((l: any) => !/ضريبة|تأمين|أقدمية|إضافي|نهاية خدمة/.test(l.nameAr))),
+        `PR-13 ${runId} — every payslip now carries BOTH statutory deductions, and the run records which dated tables produced them`,
+        run.statutoryTableCodes.length === 5 &&
+          run.payslips.every((p: any) => {
+            const sources = p.lines.map((l: any) => l.source);
+            return sources.includes("social_insurance_employee") && sources.includes("social_insurance_employer");
+          }),
+        `tables ${run.statutoryTableCodes.join(", ")}`,
       );
     }
+  });
+
+  await ctx.scenario("hr / statutory payroll — the Egyptian figures, checked against the law not against themselves", async () => {
+    const tables = (await ctx.req("GET", "/hr/payroll/statutory-tables")).body;
+    const si2026 = tables.socialInsurance.find((t: any) => t.code === "EG_SOCIAL_INSURANCE_2026");
+    ctx.check("PR-20 — the 2026 insurance floor is 2,700 and the ceiling 16,700 (Law 148/2019)", si2026?.monthlyWageFloor === "2700" && si2026?.monthlyWageCeiling === "16700", JSON.stringify(si2026?.monthlyWageFloor));
+    ctx.check("PR-21 — the shares are 11% employee and 18.75% employer", si2026?.employeeTotalPercent === "11" && si2026?.employerTotalPercent === "18.75");
+    const tax = tables.incomeTax[0];
+    ctx.check("PR-22 — the personal exemption is 20,000 a year and the top band is 27.5%", tax?.annualPersonalExemption === "20000" && tax?.brackets.at(-1)?.ratePercent === "27.5");
+
+    const run = (await ctx.req("GET", "/hr/payroll/runs/PR-DEMO-1")).body;
+
+    // A salary above the ceiling contributes on the ceiling, NOT on gross. This
+    // is the single most common Egyptian payroll error, so it is asserted on a
+    // seeded salary chosen to exceed it rather than left to chance.
+    const capped = run.payslips.find((p: any) => p.insurableWageCapped);
+    ctx.check("PR-23 — a salary above the ceiling is capped at 16,700, not contributed on gross", !!capped && ctx.n(capped.insurableWage) === 16700, capped ? `insurable ${capped.insurableWage}` : "no capped payslip in the run");
+    if (capped) {
+      const employee = capped.lines.find((l: any) => l.source === "social_insurance_employee");
+      const employer = capped.lines.find((l: any) => l.source === "social_insurance_employer");
+      ctx.checkEq("PR-24 — the employee share is 11% OF THE CEILING (1,837.00)", ctx.n(employee.amount), 1837);
+      ctx.checkEq("PR-25 — the employer share is 18.75% of the ceiling (3,131.25)", ctx.n(employer.amount), 3131.25);
+    }
+
+    // The brackets are ANNUAL. Walking them on one month's pay would put every
+    // employee in the 0% band and withhold nothing, so the check recomputes the
+    // annualisation by hand rather than trusting the engine's own figure.
+    for (const p of run.payslips) {
+      const insurance = p.lines.filter((l: any) => l.source === "social_insurance_employee").reduce((s: number, l: any) => s + ctx.n(l.amount), 0);
+      const taxLine = p.lines.find((l: any) => l.source === "income_tax");
+      const annual = Math.max((ctx.n(p.grossEarnings) - insurance) * 12 - 20000, 0);
+      ctx.checkEq(`PR-26 ${p.number} — the annual taxable income is (gross − insurance) × 12 − 20,000`, ctx.n(p.annualTaxableIncome), annual);
+
+      let expected = 0;
+      const bands: [number, number][] = [[40000, 0], [55000, 0.1], [70000, 0.15], [200000, 0.2], [400000, 0.225], [1200000, 0.25]];
+      let lower = 0;
+      for (const [upper, rate] of bands) {
+        expected += Math.max(Math.min(annual, upper) - lower, 0) * rate;
+        lower = upper;
+      }
+      expected += Math.max(annual - 1200000, 0) * 0.275;
+      ctx.checkEq(`PR-27 ${p.number} — the withheld tax is the annual bracket walk divided by twelve`, taxLine ? ctx.n(taxLine.amount) : 0, Math.round((expected / 12) * 100) / 100);
+    }
+
+    // Every payslip's parts must sum to its own whole, and the run's totals to
+    // the payslips'. Two figures that must agree beat either alone.
+    let runGross = 0;
+    let runNet = 0;
+    for (const p of run.payslips) {
+      const earnings = p.lines.filter((l: any) => l.kind === "earning").reduce((s: number, l: any) => s + ctx.n(l.amount), 0);
+      const deductions = p.lines.filter((l: any) => l.kind === "deduction").reduce((s: number, l: any) => s + ctx.n(l.amount), 0);
+      const employer = p.lines.filter((l: any) => l.kind === "employer_contribution").reduce((s: number, l: any) => s + ctx.n(l.amount), 0);
+      ctx.checkEq(`PR-28 ${p.number} — gross is exactly the sum of its earning lines`, ctx.n(p.grossEarnings), earnings);
+      ctx.checkEq(`PR-29 ${p.number} — net is exactly gross less every deduction line`, ctx.n(p.netPay), earnings - deductions);
+      ctx.checkEq(`PR-30 ${p.number} — employer cost is gross plus the employer contributions, and never touches net`, ctx.n(p.totalEmployerCost), earnings + employer);
+      runGross += earnings;
+      runNet += earnings - deductions;
+    }
+    ctx.checkEq("PR-31 — the run's totalGross is the sum of its payslips", ctx.n(run.totalGross), runGross);
+    ctx.checkEq("PR-32 — the run's totalNet is the sum of its payslips", ctx.n(run.totalNet), runNet);
+  });
+
+  await ctx.scenario("hr / statutory returns — each one ties to the GL account it is filed against", async () => {
+    // A return that does not agree with the ledger will not survive an
+    // inspection. Both reports carry a reconciliation banner for exactly this,
+    // and the banner is worth nothing if nothing ever checks it.
+    for (const [label, path, account] of [
+      ["social insurance", "/reports/hr/social-insurance-return?year=2026", "2192"],
+      ["salary tax", "/reports/hr/salary-tax-return?year=2026", "2191"],
+    ] as const) {
+      const report = (await ctx.req("GET", path)).body;
+      ctx.check(`PR-33 — the ${label} return renders a reconciliation banner`, report.reconciliation != null, JSON.stringify(report.reconciliation));
+      if (report.reconciliation) {
+        ctx.checkEq(
+          `PR-34 — the ${label} return agrees with control account ${account}`,
+          ctx.n(report.reconciliation.reportTotal),
+          ctx.n(report.reconciliation.referenceTotal),
+        );
+      }
+    }
+
+    const register = (await ctx.req("GET", "/reports/hr/payroll-register?year=2026")).body;
+    const runs = ctx.rows((await ctx.req("GET", "/hr/payroll/runs")).body).filter((r: any) => r.status === "approved" || r.status === "disbursed");
+    ctx.checkEq(
+      "PR-35 — the register's net equals the nets of the runs actually in the books, and counts no draft run",
+      register.rows.reduce((s: number, r: any) => s + ctx.n(r.netPay), 0),
+      runs.reduce((s: number, r: any) => s + ctx.n(r.totalNet), 0),
+    );
+  });
+
+  await ctx.scenario("hr / an unpublished year is REFUSED, then unblocked by entering its limits — never computed on a stale ceiling", async () => {
+    // The insurance floor and ceiling rise every 1 January. Falling back to last
+    // year's table would produce a net that looks right and is legally wrong,
+    // so the run refuses — and, because an ERP that stops every New Year until
+    // a software update is broken, an admin can enter the published figures and
+    // carry on. Both halves are asserted, because either alone is a defect.
+    const created = await ctx.req("POST", "/hr/payroll/runs", { year: 2028, month: 1, branchId, currency: "EGP" });
+    ctx.check("PR-36 — a run can still be OPENED for an unpublished year (the refusal belongs at calculation)", created.status === 201, `got ${created.status}`);
+
+    const refused = await ctx.req("POST", `/hr/payroll/runs/${created.body.id}/calculate`, {});
+    ctx.check("PR-37 — calculating it is refused with 422 rather than computed on 2026's ceiling", refused.status === 422, `got ${refused.status}`);
+    ctx.check(
+      "PR-38 — and the refusal names the missing year in Arabic and says where to fix it, not a raw code",
+      refused.body?.error === "STATUTORY_RULES_UNAVAILABLE" && /2028/.test(String(refused.body?.message)) && /الأجر التأميني/.test(String(refused.body?.message)),
+      JSON.stringify(refused.body),
+    );
+
+    const bad = await ctx.req("PUT", "/hr/payroll/statutory-tables/insurance-years/2028", { monthlyWageFloor: "5000", monthlyWageCeiling: "4000" });
+    ctx.check("PR-39 — a ceiling below the floor is refused, so a transposed pair cannot be saved", bad.status === 422, `got ${bad.status}`);
+
+    const entered = await ctx.req("PUT", "/hr/payroll/statutory-tables/insurance-years/2028", {
+      monthlyWageFloor: "3600",
+      monthlyWageCeiling: "22100",
+      note: "قرار حدود الأجر التأميني لعام 2028",
+    });
+    ctx.check("PR-40 — an admin can enter the published limits for the year", entered.status === 200, `got ${entered.status}`);
+
+    const calculated = await ctx.req("POST", `/hr/payroll/runs/${created.body.id}/calculate`, {});
+    ctx.check("PR-41 — and the SAME run then calculates, with no restart and no application update", calculated.status === 200, `got ${calculated.status}`);
+    ctx.check(
+      "PR-42 — the run records that it used the entered table, so a reprint can say where its figures came from",
+      (calculated.body.statutoryTableCodes as string[]).includes("EG_SOCIAL_INSURANCE_2028_OVERRIDE"),
+      (calculated.body.statutoryTableCodes ?? []).join(", "),
+    );
+    const capped = calculated.body.payslips.find((p: any) => p.insurableWageCapped);
+    ctx.check("PR-43 — and the ENTERED ceiling is the one that binds, not the shipped 16,700", !capped || ctx.n(capped.insurableWage) === 22100, capped ? `insurable ${capped.insurableWage}` : "nobody hit the 2028 ceiling");
+
+    await ctx.req("POST", `/hr/payroll/runs/${created.body.id}/cancel`, {});
+    await ctx.req("DELETE", "/hr/payroll/statutory-tables/insurance-years/2028", {});
+    const afterRemoval = await ctx.req("GET", "/hr/payroll/statutory-tables");
+    ctx.check(
+      "PR-44 — removing the entered year takes it back out of the resolved tables",
+      !(afterRemoval.body.insuranceYearOverrides as any[]).some((o) => o.year === 2028),
+      JSON.stringify(afterRemoval.body.insuranceYearOverrides),
+    );
+  });
+
+  await ctx.scenario("hr / garnishments — withheld before advances, counted down, and stopping when satisfied", async () => {
+    const orders = ctx.rows((await ctx.req("GET", "/hr/payroll/garnishments")).body);
+    ctx.check("GRN-01 — the register holds the seeded orders", orders.length >= 3, `got ${orders.length}`);
+
+    for (const order of orders) {
+      ctx.checkEq(`GRN-02 ${order.reference} — total always equals outstanding plus what has been recovered`, ctx.n(order.totalAmount), ctx.n(order.outstanding) + ctx.n(order.recovered));
+      ctx.check(`GRN-03 ${order.reference} — an order is never left active with nothing left to collect`, !(order.active && ctx.n(order.outstanding) === 0), `active=${order.active} outstanding=${order.outstanding}`);
+    }
+
+    const withheld = orders.some((o: any) => ctx.n(o.recovered) > 0);
+    ctx.check("GRN-04 — approving a run actually counted an order down (the seam is wired, not decorative)", withheld);
+
+    // A court order outranks the employer's own loan, so on a payslip carrying
+    // both, the garnishment line must precede the advance-recovery line.
+    const run = (await ctx.req("GET", "/hr/payroll/runs/PR-DEMO-1")).body;
+    for (const p of run.payslips) {
+      const g = p.lines.findIndex((l: any) => l.source === "garnishment");
+      const a = p.lines.findIndex((l: any) => l.source === "advance_recovery");
+      if (g === -1 || a === -1) continue;
+      ctx.check(`GRN-05 ${p.number} — the court order is taken before the employer's own advance`, g < a, `garnishment at ${g}, advance at ${a}`);
+    }
+
+    // The employee must be resolved against the real register: free text where
+    // the reference picks an entity is money withheld from nobody.
+    const bogus = await ctx.req("POST", "/hr/payroll/garnishments", {
+      employeeId: "EMP-NOT-A-REAL-EMPLOYEE",
+      kind: "court_order",
+      reference: "TEST/9999",
+      labelAr: "اختبار",
+      totalAmount: "100",
+      monthlyAmount: "50",
+      currency: "EGP",
+      startDate: "2026-01-01",
+    });
+    ctx.check("GRN-06 — an order against an employee id nobody holds is refused with 404", bogus.status === 404, `got ${bogus.status}`);
+
+    const overInstalment = await ctx.req("POST", "/hr/payroll/garnishments", {
+      employeeId: "EMP-DEMO-1",
+      kind: "court_order",
+      reference: "TEST/9998",
+      labelAr: "اختبار",
+      totalAmount: "100",
+      monthlyAmount: "500",
+      currency: "EGP",
+      startDate: "2026-01-01",
+    });
+    ctx.check("GRN-07 — a monthly instalment larger than the order itself is refused", overInstalment.status === 422, `got ${overInstalment.status}`);
+  });
+
+  await ctx.scenario("hr / end-of-service settlement — the statutory tiers, and a running employee refused", async () => {
+    const settlement = (await ctx.req("GET", "/hr/employees/EMP-DEMO-9/end-of-service")).body;
+    ctx.check("EOS-01 — a terminated employee gets a settlement statement", settlement.serviceYears > 0, JSON.stringify(settlement.serviceYears));
+    ctx.checkEq(
+      "EOS-02 — net settlement is gratuity plus payable leave less outstanding advances",
+      ctx.n(settlement.netSettlement),
+      Math.max(ctx.n(settlement.gratuity) + ctx.n(settlement.leavePayout) - ctx.n(settlement.outstandingAdvances), 0),
+    );
+    ctx.check("EOS-03 — the gratuity is broken down by the statutory tier it came from, not shown as one opaque figure", settlement.gratuityBreakdown.length > 0);
+    ctx.check("EOS-04 — the statement cites the law it was computed under", /14 لسنة 2025/.test(String(settlement.citationAr)), settlement.citationAr);
+
+    // Half a month per year for the first five years: an employee under five
+    // years must never be credited a full month.
+    if (settlement.serviceYears < 5) {
+      ctx.checkEq("EOS-05 — under five years earns half a month per year, not a full one", ctx.n(settlement.monthsEarned), Math.round(settlement.serviceYears * 0.5 * 100) / 100);
+    }
+
+    const stillEmployed = await ctx.req("GET", "/hr/employees/EMP-DEMO-1/end-of-service");
+    ctx.check("EOS-06 — a serving employee is refused, not quoted a settlement", stillEmployed.status === 422 && stillEmployed.body?.error === "EMPLOYEE_STILL_EMPLOYED", `got ${stillEmployed.status}`);
+  });
+
+  await ctx.scenario("hr / overtime — approved minutes pay, at the statutory premium for the hour worked", async () => {
+    // The clock on EMP-DEMO-6's 2026-07-21 shift implies more overtime than was
+    // authorised. Payroll must pay the APPROVED figure: a clock records
+    // presence, not authorised work.
+    const entries = ctx.rows((await ctx.req("GET", "/hr/attendance?employeeId=EMP-DEMO-6&from=2026-07-21&to=2026-07-21")).body);
+    const day = entries[0];
+    ctx.check("OT-01 — the approved-overtime field survives the round trip (a zod schema that omits it drops it silently)", day?.approvedOvertimeMinutes === 150, `got ${day?.approvedOvertimeMinutes}`);
+    ctx.check("OT-02 — and it is LOWER than the clock implies, so the test proves approval wins over derivation", day.workedMinutes - 480 > 150, `worked ${day.workedMinutes} minutes`);
+
+    const july = (await ctx.req("GET", "/hr/payroll/runs/PR-DEMO-2")).body;
+    const slip = july.payslips.find((p: any) => p.employeeId === "EMP-DEMO-6");
+    const overtime = slip?.lines.filter((l: any) => l.source === "overtime") ?? [];
+    ctx.check("OT-03 — the July run pays an overtime line for that employee", overtime.length > 0, `${overtime.length} overtime lines`);
+    ctx.check("OT-04 — the line says how many hours it paid for, so the figure can be checked", overtime.every((l: any) => /ساعة/.test(l.nameAr)), overtime.map((l: any) => l.nameAr).join(" | "));
+    ctx.check("OT-05 — the run records that an overtime source was bound at all", july.overtimeSource === "provider", july.overtimeSource);
   });
 
   await ctx.scenario("hr / payslip arithmetic — gross minus deductions equals net, per payslip and run total (PR-DEMO-1, June, مصروف)", async () => {
@@ -117,8 +366,14 @@ export async function run(ctx: Ctx): Promise<void> {
     ctx.checkEq("PR-DEMO-1 — run totalDeductions = sum of payslip totalDeductions", ctx.n(run.totalDeductions), run.payslips.reduce((s: number, p: any) => s + ctx.n(p.totalDeductions), 0));
     ctx.checkEq("PR-DEMO-1 — run totalNet = sum of payslip netPay", ctx.n(run.totalNet), run.payslips.reduce((s: number, p: any) => s + ctx.n(p.netPay), 0));
 
+    // Flipped when statutory payroll landed: these nets were 8,900 / 22,000 /
+    // 8,100 while nothing was withheld. Each figure below is the same gross
+    // less the insurance, salary tax and Martyrs Fund the engine now computes,
+    // checked by hand against the 2026 tables before being written down.
     const kareem = run.payslips.find((p: any) => p.employeeId === "EMP-DEMO-1");
-    ctx.checkEq("PR-14 كريم عادل June — net = 8,900.00", ctx.n(kareem.netPay), 8900);
+    ctx.checkEq("PR-14 كريم عادل June — gross 10,000 less 3,547.50 of deductions = 6,452.50", ctx.n(kareem.netPay), 6452.5);
+    ctx.checkEq("PR-14b — insurance is 11% of the full 10,000 (under the ceiling)", ctx.n(kareem.lines.find((l: any) => l.source === "social_insurance_employee").amount), 1100);
+    ctx.checkEq("PR-14c — salary tax is 592.50, the annual bracket walk on (10,000 − 1,100) × 12 − 20,000", ctx.n(kareem.lines.find((l: any) => l.source === "income_tax").amount), 592.5);
     ctx.check(
       "PR-14 — carries an advance-recovery line for ADV-DEMO-1 of exactly 1,000.00",
       kareem.lines.some((l: any) => l.source === "advance_recovery" && l.referenceId === "ADV-DEMO-1" && ctx.n(l.amount) === 1000),
@@ -126,14 +381,19 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const mohamed = run.payslips.find((p: any) => p.employeeId === "EMP-DEMO-3");
     ctx.checkEq("PR-15 محمد الشهابي — gross = 22,000.00 (18,000 + 2,500 + 1,500)", ctx.n(mohamed.grossEarnings), 22000);
-    ctx.check("PR-15 — no deduction line at all", mohamed.lines.every((l: any) => l.kind !== "deduction"));
-    ctx.checkEq("PR-15 — net = gross (no deductions)", ctx.n(mohamed.netPay), 22000);
+    ctx.check(
+      "PR-15 — the highest-paid employee now carries insurance, tax and the levy (he previously carried no deduction at all)",
+      ["social_insurance_employee", "income_tax", "statutory_levy"].every((src) => mohamed.lines.some((l: any) => l.source === src)),
+      mohamed.lines.map((l: any) => l.source).join(", "),
+    );
+    ctx.checkEq("PR-15 — net = 17,261.16: gross 22,000 less 1,837 insurance, 2,890.84 tax and 11 levy", ctx.n(mohamed.netPay), 17261.16);
 
     const salma = run.payslips.find((p: any) => p.employeeId === "EMP-DEMO-2");
     ctx.checkEq("PR-19 سلمى فؤاد — the RENEWAL contract (CTR-DEMO-3) is picked: 7,800 + 600 = 8,400 gross, not CTR-DEMO-2's 7,000", ctx.n(salma.grossEarnings), 8400);
 
     const hoda = run.payslips.find((p: any) => p.employeeId === "EMP-DEMO-4");
-    ctx.checkEq("PR-16 هدى مصطفى — «في إجازة» employee STATUS alone does not reduce pay: net = 8,100.00", ctx.n(hoda.netPay), 8100);
+    ctx.checkEq("PR-16 هدى مصطفى — «في إجازة» employee STATUS alone still does not reduce PAY; only the statutory withholdings do: net = 6,936.10", ctx.n(hoda.netPay), 6936.1);
+    ctx.checkEq("PR-16b — her gross is untouched by the status, exactly as before", ctx.n(hoda.grossEarnings), 8100);
   });
 
   await ctx.scenario("hr / payslip arithmetic — an approved UNPAID-type leave prorates the deduction exactly (PR-17, PR-DEMO-2 July)", async () => {
@@ -142,8 +402,15 @@ export async function run(ctx: Ctx): Promise<void> {
     const unpaidLine = mostafa.lines.find((l: any) => l.source === "unpaid_leave");
     ctx.check("PR-17 مصطفى رزق — July payslip carries an unpaid-leave deduction line (LR-DEMO-8, 2 days)", !!unpaidLine && unpaidLine.nameAr.includes("2"), unpaidLine?.nameAr);
     if (unpaidLine) {
-      const expected = allocate(Money.fromMajor(mostafa.grossEarnings), [2, mostafa.paidDays - 2])[0]!;
-      ctx.checkEq("PR-17 — deduction is the exact largest-remainder split of gross over unpaid/paid days", ctx.n(unpaidLine.amount), ctx.n(expected.toString()));
+      // The base is the CONTRACTUAL earnings — basic plus allowances — not
+      // gross. Gross now includes overtime worked on other days, and deducting
+      // an overtime-inflated day for a day not worked overpays the deduction.
+      const contractual = mostafa.lines
+        .filter((l: any) => l.source === "contract_basic" || l.source === "contract_allowance")
+        .reduce((sum: number, l: any) => sum + ctx.n(l.amount), 0);
+      const expected = allocate(Money.fromMajor(contractual.toFixed(6)), [2, mostafa.paidDays - 2])[0]!;
+      ctx.checkEq("PR-17 — deduction is the exact largest-remainder split of the CONTRACTUAL wage over unpaid/paid days", ctx.n(unpaidLine.amount), ctx.n(expected.toString()));
+      ctx.check("PR-17b — and it is smaller than the same split of gross, because overtime is excluded from it", ctx.n(unpaidLine.amount) < ctx.n(allocate(Money.fromMajor(mostafa.grossEarnings), [2, mostafa.paidDays - 2])[0]!.toString()));
     }
     ctx.checkEq("PR-17 — net still equals gross minus deductions", ctx.n(mostafa.grossEarnings) - ctx.n(mostafa.totalDeductions), ctx.n(mostafa.netPay));
   });
@@ -420,6 +687,22 @@ export async function run(ctx: Ctx): Promise<void> {
     };
 
     const deps = {
+      // This scenario drives the engine directly with in-memory fakes, so it
+      // supplies its own insurance limits for 2029 the same way the tenant
+      // store does over HTTP. Without them the engine refuses the period, which
+      // is the behaviour PR-37 asserts.
+      statutoryOverrides: {
+        list: async () => [
+          {
+            year: 2029,
+            monthlyWageFloor: "4100",
+            monthlyWageCeiling: "25400",
+            note: null,
+            enteredBy: "scenario",
+            enteredAt: "2029-01-01T00:00:00.000Z",
+          },
+        ],
+      },
       runs: {
         findById: async (id: string) => (id === draftRun.id ? (updatedRun ?? draftRun) : null),
         findByPeriod: async () => null,

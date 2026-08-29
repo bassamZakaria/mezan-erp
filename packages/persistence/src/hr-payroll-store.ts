@@ -22,6 +22,8 @@ import {
   type GarnishmentKind,
   type GarnishmentRecord,
   type GarnishmentRepository,
+  type SocialInsuranceYearOverride,
+  type StatutoryOverrideRepository,
 } from "@mezan/domain";
 
 /**
@@ -757,6 +759,91 @@ class SqliteGarnishmentRepository implements GarnishmentRepository {
   }
 }
 
+// --- Statutory year overrides ----------------------------------------------
+
+const CREATE_STATUTORY_OVERRIDE = `
+CREATE TABLE IF NOT EXISTS hr_statutory_insurance_year (
+  year                  INTEGER PRIMARY KEY,
+  monthly_wage_floor    TEXT NOT NULL,
+  monthly_wage_ceiling  TEXT NOT NULL,
+  note                  TEXT,
+  entered_by            TEXT NOT NULL,
+  entered_at            TEXT NOT NULL
+);
+`;
+
+interface StatutoryOverrideRow {
+  year: number;
+  monthly_wage_floor: string;
+  monthly_wage_ceiling: string;
+  note: string | null;
+  entered_by: string;
+  entered_at: string;
+}
+
+/**
+ * Limits are stored as the EXACT decimal STRING an admin typed off the decree,
+ * not as a scaled integer: this row is a transcription of a published figure,
+ * and it has to read back identically to what is on the paper.
+ */
+function toOverride(row: StatutoryOverrideRow): SocialInsuranceYearOverride {
+  return {
+    year: row.year,
+    monthlyWageFloor: row.monthly_wage_floor,
+    monthlyWageCeiling: row.monthly_wage_ceiling,
+    note: row.note,
+    enteredBy: row.entered_by,
+    enteredAt: row.entered_at,
+  };
+}
+
+class SqliteStatutoryOverrideRepository implements StatutoryOverrideRepository {
+  private readonly upsertStmt: Database.Statement;
+  private readonly selectAll: Database.Statement;
+  private readonly selectByYear: Database.Statement;
+  private readonly deleteByYear: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.upsertStmt = sqlite.prepare(`
+      INSERT INTO hr_statutory_insurance_year (year, monthly_wage_floor, monthly_wage_ceiling, note, entered_by, entered_at)
+      VALUES (@year, @monthly_wage_floor, @monthly_wage_ceiling, @note, @entered_by, @entered_at)
+      ON CONFLICT(year) DO UPDATE SET
+        monthly_wage_floor = excluded.monthly_wage_floor,
+        monthly_wage_ceiling = excluded.monthly_wage_ceiling,
+        note = excluded.note,
+        entered_by = excluded.entered_by,
+        entered_at = excluded.entered_at
+    `);
+    this.selectAll = sqlite.prepare(`SELECT * FROM hr_statutory_insurance_year ORDER BY year`);
+    this.selectByYear = sqlite.prepare(`SELECT * FROM hr_statutory_insurance_year WHERE year = ?`);
+    this.deleteByYear = sqlite.prepare(`DELETE FROM hr_statutory_insurance_year WHERE year = ?`);
+  }
+
+  async list(): Promise<SocialInsuranceYearOverride[]> {
+    return (this.selectAll.all() as StatutoryOverrideRow[]).map(toOverride);
+  }
+
+  async findByYear(year: number): Promise<SocialInsuranceYearOverride | null> {
+    const row = this.selectByYear.get(year) as StatutoryOverrideRow | undefined;
+    return row ? toOverride(row) : null;
+  }
+
+  async upsert(override: SocialInsuranceYearOverride): Promise<void> {
+    this.upsertStmt.run({
+      year: override.year,
+      monthly_wage_floor: override.monthlyWageFloor,
+      monthly_wage_ceiling: override.monthlyWageCeiling,
+      note: override.note,
+      entered_by: override.enteredBy,
+      entered_at: override.enteredAt,
+    });
+  }
+
+  async remove(year: number): Promise<void> {
+    this.deleteByYear.run(year);
+  }
+}
+
 // --- Schema migrations -----------------------------------------------------
 
 /**
@@ -961,4 +1048,17 @@ export function createSqliteGarnishmentRepository(path: SqliteConnectionInput = 
   sqlite.exec(CREATE_GARNISHMENT);
   const repo = new SqliteGarnishmentRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteGarnishmentRepositoryHandle;
+}
+
+export interface SqliteStatutoryOverrideRepositoryHandle extends StatutoryOverrideRepository {
+  close(): void;
+}
+
+/** Open a SQLite-backed StatutoryOverrideRepository (حدود الأجر التأميني بالسنة). */
+export function createSqliteStatutoryOverrideRepository(path: SqliteConnectionInput = ":memory:"): SqliteStatutoryOverrideRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
+  sqlite.pragma("foreign_keys = ON");
+  sqlite.exec(CREATE_STATUTORY_OVERRIDE);
+  const repo = new SqliteStatutoryOverrideRepository(sqlite);
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteStatutoryOverrideRepositoryHandle;
 }

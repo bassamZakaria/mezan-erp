@@ -305,6 +305,8 @@ export const attendanceEntrySchema = z.object({
   checkIn: z.string().nullable(),
   checkOut: z.string().nullable(),
   workedMinutes: z.number().int(),
+  /** Null = no overtime approval recorded, which is NOT the same as an approved zero. */
+  approvedOvertimeMinutes: z.number().int().nullable(),
   status: attendanceStatusSchema,
   notes: z.string().nullable(),
   createdAt: z.string().min(1),
@@ -322,6 +324,12 @@ export const recordAttendanceSchema = z.object({
   status: attendanceStatusSchema.nullable().optional(),
   expectedCheckIn: timeOfDaySchema.nullable().optional(),
   graceMinutes: z.number().int().min(0).optional(),
+  /**
+   * Overtime the manager approved for this day, in whole minutes. Payroll pays
+   * this figure when it is present, IN PLACE of what the clock implies — a
+   * clock records presence, not authorised work.
+   */
+  approvedOvertimeMinutes: z.number().int().min(0).nullable().optional(),
 });
 
 export const correctAttendanceSchema = recordAttendanceSchema.omit({ id: true, employeeId: true, date: true }).partial();

@@ -313,6 +313,8 @@ export type {
   EndOfServiceTier,
   EndOfServiceTable,
   EgyptStatutoryRules,
+  SocialInsuranceYearOverride,
+  StatutoryOverrideRepository,
 } from "./egypt-statutory.js";
 export {
   BASIS_POINTS_PER_UNIT,
@@ -325,6 +327,7 @@ export {
   listEgyptStatutoryTables,
   totalShareBp,
   formatRateBp,
+  overrideToSocialInsuranceTable,
 } from "./egypt-statutory.js";
 
 export type {

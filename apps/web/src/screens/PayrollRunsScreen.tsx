@@ -66,11 +66,17 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 const UNIVERSAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => r.appliesToEveryPayslip);
 const SITUATIONAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => !r.appliesToEveryPayslip);
 
+/**
+ * The net now includes salary tax, both insurance shares and the statutory
+ * levies, so the old "before tax and insurance" qualifier would be a lie. What
+ * is still true is that the tax is withheld monthly on an annualised basis with
+ * no December settlement, which is what the badge says instead.
+ */
 function NetPayQualifierBadge() {
   const { t } = useAppTranslation();
   return (
     <span className="rounded-full border border-info bg-info-soft px-[7px] py-[1px] text-[10.5px] font-semibold text-info-ink">
-      {t("payroll.beforeTaxSocialInsuranceAnd")}
+      {t("payroll.beforeAnnualTaxSettlement")}
     </span>
   );
 }
@@ -390,6 +396,30 @@ export function PayrollRunsScreen() {
               </div>
             ) : null}
 
+            {detail.overtimeSource === "none" ? (
+              <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+                {t("payroll.noSourceForOvertime")}
+              </div>
+            ) : null}
+
+            {/*
+              Which year's tables produced these figures. The insurance ceiling
+              rises every January, so a payslip reprinted years later has to be
+              able to say what it was computed against.
+            */}
+            {detail.statutoryTableCodes.length > 0 ? (
+              <div className="rounded-lg border border-border p-[14px]">
+                <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("payroll.statutoryTablesUsed")}</h3>
+                <ul className="flex flex-wrap gap-[6px]">
+                  {detail.statutoryTableCodes.map((code) => (
+                    <li key={code} className="mz-num rounded-full border border-border px-[8px] py-[2px] text-[11px] text-ink-muted">
+                      {code}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             {detail.warnings.length > 0 ? (
               <div className="rounded-lg border border-border p-[14px]">
                 <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("payroll.calculationNotes")}</h3>
@@ -413,6 +443,27 @@ export function PayrollRunsScreen() {
                       </div>
                       <div className="mz-num mt-[3px] text-[11.5px] text-ink-faint">
                         {p.paidDays} / {p.periodDays} {t("payroll.days")}
+                      </div>
+                      {/*
+                        الأجر التأميني sits beside gross because they differ the
+                        moment the ceiling bites, and an employer who reads gross
+                        as the contribution base over-declares every senior salary.
+                      */}
+                      <div className="mt-[6px] flex flex-wrap gap-x-[16px] gap-y-[3px] text-[11.5px] text-ink-faint">
+                        <span className="flex items-center gap-[4px]">
+                          {t("payroll.grossEarnings")} <MoneyDisplay value={Number(p.grossEarnings)} />
+                        </span>
+                        <span className="flex items-center gap-[4px]">
+                          {t("payroll.insurableWage")} <MoneyDisplay value={Number(p.insurableWage)} />
+                          {p.insurableWageCapped ? (
+                            <span className="rounded-full border border-warning bg-warning-soft px-[6px] py-[1px] text-[10px] font-semibold text-warning-ink">
+                              {t("payroll.atCeiling")}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="flex items-center gap-[4px]">
+                          {t("payroll.employerCost")} <MoneyDisplay value={Number(p.totalEmployerCost)} />
+                        </span>
                       </div>
                       <ul className="mt-[8px] flex flex-col gap-[4px]">
                         {p.lines.map((l) => (

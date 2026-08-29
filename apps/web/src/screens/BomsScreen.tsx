@@ -17,7 +17,7 @@ import {
 } from "@mezan/ui";
 import { useBoms, useCreateBom, useDeactivateBom, useItems, type BomRecord } from "../data/hooks";
 import { useUnitLabel } from "../lib/item-labels";
-import { FormPage, TextField, NumberField, SelectField } from "../settings/form-controls";
+import { FormColumns, FormError, FormPage, SectionCard, TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsBomComponent } from "@mezan/domain";
@@ -265,34 +265,36 @@ export function BomsScreen() {
         </>
       }
     >
-      <div className="flex max-w-[760px] flex-col gap-[14px]">
-        {formError ? (
-          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-            {formError}
-          </div>
-        ) : null}
-        <EntityPicker
-          label={t("boms.finishedProduct2")}
-          value={product}
-          onChange={(opt) => {
-            setProduct(opt);
-            const item = items.find((i) => i.id === opt?.id);
-            if (item) setUnit(item.baseUnitCode);
-          }}
-          options={itemOptions}
-          placeholder={t("boms.chooseTheFinishedProduct")}
-        />
-        <div className="grid grid-cols-2 gap-[10px]">
+      <div className="flex flex-col gap-4">
+        <FormError message={formError} />
+
+        <FormColumns
+          aside={
+            <SectionCard title={t("boms.section.costs")} columns={1}>
+              <NumberField label={t("boms.labourCost")} value={laborCost} min={0} onChange={setLaborCost} />
+              <NumberField label={t("boms.overheadCost")} value={overheadCost} min={0} onChange={setOverheadCost} />
+            </SectionCard>
+          }
+        >
+        <SectionCard title={t("boms.section.product")}>
+          <EntityPicker
+            label={t("boms.finishedProduct2")}
+            value={product}
+            onChange={(opt) => {
+              setProduct(opt);
+              const item = items.find((i) => i.id === opt?.id);
+              if (item) setUnit(item.baseUnitCode);
+            }}
+            options={itemOptions}
+            placeholder={t("boms.chooseTheFinishedProduct")}
+          />
           <NumberField label={t("boms.standardQuantity")} value={standardQty} min={0} onChange={setStandardQty} />
           <TextField label={t("common.unit")} value={unit} onChange={setUnit} />
-        </div>
-        <div className="grid grid-cols-2 gap-[10px]">
-          <NumberField label={t("boms.labourCost")} value={laborCost} min={0} onChange={setLaborCost} />
-          <NumberField label={t("boms.overheadCost")} value={overheadCost} min={0} onChange={setOverheadCost} />
-        </div>
-        <TextField label={t("boms.versionNotes")} value={versionNotes} onChange={setVersionNotes} />
-        <div className="flex flex-col gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">{t("boms.rawMaterialLines")}</span>
+          <TextField label={t("boms.versionNotes")} value={versionNotes} onChange={setVersionNotes} />
+        </SectionCard>
+
+        <SectionCard title={t("boms.section.lines")} columns={1}>
+          <div className="flex flex-col gap-[10px]">
           {lines.map((line, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
               <EntityPicker
@@ -318,8 +320,10 @@ export function BomsScreen() {
               ) : null}
             </div>
           ))}
-          <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, wastePercent: 0 }])}>{t("boms.addItem")}</Button>
-        </div>
+            <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, wastePercent: 0 }])}>{t("boms.addItem")}</Button>
+          </div>
+        </SectionCard>
+        </FormColumns>
       </div>
     </FormPage>
   );

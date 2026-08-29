@@ -48,7 +48,7 @@ import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { entityName, useEntityName } from "../lib/entity-names";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAttachments } from "../data/attachment-hooks";
-import { FormPage, TextAreaField } from "../settings/form-controls";
+import { FormColumns, FormError, FormPage, SectionCard, TextAreaField } from "../settings/form-controls";
 
 import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
@@ -962,6 +962,46 @@ export function ItemsScreen() {
     { key: "out_of_stock", label: t("items.chip.outOfStock"), count: outOfStockCount },
   ];
 
+  const accountFields = (
+    <>
+      <EntityPicker
+        label={t("items.revenueAccount")}
+        options={glOptions}
+        value={draft.revenueAccountId ? (glOptions.find((o) => o.id === draft.revenueAccountId) ?? null) : (glOptions[0] ?? null)}
+        onChange={(option) => setDraft((d) => ({ ...d, revenueAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
+      />
+      <EntityPicker
+        label={t("items.costAccount")}
+        options={glOptions}
+        value={draft.cogsAccountId ? (glOptions.find((o) => o.id === draft.cogsAccountId) ?? null) : (glOptions[0] ?? null)}
+        onChange={(option) => setDraft((d) => ({ ...d, cogsAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
+      />
+      <EntityPicker
+        label={t("items.inventoryAccount")}
+        options={glOptions}
+        value={draft.inventoryAccountId ? (glOptions.find((o) => o.id === draft.inventoryAccountId) ?? null) : (glOptions[0] ?? null)}
+        onChange={(option) => setDraft((d) => ({ ...d, inventoryAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
+      />
+    </>
+  );
+
+  const etaFields = (
+    <>
+      <SelectField
+        label={t("items.codeTypeEta")}
+        value={draft.etaCodeType ?? ""}
+        onChange={(v) => setDraft((d) => ({ ...d, etaCodeType: v === "" ? null : (v as EtaCodeTypeDTO) }))}
+        options={[
+          { value: "", label: t("items.none") },
+          { value: "EGS", label: "EGS" },
+          { value: "GPC", label: "GPC" },
+        ]}
+      />
+      <TextField label={t("items.itemCodeWithTheAuthority")} dir="ltr" value={draft.etaItemCode} onChange={(v) => setDraft((d) => ({ ...d, etaItemCode: v }))} placeholder="EG-XXXXXXXXX-SKU" />
+      <TextField label={t("items.gpcCode")} dir="ltr" value={draft.gpcCode} onChange={(v) => setDraft((d) => ({ ...d, gpcCode: v }))} />
+    </>
+  );
+
   const formPage = (
     <FormPage
       eyebrow={t("eyebrow.items.catalogue")}
@@ -978,13 +1018,35 @@ export function ItemsScreen() {
         </>
       }
     >
-      <form id="item-form" onSubmit={handleSubmit} className="flex max-w-[760px] flex-col gap-[16px]">
-        {formError ? (
-          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-            {formError}
-          </div>
-        ) : null}
+      <form id="item-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <FormError message={formError} />
 
+        <FormColumns
+          aside={
+            <>
+              <SectionCard title={t("items.section.accounts")} description={t("items.section.accountsHint")} columns={1}>
+                {accountFields}
+              </SectionCard>
+              <SectionCard title={t("items.section.eta")} columns={1}>
+                {etaFields}
+              </SectionCard>
+              {editingId ? (
+                <SectionCard title={t("items.section.status")} columns={1}>
+                  <SelectField
+                    label={t("common.status")}
+                    value={draft.status}
+                    onChange={(v) => setDraft((d) => ({ ...d, status: v as ItemStatusDTO }))}
+                    options={[
+                      { value: "active", label: t("common.active") },
+                      { value: "inactive", label: t("common.inactive") },
+                    ]}
+                  />
+                </SectionCard>
+              ) : null}
+            </>
+          }
+        >
+        <SectionCard title={t("items.section.identity")} description={t("items.section.identityHint")}>
         <SelectField
           label={t("items.itemType")}
           required
@@ -1008,24 +1070,14 @@ export function ItemsScreen() {
         <TextField label={t("items.itemName")} required value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
         <TextField label={t("items.nameInEnglish")} dir="ltr" value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
 
-        <SelectField
-          label={t("items.baseUnit")}
-          required
-          value={draft.baseUnitCode}
-          onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))}
-          options={itemUnits.map((u) => ({ value: u.code, label: `${nameOf(u)} (${u.code})` }))}
-        />
+        </SectionCard>
 
+        <SectionCard title={t("items.section.classification")}>
         <EntityPicker
           label={t("common.category")}
           options={categoryOptions}
           value={draft.categoryId ? (categoryOptions.find((o) => o.id === draft.categoryId) ?? null) : (categoryOptions[0] ?? null)}
           onChange={(option) => setDraft((d) => ({ ...d, categoryId: !option || option.id === NO_CATEGORY_ID ? null : option.id }))}
-        />
-        <TextAreaField
-          label={t("items.description")}
-          value={draft.description}
-          onChange={(v) => setDraft((d) => ({ ...d, description: v }))}
         />
         <SelectField
           label={t("items.defaultSupplier")}
@@ -1048,14 +1100,22 @@ export function ItemsScreen() {
           onChange={(v) => setDraft((d) => ({ ...d, seasonId: v }))}
           options={[{ value: "", label: t("items.noSeason") }, ...seasons.map((x) => ({ value: x.id, label: nameOf(x) }))]}
         />
+        <div className="sm:col-span-2">
+          <TextAreaField
+            label={t("items.description")}
+            value={draft.description}
+            onChange={(v) => setDraft((d) => ({ ...d, description: v }))}
+          />
+        </div>
+        </SectionCard>
 
-        {/* المواصفات — one control per specification the tenant defined, so
-            an item's values are checked against the registry rather than typed
-            free-hand (R5.10). */}
+        {/* One control per specification the tenant defined, so an item's
+            values are checked against the registry rather than typed free-hand
+            (R5.10). A card of its own: as a single cell of the grid above, it
+            stacked four controls down the start edge against dead space. */}
         {specifications.length > 0 ? (
-          <FieldGroup label={t("items.specifications")}>
-            <div className="flex flex-col gap-[8px]">
-              {specifications.map((spec) => {
+          <SectionCard title={t("items.specifications")}>
+            {specifications.map((spec) => {
                 const current = draft.specifications.find((value) => value.code === spec.code)?.value ?? "";
                 const setValue = (value: string) =>
                   setDraft((d) => ({
@@ -1081,12 +1141,20 @@ export function ItemsScreen() {
                     onChange={setValue}
                   />
                 );
-              })}
-            </div>
-          </FieldGroup>
+            })}
+          </SectionCard>
         ) : null}
 
-        <FieldGroup label={t("items.alternateUnitsOfMeasure")} hint={t("items.forExampleCarton12Pieces")}>
+        <SectionCard title={t("items.section.units")} description={t("items.section.unitsHint")}>
+        <SelectField
+          label={t("items.baseUnit")}
+          required
+          value={draft.baseUnitCode}
+          onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))}
+          options={itemUnits.map((u) => ({ value: u.code, label: `${nameOf(u)} (${u.code})` }))}
+        />
+
+        <FieldGroup label={t("items.alternateUnitsOfMeasure")} hint={t("items.forExampleCarton12Pieces")} className="sm:col-span-2">
           <div className="flex flex-col gap-[8px]">
             {draft.alternateUnits.map((unit, index) => (
               <div key={unit.rowId} className="flex items-end gap-[6px]">
@@ -1139,6 +1207,9 @@ export function ItemsScreen() {
           </div>
         </FieldGroup>
 
+        </SectionCard>
+
+        <SectionCard title={t("items.section.barcodes")} columns={1}>
         <FieldGroup label={t("items.barcode")}>
           <div className="flex flex-col gap-[8px]">
             {draft.barcodes.map((barcode, index) => (
@@ -1169,6 +1240,9 @@ export function ItemsScreen() {
           </div>
         </FieldGroup>
 
+        </SectionCard>
+
+        <SectionCard title={t("items.section.pricing")}>
         <Field label={t("items.salePrice")}>
           <MoneyInput aria-label={t("items.salePrice")} value={draft.salePrice} onChange={(v) => setDraft((d) => ({ ...d, salePrice: v }))} />
         </Field>
@@ -1177,14 +1251,18 @@ export function ItemsScreen() {
         </Field>
         <NumberField label={t("items.taxRate")} value={draft.taxRatePercent} onChange={(v) => setDraft((d) => ({ ...d, taxRatePercent: v ?? 0 }))} min={0} />
 
+        </SectionCard>
+
         {draft.type === "stock" ? (
-          <Card className="flex flex-col gap-[12px] p-[14px_16px]">
-            <ToggleField
-              label={t("items.trackStock")}
-              checked={draft.trackInventory}
-              onChange={(v) => setDraft((d) => ({ ...d, trackInventory: v, trackBatches: v ? d.trackBatches : false }))}
-              hint={t("items.deductedOnSaleToppedUp")}
-            />
+          <SectionCard title={t("items.section.stockPolicy")}>
+            <div className="sm:col-span-2">
+              <ToggleField
+                label={t("items.trackStock")}
+                checked={draft.trackInventory}
+                onChange={(v) => setDraft((d) => ({ ...d, trackInventory: v, trackBatches: v ? d.trackBatches : false }))}
+                hint={t("items.deductedOnSaleToppedUp")}
+              />
+            </div>
             <SelectField
               label={t("items.costingMethod")}
               required
@@ -1195,70 +1273,29 @@ export function ItemsScreen() {
                 { value: "FIFO", label: t(COSTING_KEY.FIFO) },
               ]}
             />
-            <ToggleField
-              label={t("items.trackBatchesAndExpiryDates")}
-              checked={draft.trackBatches}
-              disabled={!draft.trackInventory}
-              onChange={(v) => setDraft((d) => ({ ...d, trackBatches: v }))}
-              hint={t("items.fefoEarliestExpiryFirstFor")}
-            />
+            <div className="sm:col-span-2">
+              <ToggleField
+                label={t("items.trackBatchesAndExpiryDates")}
+                checked={draft.trackBatches}
+                disabled={!draft.trackInventory}
+                onChange={(v) => setDraft((d) => ({ ...d, trackBatches: v }))}
+                hint={t("items.fefoEarliestExpiryFirstFor")}
+              />
+            </div>
             <NumberField label={t("items.reorderPoint")} value={draft.reorderPoint} onChange={(v) => setDraft((d) => ({ ...d, reorderPoint: v }))} min={0} />
-            <ItemImageField
-              itemId={editingId}
-              value={draft.imageAttachmentId}
-              onChange={(id) => setDraft((d) => ({ ...d, imageAttachmentId: id }))}
-            />
             <NumberField label={t("items.reorderQuantity")} value={draft.reorderQty} onChange={(v) => setDraft((d) => ({ ...d, reorderQty: v }))} min={0} />
-          </Card>
+            <div className="sm:col-span-2">
+              <ItemImageField
+                itemId={editingId}
+                value={draft.imageAttachmentId}
+                onChange={(id) => setDraft((d) => ({ ...d, imageAttachmentId: id }))}
+              />
+            </div>
+          </SectionCard>
         ) : null}
 
-        <Card className="flex flex-col gap-[12px] p-[14px_16px]">
-          <EntityPicker
-            label={t("items.revenueAccount")}
-            options={glOptions}
-            value={draft.revenueAccountId ? (glOptions.find((o) => o.id === draft.revenueAccountId) ?? null) : (glOptions[0] ?? null)}
-            onChange={(option) => setDraft((d) => ({ ...d, revenueAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
-          />
-          <EntityPicker
-            label={t("items.costAccount")}
-            options={glOptions}
-            value={draft.cogsAccountId ? (glOptions.find((o) => o.id === draft.cogsAccountId) ?? null) : (glOptions[0] ?? null)}
-            onChange={(option) => setDraft((d) => ({ ...d, cogsAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
-          />
-          <EntityPicker
-            label={t("items.inventoryAccount")}
-            options={glOptions}
-            value={draft.inventoryAccountId ? (glOptions.find((o) => o.id === draft.inventoryAccountId) ?? null) : (glOptions[0] ?? null)}
-            onChange={(option) => setDraft((d) => ({ ...d, inventoryAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
-          />
-        </Card>
 
-        <Card className="flex flex-col gap-[12px] p-[14px_16px]">
-          <SelectField
-            label={t("items.codeTypeEta")}
-            value={draft.etaCodeType ?? ""}
-            onChange={(v) => setDraft((d) => ({ ...d, etaCodeType: v === "" ? null : (v as EtaCodeTypeDTO) }))}
-            options={[
-              { value: "", label: t("items.none") },
-              { value: "EGS", label: "EGS" },
-              { value: "GPC", label: "GPC" },
-            ]}
-          />
-          <TextField label={t("items.itemCodeWithTheAuthority")} dir="ltr" value={draft.etaItemCode} onChange={(v) => setDraft((d) => ({ ...d, etaItemCode: v }))} placeholder="EG-XXXXXXXXX-SKU" />
-          <TextField label={t("items.gpcCode")} dir="ltr" value={draft.gpcCode} onChange={(v) => setDraft((d) => ({ ...d, gpcCode: v }))} />
-        </Card>
-
-        {editingId ? (
-          <SelectField
-            label={t("common.status")}
-            value={draft.status}
-            onChange={(v) => setDraft((d) => ({ ...d, status: v as ItemStatusDTO }))}
-            options={[
-              { value: "active", label: t("common.active") },
-              { value: "inactive", label: t("common.inactive") },
-            ]}
-          />
-        ) : null}
+        </FormColumns>
       </form>
     </FormPage>
   );

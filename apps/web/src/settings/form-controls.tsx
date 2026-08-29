@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   Chip,
+  cn,
   Field as UiField,
   Select,
   Switch,
@@ -231,25 +232,40 @@ export function MultiChipField({
   );
 }
 
-export function SectionCard({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+export function SectionCard({
+  title,
+  description,
+  columns = 2,
+  children,
+}: {
+  title: string;
+  description?: string;
+  /** 1 for sections whose controls are already full-width rows (barcodes, unit tables). */
+  columns?: 1 | 2;
+  children: ReactNode;
+}) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-[18px_20px] shadow-1">
+    <section className="rounded-lg border border-border bg-surface p-[18px_20px] shadow-1">
       <h3 className="font-display text-[14.5px] font-bold text-ink">{title}</h3>
       {description ? <p className="mt-[4px] text-[12px] text-ink-muted">{description}</p> : null}
-      <div className="mt-[14px] grid grid-cols-1 gap-[14px] sm:grid-cols-2">{children}</div>
-    </div>
+      <div className={cn("mt-[14px] grid grid-cols-1 gap-[14px]", columns === 2 && "sm:grid-cols-2")}>{children}</div>
+    </section>
   );
 }
 
 /**
  * The chrome a create/edit sub-page wears: eyebrow, title, optional
- * description, and the actions that commit or abandon it — the same shape the
- * sales-quote form page introduced, so a form reached at its own address looks
- * the same wherever it opens from.
+ * description, and the actions that commit or abandon it.
  *
- * `onCancel` is the ONLY way back: a sub-page has no side-panel scrim to
- * dismiss, so a form whose cancel is missing strands the user on an address
- * with no exit.
+ * Deliberately the SAME shape every other page in this app already uses — a
+ * full-width `w-full` block and the eyebrow/h1 header the sales-quote form
+ * page introduced. No centring and no max-width: those made these five pages
+ * read as visitors from another product next to the lists they open from.
+ * Width is spent by the caller's own `FormColumns`, the way the quote form
+ * spends it.
+ *
+ * The actions are the ONLY way back: a sub-page has no scrim to dismiss, so a
+ * form whose cancel is missing strands the user on an address with no exit.
  */
 export function FormPage({
   eyebrow,
@@ -267,14 +283,42 @@ export function FormPage({
   return (
     <div className="w-full">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{eyebrow}</div>
           <h1 className="font-display text-xl font-bold text-ink">{title}</h1>
-          {description ? <p className="mt-[4px] text-[12.5px] text-ink-muted">{description}</p> : null}
+          {description ? <p className="mt-[4px] max-w-[72ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>
-        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
       {children}
+    </div>
+  );
+}
+
+/**
+ * The two-column body of a form page: the sections that carry the work, and an
+ * `aside` of the ones that are usually left on their defaults. Same
+ * `2fr_1fr` split the sales-quote form uses, so a form page and a document
+ * page put their cards on the same grid.
+ */
+export function FormColumns({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      <div className="flex min-w-0 flex-col gap-4">{children}</div>
+      {aside ? <aside className="flex min-w-0 flex-col gap-4">{aside}</aside> : null}
+    </div>
+  );
+}
+
+/** The error a form reports about itself, in the one place every form puts it. */
+export function FormError({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <div
+      role="alert"
+      className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink"
+    >
+      {message}
     </div>
   );
 }

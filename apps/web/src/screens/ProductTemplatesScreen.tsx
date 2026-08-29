@@ -22,7 +22,7 @@ import {
   useTemplateVariants,
 } from "../data/hooks";
 import { useConfirmAction } from "../lib/use-confirm-action";
-import { FormPage, SelectField, TextField } from "../settings/form-controls";
+import { FormColumns, FormError, FormPage, SectionCard, SelectField, TextField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { useAppTranslation } from "../i18n";
@@ -247,17 +247,17 @@ export function ProductTemplatesScreen() {
         </>
       }
     >
-        <form id="product-template-form" onSubmit={handleCreateSubmit} className="flex max-w-[560px] flex-col gap-[14px]">
-          {formError ? (
-            <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-              {formError}
-            </div>
-          ) : null}
-          <TextField label={t("templates.productName2")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
-          <TextField label={t("templates.code")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} />
-          <TextField label={t("templates.baseUnitOfMeasure")} value={draft.baseUnitCode} onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))} />
-          <TextField label={t("templates.defaultPrice")} value={draft.defaultSalePrice} onChange={(v) => setDraft((d) => ({ ...d, defaultSalePrice: v }))} placeholder="0.00" />
-          <TextField label={t("templates.defaultCost")} value={draft.defaultCost} onChange={(v) => setDraft((d) => ({ ...d, defaultCost: v }))} placeholder="0.00" />
+        <form id="product-template-form" onSubmit={handleCreateSubmit} className="flex flex-col gap-4">
+          <FormError message={formError} />
+          <FormColumns>
+          <SectionCard title={t("templates.section.details")}>
+            <TextField label={t("templates.productName2")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+            <TextField label={t("templates.code")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} />
+            <TextField label={t("templates.baseUnitOfMeasure")} value={draft.baseUnitCode} onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))} />
+            <TextField label={t("templates.defaultPrice")} value={draft.defaultSalePrice} onChange={(v) => setDraft((d) => ({ ...d, defaultSalePrice: v }))} placeholder="0.00" />
+            <TextField label={t("templates.defaultCost")} value={draft.defaultCost} onChange={(v) => setDraft((d) => ({ ...d, defaultCost: v }))} placeholder="0.00" />
+          </SectionCard>
+          </FormColumns>
         </form>
     </FormPage>
   );

@@ -10,7 +10,7 @@ import {
   type DocumentListColumn,
 } from "@mezan/ui";
 import type { ItemSpecificationDTO, ItemSpecificationTypeDTO } from "@mezan/contracts";
-import { FormPage, SelectField, TextField, ToggleField } from "../settings/form-controls";
+import { FormColumns, FormError, FormPage, SectionCard, SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import {
   useCreateItemSpecification,
@@ -190,67 +190,69 @@ function SpecificationFormPage({
         </>
       }
     >
-      <form id="specification-form" onSubmit={submitForm} className="flex max-w-[560px] flex-col gap-[14px]">
-        {formError ? (
-          <div
-            role="alert"
-            className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink"
-          >
-            {formError}
-          </div>
-        ) : null}
+      <form id="specification-form" onSubmit={submitForm} className="flex flex-col gap-4">
+        <FormError message={formError} />
 
-        <TextField
-          label={t("specs.code")}
-          value={draft.code}
-          onChange={(v) => setDraft((d) => ({ ...d, code: v.toUpperCase() }))}
-          disabled={editingCode !== null}
-          hint={t("specs.capitalLettersDigitsOr")}
-        />
-        <TextField
-          label={t("specs.arabicName")}
-          value={draft.nameAr}
-          onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))}
-        />
-        <TextField
-          label={t("specs.englishName")}
-          value={draft.nameEn}
-          onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))}
-        />
-        <SelectField
-          label={t("common.type")}
-          value={draft.type}
-          onChange={(v) => setDraft((d) => ({ ...d, type: v as ItemSpecificationTypeDTO }))}
-          options={TYPE_VALUES.map((value) => ({ value, label: t(TYPE_KEY[value]) }))}
-          disabled={editingCode !== null}
-        />
-        {draft.type === "select" ? (
+        <FormColumns
+          aside={
+            <SectionCard title={t("specs.section.behaviour")} columns={1}>
+              <ToggleField
+                label={t("specs.filterableInTheCatalogue")}
+                checked={draft.filterable}
+                onChange={(v) => setDraft((d) => ({ ...d, filterable: v }))}
+              />
+              <ToggleField
+                label={t("specs.active")}
+                checked={draft.active}
+                onChange={(v) => setDraft((d) => ({ ...d, active: v }))}
+              />
+            </SectionCard>
+          }
+        >
+        <SectionCard title={t("specs.section.definition")}>
           <TextField
-            label={t("specs.allowedValues")}
-            value={draft.values}
-            onChange={(v) => setDraft((d) => ({ ...d, values: v }))}
-            placeholder={t("specs.redGreenBlue")}
-            hint={t("specs.separateValuesWithCommas")}
+            label={t("specs.code")}
+            value={draft.code}
+            onChange={(v) => setDraft((d) => ({ ...d, code: v.toUpperCase() }))}
+            disabled={editingCode !== null}
+            hint={t("specs.capitalLettersDigitsOr")}
           />
-        ) : null}
-        {draft.type === "number" ? (
+          <SelectField
+            label={t("common.type")}
+            value={draft.type}
+            onChange={(v) => setDraft((d) => ({ ...d, type: v as ItemSpecificationTypeDTO }))}
+            options={TYPE_VALUES.map((value) => ({ value, label: t(TYPE_KEY[value]) }))}
+            disabled={editingCode !== null}
+          />
           <TextField
-            label={t("common.unit")}
-            value={draft.unit}
-            onChange={(v) => setDraft((d) => ({ ...d, unit: v }))}
-            placeholder={t("specs.kg")}
+            label={t("specs.arabicName")}
+            value={draft.nameAr}
+            onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))}
           />
-        ) : null}
-        <ToggleField
-          label={t("specs.filterableInTheCatalogue")}
-          checked={draft.filterable}
-          onChange={(v) => setDraft((d) => ({ ...d, filterable: v }))}
-        />
-        <ToggleField
-          label={t("specs.active")}
-          checked={draft.active}
-          onChange={(v) => setDraft((d) => ({ ...d, active: v }))}
-        />
+          <TextField
+            label={t("specs.englishName")}
+            value={draft.nameEn}
+            onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))}
+          />
+          {draft.type === "select" ? (
+            <TextField
+              label={t("specs.allowedValues")}
+              value={draft.values}
+              onChange={(v) => setDraft((d) => ({ ...d, values: v }))}
+              placeholder={t("specs.redGreenBlue")}
+              hint={t("specs.separateValuesWithCommas")}
+            />
+          ) : null}
+          {draft.type === "number" ? (
+            <TextField
+              label={t("common.unit")}
+              value={draft.unit}
+              onChange={(v) => setDraft((d) => ({ ...d, unit: v }))}
+              placeholder={t("specs.kg")}
+            />
+          ) : null}
+        </SectionCard>
+        </FormColumns>
       </form>
     </FormPage>
   );

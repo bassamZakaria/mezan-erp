@@ -51,6 +51,7 @@ import { useEntityName } from "../lib/entity-names";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /** تسويات المخزون (Stock Adjustments) — docs/archive/catalog/03. List + detail + create, on the real document-framework API. */
 
@@ -600,8 +601,8 @@ function CreateAdjustmentView({
   ]);
   const [error, setError] = useState<string | null>(null);
 
-  const warehouseList = warehouses ?? [];
-  const itemList = items ?? [];
+  const warehouseList = warehouses ?? EMPTY;
+  const itemList = items ?? EMPTY;
 
   function warehouseLabel(id: string): string {
     return nameOf(warehouseList.find((w) => w.id === id), id);

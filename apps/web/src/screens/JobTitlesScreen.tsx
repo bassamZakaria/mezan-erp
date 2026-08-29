@@ -5,6 +5,7 @@ import { TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateJobTitle, useDepartments, useEmployees, useJobTitles, useUpdateJobTitle } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { bilingualName } from "./hr-employee-name";
+import { EMPTY } from "../lib/empty";
 
 /** المسميات الوظيفية (Job Titles) — docs/archive/catalog/06 §"المسميات الوظيفية". Department-scoped master data; department is locked once created. */
 
@@ -27,9 +28,9 @@ export function JobTitlesScreen() {
   const employeesQuery = useEmployees();
   const createJobTitle = useCreateJobTitle();
   const updateJobTitle = useUpdateJobTitle();
-  const jobTitles = query.data ?? [];
+  const jobTitles = query.data ?? EMPTY;
   const departments = departmentsQuery.data ?? [];
-  const employees = employeesQuery.data ?? [];
+  const employees = employeesQuery.data ?? EMPTY;
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");

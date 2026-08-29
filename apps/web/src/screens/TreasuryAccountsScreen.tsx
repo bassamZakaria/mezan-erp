@@ -16,6 +16,7 @@ import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /**
  * Chip counts (R1.1). Not in `data/hooks.ts` yet — the /treasury-accounts/counts
@@ -124,7 +125,7 @@ export function TreasuryAccountsScreen() {
   const branchesQuery = useBranches();
   const createTreasuryAccount = useCreateTreasuryAccount();
   const updateTreasuryAccount = useUpdateTreasuryAccount();
-  const accounts = query.data ?? [];
+  const accounts = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? [];
   const [search, setSearch] = useState("");
   // The chips (R1.1): /treasury-accounts/counts drops its own status/type axis, so

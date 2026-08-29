@@ -68,6 +68,7 @@ import { useDomainLabels } from "../lib/domain-labels";
 import { useDebounced } from "../lib/use-debounced";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
+import { EMPTY } from "../lib/empty";
 
 /** السندات النقدية (Treasury Vouchers) — docs/archive/catalog/04, on the real `/vouchers` API. */
 
@@ -249,9 +250,9 @@ export function TreasuryVouchersScreen() {
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const documents = query.data ?? [];
-  const customers = customersQuery.data ?? [];
-  const suppliers = suppliersQuery.data ?? [];
-  const treasuryAccounts = treasuryQuery.data ?? [];
+  const customers = customersQuery.data ?? EMPTY;
+  const suppliers = suppliersQuery.data ?? EMPTY;
+  const treasuryAccounts = treasuryQuery.data ?? EMPTY;
   const accounts = accountsQuery.data ?? [];
 
   const partyName = useMemo(() => {
@@ -581,7 +582,7 @@ function VoucherDetailView({
   const def = doc ? getVoucherTypeDefinition(doc.voucherType) : null;
   const partyId = doc ? (doc.customerId ?? doc.supplierId) : null;
   const openInvoicesQuery = useOpenInvoices(def?.allocationKind ?? undefined, partyId);
-  const openInvoices = openInvoicesQuery.data ?? [];
+  const openInvoices = openInvoicesQuery.data ?? EMPTY;
   const invoiceById = useMemo(() => new Map(openInvoices.map((i) => [i.id, i])), [openInvoices]);
 
   const effects = useMemo(() => {

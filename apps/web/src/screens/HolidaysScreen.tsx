@@ -5,6 +5,7 @@ import { TextField, ToggleField } from "../settings/form-controls";
 import { useConfirmAction } from "../lib/use-confirm-action";
 import { ApiError, useCreateHoliday, useDeleteHoliday, useHolidays, useUpdateHoliday } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /** الإجازات الرسمية (Official Holidays) — docs/archive/catalog/06 §"الإجازات الرسمية". Year-scoped company calendar; recurring holidays repeat every year. */
 
@@ -61,7 +62,7 @@ export function HolidaysScreen() {
   const createHoliday = useCreateHoliday();
   const updateHoliday = useUpdateHoliday();
   const deleteHoliday = useDeleteHoliday();
-  const holidays = query.data ?? [];
+  const holidays = query.data ?? EMPTY;
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<HolidayDraft>(blankDraft(year));

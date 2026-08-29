@@ -24,6 +24,7 @@ import { useCreatePriceList, useItems, usePriceLists, useUpdatePriceList } from 
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { majorOf } from "../lib/money";
+import { EMPTY } from "../lib/empty";
 
 /**
  * قوائم الأسعار (Price Lists — docs/archive/catalog/01). Real data only: the list, the
@@ -225,7 +226,7 @@ function PriceListTiers({ list, items }: { list: PriceListDTO; items: ItemDTO[] 
 export function PriceListsScreen() {
   const { t } = useAppTranslation();
   const query = usePriceLists();
-  const priceLists = query.data ?? [];
+  const priceLists = query.data ?? EMPTY;
   const items = useItems().data ?? [];
   const create = useCreatePriceList();
   const update = useUpdatePriceList();

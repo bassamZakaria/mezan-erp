@@ -58,6 +58,7 @@ import { useEntityName } from "../lib/entity-names";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /** Document states plus the payment states derived from the allocation sub-ledger. */
 type PurchaseInvoiceFilterKey = PurchaseInvoiceStatusDTO | "all" | "overdue" | "due_soon" | "partially_paid" | "paid";
@@ -443,8 +444,8 @@ export function PurchaseInvoicesScreen() {
   const confirmInvoice = useConfirmPurchaseInvoice();
 
   const receipts = receiptsQuery.data ?? [];
-  const suppliers = suppliersQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const suppliers = suppliersQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
@@ -503,7 +504,7 @@ export function PurchaseInvoicesScreen() {
   const query = usePurchaseInvoices(listFilter);
   const counts = usePurchaseInvoiceCounts(listFilter).data ?? {};
   const stats = usePurchaseInvoiceStats(listFilter).data ?? null;
-  const invoices = query.data ?? [];
+  const invoices = query.data ?? EMPTY;
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;

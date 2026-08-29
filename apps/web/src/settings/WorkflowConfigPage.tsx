@@ -11,6 +11,7 @@ import { useCreateWorkflowConfig, useDeleteWorkflowConfig, useRoles, useUpdateWo
 import { SelectField, TextField } from "./form-controls";
 import { actionTypeLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /**
  * إعدادات الموافقات — the workflow chain-builder (docs/archive/catalog/09 §إعدادات
@@ -45,7 +46,7 @@ export function WorkflowConfigPage() {
   const updateConfig = useUpdateWorkflowConfig();
   const deleteConfig = useDeleteWorkflowConfig();
 
-  const configs = configsQuery.data ?? [];
+  const configs = configsQuery.data ?? EMPTY;
   const customRoles = useMemo(() => (rolesQuery.data ?? []).filter((r) => !r.isSystem), [rolesQuery.data]);
 
   const [panelOpen, setPanelOpen] = useState(false);

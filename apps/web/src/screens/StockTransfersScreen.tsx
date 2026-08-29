@@ -38,6 +38,7 @@ import { useEntityName } from "../lib/entity-names";
 import { useDocumentEffectText } from "../lib/document-effects";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /** تحويلات المخزون (Stock Transfers) — docs/archive/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
@@ -386,8 +387,8 @@ function CreateTransferView({
   const { t } = useAppTranslation();
   const createTransfer = useCreateStockTransfer();
   const confirmTransfer = useConfirmStockTransfer();
-  const warehouseList = warehouses ?? [];
-  const itemList = items ?? [];
+  const warehouseList = warehouses ?? EMPTY;
+  const itemList = items ?? EMPTY;
 
   const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");

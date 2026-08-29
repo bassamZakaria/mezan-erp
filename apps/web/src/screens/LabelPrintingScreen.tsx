@@ -11,6 +11,7 @@ import {
 import { buildLabelBatch, LABEL_TEMPLATES, Money, type LabelBatchLineInput, type LabelTemplateCode } from "@mezan/domain";
 import { useItems } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /**
  * طباعة الملصقات (Label Printing) — docs/archive/catalog/03-inventory.md §"طباعة
@@ -68,7 +69,7 @@ function LabelTile({ line, template }: { line: SelectedLine; template: (typeof L
 export function LabelPrintingScreen() {
   const { t } = useAppTranslation();
   const itemsQuery = useItems();
-  const items = itemsQuery.data ?? [];
+  const items = itemsQuery.data ?? EMPTY;
 
   const [pickerValue, setPickerValue] = useState<EntityPickerOption | null>(null);
   const [lines, setLines] = useState<SelectedLine[]>([]);

@@ -56,6 +56,7 @@ import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } f
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { useNavigation } from "../navigation";
+import { EMPTY } from "../lib/empty";
 
 const TYPE_KEY: Record<ItemTypeDTO, AppTranslationKey> = {
   stock: "items.stockProduct",
@@ -689,9 +690,9 @@ export function ItemsScreen() {
   const accountsQuery = useAccounts();
   const unitsQuery = useItemUnits();
   const categoriesQuery = useItemCategories();
-  const glAccounts = accountsQuery.data ?? [];
+  const glAccounts = accountsQuery.data ?? EMPTY;
   const itemUnits = unitsQuery.data ?? [];
-  const itemCategories = categoriesQuery.data ?? [];
+  const itemCategories = categoriesQuery.data ?? EMPTY;
 
   function glAccountLabel(id: string | null): string {
     if (!id) return t("items.defaultForTheItemType");
@@ -738,7 +739,7 @@ export function ItemsScreen() {
   );
 
   const query = useItems(filter);
-  const items = query.data ?? [];
+  const items = query.data ?? EMPTY;
   const counts = useItemCounts(filter).data ?? {};
   const stats = useItemStats(filter).data ?? {};
 

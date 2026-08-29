@@ -8,6 +8,7 @@ import { SelectField, TextField, ToggleField } from "./form-controls";
 import { warehouseTypeLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
+import { EMPTY } from "../lib/empty";
 
 /**
  * المستودعات (Warehouses) — docs/archive/catalog/09 §"إدارة المستودعات". Surfaces
@@ -23,8 +24,8 @@ export function WarehousesPage() {
   const query = useWarehouses();
   const branchesQuery = useBranches();
   const createWarehouseMutation = useCreateWarehouse();
-  const warehouses = query.data ?? [];
-  const branches = branchesQuery.data ?? [];
+  const warehouses = query.data ?? EMPTY;
+  const branches = branchesQuery.data ?? EMPTY;
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<WarehouseType | "all">("all");
   const [panelOpen, setPanelOpen] = useState(false);

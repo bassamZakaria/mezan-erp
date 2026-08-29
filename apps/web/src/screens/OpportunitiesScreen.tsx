@@ -21,6 +21,7 @@ import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useCreateOpportunity, useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { EMPTY } from "../lib/empty";
 
 /** الفرص (Opportunities) — docs/archive/catalog/06 §"الفرص". List + create. Stage moves happen from the Pipeline board. */
 
@@ -156,7 +157,7 @@ export function OpportunitiesScreen() {
   const query = useOpportunities();
   const customersQuery = useCustomers();
   const stagesQuery = usePipelineStages();
-  const opportunities = query.data ?? [];
+  const opportunities = query.data ?? EMPTY;
 
   const customerName = useMemo(() => {
     const map = new Map<string, string>();

@@ -40,6 +40,7 @@ import { isRoutable, type RoutableKey, type ScreenKey } from "./router/screens";
 import { Breadcrumbs, parentSegments } from "./Breadcrumbs";
 import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
 import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
+import { EMPTY } from "./lib/empty";
 
 
 /** Where ⌘N goes when the screen on display has no create flow of its own. */
@@ -175,7 +176,7 @@ export function AppLayout() {
   const pendingApprovalCount = pendingApprovalCountQuery.data ?? 0;
   const unreadNotificationCount = useUnreadNotificationCount().data ?? 0;
   const roles = rolesQuery.data ?? [];
-  const users = usersQuery.data ?? [];
+  const users = usersQuery.data ?? EMPTY;
   const branches = branchesQuery.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
   const entitlements = entitlementsQuery.data ?? null;

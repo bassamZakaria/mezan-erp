@@ -21,6 +21,7 @@ import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/cont
 import { ApiError, useCreateProject, useCustomers, useProjects, useUpdateProject, useUsers } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /** المشاريع والمقاولات (Projects & Contracting) — docs/archive/catalog/07 §"المشاريع والمقاولات". List + detail + new-project panel. */
 
@@ -105,7 +106,7 @@ export function ProjectsScreen() {
   const createProject = useCreateProject();
   const updateProject = useUpdateProject();
 
-  const projects = query.data ?? [];
+  const projects = query.data ?? EMPTY;
   const customers = customersQuery.data ?? [];
   const users = usersQuery.data ?? [];
 

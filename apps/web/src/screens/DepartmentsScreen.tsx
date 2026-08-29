@@ -5,6 +5,7 @@ import { NumberField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateDepartment, useDepartments, useEmployees, useUpdateDepartment } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { bilingualName } from "./hr-employee-name";
+import { EMPTY } from "../lib/empty";
 
 /** الأقسام (Departments) — docs/archive/catalog/06 §"الأقسام". Thin master data: list + a combined edit/detail panel + create panel, no standalone detail page (matches the catalog's "no dedicated detail page" note). */
 
@@ -40,8 +41,8 @@ export function DepartmentsScreen() {
   const employeesQuery = useEmployees();
   const createDepartment = useCreateDepartment();
   const updateDepartment = useUpdateDepartment();
-  const departments = query.data ?? [];
-  const employees = employeesQuery.data ?? [];
+  const departments = query.data ?? EMPTY;
+  const employees = employeesQuery.data ?? EMPTY;
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");

@@ -6,6 +6,7 @@ import { SelectField, NumberField } from "../settings/form-controls";
 import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { majorOf } from "../lib/money";
+import { EMPTY } from "../lib/empty";
 
 /**
  * أرصدة المخزون (Stock Balance) — docs/archive/catalog/03. Read-only cross-warehouse
@@ -33,8 +34,8 @@ export function StockBalanceScreen() {
   const itemsQuery = useItems();
   const warehouses = useWarehouses().data ?? [];
 
-  const rows = balanceQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const rows = balanceQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const itemLabel = useCallback(
     (id: string): string => {

@@ -5,6 +5,7 @@ import { useItems } from "../../data/hooks";
 import { useReport } from "../../data/reports-hooks";
 import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { EMPTY } from "../../lib/empty";
 
 /**
  * المخزون hub — item counts from `/items`, and stock value + at-risk items
@@ -34,9 +35,9 @@ export function InventoryHubScreen() {
     STOCK_LEVELS_PARAMS,
   );
 
-  const items = itemsQuery.data ?? [];
+  const items = itemsQuery.data ?? EMPTY;
   const activeItems = useMemo(() => items.filter((i) => i.status === "active").length, [items]);
-  const rows = stockLevelsQuery.data?.rows ?? [];
+  const rows = stockLevelsQuery.data?.rows ?? EMPTY;
   const inventoryValue = stockLevelsQuery.data?.grandTotals.value ?? 0;
   const needsAttention = useMemo(() => rows.filter((r) => r.status !== "normal").slice(0, 5), [rows]);
   const needsAttentionCount = useMemo(() => rows.filter((r) => r.status !== "normal").length, [rows]);

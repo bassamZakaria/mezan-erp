@@ -17,6 +17,7 @@ import type { CreateDepreciationRunDTO, DepreciationRunDTO, DepreciationRunStatu
 import { ApiError, useBranches, useCreateDepreciationRun, useDepreciationRuns, usePostDepreciationRun } from "../data/hooks";
 import { NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /** الإهلاك (Depreciation Runs) — docs/archive/catalog/07 §"الإهلاك". List + detail + run-creation panel. */
 
@@ -57,7 +58,7 @@ export function DepreciationRunsScreen() {
   const createRun = useCreateDepreciationRun();
   const postRun = usePostDepreciationRun();
 
-  const runs = query.data ?? [];
+  const runs = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? [];
 
   const [statusFilter, setStatusFilter] = useState("all");

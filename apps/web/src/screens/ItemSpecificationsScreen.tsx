@@ -19,6 +19,7 @@ import {
   useUpdateItemSpecification,
 } from "../data/item-catalog-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /**
  * المواصفات — the reusable specification/attribute registry over the item
@@ -111,7 +112,7 @@ export function ItemSpecificationsScreen() {
   const updateSpecification = useUpdateItemSpecification();
   const deleteSpecification = useDeleteItemSpecification();
 
-  const specifications = query.data ?? [];
+  const specifications = query.data ?? EMPTY;
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<ItemSpecificationTypeDTO | "all">("all");

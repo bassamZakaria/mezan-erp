@@ -20,6 +20,7 @@ import { moneyToNumber, parseMoney, sumMoney, useBranchStockBalance } from "../d
 import { branchName } from "./branch-name";
 import { TextField, ToggleField, SectionCard } from "./form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /**
  * الفروع (Branches) — docs/archive/catalog/09 §"إدارة الفروع" list +
@@ -601,7 +602,7 @@ export function BranchesPage() {
   const { t } = useAppTranslation();
   const query = useBranches();
   const createBranchMutation = useCreateBranch();
-  const branches = query.data ?? [];
+  const branches = query.data ?? EMPTY;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [search, setSearch] = useState("");

@@ -28,6 +28,7 @@ import {
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /** متابعة التحصيل (Collection Follow-ups) — docs/archive/catalog/05. A collections-agent worklog against customers with overdue installment balances. */
 
@@ -48,7 +49,7 @@ export function InstallmentFollowUpsScreen() {
   const completeFollowUp = useCompleteFollowUp();
   const cancelFollowUp = useCancelFollowUp();
 
-  const customers = customersQuery.data ?? [];
+  const customers = customersQuery.data ?? EMPTY;
 
   const customerName = useMemo(() => {
     const map = new Map(customers.map((c) => [c.id, c.nameAr]));

@@ -40,6 +40,7 @@ import { majorOf } from "../lib/money";
 import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
+import { EMPTY } from "../lib/empty";
 
 const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
   draft: "purchaseOrders.status.draft",
@@ -158,8 +159,8 @@ export function PurchaseOrdersScreen() {
   const createOrder = useCreatePurchaseOrder();
   const confirmOrder = useConfirmPurchaseOrder();
 
-  const suppliers = suppliersQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const suppliers = suppliersQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
@@ -240,7 +241,7 @@ export function PurchaseOrdersScreen() {
   const [lines, setLines] = useState<DraftLine[]>(() => [{ itemId: prefilledItemId ?? "", qty: 1, unitPrice: 0 }]);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const orders = query.data ?? [];
+  const orders = query.data ?? EMPTY;
   const selected = selectedId === null ? null : (orders.find((o) => o.id === selectedId || o.number === selectedId) ?? null);
 
   const filtered = useMemo(() => [...orders].sort((a, b) => b.number.localeCompare(a.number)), [orders]);

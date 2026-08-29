@@ -18,6 +18,7 @@ import type { LeadDTO, LeadSourceDTO, LeadStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useConvertLead, useCreateLead, useLeads, usePipelineStages, useTransitionLead } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /** العملاء المحتملون (Leads) — docs/archive/catalog/06 §"العملاء المحتملون". List + detail + create + status transitions + convert. */
 
@@ -121,7 +122,7 @@ export function LeadsScreen() {
   const createLead = useCreateLead();
   const transitionLead = useTransitionLead();
   const convertLead = useConvertLead();
-  const leads = query.data ?? [];
+  const leads = query.data ?? EMPTY;
   const stages = useMemo(() => [...(stagesQuery.data ?? [])].filter((s) => s.active).sort((a, b) => a.order - b.order), [stagesQuery.data]);
 
   const [search, setSearch] = useState("");

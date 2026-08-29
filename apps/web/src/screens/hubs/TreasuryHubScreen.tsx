@@ -3,6 +3,7 @@ import { Money, WorkspaceHub } from "@mezan/ui";
 import { useCheques, useDashboardSummary, useTreasuryAccounts, useVouchers } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
+import { EMPTY } from "../../lib/empty";
 
 /**
  * الخزينة hub — treasury accounts + vouchers + cheques over the real
@@ -33,9 +34,9 @@ export function TreasuryHubScreen() {
   const chequesQuery = useCheques();
   const summaryQuery = useDashboardSummary({});
 
-  const accounts = accountsQuery.data ?? [];
-  const vouchers = vouchersQuery.data ?? [];
-  const cheques = chequesQuery.data ?? [];
+  const accounts = accountsQuery.data ?? EMPTY;
+  const vouchers = vouchersQuery.data ?? EMPTY;
+  const cheques = chequesQuery.data ?? EMPTY;
   const activeAccounts = useMemo(() => accounts.filter((a) => a.status === "active").length, [accounts]);
   const pendingCheques = useMemo(() => cheques.filter((c) => PENDING_CHEQUE_STATUSES.has(c.status)).length, [cheques]);
   const recentVouchers = useMemo(() => [...vouchers].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 5), [vouchers]);

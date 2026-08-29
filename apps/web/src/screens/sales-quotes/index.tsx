@@ -34,6 +34,7 @@ import { majorOf } from "../../lib/money";
 import { QuoteDetailView } from "./QuoteDetailView";
 import { QuoteFormView } from "./QuoteFormView";
 import { STATUS_KEY, STATUS_TONE, daysExpired, isExpired, type QuoteFilterKey } from "./quote-model";
+import { EMPTY } from "../../lib/empty";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
@@ -57,7 +58,7 @@ export function SalesQuotesScreen() {
   const { t } = useAppTranslation();
   const format = useFormat();
 
-  const customers = useCustomers().data ?? [];
+  const customers = useCustomers().data ?? EMPTY;
   const branches = useBranches().data ?? [];
   const { openScreenAt } = useNavigation();
   const send = useSendSalesQuote();

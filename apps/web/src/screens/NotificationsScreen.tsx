@@ -19,6 +19,7 @@ import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications,
 import { eventLabelByCode } from "../domain-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
+import { EMPTY } from "../lib/empty";
 
 /**
  * مركز الإشعارات — the bell's "عرض جميع الإشعارات" destination (R1.6). The
@@ -58,7 +59,7 @@ export function NotificationsScreen() {
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
 
-  const fullList = listQuery.data ?? [];
+  const fullList = listQuery.data ?? EMPTY;
   const unreadCount = unreadCountQuery.data ?? 0;
   const urgentCount = fullList.filter((n) => n.priority === "urgent" && n.status === "unread").length;
 

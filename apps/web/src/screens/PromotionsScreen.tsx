@@ -23,6 +23,7 @@ import { useCreatePromotion, useItems, usePromotionUsageReport, usePromotions, u
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
+import { EMPTY } from "../lib/empty";
 
 const TYPE_KEY: Record<PromotionTypeDTO, AppTranslationKey> = {
   percentage: "promotions.type.percentage",
@@ -217,8 +218,8 @@ function draftFrom(p: PromotionDTO): PromotionDraft {
 export function PromotionsScreen() {
   const { t } = useAppTranslation();
   const query = usePromotions();
-  const promotions = query.data ?? [];
-  const items = useItems().data ?? [];
+  const promotions = query.data ?? EMPTY;
+  const items = useItems().data ?? EMPTY;
   const create = useCreatePromotion();
   const update = useUpdatePromotion();
 

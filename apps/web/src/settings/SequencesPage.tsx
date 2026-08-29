@@ -15,6 +15,7 @@ import { ApiError } from "../data/hooks";
 import { TextField, NumberField, ToggleField } from "./form-controls";
 import { sequenceLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /**
  * تسلسلات الترقيم (Numbering Sequences) — `/settings/sequences`. Reads the
@@ -36,7 +37,7 @@ export function SequencesPage() {
   const query = useSequences();
   const updateSequence = useUpdateSequence();
   const resetCounter = useResetSequenceCounter();
-  const sequences = query.data ?? [];
+  const sequences = query.data ?? EMPTY;
 
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const [search, setSearch] = useState("");

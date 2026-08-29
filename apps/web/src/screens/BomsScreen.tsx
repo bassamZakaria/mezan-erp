@@ -21,6 +21,7 @@ import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsBomComponent } from "@mezan/domain";
+import { EMPTY } from "../lib/empty";
 
 type BomStatus = BomRecord["status"];
 
@@ -130,8 +131,8 @@ export function BomsScreen() {
   const createBom = useCreateBom();
   const deactivateBom = useDeactivateBom();
 
-  const boms = query.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const boms = query.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const itemName = useMemo(() => {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));

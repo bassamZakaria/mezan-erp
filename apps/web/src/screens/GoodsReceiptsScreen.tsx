@@ -32,6 +32,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { majorOf } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
+import { EMPTY } from "../lib/empty";
 
 const STATUS_KEY: Record<GoodsReceiptStatusDTO, AppTranslationKey> = {
   draft: "goodsReceipts.status.draft",
@@ -166,9 +167,9 @@ export function GoodsReceiptsScreen() {
   const createReceipt = useCreateGoodsReceipt();
   const confirmReceipt = useConfirmGoodsReceipt();
 
-  const orders = ordersQuery.data ?? [];
-  const suppliers = suppliersQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const orders = ordersQuery.data ?? EMPTY;
+  const suppliers = suppliersQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
@@ -257,7 +258,7 @@ export function GoodsReceiptsScreen() {
   const supplierOptions: EntityPickerOption[] = suppliers.map((sup) => ({ id: sup.id, label: sup.nameAr, sublabel: sup.code }));
   const itemOptions: EntityPickerOption[] = items.filter((i) => itemTypeIsPurchasable(i.type)).map((i) => ({ id: i.id, label: i.nameAr }));
 
-  const receipts = query.data ?? [];
+  const receipts = query.data ?? EMPTY;
   const selected = selectedId === null ? null : (receipts.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
 
   // create-from-PO preview only — the server auto-fills the real lines from the PO's outstanding qty on save.

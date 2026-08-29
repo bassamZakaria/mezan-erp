@@ -17,6 +17,7 @@ import { ApiError, useAccounts } from "../data/hooks";
 import { useCreatePayrollComponent, usePayrollComponents, useUpdatePayrollComponent } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
+import { EMPTY } from "../lib/empty";
 
 /**
  * مكوّنات الرواتب (Payroll components) — R10.7. The registry a contract's
@@ -65,8 +66,8 @@ export function PayrollComponentsScreen() {
   const createComponent = useCreatePayrollComponent();
   const updateComponent = useUpdatePayrollComponent();
 
-  const components = query.data ?? [];
-  const accounts = accountsQuery.data ?? [];
+  const components = query.data ?? EMPTY;
+  const accounts = accountsQuery.data ?? EMPTY;
 
   const [kindFilter, setKindFilter] = useState<"all" | PayrollComponentKindDTO>("all");
   const [search, setSearch] = useState("");
@@ -85,7 +86,7 @@ export function PayrollComponentsScreen() {
           id: account.id,
           label: `${account.code} — ${nameOf(account)}`,
         })),
-    [accounts, locale, nameOf],
+    [accounts, nameOf],
   );
 
   function accountLabel(id: string | null): string {

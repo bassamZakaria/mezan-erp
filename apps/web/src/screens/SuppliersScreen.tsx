@@ -45,6 +45,7 @@ import { supplierPayableById } from "../lib/partner-balances";
 import { majorOf } from "../lib/money";
 import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /**
  * الموردون (Suppliers) — docs/archive/catalog/02-purchases.md "الموردون". The mirror
@@ -639,7 +640,7 @@ export function SuppliersScreen() {
   );
 
   const query = useSuppliers(filter);
-  const suppliers = query.data ?? [];
+  const suppliers = query.data ?? EMPTY;
   const filtered = suppliers;
   const counts = useSupplierCounts(filter).data ?? {};
   const stats = useSupplierStats(filter).data ?? {};
@@ -649,10 +650,10 @@ export function SuppliersScreen() {
   // left every row at 0.00 against 150,867.60 of confirmed invoices (D39). The
   // strip's total comes off `/suppliers/stats`, which derives the same figure
   // server-side in `Money`.
-  const purchaseInvoices = usePurchaseInvoices().data ?? [];
-  const vouchers = useVouchers().data ?? [];
-  const purchaseReturns = usePurchaseReturns().data ?? [];
-  const cheques = useCheques().data ?? [];
+  const purchaseInvoices = usePurchaseInvoices().data ?? EMPTY;
+  const vouchers = useVouchers().data ?? EMPTY;
+  const purchaseReturns = usePurchaseReturns().data ?? EMPTY;
+  const cheques = useCheques().data ?? EMPTY;
   const payableById = useMemo(
     () => supplierPayableById(suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques),
     [suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques],

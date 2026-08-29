@@ -78,6 +78,7 @@ import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /** فواتير المبيعات (Sales Invoices) — docs/archive/catalog/01-sales.md. List + detail (with the
  * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm sub-page form with live
@@ -330,12 +331,12 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const unitLabel = useUnitLabel();
   const workingLocation = useWorkingLocation();
 
-  const customers = customersQuery.data ?? [];
-  const employees = employeesQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
-  const warehouses = warehousesQuery.data ?? [];
-  const branches = branchesQuery.data ?? [];
-  const priceLists = priceListsQuery.data ?? [];
+  const customers = customersQuery.data ?? EMPTY;
+  const employees = employeesQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
+  const warehouses = warehousesQuery.data ?? EMPTY;
+  const branches = branchesQuery.data ?? EMPTY;
+  const priceLists = priceListsQuery.data ?? EMPTY;
 
   const today = todayIso();
   /**
@@ -1177,9 +1178,9 @@ function InvoiceDetailView({
   const auditQuery = useAuditLog({ entityType: "SALES_INVOICE", limit: 100 });
 
   const accounts = accountsQuery.data ?? [];
-  const warehouses = warehousesQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
-  const branches = branchesQuery.data ?? [];
+  const warehouses = warehousesQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
+  const branches = branchesQuery.data ?? EMPTY;
 
   /** Returns raised against THIS invoice — the reference shows them on the invoice itself. */
   const invoiceReturns = (returnsQuery.data ?? []).filter((r) => r.lines.some((l: { sourceInvoiceId: string }) => l.sourceInvoiceId === invoice.id));
@@ -1789,7 +1790,7 @@ export function SalesInvoicesScreen() {
    * to any invoice (R3.2). Without it the strip shows what is owed but not the
    * cash already sitting against it, and the two never reconcile on screen.
    */
-  const receipts = useVouchers({ type: "customer_collection", status: "confirmed" }).data ?? [];
+  const receipts = useVouchers({ type: "customer_collection", status: "confirmed" }).data ?? EMPTY;
   const unallocatedReceipts = useMemo(
     () => sumMajor(receipts.map((row) => row.allocationSummary?.unallocated ?? "0")),
     [receipts],

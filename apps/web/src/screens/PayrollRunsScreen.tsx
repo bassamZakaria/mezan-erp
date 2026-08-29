@@ -30,6 +30,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { employeeDisplayName } from "./hr-employee-name";
+import { EMPTY } from "../lib/empty";
 
 /** الرواتب (Payroll) — docs/archive/catalog/06 §"الرواتب". A run covers one month: مسودة → محتسب → معتمد (قيد محاسبي متوازن) → مصروف. */
 
@@ -87,7 +88,7 @@ export function PayrollRunsScreen() {
   const disburseRun = useDisbursePayrollRun();
   const cancelRun = useCancelPayrollRun();
 
-  const runs = query.data ?? [];
+  const runs = query.data ?? EMPTY;
   const employees = employeesQuery.data ?? [];
   const treasuryAccounts = treasuryQuery.data ?? [];
   const branches = branchesQuery.data ?? [];

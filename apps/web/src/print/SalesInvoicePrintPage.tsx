@@ -4,6 +4,7 @@ import type { SalesInvoiceDTO } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { useBranches, useCustomers, useEtaSubmissions, usePrintTemplateConfig, useSettings, useWarehouses } from "../data/hooks";
 import { salesInvoicePrintModel } from "./sales-invoice-print";
+import { EMPTY } from "../lib/empty";
 
 /**
  * The compliant print path for a sales invoice — the page the «طباعة» button
@@ -21,11 +22,11 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
   const configQuery = usePrintTemplateConfig();
   const settings = useSettings().data ?? null;
   const customers = useCustomers().data ?? [];
-  const branches = useBranches().data ?? [];
-  const warehouses = useWarehouses().data ?? [];
+  const branches = useBranches().data ?? EMPTY;
+  const warehouses = useWarehouses().data ?? EMPTY;
   // Only an ACCEPTED submission carries the authority's identifier; anything
   // else has no number to print and the block is left out entirely.
-  const accepted = useEtaSubmissions("accepted").data ?? [];
+  const accepted = useEtaSubmissions("accepted").data ?? EMPTY;
 
   const customer = customers.find((c) => c.id === invoice.customerId);
 

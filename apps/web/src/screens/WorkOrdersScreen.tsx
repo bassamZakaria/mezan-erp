@@ -47,6 +47,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { useNavigation } from "../navigation";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 const STATUS_KEY: Record<WorkOrderStatusRecord, AppTranslationKey> = {
   planned: "workOrders.status.planned",
@@ -539,8 +540,8 @@ export function WorkOrdersScreen() {
   const activeStations = (useWorkStations().data ?? []).filter((station) => station.status === "active");
   const screenEmployees = useEmployees().data ?? [];
   const boms = (bomsQuery.data ?? []).filter((b) => b.status === "active");
-  const items = itemsQuery.data ?? [];
-  const warehouses = warehousesQuery.data ?? [];
+  const items = itemsQuery.data ?? EMPTY;
+  const warehouses = warehousesQuery.data ?? EMPTY;
 
   const itemName = useMemo(() => {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));
@@ -604,7 +605,7 @@ export function WorkOrdersScreen() {
     [statusFilter, priorityFilter, stageFilter, search],
   );
   const query = useWorkOrders(filter);
-  const orders = query.data ?? [];
+  const orders = query.data ?? EMPTY;
   const counts = useWorkOrderCounts(filter).data ?? {};
   const stats = useWorkOrderStats(filter).data ?? {};
 

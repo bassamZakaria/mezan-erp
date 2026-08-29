@@ -26,6 +26,7 @@ import { useConfirmAction } from "../lib/use-confirm-action";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { useAppTranslation } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /**
  * قوالب المنتجات (Product Templates) — docs/archive/catalog/03-inventory.md §"قوالب
@@ -100,7 +101,7 @@ export function ProductTemplatesScreen() {
 
   const selected = selectedId ? templates.find((t) => t.id === selectedId) ?? null : null;
   const variantsQuery = useTemplateVariants(selectedId);
-  const variants = variantsQuery.data ?? [];
+  const variants = variantsQuery.data ?? EMPTY;
   const existingKeys = useMemo(() => new Set(variants.map((v) => comboKey(v.values))), [variants]);
   const combos = useMemo(() => (selected ? cartesianCombinations(selected.attributes) : []), [selected]);
 

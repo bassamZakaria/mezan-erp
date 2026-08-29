@@ -36,6 +36,7 @@ import { useEntityName } from "../lib/entity-names";
 import { employeeDisplayName } from "./hr-employee-name";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /** رحلات المندوبين (Van/Rep Trips — Field Sales) — docs/archive/catalog/07 §"رحلات المندوبين". List + open-trip form + detail with cash-movement/settle actions. */
 
@@ -126,13 +127,13 @@ export function VanTripsScreen() {
   const recordCashMovement = useRecordVanCashMovement();
   const settleVanTrip = useSettleVanTrip();
 
-  const trips = query.data ?? [];
-  const warehouses = warehousesQuery.data ?? [];
-  const treasuryAccounts = treasuryQuery.data ?? [];
-  const branches = branchesQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const trips = query.data ?? EMPTY;
+  const warehouses = warehousesQuery.data ?? EMPTY;
+  const treasuryAccounts = treasuryQuery.data ?? EMPTY;
+  const branches = branchesQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
   const vans = (vansQuery.data ?? []).filter((v) => v.active);
-  const employees = employeesQuery.data ?? [];
+  const employees = employeesQuery.data ?? EMPTY;
 
   const warehouseName = useMemo(() => {
     const map = new Map(warehouses.map((w) => [w.id, nameOf(w)]));

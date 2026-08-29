@@ -3,6 +3,7 @@ import { Money, WorkspaceHub } from "@mezan/ui";
 import { useCustomers, useSalesInvoices, useSalesQuotes } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
+import { EMPTY } from "../../lib/empty";
 
 /**
  * المبيعات hub — KPI tiles + quick actions + recent activity, all computed
@@ -33,8 +34,8 @@ export function SalesHubScreen() {
   const quotesQuery = useSalesQuotes();
   const customersQuery = useCustomers();
 
-  const invoices = invoicesQuery.data ?? [];
-  const quotes = quotesQuery.data ?? [];
+  const invoices = invoicesQuery.data ?? EMPTY;
+  const quotes = quotesQuery.data ?? EMPTY;
   const customers = customersQuery.data ?? [];
 
   const outstandingReceivable = useMemo(

@@ -27,6 +27,7 @@ import {
   useSetNotificationRuleActive,
   useUsers,
 } from "../data/hooks";
+import { EMPTY } from "../lib/empty";
 
 const PRIORITY_KEY: Record<NotificationPriority, AppTranslationKey> = {
   low: "notifRules.priority.low",
@@ -108,7 +109,7 @@ export function NotificationRulesPage() {
   const { t } = useAppTranslation();
   const query = useNotificationRules();
   const triggerCatalog = useNotificationTriggers();
-  const rules = query.data ?? [];
+  const rules = query.data ?? EMPTY;
   const create = useCreateNotificationRule();
   const setActive = useSetNotificationRuleActive();
   const deleteRule = useDeleteNotificationRule();

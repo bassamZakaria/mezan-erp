@@ -26,6 +26,7 @@ import {
 import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsBomComponent } from "@mezan/domain";
+import { EMPTY } from "../lib/empty";
 
 type Status = ConfigurableProductRecord["status"];
 
@@ -172,8 +173,8 @@ export function ConfigurableProductsScreen() {
   const createProduct = useCreateConfigurableProduct();
   const deactivateProduct = useDeactivateConfigurableProduct();
 
-  const products = query.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const products = query.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const itemName = useMemo(() => {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));

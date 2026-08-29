@@ -33,6 +33,7 @@ import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/archive/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
 
@@ -70,9 +71,9 @@ export function PurchaseReturnsScreen() {
   const cancelReturn = useCancelPurchaseReturn();
 
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
-  const warehouses = warehousesQuery.data ?? [];
-  const suppliers = suppliersQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const warehouses = warehousesQuery.data ?? EMPTY;
+  const suppliers = suppliersQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));

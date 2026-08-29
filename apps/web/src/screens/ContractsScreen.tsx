@@ -30,6 +30,7 @@ import { ApiError, useContracts, useCreateContract, useEmployees, useTerminateCo
 import { usePayrollComponents } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { employeeDisplayName } from "./hr-employee-name";
+import { EMPTY } from "../lib/empty";
 
 /** العقود (Contracts) — docs/archive/catalog/06 §"العقود". Formal employment contract per employee: type/pay-basis/frequency, salary, currency, allowances/deductions, leave-entitlement overrides. */
 
@@ -92,8 +93,8 @@ export function ContractsScreen() {
   const createContract = useCreateContract();
   const terminateContract = useTerminateContract();
   const components = usePayrollComponents().data ?? [];
-  const contracts = query.data ?? [];
-  const employees = employeesQuery.data ?? [];
+  const contracts = query.data ?? EMPTY;
+  const employees = employeesQuery.data ?? EMPTY;
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ContractStatusDTO | "expiring_soon">("all");
@@ -126,7 +127,7 @@ export function ContractsScreen() {
       rows = rows.filter((c) => c.number.toLowerCase().includes(q) || employeeName(c.employeeId).toLowerCase().includes(q));
     }
     return rows;
-  }, [contracts, statusFilter, search, employees, employeeName]);
+  }, [contracts, statusFilter, search, employeeName]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);

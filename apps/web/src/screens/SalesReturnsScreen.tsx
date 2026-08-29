@@ -40,6 +40,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
+import { EMPTY } from "../lib/empty";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/archive/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
@@ -83,9 +84,9 @@ export function SalesReturnsScreen() {
   const cancelReturn = useCancelSalesReturn();
 
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled");
-  const warehouses = warehousesQuery.data ?? [];
-  const customers = customersQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const warehouses = warehousesQuery.data ?? EMPTY;
+  const customers = customersQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const customerName = useMemo(() => {
     const map = new Map(customers.map((c) => [c.id, c.nameAr]));
@@ -162,7 +163,7 @@ export function SalesReturnsScreen() {
   const counts = useSalesReturnCounts(filter).data ?? {};
   const stats = useSalesReturnStats(filter).data ?? {};
 
-  const treasuryAccounts = useTreasuryAccounts().data ?? [];
+  const treasuryAccounts = useTreasuryAccounts().data ?? EMPTY;
   useEffect(() => {
     if (refundTreasuryId !== "") return;
     const firstOpen = treasuryAccounts.find((a) => a.status === "active") ?? treasuryAccounts[0];

@@ -37,6 +37,7 @@ import { useScreenIntent } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /** التكاليف الإضافية (Landed Costs) — docs/archive/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
 
@@ -97,10 +98,10 @@ export function LandedCostsScreen() {
   const confirmLandedCost = useConfirmLandedCost();
   const cancelLandedCost = useCancelLandedCost();
 
-  const documents = query.data ?? [];
+  const documents = query.data ?? EMPTY;
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
-  const warehouses = warehousesQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const warehouses = warehousesQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const itemName = useMemo(() => {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));

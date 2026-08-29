@@ -53,6 +53,7 @@ import { customerOwedById } from "../lib/partner-balances";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
 import { majorOf } from "../lib/money";
+import { EMPTY } from "../lib/empty";
 
 /**
  * العملاء (Customers) — docs/archive/catalog/01-sales.md "العملاء (Customers —
@@ -665,8 +666,8 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
   const { navigate } = useNavigation();
   // Credit left is the limit minus what the customer owes TODAY. Measuring it
   // against the opening balance ignored every invoice since (D40).
-  const invoices = useSalesInvoices().data ?? [];
-  const cheques = useCheques().data ?? [];
+  const invoices = useSalesInvoices().data ?? EMPTY;
+  const cheques = useCheques().data ?? EMPTY;
   const owed = customerOwedById([customer], invoices, cheques).get(customer.id) ?? 0;
   const remainingCredit = num(customer.creditLimit) - owed;
   return (
@@ -766,7 +767,7 @@ export function CustomersScreen() {
   const [overLimitOnly, setOverLimitOnly] = useState(false);
   const [priceListFilter, setPriceListFilter] = useState<EntityPickerOption | null>(null);
 
-  const priceLists = usePriceLists().data ?? [];
+  const priceLists = usePriceLists().data ?? EMPTY;
   const priceListOptions = useMemo<EntityPickerOption[]>(
     () => priceLists.map((pl) => ({ id: pl.id, label: pl.nameAr, sublabel: pl.code })),
     [priceLists],
@@ -790,11 +791,11 @@ export function CustomersScreen() {
   );
 
   const query = useCustomers(filter);
-  const customers = query.data ?? [];
+  const customers = query.data ?? EMPTY;
   const counts = useCustomerCounts(filter).data ?? {};
   const stats = useCustomerStats(filter).data ?? {};
-  const invoices = useSalesInvoices().data ?? [];
-  const cheques = useCheques().data ?? [];
+  const invoices = useSalesInvoices().data ?? EMPTY;
+  const cheques = useCheques().data ?? EMPTY;
   const owedById = useMemo(() => customerOwedById(customers, invoices, cheques), [customers, invoices, cheques]);
   const owedOf = (id: string) => owedById.get(id) ?? 0;
 

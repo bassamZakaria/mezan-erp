@@ -39,6 +39,7 @@ import {
 import { SelectField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
+import { EMPTY } from "../lib/empty";
 
 const TYPE_KEY: Record<AccountTypeDTO, AppTranslationKey> = {
   asset: "coa.type.asset",
@@ -156,7 +157,7 @@ function AccountRoutingTab() {
   const { t, locale } = useAppTranslation();
   const routingQuery = useAccountRouting();
   const updateRouting = useUpdateAccountRouting();
-  const accounts = useAccounts().data ?? [];
+  const accounts = useAccounts().data ?? EMPTY;
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
   const routing = routingQuery.data;
@@ -273,7 +274,7 @@ export function ChartOfAccountsScreen() {
   const query = useAccounts();
   const createAccount = useCreateAccount();
   const updateAccount = useUpdateAccount();
-  const accounts = query.data ?? [];
+  const accounts = query.data ?? EMPTY;
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<AccountTypeDTO | "all">("all");
@@ -292,7 +293,7 @@ export function ChartOfAccountsScreen() {
   const tree = useMemo(() => buildAccountTree(accounts), [accounts]);
   const allHeaderIds = useMemo(() => accounts.filter((a) => a.isHeader).map((a) => a.id), [accounts]);
   // All headers start expanded until the user makes their first explicit toggle.
-  const expandedIds = expandedOverride ?? new Set(allHeaderIds);
+  const expandedIds = useMemo(() => expandedOverride ?? new Set(allHeaderIds), [expandedOverride, allHeaderIds]);
 
   const hasActiveFilter = search.trim() !== "" || typeFilter !== "all" || statusFilter !== "all";
 

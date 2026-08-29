@@ -16,6 +16,7 @@ import type { ActivityDTO, ActivityStatusDTO, ActivityTypeDTO } from "@mezan/con
 import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelActivity, useCompleteActivity, useCreateActivity, useCrmActivities } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /** الأنشطة (CRM Activities / My Tasks) — docs/archive/catalog/06 §"مهامي / الأنشطة". List + create + complete/cancel row actions. */
 
@@ -49,7 +50,7 @@ export function ActivitiesScreen() {
   const createActivity = useCreateActivity();
   const completeActivity = useCompleteActivity();
   const cancelActivity = useCancelActivity();
-  const activities = query.data ?? [];
+  const activities = query.data ?? EMPTY;
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ActivityStatusDTO>("all");

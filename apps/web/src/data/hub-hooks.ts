@@ -219,7 +219,7 @@ export function useScopeSelector(): UseScopeSelectorResult {
     return branches
       .filter((b) => b.active && (allowedBranchIds === null || allowedBranchIds.has(b.id)))
       .map((b) => ({ id: b.id, label: nameOf(b) }));
-  }, [branchesQuery.data, session?.branchScope, nameOf, allowedBranchIds]);
+  }, [branchesQuery.data, nameOf, allowedBranchIds]);
 
   const warehouseOptions = useMemo<ScopeOption[]>(() => {
     const warehouses = warehousesQuery.data ?? [];
@@ -231,7 +231,7 @@ export function useScopeSelector(): UseScopeSelectorResult {
           (!scopeSelection.branchId || w.branchId === scopeSelection.branchId),
       )
       .map((w) => ({ id: w.id, label: nameOf(w) }));
-  }, [warehousesQuery.data, session?.warehouseScope, scopeSelection.branchId, nameOf, allowedWarehouseIds]);
+  }, [warehousesQuery.data, scopeSelection.branchId, nameOf, allowedWarehouseIds]);
 
   function setBranch(branchId: string | null) {
     const stillValid = branchId

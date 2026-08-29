@@ -23,6 +23,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { YearEndCloseCard } from "./YearEndCloseCard";
+import { EMPTY } from "../lib/empty";
 
 /**
  * الفترات المالية (Fiscal Periods) — docs/archive/catalog/04 §"الفترات المالية".
@@ -71,7 +72,7 @@ export function FiscalPeriodsScreen() {
   const closePeriodMutation = useClosePeriod();
   const reopenPeriodMutation = useReopenPeriod();
   const lockPeriodMutation = useLockPeriod();
-  const periods = query.data ?? [];
+  const periods = query.data ?? EMPTY;
 
   const [year, setYear] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<FiscalPeriodStatusDTO | "all">("all");

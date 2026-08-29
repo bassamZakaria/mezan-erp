@@ -41,6 +41,7 @@ import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /**
  * طلبات عروض الأسعار (RFQs — docs/archive/catalog/02 §"طلبات عروض الأسعار"): مسودة →
@@ -387,7 +388,7 @@ export function RfqsScreen() {
   const suppliersQuery = useSuppliers();
   const suppliers = suppliersQuery.data ?? [];
   const itemsQuery = useItems();
-  const items = itemsQuery.data ?? [];
+  const items = itemsQuery.data ?? EMPTY;
 
   const createRfq = useCreateRfq();
   const sendRfq = useSendRfq();
@@ -447,7 +448,7 @@ export function RfqsScreen() {
     [statusFilter, fromDate, toDate, search],
   );
   const rfqsQuery = useRfqs(filter);
-  const rfqs = rfqsQuery.data ?? [];
+  const rfqs = rfqsQuery.data ?? EMPTY;
   const counts = useRfqCounts(filter).data ?? {};
   const stats = useRfqStats(filter).data ?? {};
 

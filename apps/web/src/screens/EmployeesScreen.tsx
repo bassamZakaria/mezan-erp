@@ -39,6 +39,7 @@ import { useEmployeeAdvances, useEmployeePayslips } from "../data/hr-payroll-hoo
 import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
+import { EMPTY } from "../lib/empty";
 
 /** الموظفون (Employees) — docs/archive/catalog/06 §"الموظفون". The HR hub record: personal info, department/job-title/manager/branch, hire date, worker category, overtime/standard hours, probation end, prior-service years (Article 47), attendance clock-in flags. */
 
@@ -173,11 +174,11 @@ export function EmployeesScreen() {
   const transitionEmployee = useTransitionEmployee();
   const terminateEmployee = useTerminateEmployee();
 
-  const employees = query.data ?? [];
+  const employees = query.data ?? EMPTY;
   const departments = departmentsQuery.data ?? [];
   const jobTitles = jobTitlesQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
-  const allContracts = allContractsQuery.data ?? [];
+  const allContracts = allContractsQuery.data ?? EMPTY;
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | EmployeeStatusDTO>("all");

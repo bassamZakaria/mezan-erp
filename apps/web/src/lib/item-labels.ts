@@ -3,6 +3,7 @@ import type { ItemCategoryDTO, ItemUnitDTO } from "@mezan/contracts";
 import { useItemCategories, useItemUnits } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { entityName } from "./entity-names";
+import { EMPTY } from "../lib/empty";
 
 /**
  * Display labels for the item master-data catalogs (docs/archive/catalog/03). Both
@@ -31,13 +32,13 @@ export function categoryLabel(
 
 export function useUnitLabel(): (code: string) => string {
   const { locale } = useAppTranslation();
-  const units = useItemUnits().data ?? [];
+  const units = useItemUnits().data ?? EMPTY;
   return useMemo(() => (code: string) => unitLabel(code, units, locale), [units, locale]);
 }
 
 export function useCategoryLabel(): (id: string | null) => string {
   const { t, locale } = useAppTranslation();
-  const categories = useItemCategories().data ?? [];
+  const categories = useItemCategories().data ?? EMPTY;
   const uncategorized = t("common.uncategorized");
   return useMemo(
     () => (id: string | null) => categoryLabel(id, categories, uncategorized, locale),

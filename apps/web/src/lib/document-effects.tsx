@@ -5,6 +5,7 @@ import { useFormat } from "@mezan/ui";
 import { useWarehouses } from "../data/hooks";
 import { useEntityName } from "./entity-names";
 import { majorOf } from "./money";
+import { EMPTY } from "../lib/empty";
 
 /**
  * Renders the "تأثيرات هذا المستند" panel lines.
@@ -21,7 +22,7 @@ import { majorOf } from "./money";
 export function useDocumentEffectText(): (effect: DocumentEffect) => { text: string; detail: string | null } {
   const { t, locale } = useAppTranslation();
   const format = useFormat();
-  const warehouses = useWarehouses().data ?? [];
+  const warehouses = useWarehouses().data ?? EMPTY;
   const nameOf = useEntityName();
 
   const resolve = useCallback(

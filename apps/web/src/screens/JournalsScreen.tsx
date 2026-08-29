@@ -37,6 +37,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /** القيود المحاسبية (Journal Entries) — docs/archive/catalog/04. List + detail + create, on the real GL posting engine (/gl). */
 
@@ -112,7 +113,7 @@ export function JournalsScreen() {
   const accountsQuery = useAccounts();
   const createJournalEntry = useCreateJournalEntry();
   const reverseJournalEntry = useReverseJournalEntry();
-  const accounts = accountsQuery.data ?? [];
+  const accounts = accountsQuery.data ?? EMPTY;
 
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);

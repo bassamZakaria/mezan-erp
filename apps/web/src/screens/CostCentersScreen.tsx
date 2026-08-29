@@ -27,6 +27,7 @@ import {
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /** مراكز التكلفة (Cost Centers) — docs/archive/catalog/04 §"مراكز التكلفة". Tree/list + detail panel, mirroring ChartOfAccountsScreen's tree pattern (no header/detail distinction here — any cost center may have children). */
 
@@ -105,7 +106,7 @@ export function CostCentersScreen() {
   const createCostCenter = useCreateCostCenter();
   const updateCostCenter = useUpdateCostCenter();
   const branchesQuery = useBranches();
-  const costCenters = query.data ?? [];
+  const costCenters = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? [];
 
   const [search, setSearch] = useState("");

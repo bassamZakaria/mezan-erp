@@ -32,6 +32,7 @@ import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 type Status = ConfigInstanceRecord["status"];
 
@@ -186,11 +187,11 @@ export function ConfigInstancesScreen() {
   const preview = usePreviewConfigInstance();
   const { mutate: previewMutate } = preview;
 
-  const instances = query.data ?? [];
+  const instances = query.data ?? EMPTY;
   const products = (productsQuery.data ?? []).filter((p) => p.status === "active");
-  const items = itemsQuery.data ?? [];
-  const customers = customersQuery.data ?? [];
-  const warehouses = warehousesQuery.data ?? [];
+  const items = itemsQuery.data ?? EMPTY;
+  const customers = customersQuery.data ?? EMPTY;
+  const warehouses = warehousesQuery.data ?? EMPTY;
 
   const productName = useMemo(() => {
     const map = new Map(products.map((p) => [p.id, p.nameAr]));

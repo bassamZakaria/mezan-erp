@@ -32,6 +32,7 @@ import {
   type DiscountKind,
   type LineDraft,
 } from "./quote-model";
+import { EMPTY } from "../../lib/empty";
 
 /**
  * عرض سعر جديد — the create form, one card per section with a sticky summary
@@ -47,13 +48,13 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
   const { t } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
-  const customers = customersQuery.data ?? [];
+  const customers = customersQuery.data ?? EMPTY;
   const itemsQuery = useItems();
-  const items = itemsQuery.data ?? [];
+  const items = itemsQuery.data ?? EMPTY;
   const branchesQuery = useBranches();
   const branches = branchesQuery.data ?? [];
   const priceListsQuery = usePriceLists();
-  const priceLists = priceListsQuery.data ?? [];
+  const priceLists = priceListsQuery.data ?? EMPTY;
   const stockQuery = useStockBalance();
   const stockRows = stockQuery.data ?? [];
   const agingQuery = useCustomerAging();

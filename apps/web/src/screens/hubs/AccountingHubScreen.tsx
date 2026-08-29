@@ -3,6 +3,7 @@ import { Money, WorkspaceHub } from "@mezan/ui";
 import { useAccounts, useDashboardSummary, useFiscalPeriods } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
+import { EMPTY } from "../../lib/empty";
 
 /**
  * المحاسبة hub — reuses the SAME `/dashboard/summary` figures the main
@@ -32,7 +33,7 @@ export function AccountingHubScreen() {
 
   const summary = summaryQuery.data;
   const accounts = accountsQuery.data ?? [];
-  const periods = periodsQuery.data ?? [];
+  const periods = periodsQuery.data ?? EMPTY;
   const openPeriods = useMemo(() => periods.filter((p) => p.status === "open").length, [periods]);
   const netProfit = num(summary?.gl.netProfit);
 

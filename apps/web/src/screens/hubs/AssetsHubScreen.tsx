@@ -3,6 +3,7 @@ import { Money, WorkspaceHub } from "@mezan/ui";
 import { useAssetCategories, useAssets, useDepreciationRuns } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
+import { EMPTY } from "../../lib/empty";
 
 /**
  * الأصول الثابتة hub — asset register + categories + depreciation runs over
@@ -29,9 +30,9 @@ export function AssetsHubScreen() {
   const categoriesQuery = useAssetCategories();
   const runsQuery = useDepreciationRuns();
 
-  const assets = assetsQuery.data ?? [];
+  const assets = assetsQuery.data ?? EMPTY;
   const categories = categoriesQuery.data ?? [];
-  const runs = runsQuery.data ?? [];
+  const runs = runsQuery.data ?? EMPTY;
 
   const activeAssets = useMemo(() => assets.filter((a) => a.status === "active").length, [assets]);
   const totalCost = useMemo(() => assets.reduce((sum, a) => sum + num(a.acquisitionCost), 0), [assets]);

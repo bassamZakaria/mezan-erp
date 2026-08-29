@@ -16,6 +16,7 @@ import type { TaxCalculationTypeDTO, TaxRateDTO, TaxRateStatusDTO } from "@mezan
 import { useCreateTaxGroup, useCreateTaxRate, useTaxGroups, useTaxRates, useUpdateTaxRate } from "../data/hooks";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { EMPTY } from "../lib/empty";
 
 /**
  * الضرائب (Taxes) — docs/archive/catalog/04 §"الضرائب". List + add/edit dialog with
@@ -245,7 +246,7 @@ export function TaxesScreen() {
   const query = useTaxRates();
   const createTaxRate = useCreateTaxRate();
   const updateTaxRate = useUpdateTaxRate();
-  const taxes = query.data ?? [];
+  const taxes = query.data ?? EMPTY;
 
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"rates" | "groups">("rates");

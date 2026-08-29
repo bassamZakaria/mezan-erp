@@ -3,6 +3,7 @@ import { Money, WorkspaceHub } from "@mezan/ui";
 import { useGoodsReceipts, usePurchaseInvoices, usePurchaseOrders, useSuppliers } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
+import { EMPTY } from "../../lib/empty";
 
 /**
  * المشتريات hub — KPI tiles + quick actions + recent activity over the real
@@ -34,10 +35,10 @@ export function PurchasesHubScreen() {
   const invoicesQuery = usePurchaseInvoices();
   const suppliersQuery = useSuppliers();
 
-  const orders = ordersQuery.data ?? [];
-  const receipts = receiptsQuery.data ?? [];
-  const invoices = invoicesQuery.data ?? [];
-  const suppliers = suppliersQuery.data ?? [];
+  const orders = ordersQuery.data ?? EMPTY;
+  const receipts = receiptsQuery.data ?? EMPTY;
+  const invoices = invoicesQuery.data ?? EMPTY;
+  const suppliers = suppliersQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const byId = new Map(suppliers.map((s) => [s.id, s.nameAr]));

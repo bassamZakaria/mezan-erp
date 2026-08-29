@@ -3,6 +3,7 @@ import { Money, WorkspaceHub } from "@mezan/ui";
 import { useCrmActivities, useLeads, useOpportunities } from "../../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
+import { EMPTY } from "../../lib/empty";
 
 /**
  * إدارة علاقات العملاء hub — leads, opportunities and activities over the
@@ -43,9 +44,9 @@ export function CrmHubScreen() {
   const opportunitiesQuery = useOpportunities();
   const activitiesQuery = useCrmActivities();
 
-  const leads = leadsQuery.data ?? [];
-  const opportunities = opportunitiesQuery.data ?? [];
-  const activities = activitiesQuery.data ?? [];
+  const leads = leadsQuery.data ?? EMPTY;
+  const opportunities = opportunitiesQuery.data ?? EMPTY;
+  const activities = activitiesQuery.data ?? EMPTY;
 
   const newLeads = useMemo(() => leads.filter((l) => l.status === "new").length, [leads]);
   const openOpportunities = useMemo(() => opportunities.filter((o) => o.status === "open"), [opportunities]);

@@ -39,6 +39,7 @@ import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
+import { EMPTY } from "../lib/empty";
 
 /**
  * الجرد الفعلي (Physical Counts) — docs/archive/catalog/03: start → record counts →
@@ -124,8 +125,8 @@ export function PhysicalCountsScreen() {
   const counts = query.data ?? [];
   const countsByStatus = usePhysicalCountCounts(filter).data ?? {};
   const stats = usePhysicalCountStats(filter).data ?? {};
-  const warehouses = warehousesQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
+  const warehouses = warehousesQuery.data ?? EMPTY;
+  const items = itemsQuery.data ?? EMPTY;
 
   const warehouseLabel = useMemo(() => {
     const map = new Map(warehouses.map((w) => [w.id, nameOf(w)]));

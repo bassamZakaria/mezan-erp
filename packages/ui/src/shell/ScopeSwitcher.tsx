@@ -62,6 +62,36 @@ const QUIET_TRIGGER =
 function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, expanded, widthClassName, quiet }: RailScopeSelectProps) {
   const selectedLabel = (value ? options.find((opt) => opt.id === value)?.label : null) ?? allLabel;
 
+  /*
+   * ONE option is not a choice. A shop with a single branch met a dropdown
+   * whose menu offered «كل الفروع» and the only branch there is — two labels
+   * for the same scope — on every screen, forever.
+   *
+   * It becomes a static label showing that branch. Deliberately NOT a
+   * selection change: with one option the narrowed scope and the unnarrowed
+   * one are the SAME set of rows, so writing the id into the selection would
+   * change nothing except to fire ApiContext's scope-change effect, which
+   * drops the whole query cache and refetches every open list on startup.
+   */
+  const only = options.length === 1 ? options[0] : null;
+  if (only) {
+    return (
+      <div
+        title={`${ariaLabel}: ${only.label}`}
+        className={cn(
+          "flex items-center",
+          expanded ? "min-h-[var(--h-btn)] gap-[6px] px-[8px]" : "h-[30px] w-[30px] justify-center",
+          widthClassName ?? (expanded ? "w-full" : "w-[30px]"),
+        )}
+      >
+        {icon}
+        {expanded ? (
+          <span className="min-w-0 flex-1 truncate text-2xs text-chrome-ink-muted">{only.label}</span>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div
       title={expanded ? undefined : `${ariaLabel}: ${selectedLabel}`}
@@ -166,17 +196,22 @@ export function ScopeSwitchers({
         quiet={header}
         widthClassName={header ? HEADER_SCOPE_WIDTH : undefined}
       />
-      <RailScopeSelect
-        ariaLabel={warehouseAriaLabel}
-        value={selectedWarehouseId}
-        onChange={onSelectWarehouse}
-        allLabel={allWarehousesLabel}
-        options={warehouseOptions}
-        icon={WAREHOUSE_ICON}
-        expanded={header || expanded}
-        quiet={header}
-        widthClassName={header ? HEADER_SCOPE_WIDTH : undefined}
-      />
+      {/* No warehouses in scope: a control whose only entry is «كل المستودعات»
+          describes nothing. The branch selector above already says what the
+          session can see. */}
+      {warehouseOptions.length > 0 ? (
+        <RailScopeSelect
+          ariaLabel={warehouseAriaLabel}
+          value={selectedWarehouseId}
+          onChange={onSelectWarehouse}
+          allLabel={allWarehousesLabel}
+          options={warehouseOptions}
+          icon={WAREHOUSE_ICON}
+          expanded={header || expanded}
+          quiet={header}
+          widthClassName={header ? HEADER_SCOPE_WIDTH : undefined}
+        />
+      ) : null}
     </div>
   );
 }

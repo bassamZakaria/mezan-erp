@@ -141,7 +141,9 @@ export function RailFooter({
           ) : null}
         </div>
 
-        <Copyright className="px-[6px] pb-[2px] text-center" />
+        {/* Its own breathing room: the parent stacks its rows on a 2px gap,
+            which read as the notice being stuck to the utility icons. */}
+        <Copyright className="mt-[8px] px-[6px] pb-[4px] text-center" />
       </div>
     </div>
   );

@@ -184,57 +184,41 @@ export function CommandPalette({ items, open, onClose, placeholder }: CommandPal
 /** The foot's search row — a button, because the typing surface is the dialog. */
 export function CommandTrigger({
   onOpen,
-  className,
   compact = false,
+  className,
 }: {
   onOpen: () => void;
-  className?: string;
   /**
-   * Icon only, sized and styled as one of the foot's utility controls.
+   * The search sharing the foot's utility row rather than owning a row of its
+   * own — a full-width band spent a whole row of the column on one control.
    *
-   * The full-width box spent a whole row of the column on a control the
-   * keyboard already reaches from anywhere. Collapsed to a glyph it joins the
-   * row it belongs with and gives the row back to the workspace list, which is
-   * the thing that actually overflows.
-   *
-   * The label and the shortcut do not disappear — they move into the
-   * accessible name and the tooltip, because a magnifier alone does not say
-   * «بحث وأوامر» and certainly does not say ⌘K.
+   * It KEEPS ITS LABEL down there, shortened to one word: a bare magnifier
+   * says neither what it searches nor «بحث وأوامر», and this is the control
+   * used every minute. What it drops is the ⌘K badge, which at this width ate
+   * the label it was hinting about; the shortcut moves into the tooltip and
+   * `aria-keyshortcuts`, so it stays discoverable rather than folklore
+   * (spec §7) and is announced rather than merely drawn.
    */
   compact?: boolean;
+  className?: string;
 }) {
   const { t } = useUiTranslation();
   const label = t("shell.command.trigger");
-
-  if (compact) {
-    return (
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={`${label} (${modKeyLabel()}K)`}
-        title={`${label} (${modKeyLabel()}K)`}
-        aria-keyshortcuts="Meta+K Control+K"
-        className={cn(
-          "flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md",
-          "border border-transparent bg-transparent text-chrome-ink-muted transition-colors",
-          "hover:bg-chrome-hover hover:text-chrome-ink focus-visible:outline-chrome-accent",
-          className,
-        )}
-      >
-        <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
-          <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
-          <path d="m17 17-4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      </button>
-    );
-  }
-
+  const shortcut = `${modKeyLabel()}K`;
+  /* One word in the utility row: "بحث وأوامر" truncates to "بحث وأ…" there,
+     spending the width on an ellipsis instead of on a readable label. The full
+     wording survives in the accessible name and the tooltip. */
+  const shownLabel = compact ? t("shell.command.triggerShort") : label;
   return (
     <button
       type="button"
       onClick={onOpen}
+      aria-label={compact ? `${label} (${shortcut})` : undefined}
+      title={compact ? `${label} (${shortcut})` : undefined}
+      aria-keyshortcuts="Meta+K Control+K"
       className={cn(
-        "flex min-h-[38px] w-full items-center gap-[8px] rounded-md border border-chrome-border bg-chrome-hover px-[10px]",
+        "flex items-center rounded-md border border-chrome-border bg-chrome-hover",
+        compact ? "min-h-[34px] min-w-0 flex-1 gap-[6px] px-[8px]" : "min-h-[38px] w-full gap-[8px] px-[10px]",
         "text-start text-xs text-chrome-ink-muted transition-colors hover:border-chrome-accent hover:text-chrome-ink",
         "focus-visible:outline-chrome-accent",
         className,
@@ -244,8 +228,8 @@ export function CommandTrigger({
         <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
         <path d="m17 17-4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       </svg>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      <Kbd keys={[modKeyLabel(), "K"]} tone="chrome" />
+      <span className="min-w-0 flex-1 truncate">{shownLabel}</span>
+      {compact ? null : <Kbd keys={[modKeyLabel(), "K"]} tone="chrome" />}
     </button>
   );
 }

@@ -15,7 +15,7 @@ import type { ShellUser } from "./types";
  *   │ 🏬 كل المستودعات │
  *   ├──────────────────┤
  *   │ (م) محمد الشهابي │  the user — one click to their profile
- *   │ ⌕ ؟ ع ☀      ⏻  │  search and utilities, then sign out
+ *   │ ⌕ بحث  ؟ ع ☀ ⏻ │  search, then utilities, then sign out
  *   └──────────────────┘
  *
  * Row one is gone (direction أ): a full-width band cost 56px on every screen
@@ -103,15 +103,16 @@ export function RailFooter({
           <span className="min-w-0 flex-1 truncate text-xs font-bold text-chrome-ink">{user.name}</span>
         </button>
 
-        <div className="flex items-center gap-[2px]">
-          {/* Search leads the utility row rather than owning a row of its own.
-              It was a full-width box carrying a label and a ⌘K hint for a
-              control the keyboard reaches from anywhere; as a glyph it costs
-              nothing and returns the row to the workspace list, which is what
-              actually runs out of height. The label and the shortcut live in
-              its accessible name and tooltip. */}
+        {/* THE LAST ROW CARRIES THE SEARCH. It had a band of its own above
+            the scope, spending a full 38px row of the column on the one
+            control the utility row beside it already had width for. The
+            utilities gave up 10px of box each and the search took what that
+            bought, so it can still say WHICH search it is instead of standing
+            there as a bare magnifier. */}
+        <div className="flex items-center gap-[4px]">
           <CommandTrigger onOpen={onOpenPalette} compact />
-          <ChromeActions onShowHelp={onShowHelp} theme={theme} onToggleTheme={onToggleTheme} className="gap-[2px]" />
+
+          <ChromeActions onShowHelp={onShowHelp} theme={theme} onToggleTheme={onToggleTheme} />
 
           {onSignOut ? (
             <button
@@ -120,7 +121,7 @@ export function RailFooter({
               aria-label={signOutLabel ?? t("shell.signOut")}
               title={signOutLabel ?? t("shell.signOut")}
               className={cn(
-                "ms-auto flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md",
+                "flex min-h-[34px] min-w-[34px] flex-none items-center justify-center rounded-md",
                 "border border-transparent bg-transparent text-chrome-ink-muted transition-colors",
                 "hover:bg-chrome-hover hover:text-danger focus-visible:outline-chrome-accent",
               )}

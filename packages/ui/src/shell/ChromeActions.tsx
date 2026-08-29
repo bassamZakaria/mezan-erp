@@ -20,8 +20,12 @@ import type { NavGroup, NavItem } from "./types";
    competing with the workspace column. */
 /* The global focus ring is `--action` (teal) — on the teal chrome it is all but
    invisible, so every chrome control names the chrome's own gold instead. */
+/* 34px, not the 44px `--h-btn`: these share the foot's last row with the
+   search now, and at full button height four of them left the search a stub.
+   Still well past the 24px pointer-target floor, and the glyphs are unchanged
+   — only the box around them tightened. */
 const CHROME_BUTTON =
-  "flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md border border-transparent bg-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink focus-visible:outline-chrome-accent";
+  "flex min-h-[34px] min-w-[34px] flex-none items-center justify-center rounded-md border border-transparent bg-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink focus-visible:outline-chrome-accent";
 
 const LANGUAGE_NAME_KEY = { ar: "shell.language.name.ar", en: "shell.language.name.en" } as const;
 
@@ -115,7 +119,7 @@ export interface ChromeActionsProps {
 export function ChromeActions({ onShowHelp, theme, onToggleTheme, className }: ChromeActionsProps) {
   const { t } = useUiTranslation();
   return (
-    <div className={cn("flex flex-none items-center gap-[6px]", className)} aria-label={t("shell.bar.chromeActions")} role="group">
+    <div className={cn("flex flex-none items-center gap-[2px]", className)} aria-label={t("shell.bar.chromeActions")} role="group">
       {onShowHelp ? <HelpButton onShowHelp={onShowHelp} /> : null}
       <LanguageToggle />
       <ThemeToggle theme={theme} onToggleTheme={onToggleTheme} />

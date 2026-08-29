@@ -56,10 +56,10 @@ export interface AppShellProps {
 
   user: ShellUser;
   commandItems?: CommandItem[];
-  notificationCount?: number;
-  onToggleNotifications?: () => void;
-  notificationsPanel?: ReactNode;
-  userMenuItems?: UserMenuItem[];
+  /** Opens الملف الشخصي — the user chip in the column's foot is its link. */
+  onOpenProfile?: () => void;
+  /** Ends the session, from the column's foot. */
+  onSignOut?: () => void;
 
   /** Working-branch / warehouse selectors, rendered at the inline end of row one. */
   branchOptions?: readonly TopbarScopeOption[];
@@ -121,10 +121,8 @@ export function AppShell({
   activeNavKey,
   user,
   commandItems = [],
-  notificationCount = 0,
-  onToggleNotifications,
-  notificationsPanel,
-  userMenuItems = [],
+  onOpenProfile,
+  onSignOut,
   branchOptions,
   warehouseOptions,
   selectedBranchId,
@@ -154,6 +152,18 @@ export function AppShell({
    * refuse to open the very workspace the user just asked for.
    */
   const [clickedWorkspaceKey, setClickedWorkspaceKey] = useState<string | undefined>(undefined);
+  /**
+   * ...and it is forgotten the moment the user lands anywhere. Without this it
+   * outlived the click that set it: opening الموافقات or the dashboard — both
+   * of which belong to NO workspace — left the previous workspace's screens on
+   * the bar, offering five destinations unrelated to the page and marking none
+   * of them current. `activeNavKey` changing IS the signal that navigation
+   * happened; a hub-less workspace does not move it, which is exactly the case
+   * the clicked key exists to cover.
+   */
+  useEffect(() => {
+    setClickedWorkspaceKey(undefined);
+  }, [activeNavKey]);
   const rowTwoKey = activeWorkspaceKey ?? clickedWorkspaceKey ?? lastWorkspaceKey;
   const activeGroup = workspaceGroups.find((group) => group.key === rowTwoKey) ?? workspaceGroups[0] ?? null;
   /**
@@ -244,11 +254,9 @@ export function AppShell({
               onShowHelp={onShowHelp}
               theme={theme}
               onToggleTheme={toggleTheme}
-              notificationCount={notificationCount}
-              onToggleNotifications={onToggleNotifications}
-              notificationsPanel={notificationsPanel}
               user={user}
-              userMenuItems={userMenuItems}
+              onOpenProfile={onOpenProfile}
+              onSignOut={onSignOut}
               branchOptions={branchOptions}
               warehouseOptions={warehouseOptions}
               selectedBranchId={selectedBranchId}

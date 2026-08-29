@@ -36,7 +36,7 @@ export interface NavGroupSpec {
  * A group's first item is its hub, which is what the workspace header opens.
  */
 export const navGroupSpecs: readonly NavGroupSpec[] = [
-  { key: "workflow", defaultCollapsed: true, itemKeys: ["approvals"] },
+  { key: "workflow", defaultCollapsed: true, itemKeys: ["notifications", "approvals"] },
   {
     key: "sell",
     defaultCollapsed: true,
@@ -260,7 +260,11 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
 ];
 
 /** Items the shell pins at the top of the rail, above every group; their own group never reaches the rail. */
-export const PINNED_NAV_ITEM_KEYS: readonly string[] = ["approvals"];
+/**
+ * The two inboxes, pinned above the workspaces in the order they are cleared:
+ * صندوق الوارد (what happened) then الموافقات (what is waiting for me).
+ */
+export const PINNED_NAV_ITEM_KEYS: readonly string[] = ["notifications", "approvals"];
 
 /**
  * The quick actions (R1.5). Go-to entries are NOT listed here — they are

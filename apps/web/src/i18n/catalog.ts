@@ -6385,7 +6385,7 @@ const webAr = {
   "salesInvoices.effects.pendingCustomer": "العميل",
 
   // نظام الحالة + الدعم الفني — شريط التطبيق (R1.7 / R1.8)
-  "nav.item.notifications": "الإشعارات",
+  "nav.item.notifications": "صندوق الوارد",
 
   // مركز الإشعارات — صفحة "عرض الكل" (R1.6)
   "notifications.screen.description": "كل التنبيهات التي أرسلها النظام لك.",
@@ -13413,7 +13413,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "salesInvoices.effects.pendingCustomer": "The customer",
 
   // System status + support — app header (R1.7 / R1.8)
-  "nav.item.notifications": "Notifications",
+  "nav.item.notifications": "Inbox",
 
   // Notification centre — "see all" screen (R1.6)
   "notifications.screen.description": "Every alert the system has sent you.",

@@ -3,7 +3,7 @@ import { AppShell, SkeletonTable, navGroupItems, type NavGroup, type NavItem } f
 import { ALL_SCOPE } from "@mezan/domain";
 import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
-import { useNotificationsBell } from "./notifications/NotificationsBell";
+
 import { useScopeSelector } from "./data/hub-hooks";
 import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
@@ -19,6 +19,7 @@ import {
   useDeleteRole,
   useEmployees,
   useEntitlements,
+  useUnreadNotificationCount,
   useJobTitles,
   usePendingApprovalCount,
   useRoles,
@@ -451,6 +452,7 @@ export function App() {
   const jobTitlesQuery = useJobTitles();
   const pendingApprovalCountQuery = usePendingApprovalCount();
   const pendingApprovalCount = pendingApprovalCountQuery.data ?? 0;
+  const unreadNotificationCount = useUnreadNotificationCount().data ?? 0;
   const roles = rolesQuery.data ?? [];
   const users = usersQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
@@ -471,7 +473,6 @@ export function App() {
   const createRole = useCreateRole();
   const updateRole = useUpdateRole();
   const deleteRoleMutation = useDeleteRole();
-  const notificationsBell = useNotificationsBell(() => setActiveScreen("notifications"));
   const { branchOptions, warehouseOptions, selection, setBranch, setWarehouse } = useScopeSelector();
 
   const allBranchIds = branches.map((b) => b.id);
@@ -495,7 +496,12 @@ export function App() {
         // الموافقات carries a global pending-count badge (docs/catalog/09
         // §الموافقات inbox nav item) — a real count off /workflow/requests/
         // pending-count, not a placeholder.
-        const tag = key === "approvals" && pendingApprovalCount > 0 ? { label: String(pendingApprovalCount), tone: "pattern" as const } : item.tag;
+        const tag =
+          key === "approvals" && pendingApprovalCount > 0
+            ? { label: String(pendingApprovalCount), tone: "pattern" as const }
+            : key === "notifications" && unreadNotificationCount > 0
+              ? { label: String(unreadNotificationCount), tone: "pattern" as const }
+              : item.tag;
         if (isRoutable(key) || key === "users" || key === "roles") {
           return { ...item, tag, onClick: () => navigate(key as ScreenKey) };
         }
@@ -506,7 +512,7 @@ export function App() {
       items: wire(group.items),
       sections: group.sections?.map((section) => ({ ...section, items: wire(section.items) })),
     }));
-  }, [navigate, pendingApprovalCount, t]);
+  }, [navigate, pendingApprovalCount, unreadNotificationCount, t]);
 
   // "Workspace" here is the top-level grouping `nav-config.tsx` already names:
   // the two-row top bar switches between them in row one instead of a left
@@ -601,28 +607,17 @@ export function App() {
     return [...quickActions, ...goTo];
   }, [navigate, t]);
 
-  // The avatar menu carries only what belongs to the PERSON. Users, roles and
-  // settings live in the gear and in ⌘K; listing them here as well made the
-  // same fifteen screens reachable from three separate menus, so "where do I
-  // change settings" had three answers.
-  const userMenuItems: UserMenuItem[] = useMemo(
-    () => [
-      { key: "profile", label: t("shell.menu.profile"), onSelect: () => navigate("settings-profile") },
-      {
-        key: "sign-out",
-        label: t("shell.menu.signOut"),
-        tone: "danger",
-        onSelect: () => {
-          // Revoke server-side first: clearing the client's copy alone left the
-          // token valid until it idled out, so a copied token outlived sign-out.
-          void request("/auth/logout", { method: "POST" }).catch(() => undefined);
-          setActiveScreen("dashboard");
-          setSession(null);
-        },
-      },
-    ],
-    [navigate, request, setSession, t],
-  );
+  // The user chip in the column's foot IS the link to الملف الشخصي, and signing
+  // out is its own control beside it — the two-item dropdown they used to share
+  // was a popup to reach a page and a popup to reach a button.
+  const openProfile = useCallback(() => navigate("settings-profile"), [navigate]);
+  const signOut = useCallback(() => {
+    // Revoke server-side first: clearing the client's copy alone left the
+    // token valid until it idled out, so a copied token outlived sign-out.
+    void request("/auth/logout", { method: "POST" }).catch(() => undefined);
+    setActiveScreen("dashboard");
+    setSession(null);
+  }, [request, setSession]);
 
   const routedTopNavItem = useMemo(() => {
     const topNavItem = buildTopNavItem(t);
@@ -753,10 +748,8 @@ export function App() {
       onShowHelp={() => setShortcutsOpen(true)}
       user={shellUser}
       commandItems={routedCommandItems}
-      userMenuItems={userMenuItems}
-      notificationCount={notificationsBell.unreadCount}
-      onToggleNotifications={notificationsBell.onToggle}
-      notificationsPanel={notificationsBell.panel}
+      onOpenProfile={openProfile}
+      onSignOut={signOut}
       branchOptions={branchOptions}
       warehouseOptions={warehouseOptions}
       selectedBranchId={selection.branchId}

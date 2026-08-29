@@ -292,8 +292,19 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(onSelectBranch).toHaveBeenCalledWith("BR-MAIN");
   });
 
-  it("names the notification count in the bell's accessible name", () => {
-    renderShell({ notificationCount: 3 });
-    expect(screen.getByRole("button", { name: "الإشعارات (3)" })).toBeInTheDocument();
+  // The bell is gone: notifications are صندوق الوارد, a pinned destination at
+  // the top of the column, and the slot it held now signs the user out.
+  it("signs out from the column's foot", () => {
+    const onSignOut = vi.fn();
+    renderShell({ onSignOut });
+    fireEvent.click(screen.getByRole("button", { name: "تسجيل الخروج" }));
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the profile from the user chip, with no menu in between", () => {
+    const onOpenProfile = vi.fn();
+    renderShell({ onOpenProfile });
+    fireEvent.click(screen.getByRole("button", { name: /محمد/ }));
+    expect(onOpenProfile).toHaveBeenCalledTimes(1);
   });
 });

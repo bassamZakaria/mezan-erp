@@ -1,13 +1,11 @@
-import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
 import { Avatar } from "./Avatar";
 import { ChromeActions } from "./ChromeActions";
 import { CommandTrigger } from "./CommandPalette";
 import { ScopeSwitchers, type TopbarScopeOption } from "./ScopeSwitcher";
-import { TopbarMenu } from "./TopbarMenu";
 import type { ThemePreference } from "../hooks/useTheme";
-import type { ShellUser, UserMenuItem } from "./types";
+import type { ShellUser } from "./types";
 
 /**
  * THE FOOT OF THE WORKSPACE COLUMN — everything that used to be row one.
@@ -17,7 +15,8 @@ import type { ShellUser, UserMenuItem } from "./types";
  *   │ 🏠 الفرع الرئيسي │  the working scope
  *   │ 🏬 كل المستودعات │
  *   ├──────────────────┤
- *   │ ؟ ع ☀ 🔔   م محمد│  utilities, then the session
+ *   │ (م) محمد الشهابي │  the user — one click to their profile
+ *   │ ؟ ع ☀        ⏻  │  utilities, then sign out
  *   └──────────────────┘
  *
  * Row one is gone (direction أ): a full-width band cost 56px on every screen
@@ -27,10 +26,11 @@ import type { ShellUser, UserMenuItem } from "./types";
  * horizontal band at all, and the column that holds them is chrome the user is
  * already looking at to navigate.
  *
- * EVERY PANEL OPENS UPWARD. At the bottom of the viewport a menu dropped
- * downward is drawn past the fold and cannot be reached — `openUp` on
- * `TopbarMenu` exists for exactly this position. Search is the exception: it
- * is a dialog in the middle of the screen, so the row here is only its trigger.
+ * NO MENU ON THE USER. The chip held a two-item dropdown — profile, sign out —
+ * which is a popup to reach a page and a popup to reach a button. The chip IS
+ * the link to the profile now, and signing out is its own control beside the
+ * appearance toggle. Notifications left this row entirely: they are صندوق
+ * الوارد, a pinned destination at the top of the column, not a bell.
  */
 export interface RailFooterProps {
   /** Opens the ⌘K dialog; the foot only carries its trigger. */
@@ -38,11 +38,12 @@ export interface RailFooterProps {
   onShowHelp?: () => void;
   theme?: ThemePreference;
   onToggleTheme?: () => void;
-  notificationCount?: number;
-  onToggleNotifications?: () => void;
-  notificationsPanel?: ReactNode;
   user: ShellUser;
-  userMenuItems?: UserMenuItem[];
+  /** The chip's destination — الملف الشخصي. */
+  onOpenProfile?: () => void;
+  /** Ends the session. Omit and the sign-out control is not drawn. */
+  onSignOut?: () => void;
+  signOutLabel?: string;
   branchOptions?: readonly TopbarScopeOption[];
   warehouseOptions?: readonly TopbarScopeOption[];
   selectedBranchId?: string | null;
@@ -56,11 +57,10 @@ export function RailFooter({
   onShowHelp,
   theme,
   onToggleTheme,
-  notificationCount = 0,
-  onToggleNotifications,
-  notificationsPanel,
   user,
-  userMenuItems = [],
+  onOpenProfile,
+  onSignOut,
+  signOutLabel,
   branchOptions,
   warehouseOptions,
   selectedBranchId,
@@ -88,93 +88,51 @@ export function RailFooter({
         allBranchesLabel={t("shell.scope.allBranches")}
         allWarehousesLabel={t("shell.scope.allWarehouses")}
       />
-      {/* IDENTITY ON ITS OWN ROW. Sharing one 200px row with four 44px icons
-          squeezed the chip to ~24px and spilled it over the column's edge. */}
+      {/* IDENTITY ON ITS OWN ROW, and it is a LINK. Sharing one row with four
+          44px icons squeezed the chip to ~24px and spilled it over the edge. */}
       <div className="flex flex-col gap-[2px] border-t border-chrome-border pt-[6px]">
-        <TopbarMenu
-          label={user.name}
-          openUp
-          panelClassName="w-[232px]"
-          trigger={(triggerProps) => (
-            <button
-              {...triggerProps}
-              type="button"
-              className={cn(
-                "flex min-h-[var(--h-btn)] w-full min-w-0 items-center gap-[8px] rounded-md border border-transparent",
-                "px-[6px] text-start transition-colors hover:bg-chrome-hover focus-visible:outline-chrome-accent",
-              )}
-            >
-              <Avatar user={user} size={28} />
-              {/* NAME ONLY. The role sat under it as a second line and was the
-                  one thing here nobody needs at a glance — it is in the menu
-                  this button opens, next to everything else about the user. */}
-              <span className="min-w-0 flex-1 truncate text-xs font-bold text-chrome-ink">{user.name}</span>
-            </button>
+        <button
+          type="button"
+          onClick={onOpenProfile}
+          className={cn(
+            "flex min-h-[var(--h-btn)] w-full min-w-0 items-center gap-[9px] rounded-md border border-transparent",
+            "px-[6px] text-start transition-colors hover:bg-chrome-hover focus-visible:outline-chrome-accent",
           )}
         >
-          {(close) => (
-            <>
-              <div className="flex items-center gap-[10px] border-b border-border px-[14px] py-[11px]">
-                <Avatar user={user} size={36} />
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-ink">{user.name}</div>
-                  <div className="truncate text-xs text-ink-faint">{user.role}</div>
-                </div>
-              </div>
-              <ul className="py-[4px]">
-                {userMenuItems.map((item) => (
-                  <li key={item.key}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        item.onSelect();
-                        close();
-                      }}
-                      className={cn(
-                        "flex min-h-[var(--h-btn)] w-full items-center px-[14px] text-start text-sm transition-colors hover:bg-surface-2",
-                        item.tone === "danger" ? "text-danger-ink" : "text-ink",
-                      )}
-                    >
-                      {item.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </TopbarMenu>
+          <Avatar user={user} size={30} />
+          {/* NAME ONLY. The role sat under it as a second line and is the one
+              thing here nobody needs at a glance; it is on the profile this
+              button opens, beside everything else about the user. */}
+          <span className="min-w-0 flex-1 truncate text-xs font-bold text-chrome-ink">{user.name}</span>
+        </button>
 
         <div className="flex items-center gap-[2px]">
           <ChromeActions onShowHelp={onShowHelp} theme={theme} onToggleTheme={onToggleTheme} className="gap-[2px]" />
 
-          <div className="relative flex-none">
+          {onSignOut ? (
             <button
               type="button"
-              onClick={onToggleNotifications}
-              aria-label={
-                notificationCount > 0 ? t("shell.notifications.withCount", { count: notificationCount }) : t("shell.notifications")
-              }
-              className="relative flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md border border-transparent bg-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink focus-visible:outline-chrome-accent"
+              onClick={onSignOut}
+              aria-label={signOutLabel ?? t("shell.signOut")}
+              title={signOutLabel ?? t("shell.signOut")}
+              className={cn(
+                "ms-auto flex min-h-[var(--h-btn)] min-w-[var(--h-btn)] flex-none items-center justify-center rounded-md",
+                "border border-transparent bg-transparent text-chrome-ink-muted transition-colors",
+                "hover:bg-chrome-hover hover:text-danger focus-visible:outline-chrome-accent",
+              )}
             >
               <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
-                <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                <path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
+                <path
+                  d="M12.5 6.5V4.8A1.8 1.8 0 0 0 10.7 3H5.3A1.8 1.8 0 0 0 3.5 4.8v10.4A1.8 1.8 0 0 0 5.3 17h5.4a1.8 1.8 0 0 0 1.8-1.8v-1.7"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path d="M8 10h8.5m0 0-2.4-2.4M16.5 10l-2.4 2.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              {/* Never colour alone, and never a bare dot: the number is text,
-                  so it survives greyscale. Past 9 it would outgrow the icon —
-                  the accessible name above keeps the true figure. */}
-              {notificationCount > 0 ? (
-                <span
-                  aria-hidden
-                  className="mz-lat absolute top-[5px] end-[5px] flex h-[16px] min-w-[16px] items-center justify-center rounded-pill border-2 border-chrome bg-danger px-[3px] text-[10px] font-bold leading-none text-danger-on"
-                >
-                  {notificationCount > 9 ? "9+" : notificationCount}
-                </span>
-              ) : null}
             </button>
-            {notificationsPanel}
-          </div>
+          ) : null}
         </div>
       </div>
     </div>

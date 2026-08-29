@@ -12,8 +12,13 @@
  * appear verbatim in this file for the JIT scanner to find.
  */
 
-/** The workspace column's width — and therefore the brand block's. */
-export const RAIL_WIDTH = "w-[200px]";
+/**
+ * The workspace column's width. 224, not 200: the column now carries the
+ * search row, both scope selects and the user's own name at its foot, and at
+ * 200 the longest workspace names sat a hair from the edge while «كل الفروع»
+ * had nowhere to truncate.
+ */
+export const RAIL_WIDTH = "w-[224px]";
 
 /** The screens bar's own inline padding; the header matches it after the brand. */
 export const BAR_INSET = "ps-[12px]";

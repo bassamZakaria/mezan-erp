@@ -36,6 +36,13 @@ it is verified.
 | `mezan-directions.html` | The six visual directions side by side, with the reasoning for each | The decision it exists to support was taken: المِشكاة won. The chosen direction's own page stays live in `../artifacts/directions/` because it is the type and colour authority |
 | `mezan-roadmap.html` | The roadmap as a page | Superseded by `../ROADMAP.md` |
 
+## Retired 2026-08-29 when the feature branches landed
+
+| File | What it is | Why it was retired |
+|---|---|---|
+| `egypt-scope-and-compliance-rev1.html` | The first Egypt scope and compliance brief, 28 Aug: fourteen statutory obligations audited against the code, the 2026 threshold and Law 6/2025 shifts, and a verdict on all 115 nav entries | Superseded a day later by `../artifacts/best-erp-in-egypt.html`, which says so itself — "the previous version audited Egyptian statute and used QuickBooks as a scope knife; this one keeps all of that and adds" the module-by-module audit. Both carried the same `<title>`, which is how two documents start disagreeing |
+| `contracting/` | Seven files of contracting research: the baseline and the missing cost dimension, the stakeholder panel's agreements and open questions, the glossary, adjacent findings, the Arabic market, and the sourced Egyptian rules for مستخلصات and محتجزات | Research, not maintained state. DEC-11 — whether contracting is in scope at all — has not been taken; until it is, this is the evidence for that decision rather than a plan |
+
 ## What was deleted rather than archived, and where it went
 
 - **`STATUS.md`, `tasks.md`, `decisions.md`** → merged into `../ROADMAP.md`.

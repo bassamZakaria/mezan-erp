@@ -55,5 +55,5 @@ to record a loss-making contract.
 إيرادات مستحقة غير مفوترة، إيرادات مقدمة، مخصص خسائر عقود، محتجزات، الدفعة
 المقدمة، الاعتراف بالإيراد.
 
-**Relevant catalog:** `docs/catalog/04-accounting-treasury.md`, `08-reports.md`,
+**Relevant catalog:** `docs/archive/catalog/04-accounting-treasury.md`, `08-reports.md`,
 and the `chartered-accountant` agent's standards lens.

@@ -48,5 +48,5 @@ of received-not-invoiced; project cost that cannot be tied to the GL.
 المعدلة، الارتباطات، مستحقات، تكلفة الإنجاز المتبقي، انحراف، تحميل المصاريف
 غير المباشرة.
 
-**Relevant catalog:** `docs/catalog/04-accounting-treasury.md`,
-`docs/catalog/08-reports.md`, `docs/plan.md` §6.3.
+**Relevant catalog:** `docs/archive/catalog/04-accounting-treasury.md`,
+`docs/archive/catalog/08-reports.md`, `docs/archive/plan.md` §6.3.

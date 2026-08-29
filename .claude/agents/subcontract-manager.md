@@ -49,5 +49,5 @@ post nothing.
 **Your vocabulary:** مقاول باطن، أمر إسناد، عقد باطن، مستخلص مقاول باطن،
 محتجزات، خصم الدفعة المقدمة، خصم خامات، خصم وتحصيل، عمالة بالمقاولة.
 
-**Relevant catalog:** `docs/catalog/02-purchases.md`,
-`docs/catalog/07-mfg-projects-assets.md`.
+**Relevant catalog:** `docs/archive/catalog/02-purchases.md`,
+`docs/archive/catalog/07-mfg-projects-assets.md`.

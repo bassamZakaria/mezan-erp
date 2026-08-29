@@ -48,5 +48,5 @@ unit; whole contract value hitting revenue on signature.
 **Your vocabulary:** وحدة، مشروع عقاري، حجز، عقد بيع، مقدم، أقساط، جدول سداد،
 تنازل، تسليم الوحدة، مقاول، مستخلص، محتجزات، تكلفة المتر.
 
-**Relevant catalog:** `docs/catalog/01-sales.md`, `04-accounting-treasury.md`
+**Relevant catalog:** `docs/archive/catalog/01-sales.md`, `04-accounting-treasury.md`
 (الأقساط والشيكات), `07-mfg-projects-assets.md`.

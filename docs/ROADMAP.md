@@ -45,7 +45,7 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
 | **Open now (§3)** | Two items: those row menus, and outbound notification delivery |
 | **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
-| **Defects (§5)** | None open. D1–D64 are all closed |
+| **Defects (§5)** | One open — D65, 20 scenario assertions failing on a contract change the harness never followed. D1–D64 are closed |
 | **Decisions (§6)** | Six open (DEC-2 … DEC-7), each blocking its own issue rather than the build |
 | **Beyond parity (§7)** | 27 candidates across E1–E3, none started; `enhancements` branch only |
 | **Shell follow-ups (§8)** | 8 items, queued behind the i18n sweep |
@@ -56,12 +56,13 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 |---|---|---|
 | Nav destinations | **115** | 2026-08-29, from `nav-config.tsx` |
 | Routable screens | **116** | 2026-08-29, from `App.tsx`'s `ROUTABLE_SCREENS` |
-| Read surfaces answering `pnpm smoke` | **199** | 2026-08-29, from `scripts/smoke.ts` |
+| Read surfaces answering `pnpm smoke` | **199** | 2026-08-29, run green |
 | «قريباً» placeholders outside HR | **0** | 2026-08-27 |
 | Reference screens still absent | ~14, all POS or POS-adjacent | 2026-08-26 audit |
-| `pnpm scenarios` | **3,819 assertions, 0 failing** | 2026-08-27 |
+| `pnpm scenarios` | **3,856 passing, 20 failing** — the 20 are D65, and identical on `origin/main`, so nothing this pass caused them | 2026-08-29 |
 | The four ledger invariants | all at exactly zero — trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs GL 1105 | 2026-08-27 |
-| Typecheck / lint / build / smoke | passing | 2026-08-27 |
+| Typecheck · lint · RTL · native controls · permission labels · theme colour-only | all passing | 2026-08-29 |
+| `pnpm smoke` | 199 read surfaces, all responded | 2026-08-29 |
 | Contrast sweep, 13 screens × 2 themes | 0 failures, 0 horizontal overflow | 2026-08-27 |
 | Business-logic unit tests | disabled by decision — `TESTING.md` §1 | 2026-08-23 |
 
@@ -344,13 +345,18 @@ HR dashboard charts (**R10.1**), asset status chips.
 > **Two review artifacts sit alongside this section and are not folded into it.**
 > `artifacts/simplification-review.html` — 134 findings from 32 reviewers over the code and
 > the docs, each with file evidence and a status re-read against the tree; filter it to
-> *open* to see what is left. `artifacts/egypt-scope-and-compliance.html` — fourteen
-> Egyptian statutory obligations audited against the code, and a verdict on all 115 nav
-> entries. Both are point-in-time and were compiled on branches other than `main`; their
-> open items are candidates for this section, not entries in it, until each is re-checked
-> against the running app. **The largest single one: Egypt's B2C e-receipt regime
-> (الإيصال الإلكتروني) is a separate mandate from e-invoicing, already in force, and this
-> build has nothing for it — it blocks the retail, restaurant and pharmacy buyers.**
+> *open* to see what is left. `artifacts/best-erp-in-egypt.html` — every module Mezan ships
+> judged against the best product in the world at that job, plus the fourteen Egyptian
+> statutory obligations that decide whether any of it is sellable: **five modules ahead of
+> the field, nine at par, seven behind, two absent.** Both are point-in-time and were
+> compiled on branches other than `main`; their open items are candidates for this section,
+> not entries in it, until each is re-checked against the running app.
+>
+> **The two that cost the most in a deal, from the module audit:** Egypt's B2C e-receipt
+> regime (الإيصال الإلكتروني) is a separate mandate from e-invoicing, already in force, and
+> this build has nothing for it — with POS descoped, retail, restaurants and pharmacies
+> cannot legally transact. And there is no report centre and no drill-down across the
+> reports, which the audit names as the accountant's stated breaking point.
 
 **Re-verified 2026-08-27.** Two items are genuinely open. Seven that used to sit here were
 finished work whose boxes were never ticked, and are now in §2; one described a field that
@@ -438,7 +444,28 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 # 5. Defects
 
-**Nothing is open.** D1 through D64 are all closed. The closed register — every defect with
+## 5.0 Open
+
+**D65 — `pnpm scenarios` fails 20 assertions, and the cause is a contract change nobody
+propagated.** `2c0e7fa` made a user's Arabic name mandatory; every scenario that creates a
+user still posts without `nameAr`, so the harness gets
+`VALIDATION_ERROR … fieldErrors: {nameAr: ["Required"]}` and everything downstream of a
+created user falls over — the sign-in and domain-policy suite, the approvals chain (both
+actors are created users), and HR leave, which derives the employee from the caller.
+
+Measured 2026-08-29 on two trees to be sure it is not a merge artifact: **3,856 passed,
+20 failed** on `origin/main` at `099266e`, and **3,856 passed, 20 failed** on the merged
+tree. Identical, so the four branches merged this pass introduce none of it.
+
+The fix is in the harness, not the product — the product is right to demand the name. But
+read the two HR failures before assuming all 20 are the same bug: one asserts a leave
+balance of 21 against 11, which is arithmetic, and it may be a second defect hiding behind
+the first. **Every other gate is green**: typecheck, lint, RTL logical-CSS, native controls,
+permission labels, theme colour-only, and `pnpm smoke` over all 199 read surfaces.
+
+---
+
+Everything else is closed. D1 through D64 are all closed. The closed register — every defect with
 the commit that fixed it, plus the readings that looked like defects and were not — is
 `archive/defect-register.md`. It is kept, not deleted, because a fixed defect is how its
 regression is recognised.
@@ -566,16 +593,29 @@ necessarily the person who sold it.
 
 ## 6.2 Proposed, not yet opened
 
-Seven decisions are proposed in `artifacts/egypt-scope-and-compliance.html` §10, each with
-its options stated. They are recorded here by reference rather than transcribed, because
-none has been put to anyone yet: **DEC-8** which QuickBooks is the baseline · **DEC-9** does
-the e-receipt build assume POS · **DEC-10** ship without a wired e-seal · **DEC-11** is
-contracting in scope · **DEC-12** does HR come back, and against what · **DEC-13** do we
-claim Law 6/2025 support, and when · **DEC-14** hide or delete the cut screens. Taking any
-of them means moving it into §6.1 or §6.3 with the option chosen and why.
+Eleven decisions are proposed in `artifacts/best-erp-in-egypt.html` §14, each with its
+options stated. They are recorded here by reference rather than transcribed, because none
+has been put to anyone yet:
 
-DEC-13 is the one with a clock on it: no competitor models the Law 6/2025 turnover regime
-today, and any of them could build it in a sprint.
+- **DEC-8** which QuickBooks is the baseline — and Intuit is retiring non-Enterprise
+  Desktop, which erodes the evidence base under one of the options over time
+- **DEC-9** does the e-receipt build assume POS
+- **DEC-10** ship without a wired e-seal
+- **DEC-11** is contracting in scope — the research behind it is `archive/contracting/`
+- **DEC-12** does HR come back, and against what
+- **DEC-13** do we claim Law 6/2025 support, and when
+- **DEC-14** hide or delete the cut screens
+- **DEC-15** is the desktop bet a moat or a shrinking segment
+- **DEC-16** does POS come back into v1
+- **DEC-17** finish or delete the API and webhook back end — it cannot stay as it is, built
+  and consumed by nothing (§5.2 lists it as open by decision for exactly this reason)
+- **DEC-18** how many dimension axes beyond the single cost centre
+
+Taking any of them means moving it into §6.1 or §6.4 with the option chosen and why.
+
+**DEC-15 and DEC-16 are the two that decide what product this is**, and **DEC-13 is the one
+with a clock on it** — no competitor models the Law 6/2025 turnover regime today, and any of
+them could build it in a sprint.
 
 ## 6.3 Longer-standing product decisions
 

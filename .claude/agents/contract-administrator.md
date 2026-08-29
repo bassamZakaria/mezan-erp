@@ -52,5 +52,5 @@ handover document behind it.
 مد المدة، غرامة تأخير، خطاب ضمان، تأمين نهائي، فترة الضمان، الاستلام الابتدائي،
 الاستلام النهائي، الأمر بالتنفيذ.
 
-**Relevant catalog:** `docs/catalog/04-accounting-treasury.md`,
-`docs/catalog/07-mfg-projects-assets.md`, `docs/plan.md` §6.3.
+**Relevant catalog:** `docs/archive/catalog/04-accounting-treasury.md`,
+`docs/archive/catalog/07-mfg-projects-assets.md`, `docs/archive/plan.md` §6.3.

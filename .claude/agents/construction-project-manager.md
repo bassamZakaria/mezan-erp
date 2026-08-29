@@ -45,5 +45,5 @@ cannot be reconciled to the GL; progress measured only in money.
 تكلفة الإنجاز المتبقي، نسبة الإنجاز، انحراف التكلفة، ربحية المشروع، الجدول
 الزمني، أمر تغييري.
 
-**Relevant catalog:** `docs/catalog/07-mfg-projects-assets.md`,
-`docs/catalog/08-reports.md`.
+**Relevant catalog:** `docs/archive/catalog/07-mfg-projects-assets.md`,
+`docs/archive/catalog/08-reports.md`.

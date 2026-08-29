@@ -25,15 +25,17 @@ The earlier mockups and the six-directions comparison page are in `../archive/`:
 | File | What it is |
 |---|---|
 | `simplification-review.html` | **What to cut, what to fix** — 32 reviewers (the domain panel, every buyer persona, the craft specialists) read the docs and the code on 2026-08-28 and answered one question: what would make this simpler and better. 134 findings, each with file evidence, each carrying a status re-read against the code at `f8a1bb0`; 18 ranked "act on these first"; 16 decisions taken with what would reverse each. Filter by severity or status in the page |
-| `egypt-scope-and-compliance.html` | **Best ERP in Egypt** — the scope brief that inverts the frame: Egyptian statute sets what must exist and QuickBooks is demoted to an instrument for deciding how few screens can carry it. Fourteen statutory obligations audited against the code (nine handled, two partial, three missing), the 2026 threshold and Law 6/2025 shifts, the moat, and all 115 nav entries verdicted screen by screen |
+| `best-erp-in-egypt.html` | **Every module Mezan ships, audited against the field** — 23 modules against QuickBooks, Odoo and 24 other products, plus the fourteen Egyptian statutory obligations that decide whether any of it is sellable. Five modules ahead of the field, nine at par, seven behind, two absent. Supersedes the 28-Aug scope brief, which is `../archive/egypt-scope-and-compliance-rev1.html` |
 
 Both are point-in-time and say so. Where either disagrees with `../ROADMAP.md`, the roadmap is
-what is maintained — but check which is actually newer before assuming. They also cite the
-document names that existed when they were written — `docs/defects.md`, `docs/STATUS.md`,
-`docs/tasks.md`, `docs/scenarios/*` — all of which are now `../ROADMAP.md`, `../TESTING.md`
-and `../archive/`; the review's own finding that four documents disagreed is what caused that
-merge. Neither file is edited to keep its links current: editing a point-in-time record is how
-it stops being one.
+what is maintained — but check which is actually newer before assuming.
+
+They also name documents that no longer exist under those names: a defect register, a status
+file, a task list, a `scenarios/` directory and a `plan.md` at the top of `docs/`. Those are
+now `../ROADMAP.md`, `../TESTING.md` and `../archive/`, and the review's own finding — that
+four documents described this system and three of them disagreed — is what caused that merge.
+Neither file is edited to keep its links current: editing a point-in-time record is how it
+stops being one.
 
 ## Generated
 

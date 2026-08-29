@@ -21,7 +21,7 @@ Two documents, two directories. That is all of it.
 | Does the whole product still agree with itself? | `TESTING.md` §14 — 76 posting trails, one per part, each crossing every module it touches (`pnpm trails` rebuilds the tickable page) |
 | What should the UI look like? | `artifacts/mezan-enhanced-mockups.html` — the design source of truth. `artifacts/directions/2-mishkah.html` is the type and colour authority in light, `6-thil.html` in dark |
 | What did the review panel find, and what is still open from it? | `artifacts/simplification-review.html` |
-| What does Egyptian law require that we do not have? | `artifacts/egypt-scope-and-compliance.html` |
+| What does Egyptian law require that we do not have? | `artifacts/best-erp-in-egypt.html` |
 | Where do I put a mockup, a generated page, or an Artifact I just published? | `artifacts/` — always, and add a row to its `README.md` |
 | What was the original architecture and phasing, and why? | `archive/plan.md` §1–§7, `archive/phase-backlog.md` |
 | Who do we compete with, and where are the gaps? | `archive/plan.md` §8 |

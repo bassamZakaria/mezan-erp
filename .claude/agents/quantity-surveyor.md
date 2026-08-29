@@ -49,5 +49,5 @@ free text or only on the invoice line.
 **Your vocabulary:** مقايسة، جدول الكميات، بند، وحدة، فئة، الكمية التعاقدية،
 الكمية المنفذة، تحليل سعر البند، حصر، أمر تغييري، بند مستجد.
 
-**Relevant catalog:** `docs/catalog/07-mfg-projects-assets.md`, `01-sales.md`,
-`docs/plan.md` §6.3.7 (Projects row).
+**Relevant catalog:** `docs/archive/catalog/07-mfg-projects-assets.md`, `01-sales.md`,
+`docs/archive/plan.md` §6.3.7 (Projects row).

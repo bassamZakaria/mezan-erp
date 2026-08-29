@@ -137,9 +137,11 @@ The demo profile lives in `packages/backend/src/demo-seed.ts` and runs **only** 
 
 **`ROADMAP.md` §5 is the defect register.** Read it before you start: anything open there
 will show up in this run, and re-filing a known defect as a new finding buries whatever is
-actually new. As of 2026-08-27 **nothing is open** — D1 through D64 are all closed, and the
-closed register with its fix commits is archived at `archive/defect-register.md`, kept
-because a fixed defect is how its regression is recognised.
+actually new. As of 2026-08-29 **one is open** — D65, which fails 20 assertions in `pnpm scenarios`
+because a user now needs an Arabic name and the harness does not send one. Expect those 20;
+do not re-file them. D1 through D64 are closed, and that register with its fix commits is
+archived at `archive/defect-register.md`, kept because a fixed defect is how its regression
+is recognised.
 
 Two things are open *by decision* rather than by patch, and are not defects to re-file:
 outbound notification channels do not deliver (in-app only), and the API-key/webhook backend
@@ -214,9 +216,10 @@ pnpm scenarios
 It boots a seeded backend in-process and drives the same HTTP routes the UI calls, asserting
 what documents actually did to stock and to the ledger. Every scenario is bracketed by the
 books — trial balance balances, inventory and AP still reconcile — so a document that
-quietly posts nothing fails immediately. Last full run: **3,819 assertions, 0 failing**, all
-four invariants at exactly zero (trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs
-GL 1105).
+quietly posts nothing fails immediately. Last full run, 2026-08-29: **3,856 passing, 20 failing** — the 20 are D65 in `ROADMAP.md`
+§5.0, a contract change the harness never followed, and they reproduce identically on
+`origin/main`. The four invariants are at exactly zero (trial balance, inventory vs GL 1200,
+AP vs GL 2100, AR vs GL 1105).
 
 This exists because it works and browser automation kept stalling: the API path found and
 proved five real defects in one evening, including one that let the same goods be returned

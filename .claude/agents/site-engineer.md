@@ -43,5 +43,5 @@ to a project; a daily record that demands fields you cannot know.
 **Your vocabulary:** اليومية، تقرير الموقع، عمالة يومية، عمالة بالمقاولة،
 ساعات تشغيل، توقف، طلب صرف مواد، مخزن الموقع، إذن صرف، حصر أعمال.
 
-**Relevant catalog:** `docs/catalog/03-inventory.md`,
-`docs/catalog/07-mfg-projects-assets.md`.
+**Relevant catalog:** `docs/archive/catalog/03-inventory.md`,
+`docs/archive/catalog/07-mfg-projects-assets.md`.

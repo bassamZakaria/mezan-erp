@@ -46,5 +46,5 @@ supplier invoice.
 **Your vocabulary:** معدات، ساعات تشغيل، ساعات توقف، سعر الساعة، سولار، صيانة
 دورية، عطل، معدات مستأجرة، إذن حركة معدة، إهلاك.
 
-**Relevant catalog:** `docs/catalog/07-mfg-projects-assets.md` (الأصول الثابتة),
-`docs/catalog/03-inventory.md`.
+**Relevant catalog:** `docs/archive/catalog/07-mfg-projects-assets.md` (الأصول الثابتة),
+`docs/archive/catalog/03-inventory.md`.

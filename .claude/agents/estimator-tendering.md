@@ -44,5 +44,5 @@ item-level budget into the project; bid bonds tracked nowhere.
 **Your vocabulary:** مناقصة، ممارسة، أمر مباشر، كراسة الشروط، تأمين ابتدائي،
 تحليل سعر البند، نسبة المصاريف الإدارية، هامش الربح، عطاء، ترسية.
 
-**Relevant catalog:** `docs/catalog/01-sales.md` (عروض الأسعار),
-`docs/catalog/07-mfg-projects-assets.md`.
+**Relevant catalog:** `docs/archive/catalog/01-sales.md` (عروض الأسعار),
+`docs/archive/catalog/07-mfg-projects-assets.md`.

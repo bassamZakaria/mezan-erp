@@ -62,5 +62,5 @@ approval states.
 حتى تاريخه، خصم المستخلصات السابقة، الدفعة المقدمة، المحتجزات، عهدة المواد،
 أمر تغييري، غرامة تأخير، الاستلام الابتدائي، الاستلام النهائي.
 
-**Relevant catalog:** `docs/catalog/07-mfg-projects-assets.md`, `01-sales.md`,
-`04-accounting-treasury.md`, `docs/plan.md` §6.3.7.
+**Relevant catalog:** `docs/archive/catalog/07-mfg-projects-assets.md`, `01-sales.md`,
+`04-accounting-treasury.md`, `docs/archive/plan.md` §6.3.7.

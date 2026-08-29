@@ -44,5 +44,5 @@ scope.
 **Your vocabulary:** الاستشاري، مراجعة المستخلص، اعتماد، رفض، حصر، طلب فحص،
 محضر استلام ابتدائي، محضر استلام نهائي، قائمة الملاحظات، مطابقة للمواصفات.
 
-**Relevant catalog:** `docs/catalog/07-mfg-projects-assets.md`,
-`docs/catalog/09-settings-dashboard-ux.md` (print templates).
+**Relevant catalog:** `docs/archive/catalog/07-mfg-projects-assets.md`,
+`docs/archive/catalog/09-settings-dashboard-ux.md` (print templates).

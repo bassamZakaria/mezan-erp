@@ -110,7 +110,7 @@ claims.
 Catalog gaps worth verifying before finalizing those modules: FEFO for pharma, cheque
 endorsement/replacement states, own-fleet delivery tracking, IAS-21 FX gain/loss depth.
 
-**Contracting is researched — see `docs/contracting/`.** Two corrections to the
+**Contracting is researched — see `docs/archive/contracting/`.** Two corrections to the
 picture above came out of that pass. Daftra **does** ship مستخلصات المقاولات and
 خصم ضمان الأعمال, so contracting is not one of its gaps and must not be claimed as
 one. And of fourteen Egyptian, Saudi and Gulf products checked, **not one advertises
@@ -135,7 +135,7 @@ Scoped in `docs/TESTING.md §13` X40–X51 and partly asserted in
   supplies, and a **partial taxable base for construction**. Per-line rates post
   correctly; the VAT return cannot report them separately (D28) and a partial taxable
   base cannot be expressed at all.
-  **Corrected 2026-08-29 (`docs/contracting/05-egypt.md`):** the "14% on 36% of value"
+  **Corrected 2026-08-29 (`docs/archive/contracting/05-egypt.md`):** the "14% on 36% of value"
   is *not* the legacy treatment — it is the **new transitional rule**. Contracting and
   construction historically sat in the schedule tax (ضريبة الجدول) at **5% on full
   value with no input credit**. **Law 157/2025** moved the sector into the general VAT

@@ -2,7 +2,7 @@ import { Button } from "@mezan/ui";
 import { useNavigation } from "./navigation";
 import { groupKeyForScreen, hubScreenForGroup } from "./routing";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
-import type { ScreenKey } from "./App";
+import type { ScreenKey } from "./router/screens";
 
 interface Crumb {
   label: string;

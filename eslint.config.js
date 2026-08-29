@@ -1,4 +1,5 @@
 import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
 
 /**
  * Layer-boundary specifiers that packages/domain must never import.
@@ -60,6 +61,25 @@ export default tseslint.config(
       },
     },
     rules: {},
+  },
+  {
+    /**
+     * The rules of hooks, enforced.
+     *
+     * This ran unchecked across ~120 screens for the whole build. Neither rule
+     * is stylistic: `rules-of-hooks` catches a hook behind a condition or an
+     * early return, which corrupts React's hook ordering and misreads one
+     * screen's state as another's; `exhaustive-deps` catches the stale closure
+     * that makes a list keep showing the previous branch's rows after the
+     * scope selector changes — a class of bug this codebase has already been
+     * bitten by (see ApiContext's scope-invalidation effect).
+     */
+    files: ["apps/web/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
+    rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
+    },
   },
   {
     // The layer-boundary rule, scoped to the domain core only.

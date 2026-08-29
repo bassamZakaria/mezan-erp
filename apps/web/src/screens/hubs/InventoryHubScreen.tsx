@@ -3,7 +3,7 @@ import { Money, WorkspaceHub } from "@mezan/ui";
 import type { InventoryStockLevelsRow } from "@mezan/domain";
 import { useItems } from "../../data/hooks";
 import { useReport } from "../../data/reports-hooks";
-import type { ScreenKey } from "../../App";
+import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**

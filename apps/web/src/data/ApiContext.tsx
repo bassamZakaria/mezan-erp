@@ -12,6 +12,7 @@ import {
   type Session,
 } from "./session";
 import { resolveDefaultTransport, type Transport, type TransportResponse } from "./transport";
+import { clearLoaderApi, publishLoaderApi } from "./api-bridge";
 
 interface ApiContextValue {
   readonly session: Session | null;
@@ -120,6 +121,18 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
     }),
     [session, setSession, scopeSelection, setScopeSelection, resolvedTransport, queryClient],
   );
+
+  /*
+   * Route loaders run outside React and cannot call `useApi`, so the live
+   * value is published where they can read it (data/api-bridge.ts).
+   *
+   * During RENDER, not in an effect: the router may run a loader for the next
+   * match before this commit's effects have flushed, and a loader that found
+   * no API would either throw on a legitimate navigation or fetch without the
+   * session headers. The assignment is idempotent.
+   */
+  publishLoaderApi({ request: value.request, queryClient, isAuthenticated: session !== null });
+  useEffect(() => clearLoaderApi, []);
 
   return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;
 }

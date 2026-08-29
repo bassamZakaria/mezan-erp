@@ -1,6 +1,6 @@
 import { Button } from "@mezan/ui";
 import { useNavigation } from "../../navigation";
-import type { ScreenKey } from "../../App";
+import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**

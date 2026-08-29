@@ -4,7 +4,7 @@ import { useManufacturingDashboard, type ProductionBucketOrderDTO } from "../../
 import { useCreateWorkStation, useSetWorkStationStatus, useWorkStations } from "../../data/hooks";
 import { TextField } from "../../settings/form-controls";
 import { useNavigation } from "../../navigation";
-import type { ScreenKey } from "../../App";
+import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**

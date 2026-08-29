@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Button, Card, Chip, Money, StatCard, useFormat } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { useNavigation } from "../navigation";
-import type { ScreenKey } from "../App";
+import type { ScreenKey } from "../router/screens";
 import type { ScreenIntentInput } from "../navigation";
 import { useDashboardSummary, type DashboardRange } from "../data/hooks";
 import { displayName } from "../display-name";

@@ -1,20 +1,24 @@
 import { navGroupSpecs } from "./nav-config";
-import type { ScreenKey } from "./App";
+import type { ScreenKey } from "./router/screens";
 
 /**
- * Hash-based routing for the shell.
+ * The screen ⇄ URL path map the router is built from.
  *
  * Every screen has a URL, and a screen's sub-pages — "new", a document id —
- * are path segments under it, so `عرض سعر جديد` is `#/sales/quotes/new` and a
- * document is `#/sales/quotes/<id>`, the way the reference product does it.
+ * are path segments under it, so `عرض سعر جديد` is `/sales/quotes/new` and a
+ * document is `/sales/quotes/<id>`, the way the reference product does it.
  * Before this, a create form was a side panel with no address: it could not be
  * linked, bookmarked, reloaded into, reached with the browser's Back button,
  * or deep-linked to from another screen.
  *
- * The HASH, not the path, carries the route: the desktop edition loads the
- * built app from `file://` through Electron, where a pushState path has no
- * server to resolve it on reload. A hash survives that, and needs no dev-server
- * rewrite either.
+ * These are real paths, not hash fragments. The hash was only ever a
+ * workaround for loading the desktop bundle over `file://`, where a pushState
+ * path has no server to resolve on reload — and the desktop edition stopped
+ * doing that. `main/renderer-protocol.ts` serves the renderer from an `app://`
+ * origin that supports pushState, and `main/renderer-paths.ts` already
+ * resolves any extensionless path to `index.html`, the same SPA rewrite a
+ * static host performs. Old `#/…` addresses are redirected once at startup by
+ * `router/legacy-hash.ts`, so saved links still land.
  */
 
 /** `<group>/<item>` for every screen in the nav tree — `quotes` → `sales/quotes`. */
@@ -94,18 +98,38 @@ export interface Route {
   readonly segments: readonly string[];
 }
 
-export function hashForRoute(screen: ScreenKey, segments: readonly string[] = []): string {
-  const base = PATH_BY_SCREEN.get(screen) ?? screen;
+/** The router path a screen is mounted at — `quotes` → `sales/quotes`. No leading slash. */
+export function routePathForScreen(screen: string): string {
+  return PATH_BY_SCREEN.get(screen) ?? screen;
+}
+
+/** Every screen key paired with the path it routes at. The route table is built from this. */
+export function screenRouteEntries(): readonly (readonly [string, string])[] {
+  return [...PATH_BY_SCREEN.entries()];
+}
+
+/**
+ * The absolute URL for a screen and its sub-page — `/sales/quotes/QT-0004`.
+ *
+ * Used both to navigate and as an `<a href>`: a real href is what makes a row
+ * middle-clickable, ctrl-clickable and copyable, none of which a click handler
+ * alone can offer.
+ */
+export function pathForRoute(screen: ScreenKey, segments: readonly string[] = []): string {
+  const base = routePathForScreen(screen);
   const tail = segments.filter((s) => s !== "").map(encodeURIComponent).join("/");
-  return `#/${tail === "" ? base : `${base}/${tail}`}`;
+  return `/${tail === "" ? base : `${base}/${tail}`}`;
 }
 
 /**
  * Longest-prefix match, so a screen path containing a slash still resolves
  * when sub-segments follow it.
+ *
+ * The router matches paths itself; this stays for the legacy-hash redirect and
+ * for anything resolving an address without a router match in hand.
  */
-export function parseHash(hash: string, fallback: ScreenKey): Route {
-  const raw = hash.replace(/^#\/?/, "");
+export function parsePath(pathname: string, fallback: ScreenKey): Route {
+  const raw = pathname.replace(/^\/+/, "");
   if (raw === "") return { screen: fallback, segments: [] };
   const parts = raw.split("/").filter((p) => p !== "");
   for (let take = Math.min(parts.length, 2); take >= 1; take -= 1) {

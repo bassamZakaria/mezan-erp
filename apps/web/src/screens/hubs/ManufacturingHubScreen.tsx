@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Button, Money, StatusPill, WorkspaceHub } from "@mezan/ui";
 import { useManufacturingDashboard } from "../../data/hub-hooks";
 import { useNavigation } from "../../navigation";
-import type { ScreenKey } from "../../App";
+import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**

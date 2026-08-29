@@ -2,7 +2,7 @@ import { Card, WorkspaceHub } from "@mezan/ui";
 import { useBoms, useConfigurableProducts, useItemCounts, useItems, useProductTemplates } from "../../data/hooks";
 import { useItemSpecifications } from "../../data/item-catalog-hooks";
 import { useNavigation } from "../../navigation";
-import type { ScreenKey } from "../../App";
+import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**

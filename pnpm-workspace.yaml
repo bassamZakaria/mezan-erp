@@ -10,3 +10,5 @@ allowBuilds:
   # package time (apps/desktop/electron-builder.yml), which CI never runs —
   # packaging/signing is deferred (see PR description). Skip its build script.
   electron-winstaller: false
+minimumReleaseAgeExclude:
+  - react-router@7.18.3

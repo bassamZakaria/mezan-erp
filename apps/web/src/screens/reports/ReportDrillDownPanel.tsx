@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 import type { ReportDrillDownDTO } from "@mezan/contracts";
 import { Money, SidePanel, type ReportRunnerEntityRef } from "@mezan/ui";
 import { useApi } from "../../data/ApiContext";
 import { ApiError } from "../../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { WEB_TRANSLATION_KEYS } from "../../i18n/catalog";
-import { hashForRoute } from "../../routing";
-import type { ScreenKey } from "../../App";
+import { pathForRoute } from "../../routing";
+import type { ScreenKey } from "../../router/screens";
 
 /**
  * The drill-down panel a report cell opens (A5).
@@ -110,9 +111,18 @@ export function ReportDrillDownPanel({
                   return (
                     <li key={`${doc.type}-${doc.id}-${doc.date}`}>
                       {screen ? (
-                        <a href={hashForRoute(screen, [doc.id])} onClick={onClose} className={`${shell} transition-colors hover:border-brand`}>
+                        /*
+                          A real <Link>, not an <a href>. Under hash routing a
+                          bare anchor navigated by changing the fragment, which
+                          the shell picked up; against a path it is a full
+                          document request that reloads the whole app and
+                          throws away the query cache. Link keeps the href — so
+                          the row is still middle-clickable and copyable — and
+                          intercepts the plain click.
+                        */
+                        <Link to={pathForRoute(screen, [doc.id])} onClick={onClose} className={`${shell} transition-colors hover:border-brand`}>
                           {body}
-                        </a>
+                        </Link>
                       ) : (
                         <span className={shell}>{body}</span>
                       )}

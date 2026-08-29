@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
-import type { ScreenKey } from "./App";
+import type { ScreenKey } from "./router/screens";
 
 /** An optional "do this on arrival" hint carried alongside a navigation. */
 export type ScreenIntentKind = "create";

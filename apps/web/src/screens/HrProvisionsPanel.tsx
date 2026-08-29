@@ -56,7 +56,7 @@ function ProvisionRow({ kind, asOfDate }: { kind: HrProvisionKindDTO; asOfDate: 
   }
 
   return (
-    <div className="border-b border-border-subtle py-[12px] last:border-b-0">
+    <div className="border-b border-border py-[12px] last:border-b-0">
       <div className="flex flex-wrap items-center justify-between gap-[10px]">
         <div>
           <h3 className="font-display text-[13px] font-bold text-ink">{data?.labelAr ?? t(`provisions.${kind}`)}</h3>

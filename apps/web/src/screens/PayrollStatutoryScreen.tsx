@@ -135,7 +135,7 @@ export function PayrollStatutoryScreen() {
                 const rowYear = Number.parseInt(row.effectiveFrom.slice(0, 4), 10);
                 const entered = row.code.endsWith("_OVERRIDE");
                 return (
-                  <tr key={row.code} className="border-b border-border-subtle">
+                  <tr key={row.code} className="border-b border-border">
                     <td className="mz-num p-[6px] font-semibold text-ink">{rowYear}</td>
                     <td className="mz-num p-[6px]">{row.monthlyWageFloor}</td>
                     <td className="mz-num p-[6px]">{row.monthlyWageCeiling}</td>
@@ -194,7 +194,7 @@ export function PayrollStatutoryScreen() {
                 {table.brackets.map((bracket, index) => {
                   const lower = index === 0 ? "0" : (table.brackets[index - 1]?.upToAnnual ?? "0");
                   return (
-                    <tr key={`${table.code}-${index}`} className="border-b border-border-subtle">
+                    <tr key={`${table.code}-${index}`} className="border-b border-border">
                       <td className="mz-num p-[6px]">{bracket.upToAnnual === null ? `${lower} ${t("statutory.andAbove")}` : `${lower} — ${bracket.upToAnnual}`}</td>
                       <td className="mz-num p-[6px] font-semibold text-ink">{bracket.ratePercent}%</td>
                     </tr>

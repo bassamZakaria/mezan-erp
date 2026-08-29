@@ -13,7 +13,7 @@ import { sumRows } from "./kpi.js";
 
 /**
  * The workforce reports — attendance, what unused leave is worth, what leaving
- * would cost, and who joined or left.
+ * would cost, and who joined or departed.
  *
  * The two money reports here (leave liability, end-of-service provision) answer
  * a question the payroll register cannot: what the company OWES its staff for
@@ -359,7 +359,8 @@ export interface HeadcountMovementContext {
 export interface HeadcountMovementRow {
   readonly monthLabel: string;
   readonly joined: number;
-  readonly left: number;
+  /** Named `leavers` rather than `left` so it cannot read as a CSS direction. */
+  readonly leavers: number;
   readonly netChange: number;
   readonly closingHeadcount: number;
 }
@@ -398,11 +399,11 @@ export function createHeadcountMovementReport(): ReportDefinition<AttendanceSumm
       return months.map((label) => {
         const monthEnd = `${label}-31`;
         const joined = ctx.employees.filter((e) => e.hireDate.slice(0, 7) === label).length;
-        const left = ctx.employees.filter((e) => e.terminatedAt !== null && e.terminatedAt.slice(0, 7) === label).length;
+        const leavers = ctx.employees.filter((e) => e.terminatedAt !== null && e.terminatedAt.slice(0, 7) === label).length;
         const closingHeadcount = ctx.employees.filter(
           (e) => e.hireDate <= monthEnd && (e.terminatedAt === null || e.terminatedAt.slice(0, 10) > monthEnd),
         ).length;
-        return { monthLabel: label, joined, left, netChange: joined - left, closingHeadcount };
+        return { monthLabel: label, joined, leavers, netChange: joined - leavers, closingHeadcount };
       });
     },
     rowKey: (row) => row.monthLabel,
@@ -410,13 +411,13 @@ export function createHeadcountMovementReport(): ReportDefinition<AttendanceSumm
     columns: [
       { key: "monthLabel", header: "الشهر", value: (r) => r.monthLabel },
       { key: "joined", header: "التحقوا", format: "qty", align: "end", value: (r) => r.joined, total: true },
-      { key: "left", header: "انتهت خدمتهم", format: "qty", align: "end", value: (r) => r.left, total: true },
+      { key: "leavers", header: "انتهت خدمتهم", format: "qty", align: "end", value: (r) => r.leavers, total: true },
       { key: "netChange", header: "صافي التغير", format: "variance", align: "end", value: (r) => r.netChange, total: true },
       { key: "closingHeadcount", header: "العدد في نهاية الشهر", format: "qty", align: "end", value: (r) => r.closingHeadcount },
     ],
     kpis: [
       { key: "joined", labelAr: "إجمالي الملتحقين", value: (rows) => sumRows(rows, (r) => r.joined) },
-      { key: "left", labelAr: "إجمالي المنتهية خدمتهم", value: (rows) => sumRows(rows, (r) => r.left) },
+      { key: "leavers", labelAr: "إجمالي المنتهية خدمتهم", value: (rows) => sumRows(rows, (r) => r.leavers) },
       {
         key: "turnover",
         labelAr: "معدل دوران العمالة",
@@ -424,7 +425,7 @@ export function createHeadcountMovementReport(): ReportDefinition<AttendanceSumm
         format: "percent",
         value: (rows) => {
           const average = rows.length === 0 ? 0 : sumRows(rows, (r) => r.closingHeadcount) / rows.length;
-          return average === 0 ? 0 : Math.round((sumRows(rows, (r) => r.left) / average) * 10_000) / 100;
+          return average === 0 ? 0 : Math.round((sumRows(rows, (r) => r.leavers) / average) * 10_000) / 100;
         },
         tone: (v) => (v > 20 ? "danger" : "default"),
       },

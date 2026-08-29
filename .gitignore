@@ -21,9 +21,11 @@ mezan.db-*
 # Agent worktrees, not source
 .claude/worktrees/
 
-# Reference-product captures must never be committed (third-party UI)
-docs/reference-parity/screenshots/ref-*
-.claude/stakeholders/screenshots/ref-*
+# No captured screens in the tree. Reviews run against the running app — a
+# capture is stale the day after it is taken, and third-party UI must never be
+# committed at all.
+docs/reference-parity/screenshots/
+.claude/stakeholders/screenshots/
 # Local run database (scripts/dev.mjs, MEZAN_DB) — never a repo artifact.
 local.db
 local.db-*

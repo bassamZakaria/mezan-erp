@@ -66,17 +66,16 @@ something a gap.
 pnpm --filter web dev
 ```
 
-Screenshots captured for a review are written to
-`.claude/stakeholders/screenshots/` and can be read directly.
+Run the app and read the screens directly. Reviews are done against the running
+app, not against captures — a screenshot goes stale the day after it is taken.
 
 ## What this review must decide
 
 > Working bar set by the reviewer running this session, not yet confirmed by the
 > owner. If it is wrong, correct it here and re-run the panel.
 
-**The question:** how does Mezan beat Zemam (`getzemam.com` — see
-`zemam-reference.md`) on **workflow simplicity and options**, given Mezan's
-Phase-1 desktop slice as it exists today? Not "is it complete" — it is not, and
+**The question:** is Mezan's Phase-1 desktop slice simpler to work in — fewer
+steps, fewer decisions, less to learn — than what an Egyptian SMB uses today? Not "is it complete" — it is not, and
 that is known.
 
 **Blocker for this review** = anything that makes a daily task slower, more
@@ -96,26 +95,9 @@ switch. Buyer and user in the same room.
 user, and a concrete simpler alternative. A complaint without a proposed
 simplification does not count for this review.
 
-## Screenshots on file
+## Observed in the app (verified, use freely)
 
-Captured 2026-08-22 at 1366×768, dark theme (the OS was in dark mode), in
-`.claude/stakeholders/screenshots/`:
-
-| File | Screen |
-|---|---|
-| `01-login.jpg` | Desktop login — username + 4-digit PIN, licensed-module chips, first-run link |
-| `02-dashboard.jpg` | لوحة التحكم — KPI row, period chart, follow-up list, aging, expenses, top items |
-| `03-sales-invoices-list.jpg` | فواتير المبيعات — KPI row, status filter chips, list, pagination |
-| `04-customers.jpg` | العملاء — credit limit, opening balance, payment terms, classification |
-| `05-suppliers.jpg` | الموردون |
-| `06-chart-of-accounts.jpg` | دليل الحسابات — tree with type/nature/status |
-| `07-settings-nav-expanded.jpg` | Settings section of the nav expanded |
-| `08-settings-general.jpg` | الإعدادات · عام — currency, language, RTL, numerals, date, week |
-| `09-branches.jpg` | الفروع |
-| `10-warehouses.jpg` | المستودعات — five types incl. van |
-
-**Observed during capture (verified, use freely):**
-- Clicking an invoice row in `03` opens nothing — the list has no detail view.
+- Clicking an invoice row opens nothing — the list has no detail view.
 - Nav items مراكز التكلفة / القيود المحاسبية / الفترات المالية are clickable,
   carry no قريباً tag, and do nothing when clicked.
 - The app rendered in **dark** theme by default because the OS preferred dark,

@@ -43,9 +43,9 @@ for (const group of navGroupSpecs) {
  */
 const UNLISTED_SCREEN_GROUP: Record<string, string> = {
   labels: "items",
-  // الملف الشخصي is off the tree — it hangs off the avatar menu, which is where
-  // one person's own name and password belong. It keeps the address it had.
-  "settings-profile": "setup",
+  // حالة النظام is hidden from the rail for now; the screen still works and
+  // still answers at the address it has always had.
+  status: "setup",
   "report-inventory-movement": "stock",
   "report-inventory-expiring": "stock",
   "report-inventory-slow-moving": "stock",

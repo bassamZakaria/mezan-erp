@@ -47,6 +47,15 @@ const WEEKDAY_KEYS: { value: string; key: AppTranslationKey }[] = [
   { value: "6", key: "settingsGeneral.saturday" },
 ];
 
+/**
+ * The البريد الإلكتروني tab is hidden for now.
+ *
+ * Nothing about SMTP is removed — the settings still persist, the domain still
+ * validates them, and `POST /settings/test-email` still exists. Only the tab
+ * that edits them is off the screen, so this is one word to undo.
+ */
+const SHOW_EMAIL_TAB = false;
+
 /** The document currencies the platform supports (R1.15), minus whichever is the base. */
 const DOCUMENT_CURRENCIES = ["EGP", "SAR", "AED", "QAR", "KWD", "BHD", "OMR", "JOD", "USD", "EUR", "GBP"];
 
@@ -429,79 +438,89 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
             </div>
           ),
         },
-        {
-          key: "email",
-          label: t("settingsGeneral.email"),
-          content: (
-            <div className="flex flex-col gap-[16px]">
-              <SectionCard title={t("settingsGeneral.smtpServer")}>
-                <ToggleField
-                  label={t("settingsGeneral.enableEmail")}
-                  checked={draft.smtpEnabled}
-                  onChange={(v) => patch({ smtpEnabled: v })}
-                />
-                <TextField label={t("settingsGeneral.smtpHost")} value={draft.smtpHost} onChange={(v) => patch({ smtpHost: v })} placeholder="smtp.example.com" />
-                <NumberField label={t("settingsGeneral.smtpPort")} value={draft.smtpPort} min={1} max={65535} onChange={(v) => patch({ smtpPort: v })} />
-                <SelectField
-                  label={t("settingsGeneral.smtpSecurity")}
-                  value={draft.smtpSecurity}
-                  onChange={(v) => patch({ smtpSecurity: v as TenantSettingsDTO["smtpSecurity"] })}
-                  options={[
-                    { value: "NONE", label: t("settingsGeneral.smtpSecurityNone") },
-                    { value: "STARTTLS", label: "STARTTLS" },
-                    { value: "TLS", label: "TLS" },
-                  ]}
-                />
-                <TextField label={t("settingsGeneral.smtpUsername")} value={draft.smtpUsername} onChange={(v) => patch({ smtpUsername: v })} />
-                <TextField
-                  label={t("settingsGeneral.smtpPassword")}
-                  type="password"
-                  value={draft.smtpPassword}
-                  onChange={(v) => patch({ smtpPassword: v })}
-                  hint={t("settingsGeneral.smtpPasswordHint")}
-                />
-                <TextField label={t("settingsGeneral.smtpFromName")} value={draft.smtpFromName} onChange={(v) => patch({ smtpFromName: v })} />
-                <TextField
-                  label={t("settingsGeneral.smtpFromEmail")}
-                  type="email"
-                  value={draft.smtpFromEmail}
-                  onChange={(v) => patch({ smtpFromEmail: v })}
-                />
-                <TextField
-                  label={t("settingsGeneral.testEmailRecipient")}
-                  type="email"
-                  value={testRecipient}
-                  onChange={setTestRecipient}
-                  hint={dirty ? t("settingsGeneral.saveBeforeTest") : undefined}
-                />
-                <div className="flex items-center gap-[10px] self-end">
-                  <Button
-                    size="sm"
-                    disabled={testEmail.isPending || !draft.smtpEnabled || testRecipient.trim() === ""}
-                    onClick={handleTestEmail}
-                  >
-                    {testEmail.isPending ? t("settingsGeneral.sendingTestEmail") : t("settingsGeneral.sendTestEmail")}
-                  </Button>
-                  {testResult ? <StatusPill label={testResult.message} tone={testResult.ok ? "success" : "danger"} /> : null}
-                </div>
-              </SectionCard>
+        /*
+         * البريد الإلكتروني — HIDDEN, not deleted. Flip SHOW_EMAIL_TAB to bring
+         * the tab back exactly as it was; the stored SMTP settings are
+         * untouched either way, and every field below still reads and writes
+         * the same draft keys.
+         */
+        ...(SHOW_EMAIL_TAB
+          ? [
+          {
+            key: "email",
+            label: t("settingsGeneral.email"),
+            content: (
+              <div className="flex flex-col gap-[16px]">
+                <SectionCard title={t("settingsGeneral.smtpServer")}>
+                  <ToggleField
+                    label={t("settingsGeneral.enableEmail")}
+                    checked={draft.smtpEnabled}
+                    onChange={(v) => patch({ smtpEnabled: v })}
+                  />
+                  <TextField label={t("settingsGeneral.smtpHost")} value={draft.smtpHost} onChange={(v) => patch({ smtpHost: v })} placeholder="smtp.example.com" />
+                  <NumberField label={t("settingsGeneral.smtpPort")} value={draft.smtpPort} min={1} max={65535} onChange={(v) => patch({ smtpPort: v })} />
+                  <SelectField
+                    label={t("settingsGeneral.smtpSecurity")}
+                    value={draft.smtpSecurity}
+                    onChange={(v) => patch({ smtpSecurity: v as TenantSettingsDTO["smtpSecurity"] })}
+                    options={[
+                      { value: "NONE", label: t("settingsGeneral.smtpSecurityNone") },
+                      { value: "STARTTLS", label: "STARTTLS" },
+                      { value: "TLS", label: "TLS" },
+                    ]}
+                  />
+                  <TextField label={t("settingsGeneral.smtpUsername")} value={draft.smtpUsername} onChange={(v) => patch({ smtpUsername: v })} />
+                  <TextField
+                    label={t("settingsGeneral.smtpPassword")}
+                    type="password"
+                    value={draft.smtpPassword}
+                    onChange={(v) => patch({ smtpPassword: v })}
+                    hint={t("settingsGeneral.smtpPasswordHint")}
+                  />
+                  <TextField label={t("settingsGeneral.smtpFromName")} value={draft.smtpFromName} onChange={(v) => patch({ smtpFromName: v })} />
+                  <TextField
+                    label={t("settingsGeneral.smtpFromEmail")}
+                    type="email"
+                    value={draft.smtpFromEmail}
+                    onChange={(v) => patch({ smtpFromEmail: v })}
+                  />
+                  <TextField
+                    label={t("settingsGeneral.testEmailRecipient")}
+                    type="email"
+                    value={testRecipient}
+                    onChange={setTestRecipient}
+                    hint={dirty ? t("settingsGeneral.saveBeforeTest") : undefined}
+                  />
+                  <div className="flex items-center gap-[10px] self-end">
+                    <Button
+                      size="sm"
+                      disabled={testEmail.isPending || !draft.smtpEnabled || testRecipient.trim() === ""}
+                      onClick={handleTestEmail}
+                    >
+                      {testEmail.isPending ? t("settingsGeneral.sendingTestEmail") : t("settingsGeneral.sendTestEmail")}
+                    </Button>
+                    {testResult ? <StatusPill label={testResult.message} tone={testResult.ok ? "success" : "danger"} /> : null}
+                  </div>
+                </SectionCard>
 
-              <SectionCard title={t("settingsGeneral.emailTemplate")} description={t("settingsGeneral.emailTemplateHint")}>
-                <TextField
-                  label={t("settingsGeneral.emailTemplateSubject")}
-                  value={draft.emailTemplateSubject}
-                  onChange={(v) => patch({ emailTemplateSubject: v })}
-                />
-                <TextAreaField
-                  label={t("settingsGeneral.emailTemplateBody")}
-                  value={draft.emailTemplateBody}
-                  onChange={(v) => patch({ emailTemplateBody: v })}
-                  rows={6}
-                />
-              </SectionCard>
-            </div>
-          ),
-        },
+                <SectionCard title={t("settingsGeneral.emailTemplate")} description={t("settingsGeneral.emailTemplateHint")}>
+                  <TextField
+                    label={t("settingsGeneral.emailTemplateSubject")}
+                    value={draft.emailTemplateSubject}
+                    onChange={(v) => patch({ emailTemplateSubject: v })}
+                  />
+                  <TextAreaField
+                    label={t("settingsGeneral.emailTemplateBody")}
+                    value={draft.emailTemplateBody}
+                    onChange={(v) => patch({ emailTemplateBody: v })}
+                    rows={6}
+                  />
+                </SectionCard>
+              </div>
+            ),
+          },
+            ]
+          : []),
       ]}
     />
   );

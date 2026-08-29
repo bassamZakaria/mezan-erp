@@ -229,15 +229,16 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
      * group named «الإعداد والصلاحيات», saying "صلاحيات" twice on the way to
      * the same screen.
      *
-     * حالة النظام sits at group level beside عام rather than on either shelf:
-     * it configures nothing, it reports. It was reachable only by typing its
-     * URL before this.
+     * حالة النظام is hidden for now — like «البريد الإلكتروني» in the settings
+     * screen, the surface is intact and only the way in is off. It keeps its
+     * address (see `UNLISTED_SCREEN_GROUP`), so a support instruction that
+     * names the URL still works and putting the row back is one string.
      *
-     * الملف الشخصي left the tree entirely. It is one person's own name and
-     * password, it already hangs off the avatar menu, and filing it under an
-     * administrator's shelf implied it governed other people's accounts.
+     * الملف الشخصي takes that group-level slot instead. It is one person's own
+     * account, not an administrator's shelf, so it sits beside عام rather than
+     * inside المنشأة or الصلاحيات — the avatar menu still reaches it too.
      */
-    itemKeys: ["settings-general", "status"],
+    itemKeys: ["settings-general", "settings-profile"],
     sections: [
       {
         key: "company",

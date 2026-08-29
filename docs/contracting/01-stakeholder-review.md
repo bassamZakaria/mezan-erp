@@ -151,3 +151,81 @@ The owner also ranked contracting above both POS and HR for the next module: hig
 ticket, stickier, and far fewer credible Arabic competitors — against POS as a
 hardware-support treadmill in a price war, and payroll as an annual legal-churn tax
 on the support team.
+
+## What must be recomputed server-side
+
+The internal auditor applied the codebase's first rule — never trust a number the
+caller supplied — to this module and produced the list. Each of these arrives in a
+request today in some adjacent path, and each must instead be derived from posted
+documents:
+
+- cumulative executed quantity per BOQ item, and the previous certificate's
+  cumulative
+- remaining contracted quantity, and whether a variation order raised it
+- retention held to date, and advance outstanding
+- a subcontract's cumulative certified value, and whether it exceeds the client
+  certificate for the same BOQ line
+- project cost to date and cost against budget
+- equipment hours billed
+
+The rejection cases matter as much as the arithmetic: a certificate line whose
+quantity depends on a variation order approved *after* the work was executed must be
+refused, not quietly accepted.
+
+## Exception reports, which the product has none of
+
+33 reports and not one is an exception report. For a contracting customer that is
+the missing half of the control environment, and the auditor's list is a good v1:
+تجاوز الكميات التعاقدية (quantities beyond contract), مواد مصروفة لم تُستلم بالموقع
+(material issued and never received on site), انحراف الاستهلاك عن الكميات النظرية
+(consumption against theoretical BOQ quantities — the only detector for material
+that left the site), ساعات معدات بلا مستخلص مقابل (equipment hours with no
+corresponding certified work), أوامر تغيير معتمدة بعد التنفيذ (variations approved
+after the fact), ضمان محتجز مفرج عنه قبل الميعاد (retention released early).
+
+Two controls sit behind those reports: a site material issue must be two steps —
+صرف by the storekeeper, استلام by a different person on site — and a subcontractor
+must carry a tax number and a bank account before a certificate for them can post.
+
+## How cost reaches a project, and where WIP lives
+
+The cost accountant's model, which the warehouse keeper independently matched:
+
+1. Material moves main store → **site store** as an ordinary transfer at source
+   moving-average cost. Valuation-neutral, no posting. A bare OUT to a project is
+   the defect manufacturing already fixed once.
+2. Stock stays inventory (1200) while it sits on site. عهدة المواد is countable
+   stock in a real place with a named custodian, not an accounting abstraction.
+3. A separate **consumption** document is the only stock→project-cost conversion:
+   Dr project WIP / Cr inventory, at site-store WAC, carrying the project's cost
+   center.
+4. Labour, equipment and subcontract cost reach the same WIP account without passing
+   through inventory.
+5. WIP is relieved to cost of contract revenue — and *when* is an open question:
+   at each approved certificate, which makes WIP a monthly-tieable control account,
+   or at project close, which makes it a pot nobody can reconcile until handover.
+
+Returnable materials — scaffolding and formwork (شدة وسقالات) — are issued and
+returned with no valuation effect at all, tracked on a custody register rather than
+consumed. Losses go through the existing adjustment reasons.
+
+A site store wants a `SITE` warehouse type. Today the five types are labels with no
+behavioural difference, so a sixth is cheap — but note that it buys nothing on its
+own; the value is in the project dimension on the movement, not in the type.
+
+## Printing the certificate
+
+The one document this module exists to produce cannot be printed correctly today.
+`PrintView.tsx` renders a single `overflow-hidden` column with one header and one
+totals block; there is no pagination, no repeated table header, and no carried-forward
+subtotal. A مستخلص needs **ما قبله** as the first row of every page after the first
+and **يُرحل** as the last row of every page before the last, the identity header
+repeated, «صفحة x من y», and the signature block only on the final page. It also
+needs a landscape option — `pageSize` is `A4 | A5` with no orientation field, though
+the Electron print path already carries an unused `landscape` flag — because a
+twelve-column BOQ grid in portrait either truncates Arabic descriptions or becomes
+unreadable, and truncation here is financial data.
+
+The totals block itself is new: `PrintTotalsConfig` knows subtotal, discount, tax and
+amount-in-words, and nothing about إجمالي العقد، المنفذ التراكمي، نسبة الإنجاز،
+المحتجزات، خصم الدفعة المقدمة، صافي المستحق.

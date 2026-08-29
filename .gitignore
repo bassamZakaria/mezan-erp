@@ -1,4 +1,8 @@
 node_modules/
+# ...and node_modules as a SYMLINK, which `node_modules/` does not match.
+# A worktree without its own install gets one pointed at the main checkout;
+# `git add -A` will happily commit that absolute path if this line is missing.
+node_modules
 .DS_Store
 dist/
 .worktrees/

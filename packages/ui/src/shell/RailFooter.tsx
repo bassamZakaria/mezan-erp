@@ -1,5 +1,6 @@
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
+import { Copyright } from "./Copyright";
 import { Avatar } from "./Avatar";
 import { ChromeActions } from "./ChromeActions";
 import { CommandTrigger } from "./CommandPalette";
@@ -139,6 +140,10 @@ export function RailFooter({
             </button>
           ) : null}
         </div>
+
+        {/* Its own breathing room: the parent stacks its rows on a 2px gap,
+            which read as the notice being stuck to the utility icons. */}
+        <Copyright className="mt-[8px] px-[6px] pb-[4px] text-center" />
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
-import { BrandMark, Button, TextInput, cn } from "@mezan/ui";
+import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { useLogin } from "../data/hooks";
 import { clearSessionExpired, sessionExpiredPending } from "../data/session";
 import { useAppTranslation } from "../i18n";
@@ -305,6 +305,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
             {t("login.wizard.short")}
           </button>
           <span className="mz-lat ms-auto">Mezan 2026.8</span>
+        </div>
+
+        <div className="mt-[10px] border-t border-border pt-[10px] text-center">
+          <Copyright />
         </div>
       </form>
     </div>

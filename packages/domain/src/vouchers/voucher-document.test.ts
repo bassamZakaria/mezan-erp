@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
 import { InvalidDocumentError } from "../documents/errors.js";
-import { voucherDocumentType, type VoucherDocument, type VoucherLine } from "./voucher-document.js";
+import { voucherDocumentType, voucherNetPaid, type VoucherDocument, type VoucherLine } from "./voucher-document.js";
 import { getVoucherTypeDefinition, type VoucherType } from "./voucher-types.js";
 
 function doc(partial: Partial<VoucherLine> & { voucherType: VoucherType }): VoucherDocument {
@@ -21,6 +21,10 @@ function doc(partial: Partial<VoucherLine> & { voucherType: VoucherType }): Vouc
     customerId: "customerId" in partial ? (partial.customerId ?? null) : def.requiresCustomer ? "cust-1" : null,
     supplierId: "supplierId" in partial ? (partial.supplierId ?? null) : def.requiresSupplier ? "sup-1" : null,
     referenceNo: null,
+    ...(partial.costCenterId === undefined ? {} : { costCenterId: partial.costCenterId }),
+    ...(partial.withholdingAmount === undefined ? {} : { withholdingAmount: partial.withholdingAmount }),
+    ...(partial.withholdingRatePercent === undefined ? {} : { withholdingRatePercent: partial.withholdingRatePercent }),
+    ...(partial.withholdingGlAccountId === undefined ? {} : { withholdingGlAccountId: partial.withholdingGlAccountId }),
   };
   return {
     id: "v1",
@@ -116,5 +120,125 @@ describe("voucherDocumentType.describeEffects", () => {
     expect(effects.blocked).toBe(false);
     expect(effects.balanced).toBe(true);
     expect(effects.effects.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("withholding tax on a payment voucher (خصم وتحصيل)", () => {
+  const validate = (document: VoucherDocument) => voucherDocumentType.validate?.(document);
+
+  const withheldPayment = (overrides: Partial<VoucherLine> = {}) =>
+    doc({
+      voucherType: "supplier_payment",
+      counterpartyGlAccountId: "2100",
+      amount: Money.fromMajor("1000"),
+      withholdingAmount: Money.fromMajor("30"),
+      withholdingRatePercent: 3,
+      withholdingGlAccountId: "2180",
+      ...overrides,
+    } as Partial<VoucherLine> & { voucherType: VoucherType });
+
+  it("posts three lines: the supplier discharged in full, the treasury paying the net, the tax withheld", () => {
+    const posting = voucherDocumentType.buildGlPosting!(withheldPayment())!;
+
+    const byAccount = new Map(posting.lines.map((l) => [l.accountId, l]));
+    // The supplier's account is cleared for the WHOLE invoice — the withheld
+    // tax discharges the debt just as the cash does.
+    expect(byAccount.get("2100")?.debit.toString()).toBe("1000.000000");
+    // Only the net actually leaves the treasury.
+    expect(byAccount.get("1300-1")?.credit.toString()).toBe("970.000000");
+    // The withheld tax becomes a liability owed to the authority.
+    expect(byAccount.get("2180")?.credit.toString()).toBe("30.000000");
+    expect(posting.lines).toHaveLength(3);
+  });
+
+  it("balances to the micro-unit", () => {
+    const posting = voucherDocumentType.buildGlPosting!(withheldPayment())!;
+    const debit = posting.lines.reduce((sum, l) => sum + l.debit.scaled, 0n);
+    const credit = posting.lines.reduce((sum, l) => sum + l.credit.scaled, 0n);
+    expect(debit).toBe(credit);
+    expect(debit).toBe(1_000_000_000n);
+  });
+
+  it("posts the ordinary two lines when nothing is withheld", () => {
+    const posting = voucherDocumentType.buildGlPosting!(
+      doc({ voucherType: "supplier_payment", counterpartyGlAccountId: "2100", amount: Money.fromMajor("1000") }),
+    )!;
+    expect(posting.lines).toHaveLength(2);
+    expect(posting.lines.some((l) => l.accountId === "2180")).toBe(false);
+  });
+
+  it("nets an odd amount exactly, with no piastre lost to the split", () => {
+    const posting = voucherDocumentType.buildGlPosting!(
+      withheldPayment({ amount: Money.fromMajor("1234.567891"), withholdingAmount: Money.fromMajor("37.037037") }),
+    )!;
+    const byAccount = new Map(posting.lines.map((l) => [l.accountId, l]));
+    expect(byAccount.get("1300-1")?.credit.toString()).toBe("1197.530854");
+    expect(
+      (byAccount.get("1300-1")?.credit.scaled ?? 0n) + (byAccount.get("2180")?.credit.scaled ?? 0n),
+    ).toBe(byAccount.get("2100")?.debit.scaled);
+  });
+
+  it("reports what actually leaves the treasury", () => {
+    const line = withheldPayment().lines[0] as VoucherLine;
+    expect(voucherNetPaid(line).toString()).toBe("970.000000");
+
+    const plain = doc({ voucherType: "supplier_payment", counterpartyGlAccountId: "2100", amount: Money.fromMajor("1000") })
+      .lines[0] as VoucherLine;
+    expect(voucherNetPaid(plain).toString()).toBe("1000.000000");
+  });
+
+  it("refuses withholding on anything but a payment", () => {
+    expect(() =>
+      validate(
+        withheldPayment({ voucherType: "customer_collection", counterpartyGlAccountId: "1100" } as never),
+      ),
+    ).toThrow(InvalidDocumentError);
+  });
+
+  it("refuses a withheld amount that is not smaller than the voucher", () => {
+    for (const withholdingAmount of [Money.fromMajor("1000"), Money.fromMajor("1000.000001")]) {
+      expect(() => validate(withheldPayment({ withholdingAmount }))).toThrow(
+        InvalidDocumentError,
+      );
+    }
+    // One micro-unit under the voucher is the last legal value.
+    expect(() =>
+      validate(withheldPayment({ withholdingAmount: Money.fromMajor("999.999999") })),
+    ).not.toThrow();
+  });
+
+  it("refuses a negative withheld amount", () => {
+    expect(() =>
+      validate(withheldPayment({ withholdingAmount: Money.fromMajor("-1") })),
+    ).toThrow(InvalidDocumentError);
+  });
+
+  it("refuses withholding with no account to book it to", () => {
+    expect(() => validate(withheldPayment({ withholdingGlAccountId: null }))).toThrow(
+      InvalidDocumentError,
+    );
+  });
+
+  it("refuses in Arabic, which is what the voucher screen shows", () => {
+    try {
+      validate(withheldPayment({ withholdingGlAccountId: null }));
+      throw new Error("expected the voucher to be refused");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InvalidDocumentError);
+      expect(/[؀-ۿ]/.test((error as Error).message)).toBe(true);
+    }
+  });
+
+  it("LIMITATION: the rate is decorative — nothing checks the withheld amount against amount × rate", () => {
+    // 3% of 1000 is 30.00, but 999.00 is accepted just as readily with the
+    // same rate recorded beside it. The rate travels for the certificate and
+    // the report; it is not a check.
+    const inconsistent = withheldPayment({ withholdingAmount: Money.fromMajor("999"), withholdingRatePercent: 3 });
+    expect(() => validate(inconsistent)).not.toThrow();
+
+    const posting = voucherDocumentType.buildGlPosting!(inconsistent)!;
+    const byAccount = new Map(posting.lines.map((l) => [l.accountId, l]));
+    expect(byAccount.get("2180")?.credit.toString()).toBe("999.000000");
+    expect(byAccount.get("1300-1")?.credit.toString()).toBe("1.000000");
   });
 });

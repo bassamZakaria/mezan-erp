@@ -129,7 +129,7 @@ describe("users routes", () => {
   });
 });
 
-describe("who may make themselves a company admin (D86)", () => {
+describe("who may make themselves a company admin (D86 — closed by PR #54, S2)", () => {
   const clerk = {
     ...newUserBody,
     nameAr: "منى عبد الله",
@@ -138,7 +138,7 @@ describe("who may make themselves a company admin (D86)", () => {
     isCompanyAdmin: false,
   };
 
-  it("LIMITATION (D86): a caller holding only admin.users.edit can promote a user to company admin", async () => {
+  it("refuses a caller holding only admin.users.edit who tries to promote a user to company admin", async () => {
     // The caller is NOT an admin: they hold exactly the two codes the edit
     // route gates on, and nothing else.
     const { app, users } = newAppWithStore(["admin.users.view", "admin.users.edit"]);
@@ -182,17 +182,22 @@ describe("who may make themselves a company admin (D86)", () => {
       }),
     );
 
-    expect(promoted.status).toBe(200);
-    expect((await users.findById("u-clerk"))?.isCompanyAdmin).toBe(true);
-
-    // When D86 is closed, this edit should be refused unless the caller is
-    // themselves a company admin — that is the expectation to rewrite.
+    // D86 is closed: a caller may not grant authority they do not hold, and
+    // `isCompanyAdmin: true` is the wildcard by another name. Only a tenant
+    // admin has `"*"` to give.
+    expect(promoted.status).toBe(403);
+    expect(((await promoted.json()) as { error: string }).error).toBe("PRIVILEGE_ESCALATION_DENIED");
+    // And the refusal is a refusal to WRITE, not only to answer: re-read the
+    // store. A 403 that still promoted the account would be the same defect
+    // with a different status code on it.
+    expect((await users.findById("u-clerk"))?.isCompanyAdmin).toBe(false);
   });
 
-  it("LIMITATION (D86): saveUser never sees the actor, so the ceiling cannot live in the domain", async () => {
-    // (command, unitOfWork, hasher, options) — there is no actor in the
-    // signature, so "you may not grant more than you hold" has to be enforced
-    // by the route's gate, and today no gate distinguishes the two cases.
+  it("refuses the shortest path of all — the caller editing THEIR OWN record up to company admin", async () => {
+    // `saveUser(command, unitOfWork, hasher, options)` still has no actor in
+    // its signature, so the domain cannot enforce this and never could. The
+    // ceiling lives in the route, in `refuseIfEscalating`, which is why this
+    // test drives it over HTTP rather than calling the domain directly.
     const { app, users } = newAppWithStore(["admin.users.view", "admin.users.edit"]);
     await users.save({
       id: "u-self",
@@ -227,8 +232,95 @@ describe("who may make themselves a company admin (D86)", () => {
       }),
     );
 
+    expect(promoted.status).toBe(403);
+    expect((await users.findById("u-self"))?.isCompanyAdmin).toBe(false);
+  });
+
+  it("still lets a clerk edit a PEER — the job the permission exists for (negative control)", async () => {
+    // Without this, every assertion above is satisfied by a guard that refuses
+    // all edits, which would break user administration rather than secure it.
+    const { app, users, roles } = newAppWithStore(["admin.users.view", "admin.users.edit"]);
+    // An account carries exactly one authority: a role OR the admin flag. The
+    // peer therefore needs a role, and it must be one the clerk could itself
+    // grant — otherwise this would be testing the outranking guard rather than
+    // the ordinary edit it is meant to prove still works.
+    await roles.save({
+      id: "role-peer",
+      code: "PEER",
+      name: "زميل",
+      description: "",
+      permissions: ["admin.users.view"],
+      isSystem: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
+    await users.save({
+      id: "u-peer",
+      nameAr: "زميل",
+      nameEn: null,
+      email: "peer@cyag.test",
+      phone: null,
+      passwordHash: "hashed:x",
+      pinHash: null,
+      roleId: "role-peer",
+      isCompanyAdmin: false,
+      employeeId: null,
+      branchScope: "*",
+      warehouseScope: "*",
+      status: "active",
+      photoUrl: null,
+      lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const edited = await app.fetch(
+      new Request("http://x/users/u-peer", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...clerk,
+          nameAr: "زميل معدَّل",
+          email: "peer@cyag.test",
+          roleId: "role-peer",
+          isCompanyAdmin: false,
+        }),
+      }),
+    );
+
+    expect(edited.status).toBe(200);
+    expect((await users.findById("u-peer"))?.nameAr).toBe("زميل معدَّل");
+  });
+
+  it("a tenant admin CAN still mint another tenant admin — somebody has to be able to", async () => {
+    const { app, users } = newAppWithStore(["*"]);
+    await users.save({
+      id: "u-next",
+      nameAr: "المدير التالي",
+      nameEn: null,
+      email: "next@cyag.test",
+      phone: null,
+      passwordHash: "hashed:x",
+      pinHash: null,
+      roleId: null,
+      isCompanyAdmin: false,
+      employeeId: null,
+      branchScope: "*",
+      warehouseScope: "*",
+      status: "active",
+      photoUrl: null,
+      lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const promoted = await app.fetch(
+      new Request("http://x/users/u-next", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...clerk, email: "next@cyag.test", roleId: null, isCompanyAdmin: true }),
+      }),
+    );
+
     expect(promoted.status).toBe(200);
-    expect((await users.findById("u-self"))?.isCompanyAdmin).toBe(true);
+    expect((await users.findById("u-next"))?.isCompanyAdmin).toBe(true);
   });
 
   it("still refuses the caller with no user permissions at all", async () => {

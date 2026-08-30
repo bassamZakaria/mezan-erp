@@ -446,7 +446,7 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**Sixty-eight filed 2026-08-30 by the test-coverage pass** (D66–D133). D128 and D129 are holes in PR #54's own security fixes, found by writing the tests it did not have. D109 — an unauthenticated device on the shop wifi posting to the books — was the most serious, and PR #54 closed it (S8/S9): the desktop shell now builds `createBackend`, so the header resolver is gone from the edition that binds a LAN socket, and every `/lan/*` route needs a session. D99 is now the most serious open one: a live, ungated journal-posting route. They were found by
+**Sixty-nine filed 2026-08-30 by the test-coverage pass** (D66–D134). D128 and D129 are holes in PR #54's own security fixes, found by writing the tests it did not have. D109 — an unauthenticated device on the shop wifi posting to the books — was the most serious, and PR #54 closed it (S8/S9): the desktop shell now builds `createBackend`, so the header resolver is gone from the edition that binds a LAN socket, and every `/lan/*` route needs a session. D99 is now the most serious open one: a live, ungated journal-posting route. They were found by
 writing tests and manual scenarios against the real code, so each carries a file reference
 rather than a feeling. The ones marked **guarded** already have a passing test that pins the
 current behaviour and will go red the day it changes; the ones marked **reported** still
@@ -522,6 +522,7 @@ need a measured reading in the running app before anyone fixes them.
 | D131 | `GET /cost-centers/tree` and `GET /cost-centers/:id` are unscoped, while `GET /cost-centers` narrows by `branchScopeOf`. The tree is the shape the screen actually renders, so the narrowing on the list is cosmetic | `packages/api/src/cost-centers-routes.ts` | guarded |
 | D132 | `POST /notifications/:id/read` and `/read-all` never check `ctx.authenticated`; they use `ctx.userId` as the whole authorization, so an unidentified caller gets 200 as `"anonymous"` instead of the 401 every other gated route returns. No cross-user leak, but the client cannot tell an expired session from an empty inbox — the exact failure the 401/403 split exists to prevent | `packages/api/src/notifications-routes.ts` | reported |
 | D133 | With `smtpSecurity: "NONE"` the SMTP password is sent base64-encoded over a plaintext connection: AUTH LOGIN is attempted whenever `smtpUsername` is set, regardless of transport, and the settings screen offers NONE with no warning. TLS does not silently downgrade and a refused STARTTLS aborts before AUTH, both verified | `packages/api/src/smtp-client.ts` | guarded (`smtp-client.test.ts`) |
+| D134 | The notification-rules panel calls `resetForm()` only after a SUCCESSFUL create — not on «إلغاء», and not on the panel's own close control — so cancelling a new rule and reopening the panel puts the person back inside the draft they just abandoned, with «حفظ» live. Neither exit creates the rule, which is the half that matters, but the next thing saved is the one they meant to throw away | `apps/web/src/settings/NotificationRulesPage.tsx` | guarded (`NotificationRulesPage.test.tsx`) |
 
 D1–D65 are closed; the register is `archive/defect-register.md`.
 

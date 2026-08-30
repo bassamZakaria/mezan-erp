@@ -30,6 +30,16 @@ function buildApp(params: { seats: number; licensed: boolean; sseHeartbeatMs?: n
   return { app, registry };
 }
 
+/**
+ * Since S8 the device-management routes need a session, and enumerating or
+ * disconnecting OTHER people's devices additionally needs
+ * `admin.settings.view` / `.edit`. A licence is not a credential: these are the
+ * routes reachable from every device on the shop wifi, and without a session
+ * any of them could list the connected tills, burn every seat so no real till
+ * could connect, or disconnect the counter mid-sale.
+ */
+const ADMIN = { "x-permissions": "admin.settings.view,admin.settings.edit" };
+
 function connectReq(body: unknown) {
   return new Request("http://local/sessions", {
     method: "POST",
@@ -106,7 +116,7 @@ describe("LAN seat enforcement over HTTP", () => {
     const r2 = await app.fetch(connectReq({ sessionId: "s2", deviceId: "till-2" }));
     expect(r2.status).toBe(409);
 
-    const delRes = await app.fetch(new Request("http://local/sessions/s1", { method: "DELETE" }));
+    const delRes = await app.fetch(new Request("http://local/sessions/s1", { method: "DELETE", headers: ADMIN }));
     expect(delRes.status).toBe(204);
 
     const r3 = await app.fetch(connectReq({ sessionId: "s2", deviceId: "till-2" }));
@@ -115,7 +125,7 @@ describe("LAN seat enforcement over HTTP", () => {
 
   it("disconnecting an unknown session returns 404", async () => {
     const { app } = buildApp({ seats: 2, licensed: true });
-    const res = await app.fetch(new Request("http://local/sessions/ghost", { method: "DELETE" }));
+    const res = await app.fetch(new Request("http://local/sessions/ghost", { method: "DELETE", headers: ADMIN }));
     expect(res.status).toBe(404);
     expect(await res.json()).toMatchObject({ error: "DEVICE_SESSION_NOT_FOUND" });
   });
@@ -125,7 +135,7 @@ describe("LAN seat enforcement over HTTP", () => {
     await app.fetch(connectReq({ sessionId: "s1", deviceId: "till-1", deviceLabel: "Front till" }));
     await app.fetch(connectReq({ sessionId: "s2", deviceId: "till-2", deviceLabel: "Back office" }));
 
-    const res = await app.fetch(new Request("http://local/sessions"));
+    const res = await app.fetch(new Request("http://local/sessions", { headers: ADMIN }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       seats: number;
@@ -164,5 +174,53 @@ describe("LAN SSE events endpoint", () => {
 
     controller.abort();
     await reader.cancel().catch(() => {});
+  });
+});
+
+describe("a licence is not a credential (S8)", () => {
+  it("refuses every device-management route to a caller with no session at all", async () => {
+    // Measured before the fix: `/lan/*` was gated on the `lan.multi_till`
+    // feature flag and nothing else. Anyone on the shop wifi could do all of
+    // this without an account.
+    const { app } = buildApp({ seats: 2, licensed: true });
+
+    const list = await app.fetch(new Request("http://local/sessions"));
+    const disconnect = await app.fetch(new Request("http://local/sessions/s1", { method: "DELETE" }));
+
+    expect([401, 403]).toContain(list.status);
+    expect([401, 403]).toContain(disconnect.status);
+  });
+
+  it("refuses a caller who is signed in but holds the wrong permission", async () => {
+    // A session alone is not enough for the routes that act on OTHER people's
+    // devices. A cashier must not be able to disconnect the counter.
+    const { app, registry } = buildApp({ seats: 2, licensed: true });
+    registry.connect({ sessionId: "s1", deviceName: "till-1", connectedAt: "2026-01-01T00:00:00.000Z" });
+    const cashier = { "x-permissions": "sales.invoice.view" };
+
+    const list = await app.fetch(new Request("http://local/sessions", { headers: cashier }));
+    const disconnect = await app.fetch(
+      new Request("http://local/sessions/s1", { method: "DELETE", headers: cashier }),
+    );
+
+    expect(list.status).toBe(403);
+    expect(disconnect.status).toBe(403);
+    // And the refusal did not free the seat — a 403 that still disconnected
+    // the till would be the same denial of service with a different number.
+    expect(registry.list()).toHaveLength(1);
+  });
+
+  it("still lets an admin list and disconnect (the negative control)", async () => {
+    const { app, registry } = buildApp({ seats: 2, licensed: true });
+    registry.connect({ sessionId: "s1", deviceName: "till-1", connectedAt: "2026-01-01T00:00:00.000Z" });
+
+    const list = await app.fetch(new Request("http://local/sessions", { headers: ADMIN }));
+    expect(list.status).toBe(200);
+
+    const disconnect = await app.fetch(
+      new Request("http://local/sessions/s1", { method: "DELETE", headers: ADMIN }),
+    );
+    expect(disconnect.status).toBe(204);
+    expect(registry.list()).toHaveLength(0);
   });
 });

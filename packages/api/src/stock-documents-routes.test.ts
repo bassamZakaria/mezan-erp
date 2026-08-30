@@ -293,3 +293,160 @@ describe("physical-counts routes — count → variance → adjustment flow over
     expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("8.000000");
   });
 });
+
+describe("warehouse scope on the WRITE path (D103)", () => {
+  const scoped = (permissions: string) => ({
+    permissions,
+    headers: { "x-warehouse-scope": "W2" },
+  });
+
+  it("LIMITATION (D103): a caller scoped to one warehouse can post an adjustment into another", async () => {
+    const { adjustmentsApp, stockLedger } = await newHarness();
+
+    // The caller may act in W2 only. The draft names W1.
+    const draft = await adjustmentsApp.fetch(
+      req("/draft", {
+        method: "POST",
+        ...scoped("inventory.adjustment.create"),
+        body: JSON.stringify({
+          id: "OUT-OF-SCOPE",
+          date: "2026-01-15",
+          memo: "خارج نطاق المستخدم",
+          lines: [
+            { itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty: "5", unitCost: "10" },
+          ],
+        }),
+      }),
+    );
+    expect(draft.status).toBe(201);
+
+    const confirm = await adjustmentsApp.fetch(
+      req("/OUT-OF-SCOPE/confirm", { method: "POST", ...scoped("inventory.adjustment.confirm") }),
+    );
+    expect(confirm.status).toBe(200);
+
+    // The goods landed in a warehouse this user may not even list.
+    const position = await stockLedger.getBalanceDetail("I1", "W1");
+    expect(position.onHand.toString()).toBe("5.000000");
+
+    // When D103 is closed, the draft or the confirm should be refused and this
+    // position should stay empty — that is the expectation to rewrite.
+  });
+
+  it("LIMITATION (D103): the same caller is correctly scoped out of the READ path", async () => {
+    const { adjustmentsApp } = await newHarness();
+    await adjustmentsApp.fetch(
+      req("/draft", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        body: JSON.stringify({
+          id: "IN-W1",
+          date: "2026-01-15",
+          memo: "في W1",
+          lines: [
+            { itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty: "5", unitCost: "10" },
+          ],
+        }),
+      }),
+    );
+
+    const listed = await adjustmentsApp.fetch(req("/", scoped("inventory.adjustment.view")));
+    expect(listed.status).toBe(200);
+    const rows = (await listed.json()) as unknown[];
+    // The read path filters by scope — which is exactly what makes the write
+    // path's silence a hole rather than a design decision.
+    expect(rows).toEqual([]);
+  });
+
+  it("LIMITATION (D103): a transfer can move goods out of a warehouse the caller may not see", async () => {
+    const { adjustmentsApp, transfersApp, stockLedger } = await newHarness();
+    await adjustmentsApp.fetch(
+      req("/draft", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        body: JSON.stringify({
+          id: "SEED-W1",
+          date: "2026-01-15",
+          memo: "رصيد افتتاحي",
+          lines: [
+            { itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty: "10", unitCost: "10" },
+          ],
+        }),
+      }),
+    );
+    await adjustmentsApp.fetch(
+      req("/SEED-W1/confirm", { method: "POST", permissions: "inventory.adjustment.confirm" }),
+    );
+
+    const draft = await transfersApp.fetch(
+      req("/draft", {
+        method: "POST",
+        ...scoped("inventory.transfer.create"),
+        body: JSON.stringify({
+          id: "TRF-OUT",
+          date: "2026-01-16",
+          memo: "نقل من مستودع خارج النطاق",
+          lines: [{ itemId: "I1", fromWarehouseId: "W1", toWarehouseId: "W2", qty: "4" }],
+        }),
+      }),
+    );
+    expect(draft.status).toBe(201);
+
+    const confirm = await transfersApp.fetch(
+      req("/TRF-OUT/confirm", { method: "POST", ...scoped("inventory.transfer.confirm") }),
+    );
+    expect(confirm.status).toBe(200);
+    expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("6.000000");
+  });
+});
+
+describe("a confirmed transfer has no in-transit state (D90)", () => {
+  it("LIMITATION (D90): both legs post inside one confirm, with no receiving step to follow", async () => {
+    const { adjustmentsApp, transfersApp, stockLedger } = await newHarness();
+    await adjustmentsApp.fetch(
+      req("/draft", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        body: JSON.stringify({
+          id: "SEED-T",
+          date: "2026-01-15",
+          memo: "رصيد افتتاحي",
+          lines: [
+            { itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty: "10", unitCost: "10" },
+          ],
+        }),
+      }),
+    );
+    await adjustmentsApp.fetch(req("/SEED-T/confirm", { method: "POST", permissions: "inventory.adjustment.confirm" }));
+
+    await transfersApp.fetch(
+      req("/draft", {
+        method: "POST",
+        permissions: "inventory.transfer.create",
+        body: JSON.stringify({
+          id: "TRF-1",
+          date: "2026-01-16",
+          memo: "نقل",
+          lines: [{ itemId: "I1", fromWarehouseId: "W1", toWarehouseId: "W2", qty: "4" }],
+        }),
+      }),
+    );
+    const confirm = await transfersApp.fetch(
+      req("/TRF-1/confirm", { method: "POST", permissions: "inventory.transfer.confirm" }),
+    );
+    const document = ((await confirm.json()) as { document: { status: string } }).document;
+
+    // One call moved the goods the whole way: the receiving warehouse already
+    // holds them, and the document is terminal — there is no "in transit" and
+    // nothing for the receiving keeper to confirm or dispute. A driver who
+    // never arrives leaves no trace here.
+    expect(document.status).toBe("confirmed");
+    expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("6.000000");
+    expect((await stockLedger.getBalanceDetail("I1", "W2")).onHand.toString()).toBe("4.000000");
+
+    const second = await transfersApp.fetch(
+      req("/TRF-1/confirm", { method: "POST", permissions: "inventory.transfer.confirm" }),
+    );
+    expect(second.status).toBeGreaterThanOrEqual(400);
+  });
+});

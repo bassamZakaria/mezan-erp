@@ -446,7 +446,7 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**Fifty-seven filed 2026-08-30 by the test-coverage pass** (D66–D122). D109 is the most serious: an unauthenticated device on the shop wifi can post to the books. D99 is the most serious: a live, ungated journal-posting route. They were found by
+**Sixty filed 2026-08-30 by the test-coverage pass** (D66–D125). D109 is the most serious: an unauthenticated device on the shop wifi can post to the books. D99 is the most serious: a live, ungated journal-posting route. They were found by
 writing tests and manual scenarios against the real code, so each carries a file reference
 rather than a feeling. The ones marked **guarded** already have a passing test that pins the
 current behaviour and will go red the day it changes; the ones marked **reported** still
@@ -511,6 +511,9 @@ need a measured reading in the running app before anyone fixes them.
 | D120 | Cancelling an instalment plan flips the document's status and never its lines — nothing anywhere produces the `cancelled` line status the enum declares — so `/plans/stats` keeps reporting a cancelled plan's full scheduled and remaining amounts as live money | `packages/api/src/installments-routes.ts` | guarded |
 | D121 | The ETA payload that will actually be filed is built and stored on the submission, and no route ever returns it: `serializeSubmission` omits it and there is no `GET /submissions/:id`. Nobody — screen or auditor — can inspect what is about to go to the authority | `packages/api/src/eta-routes.ts` | guarded |
 | D122 | D77's root cause, located: the enqueue bridge reacts only to a `DOCUMENT_CONFIRMED` event whose `docType` is `SALES_INVOICE`, so confirmed sales and purchase RETURNS never reach the queue at all — the queue itself handles credit and debit notes correctly when fed directly | `packages/backend/src/create-backend.ts` | guarded at the boundary |
+| D123 | On a failed list load, four list screens render the error banner AND the ordinary «لا توجد بيانات» empty state underneath it, because the list component sees `query.data` as undefined either way. A user cannot tell "the load failed" from "there is nothing here" — the same shape D105 has on quotes, now confirmed on items, price lists, promotions and the chart of accounts | `ItemsScreen.tsx`, `PriceListsScreen.tsx`, `PromotionsScreen.tsx`, `ChartOfAccountsScreen.tsx` | guarded |
+| D124 | `PriceListsScreen`'s submit awaits `create.mutateAsync` with no try/catch, unlike every sibling screen, so a failed create leaves an unhandled promise rejection in production. React-query still shows the server's message, so it is invisible until something else is listening for rejections | `apps/web/src/screens/PriceListsScreen.tsx` | reported (no stable test — see note) |
+| D125 | The branches screen cannot edit a branch, deactivate one, or set a sub-branch's parent: `useUpdateBranch` is not even imported, and every branch is created with `parentBranchId: null` regardless of the main-branch flag — while the screen displays a "parent" column that nothing can populate | `apps/web/src/settings/BranchesPage.tsx` | reported |
 
 D1–D65 are closed; the register is `archive/defect-register.md`.
 

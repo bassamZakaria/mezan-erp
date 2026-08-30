@@ -25,10 +25,17 @@ const sampleAccounts: AccountDTO[] = [
   { id: "2000", code: "2000", nameAr: "الالتزامات", nameEn: "Liabilities", type: "liability", naturalBalance: "credit", parentId: null, isHeader: true, status: "active" },
 ];
 
-function renderScreen(accounts: AccountDTO[] = sampleAccounts) {
+function renderScreen(
+  accounts: AccountDTO[] = sampleAccounts,
+  opts: { patchRequests?: Array<{ id: string; patch: Record<string, unknown> }>; onGetAccounts?: () => { status?: number; body: unknown } | undefined } = {},
+) {
   let current = [...accounts];
   const transport = stubTransport({
-    "GET /accounts": () => ({ body: current }),
+    "GET /accounts": () => {
+      const overridden = opts.onGetAccounts?.();
+      if (overridden) return overridden;
+      return { body: current };
+    },
     "POST /accounts": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       if (current.some((a) => a.code === body.code)) {
@@ -37,6 +44,15 @@ function renderScreen(accounts: AccountDTO[] = sampleAccounts) {
       const created: AccountDTO = { ...body, nameEn: body.nameEn ?? null, parentId: body.parentId ?? null, status: "active" };
       current = [...current, created];
       return { status: 201, body: created };
+    },
+    "PATCH /accounts/*": (init, path) => {
+      const id = path.split("/").pop()!;
+      const patch = JSON.parse((init?.body as string) ?? "{}");
+      opts.patchRequests?.push({ id, patch });
+      const index = current.findIndex((a) => a.id === id);
+      const updated: AccountDTO = { ...current[index]!, ...patch };
+      current = [...current.slice(0, index), updated, ...current.slice(index + 1)];
+      return { body: updated };
     },
   });
   return renderWithProviders(<ChartOfAccountsScreen />, { transport, initialSession: testAdminSession });
@@ -129,5 +145,51 @@ describe("ChartOfAccountsScreen", () => {
     const toggle = within(cashRow).getByRole("button", { name: "طي" });
     fireEvent.click(toggle);
     expect(screen.queryByText("صندوق نقدي الفرع الرئيسي")).not.toBeInTheDocument();
+  });
+
+  it("filters the visible rows by status", async () => {
+    const user = userEvent.setup();
+    renderScreen([...sampleAccounts, { id: "1400", code: "1400", nameAr: "حساب متوقف", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "inactive" }]);
+    await screen.findByText("الأصول");
+    await user.click(screen.getByLabelText("تصفية حسب الحالة"));
+    await user.click(await screen.findByRole("option", { name: "غير نشط" }));
+    await waitFor(() => expect(screen.queryByText("الأصول")).not.toBeInTheDocument());
+    expect(screen.getByText("حساب متوقف")).toBeInTheDocument();
+  });
+
+  it("re-parents an account to a real header id — not its Arabic label — sent as parentId in the PATCH body", async () => {
+    const user = userEvent.setup();
+    const patchRequests: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    renderScreen(sampleAccounts, { patchRequests });
+
+    await user.click(await screen.findByText("صندوق نقدي الفرع الرئيسي"));
+    const detailDialog = screen.getByRole("dialog");
+    await user.click(within(detailDialog).getByRole("button", { name: "تعديل" }));
+
+    const formDialog = screen.getByRole("dialog", { name: "تعديل حساب" });
+    const parentPicker = within(formDialog).getByLabelText("الحساب الرئيسي");
+    await user.click(parentPicker);
+    await user.clear(parentPicker);
+    await user.type(parentPicker, "الالتزامات");
+    await user.click(within(formDialog).getByRole("button", { name: (name) => name.startsWith("2000") }));
+
+    await user.click(within(formDialog).getByRole("button", { name: "حفظ" }));
+
+    await waitFor(() => expect(patchRequests).toHaveLength(1));
+    expect(patchRequests[0]!.id).toBe("1300-1");
+    expect(patchRequests[0]!.patch.parentId).toBe("2000");
+  });
+
+  it("LIMITATION: a failed list load also shows the empty-tree message below the error banner", async () => {
+    renderScreen(sampleAccounts, { onGetAccounts: () => ({ status: 500, body: { error: "INTERNAL" } }) });
+
+    expect(await screen.findByText("تعذّر تحميل دليل الحسابات.")).toBeInTheDocument();
+    // Same shape as the other list screens: the error banner renders ABOVE the
+    // account tree, but `accounts` falls back to `[]` on a failed fetch, so the
+    // tree's own `emptyState` ("no matching accounts") renders underneath it —
+    // indistinguishable from an honestly-empty chart of accounts. Flip this
+    // assertion to `.not.toBeInTheDocument()` once ChartOfAccountsScreen.tsx
+    // suppresses `emptyState` while `query.isError`.
+    expect(screen.getByText("لا توجد حسابات مطابقة")).toBeInTheDocument();
   });
 });

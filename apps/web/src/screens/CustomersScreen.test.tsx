@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { CustomerDTO } from "@mezan/contracts";
+import type { CustomerDTO, PriceListDTO } from "@mezan/contracts";
 import { CustomersScreen } from "./CustomersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -56,10 +56,20 @@ const inactiveCustomer = customer({
   active: false,
 });
 
-function renderScreen(customers: CustomerDTO[] = [customer(), inactiveCustomer]) {
+function renderScreen(
+  customers: CustomerDTO[] = [customer(), inactiveCustomer],
+  opts: {
+    priceLists?: PriceListDTO[];
+    customersRequests?: string[];
+    onCreateCustomer?: (body: Record<string, unknown>) => { status?: number; body: unknown } | undefined;
+    patchRequests?: Array<{ id: string; patch: Record<string, unknown> }>;
+  } = {},
+) {
   let current = [...customers];
+  const customersRequests = opts.customersRequests ?? [];
   const transport = stubTransport({
     "GET /customers": (_init, path) => {
+      customersRequests.push(path);
       const status = new URL(path, "http://test").searchParams.get("status");
       const rows = status === "active" ? current.filter((c) => c.active) : status === "inactive" ? current.filter((c) => !c.active) : current;
       return { body: rows };
@@ -79,16 +89,22 @@ function renderScreen(customers: CustomerDTO[] = [customer(), inactiveCustomer])
         toCollect: "0",
       },
     }),
+    "GET /price-lists": () => ({ body: opts.priceLists ?? [] }),
     "POST /customers": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
+      const overridden = opts.onCreateCustomer?.(body);
+      if (overridden) return overridden;
       const created: CustomerDTO = { ...customer(), ...body, id: body.id, code: body.code };
       current = [...current, created];
       return { status: 201, body: created };
     },
-    "PATCH /customers/cust-1": (init) => {
+    "PATCH /customers/*": (init, path) => {
+      const id = path.split("/").pop()!;
       const patch = JSON.parse((init?.body as string) ?? "{}");
-      const updated: CustomerDTO = { ...current[0]!, ...patch };
-      current = [updated, ...current.slice(1)];
+      opts.patchRequests?.push({ id, patch });
+      const index = current.findIndex((c) => c.id === id);
+      const updated: CustomerDTO = { ...current[index]!, ...patch };
+      current = [...current.slice(0, index), updated, ...current.slice(index + 1)];
       return { body: updated };
     },
     // The statement tab (كشف حساب) builds a real AR ledger from these.
@@ -192,5 +208,90 @@ describe("CustomersScreen", () => {
     renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
     expect(await screen.findByText("تعذّر تحميل العملاء.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
+
+  it("sends the picked price list's real id — not its Arabic name — in the /customers request", async () => {
+    const customersRequests: string[] = [];
+    renderScreen([customer(), inactiveCustomer], {
+      customersRequests,
+      priceLists: [
+        { id: "pl-wholesale", code: "PL-002", nameAr: "قائمة الجملة", nameEn: null, description: null, isBase: false, active: true, lines: [], createdAt: "2024-01-01" },
+      ],
+    });
+    await screen.findByText("شركة الأمل للتجارة");
+    customersRequests.length = 0;
+
+    const picker = screen.getByPlaceholderText("تصفية بقائمة الأسعار");
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "قائمة الجملة" } });
+    fireEvent.mouseDown(screen.getByRole("button", { name: (name) => name.startsWith("قائمة الجملة") }));
+
+    await waitFor(() => {
+      expect(customersRequests.some((p) => new URL(p, "http://x").searchParams.get("priceListId") === "pl-wholesale")).toBe(true);
+    });
+    expect(customersRequests.every((p) => !decodeURIComponent(p).includes("قائمة الجملة"))).toBe(true);
+  });
+
+  it("deactivates a customer from the row menu, sending only {active:false} and moving it off the active tab", async () => {
+    const patchRequests: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    renderScreen([customer(), inactiveCustomer], { patchRequests });
+    await screen.findByText("شركة الأمل للتجارة");
+
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات شركة الأمل للتجارة" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "إيقاف العميل" }));
+    // Deactivation is a destructive action (tone: "danger"), so RowMenu gates
+    // it behind its own confirm dialog rather than firing on the menu click.
+    const confirmDialog = screen.getByRole("dialog");
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "إيقاف العميل" }));
+
+    await waitFor(() => {
+      expect(patchRequests).toContainEqual({ id: "cust-1", patch: { active: false } });
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
+    await waitFor(() => {
+      expect(screen.getByText("شركة الأمل للتجارة")).toBeInTheDocument();
+    });
+  });
+
+  it("shows the server's own refusal message and keeps the panel open when creation is rejected server-side", async () => {
+    renderScreen([customer(), inactiveCustomer], {
+      onCreateCustomer: () => ({ status: 409, body: { message: "الرقم الضريبي مستخدم لعميل آخر بالفعل." } }),
+    });
+    await screen.findByText("شركة الأمل للتجارة");
+    fireEvent.click(screen.getByRole("button", { name: "إضافة عميل" }));
+    const dialog = screen.getByRole("dialog", { name: "إضافة عميل" });
+    fireEvent.change(textFieldInput(dialog, "اسم العميل *"), { target: { value: "عميل يرفضه الخادم" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "إضافة عميل" }));
+
+    expect(await screen.findByText("الرقم الضريبي مستخدم لعميل آخر بالفعل.")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "إضافة عميل" })).toBeInTheDocument();
+  });
+
+  it("binds the create form's price-list field to a real id, sent as priceListId in the POST body", async () => {
+    let created: Record<string, unknown> | undefined;
+    renderScreen([customer(), inactiveCustomer], {
+      priceLists: [
+        { id: "pl-wholesale", code: "PL-002", nameAr: "قائمة الجملة", nameEn: null, description: null, isBase: false, active: true, lines: [], createdAt: "2024-01-01" },
+      ],
+      onCreateCustomer: (body) => {
+        created = body;
+        return undefined;
+      },
+    });
+    await screen.findByText("شركة الأمل للتجارة");
+    fireEvent.click(screen.getByRole("button", { name: "إضافة عميل" }));
+    const dialog = screen.getByRole("dialog", { name: "إضافة عميل" });
+    fireEvent.change(textFieldInput(dialog, "اسم العميل *"), { target: { value: "عميل بقائمة أسعار" } });
+
+    const picker = within(dialog).getByPlaceholderText("بدون قائمة أسعار");
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "قائمة الجملة" } });
+    fireEvent.mouseDown(within(dialog).getByRole("button", { name: (name) => name.startsWith("قائمة الجملة") }));
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "إضافة عميل" }));
+
+    await waitFor(() => expect(created).toBeDefined());
+    expect(created?.priceListId).toBe("pl-wholesale");
   });
 });

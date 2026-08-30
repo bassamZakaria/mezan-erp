@@ -150,6 +150,22 @@ describe("weighted-average costing — fuzz", () => {
     );
   });
 
+  it("fuzz: an empty position holds no value — value with no units behind it is corruption, not drift", () => {
+    fc.assert(
+      fc.property(ledgerArb, (movements) => {
+        const position = replay(ITEM, WAREHOUSE, movements);
+        if (!position.onHand.isZero()) return;
+        // The average is zero by definition once the quantity is, so it hides
+        // this: only the VALUE says whether anything was orphaned onto an
+        // empty position. Drained positions keep at most the rounding residue
+        // the drain itself leaves.
+        const residue = position.totalValue.scaled < 0n ? -position.totalValue.scaled : position.totalValue.scaled;
+        expect(residue <= BigInt(movements.length + 1)).toBe(true);
+      }),
+      { numRuns: 400 },
+    );
+  });
+
   it("fuzz: the average always re-multiplies back to the position's value", () => {
     fc.assert(
       fc.property(ledgerArb, (movements) => {
@@ -382,5 +398,92 @@ describe("costing arithmetic — fuzz", () => {
       }),
       { numRuns: 200 },
     );
+  });
+});
+
+describe("a revaluation that names a receipt whose layers are gone (D84)", () => {
+  const receipt: StockMovement = {
+    id: "MOV-IN",
+    itemId: ITEM,
+    warehouseId: WAREHOUSE,
+    direction: "IN",
+    qty: Qty.fromMajor("10"),
+    unitCost: Money.fromMajor("5"),
+    sourceDocType: "PURCHASE_RECEIPT",
+    sourceDocId: "DOC-PI-1",
+    sourceDocNumber: "PI-000001",
+    reason: null,
+    occurredAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  const drain: StockMovement = {
+    id: "MOV-OUT",
+    itemId: ITEM,
+    warehouseId: WAREHOUSE,
+    direction: "OUT",
+    qty: Qty.fromMajor("10"),
+    unitCost: Money.zero(),
+    sourceDocType: "SALES_INVOICE",
+    sourceDocId: "DOC-SI-1",
+    sourceDocNumber: "INV-000001",
+    reason: null,
+    occurredAt: "2026-01-02T00:00:00.000Z",
+  };
+
+  const landedCost: StockMovement = {
+    id: "MOV-LC",
+    itemId: ITEM,
+    warehouseId: WAREHOUSE,
+    direction: "IN",
+    qty: Qty.zero(),
+    unitCost: Money.zero(),
+    sourceDocType: "LANDED_COST",
+    sourceDocId: "DOC-LC-1",
+    sourceDocNumber: "LC-000001",
+    reason: null,
+    occurredAt: "2026-01-03T00:00:00.000Z",
+    valueDelta: Money.fromMajor("100"),
+    revaluesSourceDocId: "DOC-PI-1",
+  };
+
+  it("KNOWN LIMITATION (D84): the value lands on a position with nothing in it, and no layer is bumped", () => {
+    const position = replay(ITEM, WAREHOUSE, [receipt, drain, landedCost]);
+
+    // Everything was sold before the freight invoice arrived, so the layer the
+    // landed cost names no longer exists.
+    expect(position.onHand.scaled).toBe(0n);
+    expect(position.layers).toHaveLength(0);
+
+    // The value is added anyway: 100.00 of inventory value with no units behind
+    // it. Nothing refuses it and nothing reports it — the drift report reads
+    // this as the documented layer-versus-WAC divergence rather than as the
+    // orphan it is. When D84 is fixed, this expectation is the one to rewrite:
+    // the cost belongs on the sold goods (COGS), not on an empty position.
+    expect(position.totalValue.toString()).toBe("100.000000");
+    expect(position.averageCost.scaled).toBe(0n);
+  });
+
+  it("bumps the layer correctly when the goods are still there, which is the path that works", () => {
+    const position = replay(ITEM, WAREHOUSE, [receipt, landedCost]);
+
+    expect(position.onHand.toString()).toBe("10.000000");
+    expect(position.totalValue.toString()).toBe("150.000000");
+    expect(position.averageCost.toString()).toBe("15.000000");
+    expect(position.layers).toHaveLength(1);
+    expect(position.layers[0]?.unitCost.toString()).toBe("15.000000");
+  });
+
+  it("KNOWN LIMITATION (D84): a partial drain leaves the whole freight on the units that remain", () => {
+    const halfDrain: StockMovement = { ...drain, id: "MOV-OUT-HALF", qty: Qty.fromMajor("6") };
+    const position = replay(ITEM, WAREHOUSE, [receipt, halfDrain, landedCost]);
+
+    // Four units are left and they carry all 100.00 of freight, so their unit
+    // cost jumps to 30.00 while the six already sold left at 5.00 — the cost of
+    // the sold portion is understated by exactly the freight it should have
+    // carried.
+    expect(position.onHand.toString()).toBe("4.000000");
+    expect(position.layers[0]?.unitCost.toString()).toBe("15.000000");
+    expect(position.totalValue.toString()).toBe("120.000000");
+    expect(position.averageCost.toString()).toBe("30.000000");
   });
 });

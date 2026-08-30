@@ -267,3 +267,67 @@ describe("StockLedgerService — drift & rebuild", () => {
     expect(after.withinTolerance).toBe(true);
   });
 });
+
+describe("StockLedgerService — what a deficit issue costs (D101)", () => {
+  it("KNOWN LIMITATION (D101): issuing from a position that was never received costs zero", async () => {
+    const { service } = build({ allowNegativeStock: true });
+
+    // Nothing was ever received: on hand is zero and so is the value, so the
+    // average the issue leaves at is zero — and the movement is written at that
+    // price with nothing on screen to say so.
+    await service.postAdjustment({
+      adjustmentId: "ADJ-DEFICIT",
+      warehouseId: "W1",
+      reason: "SHORTAGE",
+      lines: [{ itemId: "I-NEW", direction: "OUT", qty: Qty.fromMajor("4") }],
+    });
+
+    const position = await service.getBalanceDetail("I-NEW", "W1");
+    expect(position.onHand.toString()).toBe("-4.000000");
+    expect(position.totalValue.scaled).toBe(0n);
+    expect(position.averageCost.scaled).toBe(0n);
+
+    // When D101 is fixed the deficit should be refused, or costed at a
+    // defensible rate (last known price, standard cost) and labelled as such —
+    // this expectation is the one to rewrite.
+  });
+
+  it("costs a deficit issue at the average it had before going negative, when there was one", async () => {
+    const { service } = build({ allowNegativeStock: true });
+    await service.postAdjustment({
+      adjustmentId: "ADJ-IN",
+      warehouseId: "W1",
+      reason: "OTHER",
+      lines: [{ itemId: "I2", direction: "IN", qty: Qty.fromMajor("5"), unitCost: Money.fromMajor("3") }],
+    });
+    await service.postAdjustment({
+      adjustmentId: "ADJ-OUT",
+      warehouseId: "W1",
+      reason: "SHORTAGE",
+      lines: [{ itemId: "I2", direction: "OUT", qty: Qty.fromMajor("8") }],
+    });
+
+    const position = await service.getBalanceDetail("I2", "W1");
+    expect(position.onHand.toString()).toBe("-3.000000");
+    // 5 units in at 3.00 = 15.00; 8 out at the 3.00 average = 24.00; the
+    // position is left owing 9.00 of value against three units it does not have.
+    expect(position.totalValue.toString()).toBe("-9.000000");
+    expect(position.averageCost.toString()).toBe("3.000000");
+  });
+
+  it("refuses the same issue outright when negative stock is not allowed", async () => {
+    const { service } = build({ allowNegativeStock: false });
+    await expect(
+      service.postAdjustment({
+        adjustmentId: "ADJ-DEFICIT",
+        warehouseId: "W1",
+        reason: "SHORTAGE",
+        lines: [{ itemId: "I-NEW", direction: "OUT", qty: Qty.fromMajor("4") }],
+      }),
+    ).rejects.toThrow();
+
+    const position = await service.getBalanceDetail("I-NEW", "W1");
+    expect(position.onHand.scaled).toBe(0n);
+    expect(position.totalValue.scaled).toBe(0n);
+  });
+});

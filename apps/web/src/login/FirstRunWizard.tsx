@@ -15,7 +15,15 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
  * numbering sequences are absent because they are initialised lazily on first
  * use, so there is nothing to seed.
  */
-const SEED_ROWS: readonly { key: keyof BootstrapSeedResultDTO; labelKey: AppTranslationKey; hintKey: AppTranslationKey }[] = [
+/**
+ * The COUNT keys only. `BootstrapSeedResultDTO` also carries `claimed`, which
+ * answers "has anybody set this install up" rather than "how many of these
+ * exist" — it drives which screen a signed-out visitor lands on, and rendering
+ * it as a seed row would print a boolean in a column of quantities.
+ */
+type SeedCountKey = Exclude<keyof BootstrapSeedResultDTO, "claimed">;
+
+const SEED_ROWS: readonly { key: SeedCountKey; labelKey: AppTranslationKey; hintKey: AppTranslationKey }[] = [
   { key: "accounts", labelKey: "firstRun.chartOfAccounts", hintKey: "firstRun.accountsHint" },
   { key: "taxRates", labelKey: "firstRun.tax", hintKey: "firstRun.taxHint" },
   { key: "fiscalPeriods", labelKey: "firstRun.financialPeriods", hintKey: "firstRun.periodsHint" },

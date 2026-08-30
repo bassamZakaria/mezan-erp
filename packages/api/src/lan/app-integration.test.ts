@@ -38,8 +38,12 @@ describe("createApp({ lan }) — same shared app, /lan mounted alongside /journa
     const connectRes = await app.fetch(
       new Request("http://local/lan/sessions", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId: "s1", deviceId: "till-1" }),
+        // The seat's identity is the SERVER's now — derived from the resolved
+        // caller plus the device — so a connect has to be made BY somebody.
+        // A caller-chosen `sessionId` let any signed-in cashier loop fresh ids
+        // and burn every seat.
+        headers: { "content-type": "application/json", "x-user-id": "u1", "x-permissions": "sales.invoice.view" },
+        body: JSON.stringify({ deviceId: "till-1" }),
       }),
     );
     expect(connectRes.status).toBe(201);

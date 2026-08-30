@@ -3,9 +3,16 @@ import { createEntitlements, SeatSessionRegistry } from "@mezan/domain";
 import { createLanRoutes } from "./routes.js";
 
 import { insecureHeaderAuthContextResolver } from "../permission-gate.js";
+import type { SessionRegistry } from "../session-auth.js";
 const LICENSED_FLAG = { "lan.multi_till": true };
 
-function buildApp(params: { seats: number; licensed: boolean; sseHeartbeatMs?: number }) {
+function buildApp(params: {
+  seats: number;
+  licensed: boolean;
+  sseHeartbeatMs?: number;
+  maxSeatsPerUser?: number;
+  sessions?: SessionRegistry;
+}) {
   const entitlements = params.licensed
     ? createEntitlements({
         plan: "ENTERPRISE",
@@ -22,30 +29,48 @@ function buildApp(params: { seats: number; licensed: boolean; sseHeartbeatMs?: n
         expiresAt: null,
       });
 
-  const registry = new SeatSessionRegistry(params.seats);
+  const registry = new SeatSessionRegistry(params.seats, { maxSeatsPerUser: params.maxSeatsPerUser });
   const app = createLanRoutes({
     resolveEntitlements: () => entitlements,
     registry,
     sseHeartbeatMs: params.sseHeartbeatMs,
     resolveAuthContext: insecureHeaderAuthContextResolver,
+    sessions: params.sessions,
   });
   return { app, registry };
 }
 
-/**
- * Since S8 the device-management routes need a session, and enumerating or
- * disconnecting OTHER people's devices additionally needs
- * `admin.settings.view` / `.edit`. A licence is not a credential: these are the
- * routes reachable from every device on the shop wifi, and without a session
- * any of them could list the connected tills, burn every seat so no real till
- * could connect, or disconnect the counter mid-sale.
- */
-const ADMIN = { "x-permissions": "admin.settings.view,admin.settings.edit" };
+/** A fake auth `SessionRegistry` that just records which tokens got revoked. */
+function fakeAuthSessions(): { sessions: SessionRegistry; revoked: string[] } {
+  const revoked: string[] = [];
+  return {
+    sessions: {
+      issue: () => "unused",
+      find: () => null,
+      revoke: (token: string) => {
+        revoked.push(token);
+      },
+      revokeUser: () => {},
+    },
+    revoked,
+  };
+}
 
-function connectReq(body: unknown) {
+/**
+ * Since S8 the device-management routes need a session, and enumerating
+ * needs `admin.devices.view` while disconnecting needs `admin.devices.manage`
+ * (re-gated off `admin.settings.*` by PR #54 review finding #4 — no seeded
+ * role held `admin.settings.edit`, so only the tenant's `isCompanyAdmin`
+ * account could ever free a stuck seat).
+ */
+const ADMIN = { "x-permissions": "admin.devices.view,admin.devices.manage" };
+
+/** Connects a device as `userId` — the seat identity the server derives, never a body field any more. */
+function connectReq(params: { deviceId: string; deviceLabel?: string; userId?: string }) {
+  const { userId = "u1", ...body } = params;
   return new Request("http://local/sessions", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-user-id": userId },
     body: JSON.stringify(body),
   });
 }
@@ -53,7 +78,7 @@ function connectReq(body: unknown) {
 describe("LAN license-flag gate", () => {
   it("rejects /sessions with 403 LAN_MODE_NOT_LICENSED when the feature flag is off", async () => {
     const { app } = buildApp({ seats: 5, licensed: false });
-    const res = await app.fetch(connectReq({ sessionId: "s1", deviceId: "till-1" }));
+    const res = await app.fetch(connectReq({ deviceId: "till-1" }));
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({
       error: "LAN_MODE_NOT_LICENSED",
@@ -72,7 +97,7 @@ describe("LAN license-flag gate", () => {
 
   it("allows /sessions once the license carries the lan.multi_till feature flag", async () => {
     const { app } = buildApp({ seats: 5, licensed: true });
-    const res = await app.fetch(connectReq({ sessionId: "s1", deviceId: "till-1" }));
+    const res = await app.fetch(connectReq({ deviceId: "till-1" }));
     expect(res.status).toBe(201);
   });
 
@@ -88,19 +113,64 @@ describe("LAN license-flag gate", () => {
   });
 });
 
+describe("the seat is a server identity, not a caller-supplied one (S54 review finding #1)", () => {
+  it("connect response carries a server-derived sessionId; the body has no such field to send", async () => {
+    const { app } = buildApp({ seats: 5, licensed: true });
+    const res = await app.fetch(connectReq({ deviceId: "till-1", deviceLabel: "Front till", userId: "u1" }));
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { sessionId: string; userId: string; deviceId: string; deviceLabel: string };
+    expect(session.userId).toBe("u1");
+    expect(session.deviceId).toBe("till-1");
+    expect(session.deviceLabel).toBe("Front till");
+    expect(typeof session.sessionId).toBe("string");
+    expect(session.sessionId.length).toBeGreaterThan(0);
+  });
+
+  it("reconnecting the SAME account+device is idempotent and does not consume a second seat", async () => {
+    const { app, registry } = buildApp({ seats: 1, licensed: true });
+    const r1 = await app.fetch(connectReq({ deviceId: "till-1", userId: "u1" }));
+    const r2 = await app.fetch(connectReq({ deviceId: "till-1", userId: "u1" }));
+    expect(r1.status).toBe(201);
+    expect(r2.status).toBe(201);
+    expect(registry.connectedCount).toBe(1);
+  });
+
+  it("caps concurrent seats for one account, so looping fresh device ids under one login cannot exhaust the tenant's seats", async () => {
+    // Regression guard: before this fix, seat identity was a caller-supplied
+    // sessionId, so any signed-in account could loop with a fresh random id
+    // until SeatLimitExceededError. With deviceId also caller-named, the
+    // per-account cap is what actually stops the loop.
+    const { app } = buildApp({ seats: 10, licensed: true, maxSeatsPerUser: 2 });
+
+    const r1 = await app.fetch(connectReq({ deviceId: "d1", userId: "attacker" }));
+    const r2 = await app.fetch(connectReq({ deviceId: "d2", userId: "attacker" }));
+    expect(r1.status).toBe(201);
+    expect(r2.status).toBe(201);
+
+    const r3 = await app.fetch(connectReq({ deviceId: "d3", userId: "attacker" }));
+    expect(r3.status).toBe(409);
+    expect(await r3.json()).toMatchObject({ error: "USER_SEAT_LIMIT_EXCEEDED", maxSeatsPerUser: 2 });
+
+    // A different, legitimate account can still connect — the tenant's other
+    // 8 seats were never touched by the capped account.
+    const r4 = await app.fetch(connectReq({ deviceId: "till-1", userId: "someone-else" }));
+    expect(r4.status).toBe(201);
+  });
+});
+
 describe("LAN seat enforcement over HTTP", () => {
   it("allows connecting up to N devices, then rejects the (N+1)th with 409", async () => {
     const { app } = buildApp({ seats: 2, licensed: true });
 
-    const r1 = await app.fetch(connectReq({ sessionId: "s1", deviceId: "till-1", deviceLabel: "Front till" }));
+    const r1 = await app.fetch(connectReq({ deviceId: "till-1", deviceLabel: "Front till", userId: "u1" }));
     expect(r1.status).toBe(201);
     const session1 = await r1.json();
-    expect(session1).toMatchObject({ sessionId: "s1", deviceId: "till-1", deviceLabel: "Front till" });
+    expect(session1).toMatchObject({ deviceId: "till-1", deviceLabel: "Front till", userId: "u1" });
 
-    const r2 = await app.fetch(connectReq({ sessionId: "s2", deviceId: "till-2" }));
+    const r2 = await app.fetch(connectReq({ deviceId: "till-2", userId: "u2" }));
     expect(r2.status).toBe(201);
 
-    const r3 = await app.fetch(connectReq({ sessionId: "s3", deviceId: "till-3" }));
+    const r3 = await app.fetch(connectReq({ deviceId: "till-3", userId: "u3" }));
     expect(r3.status).toBe(409);
     expect(await r3.json()).toMatchObject({
       error: "SEAT_LIMIT_EXCEEDED",
@@ -112,16 +182,19 @@ describe("LAN seat enforcement over HTTP", () => {
   it("frees a slot on disconnect, and the freed slot is immediately reusable", async () => {
     const { app } = buildApp({ seats: 1, licensed: true });
 
-    const r1 = await app.fetch(connectReq({ sessionId: "s1", deviceId: "till-1" }));
+    const r1 = await app.fetch(connectReq({ deviceId: "till-1", userId: "u1" }));
     expect(r1.status).toBe(201);
+    const { sessionId } = (await r1.json()) as { sessionId: string };
 
-    const r2 = await app.fetch(connectReq({ sessionId: "s2", deviceId: "till-2" }));
+    const r2 = await app.fetch(connectReq({ deviceId: "till-2", userId: "u2" }));
     expect(r2.status).toBe(409);
 
-    const delRes = await app.fetch(new Request("http://local/sessions/s1", { method: "DELETE", headers: ADMIN }));
+    const delRes = await app.fetch(
+      new Request(`http://local/sessions/${sessionId}`, { method: "DELETE", headers: ADMIN }),
+    );
     expect(delRes.status).toBe(204);
 
-    const r3 = await app.fetch(connectReq({ sessionId: "s2", deviceId: "till-2" }));
+    const r3 = await app.fetch(connectReq({ deviceId: "till-2", userId: "u2" }));
     expect(r3.status).toBe(201);
   });
 
@@ -134,26 +207,110 @@ describe("LAN seat enforcement over HTTP", () => {
 
   it("GET /sessions lists connected devices for the admin panel", async () => {
     const { app } = buildApp({ seats: 3, licensed: true });
-    await app.fetch(connectReq({ sessionId: "s1", deviceId: "till-1", deviceLabel: "Front till" }));
-    await app.fetch(connectReq({ sessionId: "s2", deviceId: "till-2", deviceLabel: "Back office" }));
+    await app.fetch(connectReq({ deviceId: "till-1", deviceLabel: "Front till", userId: "u1" }));
+    await app.fetch(connectReq({ deviceId: "till-2", deviceLabel: "Back office", userId: "u2" }));
 
     const res = await app.fetch(new Request("http://local/sessions", { headers: ADMIN }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       seats: number;
       connected: number;
-      sessions: Array<{ sessionId: string; deviceLabel: string }>;
+      sessions: Array<{ deviceId: string; deviceLabel: string; userId: string }>;
     };
     expect(body.seats).toBe(3);
     expect(body.connected).toBe(2);
-    expect(body.sessions.map((s) => s.sessionId).sort()).toEqual(["s1", "s2"]);
+    expect(body.sessions.map((s) => s.deviceId).sort()).toEqual(["till-1", "till-2"]);
+    expect(body.sessions.map((s) => s.userId).sort()).toEqual(["u1", "u2"]);
   });
 
   it("rejects a malformed connect body with 400 before touching the registry", async () => {
     const { app, registry } = buildApp({ seats: 2, licensed: true });
-    const res = await app.fetch(connectReq({ deviceId: "till-1" })); // missing sessionId
+    const res = await app.fetch(
+      new Request("http://local/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": "u1" },
+        body: JSON.stringify({ deviceLabel: "no deviceId here" }),
+      }),
+    );
     expect(res.status).toBe(400);
     expect(registry.connectedCount).toBe(0);
+  });
+});
+
+describe("device-management gating is admin.devices.* (PR #54 review finding #4)", () => {
+  it("a caller with only admin.devices.view can list but not disconnect", async () => {
+    const { app } = buildApp({ seats: 2, licensed: true });
+    await app.fetch(connectReq({ deviceId: "till-1", userId: "u1" }));
+
+    const viewer = { "x-permissions": "admin.devices.view" };
+    const list = await app.fetch(new Request("http://local/sessions", { headers: viewer }));
+    expect(list.status).toBe(200);
+
+    const disconnect = await app.fetch(
+      new Request("http://local/sessions/anything", { method: "DELETE", headers: viewer }),
+    );
+    expect(disconnect.status).toBe(403);
+  });
+});
+
+describe("disconnect actually evicts the device (PR #54 review finding #3)", () => {
+  it("revokes the exact auth token the device connected with, not every session for the account", async () => {
+    const { sessions, revoked } = fakeAuthSessions();
+    const { app } = buildApp({ seats: 2, licensed: true, sessions });
+
+    const connectRes = await app.fetch(
+      new Request("http://local/sessions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-user-id": "u1",
+          authorization: "Bearer till-1-token",
+        },
+        body: JSON.stringify({ deviceId: "till-1" }),
+      }),
+    );
+    const { sessionId } = (await connectRes.json()) as { sessionId: string };
+
+    const delRes = await app.fetch(
+      new Request(`http://local/sessions/${sessionId}`, { method: "DELETE", headers: ADMIN }),
+    );
+    expect(delRes.status).toBe(204);
+    expect(revoked).toEqual(["till-1-token"]);
+  });
+
+  it("without a wired auth SessionRegistry, disconnect still frees the seat (no crash)", async () => {
+    const { app } = buildApp({ seats: 1, licensed: true });
+    const connectRes = await app.fetch(connectReq({ deviceId: "till-1", userId: "u1" }));
+    const { sessionId } = (await connectRes.json()) as { sessionId: string };
+
+    const delRes = await app.fetch(
+      new Request(`http://local/sessions/${sessionId}`, { method: "DELETE", headers: ADMIN }),
+    );
+    expect(delRes.status).toBe(204);
+  });
+
+  it("pushes a per-session 'disconnected' event on /lan/events so the affected till knows", async () => {
+    const { app } = buildApp({ seats: 2, licensed: true, sseHeartbeatMs: 60_000 });
+    const connectRes = await app.fetch(connectReq({ deviceId: "till-1", userId: "u1" }));
+    const { sessionId } = (await connectRes.json()) as { sessionId: string };
+
+    const controller = new AbortController();
+    const eventsRes = await app.fetch(new Request("http://local/events", { signal: controller.signal }));
+    const reader = eventsRes.body!.getReader();
+    await reader.read(); // the initial "connected" event
+
+    const delRes = await app.fetch(
+      new Request(`http://local/sessions/${sessionId}`, { method: "DELETE", headers: ADMIN }),
+    );
+    expect(delRes.status).toBe(204);
+
+    const { value } = await reader.read();
+    const chunk = new TextDecoder().decode(value);
+    expect(chunk).toContain("event: disconnected");
+    expect(chunk).toContain(sessionId);
+
+    controller.abort();
+    await reader.cancel().catch(() => {});
   });
 });
 
@@ -197,12 +354,13 @@ describe("a licence is not a credential (S8)", () => {
     // A session alone is not enough for the routes that act on OTHER people's
     // devices. A cashier must not be able to disconnect the counter.
     const { app, registry } = buildApp({ seats: 2, licensed: true });
-    registry.connect({ sessionId: "s1", deviceId: "till-1", deviceLabel: "كاشير ١" });
+    registry.connect({ userId: "u1", deviceId: "till-1", deviceLabel: "كاشير ١" });
+    const seatId = registry.list()[0]!.sessionId;
     const cashier = { "x-permissions": "sales.invoice.view" };
 
     const list = await app.fetch(new Request("http://local/sessions", { headers: cashier }));
     const disconnect = await app.fetch(
-      new Request("http://local/sessions/s1", { method: "DELETE", headers: cashier }),
+      new Request(`http://local/sessions/${seatId}`, { method: "DELETE", headers: cashier }),
     );
 
     expect(list.status).toBe(403);
@@ -214,13 +372,14 @@ describe("a licence is not a credential (S8)", () => {
 
   it("still lets an admin list and disconnect (the negative control)", async () => {
     const { app, registry } = buildApp({ seats: 2, licensed: true });
-    registry.connect({ sessionId: "s1", deviceId: "till-1", deviceLabel: "كاشير ١" });
+    registry.connect({ userId: "u1", deviceId: "till-1", deviceLabel: "كاشير ١" });
+    const seatId = registry.list()[0]!.sessionId;
 
     const list = await app.fetch(new Request("http://local/sessions", { headers: ADMIN }));
     expect(list.status).toBe(200);
 
     const disconnect = await app.fetch(
-      new Request("http://local/sessions/s1", { method: "DELETE", headers: ADMIN }),
+      new Request(`http://local/sessions/${seatId}`, { method: "DELETE", headers: ADMIN }),
     );
     expect(disconnect.status).toBe(204);
     expect(registry.list()).toHaveLength(0);

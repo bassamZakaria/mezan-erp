@@ -15,6 +15,7 @@ import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
 import {
+  useBootstrapStatus,
   useBranches,
   useCreateRole,
   useCreateUser,
@@ -104,6 +105,9 @@ export function AppLayout() {
   const profile = useProfile();
   const { t, locale } = useAppTranslation();
   const [showWizard, setShowWizard] = useState(false);
+  // Read before the session gate: it decides whether a signed-out visitor sees
+  // the login form or the first-run wizard. Ungated, like `/tenant`.
+  const bootstrapStatus = useBootstrapStatus();
 
   /*
    * The URL is the source of truth for which screen and sub-page is on
@@ -451,6 +455,17 @@ export function AppLayout() {
   }
 
   if (!session) {
+    // AN UNCLAIMED INSTALL OPENS THE WIZARD, IT DOES NOT HIDE IT BEHIND A LINK.
+    // The wizard used to be a 10px text link at the bottom of the login form,
+    // so a fresh packaged install showed an empty account list and a blank
+    // email box with nothing saying the machine had never been set up — and
+    // the only account that existed had a random PIN nobody knows. The owner
+    // types their own name, fails five times, and is locked out of a
+    // brand-new install inside ninety seconds. `GET /bootstrap/status` already
+    // knows the answer; the screen just has to read it.
+    if (bootstrapStatus.data?.claimed === false) {
+      return <FirstRunWizard onFinish={() => setShowWizard(false)} onCancel={() => setShowWizard(false)} />;
+    }
     return <LoginScreen onStartWizard={() => setShowWizard(true)} />;
   }
 

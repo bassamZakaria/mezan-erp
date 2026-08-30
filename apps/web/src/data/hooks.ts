@@ -341,6 +341,16 @@ export class ApiError extends Error {
      * the server did not attribute to a field.
      */
     readonly fieldErrors?: Record<string, string>,
+    /**
+     * Seconds until a 429'd caller may retry.
+     *
+     * Carried because the login screen has to DISABLE the form for that long,
+     * not merely print a sentence: the button stayed enabled under a lockout
+     * message, so the natural response to "try again later" was to try again
+     * now, and every attempt during a lock re-reads as another failure to the
+     * person typing.
+     */
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -359,8 +369,10 @@ export function useLogin() {
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? t("api.signInFailed"));
+        const err = (await res
+          .json<{ message?: string; retryAfterSeconds?: number }>()
+          .catch(() => ({}))) as { message?: string; retryAfterSeconds?: number };
+        throw new ApiError(res.status, err.message ?? t("api.signInFailed"), undefined, err.retryAfterSeconds);
       }
       return res.json<SessionDTO>();
     },

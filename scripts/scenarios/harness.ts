@@ -37,16 +37,39 @@ export async function boot() {
    * unchanged: the auth-ish keys are translated here into a real token.
    */
   const tokens = new Map<string, string>();
-  function tokenFor(userId: string, permissions: string, roleCodes: string): string {
-    const key = `${userId}|${permissions}|${roleCodes}`;
+  /**
+   * The scope a minted session GRANTS.
+   *
+   * Every identity used to be minted with `ALL_SCOPE` on both dimensions, and
+   * that is why this suite could not have found the scope-escalation defect: a
+   * caller who already holds every branch cannot widen to every branch, so the
+   * guard was never asked the question. A scenario that needs a genuinely
+   * narrow principal passes `x-branch-grant` / `x-warehouse-grant`.
+   *
+   * Note the difference from `x-branch-scope`, which the shell's branch
+   * selector sends: that NARROWS a request within an existing grant and may
+   * never widen it. This one is the grant itself.
+   */
+  function scopeOf(raw: string | undefined): typeof ALL_SCOPE | string[] {
+    if (!raw || raw === "*") return ALL_SCOPE;
+    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  function tokenFor(
+    userId: string,
+    permissions: string,
+    roleCodes: string,
+    branchGrant?: string,
+    warehouseGrant?: string,
+  ): string {
+    const key = `${userId}|${permissions}|${roleCodes}|${branchGrant ?? "*"}|${warehouseGrant ?? "*"}`;
     let token = tokens.get(key);
     if (!token) {
       token = sessions.issue({
         userId,
         permissions: permissions.split(",").map((s) => s.trim()).filter(Boolean),
         roleCode: roleCodes.split(",").map((s) => s.trim()).filter(Boolean)[0] ?? null,
-        branchScope: ALL_SCOPE,
-        warehouseScope: ALL_SCOPE,
+        branchScope: scopeOf(branchGrant),
+        warehouseScope: scopeOf(warehouseGrant),
       });
       tokens.set(key, token);
     }
@@ -63,13 +86,15 @@ export async function boot() {
       "x-permissions": permissions = "*",
       "x-role-codes": roleCodes = permissions === "*" ? "*" : "",
       "x-role-code": legacyRole,
+      "x-branch-grant": branchGrant,
+      "x-warehouse-grant": warehouseGrant,
       ...rest
     } = over;
     return {
       "content-type": "application/json",
-      authorization: `Bearer ${tokenFor(userId, permissions, roleCodes || legacyRole || "")}`,
-      "x-branch-scope": "*",
-      "x-warehouse-scope": "*",
+      authorization: `Bearer ${tokenFor(userId, permissions, roleCodes || legacyRole || "", branchGrant, warehouseGrant)}`,
+      "x-branch-scope": branchGrant ?? "*",
+      "x-warehouse-scope": warehouseGrant ?? "*",
       ...rest,
     };
   }
@@ -153,5 +178,5 @@ export async function boot() {
     return 0;
   }
 
-  return { app, req, rows, n, check, checkEq, scenario, invariants, report, passes, failures };
+  return { app, sessions, req, rows, n, check, checkEq, scenario, invariants, report, passes, failures };
 }

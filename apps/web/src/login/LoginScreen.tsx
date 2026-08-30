@@ -7,6 +7,15 @@ import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
 
 const PIN_LENGTH = 6;
+
+/**
+ * A wait a person can act on. "900 ثانية" is not one — past two minutes the
+ * honest unit is minutes, which is also what the server's own message says.
+ */
+function formatWait(seconds: number): string {
+  if (seconds < 120) return `${seconds}s`;
+  return `${Math.ceil(seconds / 60)}m`;
+}
 /**
  * The seed admin's EMAIL, not their display name — login used to match the full
  * name, a field any admin can edit and two people can share. Only used as the
@@ -53,13 +62,23 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const [expired] = useState(sessionExpiredPending);
   useEffect(() => clearSessionExpired(), []);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Seconds left on a lockout, counted down locally.
+   *
+   * The server answers a 429 with `retryAfterSeconds`, and the screen used to
+   * print the sentence and leave the button enabled — so the obvious response
+   * to "try again later" was to try again now, and every attempt during a lock
+   * reads to the person typing as another failure of their own PIN. A shop
+   * floor at 6pm does not read carefully; it presses the button again.
+   */
+  const [lockedForSeconds, setLockedForSeconds] = useState(0);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const submittedFor = useRef<string>("");
 
   const pin = pinDigits.join("");
   const pinComplete = pin.length === PIN_LENGTH && pinDigits.every((d) => d !== "");
   const identity = typing ? username.trim() : (selected?.email ?? "");
-  const canSubmit = identity !== "" && pinComplete && !login.isPending;
+  const canSubmit = identity !== "" && pinComplete && !login.isPending && lockedForSeconds === 0;
 
   function submit() {
     if (!canSubmit) return;
@@ -75,12 +94,23 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         onSuccess: (session) => rememberDeviceUser(session),
         onError: (err) => {
           setError(err.message || t("login.error.generic"));
+          if (err.status === 429 && typeof err.retryAfterSeconds === "number") {
+            setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds)));
+          }
           setPinDigits(Array(PIN_LENGTH).fill(""));
           inputRefs.current[0]?.focus();
         },
       },
     );
   }
+
+  // Ticks the lockout down so the form re-enables itself the moment the wait
+  // is over, rather than after a reload nobody thinks to do.
+  useEffect(() => {
+    if (lockedForSeconds <= 0) return;
+    const id = setInterval(() => setLockedForSeconds((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [lockedForSeconds > 0]);
 
   /**
    * The fourth digit submits. `submit()` is idempotent per (identity, pin) via
@@ -284,7 +314,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         ) : null}
 
         <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[12px]">
-          {t("login.submit")}
+          {lockedForSeconds > 0 ? `${t("login.lockedFor")} ${formatWait(lockedForSeconds)}` : t("login.submit")}
         </Button>
 
         <div className="mt-[16px] flex items-center gap-[10px] text-2xs text-ink-faint">

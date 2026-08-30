@@ -116,17 +116,57 @@ describe("child windows and navigation", () => {
     }
   });
 
-  it("hands an external http(s) link to the real browser, and nothing else", async () => {
+  it("hands NOTHING to the OS opener while the external-link allow-list is empty", async () => {
+    // This used to open any http(s) URL the renderer produced, via
+    // `shell.openExternal` — the OS "open this with whatever handles it" call.
+    // apps/web authors no external link at all, so every URL that could reach
+    // this handler came from somewhere else: text rendered into an anchor, an
+    // imported file, a compromised renderer. Allowing all of them protected
+    // nothing, because there was nothing legitimate to allow.
     await build();
     const handler = recorded.windowOpenHandler!;
-    handler({ url: "https://mezan.test/help" });
-    expect(openExternal).toHaveBeenCalledWith("https://mezan.test/help");
-
-    openExternal.mockClear();
-    for (const url of ["file:///etc/passwd", "javascript:alert(1)", "app://mezan/index.html"]) {
-      handler({ url });
+    for (const url of [
+      "https://mezan.test/help",
+      "http://192.168.1.1/router-admin",
+      "https://attacker.example/?x=1",
+      "file:///etc/passwd",
+      "javascript:alert(1)",
+      "app://mezan/index.html",
+    ]) {
+      expect(handler({ url }).action).toBe("deny");
     }
     expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it("matches an allow-listed host exactly, never a lookalike that ends with it", async () => {
+    // The shipped list is empty, so drive the matching rule directly rather
+    // than waiting for the first real outbound link to be the thing that tests
+    // it — a suffix match is what this reaches for by instinct, and
+    // `help.mezan.test.attacker.example` ends with the allowed host.
+    const { isAllowedExternalLink } = await import("./window.js");
+    const allowed = ["help.mezan.test"];
+
+    expect(isAllowedExternalLink("https://help.mezan.test/getting-started", allowed)).toBe(true);
+    expect(isAllowedExternalLink("https://HELP.MEZAN.TEST/x", allowed)).toBe(true);
+
+    for (const url of [
+      "https://help.mezan.test.attacker.example/x",
+      "https://evil-help.mezan.test.co/x",
+      "https://mezan.test/x",
+      "javascript:alert(1)",
+      "file:///etc/passwd",
+    ]) {
+      expect([url, isAllowedExternalLink(url, allowed)]).toEqual([url, false]);
+    }
+  });
+
+  it("refuses a <webview> attachment on every frame it hardens", async () => {
+    await build();
+    const listeners = recorded.listeners.get("will-attach-webview") ?? [];
+    expect(listeners.length).toBeGreaterThan(0);
+    let prevented = false;
+    for (const listener of listeners) listener({ preventDefault: () => { prevented = true; } });
+    expect(prevented).toBe(true);
   });
 
   it("refuses to navigate the window to an ordinary web origin", async () => {

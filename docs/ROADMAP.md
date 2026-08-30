@@ -586,10 +586,32 @@ right answer; they are in §6's territory.
   laptop is the whole set of books, readable with any SQLite browser. Doing it properly
   means SQLCipher (a native build per platform) or an OS-keychain-sealed key, plus a
   recovery story for a shop that loses the machine AND the key — a feature, not a patch.
-- **The LAN multi-till socket is plain HTTP on `0.0.0.0:4173`.** Session tokens and every
-  figure travel the shop wifi in clear. Authentication is now required (S8), which is the
-  half that was actually missing; confidentiality needs a certificate story for devices
-  that will never see a public CA.
+- **The LAN multi-till socket is plain HTTP.** Session tokens and every figure travel the
+  shop wifi in clear — a sniffed bearer token is the whole ERP. Authentication is now
+  required (S8), the path is now allow-listed and the bind now defaults to the host's own
+  subnet instead of every interface (see `apps/desktop/src/main/lan-host.ts`), and none of
+  that touches confidentiality: a stranger on the same subnet who is also on the allow-list
+  boundary — or anyone between the till and the host — still reads the wire in clear.
+  Closing it needs TLS on the LAN socket with a certificate pinned at till PAIRING time
+  (a till's first connection trusts the host's cert and remembers its fingerprint; no
+  public CA will ever see one of these hostnames), not a certificate a browser would accept
+  — that is a feature, not a config flag.
+- **SQLite backups and the live database ship no code-signing story of their own, and
+  neither does the app that opens them.** Electron auto-updates are not yet code-signed or
+  notarized (macOS Gatekeeper and Windows SmartScreen both wave through today's build on
+  developer trust alone), so a consultant cannot yet tell a client "the installer you ran is
+  provably ours." Signing + notarization is a distribution-pipeline decision (certificates,
+  a signing identity per platform, CI secrets), not a code change here.
+- **The audit trail is append-only by a SQLite trigger (`BEFORE UPDATE/DELETE` on
+  `audit_events`), not append-only against the person who holds the file.** That trigger
+  stops the APPLICATION from ever issuing an `UPDATE`/`DELETE` against its own audit rows —
+  which is what closed the admin-CRUD and workflow-CRUD audit gaps (S21, S25) — but anyone
+  with filesystem access to `mezan.db` (the company admin, in practice, since it is one
+  file with no OS-level access control of its own) can still open it directly and edit past
+  the trigger, or restore an OLDER backup that never had a damaging entry in the first
+  place. A sink the application itself cannot write to — signed export on a schedule,
+  syslog to an external collector, a hash-chained rows-since-last-export digest — is still
+  open; the trigger only ever promised to stop the app's own code from cutting a corner.
 - **License verification is a stub.** `resolveDesktopEntitlements` reads
   `MEZAN_ENTITLEMENTS_JSON` from the environment with no signature check, so an env var
   unlocks LAN mode and every module. The real Ed25519 verifier
@@ -597,9 +619,13 @@ right answer; they are in §6's territory.
   already documented as out of scope in that file.
 - **A fresh, never-configured install can still be claimed by whoever reaches it first.**
   `POST /bootstrap/admin` has to be open before there is anyone to authenticate as; it now
-  closes the moment the tenant has an account of its own (S1). On desktop the window is not
-  network-reachable — an unlicensed install opens no LAN socket — but on `apps/server`,
-  which is a development mount, it is.
+  closes the moment the tenant has an account of its own (S1, hardened by S17 so that fact
+  is recorded rather than inferred). On desktop the window is smaller than it was: an
+  unlicensed install opens no LAN socket at all, and even a LICENSED one's socket does not
+  forward `/bootstrap/*` — the path allow-list in `lan-host.ts` names exactly `/auth/login`,
+  `/auth/logout`, `/tenant`, `/health` and `/lan/*`, so first-run claiming is reachable over
+  the network only from the host's own IPC mount, never from the shop wifi. It is still
+  reachable there on `apps/server`, which is a development mount with no allow-list.
 
 - **Outbound notification channels do not deliver.** `packages/domain/src/notifications/engine.ts`
   delivers **in-app only**: every other channel is stamped `"queued"` and nothing drains the

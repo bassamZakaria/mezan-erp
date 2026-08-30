@@ -8,15 +8,25 @@ import { z } from "zod";
  */
 
 export const deviceSessionSchema = z.object({
+  /** Server-derived seat key — the client must treat this as opaque. */
   sessionId: z.string().min(1),
+  /** Which signed-in account holds this seat. */
+  userId: z.string().min(1),
   deviceId: z.string().min(1),
   deviceLabel: z.string().min(1),
   connectedAt: z.number().int().nonnegative(),
   lastSeenAt: z.number().int().nonnegative(),
 });
 
+/**
+ * NO `sessionId` here on purpose — the caller used to name its own seat
+ * identity, which let any signed-in account loop with a fresh random id and
+ * burn every seat (PR #54 review finding #1: never trust an identifier the
+ * caller supplied for a limit). The seat key is now derived server-side from
+ * the authenticated session plus `deviceId`; the caller may still name its
+ * device and a human label for it.
+ */
 export const connectDeviceRequestSchema = z.object({
-  sessionId: z.string().min(1),
   deviceId: z.string().min(1),
   deviceLabel: z.string().min(1).optional(),
 });

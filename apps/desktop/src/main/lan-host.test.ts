@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { createEntitlements, SeatSessionRegistry } from "@mezan/domain";
 import { createApp, createSessionAuthContextResolver, createSessionRegistry } from "@mezan/api";
 import { createSqliteUnitOfWork } from "@mezan/persistence";
-import { startLanHost } from "./lan-host.js";
+import { createBackend, SEED_ADMIN_EMAIL } from "@mezan/backend";
+import { isOnOwnSubnet, normalizeRemoteAddress, startLanHost } from "./lan-host.js";
 
 function buildHonoApp(entitlements: ReturnType<typeof createEntitlements>) {
   const uow = createSqliteUnitOfWork(":memory:");
@@ -63,10 +64,14 @@ describe("startLanHost", () => {
 
 /**
  * What the LAN socket exposes, over the exact composition
- * `apps/desktop/src/main/index.ts` ships: `createApp(uow, { lan })` with no
- * `resolveAuthContext`, so the default header resolver governs — and the
- * legacy `POST /journal-entries` route, which is mounted unconditionally and
- * has no permission gate at all (D99), is reachable across it.
+ * `apps/desktop/src/main/index.ts` ships.
+ *
+ * D109 was: the socket served `app.fetch` whole, so every router the backend
+ * mounts — `/bootstrap/*`, `/users`, `/gl`, `/reports`, and the ungated legacy
+ * `POST /journal-entries` (D99) — answered anyone on the shop wifi. The
+ * allow-list in lan-host.ts is what closed it; these are the tests that keep
+ * it closed, because a route added to the backend next month must not become
+ * LAN-reachable by default.
  */
 describe("what the LAN socket exposes to a stranger (D109)", () => {
   const multiTill = () =>
@@ -98,49 +103,100 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     ],
   };
 
-  it("LIMITATION (D109 + D99): an unauthenticated device on the shop wifi can post a journal entry into the books", async () => {
+  it("refuses the ungated legacy journal-entry route, and writes nothing", async () => {
     const { uow, handle, port } = await openSocket();
 
-    // No credential, no session, no permission header — just a POST to the
-    // socket the licence opens for other tills.
     const res = await fetch(`http://127.0.0.1:${port}/journal-entries`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(entry),
     });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(404);
+    expect(await uow.journal.findById("JE-FROM-THE-WIFI")).toBeNull();
 
-    // And it is really in the books, not merely echoed back.
-    const stored = await uow.journal.findById("JE-FROM-THE-WIFI");
-    expect(stored).not.toBeNull();
-    expect(stored?.lines).toHaveLength(2);
-
-    // Readable back over the same socket, by the same stranger.
     const read = await fetch(`http://127.0.0.1:${port}/journal-entries/JE-FROM-THE-WIFI`);
-    expect(read.status).toBe(200);
+    expect(read.status).toBe(404);
 
     await handle.close();
     uow.close();
   });
 
-  it("LIMITATION (D109): the desktop composition passes no session resolver, so `x-permissions` is what governs", async () => {
+  it("answers 404 — not 403 — for a route it holds back, so the refusal confirms nothing", async () => {
     const { uow, handle, port } = await openSocket();
 
-    // `/lan/status` is the one surface that is meant to be open. What matters
-    // is that nothing in this composition ever checks a session: the app was
-    // built without `resolveAuthContext`, so any gated route mounted into it
-    // later would trust this header.
-    const status = await fetch(`http://127.0.0.1:${port}/lan/status`, {
-      headers: { "x-permissions": "*", "x-user-id": "stranger" },
-    });
-    expect(status.status).toBe(200);
+    for (const path of ["/bootstrap/status", "/bootstrap/seed", "/users", "/gl/accounts"]) {
+      const res = await fetch(`http://127.0.0.1:${port}${path}`, { method: "POST" });
+      expect([path, res.status]).toEqual([path, 404]);
+    }
+
+    // A path that never existed answers identically, so "fenced off" and
+    // "not a route" are indistinguishable from the wifi.
+    const nonsense = await fetch(`http://127.0.0.1:${port}/there-is-no-such-route`);
+    expect(nonsense.status).toBe(404);
 
     await handle.close();
     uow.close();
   });
 
-  it("the same entry is refused when the app is built with a real session resolver", async () => {
+  it("does not let a path trick reach a held-back route", async () => {
+    const { uow, handle, port } = await openSocket();
+
+    for (const path of ["/lan/../journal-entries", "/lan/../../bootstrap/status", "/%62ootstrap/status"]) {
+      const res = await fetch(`http://127.0.0.1:${port}${path}`);
+      expect([path, res.status]).toEqual([path, 404]);
+    }
+
+    await handle.close();
+    uow.close();
+  });
+
+  /**
+   * Against the REAL composition main/index.ts ships (`createBackend`, which
+   * is what mounts `/auth`, `/tenant` and `/health` at all), not the bare
+   * `createApp` above — otherwise "login answers" would pass on a build where
+   * the route was never mounted, which is the failure this asserts against.
+   */
+  it("keeps the till's boot path open, and only it, on the real backend", async () => {
+    const entitlements = multiTill();
+    const backend = await createBackend({
+      dbPath: ":memory:",
+      lan: { resolveEntitlements: () => entitlements, registry: new SeatSessionRegistry(2) },
+    });
+    const handle = startLanHost({ app: backend.app, entitlements, host: "127.0.0.1", port: 0 });
+    const port = (await handle.ready)!.port;
+
+    // A till signs in over this socket BEFORE it holds a seat, then presents
+    // the token to /lan/sessions. 401 is the route answering; 404 would mean
+    // the till can never boot at all.
+    const login = await fetch(`http://127.0.0.1:${port}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: "000001" }),
+    });
+    expect(login.status).toBe(401);
+
+    expect((await fetch(`http://127.0.0.1:${port}/auth/logout`, { method: "POST" })).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/tenant`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/lan/status`)).status).toBe(401);
+
+    // The takeover chain's second half, on the composition that actually
+    // mounts it: unreachable, and indistinguishable from a route that is not
+    // there. The same POST over the IPC mount still works.
+    const takeover = await fetch(`http://127.0.0.1:${port}/bootstrap/admin`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nameAr: "دخيل", nameEn: null, email: "x@y.com", pin: "123456" }),
+    });
+    expect(takeover.status).toBe(404);
+    expect((await backend.app.fetch(new Request("http://ipc/bootstrap/status"))).status).toBe(200);
+
+    await handle.close();
+    backend.close();
+  });
+
+  it("still refuses the legacy route when the app carries a real session resolver", async () => {
     const entitlements = multiTill();
     const uow = createSqliteUnitOfWork(":memory:");
     const sessions = createSessionRegistry();
@@ -159,13 +215,35 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
       body: JSON.stringify({ ...entry, id: "JE-STILL-OPEN" }),
     });
 
-    // The legacy route is ungated regardless of the resolver, which is what
-    // makes D99 the more serious half of this pair: swapping the resolver on
-    // the desktop app would NOT close it.
-    expect(res.status).toBe(201);
-    expect(await uow.journal.findById("JE-STILL-OPEN")).not.toBeNull();
+    // `POST /journal-entries` is ungated inside the app regardless of the
+    // resolver (D99), which is exactly why the allow-list — not the resolver —
+    // is what has to keep it off this socket.
+    expect(res.status).toBe(404);
+    expect(await uow.journal.findById("JE-STILL-OPEN")).toBeNull();
 
     await handle.close();
     uow.close();
+  });
+});
+
+/**
+ * The socket used to bind `0.0.0.0` and answer whoever reached it, so a routed
+ * address — a 4G dongle's peer, a bridged VM's network, anything the host's
+ * default route can carry — was as welcome as the till two metres away. The
+ * subnet check is the fence; these are its two directions.
+ */
+describe("isOnOwnSubnet", () => {
+  it("accepts this host's own loopback, in both spellings", () => {
+    expect(isOnOwnSubnet("127.0.0.1")).toBe(true);
+    expect(isOnOwnSubnet(normalizeRemoteAddress("::ffff:127.0.0.1"))).toBe(true);
+    expect(isOnOwnSubnet("::1")).toBe(true);
+  });
+
+  it("refuses a routable address that is on no interface of this machine", () => {
+    // TEST-NET-3 / the IPv6 documentation prefix — reserved, so no CI runner
+    // can accidentally be attached to them and make this pass for free.
+    expect(isOnOwnSubnet("203.0.113.7")).toBe(false);
+    expect(isOnOwnSubnet(normalizeRemoteAddress("::ffff:203.0.113.7"))).toBe(false);
+    expect(isOnOwnSubnet("2001:db8::1")).toBe(false);
   });
 });

@@ -4,15 +4,30 @@
 # copied in as extraResources (see main/env.ts `rendererEntry()`), and an
 # electron-updater `publish` feed shape (see main/updater.ts).
 #
-# What's deliberately NOT wired yet — left as documented TODOs, same as
-# electron-updater's signing-dependent auto-download:
+# What's deliberately NOT wired yet — left as documented TODOs, because wiring
+# them needs real certificates/Apple credentials, which is exactly the kind of
+# secret Phase 0 must not invent:
 #   - Code signing (win: `certificateFile`/`certificatePassword` or a signing
 #     service; mac: `identity` + a Developer ID cert).
 #   - macOS notarization (`afterSign` hook + `notarize: true`/apple credentials).
 #   - A real `publish` provider/URL (currently a placeholder `generic` feed).
-# Wiring these needs real certificates/Apple credentials, which is exactly
-# the kind of secret Phase 0 must not invent — a later, dedicated release
-# issue owns it.
+#
+# ---------------------------------------------------------------------------
+# THESE THREE STUBS ARE WHY THE AUTO-UPDATER IS OFF.
+#
+# electron-updater verifies a downloaded package against the PUBLISHER the app
+# was signed with. Nothing below signs anything, so there is no publisher, so
+# there is nothing to verify against: whatever answers the placeholder feed URL
+# would be a valid update. Combined with the `autoInstallOnAppQuit = true` this
+# module used to set unconditionally, that was a one-DNS-record path to running
+# a stranger's code inside the process that holds the shop's books — on every
+# install in the field at once, on the next quit, with no operator action.
+#
+# main/updater.ts therefore refuses to run unless MEZAN_AUTO_UPDATE=1 is set,
+# and refuses to download or install unless MEZAN_AUTO_UPDATE_INSTALL=1 is set
+# on top of it. Do not remove those gates to "make updates work" — fill in the
+# signing config below first. A dedicated release issue owns that.
+# ---------------------------------------------------------------------------
 appId: com.mezan.desktop
 productName: Mezan
 directories:
@@ -51,8 +66,11 @@ linux:
       arch: [x64]
   category: Office
 
-# Placeholder feed — swap for the real distribution channel (S3/GitHub
-# Releases/self-hosted) before shipping electron-updater to real users.
+# PLACEHOLDER FEED. `updates.mezan.example` is a reserved documentation domain
+# that resolves to nothing — deliberately, so a build that reached a customer
+# with the updater switched on could not find anything to install. Swap it for
+# the real distribution channel (S3 / GitHub Releases / self-hosted) only
+# together with the signing config above, never before it.
 publish:
   provider: generic
   url: https://updates.mezan.example/desktop/

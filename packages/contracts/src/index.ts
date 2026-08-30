@@ -41,6 +41,45 @@ export {
   type AuditQueryResponseDTO,
 } from "./audit.js";
 
+export {
+  securityExceptionsQuerySchema,
+  postPostingChangesQuerySchema,
+  afterHoursQuerySchema,
+  newAccountsQuerySchema,
+  reportCoverageSchema,
+  reportGapSchema,
+  reportColumnSchema,
+  reportKpiSchema,
+  securityExceptionRowSchema,
+  securityWatchlistEntrySchema,
+  securityExceptionsReportSchema,
+  postPostingChangeRowSchema,
+  postPostingChangesReportSchema,
+  workingHoursSchema,
+  afterHoursRowSchema,
+  afterHoursReportSchema,
+  newAccountRowSchema,
+  newAccountsReportSchema,
+  type SecurityExceptionsQueryDTO,
+  type PostPostingChangesQueryDTO,
+  type AfterHoursQueryDTO,
+  type NewAccountsQueryDTO,
+  type ReportCoverageDTO,
+  type ReportGapDTO,
+  type ReportColumnDTO,
+  type ReportKpiDTO,
+  type SecurityExceptionRowDTO,
+  type SecurityWatchlistEntryDTO,
+  type SecurityExceptionsReportDTO,
+  type PostPostingChangeRowDTO,
+  type PostPostingChangesReportDTO,
+  type WorkingHoursDTO,
+  type AfterHoursRowDTO,
+  type AfterHoursReportDTO,
+  type NewAccountRowDTO,
+  type NewAccountsReportDTO,
+} from "./security-reports.js";
+
 export { domainEventSchema, type DomainEventDTO } from "./events.js";
 
 export {

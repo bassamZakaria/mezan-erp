@@ -8,6 +8,7 @@ import { AppI18nProvider } from "../i18n";
 import { ApiProvider } from "./ApiContext";
 import { createQueryClient } from "./queryClient";
 import { stubTransport, testAdminSession } from "./test-support";
+import type { Session } from "./session";
 import type { Transport } from "./transport";
 import {
   ApiError,
@@ -18,7 +19,7 @@ import {
   useUpdateProfile,
 } from "./account-hooks";
 
-function makeWrapper(transport: Transport, session = testAdminSession) {
+function makeWrapper(transport: Transport, session: Session | null = testAdminSession) {
   const queryClient = createQueryClient();
   function Wrapper({ children }: { children: ReactNode }) {
     return (

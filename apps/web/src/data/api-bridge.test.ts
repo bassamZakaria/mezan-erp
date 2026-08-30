@@ -15,7 +15,7 @@ describe("api-bridge", () => {
 
   it("loaderApi returns exactly what was published, and isSignedIn follows isAuthenticated", () => {
     const queryClient = new QueryClient();
-    const request = async () => ({ status: 200, ok: true, json: async () => ({}), text: async () => "" });
+    const request = async () => ({ status: 200, ok: true, json: async <T = unknown>() => ({}) as T, text: async () => "" });
     publishLoaderApi({ request, queryClient, isAuthenticated: true });
 
     expect(loaderApi()).toEqual({ request, queryClient, isAuthenticated: true });
@@ -24,7 +24,7 @@ describe("api-bridge", () => {
 
   it("a later publish with isAuthenticated:false flips isSignedIn back off", () => {
     const queryClient = new QueryClient();
-    const request = async () => ({ status: 401, ok: false, json: async () => ({}), text: async () => "" });
+    const request = async () => ({ status: 401, ok: false, json: async <T = unknown>() => ({}) as T, text: async () => "" });
     publishLoaderApi({ request, queryClient, isAuthenticated: false });
 
     expect(isSignedIn()).toBe(false);

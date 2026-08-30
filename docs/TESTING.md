@@ -186,9 +186,17 @@ build seeds that fallback admin with a random, unprinted PIN (`resolveSeedAdminS
 `packages/backend/src/seed.ts`) and the owner claims the install through the first-run
 wizard instead — every install sharing one published admin login was S7. Set
 `MEZAN_SEED_ADMIN_PIN` to a six-digit string to pin it deliberately when testing a
-packaged build.
+packaged build. **This is a testing note, not a rollout guide** — `docs/INSTALL.md` is the
+one a consultant follows at a client's counter, and it documents the same knob for a
+scripted install.
 
-Five wrong PINs in a row lock an account for a minute, doubling to fifteen (S6). If a
+`POST /bootstrap/admin` now refuses a SECOND call against an already-claimed tenant with a
+bare 409 and no session (S1, hardened S17) — it used to hand back the existing admin's
+session, so a script written against the old contract must fall back to `POST /auth/login`
+on a 409. Test both a genuinely fresh install and a retry against one already claimed.
+
+Five wrong PINs in a row lock an account for a minute, doubling to fifteen (S6, hardened
+S19–S20 — see T69 item 2 for the per-account/per-source split and the unlock route). If a
 sign-in starts answering `TOO_MANY_ATTEMPTS`, that is the lockout, not a broken login —
 wait out `retryAfterSeconds` or use another account.
 
@@ -6719,6 +6727,20 @@ just a CRUD form. Matches the reference's finding closely.
   build — `UsersPage.tsx` has only the search box and the 3 status chips; there
   is no way to filter the user list by role or by last-login window.
 
+- **PLT-USR-10 [NOT IMPLEMENTED, route only]** — Unlock a locked-out account.
+  **Pre**: Lock an account with 6 wrong PINs from a second browser/device
+  (`retryAfterSeconds` comes back on the 6th).
+  **Steps**: `POST /users/:id/unlock` directly (needs `admin.users.unlock`) — there
+  is no button anywhere on `UsersPage.tsx` for this yet, so exercising it means
+  calling the API, not the screen.
+  **Assert**: `{ ok: true, userId }`; the same account can sign in immediately
+  (streak reset, not just the current lock cleared — try one more deliberate
+  wrong PIN afterward and confirm it counts as failure 1, not 7); a
+  `SECURITY / ACCOUNT_UNLOCKED` row appears in `الإعدادات ← سجل المراجعة`.
+  This is the support answer for "why is the till locked" — see
+  `docs/INSTALL.md` §5. Filed as a UI gap, not a security one: the permission
+  and the route are real, the row action on the Users screen is not.
+
 ---
 
 ### 8 — Roles & permissions (`الإعدادات ← الأدوار والصلاحيات`)
@@ -7463,7 +7485,10 @@ preview using the SAME `PrintView` renderer real documents print through.
 
 `DataMigrationPage.tsx` + `data-migration-steps.ts`. **This section carries the
 most important, evidence-backed findings in this entire document — read the
-callout before writing any scenario against the shipped fixtures.**
+callout before writing any scenario against the shipped fixtures.** For the
+consultant-facing version of the same sequence — which step needs which
+permission, and where it sits relative to claiming the tenant and loading
+opening balances — see `docs/INSTALL.md` §3.
 
 > ### The commit gate is all-or-nothing per file, not per row
 >
@@ -8263,6 +8288,7 @@ quick-login feature the reference never documented at all.
 | Warehouses | No edit/deactivate action, no branch filter | PLT-WH-06 |
 | Users | No role / branch / last-login filter panel | PLT-USR-09 |
 | Users | No self-deactivation guard confirmed | PLT-USR-06 |
+| Users | No unlock button — `admin.users.unlock` route works, screen has no action for it | PLT-USR-10 |
 | API Keys | No rate-limit field, no Connected Apps/OAuth table | PLT-API-08 |
 | Webhooks | No description field | PLT-WHK-12 |
 | Webhooks | Retries can outlive shutdown (known, D6) | PLT-WHK-11 |
@@ -10398,16 +10424,43 @@ Executable: manual, plus the security and internal-audit agents
 
 1. [open] Read the SQLite file directly.
    - Security: what is readable at rest is a deliberate decision, and the licence and session material are not sitting in plain text next to it.
-2. [open] Fail the PIN repeatedly.
-   - Security: lockout or backoff — a four-digit PIN with unlimited attempts is not a credential.
-3. [open] Call the API with another user's key and a wider scope header.
+2. [ok] Fail the PIN repeatedly.
+   - Security: fixed (S6, hardened S19–S20) — a SIX-digit PIN (not four), five free attempts
+     then a 60s lock doubling to a 15-minute ceiling, decaying after a quiet hour. Confirm the
+     asymmetry: a REMOTE caller (through the LAN socket or `apps/server`) is counted per
+     (account, source) and locks out only that source; the HOST-LOCAL console is counted per
+     account and cannot be locked out by someone else's failures over the wifi. Confirm
+     `POST /users/:id/unlock` (needs `admin.users.unlock`) clears it and resets the streak —
+     there is no button for this on `UsersPage.tsx` yet, only the route; calling it is the
+     only in-product recourse short of the wait.
+3. [ok] Guess `admin@cyag.example` / `123456` against a PACKAGED build.
+   - Security: fixed (S7) — refused. A packaged build seeds that account with a random,
+     unprinted PIN; `123456` only ever works in a development process. See `docs/INSTALL.md`
+     §1 for the real first-run path and §5 for the lockout support answer.
+4. [ok] Retry `POST /bootstrap/admin` against an already-claimed tenant, naming a real admin's email.
+   - Security: fixed (S1, hardened S17) — a bare 409 `TENANT_ALREADY_PROVISIONED` with NO
+     session, even for a duplicate email. It used to hand back that admin's own session —
+     confirm nothing does any more, including from `apps/server` (dev mount, no LAN
+     allow-list) and from a LAN-connected till (blocked earlier: `/bootstrap/*` is not on the
+     LAN path allow-list at all — see `apps/desktop/src/main/lan-host.ts`).
+5. [open] Call the API with another user's key and a wider scope header.
    - Security: the server decides the scope from the session, never from a header the client can set.
-4. [open] Backdate a document into an open period as a clerk.
+6. [open] Backdate a document into an open period as a clerk.
    - Audit: allowed only with the permission, and the audit row shows both the document date and the entry time.
-5. [open] Delete or edit a posted entry by any route you can find.
+7. [open] Delete or edit a posted entry by any route you can find.
    - Accounting: impossible — and the attempt is in the audit log.
-6. [open] Give a discount above the allowed ceiling, then look for the exception report.
+8. [ok] Reset a colleague's PIN as an admin, then check the audit log for it.
+   - Audit: fixed (S23) — `CREDENTIAL_RESET_BY_ADMIN` at CRITICAL, distinct from the plain
+     `UPDATE` row a phone-number edit leaves. A SELF-service PIN change (Profile screen)
+     still records under the existing self-service event, not this one.
+9. [open] Give a discount above the allowed ceiling, then look for the exception report.
    - Audit: overrides are reportable; if no report exists, that is the finding.
+10. [ok] Point a phone's browser at the LAN host's IP on `lan.multi_till` and request `/users` or `/gl`.
+   - Security: 404, not 403, and byte-identical to Hono's own not-found body — `LAN_ALLOWED_ROUTES`
+     in `apps/desktop/src/main/lan-host.ts` allows only `/auth/login`, `/auth/logout`, `/tenant`,
+     `/health` and `/lan/*`, and nothing else is forwarded to the app at all. Repeat from a device
+     NOT on the host's own subnet (a phone hotspot works): every request refuses with 403
+     `OFF_SUBNET`, checked fresh per request rather than cached at bind time.
 Done: everything a person can do to the money is either impossible, permissioned, or on a report someone reads.
 
 ### T70 · Seed and empty states — Nothing untestable, nothing invented

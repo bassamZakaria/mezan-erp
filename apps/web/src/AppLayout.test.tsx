@@ -105,7 +105,7 @@ describe("AppLayout — users", () => {
 
     await screen.findByRole("button", { name: "إضافة مستخدم" });
     expect(seenBody).not.toBeNull();
-    expect((seenBody as { branchScope: unknown }).branchScope).toBe("*");
+    expect((seenBody! as { branchScope: unknown }).branchScope).toBe("*");
 
     fireEvent.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
     fireEvent.change(screen.getByLabelText("الاسم بالعربية"), { target: { value: "مستخدم آخر" } });
@@ -114,7 +114,7 @@ describe("AppLayout — users", () => {
     fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
 
     await screen.findByRole("button", { name: "إضافة مستخدم" });
-    expect((seenBody as { branchScope: unknown }).branchScope).toEqual(["MAIN"]);
+    expect((seenBody! as { branchScope: unknown }).branchScope).toEqual(["MAIN"]);
   });
 
   it("handleToggleUserStatus posts to the clicked row's own id and the new (inverted) status, not a stale one", async () => {

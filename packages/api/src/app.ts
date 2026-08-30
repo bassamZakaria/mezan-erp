@@ -264,6 +264,14 @@ export interface CreateAppOptions {
     /** Pass a shared instance to persist seat state across app.fetch() calls; defaults to a fresh, empty registry. */
     readonly registry?: SeatSessionRegistry;
     readonly sseHeartbeatMs?: number;
+    /**
+     * The auth session registry, so disconnecting a till actually EVICTS it.
+     *
+     * Without this the admin action moved a number and nothing else: the
+     * device kept working and its bearer token stayed valid, so "disconnect"
+     * was cosmetic against exactly the rogue or hung device it exists for.
+     */
+    readonly sessions?: SessionRegistry;
   };
   /**
    * Mounts `/accounts/*` (docs/archive/catalog/04 "دليل الحسابات") when present. The
@@ -1555,6 +1563,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         // The mount that binds a LAN socket is the LAST place a route should
         // be left resolving its caller from headers.
         resolveAuthContext: resolveAuth,
+        sessions: options.lan.sessions ?? options.security?.sessions,
       }),
     );
   }

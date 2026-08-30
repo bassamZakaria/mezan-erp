@@ -111,6 +111,11 @@ const ROLES = [
       "workflow.approve",
       "workflow.reject",
       "transactions.view",
+      // A supervisor is on the sales floor when a till hangs; the same
+      // person who already approves the tills' invoices can free a stuck
+      // seat without paging the owner (PR #54 review finding #4).
+      "admin.devices.view",
+      "admin.devices.manage",
     ],
   },
   {
@@ -218,6 +223,11 @@ const ROLES = [
       "sales.customer.view",
       "purchases.invoice.view",
       "purchases.supplier.view",
+      // Visibility only, not `.manage`: the cashier at the counter needs to
+      // see WHY a seat is full to explain it, but disconnecting a colleague's
+      // device (the manager's tablet included) stays a supervisory act —
+      // PR #54 review finding #4's own worked example.
+      "admin.devices.view",
     ],
   },
   {
@@ -301,6 +311,13 @@ const ROLES = [
       "hr.leave.approve",
       "workflow.view",
       "transactions.view",
+      // The branch manager is the operational owner of every till in the
+      // branch, so freeing one blocks nobody but them — before this only the
+      // tenant's `isCompanyAdmin` account could clear a stuck seat, which
+      // meant one hung till at the counter blocked every other till until the
+      // owner personally was reached (PR #54 review finding #4).
+      "admin.devices.view",
+      "admin.devices.manage",
     ],
   },
   {

@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from "electron";
+import { BrowserWindow, shell, type WebContents } from "electron";
 import { preloadPath, rendererEntry } from "./env.js";
 import { RENDERER_HOST, RENDERER_SCHEME } from "./renderer-protocol.js";
 
@@ -31,17 +31,94 @@ function isRendererOrigin(target: string, entry: string): boolean {
 }
 
 /**
+ * Hosts a link inside the product may open in the user's browser.
+ *
+ * EMPTY, and correct today: this handler used to hand ANY http(s) URL the
+ * renderer produced to `shell.openExternal`, which is the OS "open this in
+ * whatever handles it" call — and apps/web contains no external link at all, so
+ * every URL that could ever have reached it came from somewhere other than a
+ * link the product authored: a supplier name rendered into an anchor, an
+ * imported file's contents, a compromised renderer. There was nothing to allow,
+ * and allowing everything protected nothing.
+ *
+ * Add a host here when the product genuinely starts linking out (a help site, a
+ * licence portal, the ETA e-invoicing portal). One host per line, with the
+ * screen that links to it named — not a suffix match, because
+ * `mezan.example.attacker.test` ends with the same characters.
+ */
+export const EXTERNAL_LINK_ALLOWED_HOSTS: readonly string[] = [];
+
+export function isAllowedExternalLink(
+  target: string,
+  allowedHosts: readonly string[] = EXTERNAL_LINK_ALLOWED_HOSTS,
+): boolean {
+  try {
+    const url = new URL(target);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+    // Exact host equality. A `endsWith(".mezan.test")` check — the shape this
+    // reaches for first — also admits `mezan.test.attacker.example`, and a
+    // `includes()` admits anything at all.
+    return allowedHosts.includes(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+// One registration per frame. `hardenWebContents` is called from two places by
+// design — `createWindow` for the frame it just built, and the app-wide
+// `web-contents-created` catch-all in main/index.ts for every frame nobody
+// remembered — and a `will-navigate` listener added twice would run twice.
+const hardened = new WeakSet<WebContents>();
+
+/**
+ * The navigation posture, applied to ONE frame.
+ *
+ * This lived inline in `createWindow` and was therefore bound to that single
+ * `webContents` — so the main window was hardened and nothing else was. Any
+ * other frame the app ever creates (a devtools-spawned view, a `<webview>`, a
+ * future second window someone adds without reading this file) started with
+ * Electron's defaults: free navigation, and `window.open` producing a child
+ * frame that inherits none of the `webPreferences` below.
+ */
+export function hardenWebContents(contents: WebContents, entry: string): void {
+  if (hardened.has(contents)) return;
+  hardened.add(contents);
+
+  // No child windows. A link to an allow-listed host opens in the real browser,
+  // where the user can see the address bar; everything else is refused, and
+  // says so in the log rather than failing silently — a refusal nobody can see
+  // reads as a broken button.
+  contents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternalLink(url)) {
+      void shell.openExternal(url);
+    } else {
+      console.warn(`[window] refused to open ${url} externally — host is not on the allow-list`);
+    }
+    return { action: "deny" };
+  });
+
+  // The window shows this app or nothing. A navigation away from the renderer
+  // origin is either a bug or an attack, and both end the same way.
+  contents.on("will-navigate", (event, url) => {
+    if (!isRendererOrigin(url, entry)) event.preventDefault();
+  });
+
+  // `<webview>` is off at the `webPreferences` level, but that flag is per
+  // frame and this refusal is not: a webview attaches with its OWN preferences
+  // object, which is the one place an app can hand out a frame with Node
+  // integration on without ever writing `nodeIntegration: true`.
+  contents.on("will-attach-webview", (event) => {
+    console.warn("[window] refused a <webview> attachment — this product embeds no third-party frames");
+    event.preventDefault();
+  });
+}
+
+/**
  * Creates the single main window. Secure defaults throughout: context
  * isolation on, the renderer sandboxed, no Node integration — the renderer's
  * only capability is the narrow `window.mezan` bridge the preload script
  * installs (preload/index.ts). Loads the Vite dev server in development and
  * the packaged `web` bundle in production (see env.ts).
- *
- * The two handlers below are the other half of that posture. Without them the
- * renderer could navigate this window to any URL on the internet, or open a
- * child window with `window.open` — and a child window inherits nothing from
- * these `webPreferences`, so it is the one place an Electron app hands out a
- * less-hardened frame than the one it configured.
  */
 export function createWindow(): BrowserWindow {
   const entry = rendererEntry().url;
@@ -59,18 +136,7 @@ export function createWindow(): BrowserWindow {
 
   win.once("ready-to-show", () => win.show());
 
-  // No child windows. An external http(s) link opens in the real browser,
-  // where the user can see the address bar; anything else is refused.
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https://") || url.startsWith("http://")) void shell.openExternal(url);
-    return { action: "deny" };
-  });
-
-  // The window shows this app or nothing. A navigation away from the renderer
-  // origin is either a bug or an attack, and both end the same way.
-  win.webContents.on("will-navigate", (event, url) => {
-    if (!isRendererOrigin(url, entry)) event.preventDefault();
-  });
+  hardenWebContents(win.webContents, entry);
 
   // Always a URL now: dev is the Vite server, production is the `app://`
   // origin. loadFile() is deliberately not used — it yields a file:// document,

@@ -4,6 +4,7 @@ import {
   hasFeature,
   LAN_MULTI_TILL_FEATURE,
   SeatLimitExceededError,
+  UserSeatLimitExceededError,
   DeviceSessionNotFoundError,
   type SeatSessionRegistry,
 } from "@mezan/domain";
@@ -11,8 +12,10 @@ import { connectDeviceRequestSchema } from "@mezan/contracts";
 import {
   createAuthenticatedGate,
   createPermissionGate,
+  callerUserId,
   type AuthContextResolver,
 } from "../permission-gate.js";
+import { readSessionToken, type SessionRegistry } from "../session-auth.js";
 import { createLanGate, type EntitlementsResolver, type LanGateVariables } from "./gate.js";
 
 export interface LanRoutesOptions {
@@ -26,7 +29,20 @@ export interface LanRoutesOptions {
    * own `x-permissions` header is the single thing that must never run there.
    */
   readonly resolveAuthContext: AuthContextResolver;
+  /**
+   * The AUTH session registry (../session-auth.ts), so a device disconnect can
+   * revoke the bearer token that device connected with — not just the seat.
+   * Optional so callers that don't wire real sessions (older desktop builds,
+   * unit tests) still get seat enforcement; without it, `DELETE
+   * /sessions/:id` frees the seat but the till's token stays live (PR #54
+   * review finding #3: "disconnect is cosmetic — it frees a number, not a
+   * connection").
+   */
+  readonly sessions?: SessionRegistry;
 }
+
+/** One `disconnected`/`connected`/`ping` push to every open `/lan/events` stream. */
+type LanBroadcast = (event: string, data: unknown) => Promise<void>;
 
 /**
  * LAN multi-till routes — mounted at `/lan` on the shared Hono app (both the
@@ -45,9 +61,11 @@ export interface LanRoutesOptions {
  *                              it still needs a session: seat occupancy is a
  *                              fact about the shop, not a public one.
  *   GET    /sessions        — connected-devices list (admin panel data source)
- *   POST   /sessions        — connect a device; idempotent by sessionId
- *   DELETE /sessions/:id    — disconnect a device (frees its seat; also the
- *                              admin panel's "disconnect" action)
+ *   POST   /sessions        — connect a device; idempotent per (account, deviceId)
+ *   DELETE /sessions/:id    — disconnect a device (frees its seat, revokes its
+ *                              auth session when one is wired, and pushes a
+ *                              `disconnected` SSE event; also the admin
+ *                              panel's "disconnect" action)
  *   GET    /events          — SSE keep-alive stream (docs/archive/plan.md §2.6: tills
  *                              connect over http+SSE)
  */
@@ -71,6 +89,33 @@ export function createLanRoutes(options: LanRoutesOptions) {
    */
   const signedIn = createAuthenticatedGate(resolveAuth);
 
+  /**
+   * Which bearer token connected each seat, so a disconnect can revoke that
+   * EXACT token rather than `sessions.revokeUser` (which would also sign out
+   * every other device the same account is legitimately using elsewhere).
+   * Pruned against the registry's own list on every connect/list so a seat
+   * the registry reaped for going idle doesn't leak its entry here forever.
+   */
+  const tokenBySessionId = new Map<string, string>();
+
+  function pruneTokens(live: readonly { sessionId: string }[]): void {
+    const liveIds = new Set(live.map((s) => s.sessionId));
+    for (const sessionId of tokenBySessionId.keys()) {
+      if (!liveIds.has(sessionId)) tokenBySessionId.delete(sessionId);
+    }
+  }
+
+  /** Every open `/lan/events` SSE stream, so a disconnect can push to all of them. */
+  const subscribers = new Set<LanBroadcast>();
+
+  function broadcast(event: string, data: unknown): void {
+    for (const emit of subscribers) {
+      // A subscriber whose write fails is a stream that already dropped; its
+      // own abort handling removes it from `subscribers`, so this is silent.
+      void emit(event, data).catch(() => {});
+    }
+  }
+
   app.get("/status", signedIn, async (c) => {
     const entitlements = await options.resolveEntitlements(c);
     const licensed = !!entitlements && hasFeature(entitlements, LAN_MULTI_TILL_FEATURE);
@@ -81,12 +126,14 @@ export function createLanRoutes(options: LanRoutesOptions) {
     });
   });
 
-  app.get("/sessions", licensedGate, permission("admin.settings.view"), (c) => {
+  app.get("/sessions", licensedGate, permission("admin.devices.view"), (c) => {
     registry.setSeats(c.get("lanEntitlements").seats);
+    const sessions = registry.list();
+    pruneTokens(sessions);
     return c.json({
       seats: registry.seats,
       connected: registry.connectedCount,
-      sessions: registry.list(),
+      sessions,
     });
   });
 
@@ -97,9 +144,27 @@ export function createLanRoutes(options: LanRoutesOptions) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
 
+    // The seat's identity is the AUTHENTICATED caller, never anything the
+    // body names — see @mezan/domain's session-registry.ts module doc for
+    // the seat-exhaustion defect this closes.
+    const userId = callerUserId(c);
+    if (!userId) {
+      return c.json(
+        { error: "SESSION_EXPIRED", message: "انتهت الجلسة. سجّل الدخول من جديد." },
+        401,
+      );
+    }
+
     registry.setSeats(c.get("lanEntitlements").seats);
     try {
-      const session = registry.connect(parsed.data);
+      const session = registry.connect({
+        userId,
+        deviceId: parsed.data.deviceId,
+        deviceLabel: parsed.data.deviceLabel,
+      });
+      const token = readSessionToken(c);
+      if (token) tokenBySessionId.set(session.sessionId, token);
+      pruneTokens(registry.list());
       return c.json(session, 201);
     } catch (err) {
       if (err instanceof SeatLimitExceededError) {
@@ -113,14 +178,32 @@ export function createLanRoutes(options: LanRoutesOptions) {
           409,
         );
       }
+      if (err instanceof UserSeatLimitExceededError) {
+        return c.json(
+          {
+            error: err.code,
+            maxSeatsPerUser: err.maxSeatsPerUser,
+            message: err.message,
+          },
+          409,
+        );
+      }
       throw err;
     }
   });
 
-  app.delete("/sessions/:sessionId", licensedGate, permission("admin.settings.edit"), (c) => {
+  app.delete("/sessions/:sessionId", licensedGate, permission("admin.devices.manage"), (c) => {
     const sessionId = c.req.param("sessionId");
     try {
       registry.disconnect(sessionId);
+      const token = tokenBySessionId.get(sessionId);
+      tokenBySessionId.delete(sessionId);
+      // Freeing the SEAT NUMBER was the whole fix before — the device kept
+      // its bearer token and kept working. Revoking the exact token it
+      // connected with is what makes the disconnect real (PR #54 review
+      // finding #3).
+      if (token && options.sessions) options.sessions.revoke(token);
+      broadcast("disconnected", { sessionId });
       return c.body(null, 204);
     } catch (err) {
       if (err instanceof DeviceSessionNotFoundError) {
@@ -134,17 +217,19 @@ export function createLanRoutes(options: LanRoutesOptions) {
     const heartbeatMs = options.sseHeartbeatMs ?? 15_000;
     return streamSSE(c, async (stream) => {
       const signal = c.req.raw.signal;
-      await stream.writeSSE({
-        event: "connected",
-        data: JSON.stringify({ seats: registry.seats, connected: registry.connectedCount }),
-      });
-      while (!signal.aborted) {
-        await stream.sleep(heartbeatMs);
-        if (signal.aborted) break;
-        await stream.writeSSE({
-          event: "ping",
-          data: JSON.stringify({ at: Date.now(), connected: registry.connectedCount }),
-        });
+      const emit: LanBroadcast = async (event, data) => {
+        await stream.writeSSE({ event, data: JSON.stringify(data) });
+      };
+      subscribers.add(emit);
+      try {
+        await emit("connected", { seats: registry.seats, connected: registry.connectedCount });
+        while (!signal.aborted) {
+          await stream.sleep(heartbeatMs);
+          if (signal.aborted) break;
+          await emit("ping", { at: Date.now(), connected: registry.connectedCount });
+        }
+      } finally {
+        subscribers.delete(emit);
       }
     });
   });

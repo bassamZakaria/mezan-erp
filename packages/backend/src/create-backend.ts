@@ -1186,7 +1186,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },
-    ...(options.lan ? { lan: options.lan } : {}),
+    // The LAN routes need the SAME session registry the auth routes issue
+    // into, or a disconnect revokes a token nobody is holding.
+    ...(options.lan ? { lan: { ...options.lan, sessions } } : {}),
     settingsStore: settings,
     branchStore: branches,
     warehouseStore: warehouses,

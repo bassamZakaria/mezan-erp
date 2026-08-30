@@ -14,6 +14,7 @@ import { run as reports } from "./scenarios/reports.js";
 import { run as salesParity } from "./scenarios/sales-parity.js";
 import { run as itemsForms } from "./scenarios/items-forms.js";
 import { run as security } from "./scenarios/security.js";
+import { run as securityUnits } from "./scenarios/security-units.js";
 
 /**
  * `pnpm scenarios` — the executable half of docs/TESTING.md §2 Phase 3.
@@ -31,7 +32,7 @@ console.log(`baseline  tb ${start.tb.toFixed(6)} · inventory ${start.inventory.
 const only = new Set(process.argv.slice(2));
 
 for (const [name, fn] of [
-  ["security", security], ["shell", shell], ["items-forms", itemsForms], ["accounting", accounting], ["crm", crm], ["platform", platform], ["eta", eta],
+  ["security-units", securityUnits], ["security", security], ["shell", shell], ["items-forms", itemsForms], ["accounting", accounting], ["crm", crm], ["platform", platform], ["eta", eta],
   ["hr", hr], ["inventory", inventory], ["purchases", purchases], ["sales", sales], ["reports", reports],
   ["sales-parity", salesParity],
   ["cross-module", crossModule], ["seams", seams],

@@ -69,6 +69,18 @@ export const bootstrapSeedResultSchema = z.object({
   warehouses: z.number().int().nonnegative(),
   fiscalPeriods: z.number().int().nonnegative(),
   users: z.number().int().nonnegative(),
+  /**
+   * Whether anybody has claimed this install yet.
+   *
+   * Optional so the seed result — which answers "what got created" — keeps its
+   * old shape; `GET /bootstrap/status` supplies it, and the login screen needs
+   * it. A fresh packaged install used to land on a login form with an empty
+   * account list, a blank email box and nothing saying the machine had never
+   * been set up, while the only account that existed had a random PIN nobody
+   * knows. The owner typed their own name, failed five times, and was locked
+   * out of a brand-new install inside ninety seconds.
+   */
+  claimed: z.boolean().optional(),
 });
 
 export type LoginRequestDTO = z.infer<typeof loginRequestSchema>;

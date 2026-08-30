@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { BankStatementDTO, StatementLineDTO, TreasuryAccountDTO } from "@mezan/contracts";
+import type { BankStatementDTO, BankStatementListItemDTO, StatementLineDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { BankReconciliationScreen } from "./BankReconciliationScreen";
 import { renderWithProviders, stubTransport, testAdminSession, type StubResult } from "../data/test-support";
 
@@ -53,19 +53,33 @@ function line(overrides: Partial<StatementLineDTO> = {}): StatementLineDTO {
   };
 }
 
+/** Lines matched over lines seen — the same rate the server would compute. */
+function matchSummaryFor(lines: readonly StatementLineDTO[]) {
+  const matched = lines.filter((l) => l.status === "matched").length;
+  return {
+    total: lines.length,
+    matched,
+    unmatched: lines.length - matched,
+    matchRate: lines.length === 0 ? 0 : matched / lines.length,
+  };
+}
+
 function detail(overrides: { statement?: Partial<BankStatementDTO>; lines?: StatementLineDTO[] } = {}) {
   const lines = overrides.lines ?? [line()];
-  const matched = lines.filter((l) => l.status === "matched").length;
   return {
     ...statement(overrides.statement),
     lines,
-    matchSummary: {
-      total: lines.length,
-      matched,
-      unmatched: lines.length - matched,
-      matchRate: lines.length === 0 ? 0 : matched / lines.length,
-    },
+    matchSummary: matchSummaryFor(lines),
   };
+}
+
+/**
+ * A list row: `GET /bank-statements` always returns a `matchSummary` next to
+ * each statement (`bankStatementListItemSchema` requires it) — a bare
+ * `BankStatementDTO` is not a real list response.
+ */
+function listItem(base: BankStatementDTO, lines: readonly StatementLineDTO[] = [line()]): BankStatementListItemDTO {
+  return { ...base, matchSummary: matchSummaryFor(lines) };
 }
 
 const CSV = "التاريخ,البيان,مدين,دائن,المرجع\n01/08/2026,إيداع نقدي,0,1000.00,TX1\n";
@@ -76,7 +90,7 @@ function csvFile(): File {
 
 function baseHandlers(statements: BankStatementDTO[]): Record<string, () => StubResult> {
   return {
-    "GET /bank-statements": () => ({ body: statements }),
+    "GET /bank-statements": () => ({ body: statements.map((s) => listItem(s)) }),
     "GET /treasury-accounts": () => ({ body: [BANK_ACCOUNT] }),
   };
 }
@@ -103,13 +117,20 @@ describe("BankReconciliationScreen — list", () => {
   it("sends the status filter tab to the server as a query param", async () => {
     const user = userEvent.setup();
     const paths: string[] = [];
+    // A zero-count status chip is not rendered (ListViews), so every status
+    // needs at least one statement here for all four tabs to appear.
+    const statements = [
+      statement(),
+      statement({ id: "stmt-2", statementNumber: "ST-002", status: "in_progress" }),
+      statement({ id: "stmt-3", statementNumber: "ST-003", status: "completed" }),
+    ];
     renderWithProviders(<BankReconciliationScreen />, {
       initialSession: testAdminSession,
       transport: (path, init) => {
         const method = (init?.method ?? "GET").toUpperCase();
         if (method === "GET" && path.startsWith("/bank-statements")) paths.push(path);
         const key = `${method} ${path.split("?")[0]}`;
-        const handler = baseHandlers([statement()])[key];
+        const handler = baseHandlers(statements)[key];
         const result: StubResult = handler ? handler() : { status: 404, body: { error: "NOT_FOUND" } };
         const status = result.status ?? 200;
         return Promise.resolve({
@@ -137,7 +158,7 @@ describe("BankReconciliationScreen — import dialog", () => {
       transport: stubTransport({ ...baseHandlers([]), "GET /bank-statements/column-mapping/ta-bank1": () => ({ status: 404, body: {} }) }),
     });
     await screen.findByText("لا توجد كشوف بنك بعد");
-    await user.click(screen.getByRole("button", { name: "استيراد كشف بنك" }));
+    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]);
 
     const dialog = await screen.findByRole("dialog", { name: "استيراد كشف بنك" });
     expect(within(dialog).getByRole("button", { name: "تعيين الأعمدة" })).toBeDisabled();
@@ -174,7 +195,7 @@ describe("BankReconciliationScreen — import dialog", () => {
       }),
     });
     await screen.findByText("لا توجد كشوف بنك بعد");
-    await user.click(screen.getByRole("button", { name: "استيراد كشف بنك" }));
+    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]);
     const dialog = await screen.findByRole("dialog", { name: "استيراد كشف بنك" });
 
     await user.type(within(dialog).getByPlaceholderText("اختر حسابا بنكيا"), "بنك");
@@ -195,7 +216,7 @@ describe("BankReconciliationScreen — import dialog", () => {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /treasury-accounts": () => ({ body: [BANK_ACCOUNT] }),
-        "GET /bank-statements": () => ({ body: imported ? [statement()] : [] }),
+        "GET /bank-statements": () => ({ body: imported ? [listItem(statement())] : [] }),
         "GET /bank-statements/column-mapping/ta-bank1": () => ({ status: 404, body: {} }),
         "GET /bank-statements/stmt-1": () => ({ body: detail() }),
         "POST /bank-statements/import": (init) => {
@@ -205,7 +226,7 @@ describe("BankReconciliationScreen — import dialog", () => {
       }),
     });
     await screen.findByText("لا توجد كشوف بنك بعد");
-    await user.click(screen.getByRole("button", { name: "استيراد كشف بنك" }));
+    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]);
     const dialog = await screen.findByRole("dialog", { name: "استيراد كشف بنك" });
 
     await user.type(within(dialog).getByPlaceholderText("اختر حسابا بنكيا"), "بنك");

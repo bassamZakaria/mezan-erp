@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
 import type { CustomerDTO, ItemDTO, SalesReturnDocumentDTO, WarehouseDTO } from "@mezan/contracts";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { SalesReturnsScreen } from "./SalesReturnsScreen";
@@ -143,6 +143,16 @@ describe("SalesReturnsScreen", () => {
     expect(await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً")).toBeInTheDocument();
   });
 
+  it("shows a retry control when the return list fails to load", async () => {
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "GET /sales-returns": () => ({ status: 500, body: { error: "INTERNAL" } }),
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل مرتجعات المبيعات.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
+
   it("lists sales returns from the real API", async () => {
     const transport = stubTransport(baseHandlers([salesReturn()]));
     renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
@@ -155,7 +165,7 @@ describe("SalesReturnsScreen", () => {
     const transport = stubTransport({
       ...baseHandlers(current),
       "GET /sales-returns": () => ({ body: current }),
-      "POST /sales-returns": (init) => {
+      "POST /sales-returns/from-invoice": (init) => {
         const body = JSON.parse((init?.body as string) ?? "{}");
         const created = salesReturn({ id: body.id, docNo: null, status: "draft" });
         current = [...current, created];
@@ -164,9 +174,13 @@ describe("SalesReturnsScreen", () => {
     });
     renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
-    fireEvent.click(screen.getByRole("button", { name: "مرتجع جديد" }));
-    const dialog = screen.getByRole("dialog", { name: "مرتجع مبيعات جديد" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ كمسودة" }));
+    // Two buttons share this label: the header action and the empty-state's own action.
+    const [newButton] = screen.getAllByRole("button", { name: "مرتجع جديد" });
+    fireEvent.click(newButton as HTMLElement);
+    // Create is a sub-page, not a dialog: the list is replaced, not overlaid.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("شركة الأمل للتجارة")).toBeInTheDocument();
   });
 
@@ -186,10 +200,12 @@ describe("SalesReturnsScreen", () => {
     });
     renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     fireEvent.click(await screen.findByText("SR-000001"));
-    const dialog = screen.getByRole("dialog", { name: "SR-000001" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد المرتجع" }));
-    expect(await within(dialog).findByRole("button", { name: "إلغاء المرتجع" })).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "إلغاء المرتجع" }));
-    await within(dialog).findByText("ملغي");
+    // The detail is a sub-page, not a dialog: the list is replaced, not overlaid.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await screen.findByRole("heading", { name: "SR-000001" });
+    fireEvent.click(screen.getByRole("button", { name: "تأكيد المرتجع" }));
+    expect(await screen.findByRole("button", { name: "إلغاء المرتجع" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء المرتجع" }));
+    await waitFor(() => expect(screen.getByText("ملغي")).toBeInTheDocument());
   });
 });

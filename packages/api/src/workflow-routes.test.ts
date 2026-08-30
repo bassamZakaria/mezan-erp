@@ -5,7 +5,9 @@ import {
   type SqliteWorkflowConfigStoreHandle,
   type SqliteApprovalRequestStoreHandle,
 } from "@mezan/persistence";
+import { ALL_SCOPE } from "@mezan/domain";
 import { createWorkflowRoutes } from "./workflow-routes.js";
+import { createSessionRegistry, createSessionAuthContextResolver } from "./session-auth.js";
 
 const handles: Array<{ close(): void }> = [];
 afterEach(() => {

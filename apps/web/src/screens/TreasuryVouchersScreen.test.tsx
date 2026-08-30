@@ -232,10 +232,12 @@ describe("TreasuryVouchersScreen — list", () => {
     renderScreen();
     await screen.findByText("CV-000001");
     fireEvent.click(screen.getByRole("tab", { name: /بحاجة لتخصيص/ }));
+    // The filter round-trips through the (re-fetched) server query, so wait
+    // for it rather than asserting on the pre-refetch DOM.
+    // CV-000002 (other income, not allocatable) is filtered out.
+    await waitFor(() => expect(screen.queryByText("CV-000002")).not.toBeInTheDocument());
     // CV-000001 (1000, only 400 allocated) needs allocation and stays visible.
     expect(screen.getByText("CV-000001")).toBeInTheDocument();
-    // CV-000002 (other income, not allocatable) is filtered out.
-    expect(screen.queryByText("CV-000002")).not.toBeInTheDocument();
   });
 });
 
@@ -271,8 +273,10 @@ describe("TreasuryVouchersScreen — allocation", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
     expect(await screen.findByText("INV-000001")).toBeInTheDocument();
 
-    // Allocate 200 more to INV-000002.
-    fireEvent.change(await screen.findByLabelText("الفاتورة"), { target: { value: "inv-2" } });
+    // Allocate 200 more to INV-000002. The invoice field is a listbox
+    // combobox, not a native <select> — open it, then commit the option.
+    fireEvent.click(await screen.findByRole("combobox", { name: "الفاتورة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: /^INV-000002/ }));
     setMoney(screen.getByLabelText("مبلغ التخصيص"), "200");
     fireEvent.click(screen.getByRole("button", { name: "تخصيص" }));
 

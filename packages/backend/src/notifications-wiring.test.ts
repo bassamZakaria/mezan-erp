@@ -35,14 +35,29 @@ function post(app: App, path: string, body: unknown, headers: Record<string, str
   );
 }
 
-const ADMIN_HEADERS = {
-  "x-permissions": "*",
-};
-
+/**
+ * The server resolves the caller from its own session registry, so the suite
+ * signs the seeded admin in for real and carries the token it was issued.
+ */
 async function loginAdmin(app: App): Promise<SessionDTO> {
   const res = await post(app, "/auth/login", { username: "admin@cyag.example", pin: "123456" });
   expect(res.status).toBe(200);
   return (await res.json()) as SessionDTO;
+}
+
+function bearer(session: SessionDTO): Record<string, string> {
+  return { authorization: `Bearer ${session.token}` };
+}
+
+/** Every document line names a real catalogue item (D38). */
+async function createServiceItem(app: App, session: SessionDTO) {
+  const res = await post(
+    app,
+    "/items",
+    { id: "SVC-1", code: "SVC-1", nameAr: "خدمة", type: "service", baseUnitCode: "PCS" },
+    bearer(session),
+  );
+  expect(res.status).toBe(201);
 }
 
 async function waitForAsyncBridge() {
@@ -56,10 +71,11 @@ async function waitForAsyncBridge() {
 describe("notification-rules engine — real end-to-end wiring", () => {
   it("mounts /notification-rules and /notifications on the seeded backend", async () => {
     const app = await newBackend();
-    const rulesRes = await app.fetch(new Request("http://local/notification-rules", { headers: ADMIN_HEADERS }));
+    const session = await loginAdmin(app);
+    const rulesRes = await app.fetch(new Request("http://local/notification-rules", { headers: bearer(session) }));
     expect(rulesRes.status).toBe(200);
     const notificationsRes = await app.fetch(
-      new Request("http://local/notifications", { headers: { "x-user-id": "any-user" } }),
+      new Request("http://local/notifications", { headers: bearer(session) }),
     );
     expect(notificationsRes.status).toBe(200);
   });
@@ -80,12 +96,13 @@ describe("notification-rules engine — real end-to-end wiring", () => {
         priority: "normal",
         channels: ["in_app", "email"],
       },
-      ADMIN_HEADERS,
+      bearer(session),
     );
     expect(ruleRes.status).toBe(201);
     const rule = (await ruleRes.json()) as NotificationRuleDTO;
     expect(rule.active).toBe(true);
 
+    await createServiceItem(app, session);
     await post(
       app,
       "/customers",
@@ -101,10 +118,10 @@ describe("notification-rules engine — real end-to-end wiring", () => {
         taxExempt: false,
         etaBuyerType: "auto",
       },
-      { ...ADMIN_HEADERS, "x-user-id": session.userId },
+      bearer(session),
     );
 
-    const invoiceHeaders = { ...ADMIN_HEADERS, "x-user-id": session.userId };
+    const invoiceHeaders = bearer(session);
     const createRes = await post(
       app,
       "/sales-invoices",
@@ -141,7 +158,7 @@ describe("notification-rules engine — real end-to-end wiring", () => {
     await waitForAsyncBridge();
 
     const listRes = await app.fetch(
-      new Request("http://local/notifications", { headers: { "x-user-id": session.userId } }),
+      new Request("http://local/notifications", { headers: bearer(session) }),
     );
     expect(listRes.status).toBe(200);
     const notifications = (await listRes.json()) as NotificationDTO[];
@@ -155,14 +172,14 @@ describe("notification-rules engine — real end-to-end wiring", () => {
     expect(generated?.body).toContain("شركة الأمل للتجارة");
 
     const unreadRes = await app.fetch(
-      new Request("http://local/notifications/unread-count", { headers: { "x-user-id": session.userId } }),
+      new Request("http://local/notifications/unread-count", { headers: bearer(session) }),
     );
     expect((await unreadRes.json()) as { count: number }).toEqual({ count: 1 });
 
-    const readRes = await post(app, `/notifications/${generated?.id}/read`, {}, { "x-user-id": session.userId });
+    const readRes = await post(app, `/notifications/${generated?.id}/read`, {}, bearer(session));
     expect(readRes.status).toBe(200);
     const afterRead = await app.fetch(
-      new Request("http://local/notifications/unread-count", { headers: { "x-user-id": session.userId } }),
+      new Request("http://local/notifications/unread-count", { headers: bearer(session) }),
     );
     expect((await afterRead.json()) as { count: number }).toEqual({ count: 0 });
   });
@@ -184,9 +201,10 @@ describe("notification-rules engine — real end-to-end wiring", () => {
         priority: "high",
         channels: ["in_app"],
       },
-      ADMIN_HEADERS,
+      bearer(session),
     );
 
+    await createServiceItem(app, session);
     await post(
       app,
       "/customers",
@@ -202,11 +220,11 @@ describe("notification-rules engine — real end-to-end wiring", () => {
         taxExempt: false,
         etaBuyerType: "auto",
       },
-      { ...ADMIN_HEADERS, "x-user-id": session.userId },
+      bearer(session),
     );
 
-    const invoiceHeaders = { ...ADMIN_HEADERS, "x-user-id": session.userId };
-    await post(
+    const invoiceHeaders = bearer(session);
+    const createRes = await post(
       app,
       "/sales-invoices",
       {
@@ -234,11 +252,13 @@ describe("notification-rules engine — real end-to-end wiring", () => {
       },
       invoiceHeaders,
     );
-    await post(app, "/sales-invoices/inv-notif-2/confirm", {}, invoiceHeaders);
+    expect(createRes.status).toBe(201);
+    const confirmRes = await post(app, "/sales-invoices/inv-notif-2/confirm", {}, invoiceHeaders);
+    expect(confirmRes.status).toBe(200);
     await waitForAsyncBridge();
 
     const listRes = await app.fetch(
-      new Request("http://local/notifications", { headers: { "x-user-id": session.userId } }),
+      new Request("http://local/notifications", { headers: bearer(session) }),
     );
     const notifications = (await listRes.json()) as NotificationDTO[];
     expect(notifications.find((n) => n.eventCode === "SALES_INVOICE_CONFIRMED")).toBeUndefined();

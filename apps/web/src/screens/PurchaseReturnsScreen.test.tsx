@@ -2,9 +2,34 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
+import { useState, type ReactElement } from "react";
 import type { ItemDTO, PurchaseInvoiceDTO, PurchaseReturnDocumentDTO, SupplierDTO, WarehouseDTO } from "@mezan/contracts";
 import { PurchaseReturnsScreen } from "./PurchaseReturnsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
+
+/**
+ * The create/detail views are sub-pages addressed via `useSubPage()`, which
+ * reads from `NavigationContext` — there is no router wired up outside
+ * `AppLayout`, so a test that opens one needs its own stateful provider.
+ */
+function WithSubPageNav({ children }: { children: ReactElement }) {
+  const [segments, setSegments] = useState<string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: (next) => setSegments([...next]),
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 const suppliers: SupplierDTO[] = [
   {
@@ -112,11 +137,16 @@ describe("PurchaseReturnsScreen", () => {
         return { status: 201, body: created };
       },
     });
-    renderWithProviders(<PurchaseReturnsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
     await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
-    fireEvent.click(screen.getByRole("button", { name: "مرتجع جديد" }));
-    const dialog = screen.getByRole("dialog", { name: "مرتجع مشتريات جديد" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ كمسودة" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    expect(screen.getByRole("heading", { name: "مرتجع مشتريات جديد" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("شركة النيل للتوريدات")).toBeInTheDocument();
   });
 
@@ -134,12 +164,17 @@ describe("PurchaseReturnsScreen", () => {
         return { body: current[0] };
       },
     });
-    renderWithProviders(<PurchaseReturnsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
     fireEvent.click(await screen.findByText("PR-000001"));
-    const dialog = screen.getByRole("dialog", { name: "PR-000001" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد المرتجع" }));
-    expect(await within(dialog).findByRole("button", { name: "إلغاء المرتجع" })).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "إلغاء المرتجع" }));
-    await within(dialog).findByText("ملغي");
+    const detail = screen.getByRole("heading", { name: "PR-000001" }).closest("div.w-full") as HTMLElement;
+    fireEvent.click(within(detail).getByRole("button", { name: "تأكيد المرتجع" }));
+    expect(await within(detail).findByRole("button", { name: "إلغاء المرتجع" })).toBeInTheDocument();
+    fireEvent.click(within(detail).getByRole("button", { name: "إلغاء المرتجع" }));
+    await within(detail).findByText("ملغي");
   });
 });

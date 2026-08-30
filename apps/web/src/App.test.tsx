@@ -76,8 +76,9 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "لوحة التحكم" })).toHaveAttribute("aria-current", "page");
-    // The shell surfaces the real tenant name from the session (server-resolved from settings).
-    expect(screen.getByText("Cyag")).toBeInTheDocument();
+    // The rail's footer carries the real signed-in identity from the session
+    // (RailFooter renders `user.name`), not a placeholder.
+    expect(screen.getByText(testAdminSession.nameAr)).toBeInTheDocument();
   });
 
   it("routes to another screen and back to لوحة التحكم via the sidebar top item", async () => {

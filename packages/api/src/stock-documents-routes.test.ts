@@ -8,6 +8,7 @@ import {
   stockTransferDocumentType,
   createInventoryOpsStockHook,
   createInventoryGlPostingHook,
+  createDocumentWorkflowGate,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
 } from "@mezan/domain";
@@ -90,11 +91,13 @@ async function newHarness() {
   const adjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: ops.stockAdjustments,
     numbering: { next: () => glLedger.numbering.next("STOCK_ADJUSTMENT") },
+    workflow: createDocumentWorkflowGate(() => null),
     stock: stockHook,
   });
   const transfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
     repo: ops.stockTransfers,
     numbering: { next: () => glLedger.numbering.next("STOCK_TRANSFER") },
+    workflow: createDocumentWorkflowGate(() => null),
     stock: stockHook,
   });
   const counts = new PhysicalCountService({

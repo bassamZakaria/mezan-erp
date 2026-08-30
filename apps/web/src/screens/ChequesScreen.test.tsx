@@ -13,6 +13,22 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
+/**
+ * settings/form-controls.tsx's `TextField` renders a `<label>` without a
+ * `for`/`id`, so it has no programmatic association with its `<input>` —
+ * `getByLabelText` cannot find it. Falls back to the DOM adjacency the
+ * visible label still has to the control, for fields with no other
+ * distinguishing attribute (no placeholder, no aria-label).
+ */
+function inputNextToLabel(labelText: string): HTMLElement {
+  const label = screen.getByText(labelText);
+  const input = label.parentElement?.querySelector("input, textarea, select");
+  if (!(input instanceof HTMLElement)) {
+    throw new Error(`No form control found next to the label "${labelText}"`);
+  }
+  return input;
+}
+
 function cheque(overrides: Partial<ChequeDTO> = {}): ChequeDTO {
   return {
     id: "chq-1",
@@ -174,6 +190,11 @@ describe("ChequesScreen — list", () => {
           cheque({ id: "chq-2", chequeNumber: "CHQ-5002", status: "deposited", effectiveStatus: "deposited" }),
           cheque({ id: "chq-3", chequeNumber: "CHQ-5003", effectiveStatus: "due_today" }),
         ]),
+        // a chip with a zero count is hidden (ListViews) — give every status a
+        // real count, the way the server would, so all seven tabs render.
+        "GET /cheques/counts": () => ({
+          body: { all: 3, pending: 1, under_collection: 1, due_today: 1, deposited: 1, collected: 1, bounced: 1, replaced: 1 },
+        }),
       }),
     });
     await screen.findByText("CHQ-5001");
@@ -209,7 +230,9 @@ describe("ChequesScreen — list", () => {
     });
     await screen.findByText("CHQ-5001");
     await user.type(screen.getByPlaceholderText("بحث برقم الشيك..."), "9999");
-    await waitFor(() => expect(screen.queryByText("CHQ-5001")).not.toBeInTheDocument());
+    // useUrlSearch settles the query into the address 300ms after typing stops
+    // (apps/web/src/lib/url-state.ts), so the server-bound refetch trails the keystrokes.
+    await waitFor(() => expect(screen.queryByText("CHQ-5001")).not.toBeInTheDocument(), { timeout: 3000 });
     expect(screen.getByText("CHQ-9999")).toBeInTheDocument();
   });
 
@@ -328,8 +351,12 @@ describe("ChequesScreen — create form", () => {
     await user.type(supplierPicker, "الدلتا");
     await user.click(await screen.findByText("مورد الدلتا"));
 
-    await user.type(screen.getByLabelText("رقم الشيك *"), "CHQ-9001");
-    await user.type(screen.getByLabelText("اسم البنك *"), "البنك الأهلي");
+    // TextField (settings/form-controls.tsx) renders its <label> without a "for",
+    // so these two are not programmatically associated with their <input> and
+    // getByLabelText cannot find them — a real accessibility defect, left alone
+    // per the task's rule 1. Locate the control next to its visible label instead.
+    await user.type(inputNextToLabel("رقم الشيك *"), "CHQ-9001");
+    await user.type(inputNextToLabel("اسم البنك *"), "البنك الأهلي");
     await user.type(screen.getByLabelText("المبلغ"), "500");
 
     const branch = screen.getByPlaceholderText("اختر الفرع...");

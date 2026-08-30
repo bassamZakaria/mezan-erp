@@ -122,7 +122,9 @@ describe("InstallmentPlansScreen", () => {
     });
     renderWithProviders(<InstallmentPlansScreen />, { transport, initialSession: testAdminSession });
     await screen.findByText("أنشئ خطة أقساط لتقسيم مبلغ الفاتورة على دفعات");
-    fireEvent.click(screen.getByRole("button", { name: "خطة جديدة" }));
+    // The header action and the empty state's own action both read "خطة جديدة"
+    // while the list is empty — the header one is used here.
+    fireEvent.click(screen.getAllByRole("button", { name: "خطة جديدة" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "خطة أقساط جديدة" });
     await within(dialog).findByText(/#1/);
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));

@@ -14,6 +14,11 @@ function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: strin
   fireEvent.mouseDown(option);
 }
 
+/** TextField's label isn't wired via htmlFor/id (settings/form-controls.tsx), so it's reachable only by walking to its sibling input. */
+function fieldTextbox(container: HTMLElement, label: string): HTMLElement {
+  return within(within(container).getByText(label).parentElement as HTMLElement).getByRole("textbox");
+}
+
 const sampleDepartments: DepartmentDTO[] = [
   {
     id: "dept-1",
@@ -71,7 +76,7 @@ describe("JobTitlesScreen", () => {
 
     const dialog = screen.getByRole("dialog", { name: "إضافة مسمى وظيفي" });
     pickFromCombobox(dialog, "القسم *", "المبيعات");
-    fireEvent.change(within(dialog).getByLabelText("اسم المسمى الوظيفي *"), { target: { value: "Accountant" } });
+    fireEvent.change(fieldTextbox(dialog, "اسم المسمى الوظيفي *"), { target: { value: "Accountant" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByText("Accountant")).toBeInTheDocument();

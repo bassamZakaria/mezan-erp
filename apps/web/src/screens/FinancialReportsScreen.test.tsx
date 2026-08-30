@@ -7,14 +7,14 @@ import { renderWithProviders, stubTransport, testAdminSession } from "../data/te
 
 /**
  * Proves the financial-statements page goes through the app's REAL data client
- * (`useApi().request` → `useReport`) against the live `/reports/accounting/*`
+ * (`useApi().request` → `useReport`) against the live `/financial-reports/*`
  * API (packages/api reports-routes.ts), not a fixture ledger: the stub
  * transport stands in for the server-computed statements, and each test asserts
  * the screen requests the right endpoint and renders the reconciliation banners
  * the server returned.
  */
 
-/** A server-computed report outcome, as the /reports/accounting/* API returns it. */
+/** A server-computed report outcome, as the /financial-reports/* API returns it. */
 function reportBody(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     rows: [{ accountId: "1100", code: "1100", nameAr: "النقدية", debit: 100, credit: 0 }],
@@ -42,9 +42,9 @@ function fullTransport(capture?: { paths: string[] }) {
         { id: "1100", code: "1100", nameAr: "النقدية", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" },
       ],
     }),
-    "GET /reports/accounting/trial-balance": (_i, p) => (record(p), { body: reportBody() }),
-    "GET /reports/accounting/income-statement": (_i, p) => (record(p), { body: reportBody() }),
-    "GET /reports/accounting/balance-sheet": (_i, p) => (
+    "GET /financial-reports/trial-balance": (_i, p) => (record(p), { body: reportBody() }),
+    "GET /financial-reports/income-statement": (_i, p) => (record(p), { body: reportBody() }),
+    "GET /financial-reports/balance-sheet": (_i, p) => (
       record(p),
       {
         body: reportBody({
@@ -52,8 +52,8 @@ function fullTransport(capture?: { paths: string[] }) {
         }),
       }
     ),
-    "GET /reports/accounting/cash-flow": (_i, p) => (record(p), { body: reportBody() }),
-    "GET /reports/accounting/vat-return": (_i, p) => (
+    "GET /financial-reports/cash-flow": (_i, p) => (record(p), { body: reportBody() }),
+    "GET /financial-reports/vat-return": (_i, p) => (
       record(p),
       {
         body: reportBody({
@@ -71,19 +71,19 @@ function fullTransport(capture?: { paths: string[] }) {
         }),
       }
     ),
-    "GET /reports/accounting/general-ledger": (_i, p) => (record(p), { body: reportBody() }),
-    "GET /reports/accounting/account-ledger": (_i, p) => (record(p), { body: reportBody({ reconciliation: null }) }),
+    "GET /financial-reports/general-ledger": (_i, p) => (record(p), { body: reportBody() }),
+    "GET /financial-reports/account-ledger": (_i, p) => (record(p), { body: reportBody({ reconciliation: null }) }),
   });
 }
 
 describe("FinancialReportsScreen (real GL API wiring)", () => {
-  it("auto-runs the trial balance tab against /reports/accounting/trial-balance with its reconciliation banner", async () => {
+  it("auto-runs the trial balance tab against /financial-reports/trial-balance with its reconciliation banner", async () => {
     const capture = { paths: [] as string[] };
     renderWithProviders(<FinancialReportsScreen />, { transport: fullTransport(capture), initialSession: testAdminSession });
 
     expect(screen.getByRole("heading", { name: "ميزان المراجعة" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("إجمالي المدين = إجمالي الدائن")).toBeInTheDocument());
-    expect(capture.paths.some((p) => p.includes("/reports/accounting/trial-balance"))).toBe(true);
+    expect(capture.paths.some((p) => p.includes("/financial-reports/trial-balance"))).toBe(true);
     expect(screen.getByRole("tab", { name: "ميزان المراجعة" })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -94,10 +94,14 @@ describe("FinancialReportsScreen (real GL API wiring)", () => {
     await waitFor(() => expect(screen.getByText("الأصول = الالتزامات + حقوق الملكية")).toBeInTheDocument());
   });
 
-  it("shows the VAT net-payable summary computed from the server rows", async () => {
+  it("shows the output-vs-input VAT chart computed from the server rows", async () => {
+    // The report definition declares a `chart` (packages/domain/src/reports/vat-return.ts),
+    // and ReportScreen renders the declared chart in place of `renderSummary` whenever one
+    // is present — so the net-payable summary line never reaches the DOM on this tab.
     renderWithProviders(<FinancialReportsScreen />, { transport: fullTransport(), initialSession: testAdminSession });
     fireEvent.click(screen.getByRole("tab", { name: "إقرار ضريبة القيمة المضافة" }));
-    await waitFor(() => expect(screen.getByText(/صافي الضريبة المستحقة الدفع/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/الفرق بينهما هو صافي الإقرار/)).toBeInTheDocument());
+    expect(screen.getAllByText("ضريبة المخرجات (المبيعات)").length).toBeGreaterThan(0);
   });
 
   it("gates the on-demand general ledger behind عرض التقرير", async () => {
@@ -106,10 +110,10 @@ describe("FinancialReportsScreen (real GL API wiring)", () => {
     fireEvent.click(screen.getByRole("tab", { name: "دفتر الأستاذ العام" }));
     // Placeholder until run — no request fired yet.
     expect(screen.getByText(/اضغط .عرض التقرير./)).toBeInTheDocument();
-    expect(capture.paths.some((p) => p.includes("/reports/accounting/general-ledger"))).toBe(false);
+    expect(capture.paths.some((p) => p.includes("/financial-reports/general-ledger"))).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "عرض التقرير" }));
-    await waitFor(() => expect(capture.paths.some((p) => p.includes("/reports/accounting/general-ledger"))).toBe(true));
+    await waitFor(() => expect(capture.paths.some((p) => p.includes("/financial-reports/general-ledger"))).toBe(true));
   });
 
   it("keeps an Excel export control available on the auto-run trial balance tab", async () => {

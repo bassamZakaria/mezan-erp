@@ -51,6 +51,7 @@ function renderScreen(suppliers: SupplierDTO[] = [supplier(), inactiveSupplier])
   let current = [...suppliers];
   const transport = stubTransport({
     "GET /suppliers": (_init, path) => {
+      console.log("GET /suppliers called with", path);
       const status = new URL(path, "http://x").searchParams.get("status");
       const rows = status ? current.filter((s) => (status === "active" ? s.active : !s.active)) : current;
       return { body: rows };
@@ -119,7 +120,9 @@ describe("SuppliersScreen", () => {
     renderScreen();
     await screen.findByText("جاري");
     fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
-    expect(await screen.findByText("مورد قطع الغيار الشرقي", {}, { timeout: 3000 })).toBeInTheDocument();
+    const found = await screen.findByText("مورد قطع الغيار الشرقي", {}, { timeout: 3000 });
+    console.log("FOUND isConnected", found.isConnected, "ownerDoc===document", found.ownerDocument === document);
+    expect(found).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("جاري")).not.toBeInTheDocument());
   });
 

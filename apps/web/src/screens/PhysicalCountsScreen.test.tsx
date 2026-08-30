@@ -110,6 +110,7 @@ describe("PhysicalCountsScreen — count → variance → adjustment flow", () =
       ...baseHandlers(current),
       "GET /inventory/physical-counts": () => ({ body: current }),
       "POST /inventory/physical-counts": (init) => {
+        console.log("DEBUG POST /inventory/physical-counts called", init?.body);
         const body = JSON.parse((init?.body as string) ?? "{}");
         const created: PhysicalCountDTO = {
           id: body.id,
@@ -210,6 +211,10 @@ describe("PhysicalCountsScreen — count → variance → adjustment flow", () =
     await waitFor(() => expect(addButton).toBeEnabled());
 
     fireEvent.click(addButton);
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      console.log(`DEBUG t+${(i + 1) * 50}ms:`, document.body.textContent?.slice(0, 120));
+    }
 
     // Now on the count-entry grid for the newly started (IN_PROGRESS) count.
     await waitFor(() => expect(screen.getByRole("button", { name: "إنهاء الجرد" })).toBeInTheDocument());

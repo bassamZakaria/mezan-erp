@@ -446,7 +446,35 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**No defects are open.**
+**Nineteen filed 2026-08-30 by the test-coverage pass** (D66–D84). They were found by
+writing tests and manual scenarios against the real code, so each carries a file reference
+rather than a feeling. The ones marked **guarded** already have a passing test that pins the
+current behaviour and will go red the day it changes; the ones marked **reported** still
+need a measured reading in the running app before anyone fixes them.
+
+| # | Defect | Evidence | State |
+|---|---|---|---|
+| D66 | Every physical-count mutation invalidates `["inventory","physical-counts"]` while the screen reads `["physical-counts", filter]`, so الجرد الفعلي never refreshes: starting a count posts and the list bounces back empty, completing one leaves the row on قيد التنفيذ | `apps/web/src/data/inventory-ops-hooks.ts` vs `apps/web/src/data/hooks.ts` | guarded |
+| D67 | `TextField`/`NumberField`/`TextAreaField` render a `<label>` with no `htmlFor` and no matching `id`, so no plain text field in the app is programmatically labelled — clicking the label does not focus, and a screen reader announces nothing | `apps/web/src/settings/form-controls.tsx` → `packages/ui/src/primitives/form.tsx` | guarded |
+| D68 | The VAT return's «صافي الضريبة المستحقة الدفع» line never renders: the report screen prefers a report-declared `chart` over `renderSummary`, and the VAT return declares both | `apps/web/src/screens/reports/ReportScreen.tsx`, `packages/domain/src/reports/vat-return.ts` | reported |
+| D69 | The tenant-admin bypass on `POST /workflow/requests` is dead — the route is ungated, so no gate stashes an AuthContext and `callerRoleCodes` returns `[]`; an admin's own submission is held بانتظار الموافقة | `packages/api/src/workflow-routes.ts` | guarded (`it.fails`) |
+| D70 | Quotes, van trips and sales returns gate on the plain `.view` tier while `SALES_REP`/`VAN_SALES` hold only `.view_own`, so a rep gets 403 on their own work; sales invoices get this right with `gateAny` | `sales-quotes-routes.ts`, `field-sales-routes.ts`, `sales-returns-routes.ts` | reported |
+| D71 | Customer routes carry no branch or rep scoping at all, and the catalog defines a single `sales.customer.view` tier — every rep sees the whole company's customer book | `packages/api/src/customers-routes.ts` | reported |
+| D72 | The three purchasing policy toggles in settings (`requirePoForGrn`, `requireGrnForInvoice`, `trackSoldPurchaseItems`) reach no route: the server always runs `DEFAULT_PURCHASE_POLICY` | `packages/backend/src/create-backend.ts` → `packages/api/src/purchases-routes.ts` | reported |
+| D73 | The "from order" goods-receipt screen has no editable quantity field, so every receipt taken through the browser is 100% of the outstanding quantity — a real partial delivery cannot be recorded, though the domain supports it | `apps/web/src/screens/GoodsReceiptsScreen.tsx` | reported |
+| D74 | Several domain refusals build English-only messages that reach the Arabic UI verbatim (`OverReceiptError`, `PurchaseOrderNotReceivableError`, the permission gate's `Missing permission '…'`, the fiscal-period errors) | `packages/domain/src/purchasing/errors.ts`, `packages/api/src/permission-gate.ts`, `packages/domain/src/fiscal-periods/errors.ts` | reported |
+| D75 | Landed cost posts its payable to a generic clearing account with no supplier dimension, so the freight/customs liability exists in the GL and on no supplier's account | `packages/domain/src/landed-costs/` | reported |
+| D76 | A confirmed sales or purchase RETURN aggregates every line's tax into one untagged journal line, so the per-line `taxRatePercent` that D28 added does not extend to returns and the VAT return cannot split a mixed-rate return by rate | `packages/domain/src/sales-returns/`, `packages/domain/src/purchase-returns/` | reported |
+| D77 | Confirmed returns are never enqueued to ETA, though the domain models `credit_note` and `debit_note` | `packages/domain/src/eta/` | reported |
+| D78 | The ETA payload hardcodes `currencySold: "EGP"` on every line regardless of the document's currency | `packages/domain/src/eta/` | reported |
+| D79 | The ETA sub-type resolver matches by tax-rate value alone, so exempt (V003) and zero-rated export (V001) items — both 0% — can be filed as each other | `packages/domain/src/eta/` | reported |
+| D80 | Cheque transitions record no actor: the seven-state lifecycle has no audit attribution, so nobody can be asked who deposited or bounced one | `packages/domain/src/cheques/cheque-service.ts` | reported |
+| D81 | A voucher whose payment method is «شيك» never creates a cheque record, so the cheque register misses every cheque raised through the voucher screen | `packages/api/src/vouchers-routes.ts` | reported |
+| D82 | Finalising a bank statement never checks for unmatched lines, so a reconciliation can be closed with differences still open | `packages/api/src/bank-reconciliation-routes.ts` | reported |
+| D83 | When an approval gate holds a voucher, the create wizard never surfaces the `held` flag — the user sees a success and no explanation | `apps/web/src/screens/TreasuryVouchersScreen.tsx` | reported |
+| D84 | A landed cost naming a receipt whose layers are gone (fully consumed, or a mis-named `sourceDocId`) adds its value to the position but bumps no layer, so layer-level unit costs understate the basis with no signal | `packages/domain/src/inventory/wac.ts` | reported |
+
+D1–D65 are closed; the register is `archive/defect-register.md`.
 
 D65 — 20 scenario assertions failing because `2c0e7fa` made a user's Arabic name mandatory
 and no scenario that creates a user passed `nameAr` — was closed by `d3294fc`, which taught

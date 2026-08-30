@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import type { RoleDTO, UserDTO } from "@mezan/contracts";
 import { UsersPage } from "./UsersPage";
@@ -140,5 +140,127 @@ describe("UsersPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
     expect(screen.getByLabelText("الدور *")).toHaveAttribute("role", "combobox");
     expect(screen.getByLabelText("الموظف المرتبط (اختياري)")).toHaveAttribute("role", "combobox");
+  });
+
+  const twoBranches = [
+    { id: "MAIN", name: "الفرع الرئيسي" },
+    { id: "BRANCH2", name: "فرع الإسكندرية" },
+  ];
+  const twoWarehouses = [
+    { id: "MAIN-WH", name: "مستودع الرئيسي", branchId: "MAIN" },
+    { id: "WH2", name: "مستودع الإسكندرية", branchId: "BRANCH2" },
+  ];
+  const allScopeUser: UserDTO = { ...user, id: "user-all", nameAr: "مستخدم عام", branchScope: "*", warehouseScope: "*" };
+  const partialScopeUser: UserDTO = {
+    ...user,
+    id: "user-partial",
+    nameAr: "فرع واحد فقط",
+    nameEn: "Branch Only",
+    phone: "0100000000",
+    isCompanyAdmin: false,
+    roleId: "role-1",
+    branchScope: ["MAIN"],
+    warehouseScope: ["MAIN-WH"],
+  };
+
+  it("openEdit converts an ALL_SCOPE ('*') user into every branch/warehouse checked, and a scoped user into only its own branches — switching rows never leaks the previous row's draft", () => {
+    renderPage({ users: [allScopeUser, partialScopeUser], branches: twoBranches, warehouses: twoWarehouses });
+
+    fireEvent.click(screen.getByText("مستخدم عام"));
+    expect(screen.getByRole("checkbox", { name: "الفرع الرئيسي" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "فرع الإسكندرية" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "مستودع الرئيسي" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "مستودع الإسكندرية" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "إغلاق اللوحة" }));
+
+    fireEvent.click(screen.getByText("فرع واحد فقط"));
+    expect(screen.getByDisplayValue("فرع واحد فقط")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Branch Only")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("0100000000")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "الفرع الرئيسي" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "فرع الإسكندرية" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "مستودع الرئيسي" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "مستودع الإسكندرية" })).not.toBeChecked();
+  });
+
+  it("saves every edited field — nameEn, phone, password, pin, role, employee and the scope checkboxes — as the exact draft, keyed to the row that was opened", () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true });
+    const employees = [{ id: "EMP1", name: "موظف واحد", position: "محاسب" }];
+    renderPage({
+      users: [allScopeUser, partialScopeUser],
+      branches: twoBranches,
+      warehouses: twoWarehouses,
+      employees,
+      onSave,
+    });
+
+    fireEvent.click(screen.getByText("فرع واحد فقط"));
+    fireEvent.change(screen.getByDisplayValue("Branch Only"), { target: { value: "Branch Two" } });
+    fireEvent.change(screen.getByPlaceholderText("+20 1xx xxx xxxx"), { target: { value: "0111111111" } });
+    fireEvent.change(screen.getByLabelText("كلمة مرور جديدة (اتركها فارغة للإبقاء على الحالية)"), { target: { value: "Passw0rd!" } });
+    fireEvent.change(screen.getByPlaceholderText("123456"), { target: { value: "9999" } });
+
+    const roleInput = screen.getByLabelText("الدور *");
+    fireEvent.focus(roleInput);
+    fireEvent.mouseDown(within(screen.getByRole("listbox")).getByText("مندوب مبيعات"));
+
+    const employeeInput = screen.getByLabelText("الموظف المرتبط (اختياري)");
+    fireEvent.focus(employeeInput);
+    fireEvent.mouseDown(within(screen.getByRole("listbox")).getByText("موظف واحد"));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "فرع الإسكندرية" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nameAr: "فرع واحد فقط",
+        nameEn: "Branch Two",
+        phone: "0111111111",
+        password: "Passw0rd!",
+        pin: "9999",
+        roleId: "role-1",
+        employeeId: "EMP1",
+        branchIds: expect.arrayContaining(["MAIN", "BRANCH2"]),
+      }),
+      "user-partial",
+    );
+  });
+
+  it("toggling one branch checkbox off changes only that branch — the sibling stays checked, not cleared", () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true });
+    renderPage({ users: [allScopeUser], branches: twoBranches, warehouses: twoWarehouses, onSave });
+
+    fireEvent.click(screen.getByText("مستخدم عام"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "الفرع الرئيسي" }));
+    expect(screen.getByRole("checkbox", { name: "الفرع الرئيسي" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "فرع الإسكندرية" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ branchIds: ["BRANCH2"] }), "user-all");
+  });
+
+  it("cancelling the edit panel does not call onSave, and the next 'add user' opens on a blank draft rather than the cancelled edit", () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true });
+    renderPage({ users: [partialScopeUser], onSave });
+
+    fireEvent.click(screen.getByText("فرع واحد فقط"));
+    fireEvent.change(screen.getByDisplayValue("فرع واحد فقط"), { target: { value: "تعديل لن يُحفظ" } });
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
+    expect(onSave).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
+    expect(screen.getByLabelText("الاسم بالعربية")).toHaveValue("");
+  });
+
+  it("closing the panel via its own close control (not the cancel button) also discards the edit without saving", () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true });
+    renderPage({ users: [partialScopeUser], onSave });
+
+    fireEvent.click(screen.getByText("فرع واحد فقط"));
+    fireEvent.change(screen.getByDisplayValue("فرع واحد فقط"), { target: { value: "تعديل لن يُحفظ" } });
+    fireEvent.click(screen.getByRole("button", { name: "إغلاق اللوحة" }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { CustomerDTO, PriceListDTO } from "@mezan/contracts";
+import type { CustomerDTO, PriceListDTO, SalesInvoiceDTO } from "@mezan/contracts";
 import { CustomersScreen } from "./CustomersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -293,5 +293,79 @@ describe("CustomersScreen", () => {
 
     await waitFor(() => expect(created).toBeDefined());
     expect(created?.priceListId).toBe("pl-wholesale");
+  });
+
+  it("reactivates an inactive customer from the row menu, sending only {active:true}", async () => {
+    const patchRequests: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    renderScreen([inactiveCustomer], { patchRequests });
+    await screen.findByText("مصنع الوادي الأخضر");
+
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات مصنع الوادي الأخضر" }));
+    // "activate" carries no danger tone, so it fires directly with no confirm step.
+    fireEvent.click(screen.getByRole("menuitem", { name: "تفعيل العميل" }));
+
+    await waitFor(() => {
+      expect(patchRequests).toContainEqual({ id: "cust-2", patch: { active: true } });
+    });
+  });
+
+  it("computes the statement's closing balance from a real opening balance, an unpaid invoice and a partial collection", async () => {
+    const cust = customer({ openingBalance: "450.00" });
+    const inv: SalesInvoiceDTO = {
+      id: "inv-1",
+      docType: "SALES_INVOICE",
+      docNo: "INV-000001",
+      status: "partially_paid",
+      date: "2026-08-20",
+      dueDate: "2026-09-20",
+      customerId: cust.id,
+      customerNameAr: cust.nameAr,
+      customerTaxExempt: false,
+      taxInclusive: false,
+      warehouseId: "wh-1",
+      branchId: "MAIN",
+      salespersonId: null,
+      salespersonNameAr: null,
+      couponCode: null,
+      appliedPromotion: null,
+      currency: "EGP",
+      notes: null,
+      internalNotes: null,
+      discount: { type: "amount", amount: "0.000000" },
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      amountPaid: "50.000000",
+      returnedCredit: "0.000000",
+      remainingBalance: "160.900000",
+      journalEntryId: "je-1",
+      workflowRequestId: null,
+      createdAt: "2026-08-20T09:00:00.000Z",
+      confirmedAt: "2026-08-20T09:00:00.000Z",
+      lines: [],
+      totals: { grossTotal: "185.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "185.00", taxableTotal: "185.00", taxTotal: "25.90", grandTotal: "210.90" },
+    };
+    const transport = stubTransport({
+      "GET /customers": () => ({ body: [cust] }),
+      "GET /customers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
+      "GET /customers/stats": () => ({ body: { count: 1, active: 1, creditLimits: "0", toCollect: "0" } }),
+      "GET /price-lists": () => ({ body: [] }),
+      "GET /sales-invoices": () => ({ body: [inv] }),
+      "GET /sales-returns": () => ({ body: [] }),
+      "GET /vouchers": () => ({ body: [] }),
+      "GET /reports/aging/customers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
+    });
+    renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
+
+    // opening 450.00 (debit) + invoice grand total 210.90 (debit) = 660.90 debit;
+    // the 50.00 counter-paid on the invoice (no allocations) is the only credit.
+    const closingValue = (await screen.findByText("الرصيد الختامي")).nextElementSibling;
+    expect(closingValue?.textContent).toBe("610.90");
+    const debitValue = screen.getByText("إجمالي المدين").nextElementSibling;
+    expect(debitValue?.textContent).toBe("660.90");
+    const creditValue = screen.getByText("إجمالي الدائن").nextElementSibling;
+    expect(creditValue?.textContent).toBe("50.00");
   });
 });

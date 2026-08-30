@@ -22,8 +22,9 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { AppI18nProvider } from "../i18n";
-import { ApiProvider } from "./ApiContext";
+import { ApiProvider, useApi } from "./ApiContext";
 import { createQueryClient } from "./queryClient";
+import type { Session } from "./session";
 import { stubTransport, testAdminSession } from "./test-support";
 import type { Transport } from "./transport";
 import {
@@ -31,20 +32,32 @@ import {
   useAccounts,
   useBankStatement,
   useBankStatements,
+  useBootstrapSeed,
   useBranches,
+  useCancelVoucher,
   useCheques,
+  useConfirmPurchaseInvoice,
+  useConfirmPurchaseOrder,
+  useConfirmSalesInvoice,
+  useConfirmStockAdjustment,
+  useConfirmVoucher,
   useCreateAccount,
+  useCreateAllocation,
   useCreateBranch,
   useCreateCheque,
   useCreateCustomer,
+  useCreateGoodsReceipt,
   useCreateItem,
   useCreateJournalEntry,
   useCreatePriceList,
   useCreatePromotion,
   useCreateRole,
   useCreateSalesQuote,
+  useCreateStockAdjustment,
+  useCreateSupplier,
   useCreateTreasuryAccount,
   useCreateUser,
+  useCreateVoucher,
   useCustomers,
   useDeleteRole,
   useImportBankStatement,
@@ -52,24 +65,33 @@ import {
   useItems,
   useItemStats,
   useJournalEntries,
+  useLogin,
   usePriceLists,
   usePromotions,
+  useRecordSalesInvoicePayment,
+  useReverseAllocation,
   useReverseJournalEntry,
+  useReverseVoucher,
   useRoles,
+  useSalesInvoice,
   useSalesQuoteCounts,
   useSalesQuotes,
+  useSetUserStatus,
   useSettings,
+  useSuppliers,
   useTreasuryAccounts,
   useUpdateAccount,
   useUpdateBranch,
   useUpdateItem,
   useUpdateSettings,
+  useUpdateSupplier,
   useUpdateTreasuryAccount,
   useUpdateUser,
   useUsers,
+  useVoucherDetail,
 } from "./hooks";
 
-function makeWrapper(transport: Transport, session = testAdminSession) {
+function makeWrapper(transport: Transport, session: Session | null = testAdminSession) {
   const queryClient = createQueryClient();
   function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -530,5 +552,320 @@ describe("bank statement reconciliation", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(seenBody).toEqual({ treasuryAccountId: "TA-1", rows: [] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["bank-statements"] });
+  });
+});
+
+describe("auth / bootstrap", () => {
+  it("useLogin stores the exact session object the server returns", async () => {
+    const returnedSession = { ...testAdminSession, userId: "USER-X", nameAr: "مستخدم آخر" };
+    const transport = stubTransport({ "POST /auth/login": () => ({ status: 200, body: returnedSession }) });
+    const queryClient = createQueryClient();
+    function useCombined() {
+      return { login: useLogin(), api: useApi() };
+    }
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <AppI18nProvider>
+          <QueryClientProvider client={queryClient}>
+            <ApiProvider transport={transport} initialSession={null}>
+              {children}
+            </ApiProvider>
+          </QueryClientProvider>
+        </AppI18nProvider>
+      );
+    }
+    const { result } = renderHook(() => useCombined(), { wrapper: Wrapper });
+    expect(result.current.api.session).toBeNull();
+    result.current.login.mutate({ username: "x", pin: "1234" } as never);
+    await waitFor(() => expect(result.current.login.isSuccess).toBe(true));
+    expect(result.current.api.session).toEqual(returnedSession);
+  });
+
+  it("useLogin surfaces the server's own refusal message, not a generic one", async () => {
+    const transport = stubTransport({
+      "POST /auth/login": () => ({ status: 401, body: { message: "الرقم السري غير صحيح" } }),
+    });
+    const { result } = renderHook(() => useLogin(), { wrapper: makeWrapper(transport, null).Wrapper });
+    result.current.mutate({ username: "x", pin: "0000" } as never);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe("الرقم السري غير صحيح");
+  });
+
+  it("useBootstrapSeed writes the returned counts straight into ['bootstrap','status'], so the wizard checklist updates without a refetch", async () => {
+    const transport = stubTransport({
+      "POST /bootstrap/seed": () => ({ status: 200, body: { accounts: 42, items: 10 } }),
+    });
+    const { Wrapper, queryClient } = makeWrapper(transport, null);
+    const { result } = renderHook(() => useBootstrapSeed(), { wrapper: Wrapper });
+    result.current.mutate();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(queryClient.getQueryData(["bootstrap", "status"])).toEqual({ accounts: 42, items: 10 });
+  });
+});
+
+describe("suppliers", () => {
+  it("useSuppliers lists and both create/update invalidate ['suppliers']", async () => {
+    const transport = stubTransport({
+      "GET /suppliers": () => ({ body: [] }),
+      "POST /suppliers": () => ({ status: 201, body: { id: "S2" } }),
+      "PATCH /suppliers/S1": () => ({ body: { id: "S1" } }),
+    });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+    const { result: list } = renderHook(() => useSuppliers(), { wrapper: Wrapper });
+    await waitFor(() => expect(list.current.isSuccess).toBe(true));
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result: create } = renderHook(() => useCreateSupplier(), { wrapper: Wrapper });
+    create.current.mutate({ nameAr: "مورد جديد" } as never);
+    await waitFor(() => expect(create.current.isSuccess).toBe(true));
+    const { result: update } = renderHook(() => useUpdateSupplier(), { wrapper: Wrapper });
+    update.current.mutate({ id: "S1", patch: {} as never });
+    await waitFor(() => expect(update.current.isSuccess).toBe(true));
+    expect(spy).toHaveBeenCalledTimes(2);
+    for (const call of spy.mock.calls) expect(call[0]).toEqual({ queryKey: ["suppliers"] });
+  });
+});
+
+describe("user status transition", () => {
+  it("useSetUserStatus POSTs /activate for status='active' and /deactivate for status='inactive' — a flipped branch here silently reactivates a user instead of deactivating them", async () => {
+    const seenPaths: string[] = [];
+    const transport = stubTransport({
+      "POST /users/U1/activate": (_init, path) => {
+        seenPaths.push(path);
+        return { body: { id: "U1", status: "active" } };
+      },
+      "POST /users/U1/deactivate": (_init, path) => {
+        seenPaths.push(path);
+        return { body: { id: "U1", status: "inactive" } };
+      },
+    });
+    const { Wrapper } = makeWrapper(transport);
+    const { result } = renderHook(() => useSetUserStatus(), { wrapper: Wrapper });
+    result.current.mutate({ id: "U1", status: "active" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    result.current.mutate({ id: "U1", status: "inactive" });
+    await waitFor(() => expect(seenPaths.length).toBe(2));
+    expect(seenPaths[0]).toBe("/users/U1/activate");
+    expect(seenPaths[1]).toBe("/users/U1/deactivate");
+  });
+});
+
+describe("vouchers", () => {
+  it("useVoucherDetail(null) does not call the transport", async () => {
+    let called = false;
+    const transport = stubTransport({
+      "GET /vouchers/V1": () => {
+        called = true;
+        return { body: { id: "V1" } };
+      },
+    });
+    const { Wrapper } = makeWrapper(transport);
+    const { result: disabled } = renderHook(() => useVoucherDetail(null), { wrapper: Wrapper });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(called).toBe(false);
+    expect(disabled.current.isPending).toBe(true);
+    const { result: detail } = renderHook(() => useVoucherDetail("V1"), { wrapper: Wrapper });
+    await waitFor(() => expect(detail.current.isSuccess).toBe(true));
+    expect(called).toBe(true);
+  });
+
+  it("useCreateVoucher sends the amount as the exact string given, and create/confirm/cancel/reverse/allocate/reverse-allocation all invalidate the ['vouchers'] prefix — which also covers the list's counts, stats and detail caches", async () => {
+    let seenBody: unknown = null;
+    const transport = stubTransport({
+      "POST /vouchers": (init) => {
+        seenBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 201, body: { id: "V1" } };
+      },
+      "POST /vouchers/V1/confirm": () => ({ body: { id: "V1", held: false } }),
+      "POST /vouchers/V1/cancel": () => ({ body: { id: "V1" } }),
+      "POST /vouchers/V1/reverse": () => ({ body: { original: { id: "V1" }, reversal: { id: "V2" } } }),
+      "POST /vouchers/V1/allocations": () => ({ status: 201, body: { id: "AL1" } }),
+      "POST /allocations/AL1/reverse": () => ({ body: { id: "AL1" } }),
+    });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+
+    const { result: create } = renderHook(() => useCreateVoucher(), { wrapper: Wrapper });
+    create.current.mutate({
+      date: "2026-03-01",
+      voucherType: "customer_collection",
+      amount: "12500.750000",
+      branchId: "B1",
+      paymentMethod: "cash",
+      treasuryAccountId: "TA1",
+      treasuryGlAccountId: "GL1",
+    } as never);
+    await waitFor(() => expect(create.current.isSuccess).toBe(true));
+    expect((seenBody as { amount: string }).amount).toBe("12500.750000");
+
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+
+    const { result: confirm } = renderHook(() => useConfirmVoucher(), { wrapper: Wrapper });
+    confirm.current.mutate({ id: "V1" });
+    await waitFor(() => expect(confirm.current.isSuccess).toBe(true));
+
+    const { result: cancel } = renderHook(() => useCancelVoucher(), { wrapper: Wrapper });
+    cancel.current.mutate("V1");
+    await waitFor(() => expect(cancel.current.isSuccess).toBe(true));
+
+    const { result: reverse } = renderHook(() => useReverseVoucher(), { wrapper: Wrapper });
+    reverse.current.mutate({ id: "V1" });
+    await waitFor(() => expect(reverse.current.isSuccess).toBe(true));
+
+    const { result: allocate } = renderHook(() => useCreateAllocation(), { wrapper: Wrapper });
+    allocate.current.mutate({ voucherId: "V1", body: {} as never });
+    await waitFor(() => expect(allocate.current.isSuccess).toBe(true));
+
+    const { result: reverseAllocation } = renderHook(() => useReverseAllocation(), { wrapper: Wrapper });
+    reverseAllocation.current.mutate("AL1");
+    await waitFor(() => expect(reverseAllocation.current.isSuccess).toBe(true));
+
+    expect(spy).toHaveBeenCalledTimes(5);
+    for (const call of spy.mock.calls) expect(call[0]).toEqual({ queryKey: ["vouchers"] });
+  });
+
+  it("surfaces the server's refusal message when confirming a voucher fails, and invalidates nothing", async () => {
+    const transport = stubTransport({
+      "POST /vouchers/V1/confirm": () => ({ status: 409, body: { message: "الفترة المالية مغلقة" } }),
+    });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useConfirmVoucher(), { wrapper: Wrapper });
+    result.current.mutate({ id: "V1" });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe("الفترة المالية مغلقة");
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("sales invoices", () => {
+  it("useSalesInvoice(null) does not call the transport; a real id does", async () => {
+    let called = false;
+    const transport = stubTransport({
+      "GET /sales-invoices/SI1": () => {
+        called = true;
+        return { body: { id: "SI1" } };
+      },
+    });
+    const { Wrapper } = makeWrapper(transport);
+    const { result: disabled } = renderHook(() => useSalesInvoice(null), { wrapper: Wrapper });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(called).toBe(false);
+    expect(disabled.current.isPending).toBe(true);
+    const { result: detail } = renderHook(() => useSalesInvoice("SI1"), { wrapper: Wrapper });
+    await waitFor(() => expect(detail.current.isSuccess).toBe(true));
+    expect(called).toBe(true);
+  });
+
+  it("useConfirmSalesInvoice invalidates ['sales-invoices']", async () => {
+    const transport = stubTransport({ "POST /sales-invoices/SI1/confirm": () => ({ body: { id: "SI1", held: false } }) });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useConfirmSalesInvoice(), { wrapper: Wrapper });
+    result.current.mutate("SI1");
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["sales-invoices"] });
+  });
+
+  it("useRecordSalesInvoicePayment sends the amount unchanged, strips 'id' out of the body, and invalidates sales-invoices, vouchers, treasury-accounts AND dashboard — a collection is a real voucher, so all four views go stale", async () => {
+    let seenBody: unknown = null;
+    const transport = stubTransport({
+      "POST /sales-invoices/SI1/payments": (init) => {
+        seenBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 201, body: { id: "SI1" } };
+      },
+    });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useRecordSalesInvoicePayment(), { wrapper: Wrapper });
+    result.current.mutate({ id: "SI1", amount: "3400.500000", treasuryAccountId: "TA1" } as never);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(seenBody).toEqual({ amount: "3400.500000", treasuryAccountId: "TA1" });
+    const keys = spy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey);
+    expect(keys).toContainEqual(["sales-invoices"]);
+    expect(keys).toContainEqual(["vouchers"]);
+    expect(keys).toContainEqual(["treasury-accounts"]);
+    expect(keys).toContainEqual(["dashboard"]);
+    expect(spy).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("purchase documents", () => {
+  it("useConfirmPurchaseOrder invalidates ['purchase-orders']", async () => {
+    const transport = stubTransport({ "POST /purchases/orders/PO1/confirm": () => ({ body: { id: "PO1" } }) });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useConfirmPurchaseOrder(), { wrapper: Wrapper });
+    result.current.mutate("PO1");
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["purchase-orders"] });
+  });
+
+  it("useCreateGoodsReceipt invalidates BOTH ['goods-receipts'] and ['purchase-orders'] — receiving moves the source PO's received quantity too", async () => {
+    const transport = stubTransport({ "POST /purchases/receipts": () => ({ status: 201, body: { id: "GR1" } }) });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useCreateGoodsReceipt(), { wrapper: Wrapper });
+    result.current.mutate({} as never);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const keys = spy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey);
+    expect(keys).toContainEqual(["goods-receipts"]);
+    expect(keys).toContainEqual(["purchase-orders"]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("useConfirmPurchaseInvoice invalidates BOTH ['purchase-invoices'] and ['goods-receipts']", async () => {
+    const transport = stubTransport({ "POST /purchases/invoices/PI1/confirm": () => ({ body: { id: "PI1" } }) });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useConfirmPurchaseInvoice(), { wrapper: Wrapper });
+    result.current.mutate("PI1");
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const keys = spy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey);
+    expect(keys).toContainEqual(["purchase-invoices"]);
+    expect(keys).toContainEqual(["goods-receipts"]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces the server's refusal when confirming a purchase invoice fails, and invalidates nothing", async () => {
+    const transport = stubTransport({
+      "POST /purchases/invoices/PI1/confirm": () => ({ status: 400, body: { message: "الكمية المفوترة أكبر من المستلمة" } }),
+    });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useConfirmPurchaseInvoice(), { wrapper: Wrapper });
+    result.current.mutate("PI1");
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe("الكمية المفوترة أكبر من المستلمة");
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("stock adjustments", () => {
+  it("useCreateStockAdjustment POSTs to the /draft sub-path, not the collection root", async () => {
+    let seenPath = "";
+    const transport = stubTransport({
+      "POST /inventory/stock-adjustments/draft": (_init, path) => {
+        seenPath = path;
+        return { status: 201, body: { id: "ADJ1" } };
+      },
+    });
+    const { result } = renderHook(() => useCreateStockAdjustment(), { wrapper: makeWrapper(transport).Wrapper });
+    result.current.mutate({} as never);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(seenPath).toBe("/inventory/stock-adjustments/draft");
+  });
+
+  it("useConfirmStockAdjustment invalidates BOTH ['stock-adjustments'] and ['stock-balance'] — confirming moves real stock, so the balance view must go stale too", async () => {
+    const transport = stubTransport({
+      "POST /inventory/stock-adjustments/ADJ1/confirm": () => ({ body: { document: { id: "ADJ1" }, held: false } }),
+    });
+    const { Wrapper, queryClient } = makeWrapper(transport);
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useConfirmStockAdjustment(), { wrapper: Wrapper });
+    result.current.mutate("ADJ1");
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const keys = spy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey);
+    expect(keys).toContainEqual(["stock-adjustments"]);
+    expect(keys).toContainEqual(["stock-balance"]);
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 });

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { AccountDTO, CustomerDTO, ItemDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import { SalesInvoicesScreen } from "./SalesInvoicesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -354,5 +354,172 @@ describe("SalesInvoicesScreen — payments", () => {
     fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
 
     await waitFor(() => expect(screen.getAllByText("مدفوع").length).toBeGreaterThan(0));
+  });
+
+  it("blocks recording a payment with no amount, or with no treasury chosen — the mutation never fires either time", async () => {
+    const paymentRequests: unknown[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices/inv-1/payments": (init) => {
+        paymentRequests.push(JSON.parse((init?.body as string) ?? "{}"));
+        return { body: seededInvoices[0]! };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000001"));
+    await screen.findByRole("heading", { name: "INV-000001" });
+    fireEvent.click(screen.getByRole("tab", { name: "المدفوعات" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("قيمة الدفعة يجب أن تكون أكبر من صفر.");
+    expect(paymentRequests).toHaveLength(0);
+
+    typeMoney(screen.getByLabelText("قيمة الدفعة"), "50");
+    fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("اختر الخزينة التي استُلم فيها المبلغ");
+    expect(paymentRequests).toHaveLength(0);
+  });
+
+  it("keeps the typed payment amount and shows the server's own refusal when recording a payment is rejected", async () => {
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices/inv-1/payments": () => ({ status: 409, body: { message: "المبلغ يتجاوز المتبقي على الفاتورة." } }),
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000001"));
+    await screen.findByRole("heading", { name: "INV-000001" });
+    fireEvent.click(screen.getByRole("tab", { name: "المدفوعات" }));
+
+    const amountInput = screen.getByLabelText("قيمة الدفعة");
+    typeMoney(amountInput, "500");
+    selectOption("الخزينة المستلمة", "خزينة الفرع الرئيسي (TR-01)");
+    fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("المبلغ يتجاوز المتبقي على الفاتورة.");
+    expect((amountInput as HTMLInputElement).value).toBe("500.00");
+  });
+});
+
+describe("SalesInvoicesScreen — create form line management", () => {
+  it("removes the correct line by index: the survivor keeps its own qty, not the removed line's", async () => {
+    let current = [...seededInvoices];
+    let createdBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /sales-invoices": () => ({ body: current }),
+      "POST /sales-invoices": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        createdBody = body;
+        const created = invoice({ id: "inv-4", docNo: "INV-000004", status: "draft", journalEntryId: null, confirmedAt: null, ...body, lines: body.lines ?? [] });
+        current = [...current, created];
+        return { status: 201, body: created };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const qty1 = screen.getByLabelText("الكمية للسطر 1");
+    fireEvent.change(qty1, { target: { value: "2" } });
+    fireEvent.blur(qty1);
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    await pickFromCombobox("الصنف — سطر 2", "أرز أبيض مصري");
+    const qty2 = screen.getByLabelText("الكمية للسطر 2");
+    fireEvent.change(qty2, { target: { value: "3" } });
+    fireEvent.blur(qty2);
+
+    fireEvent.click(screen.getByRole("button", { name: "حذف السطر 1" }));
+
+    // Only one line remains, re-numbered "line 1" — it must be the SURVIVOR
+    // (qty 3), not a stale copy of the removed line (qty 2).
+    await waitFor(() => expect((screen.getByLabelText("الكمية للسطر 1") as HTMLInputElement).value).toContain("3"));
+    expect(screen.queryByLabelText("الكمية للسطر 2")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+
+    await waitFor(() => expect(createdBody).toBeDefined());
+    const lines = createdBody!.lines as Array<{ qty: string }>;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.qty).toBe("3.000000");
+  });
+});
+
+describe("SalesInvoicesScreen — row-scoped confirm from the list", () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  const draftA = invoice({ id: "inv-draft-a", docNo: null, status: "draft" });
+  const draftB = invoice({ id: "inv-draft-b", docNo: null, status: "draft" });
+
+  function renderWithGatedConfirm(gate: ReturnType<typeof deferred<void>>) {
+    const list = [draftA, draftB];
+    const base = stubTransport(baseHandlers(list));
+    const transport = async (path: string, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && path === "/sales-invoices/inv-draft-a/confirm") {
+        await gate.promise;
+        const confirmed = { ...draftA, status: "confirmed" as const, docNo: "INV-000900" };
+        list[0] = confirmed;
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({ ...confirmed, held: false }),
+          text: async () => "",
+        };
+      }
+      return base(path, init);
+    };
+    return renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+  }
+
+  it("leaves invoice B's own confirm action enabled while invoice A's confirm is still in flight", async () => {
+    const gate = deferred<void>();
+    renderWithGatedConfirm(gate);
+    await screen.findAllByText("مسودة");
+
+    // Both rows render as "مسودة" (draft, no docNo) — locate them by DOM order instead.
+    const [rowA, rowB] = screen.getAllByRole("row").slice(1);
+
+    fireEvent.click(within(rowA!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+
+    fireEvent.click(within(rowB!).getByRole("button", { name: /^إجراءات/ }));
+    const confirmB = await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" });
+    expect(confirmB).toBeEnabled();
+
+    gate.resolve();
+    await waitFor(() => expect(screen.getByText("INV-000900")).toBeInTheDocument());
+  });
+
+  it("shows the server's refusal for the failed row and leaves the other draft row's own confirm action untouched", async () => {
+    const list = [draftA, draftB];
+    const transport = stubTransport({
+      ...baseHandlers(list),
+      "POST /sales-invoices/inv-draft-a/confirm": () => ({ status: 409, body: { message: "الفترة المحاسبية مقفلة." } }),
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findAllByText("مسودة");
+
+    const rows = screen.getAllByRole("row").slice(1);
+    const [rowA, rowB] = rows;
+    fireEvent.click(within(rowA!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("الفترة المحاسبية مقفلة.");
+    // Invoice A stayed a draft — the row still reads "مسودة", not confirmed.
+    expect(screen.getAllByText("مسودة").length).toBeGreaterThan(0);
+
+    fireEvent.click(within(rowB!).getByRole("button", { name: /^إجراءات/ }));
+    expect(screen.getByRole("menuitem", { name: "تأكيد الفاتورة" })).toBeEnabled();
   });
 });

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { BranchDTO, EmployeeDTO } from "@mezan/contracts";
 import { EmployeesScreen } from "./EmployeesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -61,7 +61,14 @@ const sampleEmployees: EmployeeDTO[] = [
   },
 ];
 
-function renderScreen(employees: EmployeeDTO[] = sampleEmployees) {
+function renderScreen(
+  employees: EmployeeDTO[] = sampleEmployees,
+  opts: {
+    onTransition?: (id: string, status: string) => { status?: number; body: unknown } | undefined;
+    onTerminate?: (id: string) => { status?: number; body: unknown } | undefined;
+    onRehire?: (id: string, hireDate: string) => { status?: number; body: unknown } | undefined;
+  } = {},
+) {
   let current = [...employees];
   const transport = stubTransport({
     "GET /hr/employees": () => ({ body: current }),
@@ -69,22 +76,67 @@ function renderScreen(employees: EmployeeDTO[] = sampleEmployees) {
     "GET /hr/job-titles": () => ({ body: [] }),
     "GET /hr/contracts": () => ({ body: [] }),
     "GET /branches": () => ({ body: sampleBranches }),
-    "GET /hr/employees/emp-1/contracts": () => ({ body: [] }),
+    "GET /hr/employees/*/contracts": () => ({ body: [] }),
     "POST /hr/employees": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       const created: EmployeeDTO = { ...current[0]!, ...body, id: "emp-new", code: "EMP-0002", status: "active", terminatedAt: null };
       current = [...current, created];
       return { status: 201, body: created };
     },
-    "POST /hr/employees/emp-1/transition": (init) => {
+    "POST /hr/employees/*/transition": (init, path) => {
+      const id = path.split("/")[3]!;
       const body = JSON.parse((init?.body as string) ?? "{}");
-      const updated: EmployeeDTO = { ...current[0]!, status: body.status };
-      current = [updated, ...current.slice(1)];
+      const overridden = opts.onTransition?.(id, body.status);
+      if (overridden) return overridden;
+      const index = current.findIndex((e) => e.id === id);
+      const updated: EmployeeDTO = { ...current[index]!, status: body.status };
+      current = [...current.slice(0, index), updated, ...current.slice(index + 1)];
+      return { body: updated };
+    },
+    "POST /hr/employees/*/terminate": (_init, path) => {
+      const id = path.split("/")[3]!;
+      const overridden = opts.onTerminate?.(id);
+      if (overridden) return overridden;
+      const index = current.findIndex((e) => e.id === id);
+      const updated: EmployeeDTO = { ...current[index]!, status: "terminated", terminatedAt: "2026-08-25T00:00:00.000Z" };
+      current = [...current.slice(0, index), updated, ...current.slice(index + 1)];
+      return { body: updated };
+    },
+    "POST /hr/employees/*/rehire": (init, path) => {
+      const id = path.split("/")[3]!;
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      const overridden = opts.onRehire?.(id, body.hireDate);
+      if (overridden) return overridden;
+      const index = current.findIndex((e) => e.id === id);
+      const updated: EmployeeDTO = { ...current[index]!, status: "active", terminatedAt: null, hireDate: body.hireDate };
+      current = [...current.slice(0, index), updated, ...current.slice(index + 1)];
       return { body: updated };
     },
   });
   return renderWithProviders(<EmployeesScreen />, { transport, initialSession: testAdminSession });
 }
+
+const employee2: EmployeeDTO = {
+  ...sampleEmployees[0]!,
+  id: "emp-2",
+  code: "EMP-0002",
+  firstName: "Sara",
+  lastName: "Aly",
+  firstNameAr: "سارة",
+  lastNameAr: "علي",
+};
+
+const terminatedEmployee: EmployeeDTO = {
+  ...sampleEmployees[0]!,
+  id: "emp-3",
+  code: "EMP-0003",
+  firstName: "Karim",
+  lastName: "Adel",
+  firstNameAr: "كريم",
+  lastNameAr: "عادل",
+  status: "terminated",
+  terminatedAt: "2026-01-01T00:00:00.000Z",
+};
 
 describe("EmployeesScreen", () => {
   it("lists employees from the real backend", async () => {
@@ -116,5 +168,65 @@ describe("EmployeesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "في إجازة" }));
 
     expect(await screen.findByRole("button", { name: "نشط" })).toBeInTheDocument();
+  });
+
+  it("transitions one employee's row via the row menu, leaving the other employee's row untouched", async () => {
+    renderScreen([sampleEmployees[0]!, employee2]);
+    await screen.findByText("أحمد محمود");
+    await screen.findByText("سارة علي");
+
+    const rowAhmed = screen.getByText("أحمد محمود").closest("tr")!;
+    fireEvent.click(within(rowAhmed).getByRole("button", { name: "إجراءات EMP-0001" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "في إجازة" }));
+
+    await waitFor(() => {
+      expect(within(screen.getByText("أحمد محمود").closest("tr")!).getByText("في إجازة")).toBeInTheDocument();
+    });
+    // Sara's row was never touched by Ahmed's transition.
+    const rowSara = screen.getByText("سارة علي").closest("tr")!;
+    expect(within(rowSara).getByText("نشط")).toBeInTheDocument();
+    fireEvent.click(within(rowSara).getByRole("button", { name: "إجراءات EMP-0002" }));
+    expect(await screen.findByRole("menuitem", { name: "في إجازة" })).toBeEnabled();
+  });
+
+  it("shows the server's refusal when terminating an employee fails, and the employee stays active", async () => {
+    renderScreen([sampleEmployees[0]!], {
+      onTerminate: () => ({ status: 409, body: { message: "لا يمكن إنهاء خدمة موظف له سلفة غير مسددة." } }),
+    });
+    fireEvent.click(await screen.findByText("أحمد محمود"));
+    fireEvent.click(screen.getByRole("button", { name: "إنهاء الخدمة" }));
+
+    expect(await screen.findByText("لا يمكن إنهاء خدمة موظف له سلفة غير مسددة.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "في إجازة" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إنهاء الخدمة" })).toBeInTheDocument();
+  });
+
+  it("blocks rehiring with no date entered — the rehire request is never sent", async () => {
+    const rehireRequests: Array<{ id: string; hireDate: string }> = [];
+    renderScreen([terminatedEmployee], {
+      onRehire: (id, hireDate) => {
+        rehireRequests.push({ id, hireDate });
+        return undefined;
+      },
+    });
+    fireEvent.click(await screen.findByText("كريم عادل"));
+    fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين" }));
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "إعادة تعيين" }));
+
+    expect(await screen.findByText("تاريخ إعادة التعيين مطلوب.")).toBeInTheDocument();
+    expect(rehireRequests).toHaveLength(0);
+  });
+
+  it("filters the list by search text, hiding the non-matching employee", async () => {
+    renderScreen([sampleEmployees[0]!, employee2]);
+    await screen.findByText("أحمد محمود");
+    fireEvent.change(screen.getByPlaceholderText("بحث بالاسم أو الرقم..."), { target: { value: "سارة" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText("أحمد محمود")).not.toBeInTheDocument();
+      expect(screen.getByText("سارة علي")).toBeInTheDocument();
+    });
   });
 });

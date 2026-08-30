@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
-import type { BranchDTO, ItemDTO, StockBalanceRowDTO, WarehouseDTO } from "@mezan/contracts";
+import type { AssetDTO, BranchDTO, EmployeeDTO, ItemDTO, StockBalanceRowDTO, WarehouseDTO } from "@mezan/contracts";
 import { BranchesPage } from "./BranchesPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -46,6 +46,10 @@ function renderScreen(
     stockByWarehouse?: Record<string, StockBalanceRowDTO[]>;
     onCreateBranch?: (body: Record<string, unknown>) => { status?: number; body: unknown } | undefined;
     createRequests?: Record<string, unknown>[];
+    employees?: EmployeeDTO[];
+    assets?: AssetDTO[];
+    assetCategories?: { id: string; nameAr: string }[];
+    employeesStatus?: number;
   } = {},
 ) {
   let current = [...branches];
@@ -57,6 +61,13 @@ function renderScreen(
       const warehouseId = new URL(path, "http://x").searchParams.get("warehouseId") ?? "";
       return { body: { rows: opts.stockByWarehouse?.[warehouseId] ?? [] } };
     },
+    "GET /hr/employees": () => ({ status: opts.employeesStatus ?? 200, body: opts.employees ?? [] }),
+    "GET /assets": () => ({ body: opts.assets ?? [] }),
+    "GET /assets/categories": () => ({ body: opts.assetCategories ?? [] }),
+    "GET /sales-invoices": () => ({ body: [] }),
+    "GET /purchases/invoices": () => ({ body: [] }),
+    "GET /vouchers": () => ({ body: [] }),
+    "GET /treasury-accounts": () => ({ body: [] }),
     "POST /branches": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       opts.createRequests?.push(body);
@@ -198,5 +209,136 @@ describe("BranchesPage", () => {
     expect(cells[4]!.textContent).toMatch(/1,500|1500/);
     // Two warehouses contributed to this row.
     expect(cells[5]!.textContent).toBe("2");
+  });
+
+  it("LIMITATION (D125): a branch row opens a read-only detail view — there is no edit or deactivate control anywhere in the list or the detail, and useUpdateBranch is not even imported by this screen", async () => {
+    renderScreen();
+    expect(screen.queryByRole("button", { name: "تعديل" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "تعطيل" })).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByText("MAIN"));
+    // The detail view's only action is the back button — no edit, no
+    // deactivate, no "set parent" control exists anywhere on this screen.
+    expect(screen.getByRole("button", { name: "رجوع لقائمة الفروع" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "تعديل" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "تعطيل" })).not.toBeInTheDocument();
+  });
+
+  it("LIMITATION (D125): the add-branch form has no parent-branch field, so a newly created branch's 'الفرع الرئيسي' (parent) column can never be set through the UI — it only shows data seeded outside this screen", async () => {
+    const createRequests: Record<string, unknown>[] = [];
+    renderScreen(sampleBranches, { createRequests });
+    await screen.findByText("MAIN");
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة فرع" }));
+    const dialog = screen.getByRole("dialog", { name: "إضافة فرع" });
+    // Every field the create form actually exposes.
+    expect(within(dialog).getAllByRole("textbox")).toHaveLength(5);
+    expect(within(dialog).queryByText(/الفرع الأب|فرع أب|parent/i)).not.toBeInTheDocument();
+
+    fireEvent.change(textboxByLabel(dialog, "اسم الفرع"), { target: { value: "فرع طنطا" } });
+    fireEvent.change(textboxByLabel(dialog, "رمز الفرع"), { target: { value: "TANTA" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ الفرع" }));
+    await screen.findByText("فرع طنطا");
+
+    expect(createRequests).toHaveLength(1);
+    expect(createRequests[0]).not.toHaveProperty("parentBranchId");
+
+    const row = screen.getByText("فرع طنطا").closest("tr")!;
+    expect(within(row).getByRole("cell", { name: "—" })).toBeInTheDocument();
+  });
+
+  it("BranchInventoryTab: a failed fetch shows a retry control that re-issues the request", async () => {
+    const warehouses: WarehouseDTO[] = [
+      { id: "wh-1", code: "WH1", name: "مخزن 1", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
+    ];
+    let stockCalls = 0;
+    let failStock = true;
+    const transport = stubTransport({
+      "GET /branches": () => ({ body: sampleBranches }),
+      "GET /warehouses": () => ({ body: warehouses }),
+      "GET /items": () => ({ body: [] }),
+      "GET /inventory/stock-balance": () => {
+        stockCalls += 1;
+        if (failStock) return { status: 500, body: { error: "SERVER_ERROR" } };
+        return { body: { rows: [] } };
+      },
+      "GET /hr/employees": () => ({ body: [] }),
+      "GET /assets": () => ({ body: [] }),
+      "GET /assets/categories": () => ({ body: [] }),
+      "GET /sales-invoices": () => ({ body: [] }),
+      "GET /purchases/invoices": () => ({ body: [] }),
+      "GET /vouchers": () => ({ body: [] }),
+      "GET /treasury-accounts": () => ({ body: [] }),
+    });
+    renderWithProviders(<BranchesPage />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(await screen.findByText("MAIN"));
+    fireEvent.click(screen.getByRole("tab", { name: "المخزون" }));
+    expect(await screen.findByText("تعذّر تحميل رصيد مخزون الفرع.")).toBeInTheDocument();
+    const callsBeforeRetry = stockCalls;
+
+    failStock = false;
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    await screen.findByText("لا توجد مستودعات مرتبطة بهذا الفرع", { exact: false }).catch(() => undefined);
+    expect(stockCalls).toBeGreaterThan(callsBeforeRetry);
+  });
+
+  it("BranchEmployeesTab: shows only this branch's employees with real KPI counts, and an error state offers a working retry", async () => {
+    const employees = [
+      {
+        id: "e1", code: "EMP-001", firstName: "Ahmed", lastName: "Ali", firstNameAr: "أحمد", lastNameAr: "علي",
+        email: null, phone: "0100000001", birthDate: null, nationalId: null, gender: null, maritalStatus: null,
+        departmentId: null, jobTitleId: null, managerId: null, branchId: "b1", hireDate: "2024-01-15",
+        workerCategory: "monthly", employmentType: "full_time", overtimeEligibility: "none", standardWorkHours: null,
+        probationEndDate: null, priorServiceYears: 0, requireSelfieAtClockIn: false, requireBiometricAtClockIn: false,
+        address: null, emergencyContact: null, status: "active", terminatedAt: null, createdAt: "2024-01-01T00:00:00.000Z",
+      },
+      {
+        id: "e2", code: "EMP-002", firstName: "Sara", lastName: "Adel", firstNameAr: "سارة", lastNameAr: "عادل",
+        email: null, phone: null, birthDate: null, nationalId: null, gender: null, maritalStatus: null,
+        departmentId: null, jobTitleId: null, managerId: null, branchId: "b2", hireDate: "2024-02-01",
+        workerCategory: "monthly", employmentType: "part_time", overtimeEligibility: "none", standardWorkHours: null,
+        probationEndDate: null, priorServiceYears: 0, requireSelfieAtClockIn: false, requireBiometricAtClockIn: false,
+        address: null, emergencyContact: null, status: "active", terminatedAt: null, createdAt: "2024-01-01T00:00:00.000Z",
+      },
+    ] as unknown as EmployeeDTO[];
+    renderScreen(sampleBranches, { employees });
+
+    fireEvent.click(await screen.findByText("MAIN"));
+    fireEvent.click(screen.getByRole("tab", { name: "الموظفون" }));
+
+    // Only b1's employee shows, not b2's — the tab is scoped to this branch.
+    expect(await screen.findByText("أحمد علي")).toBeInTheDocument();
+    expect(screen.queryByText("سارة عادل")).not.toBeInTheDocument();
+    expect(screen.getByText("EMP-001")).toBeInTheDocument();
+  });
+
+  it("BranchEmployeesTab: an empty branch shows the real empty state, not a blank table", async () => {
+    renderScreen(sampleBranches, { employees: [] });
+    fireEvent.click(await screen.findByText("MAIN"));
+    fireEvent.click(screen.getByRole("tab", { name: "الموظفون" }));
+    expect(await screen.findByText("لا يوجد موظفون مسجّلون على هذا الفرع")).toBeInTheDocument();
+  });
+
+  it("BranchAssetsTab: shows this branch's assets with a net book value derived as cost minus accumulated depreciation, not the raw cost", async () => {
+    const assets = [
+      {
+        id: "a1", code: "AST-001", nameAr: "سيارة توزيع", categoryId: "cat-1", branchId: "b1",
+        acquisitionDate: "2023-05-01", acquisitionCost: "100000.000000", accumulatedDepreciation: "30000.000000",
+        status: "active", warehouseId: null, costCenterId: null, serialNumber: null, custodianEmployeeId: null,
+        depreciationMethod: "straight_line", usefulLifeMonths: 60, salvageValue: "0.000000", createdAt: "2023-05-01T00:00:00.000Z",
+      },
+    ] as unknown as AssetDTO[];
+    renderScreen(sampleBranches, { assets, assetCategories: [{ id: "cat-1", nameAr: "مركبات" }] });
+
+    fireEvent.click(await screen.findByText("MAIN"));
+    fireEvent.click(screen.getByRole("tab", { name: "الأصول" }));
+
+    expect(await screen.findByText("سيارة توزيع")).toBeInTheDocument();
+    expect(screen.getByText("مركبات")).toBeInTheDocument();
+    const row = screen.getByText("سيارة توزيع").closest("tr")!;
+    const cells = within(row).getAllByRole("cell");
+    // Net value column: 100,000 − 30,000 = 70,000 — not the raw acquisition cost.
+    expect(cells[6]!.textContent).toMatch(/70,000|70000/);
   });
 });

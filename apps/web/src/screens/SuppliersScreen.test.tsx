@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { SupplierDTO } from "@mezan/contracts";
+import type { PurchaseInvoiceDTO, SupplierDTO, VoucherDTO } from "@mezan/contracts";
 import { SuppliersScreen } from "./SuppliersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -51,8 +51,11 @@ function renderScreen(suppliers: SupplierDTO[] = [supplier(), inactiveSupplier])
   let current = [...suppliers];
   const transport = stubTransport({
     "GET /suppliers": (_init, path) => {
-      const status = new URL(path, "http://x").searchParams.get("status");
-      const rows = status ? current.filter((s) => (status === "active" ? s.active : !s.active)) : current;
+      const params = new URL(path, "http://x").searchParams;
+      const status = params.get("status");
+      const q = params.get("q")?.toLowerCase();
+      let rows = status ? current.filter((s) => (status === "active" ? s.active : !s.active)) : current;
+      if (q) rows = rows.filter((s) => s.nameAr.toLowerCase().includes(q) || s.code.toLowerCase().includes(q));
       return { body: rows };
     },
     "GET /suppliers/counts": () => ({
@@ -170,5 +173,108 @@ describe("SuppliersScreen", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ التعديلات" }));
 
     await waitFor(() => expect(screen.getByText("غير نشط")).toBeInTheDocument());
+  });
+
+  it("filters the list by search text, hiding the non-matching supplier", async () => {
+    renderScreen();
+    await screen.findByText("جاري");
+    fireEvent.change(screen.getByPlaceholderText("ابحث باسم المورد أو الكود أو الهاتف…"), { target: { value: "الشرقي" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText("جاري")).not.toBeInTheDocument();
+      expect(screen.getByText("مورد قطع الغيار الشرقي")).toBeInTheDocument();
+    });
+  });
+
+  it("LIMITATION (D123): a failed supplier list load renders the error banner over the ordinary empty-list message too", async () => {
+    const transport = stubTransport({
+      "GET /suppliers": () => ({ status: 500, body: { error: "INTERNAL" } }),
+      "GET /suppliers/counts": () => ({ body: {} }),
+      "GET /purchases/invoices": () => ({ body: [] }),
+      "GET /vouchers": () => ({ body: [] }),
+      "GET /open-invoices": () => ({ body: [] }),
+      "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
+    });
+    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText("تعذّر تحميل الموردين.")).toBeInTheDocument();
+    // A user cannot tell "the load failed" from "there are no suppliers" from this alone —
+    // the same D123 shape already filed for items, price lists, promotions and the chart of accounts.
+    expect(screen.getByText("لا يوجد موردون مطابقون")).toBeInTheDocument();
+  });
+
+  it("computes the statement's closing payable from a real opening balance and a confirmed purchase invoice", async () => {
+    const inv: PurchaseInvoiceDTO = {
+      id: "pinv-1",
+      number: "PINV-000001",
+      supplierId: "sup-1",
+      date: "2026-08-15",
+      dueDate: null,
+      supplierInvoiceNumber: null,
+      branchId: "MAIN",
+      warehouseId: "wh-1",
+      currency: "EGP",
+      fxRate: null,
+      notes: null,
+      receiptId: null,
+      lines: [],
+      status: "confirmed",
+      subtotal: "1000.000000",
+      tax: "0.000000",
+      total: "1000.000000",
+      amountPaid: "0.000000",
+      remainingBalance: "1000.000000",
+      createdBy: "USER-ADMIN",
+      createdAt: "2026-08-15T00:00:00.000Z",
+    };
+    const payment: VoucherDTO = {
+      id: "vch-1",
+      docNo: "PV-000001",
+      voucherType: "supplier_payment",
+      direction: "payment",
+      status: "confirmed",
+      date: "2026-08-18",
+      memo: "",
+      amount: "300.000000",
+      currency: "EGP",
+      branchId: "MAIN",
+      paymentMethod: "cash",
+      treasuryAccountId: "tr-1",
+      treasuryGlAccountId: "1010",
+      counterpartyGlAccountId: null,
+      counterTreasuryAccountId: null,
+      counterTreasuryGlAccountId: null,
+      customerId: null,
+      supplierId: "sup-1",
+      referenceNo: null,
+      costCenterId: null,
+      withholdingAmount: null,
+      withholdingRatePercent: null,
+      netPaidAmount: "300.000000",
+      journalEntryId: "je-1",
+      confirmedAt: "2026-08-18T00:00:00.000Z",
+    };
+    const transport = stubTransport({
+      "GET /suppliers": () => ({ body: [supplier()] }),
+      "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
+      "GET /purchases/invoices": () => ({ body: [inv] }),
+      "GET /vouchers": () => ({ body: [payment] }),
+      "GET /vouchers/vch-1/allocations": () => ({ body: { allocations: [] } }),
+      "GET /open-invoices": () => ({ body: [] }),
+      "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
+      "GET /purchase-returns": () => ({ body: [] }),
+      "GET /cheques": () => ({ body: [] }),
+    });
+    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(await screen.findByText("جاري"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
+
+    // opening 3200.00 (credit) + invoice total 1000.00 (credit) − the unallocated
+    // 300.00 payment (debit) = 3,900.00. Swapping the subtraction for an addition
+    // (a real bug shape: crediting a payment as if it were another purchase)
+    // would read 4,500.00 instead.
+    const closingValue = (await screen.findByText("الرصيد الختامي (مستحق للمورد)")).nextElementSibling;
+    expect(closingValue?.textContent).toBe("3,900.00");
   });
 });

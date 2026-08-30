@@ -3,7 +3,12 @@ import { createHmac } from "node:crypto";
 import { createFetchWebhookTransport, createHmacWebhookSigner } from "./webhook-transport.js";
 
 const request = {
-  url: "https://hook.example/mezan",
+  // A literal PUBLIC address, not a hostname. Since S10 the transport resolves
+  // the destination before fetching and refuses anything internal, so a name
+  // that does not resolve (`hook.example`) is now rejected before `fetch` is
+  // ever reached — these tests would be asserting the DNS failure rather than
+  // the transport. An IP literal skips the lookup entirely.
+  url: "https://93.184.216.34/mezan",
   headers: { "content-type": "application/json", "x-mezan-signature": "sig" },
   body: '{"event":"invoice.confirmed"}',
   timeoutMs: 5_000,

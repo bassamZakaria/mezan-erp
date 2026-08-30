@@ -1,6 +1,6 @@
 import { BrowserWindow, shell } from "electron";
 import { preloadPath, rendererEntry } from "./env.js";
-import { RENDERER_SCHEME } from "./renderer-protocol.js";
+import { RENDERER_HOST, RENDERER_SCHEME } from "./renderer-protocol.js";
 
 /**
  * Origins the renderer may navigate to. Everything else is a link, and a link
@@ -9,9 +9,22 @@ import { RENDERER_SCHEME } from "./renderer-protocol.js";
 function isRendererOrigin(target: string, entry: string): boolean {
   try {
     const url = new URL(target);
-    if (url.protocol === `${RENDERER_SCHEME}:`) return true;
+    // The renderer's own scheme, and only its own host. `app://` is standard
+    // to Chromium because `registerSchemesAsPrivileged` says so, but Node's
+    // `URL` does not share that registry, so the host has to be checked here.
+    if (url.protocol === `${RENDERER_SCHEME}:`) return url.host === RENDERER_HOST;
+
+    const entryUrl = new URL(entry);
+    // NEVER compare `origin` when either side can serialise to the STRING
+    // "null". `app:`, `file:`, `javascript:` and `data:` all do, so in a
+    // packaged build — where the entry is `app://mezan/index.html` — an origin
+    // comparison returned true for `file:///etc/passwd` and for
+    // `javascript:`, handing the `window.mezan` bridge (the whole Hono app) to
+    // whatever document landed there. Development was unaffected, because the
+    // Vite entry has a real origin, so this never showed up in a dev run.
+    if (url.origin === "null" || entryUrl.origin === "null") return false;
     // Development only: the Vite dev server IS the renderer.
-    return url.origin === new URL(entry).origin;
+    return url.origin === entryUrl.origin;
   } catch {
     return false;
   }

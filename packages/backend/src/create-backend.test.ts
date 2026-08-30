@@ -1,9 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE } from "@mezan/domain";
+import { ALL_SCOPE, type WebhookHttpRequest } from "@mezan/domain";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -820,6 +821,566 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
       expect(res.status, `GET ${path}`).toBe(200);
       expect((await res.json()) as unknown[]).toEqual([]);
     }
+  });
+});
+
+/**
+ * The ETA enqueue bridge (`createEtaEnqueueBridge`) is fanned into the
+ * SALES_INVOICE document type's own events (`salesInvoiceEvents`) but NOT
+ * into `returnsEventBridge`, which is all `salesReturns`/`purchaseReturns`
+ * get. So a confirmed return can never reach the bridge at all, regardless
+ * of أرسال تلقائي عند التأكيد — this is D122's root cause, pinned end to end
+ * through the real backend rather than by reading the wiring.
+ */
+describe("createBackend — ETA enqueue bridge (D122)", () => {
+  async function confirmedInvoice(app: App, id: string, customerId: string) {
+    await createCustomer(app, customerId, "0");
+    const create = await authedPost(app, "/sales-invoices", invoiceBody(id, customerId, "100"));
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, `/sales-invoices/${id}/confirm`, {});
+    expect(confirm.status).toBe(200);
+    return (await confirm.json()) as { id: string; docNo: string };
+  }
+
+  async function submissions(app: App) {
+    const res = await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    return (await res.json()) as { internalId: string; documentType: string }[];
+  }
+
+  /** Polls the queue — the bridge's own enqueue call is fire-and-forget after confirm returns. */
+  async function waitForQueueEntry(app: App, internalId: string) {
+    for (let i = 0; i < 40; i += 1) {
+      const rows = await submissions(app);
+      if (rows.some((r) => r.internalId === internalId)) return rows;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    return submissions(app);
+  }
+
+  it("confirming a sales invoice enqueues a real ETA submission — أرسال تلقائي عند التأكيد defaults to on", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    const invoice = await confirmedInvoice(app, "inv-eta-1", "cust-eta-1");
+    const rows = await waitForQueueEntry(app, invoice.docNo);
+    expect(rows.some((r) => r.internalId === invoice.docNo && r.documentType === "invoice")).toBe(true);
+  });
+
+  it("LIMITATION (D122): confirming a sales return against that same invoice never reaches the ETA queue, even though the invoice's own submission proves the queue and the wiring both work", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    const invoice = await confirmedInvoice(app, "inv-eta-2", "cust-eta-2");
+    // The control: the invoice's own submission lands, so the queue itself
+    // and this test's polling are both known-good before we look at the return.
+    await waitForQueueEntry(app, invoice.docNo);
+
+    const createReturn = await post(app, "/sales-returns", {
+      id: "sr-eta-1",
+      date: "2026-08-23",
+      memo: "",
+      lines: [
+        {
+          itemId: "SVC-1",
+          warehouseId: "WH1",
+          customerId: "cust-eta-2",
+          sourceInvoiceId: invoice.id,
+          sourceInvoiceNumber: invoice.docNo,
+          reason: "OTHER",
+          availableQty: "1",
+          qty: "1",
+          unitPrice: "100",
+          unitCost: "0",
+          taxAmount: "0",
+        },
+      ],
+    }, admin(app));
+    expect(createReturn.status).toBe(201);
+    const confirmReturn = await post(app, "/sales-returns/sr-eta-1/confirm", {}, admin(app));
+    expect(confirmReturn.status).toBe(200);
+    const returnDoc = (await confirmReturn.json()) as { document: { docNo: string } };
+    expect(returnDoc.document.docNo).toBeTruthy();
+
+    // Give the fire-and-forget bridge every chance it would need if it were wired
+    // to receive the return's event at all.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const rows = await submissions(app);
+    // What happens today: the return's document number is nowhere in the queue.
+    // What should happen: a confirmed return should be queued for e-invoicing
+    // (or explicitly excluded), not silently dropped by an event bridge it was
+    // never wired into.
+    expect(rows.some((r) => r.internalId === returnDoc.document.docNo)).toBe(false);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.internalId).toBe(invoice.docNo);
+  });
+});
+
+/**
+ * WebhookDispatcher is the SECOND subscriber on the shared EventBus
+ * (create-backend.ts, right after the notification-rules engine) — this
+ * proves it is actually wired end to end: a real subscription, a real
+ * confirm, a real signed HTTP call (through the injected transport), and a
+ * real delivery-attempt record, not just that the class exists.
+ */
+describe("createBackend — webhook dispatcher wiring", () => {
+  it("a subscribed webhook receives a real HMAC-signed delivery when a sales invoice confirms, and the attempt is recorded", async () => {
+    const calls: WebhookHttpRequest[] = [];
+    const app = keep(
+      await createBackend({
+        dbPath: ":memory:",
+        webhookTransport: {
+          async send(request) {
+            calls.push(request);
+            return { statusCode: 200, errorMessage: null };
+          },
+        },
+      }),
+    );
+
+    const createHook = await post(
+      app,
+      "/webhooks",
+      { name: "ERP sync", targetUrl: "https://example.test/hooks/mezan", events: ["SALES_INVOICE_CONFIRMED"] },
+      admin(app),
+    );
+    expect(createHook.status).toBe(201);
+    const webhook = (await createHook.json()) as { id: string; secret: string };
+
+    await createCustomer(app, "cust-wh-1", "0");
+    await createServiceItem(app);
+    const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-wh-1", "cust-wh-1", "250.00"));
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-wh-1/confirm", {});
+    expect(confirm.status).toBe(200);
+
+    // The dispatcher is fired detached from the confirm response, exactly like
+    // the notification engine — give its own async chain (webhooks.list ->
+    // transport.send -> recordWebhookDelivery) room to actually run.
+    for (let i = 0; i < 40 && calls.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(calls).toHaveLength(1);
+    const sent = calls[0]!;
+    expect(sent.url).toBe("https://example.test/hooks/mezan");
+    expect(sent.headers["x-mezan-event"]).toBe("SALES_INVOICE_CONFIRMED");
+    const payload = JSON.parse(sent.body) as { event: string; webhookId: string; data: { documentNumber: string } };
+    expect(payload.event).toBe("SALES_INVOICE_CONFIRMED");
+    expect(payload.webhookId).toBe(webhook.id);
+    expect(payload.data.documentNumber).toBeTruthy();
+
+    // The signature must verify against the SAME plaintext secret the create
+    // response returned — a webhook whose signature a receiver cannot check is
+    // useless no matter how many bytes arrive.
+    const [tsField, sigField] = sent.headers["x-mezan-signature"]!.split(",");
+    const timestamp = tsField!.slice("t=".length);
+    expect(sent.headers["x-mezan-timestamp"]).toBe(timestamp);
+    const expectedDigest = createHmac("sha256", webhook.secret).update(`${timestamp}.${sent.body}`).digest("hex");
+    expect(sigField).toBe(`v1=${expectedDigest}`);
+
+    let deliveries: { success: boolean; statusCode: number | null; eventCode: string }[] = [];
+    for (let i = 0; i < 40 && deliveries.length === 0; i += 1) {
+      const res = await app.fetch(new Request(`http://local/webhooks/${webhook.id}/deliveries`, { headers: admin(app) }));
+      expect(res.status).toBe(200);
+      deliveries = (await res.json()) as typeof deliveries;
+      if (deliveries.length === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({ success: true, statusCode: 200, eventCode: "SALES_INVOICE_CONFIRMED" });
+  });
+
+  it("a webhook NOT subscribed to the fired event never gets called", async () => {
+    const calls: WebhookHttpRequest[] = [];
+    const app = keep(
+      await createBackend({
+        dbPath: ":memory:",
+        webhookTransport: {
+          async send(request) {
+            calls.push(request);
+            return { statusCode: 200, errorMessage: null };
+          },
+        },
+      }),
+    );
+    const createHook = await post(
+      app,
+      "/webhooks",
+      { name: "Unrelated", targetUrl: "https://example.test/hooks/other", events: ["PURCHASE_RETURN_CONFIRMED"] },
+      admin(app),
+    );
+    expect(createHook.status).toBe(201);
+
+    await createCustomer(app, "cust-wh-2", "0");
+    await createServiceItem(app);
+    await authedPost(app, "/sales-invoices", invoiceBody("inv-wh-2", "cust-wh-2", "100"));
+    const confirm = await authedPost(app, "/sales-invoices/inv-wh-2/confirm", {});
+    expect(confirm.status).toBe(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls).toHaveLength(0);
+  });
+});
+
+/**
+ * تحصيل من عميل — `create-backend.ts`'s `salesInvoices.collect` adapter
+ * (D1's fix): a real confirmed collection voucher, allocated to the invoice,
+ * so AR moves in the GL and `amountPaid` follows the allocation instead of
+ * being written by the route itself. Exercised at a NON-ZERO opening AR
+ * balance (a real confirmed 1,000 EGP invoice), collecting only part of it.
+ */
+describe("createBackend — تحصيل من عميل (collect) posts a real balanced entry", () => {
+  async function treasuryAccount(app: App, id: string, openingBalance: string) {
+    const res = await post(
+      app,
+      "/treasury-accounts",
+      { id, code: id, name: "الخزينة الرئيسية", branchId: "BR1", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance },
+      admin(app),
+    );
+    expect(res.status).toBe(201);
+  }
+
+  it("collecting PART of a confirmed invoice debits the treasury and credits AR for EXACTLY the collected amount, and updates amountPaid", async () => {
+    const app = await newBackend();
+    await treasuryAccount(app, "ta-collect-1", "500.00");
+    await createCustomer(app, "cust-collect-1", "0");
+    await createServiceItem(app);
+
+    const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-collect-1", "cust-collect-1", "1000.00"));
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-collect-1/confirm", {});
+    expect(confirm.status).toBe(200);
+    const confirmed = (await confirm.json()) as { journalEntryId: string };
+    expect(confirmed.journalEntryId).toBeTruthy();
+
+    // Non-zero opening AR balance BEFORE the collection.
+    const beforeJe = await app.fetch(
+      new Request(`http://local/gl/journal-entries/${confirmed.journalEntryId}`, { headers: admin(app) }),
+    );
+    const beforeLines = ((await beforeJe.json()) as { lines: { accountId: string; debit: string; credit: string }[] }).lines;
+    const arBefore = beforeLines.find((l) => l.accountId === "1105");
+    expect(arBefore?.debit).toBe("1000.000000");
+
+    const collect = await post(
+      app,
+      "/sales-invoices/inv-collect-1/payments",
+      { amount: "400.00", treasuryAccountId: "ta-collect-1", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(collect.status).toBe(200);
+    const collected = (await collect.json()) as {
+      voucherId: string;
+      amountPaid: string;
+      status: string;
+    };
+    expect(collected.voucherId).toBeTruthy();
+    expect(collected.amountPaid).toBe("400.000000");
+    // Confirming and paid only part — status must not jump straight to مدفوعة.
+    expect(collected.status).not.toBe("paid");
+
+    const voucherRes = await app.fetch(
+      new Request(`http://local/vouchers/${collected.voucherId}`, { headers: admin(app) }),
+    );
+    expect(voucherRes.status).toBe(200);
+    const voucher = (await voucherRes.json()) as { journalEntryId: string; amount: string; status: string };
+    expect(voucher.status).toBe("confirmed");
+    expect(voucher.amount).toBe("400.000000");
+
+    const je = await app.fetch(
+      new Request(`http://local/gl/journal-entries/${voucher.journalEntryId}`, { headers: admin(app) }),
+    );
+    expect(je.status).toBe(200);
+    const lines = ((await je.json()) as { lines: { accountId: string; debit: string; credit: string }[] }).lines;
+    const treasuryLine = lines.find((l) => l.accountId === "1300-1");
+    const arLine = lines.find((l) => l.accountId === "1105");
+    expect(treasuryLine?.debit).toBe("400.000000");
+    expect(treasuryLine?.credit).toBe("0.000000");
+    expect(arLine?.credit).toBe("400.000000");
+    expect(arLine?.debit).toBe("0.000000");
+    const totalDebit = lines.reduce((n, l) => n + BigInt(Math.round(Number(l.debit) * 1_000_000)), 0n);
+    const totalCredit = lines.reduce((n, l) => n + BigInt(Math.round(Number(l.credit) * 1_000_000)), 0n);
+    expect(totalDebit).toBe(totalCredit);
+    expect(totalDebit).toBeGreaterThan(0n);
+  });
+
+  it("collecting MORE than what remains is refused, and posts nothing", async () => {
+    const app = await newBackend();
+    await treasuryAccount(app, "ta-collect-2", "0");
+    await createCustomer(app, "cust-collect-2", "0");
+    await createServiceItem(app);
+
+    await authedPost(app, "/sales-invoices", invoiceBody("inv-collect-2", "cust-collect-2", "100.00"));
+    await authedPost(app, "/sales-invoices/inv-collect-2/confirm", {});
+
+    const overCollect = await post(
+      app,
+      "/sales-invoices/inv-collect-2/payments",
+      { amount: "150.00", treasuryAccountId: "ta-collect-2", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(overCollect.status).toBe(422);
+
+    const invoiceRes = await app.fetch(new Request("http://local/sales-invoices/inv-collect-2", { headers: admin(app) }));
+    const invoice = (await invoiceRes.json()) as { amountPaid: string };
+    expect(invoice.amountPaid).toBe("0.000000");
+  });
+});
+
+/**
+ * `resolveReconciliationControls` (create-backend.ts) walks confirmed
+ * vouchers, cheques, sales/purchase returns and landed costs to keep the
+ * AR/AP/inventory sub-ledger tied to its GL control account. The existing
+ * `/reconciliation` test only proves the trivial all-zero case; this proves
+ * the sub-ledger still ties the control account after a REAL confirmed sales
+ * return moves both sides, at a non-zero opening balance.
+ */
+describe("createBackend — reconciliation still ties after a confirmed sales return (non-zero)", () => {
+  it("AR and inventory both fall by exactly the return's share, and the sub-ledger still matches the GL", async () => {
+    const app = await newBackend();
+
+    const item = await post(
+      app,
+      "/items",
+      { id: "item-recon-1", code: "item-recon-1", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+      admin(app),
+    );
+    expect(item.status).toBe(201);
+
+    const adjustment = await post(
+      app,
+      "/inventory/adjustments",
+      {
+        adjustmentId: "adj-recon-1",
+        warehouseId: "WH-MAIN",
+        reason: "INITIAL_STOCK",
+        lines: [{ itemId: "item-recon-1", direction: "IN", qty: "100", unitCost: "10" }],
+      },
+      admin(app),
+    );
+    expect(adjustment.status).toBe(201);
+
+    await createCustomer(app, "cust-recon-1", "0");
+
+    const createInvoice = await post(
+      app,
+      "/sales-invoices",
+      {
+        id: "inv-recon-1",
+        date: "2026-08-22",
+        dueDate: "2026-09-21",
+        customerId: "cust-recon-1",
+        customerNameAr: "عميل cust-recon-1",
+        warehouseId: "WH-MAIN",
+        branchId: "BR-MAIN",
+        arAccountId: "1105",
+        taxAccountId: "2200",
+        lines: [
+          {
+            lineId: "L1",
+            itemId: "item-recon-1",
+            itemNameAr: "منتج تسوية",
+            isStock: true,
+            qty: "20",
+            unitPrice: "50",
+            taxRatePercent: 0,
+            revenueAccountId: "4100",
+            cogsAccountId: "5100",
+            inventoryAccountId: "1200",
+          },
+        ],
+      },
+      admin(app),
+    );
+    expect(createInvoice.status).toBe(201);
+    const confirmInvoice = await post(app, "/sales-invoices/inv-recon-1/confirm", {}, admin(app));
+    expect(confirmInvoice.status).toBe(200);
+    const invoice = (await confirmInvoice.json()) as { id: string; docNo: string };
+
+    // Non-zero opening position BEFORE the return: AR = 20 * 50 = 1000.
+    const beforeRecon = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const before = (await beforeRecon.json()) as {
+      allMatched: boolean;
+      rows: { key: string; subLedgerBalance: string; glBalance: string; matched: boolean }[];
+    };
+    expect(before.allMatched).toBe(true);
+    const arBefore = before.rows.find((r) => r.key === "ar")!;
+    expect(Number(arBefore.subLedgerBalance)).toBe(1000);
+    expect(Number(arBefore.glBalance)).toBe(1000);
+    const inventoryBefore = before.rows.find((r) => r.key === "inventory")!;
+    expect(Number(inventoryBefore.subLedgerBalance)).toBe(1000 - 20 * 10); // 100 received @10 - 20 sold @10
+
+    const createReturn = await post(
+      app,
+      "/sales-returns",
+      {
+        id: "sr-recon-1",
+        date: "2026-08-23",
+        memo: "",
+        lines: [
+          {
+            itemId: "item-recon-1",
+            warehouseId: "WH-MAIN",
+            customerId: "cust-recon-1",
+            sourceInvoiceId: invoice.id,
+            sourceInvoiceNumber: invoice.docNo,
+            reason: "DEFECTIVE",
+            availableQty: "20",
+            qty: "5",
+            unitPrice: "50",
+            unitCost: "10",
+            taxAmount: "0",
+          },
+        ],
+      },
+      admin(app),
+    );
+    expect(createReturn.status).toBe(201);
+    const confirmReturn = await post(app, "/sales-returns/sr-recon-1/confirm", {}, admin(app));
+    expect(confirmReturn.status).toBe(200);
+
+    const afterRecon = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const after = (await afterRecon.json()) as {
+      allMatched: boolean;
+      rows: { key: string; subLedgerBalance: string; glBalance: string; matched: boolean }[];
+    };
+    // AR falls by the return's grand total (5 * 50 = 250): 1000 -> 750.
+    const arAfter = after.rows.find((r) => r.key === "ar")!;
+    expect(Number(arAfter.subLedgerBalance)).toBe(750);
+    expect(Number(arAfter.glBalance)).toBe(750);
+    expect(arAfter.matched).toBe(true);
+    // Inventory rises back by the returned qty at its cost (5 * 10 = 50): 800 -> 850.
+    const inventoryAfter = after.rows.find((r) => r.key === "inventory")!;
+    expect(Number(inventoryAfter.subLedgerBalance)).toBe(1000 - 20 * 10 + 5 * 10);
+    expect(Number(inventoryAfter.glBalance)).toBe(Number(inventoryAfter.subLedgerBalance));
+    expect(inventoryAfter.matched).toBe(true);
+    expect(after.allMatched).toBe(true);
+  });
+});
+
+/**
+ * سداد للمورد straight off the invoice — `create-backend.ts`'s `purchases.pay`
+ * adapter (R4.4, the purchase-side mirror of `salesInvoices.collect`/D40): a
+ * real confirmed supplier-payment voucher, allocated to the invoice, moving
+ * the treasury and AP together. Exercised at a NON-ZERO opening AP balance.
+ */
+describe("createBackend — سداد للمورد (pay) posts a real balanced entry", () => {
+  it("paying PART of a confirmed purchase invoice credits the treasury and debits AP for EXACTLY the paid amount", async () => {
+    const app = await newBackend();
+
+    const treasury = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-pay-1", code: "ta-pay-1", name: "الخزينة الرئيسية", branchId: "BR-MAIN", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance: "1000.00" },
+      admin(app),
+    );
+    expect(treasury.status).toBe(201);
+
+    // A treasury account's `openingBalance` field is a record only — it posts
+    // no journal entry, so the account's REAL cash balance starts at zero and
+    // the cash-negative guard refuses to pay out of it. Fund it for real with
+    // an ordinary customer collection first (also exercises `collect` again,
+    // this time as the funding leg for `pay`).
+    await createCustomer(app, "cust-pay-1", "0");
+    await createServiceItem(app);
+    await authedPost(app, "/sales-invoices", invoiceBody("inv-fund-pay-1", "cust-pay-1", "1000.00"));
+    await authedPost(app, "/sales-invoices/inv-fund-pay-1/confirm", {});
+    const fund = await post(
+      app,
+      "/sales-invoices/inv-fund-pay-1/payments",
+      { amount: "1000.00", treasuryAccountId: "ta-pay-1", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(fund.status).toBe(200);
+
+    const supplier = await post(
+      app,
+      "/suppliers",
+      { id: "sup-pay-1", code: "sup-pay-1", nameAr: "مورد pay-1", currency: "EGP", openingBalance: "0" },
+      admin(app),
+    );
+    expect(supplier.status).toBe(201);
+
+    const createInvoice = await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-pay-1",
+        supplierId: "sup-pay-1",
+        date: "2026-08-22",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ description: "إيجار مخزن", kind: "expense", qty: "1", unitCost: "800.00", taxRatePercent: 0 }],
+      },
+      admin(app),
+    );
+    expect(createInvoice.status).toBe(201);
+    const confirmInvoice = await post(app, "/purchases/invoices/pi-pay-1/confirm", {}, admin(app));
+    expect(confirmInvoice.status).toBe(200);
+    const confirmed = (await confirmInvoice.json()) as { total: string };
+    expect(confirmed.total).toBe("800.000000");
+
+    const pay = await post(
+      app,
+      "/purchases/invoices/pi-pay-1/payments",
+      { amount: "300.00", treasuryAccountId: "ta-pay-1", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(pay.status).toBe(200);
+    const paid = (await pay.json()) as { voucherId: string; amountPaid: string; remainingBalance: string };
+    expect(paid.amountPaid).toBe("300.000000");
+    expect(paid.remainingBalance).toBe("500.000000");
+
+    const voucherRes = await app.fetch(new Request(`http://local/vouchers/${paid.voucherId}`, { headers: admin(app) }));
+    expect(voucherRes.status).toBe(200);
+    const voucher = (await voucherRes.json()) as { journalEntryId: string; status: string; amount: string };
+    expect(voucher.status).toBe("confirmed");
+    expect(voucher.amount).toBe("300.000000");
+
+    const je = await app.fetch(new Request(`http://local/gl/journal-entries/${voucher.journalEntryId}`, { headers: admin(app) }));
+    expect(je.status).toBe(200);
+    const lines = ((await je.json()) as { lines: { accountId: string; debit: string; credit: string }[] }).lines;
+    const treasuryLine = lines.find((l) => l.accountId === "1300-1");
+    const apLine = lines.find((l) => l.accountId === "2100");
+    expect(treasuryLine?.credit).toBe("300.000000");
+    expect(treasuryLine?.debit).toBe("0.000000");
+    expect(apLine?.debit).toBe("300.000000");
+    expect(apLine?.credit).toBe("0.000000");
+  });
+
+  it("paying more than the remaining balance is refused (422), and posts nothing", async () => {
+    const app = await newBackend();
+    await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-pay-2", code: "ta-pay-2", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance: "0" },
+      admin(app),
+    );
+    await post(app, "/suppliers", { id: "sup-pay-2", code: "sup-pay-2", nameAr: "مورد pay-2" }, admin(app));
+    await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-pay-2",
+        supplierId: "sup-pay-2",
+        date: "2026-08-22",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ description: "صيانة", kind: "expense", qty: "1", unitCost: "100.00", taxRatePercent: 0 }],
+      },
+      admin(app),
+    );
+    await post(app, "/purchases/invoices/pi-pay-2/confirm", {}, admin(app));
+
+    const overpay = await post(
+      app,
+      "/purchases/invoices/pi-pay-2/payments",
+      { amount: "150.00", treasuryAccountId: "ta-pay-2", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(overpay.status).toBe(422);
+
+    const invoiceRes = await app.fetch(new Request("http://local/purchases/invoices/pi-pay-2", { headers: admin(app) }));
+    const invoice = (await invoiceRes.json()) as { amountPaid: string };
+    expect(invoice.amountPaid).toBe("0.000000");
   });
 });
 

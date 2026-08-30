@@ -39,7 +39,10 @@ export default defineConfig({
         // logic worth guarding (backup, entitlements, LAN host, paths) is
         // already extracted into modules that ARE covered.
         "apps/desktop/src/main/index.ts",
-        "apps/desktop/src/main/window.ts",
+        // window.ts is NOT excluded: its navigation guard and child-window
+        // handler are pure functions of a URL, they had a production-only hole
+        // in them (D128), and window.test.ts now drives both with electron
+        // mocked. Excluding it is what let that hole go unmeasured.
         "apps/desktop/src/preload/**",
       ],
       thresholds: {

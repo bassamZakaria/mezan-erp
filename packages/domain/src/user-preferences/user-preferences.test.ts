@@ -14,6 +14,7 @@ import {
   type RecentRecord,
   type PinnedScreen,
   type DashboardWidget,
+  type ShortcutTile,
 } from "./user-preferences.js";
 
 function fixedNow(iso: string) {
@@ -50,6 +51,19 @@ function recent(overrides: Partial<RecentRecord> = {}): RecentRecord {
     icon: null,
     branchId: "BR1",
     openedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function tile(overrides: Partial<ShortcutTile> = {}): ShortcutTile {
+  return {
+    id: "s-1",
+    route: "#/pos",
+    labelAr: "نقطة بيع",
+    labelEn: "POS",
+    icon: null,
+    tone: "teal",
+    order: 0,
     ...overrides,
   };
 }
@@ -135,8 +149,8 @@ describe("validateUserPreferences", () => {
         {
           tableId: "sales-invoices",
           columns: [
-            { key: "docNo", visible: false, order: 0, widthPx: null, pinned: null as const },
-            { key: "total", visible: false, order: 1, widthPx: null, pinned: null as const },
+            { key: "docNo", visible: false, order: 0, widthPx: null, pinned: null },
+            { key: "total", visible: false, order: 1, widthPx: null, pinned: null },
           ],
           sortKey: null,
           sortDirection: null,
@@ -150,6 +164,60 @@ describe("validateUserPreferences", () => {
     ).toBe(true);
   });
 
+  it("rejects more pinned screens than PINNED_SCREENS_LIMIT", () => {
+    const prefs = {
+      ...preferencesFor("u1"),
+      pinnedScreens: Array.from({ length: 21 }, (_, i) => pin({ id: `p${i}`, order: i })),
+    };
+    expect(validateUserPreferences(prefs).some((r) => r.includes("pinnedScreens must be at most"))).toBe(true);
+  });
+
+  it("rejects more shortcut tiles than SHORTCUT_TILES_LIMIT", () => {
+    const prefs = {
+      ...preferencesFor("u1"),
+      shortcutTiles: Array.from({ length: 13 }, (_, i) => tile({ id: `s${i}`, order: i })),
+    };
+    expect(validateUserPreferences(prefs).some((r) => r.includes("shortcutTiles must be at most"))).toBe(true);
+  });
+
+  it("rejects duplicate shortcutTiles ids", () => {
+    const prefs = { ...preferencesFor("u1"), shortcutTiles: [tile({ id: "s1" }), tile({ id: "s1", order: 1 })] };
+    expect(validateUserPreferences(prefs).some((r) => r.includes("duplicate shortcutTiles"))).toBe(true);
+  });
+
+  it("rejects two table views claiming the same tableId", () => {
+    const view = {
+      tableId: "items",
+      columns: [{ key: "code", visible: true, order: 0, widthPx: null, pinned: null }],
+      sortKey: null,
+      sortDirection: null,
+      pageSize: null,
+      density: null,
+    } as const;
+    const prefs = { ...preferencesFor("u1"), tableViews: [view, view] };
+    expect(validateUserPreferences(prefs).some((r) => r.includes("duplicate tableViews tableIds"))).toBe(true);
+  });
+
+  it("rejects duplicate column keys WITHIN one table view", () => {
+    const prefs = {
+      ...preferencesFor("u1"),
+      tableViews: [
+        {
+          tableId: "sales-invoices",
+          columns: [
+            { key: "docNo", visible: true, order: 0, widthPx: null, pinned: null },
+            { key: "docNo", visible: true, order: 1, widthPx: null, pinned: null },
+          ],
+          sortKey: null,
+          sortDirection: null,
+          pageSize: null,
+          density: null,
+        },
+      ],
+    };
+    expect(validateUserPreferences(prefs).some((r) => r.includes("duplicate column keys in table"))).toBe(true);
+  });
+
   it("accepts a table view with at least one visible column", () => {
     const prefs = {
       ...preferencesFor("u1"),
@@ -157,8 +225,8 @@ describe("validateUserPreferences", () => {
         {
           tableId: "sales-invoices",
           columns: [
-            { key: "docNo", visible: true, order: 0, widthPx: null, pinned: null as const },
-            { key: "total", visible: false, order: 1, widthPx: null, pinned: null as const },
+            { key: "docNo", visible: true, order: 0, widthPx: null, pinned: null },
+            { key: "total", visible: false, order: 1, widthPx: null, pinned: null },
           ],
           sortKey: "docNo",
           sortDirection: "asc" as const,
@@ -377,6 +445,54 @@ describe("resetUserPreferences", () => {
     const before = customized();
     const reset = resetUserPreferences(before, "tables", {}, fixedNow("2026-01-05T00:00:00.000Z"));
     expect(reset.tableViews).toEqual([]);
+  });
+
+  it("scope 'layoutName' resets only the layout name", () => {
+    const before = customized();
+    const reset = resetUserPreferences(before, "layoutName", {}, fixedNow("2026-01-05T00:00:00.000Z"));
+    expect(reset.layoutName).toBe(DEFAULT_LAYOUT_NAME);
+    expect(reset.numerals).toBe(before.numerals);
+    expect(reset.pinnedScreens).toEqual(before.pinnedScreens);
+  });
+
+  it("scope 'numerals' resets only the numeral override", () => {
+    const before = customized();
+    const reset = resetUserPreferences(before, "numerals", {}, fixedNow("2026-01-05T00:00:00.000Z"));
+    expect(reset.numerals).toBeNull();
+    expect(reset.layoutName).toBe(before.layoutName);
+    expect(reset.railCollapsed).toBe(before.railCollapsed);
+  });
+
+  it("scope 'rail' resets only railCollapsed", () => {
+    const before = customized();
+    const reset = resetUserPreferences(before, "rail", {}, fixedNow("2026-01-05T00:00:00.000Z"));
+    expect(reset.railCollapsed).toBe(false);
+    expect(reset.numerals).toBe(before.numerals);
+    expect(reset.pinnedScreens).toEqual(before.pinnedScreens);
+  });
+
+  it("scope 'recents' resets only recentRecords", () => {
+    const before = customized();
+    const reset = resetUserPreferences(before, "recents", {}, fixedNow("2026-01-05T00:00:00.000Z"));
+    expect(reset.recentRecords).toEqual([]);
+    expect(reset.pinnedScreens).toEqual(before.pinnedScreens);
+    expect(reset.dashboard).toEqual(before.dashboard);
+  });
+
+  it("scope 'shortcuts' resets only shortcutTiles", () => {
+    const before = customized();
+    const reset = resetUserPreferences(before, "shortcuts", {}, fixedNow("2026-01-05T00:00:00.000Z"));
+    expect(reset.shortcutTiles).toEqual([]);
+    expect(reset.tableViews).toEqual(before.tableViews);
+    expect(reset.pinnedScreens).toEqual(before.pinnedScreens);
+  });
+
+  it("scope 'dashboard' resets only the dashboard layout", () => {
+    const before = customized();
+    const reset = resetUserPreferences(before, "dashboard", {}, fixedNow("2026-01-05T00:00:00.000Z"));
+    expect(reset.dashboard).toEqual({ columns: 3, widgets: [] });
+    expect(reset.pinnedScreens).toEqual(before.pinnedScreens);
+    expect(reset.shortcutTiles).toEqual(before.shortcutTiles);
   });
 });
 

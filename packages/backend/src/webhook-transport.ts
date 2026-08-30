@@ -43,7 +43,18 @@ function isBlockedAddress(address: string): boolean {
     // Link-local (fe80::/10), unique-local (fc00::/7), and IPv4-mapped forms.
     if (/^fe[89ab]/.test(bare) || /^f[cd]/.test(bare)) return true;
     const mapped = bare.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    return mapped ? isBlockedAddress(mapped[1] as string) : false;
+    if (mapped) return isBlockedAddress(mapped[1] as string);
+    // WHATWG `new URL()` REWRITES an IPv4-mapped address into hex form:
+    // `[::ffff:127.0.0.1]` arrives here as `::ffff:7f00:1`. Matching only the
+    // dotted spelling above therefore let loopback and every private range
+    // straight through — the address is the same, only the spelling changed.
+    const hex = bare.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hex) {
+      const high = parseInt(hex[1] as string, 16);
+      const low = parseInt(hex[2] as string, 16);
+      return isBlockedAddress(`${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`);
+    }
+    return false;
   }
   const parts = v.split(".").map(Number);
   if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return false;

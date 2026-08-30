@@ -1,4 +1,4 @@
-import { randomInt } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import {
   seedStandardChartOfAccounts,
   createBranch,
@@ -81,7 +81,11 @@ export function resolveSeedAdminSecrets(
   if (!packaged) return { pin: SEED_ADMIN_PIN, password: SEED_ADMIN_PASSWORD, generated: false };
   return {
     pin: String(randomInt(0, 1_000_000)).padStart(6, "0"),
-    password: `pw-${randomInt(0, Number.MAX_SAFE_INTEGER)}`,
+    // `randomInt` refuses a range wider than 2**48-1, so MAX_SAFE_INTEGER
+    // (2**53-1) threw — on every packaged build, which is the only build that
+    // reaches this branch. 32 hex characters is 128 bits, drawn from the same
+    // CSPRNG, and is not a number at all.
+    password: `pw-${randomBytes(16).toString("hex")}`,
     generated: true,
   };
 }

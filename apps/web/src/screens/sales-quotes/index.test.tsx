@@ -169,7 +169,7 @@ describe("SalesQuotesScreen", () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "عروض الأسعار" })).toBeInTheDocument();
     expect(await screen.findByText("SQ-000001")).toBeInTheDocument();
-    expect(screen.getByText("متجر الأمل")).toBeInTheDocument();
+    expect(screen.getByText(/متجر الأمل/)).toBeInTheDocument();
     expect(screen.queryByText("500.000000")).not.toBeInTheDocument();
     expect(screen.getAllByText((_, el) => el?.textContent === "500.00").length).toBeGreaterThan(0);
   });
@@ -220,7 +220,10 @@ describe("SalesQuotesScreen", () => {
     fireEvent.change(fieldInput(document.body, "من تاريخ"), { target: { value: "2026-08-01" } });
     await waitFor(() => expect(getListPath()).toContain("fromDate=2026-08-01"));
 
-    fireEvent.click(screen.getByRole("tab", { name: /^مرسل/ }));
+    // The chip counts are their OWN query, keyed by the same filter (minus
+    // status) — a zero-count chip is hidden (ListViews), so after changing a
+    // filter the "sent" chip briefly disappears until that query re-resolves.
+    fireEvent.click(await screen.findByRole("tab", { name: /^مرسل/ }, { timeout: 2000 }));
     await waitFor(() => expect(getListPath()).toContain("status=sent"));
   });
 
@@ -244,13 +247,25 @@ describe("SalesQuotesScreen", () => {
     expect(openScreenAt).toHaveBeenCalledWith("sales-invoices", ["inv-1"]);
   });
 
-  it("a row-level transition failure renders the Arabic rowError banner, not raw JSON", async () => {
-    renderScreen([quote()], { extra: { "POST /sales-quotes/*/send": () => ({ status: 400, body: { message: "لا يمكن إرسال عرض بلا بنود" } }) } });
-    const row = (await screen.findByText("SQ-000001")).closest("tr") as HTMLElement;
-    fireEvent.click(screen.getByRole("button", { name: "إرسال للعميل" }));
-    expect(await screen.findByText("لا يمكن إرسال عرض بلا بنود")).toBeInTheDocument();
-    void row;
-  });
+  it(
+    "DEFECT: clicking the row's inline quick-action button (e.g. 'إرسال للعميل') " +
+      "also opens that row's detail view, because index.tsx's `rowAction` render " +
+      "prop — unlike PurchaseOrdersScreen/PurchaseInvoicesScreen's identical pattern " +
+      "— never wraps its buttons in `onClick={(e) => e.stopPropagation()}`. The click " +
+      "bubbles to DocumentList's own `<tr onClick={() => onRowClick(row)}>` " +
+      "(packages/ui/src/primitives/DocumentList.tsx:511), so the mutation fires AND " +
+      "the list is immediately replaced by the quote's detail — the row-level error " +
+      "banner this test originally set out to prove never gets a chance to render, " +
+      "because its container has already unmounted.",
+    async () => {
+      renderScreen([quote()], { extra: { "POST /sales-quotes/*/send": () => ({ status: 400, body: { message: "لا يمكن إرسال عرض بلا بنود" } }) } });
+      await screen.findByText("SQ-000001");
+      fireEvent.click(screen.getByRole("button", { name: "إرسال للعميل" }));
+      // The bubbled row click already navigated to the detail view.
+      expect(await screen.findByRole("heading", { name: "SQ-000001" })).toBeInTheDocument();
+      expect(screen.queryByText("لا يمكن إرسال عرض بلا بنود")).not.toBeInTheDocument();
+    },
+  );
 
   it("opening an unknown quote id shows the notFound message with a working back-to-list button", async () => {
     let current = [quote()];

@@ -446,7 +446,7 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**Thirty-nine filed 2026-08-30 by the test-coverage pass** (D66–D104). D99 is the most serious: a live, ungated journal-posting route. They were found by
+**Forty-three filed 2026-08-30 by the test-coverage pass** (D66–D108). D99 is the most serious: a live, ungated journal-posting route. They were found by
 writing tests and manual scenarios against the real code, so each carries a file reference
 rather than a feeling. The ones marked **guarded** already have a passing test that pins the
 current behaviour and will go red the day it changes; the ones marked **reported** still
@@ -493,6 +493,10 @@ need a measured reading in the running app before anyone fixes them.
 | D102 | `POST /sales-returns` lets the caller state `unitCost` directly, gated by the same permission as the `/from-invoice` path that derives it from the real invoice — so a return can be restocked at any cost the requester names, over-crediting inventory | `packages/api/src/sales-returns-routes.ts` | reported |
 | D103 | **Warehouse scope is enforced on reads and on nothing else.** The list routes call `warehouseScopeOf`; `POST /draft` and `/confirm` for stock adjustments and transfers never do. A user scoped to one warehouse can post an adjustment into another, and can transfer goods out of a warehouse they may not even list — the goods move, and the screen they would check does not show it | `packages/api/src/stock-documents-routes.ts` | guarded (`stock-documents-routes.test.ts`) |
 | D104 | `assertVatPeriodOpen` in the tax module is dead code — nothing calls it — while the live control is a separate reimplementation, `assertVatNotFiled` in `gl/post.ts`. Two copies of a legally load-bearing rule, one of them unreachable | `packages/domain/src/tax/vat-filing.ts` vs `packages/domain/src/gl/post.ts` | reported |
+| D105 | The quotes list never checks `query.isError`: a failed `GET /sales-quotes` renders the same «لا توجد عروض» empty state as a genuinely empty list, with no banner and no retry — every sibling list screen in the app distinguishes the two | `apps/web/src/screens/sales-quotes/index.tsx` | guarded |
+| D106 | Row-action controls in the quotes list are not wrapped in a click-stopper, so clicking an inline action also fires the row's own handler and navigates away to the detail view mid-action | `apps/web/src/screens/sales-quotes/index.tsx` | guarded |
+| D107 | The convert-to-invoice warehouse is captured from `workingLocation` at first mount, before the branches and warehouses queries resolve, so it locks to the empty string permanently: every accepted quote blocks on «اختر المستودع.» even when a real default warehouse exists | `apps/web/src/screens/sales-quotes/QuoteDetailView.tsx` | guarded |
+| D108 | Converting a quote falls back to hardcoded GL account ids (1105 / 2200 / 4100 / 5100 / 1200) for any item with no account mapping of its own, never checked against the tenant's actual chart of accounts — on a tenant whose COA differs, the invoice posts to whatever those codes happen to be | `apps/web/src/screens/sales-quotes/quote-model.ts` | guarded |
 
 D1–D65 are closed; the register is `archive/defect-register.md`.
 

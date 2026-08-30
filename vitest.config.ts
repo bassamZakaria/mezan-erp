@@ -14,5 +14,29 @@ export default defineConfig({
     environment: "node",
     include: ["packages/**/*.test.{ts,tsx}", "apps/**/*.test.{ts,tsx}"],
     setupFiles: ["packages/ui/src/test/setup.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text-summary", "json-summary", "html", "lcov"],
+      reportsDirectory: "coverage",
+      all: true,
+      include: [
+        "packages/*/src/**/*.{ts,tsx}",
+        "apps/web/src/**/*.{ts,tsx}",
+        "apps/desktop/src/**/*.ts",
+      ],
+      exclude: [
+        "**/*.test.{ts,tsx}",
+        "**/*.d.ts",
+        "**/test-support.{ts,tsx}",
+        "**/src/test/**",
+        "packages/backend/src/demo-seed.ts",
+      ],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 70,
+        statements: 80,
+      },
+    },
   },
 });

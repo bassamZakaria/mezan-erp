@@ -15,7 +15,7 @@ in the same commit as any fix.
 
 | § | Part | Scenarios | ID scheme |
 |---|---|---|---|
-| 1 | Policy — what runs, what does not, and why | — | — |
+| 1 | Policy — every layer runs, and what each one owns | — | — |
 | 2 | The regression plan — phases 0 to 5 | — | — |
 | 3 | What the defects found so far actually teach | — | — |
 | 4 | Conventions every scenario below assumes | — | — |
@@ -36,46 +36,69 @@ cross-references (`see SALES-042`, `X18`, `T13`) still resolve, because the IDs 
 
 ---
 
-# 1. Policy — automated test execution is disabled
+# 1. Policy — automated test execution is required again
 
-**Set 2026-08-23. A deliberate, reversible product decision, not an oversight.**
+**Reversed 2026-08-30, at the owner's instruction.** The 2026-08-23 decision to disable
+automated tests is withdrawn. Automated tests run again, locally and in CI, *in addition to*
+live verification in the running app — not instead of it.
 
 ## 1.1 The rule
 
-- **Do not write new test files.** Do not update or repair existing ones.
-- **Do not run tests anywhere** — not locally, not in CI. `pnpm test`, `pnpm test:e2e` and
-  `pnpm test:e2e:ui` are stubs that print this policy and exit 0.
-- **Verify in the running app, against real seeded data**, instead.
+- **Write tests for everything.** Unit, integration (HTTP route level), UI (Testing Library),
+  end-to-end (Playwright), property-based and brute-force/abuse suites.
+- **Run them.** `pnpm test`, `pnpm test:coverage`, `pnpm test:e2e` are real commands again.
+- **Coverage is enforced.** `vitest.config.ts` carries thresholds; the gate fails below them.
+- **Live verification still stands.** `pnpm smoke`, `pnpm check:seed`, `pnpm scenarios` and a
+  real browser pass on a seeded backend remain required. A green unit suite has never been
+  accepted here as proof that a screen works, and still is not.
 
-## 1.2 Why
+## 1.2 Why both halves are needed
 
-A live click-through found five user-facing defects — a refresh that silently logged the
-user out, six dead dashboard buttons, a dead command palette, no logout anywhere, and a
-fabricated notification badge — that **2,080 passing unit tests did not catch**, because each
-test asserted its own component's contract rather than anything a user can do. Live
-verification against real data was measurably the higher-yield check, so that is where the
-effort goes.
+The 2026-08-23 note was right about what it observed: a live click-through found five
+user-facing defects — a refresh that silently logged the user out, six dead dashboard
+buttons, a dead command palette, no logout anywhere, and a fabricated notification badge —
+that 2,080 passing unit tests did not catch, because each test asserted its own component's
+contract rather than anything a user can do.
 
-## 1.3 What still runs
+The correct conclusion was *add the user path*, not *drop the arithmetic guard*. §1.4 of the
+old policy admitted the cost itself: GL balancing, weighted-average costing, landed-cost
+allocation, fiscal-period gates and permission resolution were left unguarded. So the tests
+return, and the way they are written changes:
 
-`pnpm typecheck` and `pnpm lint` (including the RTL logical-CSS rule and the colour-token
-rule) remain required and are still enforced in CI. `pnpm smoke` boots the real backend,
-runs the demo seed and hits every read surface. `pnpm scenarios` drives the same HTTP routes
-the UI calls and asserts what documents did to stock and to the ledger — it is an executable
-suite, not a unit-test suite, and it is not covered by the ban.
+- A test asserts **what a user or a caller can observe** — the posted journal entry, the
+  stock ledger row, the HTTP response, the rendered screen after a reload — never a private
+  helper's return value alone.
+- Every money assertion checks **two numbers that must agree** (sub-ledger against its GL
+  control account), because one plausible figure hides everything.
+- Every fix to a defect in `ROADMAP.md` ships with a test that fails without the fix.
 
-## 1.4 Known risk, accepted
+## 1.3 The layers, and what each one owns
 
-Live UI verification catches wiring and integration defects well. It does **not** cover the
-arithmetic the ERP's correctness rests on — GL balancing, weighted-average costing,
-landed-cost allocation, fiscal-period gates, permission resolution. Those 49 domain modules
-are unguarded against regression except through `pnpm scenarios`.
+| Layer | Command | Owns |
+|---|---|---|
+| Unit | `pnpm test` | pure domain arithmetic — Money, allocation, costing, tax, depreciation, payroll |
+| Integration | `pnpm test` (`packages/api/**`) | HTTP routes against a real SQLite DB: status, body, and what the DB holds afterwards |
+| UI | `pnpm test` (`apps/web/**`, `packages/ui/**`) | rendered screens, RTL, Arabic copy, keyboard paths, error and empty states |
+| Property / fuzz | `pnpm test:fuzz` | invariants over generated input — balance, non-negative stock, exact allocation sums |
+| Abuse / brute force | `pnpm test` (`*.abuse.test.ts`) | PIN brute force, lockout, replay, IDOR, injection, oversized payloads |
+| E2E | `pnpm test:e2e` | the browser path a named persona actually walks |
+| Executable scenarios | `pnpm scenarios` | seeded end-to-end money trails over the real HTTP surface |
+| Manual | `docs/MANUAL-TEST-PLAN.md` | what only a human can judge — the persona walkthroughs |
 
-## 1.5 Re-enabling
+## 1.4 Coverage targets
 
-The test files were left in place, so this is a one-line reversal: restore
-`"test": "vitest run"` and `"test:e2e": "playwright test"` in `package.json`, and put the
-`Test (vitest, SQLite)` step back in `.github/workflows/ci.yml`.
+Enforced in `vitest.config.ts`. The goal set by the owner is **100%** of backend and
+frontend; the thresholds are raised toward it as gaps close, never lowered to make a run
+pass. `pnpm test:coverage` writes `coverage/` (lcov + HTML). Anything genuinely untestable is
+excluded by an explicit path in the config with a reason, not by a lowered threshold.
+
+## 1.5 What a test may never do
+
+- Assert a fabricated fixture that no seed or API could produce (see the no-mock-data rule).
+- Assert the broken behaviour of an open defect without naming the defect id — and once the
+  defect is fixed, the assertion is rewritten to what now holds, never deleted.
+- Pass a limit, price or cost the server should compute. A test that supplies `availableQty`
+  proves nothing; that is the exact shape of the worst defect this product has had.
 
 ---
 

@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { render, type RenderResult } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { AppProviders } from "./AppProviders";
 import type { Session } from "./session";
 import type { Transport, TransportResponse } from "./transport";
@@ -69,11 +70,16 @@ export const testAdminSession: Session = {
 
 export function renderWithProviders(
   ui: ReactElement,
-  options: { transport?: Transport; initialSession?: Session | null } = {},
+  options: {
+    transport?: Transport;
+    initialSession?: Session | null;
+    /** Starting URL, for screens that read the query string or the path. */
+    route?: string;
+  } = {},
 ): RenderResult {
   return render(
     <AppProviders transport={options.transport} initialSession={options.initialSession ?? null}>
-      {ui}
+      <MemoryRouter initialEntries={[options.route ?? "/"]}>{ui}</MemoryRouter>
     </AppProviders>,
   );
 }

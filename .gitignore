@@ -46,3 +46,6 @@ dev.db
 dev.db-*
 sec.db
 sec.db-*
+
+# Coverage reports are build output — regenerate with `pnpm test:coverage`.
+coverage/

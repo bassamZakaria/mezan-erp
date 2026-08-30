@@ -473,7 +473,12 @@ describe("ConfigInstancesScreen — cancel, list controls and preview states", (
 
     fireEvent.click(screen.getByRole("tab", { name: /مغلقة/ }));
     expect(await screen.findByText("CM-000002")).toBeInTheDocument();
-    expect(screen.queryByText("CM-000001")).not.toBeInTheDocument();
+    // WAIT for the open row to LEAVE, rather than assuming it already has.
+    // The closed row appearing and the open row being dropped are two separate
+    // renders, so asserting the removal the instant the other row shows up is a
+    // race — it passed on a fast run and failed under coverage, which is the
+    // worst way for a suite to be wrong: red on a change that did not cause it.
+    await waitFor(() => expect(screen.queryByText("CM-000001")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("tab", { name: /الكل/ }));
     await screen.findByText("CM-000001");

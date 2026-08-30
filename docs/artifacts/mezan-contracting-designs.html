@@ -1,0 +1,1399 @@
+<meta charset="utf-8">
+<title>Mezan Contracting Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300;400;500;600&family=Zain:wght@400;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ──────────────────────────────────────────────────────────────────────
+   Palette and type are NOT invented here. They are the shipped Mezan
+   tokens (packages/ui/src/tokens/tokens.css + fonts.css): teal brand,
+   gold accent, warm-paper ground, Zain display / Readex Pro UI.
+   Three theme states, colour-only dark block, exactly as the app.
+   ────────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#ece6da; --surface:#ffffff; --surface-2:#f6f2e9; --surface-3:#e6dfd0;
+  --border:#ddd5c3; --border-strong:#8a8171;
+  --text:#14231e; --muted:#424f48; --faint:#55665d;
+  --chrome:#0b3a34; --chrome-2:#072b27; --chrome-ink:#e4f1ec; --chrome-ink-muted:#a9c6bc;
+  --chrome-border:rgba(255,255,255,.09); --chrome-accent:#cb9e3d;
+  --brand:#0c463e; --brand-strong:#073029; --brand-soft:#e2efea; --brand-ink:#ffffff;
+  --accent:#b0862f; --accent-strong:#8a6620; --accent-soft:#f6efdb; --accent-bright:#cb9e3d;
+  --success:#2c8a57; --success-soft:#e1f1e8; --success-ink:#1c6b41;
+  --warning:#8a5f18; --warning-soft:#f7ecd3;
+  --danger:#c0402f; --danger-soft:#f8e4df; --danger-ink:#8f2a1e;
+  --info:#2f6690; --info-soft:#e1eaf2;
+  --shadow-1:0 1px 2px rgba(20,45,36,.07),0 1px 1px rgba(20,45,36,.04);
+  --shadow-2:0 22px 48px -22px rgba(12,40,32,.30),0 6px 16px -8px rgba(12,40,32,.14);
+  --font-ar:"Readex Pro","Segoe UI",Tahoma,sans-serif;
+  --font-disp:"Zain","Readex Pro",sans-serif;
+  --font-mono:"IBM Plex Mono","Readex Pro",monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0a1310; --surface:#101c18; --surface-2:#152420; --surface-3:#1c2c27;
+    --border:#243530; --border-strong:#5b7a6d;
+    --text:#e9efea; --muted:#9db0a6; --faint:#83978c;
+    --chrome:#081310; --chrome-2:#050d0b; --chrome-ink:#e4f1ec; --chrome-ink-muted:#9dbdb1;
+    --chrome-border:rgba(255,255,255,.07); --chrome-accent:#e7c77c;
+    --brand:#3fb39e; --brand-strong:#57c9b3; --brand-soft:#0f2a25; --brand-ink:#06110d;
+    --accent:#d8b25f; --accent-strong:#e7c77c; --accent-soft:#2b2412; --accent-bright:#e7c77c;
+    --success:#4cb07d; --success-soft:#123626; --success-ink:#84d6a9;
+    --warning:#d9a24c; --warning-soft:#38290f;
+    --danger:#e37b67; --danger-soft:#3a1712; --danger-ink:#f0a796;
+    --info:#6fa3cc; --info-soft:#12293a;
+    --shadow-1:0 1px 2px rgba(0,0,0,.5);
+    --shadow-2:0 22px 48px -22px rgba(0,0,0,.7),0 6px 16px -8px rgba(0,0,0,.5);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0a1310; --surface:#101c18; --surface-2:#152420; --surface-3:#1c2c27;
+  --border:#243530; --border-strong:#5b7a6d;
+  --text:#e9efea; --muted:#9db0a6; --faint:#83978c;
+  --chrome:#081310; --chrome-2:#050d0b; --chrome-ink:#e4f1ec; --chrome-ink-muted:#9dbdb1;
+  --chrome-border:rgba(255,255,255,.07); --chrome-accent:#e7c77c;
+  --brand:#3fb39e; --brand-strong:#57c9b3; --brand-soft:#0f2a25; --brand-ink:#06110d;
+  --accent:#d8b25f; --accent-strong:#e7c77c; --accent-soft:#2b2412; --accent-bright:#e7c77c;
+  --success:#4cb07d; --success-soft:#123626; --success-ink:#84d6a9;
+  --danger:#e37b67; --danger-soft:#3a1712; --danger-ink:#f0a796;
+  --warning:#d9a24c; --warning-soft:#38290f;
+  --info:#6fa3cc; --info-soft:#12293a;
+  --shadow-1:0 1px 2px rgba(0,0,0,.5);
+  --shadow-2:0 22px 48px -22px rgba(0,0,0,.7),0 6px 16px -8px rgba(0,0,0,.5);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-ar);
+     font-weight:300;font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 26px 100px}
+.num,.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+
+/* ── masthead ─────────────────────────────────────────────────────── */
+.mast{background:linear-gradient(180deg,var(--chrome) 0%,var(--chrome-2) 100%);
+      color:var(--chrome-ink);padding:0;margin-block-end:44px;
+      border-block-end:3px solid var(--chrome-accent)}
+.mast .inner{max-width:1180px;margin:0 auto;padding:52px 26px 44px}
+.mast .eyebrow{font-size:11px;letter-spacing:.20em;text-transform:uppercase;
+               color:var(--chrome-accent);font-weight:600;margin:0 0 14px}
+.mast h1{font-family:var(--font-disp);font-weight:800;font-size:clamp(34px,5.2vw,58px);
+         line-height:1.1;margin:0 0 6px;text-wrap:balance}
+.mast h1 .ar{font-size:1.06em}
+.mast .stand{max-width:66ch;font-size:16.5px;color:var(--chrome-ink-muted);margin:12px 0 0}
+.mast .facts{display:flex;flex-wrap:wrap;gap:0;margin-block-start:32px;
+             border:1px solid var(--chrome-border)}
+.mast .facts div{flex:1 1 190px;padding:13px 16px;border-inline-end:1px solid var(--chrome-border)}
+.mast .facts div:last-child{border-inline-end:0}
+.mast .facts .k{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+                color:var(--chrome-ink-muted);margin-block-end:4px}
+.mast .facts .v{font-size:14px;font-weight:500}
+
+/* ── structure ────────────────────────────────────────────────────── */
+section{margin-block-start:64px;scroll-margin-block-start:20px}
+.shead{display:flex;align-items:baseline;gap:14px;
+       border-block-end:2px solid var(--text);padding-block-end:9px;margin-block-end:26px}
+.shead .n{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--accent-strong)}
+.shead h2{font-family:var(--font-disp);font-weight:700;font-size:29px;margin:0;line-height:1.2}
+.shead .tail{margin-inline-start:auto;font-size:12px;color:var(--faint)}
+h3{font-family:var(--font-disp);font-weight:700;font-size:20px;margin:36px 0 10px;line-height:1.3}
+h4{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+   color:var(--faint);margin:26px 0 8px}
+p{max-width:74ch;margin:0 0 14px}
+.lede{font-size:17px;color:var(--muted);max-width:70ch}
+a{color:var(--brand);text-decoration-thickness:1px;text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--accent-bright);outline-offset:2px}
+code{font-family:var(--font-mono);font-size:.87em;background:var(--surface-2);
+     border:1px solid var(--border);padding:1px 5px;border-radius:4px}
+strong{font-weight:600}
+.ar{font-family:var(--font-ar);font-weight:400}
+
+/* ── panels ───────────────────────────────────────────────────────── */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+       padding:22px 24px;box-shadow:var(--shadow-1)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:14px}
+.note{border-inline-start:3px solid var(--accent);background:var(--accent-soft);
+      padding:14px 18px;border-radius:0 8px 8px 0;margin:18px 0;font-size:14.5px}
+.note.warn{border-inline-start-color:var(--danger);background:var(--danger-soft)}
+.note.ok{border-inline-start-color:var(--success);background:var(--success-soft)}
+.note b{font-weight:600}
+
+/* ── tables ───────────────────────────────────────────────────────── */
+.tw{overflow-x:auto;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:start;font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+   color:var(--faint);background:var(--surface-2);padding:10px 12px;white-space:nowrap;
+   border-block-end:1px solid var(--border-strong)}
+td{padding:9px 12px;border-block-end:1px solid var(--border);vertical-align:top}
+tbody tr:last-child td{border-block-end:0}
+tbody tr:hover{background:var(--surface-2)}
+td.n,th.n{text-align:end;font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tfoot td{border-block-start:2px solid var(--border-strong);font-weight:600;background:var(--surface-2)}
+
+/* ── chips ────────────────────────────────────────────────────────── */
+.chip{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;font-size:11.5px;
+      border-radius:999px;font-weight:500;white-space:nowrap;font-family:var(--font-ar)}
+.chip.ok{color:var(--success-ink);background:var(--success-soft)}
+.chip.warn{color:var(--warning);background:var(--warning-soft)}
+.chip.bad{color:var(--danger-ink);background:var(--danger-soft)}
+.chip.info{color:var(--info);background:var(--info-soft)}
+.chip.mute{color:var(--muted);background:var(--surface-3)}
+.chip.gold{color:var(--accent-strong);background:var(--accent-soft)}
+
+/* ── decision cards ───────────────────────────────────────────────── */
+.dec{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+     margin-block-end:14px;overflow:hidden}
+.dec > .top{display:flex;gap:12px;align-items:flex-start;padding:15px 18px;
+            background:var(--surface-2);border-block-end:1px solid var(--border)}
+.dec .id{font-family:var(--font-mono);font-size:11.5px;font-weight:600;color:var(--brand-ink);
+         background:var(--brand);padding:3px 8px;border-radius:4px;flex:0 0 auto}
+.dec .q{font-weight:500;font-size:14.5px;line-height:1.5}
+.dec .body{padding:16px 18px;display:grid;gap:12px}
+.dec .verdict{font-family:var(--font-disp);font-weight:700;font-size:18px;line-height:1.35;
+              color:var(--brand);display:flex;gap:9px;align-items:baseline}
+.dec .why{font-size:14px;color:var(--muted);max-width:none}
+.dec .rev{font-size:12.5px;color:var(--faint);border-block-start:1px dashed var(--border);
+          padding-block-start:10px}
+.dec .rev b{color:var(--muted);font-weight:600}
+.src{font-family:var(--font-mono);font-size:11px;color:var(--accent-strong);
+     background:var(--accent-soft);padding:1px 6px;border-radius:3px;white-space:nowrap}
+
+/* ── figures ──────────────────────────────────────────────────────── */
+figure{margin:26px 0;padding:0}
+figure .box{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+            padding:20px;overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto;margin:0 auto}
+figcaption{font-size:12.5px;color:var(--faint);margin-block-start:10px;max-width:76ch}
+figcaption b{color:var(--muted)}
+
+/* ── mockups (RTL app surface) ────────────────────────────────────── */
+.mock{border:1px solid var(--border-strong);border-radius:10px;overflow:hidden;
+      box-shadow:var(--shadow-2);margin:22px 0;background:var(--bg)}
+.mock .topbar{background:var(--chrome);color:var(--chrome-ink);display:flex;align-items:center;
+              gap:14px;padding:0 16px;height:52px;font-size:13.5px}
+.mock .topbar .logo{font-family:var(--font-disp);font-weight:800;font-size:19px;color:var(--chrome-accent)}
+.mock .topbar .ws{display:flex;gap:2px;margin-inline-start:8px}
+.mock .topbar .ws span{padding:6px 13px;border-radius:6px;color:var(--chrome-ink-muted);font-size:13px}
+.mock .topbar .ws span[aria-current]{background:rgba(255,255,255,.10);color:var(--chrome-ink);font-weight:500}
+.mock .topbar .sp{margin-inline-start:auto;font-size:12px;color:var(--chrome-ink-muted)}
+.mock .screens{background:var(--surface);border-block-end:1px solid var(--border);
+               display:flex;gap:4px;padding:0 16px;height:42px;align-items:center;font-size:13px}
+.mock .screens span{padding:5px 12px;border-radius:6px;color:var(--muted)}
+.mock .screens span[aria-current]{background:var(--brand-soft);color:var(--brand);font-weight:500}
+.mock .stage{padding:20px;background:var(--bg)}
+.mock h5{font-family:var(--font-disp);font-weight:700;font-size:21px;margin:0 0 3px}
+.mock .sub{font-size:12.5px;color:var(--faint);margin:0 0 16px}
+.mock table{background:var(--surface)}
+.mock .tw{border-radius:6px}
+.btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 15px;border-radius:6px;
+     font-family:var(--font-ar);font-size:13px;font-weight:500;border:1px solid transparent;
+     background:var(--brand);color:var(--brand-ink);cursor:default}
+.btn.sec{background:var(--surface);color:var(--text);border-color:var(--border-strong)}
+.btn.gold{background:var(--accent);color:#1c1405}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-block-end:14px}
+.bar .sp{margin-inline-start:auto}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;
+       background:var(--border);border:1px solid var(--border);border-radius:6px;
+       overflow:hidden;margin-block-end:16px}
+.strip .f{background:var(--surface);padding:11px 14px}
+.strip .k{font-size:10.5px;color:var(--faint);margin-block-end:3px}
+.strip .v{font-size:17px;font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:500}
+.strip .v.good{color:var(--success-ink)} .strip .v.bad{color:var(--danger-ink)}
+.strip .v.gold{color:var(--accent-strong)}
+.rtl{direction:rtl;text-align:start}
+.stepper{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-block-end:16px;font-size:12px}
+.stepper .st{display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:6px;
+             border:1px solid var(--border);background:var(--surface-2);color:var(--faint)}
+.stepper .st.done{color:var(--success-ink);background:var(--success-soft);border-color:var(--success)}
+.stepper .st.now{color:var(--text);background:var(--surface);border-color:var(--text);font-weight:600}
+.stepper .sep{width:14px;height:1px;background:var(--border-strong)}
+
+/* ── option comparison ────────────────────────────────────────────── */
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin:20px 0}
+.opt{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:18px 20px}
+.opt.picked{border-color:var(--brand);border-width:2px;background:var(--brand-soft)}
+.opt .h{display:flex;align-items:center;gap:9px;margin-block-end:10px}
+.opt .h b{font-family:var(--font-disp);font-weight:700;font-size:17px}
+.opt ul{margin:0;padding-inline-start:19px;font-size:13.5px;color:var(--muted)}
+.opt li{margin-block-end:5px}
+.opt li.no::marker{color:var(--danger)}
+.opt li.yes::marker{color:var(--success)}
+
+ul.plain{padding-inline-start:20px;max-width:74ch}
+ul.plain li{margin-block-end:7px}
+hr{border:0;border-block-start:1px solid var(--border);margin:44px 0}
+.foot{margin-block-start:70px;padding-block-start:22px;border-block-start:2px solid var(--text);
+      font-size:12.5px;color:var(--faint)}
+@media (prefers-reduced-motion:no-preference){
+  .dec,.opt,.panel{transition:border-color .15s ease}
+}
+</style>
+
+<header class="mast">
+  <div class="inner">
+    <p class="eyebrow">Mezan · Module design · <span class="mono">bassamZakaria/contracting-designs</span></p>
+    <h1><span class="ar">المقاولات</span> — the certificate is the module</h1>
+    <p class="stand">A design for Egyptian contracting in Mezan, drawn from six research files and thirty-odd
+      stakeholder readings. It settles the twelve decisions the research deliberately left open, states the
+      source that settles each, and names what would reverse it. Everything downstream — screens, postings,
+      print — follows from those twelve.</p>
+    <div class="facts">
+      <div><div class="k">Design date</div><div class="v">29 August 2026</div></div>
+      <div><div class="k">Research base</div><div class="v mono">docs/archive/contracting/</div></div>
+      <div><div class="k">Decisions taken</div><div class="v">12 of 12 · none deferred</div></div>
+      <div><div class="k">Blocking dependency</div><div class="v"><span class="ar">بُعد المشروع</span> · project dimension</div></div>
+      <div><div class="k">Identity</div><div class="v">shipped Mezan tokens</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- ═══════════════════════════════ 01 ═══════════════════════════════ -->
+<section id="baseline">
+  <div class="shead"><span class="n">01</span><h2>What exists today</h2>
+    <span class="tail">verified against code, not against docs</span></div>
+
+  <p class="lede">A project in Mezan is a header and nothing else: code, name, status, customer, manager,
+    dates, <strong>one</strong> <code>budget</code> figure for the whole job, a site address, and an
+    auto-created cost center <code>PRJ-{code}</code>. There is no BOQ, no certificate, no retention, no
+    advance, no variation order, no subcontract, no cost rollup and no revenue recognition.
+    <code>ProjectsScreen.tsx</code> is the only screen.</p>
+
+  <div class="grid2" style="margin-block-start:22px">
+    <div class="panel">
+      <h4 style="margin-block-start:0">Already shipped — do not rebuild</h4>
+      <ul class="plain" style="font-size:14px">
+        <li><strong>Withholding tax</strong> <span class="ar">(خصم وتحصيل)</span> — posts on vouchers to
+          account <code>2210</code>, and <code>reports/withholding-tax.ts</code> reports it. Payable side only.</li>
+        <li><strong>Four contracting account slots</strong> — <code>contracting.revenue</code> 4100,
+          <code>retention_receivable</code> 1150, <code>customer_advances</code> 2160,
+          <code>late_penalty</code> 5910.</li>
+        <li><strong>The <code>CONTRACT</code> numbering sequence</strong> (<code>CTR-</code>) — defined,
+          with zero consumers.</li>
+        <li>GL with balance and period enforcement, WAC inventory, purchasing RFQ→PO→GRN→invoice, landed
+          cost, treasury (10 voucher types, 7-state cheques), the 26-action workflow gate, the audit trail.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h4 style="margin-block-start:0">Shipped and broken by the gap</h4>
+      <ul class="plain" style="font-size:14px">
+        <li>The voucher type <span class="ar">«دفعة مقدمة من عميل مقاولات»</span> posts a liability to 2160
+          whose own subtitle says it is recovered <span class="ar">من المستخلصات</span> — a document that
+          does not exist. <strong>The product records a liability it cannot discharge.</strong></li>
+        <li><code>projects</code> carries exactly two permissions, <code>view</code> and <code>manage</code>.
+          One right covers creating the project, the BOQ, the variation order, the certificate and the
+          subcontractor — no segregation of duties is expressible.</li>
+        <li>Retention exists receivable-only. Retention withheld from a subcontractor has nowhere to go
+          and would silently drift inside AP.</li>
+        <li><code>PrintView.tsx</code> cannot paginate. The one document this module exists to produce
+          cannot be printed.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>The blocker: cost has no way to reach a project</h3>
+  <p><code>projectId</code> appears in <strong>zero</strong> wire contracts. <code>costCenterId</code>
+    appears in four, and reaches exactly one of ten posting paths — the smallest one. A project P&amp;L
+    built today renders nearly empty, and an empty P&amp;L does not look like a bug; it looks like a
+    quiet site.</p>
+
+  <figure>
+    <div class="box">
+      <svg viewBox="0 0 900 330" role="img" aria-label="Ten cost posting paths; today only the treasury voucher carries a dimension, and it reaches the cost center only. The design adds projectId and costCategory to all ten.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+          </marker>
+          <marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#b0862f"/>
+          </marker>
+        </defs>
+        <g font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">
+          <text x="120" y="20" text-anchor="middle" font-size="12" font-weight="600">TODAY</text>
+          <text x="700" y="20" text-anchor="middle" font-size="12" font-weight="600" fill="#b0862f">DESIGNED</text>
+        </g>
+        <!-- today column -->
+        <g font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor">
+          <g stroke="currentColor" fill="none" opacity=".55">
+            <rect x="14" y="34" width="212" height="24" rx="3"/>
+            <rect x="14" y="62" width="212" height="24" rx="3"/>
+            <rect x="14" y="90" width="212" height="24" rx="3"/>
+            <rect x="14" y="118" width="212" height="24" rx="3"/>
+            <rect x="14" y="146" width="212" height="24" rx="3"/>
+            <rect x="14" y="202" width="212" height="24" rx="3"/>
+            <rect x="14" y="230" width="212" height="24" rx="3"/>
+            <rect x="14" y="258" width="212" height="24" rx="3"/>
+            <rect x="14" y="286" width="212" height="24" rx="3"/>
+          </g>
+          <rect x="14" y="174" width="212" height="24" rx="3" stroke="#b0862f" fill="none" stroke-width="1.6"/>
+          <text x="24" y="50">stock issue</text>
+          <text x="24" y="78">inventory GL hook</text>
+          <text x="24" y="106">goods receipt</text>
+          <text x="24" y="134">supplier invoice</text>
+          <text x="24" y="162">sales invoice</text>
+          <text x="24" y="190" fill="#b0862f">treasury voucher</text>
+          <text x="24" y="218">manual journal</text>
+          <text x="24" y="246">depreciation run</text>
+          <text x="24" y="274">landed cost</text>
+          <text x="24" y="302">work order</text>
+        </g>
+        <!-- today arrow: only voucher -->
+        <line x1="228" y1="186" x2="292" y2="186" stroke="#b0862f" stroke-width="1.6" marker-end="url(#ahg)"/>
+        <g stroke="currentColor" opacity=".22" stroke-dasharray="3 4">
+          <line x1="228" y1="46" x2="292" y2="46"/><line x1="228" y1="74" x2="292" y2="74"/>
+          <line x1="228" y1="102" x2="292" y2="102"/><line x1="228" y1="130" x2="292" y2="130"/>
+          <line x1="228" y1="158" x2="292" y2="158"/><line x1="228" y1="214" x2="292" y2="214"/>
+          <line x1="228" y1="242" x2="292" y2="242"/><line x1="228" y1="270" x2="292" y2="270"/>
+          <line x1="228" y1="298" x2="292" y2="298"/>
+        </g>
+        <g stroke="currentColor" fill="none">
+          <rect x="292" y="152" width="108" height="68" rx="4" stroke-width="1.4"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor" text-anchor="middle">
+          <text x="346" y="180">cost center</text><text x="346" y="196">only</text>
+          <text x="346" y="240" font-size="10" opacity=".7">1 of 10 paths</text>
+          <text x="346" y="256" font-size="10" opacity=".7">no parent rollup</text>
+        </g>
+        <!-- divider -->
+        <line x1="452" y1="30" x2="452" y2="316" stroke="currentColor" opacity=".2" stroke-dasharray="2 5"/>
+        <!-- designed column -->
+        <g font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor">
+          <g stroke="#b0862f" fill="none" stroke-width="1.3">
+            <rect x="480" y="34" width="196" height="24" rx="3"/><rect x="480" y="62" width="196" height="24" rx="3"/>
+            <rect x="480" y="90" width="196" height="24" rx="3"/><rect x="480" y="118" width="196" height="24" rx="3"/>
+            <rect x="480" y="146" width="196" height="24" rx="3"/><rect x="480" y="174" width="196" height="24" rx="3"/>
+            <rect x="480" y="202" width="196" height="24" rx="3"/><rect x="480" y="230" width="196" height="24" rx="3"/>
+            <rect x="480" y="258" width="196" height="24" rx="3"/><rect x="480" y="286" width="196" height="24" rx="3"/>
+          </g>
+          <text x="490" y="50">stock issue</text><text x="490" y="78">inventory GL hook</text>
+          <text x="490" y="106">goods receipt</text><text x="490" y="134">supplier invoice</text>
+          <text x="490" y="162">sales invoice</text><text x="490" y="190">treasury voucher</text>
+          <text x="490" y="218">manual journal</text><text x="490" y="246">depreciation run</text>
+          <text x="490" y="274">landed cost</text><text x="490" y="302">work order</text>
+        </g>
+        <g stroke="#b0862f" stroke-width="1.1" opacity=".8">
+          <line x1="678" y1="46" x2="742" y2="150"/><line x1="678" y1="74" x2="742" y2="152"/>
+          <line x1="678" y1="102" x2="742" y2="156"/><line x1="678" y1="130" x2="742" y2="160"/>
+          <line x1="678" y1="158" x2="742" y2="164"/><line x1="678" y1="186" x2="742" y2="172"/>
+          <line x1="678" y1="214" x2="742" y2="180"/><line x1="678" y1="242" x2="742" y2="186"/>
+          <line x1="678" y1="270" x2="742" y2="190"/><line x1="678" y1="298" x2="742" y2="194"/>
+        </g>
+        <g stroke="#b0862f" fill="none" stroke-width="1.8">
+          <rect x="742" y="128" width="146" height="42" rx="4"/>
+          <rect x="742" y="176" width="146" height="42" rx="4"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="11" fill="currentColor" text-anchor="middle">
+          <text x="815" y="145" font-weight="600">projectId</text>
+          <text x="815" y="161" font-size="9.5" opacity=".75">required, not nullable</text>
+          <text x="815" y="193" font-weight="600">costCategory</text>
+          <text x="815" y="209" font-size="9">مواد · عمالة · معدات · باطن</text>
+          <text x="815" y="248" font-size="10" opacity=".7">both immutable once posted</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>D-01 in one picture.</b> Today a single dimension reaches a single path, and it is the
+      cost center — a structure that cannot express "materials on project 7". The design puts two dimensions
+      on all ten posting paths. This is the only decision that cannot be taken later: posted entries are
+      immutable, so a dimension added after go-live leaves every historic entry permanently blind.</figcaption>
+  </figure>
+</section>
+
+<!-- ═══════════════════════════════ 02 ═══════════════════════════════ -->
+<section id="decisions">
+  <div class="shead"><span class="n">02</span><h2>The decision ledger</h2>
+    <span class="tail">12 taken · each with its source and its reversal</span></div>
+
+  <p class="lede">The research recorded ten questions for the owner and two contested items, and resolved
+    none of them on purpose. Every one is answered below. Where a decision is contested by named reviewers,
+    the losing option is drawn, not just described.</p>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-01</span><span class="q">Is <code>projectId</code> a first-class
+      dimension on every purchase, stock and treasury document — and is it one dimension or two?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>Two dimensions, mandatory, on all ten posting paths.</span></div>
+      <p class="why"><code>projectId</code> plus a <code>costCategory</code> enum
+        <span class="ar">(مواد / عمالة / معدات / مقاول باطن / غير مباشرة)</span>. Not the cost center: a
+        cost center cannot reach a goods receipt or a material issue, and hanging contracting off it forces
+        customers to invent fake centers named <code>PRJ-07-مواد</code>, encoding meaning the code never
+        rolls up. Both dimensions are written into the journal line and are immutable with it.</p>
+      <div class="rev"><b>What reverses it:</b> nothing, after the first posted entry. This is the one
+        irreversible decision in the set, which is why it is first and why no screen work starts before it.
+        <span class="src">00-baseline.md · 5 reviewers, independently</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-02</span><span class="q">Is the <span class="ar">مستخلص</span> a
+      document that generates a sales invoice, or the invoice itself with extra columns?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>Its own document. The invoice is generated <em>from</em> it,
+        never the reverse.</span></div>
+      <p class="why">Unanimous across every reviewer who bills, books or buys — and the buyer's words were
+        that a certificate implemented as a sales-invoice variant is a walk-away. It is also now legally
+        load-bearing: since July 2025 the <em>invoice</em> triggers VAT and the <em>certificate</em> is what
+        the invoice must be traceable to. A certificate carries cumulative quantities, eleven deduction
+        types and a two-stage approval that no invoice schema should ever learn.</p>
+      <div class="rev"><b>What reverses it:</b> nothing short of Egyptian practice changing. The invoice
+        stays a thin derived document, so the AR, aging, ETA and allocation machinery is reused unchanged.
+        <span class="src">01-stakeholder-review.md · 05-egypt.md</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-03</span><span class="q">Does an approved certificate recognise
+      revenue, or only bill it?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>Only bills it. Revenue is recognised cost-to-cost under
+        EAS 48, as a separate monthly posting.</span></div>
+      <p class="why">This is the panel's sharpest disagreement and the one place I overrode the majority.
+        Six reviewers voted for certified value because it is simple and it ships. But the certified value
+        is an <em>output</em> measure, and Egypt applies <span class="ar">EAS 48 (الإيراد من العقود مع
+        العملاء)</span>, under which billing is not revenue. On a certified-value basis every contract asset
+        and contract liability is zero by construction, and the module cannot be audited. The decisive point
+        is asymmetric risk: the <em>ledger accounts</em> must exist from day one because they cannot be
+        retrofitted, while the recognition <em>policy</em> is a per-contract setting that costs one field.</p>
+      <div class="rev"><b>What reverses it:</b> a per-contract switch
+        <span class="ar">«الاعتراف عند الاعتماد»</span> that recognises at certified value for tenants who
+        do not need an audit opinion. Ships in the same release, defaulted off.
+        <span class="src">05-egypt.md · EAS 48, Decree 69/2019 — effective date UNVERIFIED</span></div>
+    </div>
+  </div>
+
+  <div class="opts">
+    <div class="opt">
+      <div class="h"><span class="chip mute">option A</span><b>Certified value = revenue</b></div>
+      <ul>
+        <li class="yes">Ships in weeks; one posting per certificate</li>
+        <li class="yes">Matches how an SMB contractor thinks</li>
+        <li class="no">Contract asset / liability always zero</li>
+        <li class="no">No cost-to-complete, so an onerous contract is invisible until it lands</li>
+        <li class="no">Cannot claim standards conformance in any marketing copy</li>
+      </ul>
+    </div>
+    <div class="opt picked">
+      <div class="h"><span class="chip ok">chosen</span><b>Cost-to-cost, certificate bills</b></div>
+      <ul>
+        <li class="yes">Contract asset <span class="ar">(أصل العقد)</span> and liability
+          <span class="ar">(التزام العقد)</span> are real balances</li>
+        <li class="yes">Forecasts cost-to-complete, so a loss is recognised in full the month it is foreseen</li>
+        <li class="yes">Auditor sees EAS 48 vocabulary, not withdrawn EAS 8 language</li>
+        <li class="no">Needs a monthly recognition run and a maintained cost-to-complete figure</li>
+        <li class="yes">Option A remains available as a per-contract setting</li>
+      </ul>
+    </div>
+  </div>
+
+  <figure>
+    <div class="box">
+      <svg viewBox="0 0 880 250" role="img" aria-label="Under certified-value recognition, billing and revenue are the same line so no contract asset or liability ever appears. Under cost-to-cost, revenue is recognised on cost incurred and the difference against certified value becomes a contract asset or contract liability.">
+        <g font-family="Readex Pro, sans-serif" font-size="11" fill="currentColor">
+          <text x="20" y="18" font-size="12" font-weight="600" opacity=".7">A · certified value = revenue</text>
+          <text x="480" y="18" font-size="12" font-weight="600" fill="#b0862f">B · cost-to-cost (chosen)</text>
+        </g>
+        <!-- A -->
+        <g stroke="currentColor" fill="none" opacity=".6">
+          <rect x="20" y="34" width="120" height="34" rx="4"/>
+          <rect x="20" y="106" width="120" height="34" rx="4"/>
+          <rect x="240" y="70" width="130" height="34" rx="4"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor" text-anchor="middle">
+          <text x="80" y="55">certificate</text><text x="80" y="127">cost incurred</text>
+          <text x="305" y="91">revenue</text>
+        </g>
+        <g stroke="currentColor" opacity=".6" fill="none">
+          <line x1="140" y1="51" x2="238" y2="83" marker-end="url(#ah)"/>
+        </g>
+        <text x="176" y="60" font-family="Readex Pro, sans-serif" font-size="9.5" fill="currentColor" opacity=".8">= </text>
+        <g stroke="currentColor" opacity=".3" stroke-dasharray="4 4">
+          <line x1="140" y1="123" x2="238" y2="99"/>
+        </g>
+        <g stroke="currentColor" fill="none" opacity=".35" stroke-dasharray="4 4">
+          <rect x="240" y="140" width="130" height="60" rx="4"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="10" fill="currentColor" text-anchor="middle" opacity=".55">
+          <text x="305" y="163">contract asset</text><text x="305" y="178">contract liability</text>
+          <text x="305" y="193" font-size="9">always zero</text>
+        </g>
+        <!-- divider -->
+        <line x1="430" y1="26" x2="430" y2="230" stroke="currentColor" opacity=".2" stroke-dasharray="2 5"/>
+        <!-- B -->
+        <g stroke="#b0862f" fill="none" stroke-width="1.4">
+          <rect x="470" y="34" width="120" height="34" rx="4"/>
+          <rect x="470" y="106" width="120" height="34" rx="4"/>
+          <rect x="670" y="34" width="140" height="34" rx="4"/>
+          <rect x="670" y="106" width="140" height="34" rx="4"/>
+          <rect x="670" y="166" width="140" height="52" rx="4"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor" text-anchor="middle">
+          <text x="530" y="55">certificate</text><text x="530" y="127">cost incurred</text>
+          <text x="740" y="55">billed (AR)</text><text x="740" y="127">revenue</text>
+          <text x="740" y="188">contract asset</text><text x="740" y="204">or liability</text>
+        </g>
+        <g stroke="#b0862f" fill="none">
+          <line x1="590" y1="51" x2="668" y2="51" marker-end="url(#ahg)"/>
+          <line x1="590" y1="123" x2="668" y2="123" marker-end="url(#ahg)"/>
+          <line x1="740" y1="68" x2="740" y2="100" marker-end="url(#ahg)" stroke-dasharray="3 3"/>
+          <line x1="740" y1="140" x2="740" y2="162" marker-end="url(#ahg)"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="9.5" fill="currentColor">
+          <text x="600" y="46">bills</text><text x="600" y="118">drives % complete</text>
+          <text x="748" y="88" opacity=".8">the difference</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>The one edge that changes.</b> Under A, billing and revenue are the same arrow, so the
+      lower box can never hold a balance. Under B they are two arrows from two sources, and their difference
+      is a real balance an auditor can test — the same difference that reveals a loss-making contract before
+      the loss is realised.</figcaption>
+  </figure>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-04</span><span class="q">Is retention one concept with a direction,
+      or receivable-only?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>One concept, two directions. Add
+        <code>contracting.retention_payable</code> now.</span></div>
+      <p class="why">Shipping the receivable alone is the module's first asymmetry, and it gets more
+        expensive later, not less — retention withheld from a subcontractor would be booked into AP where it
+        silently drifts and is released on the wrong clock. The Arabic label is fixed at
+        <span class="ar">«المحتجزات الضمانية المستحقة لمقاولي الباطن»</span>: same root noun as the customer
+        side, opposite direction, so the pair can never drift into two different words.</p>
+      <div class="rev"><b>What reverses it:</b> nothing. It is one account slot and one sign.
+        <span class="src">01-stakeholder-review.md · 02-terminology.md</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-05</span><span class="q">Is contracting a vertical Mezan sells, or a
+      ledger hole being closed?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>A sold vertical, with subcontractor certificates in release 1.</span></div>
+      <p class="why">The owner ranked contracting above both POS and HR — higher ticket, stickier, and far
+        fewer credible Arabic competitors. The pricing gap in the research is the tell: the owner guessed
+        ~500 EGP/month, the actual contracting buyer said 1,500–2,000, and double that with subcontractor
+        certificates and withholding in release 1. The buyer is the one holding the price. Seats-only, never
+        per project or per BOQ line — a per-project axis is unforecastable and would not be signed.</p>
+      <div class="rev"><b>What reverses it:</b> a failed catalog pass against a real contractor's
+        <span class="ar">مستخلص</span>. That pass is a prerequisite, not a follow-up.
+        <span class="src">01-stakeholder-review.md · commercial read</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-06</span><span class="q">Is the buyer the contractor's accountant
+      or his site engineer?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>The accountant. The engineer imports from Excel.</span></div>
+      <p class="why">The owner's own answer, and it settles a great deal of screen work: no mobile capture,
+        no offline site app, no photo attachment flow in v1. What the engineer needs is one honest Excel
+        import for the BOQ and one for the measurement sheet, both landing in a review grid the accountant
+        approves. Design for a keyboard, a desk and a dusty spreadsheet — not for a phone on scaffolding.</p>
+      <div class="rev"><b>What reverses it:</b> field data-entry demand from real installs. The two-step
+        material issue (D-11) is the seam where a site app would later attach.
+        <span class="src">01-stakeholder-review.md · Q6</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-07</span><span class="q">Does contracting VAT run at the standard
+      rate with full input credit, or a reduced rate with input tax disallowed?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>Both, in parallel, keyed on contract date. Never a
+        company-wide setting.</span></div>
+      <p class="why">Law 157/2025 moved construction into the general VAT regime on 18 July 2025. Contracts
+        signed — or carrying an approved certificate or e-invoice — before that date stay on the transitional
+        basis of 14% on 36% of value (≈5.04%, engineered to preserve the old schedule-tax burden) with
+        <strong>no input recovery</strong>. Every Egyptian contractor alive today has both kinds of contract
+        on its books simultaneously, so a single tenant-wide VAT setting produces a wrong return.</p>
+      <div class="rev"><b>What reverses it:</b> the transitional regime aging out — which is why the basis
+        is an effective-dated table row per contract, not a code branch.
+        <span class="src">05-egypt.md · Law 157/2025, MoF Decrees 417 &amp; 418/2025</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-08</span><span class="q">When an approved variation order raises
+      contract value after certificates were issued at the old value, does the retention ceiling recompute
+      retrospectively or apply forward only?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>Forward only, with an optional cumulative cap.</span></div>
+      <p class="why">Retrospective recomputation would require editing certificates that are already
+        approved, printed and — in the public case — cleared for payment. The rate on each certificate is
+        stamped at approval and never recalculated; a variation changes the base for certificates that come
+        after it. The optional cap is a per-contract ceiling on cumulative retention as a percentage of
+        contract value, applied when reached rather than backdated.</p>
+      <div class="rev"><b>What reverses it:</b> a customer contract that explicitly requires
+        retrospective true-up — handled as a one-line adjustment on the next certificate, not as a rewrite.
+        <span class="src">01-stakeholder-review.md · Q8 · ceiling UNVERIFIED in primary text</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-09</span><span class="q">Does "approved" mean the consultant signed,
+      or the client's finance department cleared it for payment?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>Two distinct states with two dates. Collections age from the
+        second.</span></div>
+      <p class="why">Those are weeks apart, and that gap is where collections go blind.
+        <span class="ar">معتمد من الاستشاري</span> certifies the quantities; <span class="ar">معتمد
+        للصرف</span> is the employer's finance clearance and starts the statutory payment clock — 60 days
+        for works certificates under Law 182/2018 Art. 45, against 30 for supply and services. Late payment
+        by a government entity carries compensation at the CBE credit-and-discount rate, which the module
+        computes and almost no contractor ever invoices.</p>
+      <div class="rev"><b>What reverses it:</b> nothing; a single approval state cannot represent the gap.
+        <span class="src">05-egypt.md · Law 182/2018 Art. 45</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-10</span><span class="q">Is there a BOQ in v1?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>Yes, with Excel import. It is the spine, not a feature.</span></div>
+      <p class="why">Product argued the captured catalog evidences one screen and no BOQ. But a certificate
+        <em>measures against</em> something: without a BOQ there is nothing to hold cumulative quantity per
+        item, cost cannot be compared to an item-level budget, and a variation cannot be told apart from base
+        scope. The estimator's point closes it — if the tender's priced BOQ is not the project's BOQ, the
+        estimate-versus-actual loop the whole module exists for never closes. The owner put Excel BOQ import
+        second on the demo list.</p>
+      <div class="rev"><b>What reverses it:</b> nothing structural. A contractor with no BOQ uses a
+        single-line BOQ, which is exactly product's "free description and an amount" as a degenerate case.
+        <span class="src">01-stakeholder-review.md · contested #1</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-11</span><span class="q">Is a site material issue a first-class
+      document with a mandatory <code>projectId</code>, or a stock adjustment with the project in a note?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>First-class, and two-step: <span class="ar">صرف</span> by the
+        storekeeper, <span class="ar">استلام</span> by a different person on site.</span></div>
+      <p class="why">A project typed into a note makes "material cost by project" unqueryable, which is the
+        question the module exists to answer. The two-step split is a control, not ceremony: it is the only
+        thing that detects material that left the main store and never arrived. Material moving to a site
+        store is an ordinary transfer at source WAC — valuation-neutral, no posting; stock stays inventory
+        (1200) while it sits on site with a named custodian. A separate <strong>consumption</strong>
+        document is the only stock→project-cost conversion.</p>
+      <div class="rev"><b>What reverses it:</b> nothing. Returnable materials
+        <span class="ar">(شدة وسقالات)</span> are the exception and are tracked on a custody register with
+        no valuation effect at all. <span class="src">01-stakeholder-review.md · cost accountant + warehouse keeper</span></div>
+    </div>
+  </div>
+
+  <div class="dec">
+    <div class="top"><span class="id">D-12</span><span class="q">When is WIP relieved to cost of contract
+      revenue?</span></div>
+    <div class="body">
+      <div class="verdict"><span>→</span><span>At each recognition run, not at project close.</span></div>
+      <p class="why">The research left this explicitly open. Relieving at close makes WIP a pot nobody can
+        reconcile until handover — and on a two-year job that is two years of an unreconcilable control
+        account. Relieving monthly, in step with the cost-to-cost recognition of D-03, makes WIP a
+        month-end tieable balance: opening WIP + cost incurred − cost recognised = closing WIP, provable
+        against the project sub-ledger every period.</p>
+      <div class="rev"><b>What reverses it:</b> choosing certified-value recognition per contract (D-03's
+        switch), under which relief follows the certificate instead. Both paths relieve monthly; only the
+        driver differs. <span class="src">01-stakeholder-review.md · open question, decided here</span></div>
+    </div>
+  </div>
+
+  <div class="note ok"><b>Two decisions the research had already settled, restated so they are not
+    relitigated:</b> the real-estate developer is <em>not</em> this module (unit inventory, reservation and a
+    7-year instalment book share no structure with BOQ-and-certificate billing), and the Arabic glossary in
+    <code>02-terminology.md</code> is final — <span class="ar">جدول الكميات</span> not
+    <span class="ar">المقايسة</span>, <span class="ar">مستودع الموقع</span> not
+    <span class="ar">مخزن</span>, <span class="ar">مناقصة</span> never <span class="ar">عطاء</span>.</div>
+</section>
+
+<!-- ═══════════════════════════════ 03 ═══════════════════════════════ -->
+<section id="model">
+  <div class="shead"><span class="n">03</span><h2>The document model</h2>
+    <span class="tail">what posts, what only measures</span></div>
+
+  <p class="lede">Nine document types, of which four post to the ledger. The rest measure, approve or
+    record — and keeping that line clean is what stops the module from posting the same money twice.</p>
+
+  <figure>
+    <div class="box">
+      <svg viewBox="0 0 940 400" role="img" aria-label="Document flow: tender to contract to BOQ, variation orders amend the BOQ, measurement feeds the certificate, the certificate generates the invoice which is collected; the subcontract side mirrors the same chain in reverse.">
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+          <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#b0862f"/></marker>
+        </defs>
+        <!-- customer chain -->
+        <g font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor" text-anchor="middle">
+          <g stroke="currentColor" fill="none" opacity=".75">
+            <rect x="16" y="60" width="96" height="40" rx="4"/>
+            <rect x="140" y="60" width="96" height="40" rx="4"/>
+            <rect x="264" y="60" width="96" height="40" rx="4"/>
+            <rect x="264" y="6" width="96" height="38" rx="4" stroke-dasharray="4 3"/>
+            <rect x="388" y="60" width="96" height="40" rx="4"/>
+          </g>
+          <g stroke="#b0862f" fill="none" stroke-width="1.8">
+            <rect x="512" y="52" width="112" height="56" rx="4"/>
+          </g>
+          <g stroke="currentColor" fill="none" opacity=".75">
+            <rect x="652" y="60" width="96" height="40" rx="4"/>
+            <rect x="776" y="60" width="120" height="40" rx="4"/>
+          </g>
+          <text x="64" y="76">مناقصة</text><text x="64" y="92" font-size="9" opacity=".7">tender</text>
+          <text x="188" y="76">عقد</text><text x="188" y="92" font-size="9" opacity=".7">contract · CTR-</text>
+          <text x="312" y="76">جدول الكميات</text><text x="312" y="92" font-size="9" opacity=".7">BOQ</text>
+          <text x="312" y="22">أمر تغيير</text><text x="312" y="36" font-size="9" opacity=".7">variation order</text>
+          <text x="436" y="76">حصر</text><text x="436" y="92" font-size="9" opacity=".7">measurement</text>
+          <text x="568" y="74" font-weight="600" font-size="12">مستخلص</text>
+          <text x="568" y="92" font-size="9" opacity=".75">certificate · cumulative</text>
+          <text x="700" y="76">فاتورة</text><text x="700" y="92" font-size="9" opacity=".7">invoice · ETA</text>
+          <text x="836" y="76">تحصيل</text><text x="836" y="92" font-size="9" opacity=".7">receipt voucher</text>
+        </g>
+        <g stroke="currentColor" fill="none" opacity=".75">
+          <line x1="112" y1="80" x2="138" y2="80" marker-end="url(#a2)"/>
+          <line x1="236" y1="80" x2="262" y2="80" marker-end="url(#a2)"/>
+          <line x1="360" y1="80" x2="386" y2="80" marker-end="url(#a2)"/>
+          <line x1="312" y1="44" x2="312" y2="58" marker-end="url(#a2)" stroke-dasharray="4 3"/>
+        </g>
+        <g stroke="#b0862f" fill="none">
+          <line x1="484" y1="80" x2="510" y2="80" marker-end="url(#a3)"/>
+          <line x1="624" y1="80" x2="650" y2="80" marker-end="url(#a3)"/>
+        </g>
+        <line x1="748" y1="80" x2="774" y2="80" stroke="currentColor" opacity=".75" marker-end="url(#a2)"/>
+        <g font-family="Readex Pro, sans-serif" font-size="9" fill="currentColor" opacity=".8" text-anchor="middle">
+          <text x="498" y="72">certifies</text><text x="637" y="72">triggers VAT</text>
+          <text x="358" y="52">amends quantities</text>
+        </g>
+
+        <!-- posting band -->
+        <line x1="16" y1="132" x2="920" y2="132" stroke="currentColor" opacity=".18"/>
+        <text x="16" y="150" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".65">POSTS TO THE LEDGER</text>
+        <g stroke="#b0862f" opacity=".55" stroke-dasharray="3 3">
+          <line x1="568" y1="108" x2="568" y2="160"/><line x1="700" y1="100" x2="700" y2="160"/>
+          <line x1="836" y1="100" x2="836" y2="160"/>
+        </g>
+        <g stroke="currentColor" fill="none" opacity=".7"><rect x="470" y="160" width="440" height="46" rx="4"/></g>
+        <text x="690" y="180" font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor" text-anchor="middle">retention · advance recovery · WHT · social insurance · VAT · penalties</text>
+        <text x="690" y="196" font-family="Readex Pro, sans-serif" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".7">every deduction is a posted line, never a print-time formula</text>
+
+        <!-- subcontract mirror -->
+        <line x1="16" y1="236" x2="920" y2="236" stroke="currentColor" opacity=".18"/>
+        <text x="16" y="256" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".65">THE MIRROR — SAME MACHINERY, OPPOSITE SIGN</text>
+        <g font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor" text-anchor="middle">
+          <g stroke="currentColor" fill="none" opacity=".75">
+            <rect x="140" y="286" width="112" height="40" rx="4"/>
+            <rect x="288" y="286" width="112" height="40" rx="4"/>
+            <rect x="436" y="286" width="124" height="40" rx="4"/>
+            <rect x="596" y="286" width="112" height="40" rx="4"/>
+            <rect x="744" y="286" width="112" height="40" rx="4"/>
+          </g>
+          <text x="196" y="302">عقد باطن</text><text x="196" y="318" font-size="9" opacity=".7">back-to-back</text>
+          <text x="344" y="302">حصر أعمال الباطن</text><text x="344" y="318" font-size="9" opacity=".7">sub measurement</text>
+          <text x="498" y="302">مستخلص مقاول باطن</text><text x="498" y="318" font-size="9" opacity=".7">sub certificate</text>
+          <text x="652" y="302">فاتورة مورد</text><text x="652" y="318" font-size="9" opacity=".7">supplier invoice</text>
+          <text x="800" y="302">صرف</text><text x="800" y="318" font-size="9" opacity=".7">payment voucher</text>
+        </g>
+        <g stroke="currentColor" fill="none" opacity=".75">
+          <line x1="252" y1="306" x2="286" y2="306" marker-end="url(#a2)"/>
+          <line x1="400" y1="306" x2="434" y2="306" marker-end="url(#a2)"/>
+          <line x1="560" y1="306" x2="594" y2="306" marker-end="url(#a2)"/>
+          <line x1="708" y1="306" x2="742" y2="306" marker-end="url(#a2)"/>
+        </g>
+        <g stroke="#b0862f" fill="none" stroke-dasharray="5 3">
+          <path d="M498 286 C 498 250, 568 148, 568 110" marker-end="url(#a3)"/>
+        </g>
+        <text x="590" y="250" font-family="Readex Pro, sans-serif" font-size="9.5" fill="#b0862f">a sub line may never exceed the client line it sits under</text>
+        <g stroke="currentColor" fill="none" opacity=".6" stroke-dasharray="4 3">
+          <rect x="16" y="346" width="904" height="42" rx="4"/>
+        </g>
+        <text x="468" y="365" font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor" text-anchor="middle">measure only, no posting: <tspan font-weight="600">حصر</tspan> · <tspan font-weight="600">أمر تغيير قبل الاعتماد</tspan> · <tspan font-weight="600">تحويل إلى مستودع الموقع</tspan> · <tspan font-weight="600">عهدة الشدة والسقالات</tspan></text>
+        <text x="468" y="380" font-family="Readex Pro, sans-serif" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".7">a transfer to a site store is valuation-neutral — the stock is still inventory, in a real place, with a named custodian</text>
+      </svg>
+    </div>
+    <figcaption><b>The chain, and its mirror.</b> The gold path is where money is created; everything before
+      it measures. The dashed rule from the subcontract certificate to the client certificate is the control
+      that stops a subcontractor being certified for more than the employer has certified on the same BOQ
+      line — one of six figures that must be recomputed server-side.</figcaption>
+  </figure>
+
+  <h3>How cost reaches a project</h3>
+  <figure>
+    <div class="box">
+      <svg viewBox="0 0 900 210" role="img" aria-label="Material path: purchase to main store, transfer to site store at source weighted-average cost with no posting, consumption document converts stock into project WIP, and WIP is relieved monthly to cost of contract revenue.">
+        <g stroke="currentColor" fill="none" opacity=".75">
+          <rect x="16" y="66" width="118" height="46" rx="4"/>
+          <rect x="176" y="66" width="118" height="46" rx="4"/>
+        </g>
+        <g stroke="#b0862f" fill="none" stroke-width="1.7">
+          <rect x="336" y="66" width="136" height="46" rx="4"/>
+          <rect x="514" y="58" width="136" height="62" rx="4"/>
+          <rect x="692" y="66" width="184" height="46" rx="4"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor" text-anchor="middle">
+          <text x="75" y="86">المستودع الرئيسي</text><text x="75" y="102" font-size="9" opacity=".7">main store · 1200</text>
+          <text x="235" y="86">مستودع الموقع</text><text x="235" y="102" font-size="9" opacity=".7">site store · still 1200</text>
+          <text x="404" y="86" font-weight="600">إذن صرف / استلام</text><text x="404" y="102" font-size="9" opacity=".75">two-step consumption</text>
+          <text x="582" y="82" font-weight="600">أعمال تحت التنفيذ</text><text x="582" y="98" font-size="9" opacity=".75">project WIP</text>
+          <text x="582" y="112" font-size="9" opacity=".75">+ projectId + costCategory</text>
+          <text x="784" y="86">تكلفة إيراد العقود</text><text x="784" y="102" font-size="9" opacity=".7">cost of contract revenue</text>
+        </g>
+        <g stroke="currentColor" fill="none" opacity=".75">
+          <line x1="134" y1="89" x2="174" y2="89" marker-end="url(#a2)"/>
+        </g>
+        <g stroke="#b0862f" fill="none">
+          <line x1="294" y1="89" x2="334" y2="89" marker-end="url(#a3)"/>
+          <line x1="472" y1="89" x2="512" y2="89" marker-end="url(#a3)"/>
+          <line x1="650" y1="89" x2="690" y2="89" marker-end="url(#a3)"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="9.5" fill="currentColor" text-anchor="middle">
+          <text x="154" y="60" opacity=".8">transfer at source WAC</text>
+          <text x="154" y="74" opacity=".65" font-size="9">no posting</text>
+          <text x="404" y="140" fill="#b0862f">Dr WIP / Cr inventory</text>
+          <text x="404" y="154" opacity=".7" font-size="9">at site-store WAC</text>
+          <text x="670" y="60" fill="#b0862f">monthly, on % complete</text>
+          <text x="670" y="140" opacity=".7" font-size="9">D-12: not at project close</text>
+        </g>
+        <g stroke="currentColor" fill="none" opacity=".6" stroke-dasharray="4 3">
+          <line x1="582" y1="120" x2="582" y2="166"/>
+          <rect x="440" y="166" width="286" height="34" rx="4"/>
+        </g>
+        <text x="583" y="187" font-family="Readex Pro, sans-serif" font-size="10" fill="currentColor" text-anchor="middle">labour · equipment hours · subcontract cost enter here directly</text>
+      </svg>
+    </div>
+    <figcaption><b>Stock does not become cost by moving.</b> The transfer to a site store changes location,
+      not value — which is why <span class="ar">عهدة المواد</span> stays countable stock with a custodian
+      rather than an accounting abstraction. Only the consumption document converts inventory into project
+      cost, and it is the sole path that carries both dimensions.</figcaption>
+  </figure>
+</section>
+
+<!-- ═══════════════════════════════ 04 ═══════════════════════════════ -->
+<section id="certificate">
+  <div class="shead"><span class="n">04</span><h2>The <span class="ar">مستخلص</span></h2>
+    <span class="tail">cumulative snapshot · eleven deductions · two approvals</span></div>
+
+  <p class="lede">A certificate stores <strong>cumulative-to-date, never the period</strong>. Per BOQ line it
+    holds previously certified quantity, this period, and cumulative — and the period value is a
+    <em>subtraction</em>, not an input. A hard <code>previousCertificateId</code> and a strictly increasing
+    serial per project, with no edit or void while a later certificate exists. Storing the period figure
+    instead is how the same work gets billed twice.</p>
+
+  <div class="grid3" style="margin-block-start:20px">
+    <div class="panel"><h4 style="margin-block-start:0">The arithmetic</h4>
+      <p style="font-size:14px;margin:0"><span class="ar" style="font-weight:600">جملة الأعمال = الكمية ×
+        النسبة × الفئة</span><br>
+        <span style="color:var(--faint);font-size:12.5px">quantity × completion ratio × unit rate, per BOQ
+        item, cumulative</span></p></div>
+    <div class="panel"><h4 style="margin-block-start:0"><span class="ar">نسبة الممارسة</span></h4>
+      <p style="font-size:14px;margin:0">The tender discount — a percentage bid <em>off</em> the priced BOQ,
+      applied to every certificate as its own line, before deductions. No generic project module has this.</p></div>
+    <div class="panel"><h4 style="margin-block-start:0"><span class="ar">التشوينات</span></h4>
+      <p style="font-size:14px;margin:0">Material delivered and jointly inspected but not yet built in,
+      certified in a separate column at a per-contract rate (conventionally 75%). When incorporated it is
+      entered as a <strong>negative quantity in the current-period column</strong>.</p></div>
+  </div>
+
+  <div class="note"><b>One pile of rebar, three places, three values.</b> As
+    <span class="ar">تشوينات</span> at 75% on the certificate, as <span class="ar">عهدة</span> on the site
+    foreman, and as executed work once consumed. A design that models only one of the three double-counts
+    the other two.</div>
+
+  <h3>The deductions block</h3>
+  <figure>
+    <div class="box">
+      <svg viewBox="0 0 900 420" role="img" aria-label="Waterfall of a progress certificate: gross executed work plus materials on site, less the tender discount, gives net certified value; retention, advance recovery, social insurance, withholding tax and suspended amounts are deducted; VAT is added, not deducted; the previous cumulative is subtracted last to give this period's net payable.">
+        <g font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".65">
+          <text x="16" y="16">EGP · certificate no. 7 · cumulative basis</text>
+        </g>
+        <!-- bars -->
+        <g>
+          <rect x="16" y="34" width="560" height="26" fill="#0c463e" opacity=".85"/>
+          <rect x="16" y="66" width="24" height="26" fill="#b0862f" opacity=".85"/>
+          <rect x="16" y="106" width="584" height="26" fill="none" stroke="currentColor" stroke-dasharray="3 3"/>
+          <rect x="16" y="138" width="27" height="26" fill="#c0402f" opacity=".75"/>
+          <rect x="16" y="170" width="557" height="26" fill="#0c463e" opacity=".55"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="11" fill="currentColor">
+          <text x="590" y="52">جملة الأعمال المنفذة</text>
+          <text x="52" y="84">75%&#8206; التشوينات</text>
+          <text x="614" y="124" opacity=".7">إجمالي المستخلص</text>
+          <text x="55" y="156">4.5%&#8206; نسبة الممارسة</text>
+          <text x="587" y="188" font-weight="600">صافي القيمة المعتمدة</text>
+        </g>
+        <g font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" text-anchor="end">
+          <text x="576" y="52" fill="#ffffff">14,854,200</text>
+          <text x="770" y="84">640,000</text>
+          <text x="770" y="124" opacity=".7">15,494,200</text>
+          <text x="770" y="156" fill="#c0402f">(697,239)</text>
+          <text x="770" y="188" font-weight="600">14,796,961</text>
+        </g>
+        <line x1="16" y1="206" x2="884" y2="206" stroke="currentColor" opacity=".2"/>
+        <text x="16" y="226" font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".65">DEDUCTIONS — EACH A POSTED LINE</text>
+        <!-- deduction rows -->
+        <g font-family="Readex Pro, sans-serif" font-size="11" fill="currentColor">
+          <rect x="16" y="236" width="185" height="20" fill="#b0862f" opacity=".8"/>
+          <text x="211" y="251">5%&#8206; المحتجزات الضمانية <tspan font-size="9" opacity=".7">— refundable, a receivable</tspan></text>
+          <rect x="16" y="262" width="370" height="20" fill="#8a5f18" opacity=".7"/>
+          <text x="396" y="277">10%&#8206; خصم الدفعة المقدمة <tspan font-size="9" opacity=".7">— repayment of a liability</tspan></text>
+          <rect x="16" y="288" width="139" height="20" fill="#2f6690" opacity=".75"/>
+          <text x="165" y="303">3.75%&#8206; التأمينات الاجتماعية <tspan font-size="9" opacity=".7">— deemed wage 20% × 18.75%</tspan></text>
+          <rect x="16" y="314" width="37" height="20" fill="#7a5c8e" opacity=".8"/>
+          <text x="63" y="329">1%&#8206; ضريبة الخصم والتحصيل <tspan font-size="9" opacity=".7">— creditable against CIT, Form 41</tspan></text>
+          <rect x="16" y="340" width="7" height="20" fill="#c0402f" opacity=".8"/>
+          <text x="33" y="355">التعليات <tspan font-size="9" opacity=".7">— suspended pending rectification; its own state, not retention</tspan></text>
+        </g>
+        <g font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" text-anchor="end">
+          <text x="884" y="251">(739,848.05)</text><text x="884" y="277">(1,479,696.10)</text>
+          <text x="884" y="303">(554,886.04)</text><text x="884" y="329">(147,969.61)</text>
+          <text x="884" y="355">(25,000.00)</text>
+        </g>
+        <line x1="600" y1="364" x2="884" y2="364" stroke="currentColor" opacity=".35"/>
+        <g font-family="Readex Pro, sans-serif" font-size="11" fill="currentColor">
+          <text x="16" y="382">14% × 36%&#8206; — ض.ق.م تضاف ولا تُخصم <tspan font-size="9" opacity=".7">(legacy contract, ≈5.04%)</tspan></text>
+          <text x="16" y="402" font-weight="600">صافي هذا المستخلص <tspan font-size="9" font-weight="400" opacity=".7">= cumulative 12,595,328.03 − previously paid 10,388,322.00</tspan></text>
+        </g>
+        <g font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor" text-anchor="end">
+          <text x="884" y="382" fill="#2c8a57">+745,766.83</text>
+          <text x="884" y="402" font-weight="600" font-size="12">2,207,006.03</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><b>Bar length is money.</b> Advance recovery is the largest deduction on a young contract and
+      shrinks to nothing as the advance self-liquidates; retention is the one bar that comes back.
+      <b>Two traps the drawing makes visible:</b> VAT is <em>added</em>, sitting on the opposite side of the
+      block from everything above it — and <span class="ar">تأمين</span> here means <em>security</em>, not
+      insurance, so <span class="ar">تأمين الأعمال</span> (retention) and
+      <span class="ar">التأمينات الاجتماعية</span> are unrelated concepts two rows apart.</figcaption>
+  </figure>
+
+  <h4>The rest of the block, per contract</h4>
+  <div class="tw">
+    <table>
+      <thead><tr><th>#</th><th>Arabic</th><th>Basis</th><th>Refundable</th><th>Where it posts</th></tr></thead>
+      <tbody>
+        <tr><td class="n">6</td><td class="ar">غرامة التأخير</td><td>Works: 10% of value, 15% beyond 10% of duration (Law 182)</td><td><span class="chip bad">no</span></td><td><code>contracting.late_penalty</code> 5910</td></tr>
+        <tr><td class="n">7</td><td class="ar">استهلاك عهدة المواد</td><td>Value of employer-supplied material</td><td><span class="chip bad">no</span></td><td>contra to the custody register</td></tr>
+        <tr><td class="n">8</td><td class="ar">استهلاك المياه والكهرباء</td><td>Per contract</td><td><span class="chip bad">no</span></td><td>project cost, <span class="ar">غير مباشرة</span></td></tr>
+        <tr><td class="n">9</td><td class="ar">دمغات ورسوم</td><td>Per contract / statute — <span class="chip warn">rates UNVERIFIED</span></td><td><span class="chip bad">no</span></td><td>operating expense</td></tr>
+        <tr><td class="n">10</td><td class="ar">الدفعات السابقة</td><td>The cumulative-to-delta conversion</td><td>n/a</td><td>no posting — it is the subtraction</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>The screen</h3>
+  <div class="mock">
+    <div class="topbar rtl">
+      <span class="logo">ميزان</span>
+      <span class="ws"><span>المحاسبة</span><span>المخزون</span><span>المبيعات</span><span aria-current="page">المقاولات</span><span>الخزينة</span></span>
+      <span class="sp">فرع القاهرة · السنة المالية ٢٠٢٦ · فترة أغسطس مفتوحة</span>
+    </div>
+    <div class="screens rtl">
+      <span>المشاريع</span><span>جداول الكميات</span><span aria-current="page">المستخلصات</span>
+      <span>أوامر التغيير</span><span>مقاولو الباطن</span><span>خطابات الضمان</span><span>التقارير</span>
+    </div>
+    <div class="stage rtl">
+      <div class="bar">
+        <div>
+          <h5>مستخلص جاري رقم ٧ — <span class="mono">CTR-000012 / MST-000007</span></h5>
+          <p class="sub">مشروع مبنى إداري — التجمع الخامس · العميل: شركة النيل للتطوير · الفترة: ١ – ٣١ أغسطس ٢٠٢٦</p>
+        </div>
+        <span class="sp"></span>
+        <span class="btn sec">طباعة</span>
+        <span class="btn gold">اعتماد الاستشاري</span>
+      </div>
+
+      <div class="stepper">
+        <span class="st done">✓ مسودة</span><span class="sep"></span>
+        <span class="st done">✓ حصر معتمد</span><span class="sep"></span>
+        <span class="st now">قيد اعتماد الاستشاري</span><span class="sep"></span>
+        <span class="st">معتمد للصرف</span><span class="sep"></span>
+        <span class="st">مفوتر</span><span class="sep"></span>
+        <span class="st">محصّل</span>
+      </div>
+
+      <div class="strip">
+        <div class="f"><div class="k">قيمة العقد بعد أوامر التغيير</div><div class="v">24,940,000</div></div>
+        <div class="f"><div class="k">المنفذ التراكمي</div><div class="v">14,854,200</div></div>
+        <div class="f"><div class="k">نسبة الإنجاز</div><div class="v gold">59.6%</div></div>
+        <div class="f"><div class="k">محتجزات مستحقة</div><div class="v">739,848</div></div>
+        <div class="f"><div class="k">رصيد الدفعة المقدمة</div><div class="v bad">970,304</div></div>
+        <div class="f"><div class="k">صافي هذا المستخلص</div><div class="v good">2,207,006</div></div>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead>
+            <tr>
+              <th>البند</th><th>الوحدة</th><th class="n">الكمية التعاقدية</th><th class="n">الفئة</th>
+              <th class="n">سابق</th><th class="n">هذا المستخلص</th><th class="n">تراكمي</th>
+              <th class="n">%</th><th class="n">القيمة</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>أعمال الحفر والردم</td><td>م٣</td><td class="n">12,000</td><td class="n">185.00</td>
+                <td class="n">9,400</td><td class="n">800</td><td class="n">10,200</td><td class="n">85.0</td><td class="n">1,887,000.00</td></tr>
+            <tr><td>الخرسانة العادية</td><td>م٣</td><td class="n">1,450</td><td class="n">1,980.00</td>
+                <td class="n">1,100</td><td class="n">90</td><td class="n">1,190</td><td class="n">82.1</td><td class="n">2,356,200.00</td></tr>
+            <tr><td>الخرسانة المسلحة</td><td>م٣</td><td class="n">3,200</td><td class="n">3,450.00</td>
+                <td class="n">2,050</td><td class="n">190</td><td class="n">2,240</td><td class="n">70.0</td><td class="n">7,728,000.00</td></tr>
+            <tr><td>حديد التسليح <span class="chip gold">أمر تغيير ٢</span></td><td>طن</td><td class="n">210</td><td class="n">46,500.00</td>
+                <td class="n">55</td><td class="n">7</td><td class="n">62</td><td class="n">29.5</td><td class="n">2,883,000.00</td></tr>
+            <tr><td>تشوينات — حديد تسليح مورد بالموقع <span class="chip info">75%</span></td><td>طن</td><td class="n">—</td><td class="n">46,500.00</td>
+                <td class="n">18.35</td><td class="n">—</td><td class="n">18.35</td><td class="n">—</td><td class="n">640,000.00</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><td colspan="8">إجمالي المستخلص قبل نسبة الممارسة</td><td class="n">15,494,200.00</td></tr>
+            <tr><td colspan="8">4.5%&#8206; نسبة الممارسة</td><td class="n">(697,239.00)</td></tr>
+            <tr><td colspan="8">صافي القيمة المعتمدة</td><td class="n">14,796,961.00</td></tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="note" style="margin-block-start:16px"><b>حقول محسوبة على الخادم:</b>
+        «سابق» و«تراكمي» و«%» و«القيمة» لا تُقبل من العميل — تُشتق من المستخلص السابق ومن أوامر التغيير
+        المعتمدة قبل تاريخ التنفيذ. سطر يعتمد على أمر تغيير اعتُمد <b>بعد</b> التنفيذ يُرفض ولا يُقبل بصمت.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ 05 ═══════════════════════════════ -->
+<section id="screens">
+  <div class="shead"><span class="n">05</span><h2>The rest of the workspace</h2>
+    <span class="tail">seven screens · one nav row</span></div>
+
+  <h3>Project list — the only screen that exists today, redrawn</h3>
+  <div class="mock">
+    <div class="topbar rtl"><span class="logo">ميزان</span>
+      <span class="ws"><span>المحاسبة</span><span>المخزون</span><span>المبيعات</span><span aria-current="page">المقاولات</span><span>الخزينة</span></span>
+      <span class="sp">٤ مشاريع نشطة · ١ متعثر</span></div>
+    <div class="screens rtl"><span aria-current="page">المشاريع</span><span>جداول الكميات</span><span>المستخلصات</span>
+      <span>أوامر التغيير</span><span>مقاولو الباطن</span><span>خطابات الضمان</span><span>التقارير</span></div>
+    <div class="stage rtl">
+      <div class="bar"><div><h5>المشاريع</h5><p class="sub">الربحية محسوبة من التكلفة الفعلية المرحّلة، لا من الميزانية</p></div>
+        <span class="sp"></span><span class="btn sec">استيراد جدول كميات</span><span class="btn">مشروع جديد</span></div>
+      <div class="tw"><table>
+        <thead><tr><th>الكود</th><th>المشروع</th><th>العميل</th><th class="n">قيمة العقد</th>
+          <th class="n">منفذ تراكمي</th><th class="n">تكلفة فعلية</th><th class="n">هامش</th>
+          <th class="n">متبقٍ للإنجاز</th><th>الحالة</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">PRJ-07</td><td>مبنى إداري — التجمع الخامس</td><td>النيل للتطوير</td>
+            <td class="n">24,940,000</td><td class="n">14,854,200</td><td class="n">12,109,800</td>
+            <td class="n" style="color:var(--success-ink)">18.5%</td><td class="n">8,640,000</td>
+            <td><span class="chip ok">جارٍ</span></td></tr>
+          <tr><td class="mono">PRJ-08</td><td>طريق خدمة — العاشر من رمضان</td><td>هيئة المجتمعات</td>
+            <td class="n">9,300,000</td><td class="n">8,880,000</td><td class="n">8,401,000</td>
+            <td class="n" style="color:var(--warning)">5.4%</td><td class="n">380,000</td>
+            <td><span class="chip warn">غرامة تأخير محتملة</span></td></tr>
+          <tr><td class="mono">PRJ-09</td><td>تشطيبات فيلات — الشيخ زايد</td><td>مجموعة الأصيل</td>
+            <td class="n">4,150,000</td><td class="n">1,245,000</td><td class="n">1,402,600</td>
+            <td class="n" style="color:var(--danger-ink)">(12.7%)</td><td class="n">3,310,000</td>
+            <td><span class="chip bad">عقد خاسر — مخصّص واجب</span></td></tr>
+          <tr><td class="mono">PRJ-10</td><td>أعمال إحلال — بنها</td><td>شركة الدلتا</td>
+            <td class="n">2,780,000</td><td class="n">0</td><td class="n">64,300</td>
+            <td class="n">—</td><td class="n">2,780,000</td><td><span class="chip mute">مخطط</span></td></tr>
+        </tbody>
+      </table></div>
+      <div class="note warn" style="margin-block-start:16px"><b>PRJ-09 هو السبب في اختيار طريقة نسبة الإتمام
+        (قرار D-03):</b> التكلفة الفعلية تجاوزت القيمة المعتمدة عند 30% من الإنجاز. تحت أساس «القيمة
+        المعتمدة» يظهر المشروع رابحًا حتى التسليم؛ تحت نسبة الإتمام يُثبَت الخسارة المتوقعة <b>كاملة</b> في
+        الشهر الذي ظهرت فيه.</div>
+    </div>
+  </div>
+
+  <h3>The internal certificate — <span class="ar">مستخلص تنفيذي</span></h3>
+  <p>The one document in the Egyptian set that never leaves the company: three price columns per BOQ item —
+    estimated cost, actual cost, selling price. It is exactly the per-item cost-versus-bid view the project
+    manager and the cost controller asked for independently, and it is the module's clearest differentiator:
+    it exists in Egyptian practice and in almost no software.</p>
+  <div class="mock">
+    <div class="screens rtl"><span>المشاريع</span><span>جداول الكميات</span><span aria-current="page">مستخلص تنفيذي</span>
+      <span>أوامر التغيير</span><span>مقاولو الباطن</span><span>خطابات الضمان</span><span>التقارير</span></div>
+    <div class="stage rtl">
+      <div class="bar"><div><h5>مستخلص تنفيذي — PRJ-07</h5>
+        <p class="sub">داخلي · لا يُقدَّم للصرف · مصدر أرقام التكلفة: القيود المرحّلة ببُعد المشروع وفئة التكلفة</p></div>
+        <span class="sp"></span><span class="chip bad">لا يُطبع للعميل</span></div>
+      <div class="tw"><table>
+        <thead><tr><th>البند</th><th class="n">تكلفة تقديرية</th><th class="n">تكلفة فعلية</th>
+          <th class="n">انحراف</th><th class="n">قيمة البيع</th><th class="n">هامش البند</th>
+          <th>أكبر بند تكلفة</th></tr></thead>
+        <tbody>
+          <tr><td>أعمال الحفر والردم</td><td class="n">1,438,000</td><td class="n">1,362,400</td>
+            <td class="n" style="color:var(--success-ink)">(75,600)</td><td class="n">1,887,000</td>
+            <td class="n" style="color:var(--success-ink)">27.8%</td><td>معدات — <span dir="ltr">61%</span></td></tr>
+          <tr><td>الخرسانة العادية</td><td class="n">1,910,000</td><td class="n">1,988,700</td>
+            <td class="n" style="color:var(--danger-ink)">78,700</td><td class="n">2,356,200</td>
+            <td class="n">15.6%</td><td>مواد — <span dir="ltr">74%</span></td></tr>
+          <tr><td>الخرسانة المسلحة</td><td class="n">6,180,000</td><td class="n">6,402,900</td>
+            <td class="n" style="color:var(--danger-ink)">222,900</td><td class="n">7,728,000</td>
+            <td class="n">17.1%</td><td>مقاول باطن — <span dir="ltr">52%</span></td></tr>
+          <tr><td>حديد التسليح</td><td class="n">2,290,000</td><td class="n">2,355,800</td>
+            <td class="n" style="color:var(--danger-ink)">65,800</td><td class="n">2,883,000</td>
+            <td class="n">18.3%</td><td>مواد — <span dir="ltr">96%</span></td></tr>
+        </tbody>
+        <tfoot><tr><td>الإجمالي</td><td class="n">11,818,000</td><td class="n">12,109,800</td>
+          <td class="n" style="color:var(--danger-ink)">291,800</td><td class="n">14,854,200</td>
+          <td class="n">18.5%</td><td>—</td></tr></tfoot>
+      </table></div>
+    </div>
+  </div>
+
+  <h3>Guarantees — the contractor's real ceiling</h3>
+  <p>A contractor's guarantee limit at its bank, not its cash, is what caps how many jobs it can run at once.
+    A register that reports guarantees outstanding <em>by bank, by project and by expiry</em> is reporting
+    the customer's actual binding constraint — and not one of the fourteen Arabic-market products surveyed
+    advertises it. Two things must be recorded, and generic ERPs record only one: the face value
+    <strong>off balance sheet</strong> in memorandum accounts <span class="ar">(نظامي مدين / نظامي
+    دائن)</span>, and the cash margin <strong>on balance sheet</strong> as restricted cash.</p>
+  <div class="mock">
+    <div class="stage rtl">
+      <div class="bar"><div><h5>خطابات الضمان</h5><p class="sub">القيمة الاسمية خارج الميزانية · الغطاء النقدي داخلها</p></div>
+        <span class="sp"></span><span class="chip warn">٢ ينتهيان خلال ٣٠ يومًا</span></div>
+      <div class="strip">
+        <div class="f"><div class="k">إجمالي الضمانات القائمة</div><div class="v">6,842,000</div></div>
+        <div class="f"><div class="k">الغطاء النقدي المقيد</div><div class="v">1,368,400</div></div>
+        <div class="f"><div class="k">المتاح من حد البنك</div><div class="v gold">3,158,000</div></div>
+        <div class="f"><div class="k">ينتهي خلال ٣٠ يومًا</div><div class="v bad">2</div></div>
+      </div>
+      <div class="tw"><table>
+        <thead><tr><th>النوع</th><th>المشروع</th><th>البنك</th><th class="n">القيمة الاسمية</th>
+          <th class="n">الغطاء</th><th>تاريخ الانتهاء</th><th>الحالة</th></tr></thead>
+        <tbody>
+          <tr><td>حسن تنفيذ 5%</td><td class="mono">PRJ-07</td><td>الأهلي المصري</td>
+            <td class="n">1,247,000</td><td class="n">249,400</td><td class="mono">2027-03-14</td>
+            <td><span class="chip ok">قائم</span></td></tr>
+          <tr><td>دفعة مقدمة</td><td class="mono">PRJ-07</td><td>الأهلي المصري</td>
+            <td class="n">970,304</td><td class="n">194,061</td><td class="mono">2026-11-30</td>
+            <td><span class="chip info">يتناقص مع الاسترداد</span></td></tr>
+          <tr><td>ابتدائي 1.5%</td><td class="mono">TND-021</td><td>مصر</td>
+            <td class="n">184,500</td><td class="n">36,900</td><td class="mono">2026-09-12</td>
+            <td><span class="chip warn">ينتهي خلال ١٤ يومًا</span></td></tr>
+          <tr><td>صيانة</td><td class="mono">PRJ-05</td><td>القاهرة</td>
+            <td class="n">412,000</td><td class="n">82,400</td><td class="mono">2026-09-25</td>
+            <td><span class="chip warn">ينتهي خلال ٢٧ يومًا</span></td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ 06 ═══════════════════════════════ -->
+<section id="controls">
+  <div class="shead"><span class="n">06</span><h2>Controls</h2>
+    <span class="tail">what the server recomputes · who may act · what gets reported</span></div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h4 style="margin-block-start:0">Never accepted from the client</h4>
+      <p style="font-size:13.5px;color:var(--muted)">Each of these arrives in a request body somewhere in the
+        codebase today. In this module every one is derived from posted documents:</p>
+      <ul class="plain" style="font-size:13.5px">
+        <li>cumulative executed quantity per BOQ item, and the previous certificate's cumulative</li>
+        <li>remaining contracted quantity, and whether a variation order raised it</li>
+        <li>retention held to date, and advance outstanding</li>
+        <li>a subcontract's cumulative certified value, and whether it exceeds the client certificate for the same line</li>
+        <li>project cost to date, and cost against budget</li>
+        <li>equipment hours billed</li>
+      </ul>
+      <div class="note warn" style="margin-block-end:0"><b>The rejection cases matter as much as the
+        arithmetic.</b> A certificate line whose quantity depends on a variation order approved
+        <em>after</em> the work was executed must be <b>refused</b>, not quietly accepted.</div>
+    </div>
+    <div class="panel">
+      <h4 style="margin-block-start:0">Four rights, not one</h4>
+      <p style="font-size:13.5px;color:var(--muted)"><code>projects.project.manage</code> today covers
+        creating the project, the BOQ, the variation order, the certificate and the subcontractor. It becomes:</p>
+      <div class="tw" style="border-radius:6px"><table>
+        <thead><tr><th>Permission</th><th>Who</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">contracting.certificate.prepare</td><td>technical office</td></tr>
+          <tr><td class="mono">contracting.certificate.certify</td><td>consultant / QS</td></tr>
+          <tr><td class="mono">contracting.certificate.approve</td><td>finance manager</td></tr>
+          <tr><td class="mono">contracting.certificate.collect</td><td>treasury</td></tr>
+          <tr><td class="mono">contracting.boq.manage</td><td>estimator</td></tr>
+          <tr><td class="mono">contracting.variation.approve</td><td>contracts admin</td></tr>
+          <tr><td class="mono">contracting.retention.release</td><td>finance manager</td></tr>
+        </tbody>
+      </table></div>
+      <p style="font-size:13.5px;margin-block-start:12px"><strong>Preparer ≠ approver is enforced</strong>,
+        not advisory. And a subcontractor must carry a tax number and a bank account before any certificate
+        for them can post.</p>
+    </div>
+  </div>
+
+  <h3>The six exception reports</h3>
+  <p>The product ships 33 reports and not one of them is an exception report. For a contracting customer
+    that is not a gap in a module; it is the missing half of the control environment. These six are v1:</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Report</th><th>What it catches</th><th>Fires when</th></tr></thead>
+      <tbody>
+        <tr><td class="ar">تجاوز الكميات التعاقدية</td><td>Certifying beyond the contracted quantity with no variation behind it</td><td class="mono">cum qty &gt; contracted + approved VO</td></tr>
+        <tr><td class="ar">مواد مصروفة لم تُستلم بالموقع</td><td>Material that left the main store and never arrived</td><td class="mono">صرف with no matching استلام &gt; 7d</td></tr>
+        <tr><td class="ar">انحراف الاستهلاك عن الكميات النظرية</td><td>The only detector for material that left the site</td><td class="mono">consumed ≫ BOQ-implied qty</td></tr>
+        <tr><td class="ar">ساعات معدات بلا مستخلص مقابل</td><td>Plant hours charged against work never certified</td><td class="mono">hours booked, line not certified</td></tr>
+        <tr><td class="ar">أوامر تغيير معتمدة بعد التنفيذ</td><td>Retro-fitted approvals — the classic audit finding</td><td class="mono">VO approval date &gt; execution date</td></tr>
+        <tr><td class="ar">ضمان محتجز مفرج عنه قبل الميعاد</td><td>Retention released before its release event</td><td class="mono">release date &lt; handover + DLP</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Retention ages from its release date</h3>
+  <figure>
+    <div class="box">
+      <svg viewBox="0 0 880 190" role="img" aria-label="Retention timeline: withheld on each certificate, half released at preliminary handover, the balance released after the defects liability period at final handover. Ageing runs from the release date, not the certificate date.">
+        <line x1="40" y1="96" x2="840" y2="96" stroke="currentColor" opacity=".35"/>
+        <g stroke="currentColor" fill="none" opacity=".8">
+          <line x1="120" y1="86" x2="120" y2="106"/><line x1="320" y1="86" x2="320" y2="106"/>
+          <line x1="520" y1="86" x2="520" y2="106"/><line x1="760" y1="86" x2="760" y2="106"/>
+        </g>
+        <g font-family="Readex Pro, sans-serif" font-size="10.5" fill="currentColor" text-anchor="middle">
+          <text x="120" y="76">مستخلصات دورية</text><text x="120" y="126" font-size="9" opacity=".7">5% withheld each</text>
+          <text x="320" y="76">مستخلص ختامي</text><text x="320" y="126" font-size="9" opacity=".7">quantities closed</text>
+          <text x="520" y="76">التسليم الابتدائي</text><text x="520" y="126" font-size="9" opacity=".7">first tranche released</text>
+          <text x="760" y="76">التسليم النهائي</text><text x="760" y="126" font-size="9" opacity=".7">balance released</text>
+          <text x="640" y="150" font-size="10" opacity=".75">فترة الضمان — typically one year</text>
+        </g>
+        <g stroke="#b0862f" stroke-width="2.4"><line x1="520" y1="140" x2="760" y2="140"/></g>
+        <g stroke="#b0862f" fill="none" stroke-width="1.5">
+          <rect x="40" y="20" width="800" height="34" rx="4"/>
+        </g>
+        <text x="440" y="42" font-family="Readex Pro, sans-serif" font-size="11" fill="currentColor" text-anchor="middle">
+          الاستحقاق يبدأ من <tspan font-weight="600">تاريخ الإفراج</tspan> — لا من تاريخ المستخلص
+        </text>
+        <text x="440" y="176" font-family="Readex Pro, sans-serif" font-size="9.5" fill="currentColor" text-anchor="middle" opacity=".7">
+          aged as ordinary AR, every retention balance reads 120-days-overdue the day it is created — which trains the collector to ignore the one signal that matters
+        </text>
+      </svg>
+    </div>
+    <figcaption><b>A due date, not a document date.</b> Retention is a receivable under EAS 48 — part of the
+      consideration, not a reduction of revenue — but its clock is the release event. Government contracts
+      differ again: Law 182/2018 uses a 5% <span class="ar">تأمين نهائي</span> posted up front rather than
+      cash retained from certificates, which is a contract-type flag, not a second module.</figcaption>
+  </figure>
+</section>
+
+<!-- ═══════════════════════════════ 07 ═══════════════════════════════ -->
+<section id="print">
+  <div class="shead"><span class="n">07</span><h2>Print</h2>
+    <span class="tail">the document the module exists to produce</span></div>
+
+  <p class="lede"><code>PrintView.tsx</code> renders a single <code>overflow-hidden</code> column with one
+    header and one totals block. There is no pagination, no repeated table header and no carried-forward
+    subtotal, and <code>pageSize</code> is <code>A4 | A5</code> with no orientation field — though the
+    Electron print path already carries an unused <code>landscape</code> flag. A twelve-column BOQ grid in
+    portrait either truncates Arabic descriptions or becomes unreadable, and truncation here is financial
+    data.</p>
+
+  <div class="grid2">
+    <div class="panel"><h4 style="margin-block-start:0">What the renderer must gain</h4>
+      <ul class="plain" style="font-size:14px">
+        <li><span class="ar"><b>ما قبله</b></span> — the carried-forward subtotal as the first row of every page after the first</li>
+        <li><span class="ar"><b>يُرحل</b></span> — the carried-to subtotal as the last row of every page before the last</li>
+        <li>the identity header repeated on every page, and <span class="ar">«صفحة x من y»</span></li>
+        <li>the signature block on the final page only</li>
+        <li>a landscape option — wire the flag that already exists</li>
+      </ul>
+    </div>
+    <div class="panel"><h4 style="margin-block-start:0">A new totals block</h4>
+      <p style="font-size:14px"><code>PrintTotalsConfig</code> knows subtotal, discount, tax and
+        amount-in-words. It knows nothing about <span class="ar">إجمالي العقد</span>،
+        <span class="ar">المنفذ التراكمي</span>، <span class="ar">نسبة الإنجاز</span>،
+        <span class="ar">المحتجزات</span>، <span class="ar">خصم الدفعة المقدمة</span> or
+        <span class="ar">صافي المستحق</span> — six fields that are the certificate's entire point.</p>
+      <p style="font-size:14px;margin-block-end:0">Certificate print lines are <strong>templated strings with
+        named placeholders</strong> in the resource file. Assembling a sentence at runtime from description +
+        quantity + rate scrambles Arabic word order.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ 08 ═══════════════════════════════ -->
+<section id="build">
+  <div class="shead"><span class="n">08</span><h2>Build order</h2>
+    <span class="tail">what ships when, and why in that order</span></div>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Slice</th><th>Contains</th><th>Why here</th><th>Demoable?</th></tr></thead>
+      <tbody>
+        <tr><td><b>0 · The dimension</b></td>
+          <td><code>projectId</code> + <code>costCategory</code> on all ten posting paths; cost-center parent rollup; the four new permissions</td>
+          <td>Irreversible. Nothing may post before it lands.</td>
+          <td><span class="chip mute">no — a project P&amp;L that stops being empty</span></td></tr>
+        <tr><td><b>1 · Contract &amp; BOQ</b></td>
+          <td>Contract on the existing <code>CTR-</code> sequence, BOQ with the stored unit enum, Excel import, variation orders</td>
+          <td>The certificate measures against it.</td>
+          <td><span class="chip ok">yes</span></td></tr>
+        <tr><td><b>2 · The certificate</b></td>
+          <td>Cumulative lines, <span class="ar">تشوينات</span>, the eleven deductions, two approval states, generated invoice, print</td>
+          <td>The module. Also discharges the orphaned advance voucher.</td>
+          <td><span class="chip ok">yes — this is the demo</span></td></tr>
+        <tr><td><b>3 · The mirror</b></td>
+          <td>Subcontracts, sub certificates, <code>retention_payable</code>, WHT suffered-side account, sub tax/bank gate</td>
+          <td>Usually the larger half of the money; the buyer pays double for it.</td>
+          <td><span class="chip ok">yes</span></td></tr>
+        <tr><td><b>4 · Cost &amp; recognition</b></td>
+          <td>Site stores, two-step issue, consumption, WIP, cost-to-complete, the monthly EAS 48 run, contract asset/liability</td>
+          <td>Needs slice 0's dimension and slice 2's certified value to have anything to compare.</td>
+          <td><span class="chip ok">yes</span></td></tr>
+        <tr><td><b>5 · Controls &amp; guarantees</b></td>
+          <td>The six exception reports, the guarantee register with bank-limit reporting, retention release calendar</td>
+          <td>Needs real data behind it to be anything but an empty screen.</td>
+          <td><span class="chip ok">yes</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note" style="margin-block-start:22px"><b>An empty screen proves nothing.</b> Every slice lands
+    with seeder fixtures in <code>packages/backend/src/demo-seed.ts</code> behind
+    <code>MEZAN_SEED_DEMO=1</code> and is verified by driving the running UI — not by reading the code and
+    not by a passing test. A certificate that is right on screen while the ledger recorded none of it is
+    this codebase's most familiar failure, and the panel named it independently four times.</div>
+</section>
+
+<!-- ═══════════════════════════════ 09 ═══════════════════════════════ -->
+<section id="unverified">
+  <div class="shead"><span class="n">09</span><h2>What is not known</h2>
+    <span class="tail">read before encoding any of it</span></div>
+
+  <p class="lede">Nothing below is a design gap; each is a number or a rule the research could not source to
+    primary text. The design's response is the same in every case: <strong>make it a parameter with an
+    effective date, never a constant</strong>.</p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Unverified</th><th>What the design does about it</th></tr></thead>
+      <tbody>
+        <tr><td>EAS 48's decree effective date</td><td>No conformance claim ships in UI copy until confirmed</td></tr>
+        <tr><td>The social-insurance employer factor — practitioners cite 18.25%, the headline is 18.75%</td><td>Both the deemed-wage % and the employer factor are effective-dated table rows, keyed on work type and whether scope includes supply</td></tr>
+        <tr><td>The current deemed-wage schedule (Decree 74/1988 Table 3 as amended)</td><td>Seeded as data, editable, with the source note attached to each row</td></tr>
+        <tr><td>ETA's mandatory field set for a contracting certificate; EGS/GS1 codes for construction services</td><td>The invoice is a normal ETA document; the certificate carries its own reference into it</td></tr>
+        <tr><td>Any statutory maximum advance percentage (commentary circulates 10%)</td><td>Per-contract parameter, no cap enforced</td></tr>
+        <tr><td>The provisional/final retention split, and any cumulative ceiling</td><td>Per-contract rate plus an optional cap</td></tr>
+        <tr><td>Stamp duty rates <span class="ar">(دمغات ورسوم)</span></td><td>A configurable deduction line, zero by default</td></tr>
+        <tr><td>The EFCBC capital-band table (Decree 439/2022)</td><td>Not encoded at all — the grade is a text field on the company profile</td></tr>
+        <tr><td>Where ETA and NOSI draw the line between a genuine subcontract and disguised employment</td><td>The distinction is recorded explicitly on the subcontract, never implied</td></tr>
+        <tr><td>Price-escalation formulas and covered material list (Cabinet Resolutions 45 &amp; 46 of 2025)</td><td>Out of v1; escalation enters as a variation order</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn" style="margin-block-start:22px"><b>Two stale numbers you will meet in a real
+    customer's books.</b> Withholding tax at 0.5% (the pre-2018 rate; contracting is <b>1%</b> under MoF
+    Decree 405/2018, threshold EGP 300, Form 41 quarterly) and social insurance at a flat 2.9% (one work
+    mix's effective rate, not a universal figure). Treat both as legacy on import and do not let either
+    become a default.</div>
+</section>
+
+<p class="foot">
+  Sources are the six files in <code>docs/archive/contracting/</code> — baseline, stakeholder review,
+  terminology, adjacent findings, market and Egypt — read against the code on
+  <code>bassamZakaria/contracting-designs</code>. Palette, type and control geometry are the shipped Mezan
+  tokens (<code>packages/ui/src/tokens/</code>), not a new identity. Figures in the worked example tie:
+  14,796,961 net certified, 2,947,399.80 deducted, 745,766.83 VAT on the legacy basis,
+  10,388,322.00 previously paid, 2,207,006.03 payable on certificate 7.
+  Decisions D-01 through D-12 were taken in this document and are open to reversal on the terms each one
+  states.
+</p>
+
+</div>

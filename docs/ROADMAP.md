@@ -525,10 +525,23 @@ harness, not the product: the product is right to demand the name. The one readi
 a possible second defect behind it — an HR leave balance of 21 against 11 — was the same
 bug, and holds once the caller exists.
 
-Measured on this tree, 2026-08-29: `pnpm scenarios` **3876 passed, 0 failed**, across all
-thirteen suites. Every other gate green with it — typecheck, lint, RTL logical-CSS, colour
-tokens, native controls, permission labels, theme colour-only, and `pnpm smoke` over all
-199 read surfaces.
+Measured on this tree, 2026-08-30 after the security sweep: `pnpm scenarios` **6289 passed,
+0 failed**, across all fifteen suites. Every other gate green with it — typecheck, lint,
+RTL logical-CSS, colour tokens, native controls, permission labels, theme colour-only, and
+`pnpm smoke` over all 199 read surfaces. `pnpm audit` is down from 41 advisories (1
+critical, 10 high) to 1, which has no published fix.
+
+**Security sweep, 2026-08-30 — thirteen findings, all fixed (S1–S13 in
+`archive/defect-register.md`).** Four were critical and every one of them ended at
+tenant-admin (`"*"`): an anonymous `POST /bootstrap/admin` handed out a live admin session
+on a fully provisioned tenant; `admin.users.create`, `admin.roles.manage` and
+`admin.users.edit` each reached `"*"` from a delegated permission. All four were proved
+against a running seeded backend before and after, not read off the source. The rest:
+no login lockout on a six-digit PIN, one published admin PIN shipped in every install,
+`/lan/*` answering the shop wifi with no credential, the desktop shell building its app
+with `createApp` so it ran the header resolver on a LAN socket, webhook SSRF, no CSP or
+navigation guard in the Electron shell, `dev.db` committed, and 41 dependency advisories.
+`scripts/scenarios/security.ts` guards all of it.
 
 ---
 
@@ -557,8 +570,27 @@ that's the known one".
 
 ## 5.2 Open by decision, not by patch
 
-These two stay listed so nobody re-files them as new findings. Neither is a defect with a
-right answer; both are in §6's territory.
+These stay listed so nobody re-files them as new findings. None is a defect with a
+right answer; they are in §6's territory.
+
+- **The SQLite file and the backups it produces are not encrypted at rest.** A stolen shop
+  laptop is the whole set of books, readable with any SQLite browser. Doing it properly
+  means SQLCipher (a native build per platform) or an OS-keychain-sealed key, plus a
+  recovery story for a shop that loses the machine AND the key — a feature, not a patch.
+- **The LAN multi-till socket is plain HTTP on `0.0.0.0:4173`.** Session tokens and every
+  figure travel the shop wifi in clear. Authentication is now required (S8), which is the
+  half that was actually missing; confidentiality needs a certificate story for devices
+  that will never see a public CA.
+- **License verification is a stub.** `resolveDesktopEntitlements` reads
+  `MEZAN_ENTITLEMENTS_JSON` from the environment with no signature check, so an env var
+  unlocks LAN mode and every module. The real Ed25519 verifier
+  (`packages/domain/src/licensing/license.ts`) is written and unwired — Phase 8, and
+  already documented as out of scope in that file.
+- **A fresh, never-configured install can still be claimed by whoever reaches it first.**
+  `POST /bootstrap/admin` has to be open before there is anyone to authenticate as; it now
+  closes the moment the tenant has an account of its own (S1). On desktop the window is not
+  network-reachable — an unlicensed install opens no LAN socket — but on `apps/server`,
+  which is a development mount, it is.
 
 - **Outbound notification channels do not deliver.** `packages/domain/src/notifications/engine.ts`
   delivers **in-app only**: every other channel is stamped `"queued"` and nothing drains the

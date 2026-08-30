@@ -181,6 +181,17 @@ admin may edit, and two people sharing a name shared an account door. Older note
 `محمد الشهابي` / PIN `1234` are stale; where a scenario below still says that, read it as
 the email login.
 
+`123456` is a DEVELOPMENT credential and works only in a development process. A packaged
+build seeds that fallback admin with a random, unprinted PIN (`resolveSeedAdminSecrets` in
+`packages/backend/src/seed.ts`) and the owner claims the install through the first-run
+wizard instead — every install sharing one published admin login was S7. Set
+`MEZAN_SEED_ADMIN_PIN` to a six-digit string to pin it deliberately when testing a
+packaged build.
+
+Five wrong PINs in a row lock an account for a minute, doubling to fifteen (S6). If a
+sign-in starts answering `TOO_MANY_ATTEMPTS`, that is the lockout, not a broken login —
+wait out `retryAfterSeconds` or use another account.
+
 ### Demo logins
 
 Every seeded account signs in with its **email** and PIN **`123456`** (one PIN for all of

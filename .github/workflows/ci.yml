@@ -39,6 +39,38 @@ jobs:
       - name: Build (packages + web Vite bundle)
         run: pnpm build
 
+  # The gate that actually holds the security fixes down. `pnpm build` cannot
+  # see an authorization hole — the code compiles either way — so the suite that
+  # drives a seeded backend has to run here too, or `scripts/scenarios/security.ts`
+  # only ever runs on the machine of whoever remembers it.
+  scenarios:
+    name: smoke · seed coverage · scenarios
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Smoke (boot, seed, every read surface)
+        run: pnpm smoke
+
+      - name: Seed coverage (no list surface is empty)
+        run: pnpm check:seed
+
+      - name: Scenarios (books, and the authorization boundary)
+        run: pnpm scenarios
+
   # Optional, non-blocking: Playwright E2E against the web build (apps/web).
   # Kept as its own job (not a step in `build`, and not `needs: build`) so a
   # flaky/slow browser install or a real UI regression here never fails the

@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import {
   seedStandardChartOfAccounts,
   createBranch,
@@ -38,8 +39,52 @@ export const SEED_TENANT_NAME = "Cyag";
 export const SEED_ADMIN_NAME = "محمد الشهابي";
 export const SEED_ADMIN_NAME_EN = "Mohamed El Shehaby";
 export const SEED_ADMIN_EMAIL = "admin@cyag.example";
+/**
+ * The DEVELOPMENT default PIN — the one docs/TESTING.md, `pnpm smoke`,
+ * `pnpm check:seed` and `pnpm scenarios` all sign in with.
+ *
+ * It is published, so on a real install it is not a credential, it is a door.
+ * `resolveSeedAdminSecrets` therefore hands it out only to a development
+ * process; a packaged build gets random secrets instead (see below).
+ */
 export const SEED_ADMIN_PIN = "123456";
 const SEED_ADMIN_PASSWORD = "change-me-on-first-login";
+
+export interface SeedAdminSecrets {
+  readonly pin: string;
+  readonly password: string;
+  /** True when the secrets were generated, i.e. nobody knows them. */
+  readonly generated: boolean;
+}
+
+/**
+ * What the fallback admin account is created with.
+ *
+ * A packaged install gets a random PIN and password that are never printed
+ * anywhere. That is deliberate, not an oversight: on a real machine this
+ * account exists only so the tenant is never account-less, and the owner
+ * claims the install through the first-run wizard (`POST /bootstrap/admin`),
+ * which creates THEIR admin. Leaving it on the published `123456` meant every
+ * Mezan install in the country shared one working company-admin login —
+ * verified against a seeded tenant, which returned `permissions: ["*"]`.
+ *
+ * `MEZAN_SEED_ADMIN_PIN` overrides it for a deliberate packaged-build test.
+ */
+export function resolveSeedAdminSecrets(
+  env: Record<string, string | undefined> = process.env,
+): SeedAdminSecrets {
+  const override = env["MEZAN_SEED_ADMIN_PIN"];
+  if (override && /^\d{6}$/.test(override)) {
+    return { pin: override, password: SEED_ADMIN_PASSWORD, generated: false };
+  }
+  const packaged = env["MEZAN_PACKAGED"] === "1" || env["NODE_ENV"] === "production";
+  if (!packaged) return { pin: SEED_ADMIN_PIN, password: SEED_ADMIN_PASSWORD, generated: false };
+  return {
+    pin: String(randomInt(0, 1_000_000)).padStart(6, "0"),
+    password: `pw-${randomInt(0, Number.MAX_SAFE_INTEGER)}`,
+    generated: true,
+  };
+}
 const SEED_MAIN_BRANCH_ID = "BR-MAIN";
 const SEED_MAIN_WAREHOUSE_ID = "WH-MAIN";
 /**
@@ -113,7 +158,9 @@ export async function isEmptyTenant(stores: Pick<SeedStores, "accounts">): Promi
  * Seeds an EMPTY database with the minimum a tenant needs to operate:
  * a standard Chart of Accounts, the 14% VAT rate, the current fiscal year's
  * periods, one main branch + its main warehouse, tenant settings, one system
- * role, and one company-admin user (email admin@cyag.example, PIN 123456). Numbering
+ * role, and one fallback company-admin user (admin@cyag.example; PIN 123456 in
+ * development, random and unprinted in a packaged build — see
+ * `resolveSeedAdminSecrets`). Numbering
  * sequences are initialised lazily by the NextNumber service on first use, so
  * no counters are pre-seeded. Idempotent: a no-op on an already-seeded DB.
  */
@@ -192,6 +239,7 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
   };
   await stores.uow.roles.save(adminRole);
 
+  const adminSecrets = resolveSeedAdminSecrets();
   await saveUser(
     {
       id: "USER-ADMIN",
@@ -199,8 +247,8 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
       nameEn: SEED_ADMIN_NAME_EN,
       email: SEED_ADMIN_EMAIL,
       phone: null,
-      password: SEED_ADMIN_PASSWORD,
-      pin: SEED_ADMIN_PIN,
+      password: adminSecrets.password,
+      pin: adminSecrets.pin,
       roleId: null,
       isCompanyAdmin: true,
       employeeId: null,

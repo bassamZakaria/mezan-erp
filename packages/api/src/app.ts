@@ -1516,6 +1516,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         resolveEntitlements: options.lan.resolveEntitlements,
         registry,
         sseHeartbeatMs: options.lan.sseHeartbeatMs,
+        // The mount that binds a LAN socket is the LAST place a route should
+        // be left resolving its caller from headers.
+        resolveAuthContext: resolveAuth,
       }),
     );
   }

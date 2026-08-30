@@ -20,6 +20,7 @@ import {
   RecordingGlPort,
 } from "../../domain/src/manufacturing/test-helpers.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 class InMemoryWorkStations implements WorkStationRepository {
   readonly rows = new Map<string, WorkStation>();
   async findById(id: string): Promise<WorkStation | null> {
@@ -755,7 +756,7 @@ describe("manufacturing-routes — warehouse ids are entity references, not free
       },
     });
     await seedRawStock(stock);
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
 
     const res = await app.fetch(
@@ -777,7 +778,7 @@ describe("manufacturing-routes — materials columns are derived from real on-ha
       ],
     });
     await seedRawStock(stock);
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
     await app.fetch(req("/work-orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(woBody()) }));
 
@@ -799,7 +800,7 @@ describe("manufacturing-routes — shop-floor attribution resolves station and o
   async function issuedFakeApp(overrides: Partial<ManufacturingRoutesDeps> = {}) {
     const setup = fakeDeps(overrides);
     await seedRawStock(setup.stock);
-    const app = createManufacturingRoutes(setup.deps);
+    const app = createManufacturingRoutes(setup.deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
     await app.fetch(req("/work-orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(woBody()) }));
     await app.fetch(req("/work-orders/wo-1/start", { method: "POST", permissions: ADMIN }));
@@ -858,7 +859,7 @@ describe("manufacturing-routes — shop-floor attribution resolves station and o
 describe("manufacturing-routes — work stations CRUD", () => {
   it("creates, lists, deactivates and reactivates a work station; refuses a duplicate code and an unknown id", async () => {
     const { deps } = fakeDeps();
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     const create = await app.fetch(
       req("/work-stations", { method: "POST", permissions: ADMIN, body: JSON.stringify({ id: "st-1", code: "ST1", nameAr: "خط 1" }) }),
     );
@@ -895,7 +896,7 @@ describe("manufacturing-routes — activity feed joins station/operator by the s
     });
     await seedRawStock(stock);
     await workStations.create({ id: "st-1", code: "ST1", nameAr: "خط 1", nameEn: null, notes: null, status: "active", createdAt: "t0" });
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
     await app.fetch(req("/work-orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(woBody()) }));
     await app.fetch(req("/work-orders/wo-1/start", { method: "POST", permissions: ADMIN }));
@@ -923,7 +924,7 @@ describe("manufacturing-routes — BOM list, versioning with an explicit line se
       resolveUnitCost: async (id) => (await stock.getBalanceDetail(id, RAW)).averageCost,
     });
     await seedRawStock(stock);
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
     await app.fetch(req("/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify({ ...bomBody, id: "bom-2", productItemId: "FG2" }) }));
     const res = await app.fetch(req("/boms", { permissions: ADMIN }));
@@ -935,7 +936,7 @@ describe("manufacturing-routes — BOM list, versioning with an explicit line se
 
   it("creates a new version with an explicit replacement line set", async () => {
     const { deps } = fakeDeps();
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
     const res = await app.fetch(
       req("/boms/bom-1/version", {
@@ -953,7 +954,7 @@ describe("manufacturing-routes — BOM list, versioning with an explicit line se
 
   it("404s deactivating an unknown BOM", async () => {
     const { deps } = fakeDeps();
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/boms/ghost/deactivate", { method: "POST", permissions: ADMIN }));
     expect(res.status).toBe(404);
   });
@@ -973,7 +974,7 @@ describe("manufacturing-routes — configurable products reads/updates and confi
 
   it("lists, reads, updates and deactivates a configurable product; 404s an unknown one", async () => {
     const { deps } = fakeDeps();
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/configurable-products", { method: "POST", permissions: ADMIN, body: JSON.stringify(cp) }));
 
     const list = await app.fetch(req("/configurable-products", { permissions: ADMIN }));
@@ -996,7 +997,7 @@ describe("manufacturing-routes — configurable products reads/updates and confi
 
   it("404s a preview against an unknown configurable product", async () => {
     const { deps } = fakeDeps();
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     const res = await app.fetch(
       req("/config-instances/preview", { method: "POST", permissions: ADMIN, body: JSON.stringify({ configurableProductId: "ghost", spec: {} }) }),
     );
@@ -1006,7 +1007,7 @@ describe("manufacturing-routes — configurable products reads/updates and confi
   it("lists and reads config instances; 404s an unknown one", async () => {
     const { deps, stock } = fakeDeps();
     await seedRawStock(stock);
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/configurable-products", { method: "POST", permissions: ADMIN, body: JSON.stringify(cp) }));
     await app.fetch(
       req("/config-instances", {
@@ -1037,7 +1038,7 @@ describe("manufacturing-routes — dashboard next-action per stage", () => {
   it("names the next action for every stage a work order can be waiting in", async () => {
     const { deps, stock } = fakeDeps();
     await seedRawStock(stock);
-    const app = createManufacturingRoutes(deps);
+    const app = createManufacturingRoutes(deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
 
     await app.fetch(req("/work-orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(woBody({ id: "wo-notstarted" })) }));

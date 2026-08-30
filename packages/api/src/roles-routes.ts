@@ -17,7 +17,6 @@ import { createRoleSchema, updateRoleSchema } from "@mezan/contracts";
 import {
   createPermissionGate,
   getAuthContext,
-  headerAuthContextResolver,
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
@@ -56,15 +55,15 @@ function roleErrorResponse(c: Context, err: unknown) {
 
 /**
  * Roles CRUD — every route is permission-gated (docs/archive/catalog/09 §الأدوار).
- * Mirrors `createAccountsRouter` / `createSettingsRoutes`'s shape: a plain
- * `resolveAuthContext` parameter defaulting to `headerAuthContextResolver`.
+ * `resolveAuthContext` is required, never defaulted: a resolver that reads the
+ * caller's own `x-permissions` header would hand every guard below its answer.
  * `resolveEntitlements` has no repo-wide default (yet) — module licensing
  * varies per tenant, so the mounting app must supply it.
  */
 export function createRolesRoutes(
   uow: UnitOfWork,
   resolveEntitlements: EntitlementsResolver,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   /** Who granted which permissions to whom. Without it, self-elevation leaves no trace. */
   audit?: AuditSink,
 ) {

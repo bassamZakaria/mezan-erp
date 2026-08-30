@@ -28,6 +28,7 @@ import {
   createPhysicalCountsRoutes,
 } from "./stock-documents-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -108,9 +109,9 @@ async function newHarness() {
   });
 
   return {
-    adjustmentsApp: createStockAdjustmentsRoutes(adjustments),
-    transfersApp: createStockTransfersRoutes(transfers),
-    countsApp: createPhysicalCountsRoutes(counts),
+    adjustmentsApp: createStockAdjustmentsRoutes(adjustments, insecureHeaderAuthContextResolver),
+    transfersApp: createStockTransfersRoutes(transfers, insecureHeaderAuthContextResolver),
+    countsApp: createPhysicalCountsRoutes(counts, insecureHeaderAuthContextResolver),
     glLedger,
     stockLedger,
   };

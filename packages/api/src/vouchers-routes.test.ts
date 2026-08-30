@@ -9,6 +9,7 @@ import {
 } from "@mezan/persistence";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -51,7 +52,7 @@ async function newApp() {
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => `gen-${++idSeq}`,
   };
-  return { vouchers: createVouchersRoutes(deps), root: createAllocationRoutes(deps), ledger };
+  return { vouchers: createVouchersRoutes(deps, insecureHeaderAuthContextResolver), root: createAllocationRoutes(deps, insecureHeaderAuthContextResolver), ledger };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

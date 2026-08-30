@@ -17,7 +17,7 @@ import {
   type OpenFxBalance,
 } from "@mezan/domain";
 import { fxRevaluationRequestSchema } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 export interface FxRevaluationRoutesDeps {
   readonly ledger: LedgerRepository;
@@ -76,7 +76,7 @@ function handleError(c: Context, err: unknown): Response {
  */
 export function createFxRevaluationRoutes(
   deps: FxRevaluationRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

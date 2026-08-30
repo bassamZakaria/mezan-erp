@@ -17,7 +17,7 @@ import {
   type RunReportOutcome,
   type VatReturnContext,
 } from "@mezan/domain";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * القوائم المالية — the seven financial statements (docs/archive/catalog/08-reports.md),
@@ -80,7 +80,7 @@ function isoDateOrUndefined(value: unknown): string | undefined {
 
 export function createFinancialReportsRoutes(
   deps: FinancialReportsRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

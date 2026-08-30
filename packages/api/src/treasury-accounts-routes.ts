@@ -11,7 +11,7 @@ import {
   type TreasuryAccountRepository,
 } from "@mezan/domain";
 import { createTreasuryAccountSchema, updateTreasuryAccountSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 
 function serialize(account: TreasuryAccount) {
@@ -52,7 +52,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createTreasuryAccountsRoutes(
   repo: TreasuryAccountRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   /**
    * A treasury account's LIVE balance is its GL account's balance. Without this
    * the strip can only report opening balances, and publishing one under a

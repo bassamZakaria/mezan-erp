@@ -9,7 +9,7 @@ import {
   type PurchaseReturnLine,
 } from "@mezan/domain";
 import { createPurchaseReturnSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 
 function serializeLine(l: PurchaseReturnLine) {
@@ -48,7 +48,7 @@ function serialize(doc: FrameworkDocument<PurchaseReturnLine>) {
 /** Purchase Returns routes (docs/archive/catalog/02 §"مرتجعات المشتريات"), mounted under `/purchase-returns`. Mirrors sales-returns-routes.ts. */
 export function createPurchaseReturnsRoutes(
   service: DocumentService<PurchaseReturnLine>,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   /**
    * Resolves the source invoice so the returnable quantity is derived HERE.
    * Without it the server validated against an `availableQty` the CLIENT sent,

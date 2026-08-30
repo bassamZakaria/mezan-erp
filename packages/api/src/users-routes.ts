@@ -20,7 +20,6 @@ import { createUserSchema, updateUserSchema } from "@mezan/contracts";
 import {
   createPermissionGate,
   getAuthContext,
-  headerAuthContextResolver,
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
@@ -66,13 +65,12 @@ function userErrorResponse(c: Context, err: unknown) {
 
 /**
  * Users CRUD — every route is permission-gated (docs/archive/catalog/09 §المستخدمون).
- * Mirrors `createAccountsRouter` / `createSettingsRoutes`'s shape: a plain
- * `resolveAuthContext` parameter defaulting to `headerAuthContextResolver`.
+ * `resolveAuthContext` is required, never defaulted.
  */
 export function createUsersRoutes(
   uow: UnitOfWork,
   hasher: SecretHasher,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   /**
    * The tenant's allowed email domains, read per request rather than captured
    * at mount: an admin who adds a domain in الإعدادات must not have to restart

@@ -18,6 +18,7 @@ import {
 } from "@mezan/persistence";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const ACCOUNTS = {
   accountsReceivableId: "AR",
   salesReturnsAccountId: "SALES_RETURNS",
@@ -76,7 +77,7 @@ async function buildService() {
 }
 
 async function newApp() {
-  return createSalesReturnsRoutes(await buildService());
+  return createSalesReturnsRoutes(await buildService(), insecureHeaderAuthContextResolver);
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -177,7 +178,7 @@ describe("what the caller may claim on a return (D102)", () => {
         return id === "INV1" ? sourceInvoice : null;
       },
     };
-    return createSalesReturnsRoutes(service, undefined, invoices);
+    return createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, invoices);
   }
 
   it("recomputes the returnable quantity from the invoice, ignoring what the caller claims", async () => {
@@ -313,7 +314,7 @@ describe("who a return credits (D89)", () => {
 
   async function appWithInvoices() {
     const service = await buildService();
-    return createSalesReturnsRoutes(service, undefined, {
+    return createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, {
       async findConfirmedInvoice(id: string) {
         return id === "INV1" ? sourceInvoice : null;
       },

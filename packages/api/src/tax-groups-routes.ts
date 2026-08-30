@@ -8,7 +8,7 @@ import {
   type TaxRateRepository,
 } from "@mezan/domain";
 import { upsertTaxGroupSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * مجموعات الضرائب (R6.4), mounted at `/tax-groups`.
@@ -21,7 +21,7 @@ import { createPermissionGate, headerAuthContextResolver, type AuthContextResolv
 export function createTaxGroupsRoutes(
   repo: TaxGroupRepository,
   rates: Pick<TaxRateRepository, "list">,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

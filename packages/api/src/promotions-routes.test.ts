@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createSqlitePromotionStore, type SqlitePromotionStoreHandle } from "@mezan/persistence";
 import { createPromotionsRoutes } from "./promotions-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqlitePromotionStoreHandle[] = [];
 
 afterEach(() => {
@@ -11,7 +12,7 @@ afterEach(() => {
 function newApp() {
   const repo = createSqlitePromotionStore();
   handles.push(repo);
-  const app = createPromotionsRoutes(repo);
+  const app = createPromotionsRoutes(repo, insecureHeaderAuthContextResolver);
   return { app, repo };
 }
 

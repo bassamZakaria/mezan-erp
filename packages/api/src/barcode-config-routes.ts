@@ -8,7 +8,7 @@ import {
   type BarcodeConfigRepository,
 } from "@mezan/domain";
 import { updateBarcodeConfigSchema, parseBarcodeRequestSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Routes for the tenant-wide barcode configuration (default symbology,
@@ -32,7 +32,7 @@ function handleDomainError(c: Context, err: unknown) {
 
 export function createBarcodeConfigRoutes(
   deps: BarcodeConfigRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

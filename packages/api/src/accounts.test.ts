@@ -3,6 +3,7 @@ import { createSqliteAccountRepository, type SqliteAccountRepositoryHandle } fro
 import { seedStandardChartOfAccounts } from "@mezan/domain";
 import { createAccountsRouter } from "./accounts.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteAccountRepositoryHandle[] = [];
 
 afterEach(() => {
@@ -12,7 +13,7 @@ afterEach(() => {
 function newApp() {
   const repo = createSqliteAccountRepository();
   handles.push(repo);
-  const app = createAccountsRouter(repo);
+  const app = createAccountsRouter(repo, insecureHeaderAuthContextResolver);
   return { app, repo };
 }
 

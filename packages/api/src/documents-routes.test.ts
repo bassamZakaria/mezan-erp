@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createDocumentsRoutes } from "./documents-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
   const headers = new Headers(init.headers);
   if (init.permissions !== undefined) headers.set("x-permissions", init.permissions);
@@ -18,7 +19,7 @@ function post(path: string, body: unknown, permissions = "accounting.journal.vie
 
 describe("documents router — permission gate", () => {
   it("rejects unauthenticated access with 403", async () => {
-    const app = createDocumentsRoutes();
+    const app = createDocumentsRoutes(insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/types"));
     expect(res.status).toBe(403);
   });
@@ -26,7 +27,7 @@ describe("documents router — permission gate", () => {
 
 describe("documents router — type registry", () => {
   it("lists the journal document type and its hooks", async () => {
-    const app = createDocumentsRoutes();
+    const app = createDocumentsRoutes(insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/types", { permissions: "accounting.journal.view" }));
     expect(res.status).toBe(200);
     const types = (await res.json()) as Array<{ code: string; gateActionType: string; hooks: Record<string, boolean> }>;
@@ -38,7 +39,7 @@ describe("documents router — type registry", () => {
   });
 
   it("lists the phase4/inventory-ops document types (stock adjustment + transfer)", async () => {
-    const app = createDocumentsRoutes();
+    const app = createDocumentsRoutes(insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/types", { permissions: "accounting.journal.view" }));
     const types = (await res.json()) as Array<{ code: string; hooks: Record<string, boolean> }>;
     const adjustment = types.find((t) => t.code === "STOCK_ADJUSTMENT");
@@ -52,7 +53,7 @@ describe("documents router — type registry", () => {
 
 describe("documents router — journal effects", () => {
   it("computes a balanced descriptor", async () => {
-    const app = createDocumentsRoutes();
+    const app = createDocumentsRoutes(insecureHeaderAuthContextResolver);
     const res = await app.fetch(
       post("/journal/effects", {
         lines: [
@@ -69,7 +70,7 @@ describe("documents router — journal effects", () => {
   });
 
   it("flags an unbalanced descriptor as blocked", async () => {
-    const app = createDocumentsRoutes();
+    const app = createDocumentsRoutes(insecureHeaderAuthContextResolver);
     const res = await app.fetch(
       post("/journal/effects", {
         lines: [

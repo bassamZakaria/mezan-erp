@@ -65,7 +65,7 @@ import {
   type AllocationRepository,
   type VoucherLine,
 } from "@mezan/domain";
-import { createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * التقارير — operational reports (docs/archive/catalog/08-reports.md), mounted under
@@ -319,7 +319,7 @@ async function settledByInvoiceId(
 
 export function createReportsRoutes(
   deps: ReportsRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

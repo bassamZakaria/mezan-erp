@@ -63,7 +63,7 @@ import {
   updateLeavePolicySchema,
   upsertLeaveBalanceSchema,
 } from "@mezan/contracts";
-import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, headerAuthContextResolver } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext } from "./permission-gate.js";
 
 /**
  * HR time & leave routes — الحضور والانصراف, سياسات الإجازات, أرصدة الإجازات,
@@ -207,7 +207,7 @@ function handleTimeLeaveError(c: Context, err: unknown): Response {
  */
 const actorRoles = callerRoleCodes;
 
-export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuthContext: AuthContextResolver = headerAuthContextResolver): Hono {
+export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuthContext: AuthContextResolver): Hono {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 

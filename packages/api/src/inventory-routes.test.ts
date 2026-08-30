@@ -4,6 +4,7 @@ import { createSqliteStockLedgerStore, type SqliteStockLedgerHandle } from "@mez
 import { createInventoryRoutes } from "./inventory-routes.js";
 import type { StockReservationSource } from "@mezan/domain";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteStockLedgerHandle[] = [];
 afterEach(() => {
   for (const h of handles.splice(0)) h.close();
@@ -36,7 +37,7 @@ function newApp(
     policy,
     transaction: (fn) => store.transaction(fn),
   });
-  return { app: createInventoryRoutes(service, undefined, reservations, undefined, settings), service };
+  return { app: createInventoryRoutes(service, insecureHeaderAuthContextResolver, reservations, undefined, settings), service };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

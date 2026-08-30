@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { HistoricalPurchaseArchive, HistoricalPurchaseArchiveRepository, HistoricalPurchaseDocType, HistoricalImportGlPosting, HistoricalImportGlPostingPort } from "@mezan/domain";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 class InMemoryArchiveRepo implements HistoricalPurchaseArchiveRepository {
   private readonly rows = new Map<string, HistoricalPurchaseArchive>();
   async create(archive: HistoricalPurchaseArchive) {
@@ -29,7 +30,7 @@ function newApp(opts: { withGl?: boolean } = {}) {
   const archives = new InMemoryArchiveRepo();
   const gl = opts.withGl ? new FakeGlPort() : undefined;
   const accounts = opts.withGl ? { openingBalanceAccountId: "3900-ob", payableAccountId: "2100-ap" } : undefined;
-  const app = createHistoricalImportRoutes({ archives, gl, accounts, now: () => "2026-08-21T09:00:00.000Z" });
+  const app = createHistoricalImportRoutes({ archives, gl, accounts, now: () => "2026-08-21T09:00:00.000Z" }, insecureHeaderAuthContextResolver);
   return { app, archives, gl };
 }
 

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteFiscalPeriodRepository, type SqliteFiscalPeriodRepositoryHandle } from "@mezan/persistence";
 import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteFiscalPeriodRepositoryHandle[] = [];
 
 afterEach(() => {
@@ -11,7 +12,7 @@ afterEach(() => {
 function newApp() {
   const repo = createSqliteFiscalPeriodRepository();
   handles.push(repo);
-  const app = createFiscalPeriodsRoutes(repo);
+  const app = createFiscalPeriodsRoutes(repo, insecureHeaderAuthContextResolver);
   return { app, repo };
 }
 

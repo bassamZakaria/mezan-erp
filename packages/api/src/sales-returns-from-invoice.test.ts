@@ -31,6 +31,7 @@ import {
 } from "@mezan/persistence";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const ACCOUNTS = {
   accountsReceivableId: "1105",
   salesReturnsAccountId: "4100",
@@ -147,7 +148,7 @@ async function harness() {
     },
   };
 
-  return { app: createSalesReturnsRoutes(service, undefined, invoices), ledger, stockService, service };
+  return { app: createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, invoices), ledger, stockService, service };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

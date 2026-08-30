@@ -13,7 +13,7 @@ import {
   type AuditSink,
 } from "@mezan/domain";
 import { createApiKeySchema } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 const KEY_PREFIX = "mzk_";
 
@@ -60,7 +60,7 @@ function apiKeyErrorResponse(c: Context, err: unknown) {
 export function createApiKeysRoutes(
   keys: ApiKeyRepository,
   hasher: SecretHasher,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   audit?: AuditSink,
 ) {
   const app = new Hono();

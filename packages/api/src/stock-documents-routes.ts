@@ -34,7 +34,7 @@ import {
   recordPhysicalCountEntriesSchema,
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Document-layer routes for the phase4/inventory-ops document types, built on
@@ -205,7 +205,7 @@ function handleDocumentError(c: Context, err: unknown): Response {
 /** `/inventory/stock-adjustments` — draft/confirm CRUD over `stockAdjustmentDocumentType`. */
 export function createStockAdjustmentsRoutes(
   service: DocumentService<StockAdjustmentDocLine>,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -324,7 +324,7 @@ export function createStockAdjustmentsRoutes(
 /** `/inventory/stock-transfers` — draft/confirm CRUD over `stockTransferDocumentType`. */
 export function createStockTransfersRoutes(
   service: DocumentService<StockTransferDocLine>,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -428,7 +428,7 @@ export function createStockTransfersRoutes(
 /** `/inventory/physical-counts` — start → record counts → complete → generate adjustment. */
 export function createPhysicalCountsRoutes(
   service: PhysicalCountService,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

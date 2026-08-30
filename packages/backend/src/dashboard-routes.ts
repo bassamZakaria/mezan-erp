@@ -10,7 +10,7 @@ import {
 import type { DashboardSummaryDTO } from "@mezan/contracts";
 import {
   createPermissionGate,
-  headerAuthContextResolver,
+  insecureHeaderAuthContextResolver,
   type AuthContextResolver,
 } from "@mezan/api";
 
@@ -86,7 +86,7 @@ function periodPnl(entries: readonly JournalEntry[], typeById: Map<string, Accou
  */
 export function createDashboardRoutes(
   deps: DashboardDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

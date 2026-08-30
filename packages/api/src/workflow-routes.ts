@@ -20,7 +20,7 @@ import {
   type WorkflowConfigRepository,
 } from "@mezan/domain";
 import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, headerAuthContextResolver } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext } from "./permission-gate.js";
 
 /**
  * Acts on the DOCUMENT behind an approval request once a decision is recorded.
@@ -114,7 +114,7 @@ const actorRoles = callerRoleCodes;
  */
 export function createWorkflowRoutes(
   deps: WorkflowRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();

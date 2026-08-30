@@ -14,7 +14,7 @@ import {
   type AuthContext,
 } from "@mezan/domain";
 import { createAttachmentSchema } from "@mezan/contracts";
-import { headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * المرفقات — `/attachments`. Files hang off a document (invoice, voucher, work
@@ -69,7 +69,7 @@ function handleDomainError(c: Context, err: unknown) {
 
 export function createAttachmentsRoutes(
   deps: AttachmentsRoutesDeps,
-  resolveAuthContext: AuthContextResolver = deps.resolveAuthContext ?? headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
 

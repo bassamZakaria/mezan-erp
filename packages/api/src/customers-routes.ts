@@ -11,7 +11,7 @@ import {
   type CustomerRepository,
 } from "@mezan/domain";
 import { createCustomerSchema, updateCustomerSchema } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /** Resolves a price list by id, so `priceListId` can be checked against the real resource. */
 export interface CustomerPriceListLookup {
@@ -79,7 +79,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createCustomersRouter(
   repo: CustomerRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   audit?: AuditSink,
   priceLists?: CustomerPriceListLookup,
   receivables?: CustomerReceivablesSource,

@@ -10,6 +10,7 @@ import {
 } from "@mezan/persistence";
 import { createInventoryWritedownRoutes, type InventoryWritedownRoutesDeps } from "./inventory-writedown-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: { close(): void }[] = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -69,7 +70,7 @@ async function newApp() {
     })(),
   };
 
-  return { app: createInventoryWritedownRoutes(deps), runs, stockLedger, ledger };
+  return { app: createInventoryWritedownRoutes(deps, insecureHeaderAuthContextResolver), runs, stockLedger, ledger };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

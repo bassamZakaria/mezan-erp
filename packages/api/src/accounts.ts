@@ -12,7 +12,7 @@ import {
   type AccountRepository,
 } from "@mezan/domain";
 import { createAccountSchema, updateAccountSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /** Wire representation of an account — a plain JSON-safe projection. */
 function serialize(account: Account) {
@@ -54,7 +54,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createAccountsRouter(
   repo: AccountRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

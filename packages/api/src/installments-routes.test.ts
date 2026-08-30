@@ -13,6 +13,7 @@ import {
 } from "@mezan/persistence";
 import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -34,7 +35,7 @@ async function buildDeps(): Promise<InstallmentsRoutesDeps> {
 }
 
 async function newApp() {
-  return createInstallmentsRoutes(await buildDeps());
+  return createInstallmentsRoutes(await buildDeps(), insecureHeaderAuthContextResolver);
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -343,7 +344,7 @@ describe("installments plan router — confirm and cancel lifecycle", () => {
 describe("installments plan router — no route ever collects an instalment (D-gap)", () => {
   it("LIMITATION: the permission catalog defines installments.collect and installments.collection.create, but this router mounts no route for either — an instalment's paidAmount can never move off zero through the HTTP surface", async () => {
     const deps = await buildDeps();
-    const app = createInstallmentsRoutes(deps);
+    const app = createInstallmentsRoutes(deps, insecureHeaderAuthContextResolver);
 
     const paths = app.routes.map((r) => `${r.method} ${r.path}`);
     expect(paths.some((p) => /collect/i.test(p))).toBe(false);
@@ -473,7 +474,7 @@ describe("installments plan router — status filters, chips and the KPI strip (
 
   it("/stats' remaining figure counts what is owed, not a net position, once a line is overpaid", async () => {
     const deps = await buildDeps();
-    const app = createInstallmentsRoutes(deps);
+    const app = createInstallmentsRoutes(deps, insecureHeaderAuthContextResolver);
     await app.fetch(req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify({ ...planPayload, id: "OP", installmentCount: 2 }) }));
     await app.fetch(req("/plans/OP/confirm", { method: "POST", permissions: CREATE, body: "{}" }));
 

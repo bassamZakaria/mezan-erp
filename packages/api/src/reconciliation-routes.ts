@@ -6,7 +6,7 @@ import {
   type LedgerRepository,
   type NaturalBalance,
 } from "@mezan/domain";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /** One sub-ledger↔GL control-account pairing to reconcile. */
 export interface ReconciliationControl {
@@ -32,7 +32,7 @@ export interface ReconciliationRoutesDeps {
  */
 export function createReconciliationRoutes(
   deps: ReconciliationRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

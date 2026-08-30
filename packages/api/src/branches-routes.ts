@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { createBranch, updateBranch, InvalidBranchError, type BranchRepository } from "@mezan/domain";
 import { createBranchSchema, updateBranchSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /** Branch CRUD routes (docs/archive/catalog/09 §"إدارة الفروع"), gated by admin.branches.*. */
 export function createBranchesRoutes(
   store: BranchRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

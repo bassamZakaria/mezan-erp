@@ -12,6 +12,7 @@ import {
 } from "../../persistence/src/fixed-assets-store.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: { close(): void }[] = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -57,7 +58,7 @@ async function newApp() {
     idGen: () => `run-${++idSeq}`,
   };
 
-  return { app: createFixedAssetsRoutes(deps), categories, assets, runs, ledger };
+  return { app: createFixedAssetsRoutes(deps, insecureHeaderAuthContextResolver), categories, assets, runs, ledger };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

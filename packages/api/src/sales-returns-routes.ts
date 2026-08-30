@@ -21,7 +21,7 @@ import {
   createSalesReturnSchema,
   refundSalesReturnSchema,
 } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 
 function serializeLine(l: SalesReturnLine) {
@@ -76,7 +76,7 @@ function serialize(doc: FrameworkDocument<SalesReturnLine>, refunds: readonly Sa
  */
 export function createSalesReturnsRoutes(
   service: DocumentService<SalesReturnLine>,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   /**
    * Resolves the source invoice so the returnable quantity is derived HERE.
    * Without it the server validated the requested qty against an

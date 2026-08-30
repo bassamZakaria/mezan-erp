@@ -110,7 +110,7 @@ import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import type { EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
-import { headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { insecureHeaderAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
@@ -715,7 +715,7 @@ export interface CreateAppOptions {
   readonly reports?: ReportsRoutesDeps;
   /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
-   * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
+   * customers/suppliers routes. Defaults to `insecureHeaderAuthContextResolver` (see
    * permission-gate.ts), the same default `createAccountsRouter` uses — omit
    * it to get that header-driven spike behavior; a real deployment injects a
    * resolver derived from the JWT/session instead.
@@ -802,13 +802,17 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    * One resolver for every route on this app.
    *
    * Each mount used to take its own optional resolver and fall back to
-   * `headerAuthContextResolver` when none was supplied — and none ever was, so
+   * `insecureHeaderAuthContextResolver` when none was supplied — and none ever was, so
    * every route on every edition read the caller's permissions out of a header
    * the caller wrote. A composition that supplies `resolveAuthContext` now
    * governs the whole app; one that does not still gets the header resolver,
    * which is what the route-level unit tests rely on.
    */
-  const resolveAuth = options.resolveAuthContext ?? headerAuthContextResolver;
+  // The last remaining fallback in the codebase, and it now fails loudly rather
+  // than quietly: `insecureHeaderAuthContextResolver` throws on a packaged or
+  // production build, so a composition that forgets to pass a real resolver
+  // cannot ship — it can only fail in dev, where someone will see it.
+  const resolveAuth = options.resolveAuthContext ?? insecureHeaderAuthContextResolver;
 
   const resolveEntitlements = options.resolveEntitlements ?? defaultEntitlementsResolver();
   const hasher = options.hasher ?? createScryptHasher();

@@ -11,7 +11,6 @@ import { connectDeviceRequestSchema } from "@mezan/contracts";
 import {
   createAuthenticatedGate,
   createPermissionGate,
-  headerAuthContextResolver,
   type AuthContextResolver,
 } from "../permission-gate.js";
 import { createLanGate, type EntitlementsResolver, type LanGateVariables } from "./gate.js";
@@ -22,10 +21,11 @@ export interface LanRoutesOptions {
   /** SSE keep-alive interval in ms (default 15s). Overridable so tests don't wait. */
   readonly sseHeartbeatMs?: number;
   /**
-   * Who the caller is. REQUIRED in any real composition — the whole point of
-   * these routes is that they answer to devices reached over a LAN socket.
+   * Who the caller is. Required, not optional-with-a-default: these routes are
+   * the ones reached over a LAN socket, and a resolver that reads the caller's
+   * own `x-permissions` header is the single thing that must never run there.
    */
-  readonly resolveAuthContext?: AuthContextResolver;
+  readonly resolveAuthContext: AuthContextResolver;
 }
 
 /**
@@ -55,7 +55,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
   const { registry } = options;
   const app = new Hono<{ Variables: LanGateVariables }>();
   const licensedGate = createLanGate(options.resolveEntitlements);
-  const resolveAuth = options.resolveAuthContext ?? headerAuthContextResolver;
+  const resolveAuth = options.resolveAuthContext;
   const permission = createPermissionGate(resolveAuth);
 
   /**

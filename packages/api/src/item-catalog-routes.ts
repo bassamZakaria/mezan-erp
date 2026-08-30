@@ -26,7 +26,7 @@ import {
   upsertItemBrandSchema,
   upsertItemSeasonSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Item master-data catalogs (docs/archive/catalog/03 §"وحدة القياس" / §"تصنيفات
@@ -64,7 +64,7 @@ function handleDomainError(c: Context, err: unknown) {
 
 export function createItemUnitsRoutes(
   repo: ItemUnitRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -98,7 +98,7 @@ export function createItemUnitsRoutes(
 
 export function createItemCategoriesRoutes(
   repo: ItemCategoryRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -156,7 +156,7 @@ function serializeSeason(season: ItemSeason) {
 
 export function createItemBrandsRoutes(
   repo: ItemBrandRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -193,7 +193,7 @@ export function createItemBrandsRoutes(
 
 export function createItemSeasonsRoutes(
   repo: ItemSeasonRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

@@ -8,7 +8,7 @@ import {
   type TenantSettings,
 } from "@mezan/domain";
 import { updateTenantSettingsSchema, sendTestEmailSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { sendTestEmail } from "./smtp-client.js";
 import { changedKeys, recordAdminEvent } from "./admin-audit.js";
 
@@ -45,7 +45,7 @@ function mergePassword(current: TenantSettings, patch: Partial<TenantSettings>):
 
 export function createSettingsRoutes(
   store: SettingsRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   /**
    * Who changed which policy. These toggles decide whether a purchase invoice
    * needs a receipt, whether stock may go negative, and how credit control

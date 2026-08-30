@@ -23,6 +23,7 @@ import {
 } from "@mezan/persistence";
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteEtaStoreHandle[] = [];
 const otherHandles: Array<{ close(): void }> = [];
 afterEach(() => {
@@ -43,7 +44,7 @@ function newApp(transmit?: EtaTransmitPort) {
   const store = createSqliteEtaStore();
   handles.push(store);
   const service = new EtaService({ config: store.config, submissions: store.submissions, transmit, now: () => "2026-08-22T10:00:00.000Z", newId: () => "sub-1" });
-  const app = createEtaRoutes({ service, setClientSecret: (s) => store.config.setClientSecret(s) });
+  const app = createEtaRoutes({ service, setClientSecret: (s) => store.config.setClientSecret(s) }, insecureHeaderAuthContextResolver);
   return { app, service, store };
 }
 
@@ -74,7 +75,7 @@ async function fullDeps(transmit?: EtaTransmitPort) {
     branchCodes: store.branchCodes,
     unitMappings: store.unitMappings,
   };
-  const app = createEtaRoutes(deps);
+  const app = createEtaRoutes(deps, insecureHeaderAuthContextResolver);
   return {
     app,
     service,
@@ -163,7 +164,7 @@ function newAppSeq(transmit?: EtaTransmitPort) {
     now: () => "2026-08-22T10:00:00.000Z",
     newId: () => `sub-${++n}`,
   });
-  const app = createEtaRoutes({ service, setClientSecret: (s) => store.config.setClientSecret(s) });
+  const app = createEtaRoutes({ service, setClientSecret: (s) => store.config.setClientSecret(s) }, insecureHeaderAuthContextResolver);
   return { app, service, store };
 }
 

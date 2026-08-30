@@ -22,7 +22,7 @@ import {
   type SalesReturnLine,
 } from "@mezan/domain";
 import { createPromotionSchema, evaluatePromotionsQuerySchema, updatePromotionSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 function serialize(promotion: Promotion) {
   return {
@@ -98,7 +98,7 @@ export interface PromotionsRoutesUsageDeps {
  */
 export function createPromotionsRoutes(
   repo: PromotionRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   usage: PromotionsRoutesUsageDeps = {},
 ) {
   const app = new Hono();

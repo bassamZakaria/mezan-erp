@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { ExchangeRate, ExchangeRateRepository } from "@mezan/domain";
 import { createExchangeRateSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 function serialize(rate: ExchangeRate) {
   return {
@@ -23,7 +23,7 @@ function serialize(rate: ExchangeRate) {
  */
 export function createExchangeRatesRoutes(
   repo: ExchangeRateRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

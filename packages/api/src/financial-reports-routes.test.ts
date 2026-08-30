@@ -7,6 +7,7 @@ import {
 } from "@mezan/persistence";
 import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from "./financial-reports-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -132,7 +133,7 @@ async function seed() {
 
 function makeApp(overrides: Partial<FinancialReportsRoutesDeps> & Pick<FinancialReportsRoutesDeps, "ledger" | "accounts">) {
   const deps: FinancialReportsRoutesDeps = { today: () => "2026-08-31", ...overrides };
-  return createFinancialReportsRoutes(deps);
+  return createFinancialReportsRoutes(deps, insecureHeaderAuthContextResolver);
 }
 
 const ROUTES: readonly (readonly [string, string])[] = [
@@ -541,7 +542,7 @@ describe("the same posted ledger, seen from three financial statements", () => {
 describe("financial reports routes — deps edge cases", () => {
   it("still answers when the caller supplies no `today` override, falling back to the real clock", async () => {
     const { ledger, accounts } = await seed();
-    const app = createFinancialReportsRoutes({ ledger, accounts });
+    const app = createFinancialReportsRoutes({ ledger, accounts }, insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/trial-balance?asOfDate=2026-08-31", "accounting.reports.view"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { kpis: { key: string; value: number }[] };

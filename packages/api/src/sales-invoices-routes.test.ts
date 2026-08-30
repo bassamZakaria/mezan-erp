@@ -13,6 +13,7 @@ import {
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "@mezan/persistence";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const AR = "1300";
 const REVENUE = "4000";
 const TAX = "2200";
@@ -133,7 +134,7 @@ async function harness(opts: { maxLineDiscountPercent?: number } = {}) {
       return { voucherId };
     },
   };
-  return { app: createSalesInvoicesRoutes(deps), ledger };
+  return { app: createSalesInvoicesRoutes(deps, insecureHeaderAuthContextResolver), ledger };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

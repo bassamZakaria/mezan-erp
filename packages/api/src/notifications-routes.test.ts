@@ -3,6 +3,7 @@ import { createSqliteNotificationStore, type SqliteNotificationStoreHandle } fro
 import type { Notification } from "@mezan/domain";
 import { createNotificationsRoutes } from "./notifications-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteNotificationStoreHandle[] = [];
 
 afterEach(() => {
@@ -31,7 +32,7 @@ function makeNotification(overrides: Partial<Notification> = {}): Notification {
 function newApp() {
   const repo = createSqliteNotificationStore();
   handles.push(repo);
-  const app = createNotificationsRoutes(repo);
+  const app = createNotificationsRoutes(repo, insecureHeaderAuthContextResolver);
   return { app, repo };
 }
 

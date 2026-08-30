@@ -69,7 +69,7 @@ import {
   updateHolidaySchema,
   createLeaveRequestSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-leave-routes.js";
 import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
 
@@ -272,7 +272,7 @@ async function resolveCallerEmployeeId(c: Context, deps: HrRoutesDeps): Promise<
   return user?.employeeId ?? null;
 }
 
-export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthContextResolver = headerAuthContextResolver): Hono {
+export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthContextResolver): Hono {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const maySeeSalary = (c: Context) => {

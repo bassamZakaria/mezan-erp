@@ -29,7 +29,7 @@ import {
   chequeListQuerySchema,
   type ChequeListQueryDTO,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 export type ChequeRoutesDeps = ChequeServiceDeps & {
   /** Generates ids (cheque id, journal-entry id) when the request omits them. Defaults to a UUID. */
@@ -109,7 +109,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  * `ChequeService.replace`'s doc comment). "تحت التحصيل"/"المستحقة اليوم" have
  * no endpoints of their own — they're derived at read time (status.ts).
  */
-export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: AuthContextResolver = headerAuthContextResolver) {
+export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: AuthContextResolver) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());

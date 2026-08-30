@@ -21,6 +21,7 @@ import {
 } from "@mezan/persistence";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 /** Covers `POST /:id/convert-to-invoice` — the bridge between sales-quotes and sales-invoices. */
 
 const NOW = "2026-08-22T10:00:00.000Z";
@@ -167,7 +168,7 @@ async function harness(includeInvoiceBridge: boolean) {
     })(),
     invoice,
   };
-  return { app: createSalesQuotesRoutes(deps), repo };
+  return { app: createSalesQuotesRoutes(deps, insecureHeaderAuthContextResolver), repo };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

@@ -35,7 +35,7 @@ import {
   addAttributeValueSchema,
   generateVariantsSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Product Templates routes (docs/archive/catalog/03-inventory.md §"قوالب المنتجات"):
@@ -119,7 +119,7 @@ function handleDomainError(c: Context, err: unknown) {
 
 export function createProductTemplatesRoutes(
   deps: ProductTemplatesRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

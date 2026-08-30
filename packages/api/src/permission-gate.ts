@@ -5,14 +5,41 @@ import { ALL_SCOPE, can, createAuthContext, type AuthContext } from "@mezan/doma
 export type AuthContextResolver = (c: Context) => AuthContext | Promise<AuthContext>;
 
 /**
- * Default resolver for the spike editions: reads the effective permission set
- * straight off headers (`x-permissions`: comma-separated codes, `"*"` for a
- * tenant admin; `x-branch-scope` / `x-warehouse-scope`: comma-separated ids or
- * `"*"` for all). Real cloud/desktop editions swap this for one that derives
- * the context from the JWT claims or the local user store — the permission
- * gate itself only depends on the `AuthContext` shape (docs/archive/plan.md §3.3).
+ * A real install, as opposed to a dev server or a test process.
+ *
+ * Read per call rather than captured at module load: the desktop main process
+ * sets `MEZAN_PACKAGED` after import (main/index.ts), so a value snapshotted at
+ * import time would be the wrong one on exactly the edition this guards.
  */
-export function headerAuthContextResolver(c: Context): AuthContext {
+function isProductionRuntime(): boolean {
+  return process.env["MEZAN_PACKAGED"] === "1" || process.env["NODE_ENV"] === "production";
+}
+
+/**
+ * THE CLIENT DECLARES ITS OWN AUTHORITY. Development and test only.
+ *
+ * Reads the effective permission set straight off headers (`x-permissions`:
+ * comma-separated codes, `"*"` for a tenant admin; `x-branch-scope` /
+ * `x-warehouse-scope`: comma-separated ids or `"*"` for all), which means any
+ * caller that can write a header is a tenant admin.
+ *
+ * It is deliberately NOT the default of any route factory any more. It was,
+ * and one composition that forgot to pass a real resolver (the desktop shell,
+ * the single edition that binds a LAN socket) silently reverted every route on
+ * the shop wifi to "send `x-permissions: *` and you are the owner" — defect S9.
+ * A default that fails open is a hole with a countdown on it, so the parameter
+ * is required everywhere and this function is named to be unreachable by
+ * autocomplete for anyone who is not looking for it.
+ *
+ * On a packaged or production build it refuses to resolve anything at all.
+ */
+export function insecureHeaderAuthContextResolver(c: Context): AuthContext {
+  if (isProductionRuntime()) {
+    throw new Error(
+      "insecureHeaderAuthContextResolver was reached on a production/packaged build. " +
+        "Every route must be mounted with a session-backed AuthContextResolver.",
+    );
+  }
   const permissions = (c.req.header("x-permissions") ?? "")
     .split(",")
     .map((code) => code.trim())

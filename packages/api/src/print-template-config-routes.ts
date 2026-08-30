@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { DEFAULT_PRINT_TEMPLATE_CONFIG, type PrintTemplateConfigRepository } from "@mezan/domain";
 import { printTemplateConfigSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Print Template Config routes (docs/archive/catalog/09 §"قوالب الطباعة"): a single
@@ -16,7 +16,7 @@ export interface PrintTemplateConfigRoutesDeps {
 
 export function createPrintTemplateConfigRoutes(
   deps: PrintTemplateConfigRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

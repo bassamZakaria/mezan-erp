@@ -71,7 +71,6 @@ import {
 import {
   createPermissionGate,
   getAuthContext,
-  headerAuthContextResolver,
   type AuthContextResolver,
   warehouseScopeOf,
   withinScope,
@@ -406,7 +405,7 @@ async function warehouseRefusals(
 
 export function createManufacturingRoutes(
   deps: ManufacturingRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

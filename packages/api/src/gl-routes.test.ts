@@ -7,6 +7,7 @@ import {
 } from "@mezan/persistence";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -78,7 +79,7 @@ async function newApp() {
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => "rev-fixed",
   };
-  return { app: createGlRoutes(deps), ledger, accounts, periods };
+  return { app: createGlRoutes(deps, insecureHeaderAuthContextResolver), ledger, accounts, periods };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -671,7 +672,7 @@ describe("gl-routes — balances by currency", () => {
         },
       ],
     };
-    const app = createGlRoutes(deps);
+    const app = createGlRoutes(deps, insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/balances-by-currency", { permissions: "accounting.reports.view" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {

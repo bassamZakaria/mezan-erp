@@ -19,7 +19,7 @@ import {
   updateCostCenterSchema,
   createCostCentersFromDepartmentsSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 function serialize(costCenter: CostCenter) {
   return {
@@ -63,7 +63,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createCostCentersRoutes(
   repo: CostCenterRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   /**
    * HR departments, so مراكز التكلفة can be created from the org chart the
    * tenant already maintains (R6.7). Omit and both import routes report an

@@ -10,6 +10,7 @@ import {
 } from "../../persistence/src/project-repository.js";
 import { createProjectsRoutes } from "./projects-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const projectHandles: SqliteProjectRepositoryHandle[] = [];
 const costCenterHandles: SqliteCostCenterRepositoryHandle[] = [];
 
@@ -23,7 +24,7 @@ function newApp() {
   const costCenters = createSqliteCostCenterRepository();
   projectHandles.push(projects);
   costCenterHandles.push(costCenters);
-  const app = createProjectsRoutes({ projects, costCenters });
+  const app = createProjectsRoutes({ projects, costCenters }, insecureHeaderAuthContextResolver);
   return { app, projects, costCenters };
 }
 

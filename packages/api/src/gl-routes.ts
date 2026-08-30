@@ -57,7 +57,6 @@ import {
 import {
   createPermissionGate,
   getAuthContext,
-  headerAuthContextResolver,
   type AuthContextResolver,
 } from "./permission-gate.js";
 
@@ -237,7 +236,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  */
 export function createGlRoutes(
   deps: GlRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

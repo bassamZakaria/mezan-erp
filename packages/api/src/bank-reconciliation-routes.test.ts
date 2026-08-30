@@ -9,6 +9,7 @@ import {
 } from "@mezan/persistence";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -74,7 +75,7 @@ async function newApp() {
     idGen: () => `gen-${++idSeq}`,
   };
   return {
-    app: createBankReconciliationRoutes(deps),
+    app: createBankReconciliationRoutes(deps, insecureHeaderAuthContextResolver),
     gl: { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-22T10:00:00.000Z" },
   };
 }

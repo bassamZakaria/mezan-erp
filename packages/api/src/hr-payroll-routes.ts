@@ -58,7 +58,7 @@ import {
   updatePayrollComponentSchema,
   treasuryDisbursementSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Payroll + employee-advance routes (docs/archive/catalog/06-crm-hr.md "الرواتب" and
@@ -223,7 +223,7 @@ function serializeComponent(component: PayrollComponent) {
   };
 }
 
-export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthContext: AuthContextResolver = headerAuthContextResolver): Hono {
+export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthContext: AuthContextResolver): Hono {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? randomUUID;

@@ -9,7 +9,7 @@ import {
   type TaxRateRepository,
 } from "@mezan/domain";
 import { createTaxRateSchema, updateTaxRateSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 function serialize(taxRate: TaxRate) {
   return {
@@ -46,7 +46,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createTaxRatesRoutes(
   repo: TaxRateRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteCostCenterRepository, type SqliteCostCenterRepositoryHandle } from "@mezan/persistence";
 import { createCostCentersRoutes } from "./cost-centers-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteCostCenterRepositoryHandle[] = [];
 
 afterEach(() => {
@@ -11,7 +12,7 @@ afterEach(() => {
 function newApp() {
   const repo = createSqliteCostCenterRepository();
   handles.push(repo);
-  const app = createCostCentersRoutes(repo);
+  const app = createCostCentersRoutes(repo, insecureHeaderAuthContextResolver);
   return { app, repo };
 }
 

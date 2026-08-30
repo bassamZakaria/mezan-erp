@@ -10,7 +10,7 @@ import {
   type JournalDocLine,
 } from "@mezan/domain";
 import { journalDocumentEffectsRequestSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Document-framework routes (docs/archive/plan.md §3 + docs/archive/plan.md §3),
@@ -68,7 +68,7 @@ function draftFromLines(lines: readonly JournalDocLine[]): FrameworkDocument<Jou
 }
 
 export function createDocumentsRoutes(
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

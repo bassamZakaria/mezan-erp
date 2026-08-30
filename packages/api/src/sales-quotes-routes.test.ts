@@ -3,6 +3,7 @@ import { NextNumberService } from "@mezan/domain";
 import { createSqliteSalesQuoteStore, type SqliteSalesQuoteStoreHandle } from "@mezan/persistence";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const NOW = "2026-08-22T10:00:00.000Z";
 
 class MemSeq {
@@ -34,7 +35,7 @@ function harness() {
       return () => `qt-${++n}`;
     })(),
   };
-  return { app: createSalesQuotesRoutes(deps), repo };
+  return { app: createSalesQuotesRoutes(deps, insecureHeaderAuthContextResolver), repo };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

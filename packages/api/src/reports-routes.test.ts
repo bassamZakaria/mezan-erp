@@ -25,6 +25,7 @@ import {
 } from "@mezan/domain";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: { close(): void }[] = [];
 afterEach(() => {
   for (const h of handles.splice(0)) h.close();
@@ -192,7 +193,7 @@ async function newApp() {
     accounts,
     today: () => "2026-08-22",
   };
-  const app = createReportsRoutes(deps);
+  const app = createReportsRoutes(deps, insecureHeaderAuthContextResolver);
   return { app, deps, vouchers, cheques, salesReturns };
 }
 
@@ -441,7 +442,7 @@ describe("reports routes — allocatable/cheques/voucherDocuments/salesReturnDoc
 
     // Prove the regression: the SAME data, through an app that never wires
     // `allocatable`, restates the fully-settled invoice as outstanding (D66).
-    const unwiredApp = createReportsRoutes({ ...deps, allocatable: undefined });
+    const unwiredApp = createReportsRoutes({ ...deps, allocatable: undefined }, insecureHeaderAuthContextResolver);
     const unwired = (await (await unwiredApp.fetch(req("/aging/suppliers?asOfDate=2026-08-22", "purchases.invoice.view"))).json()) as {
       rows: { supplierId: string; total: number }[];
     };
@@ -475,7 +476,7 @@ describe("reports routes — allocatable/cheques/voucherDocuments/salesReturnDoc
 
     // Prove the regression: without `cheques` wired, the same collection is
     // invisible to aging and the customer reads as owing the full 1000 (D37).
-    const unwiredApp = createReportsRoutes({ ...deps, cheques: undefined });
+    const unwiredApp = createReportsRoutes({ ...deps, cheques: undefined }, insecureHeaderAuthContextResolver);
     const unwired = (await (await unwiredApp.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
       rows: { customerId: string; total: number }[];
     };

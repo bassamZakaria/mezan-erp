@@ -19,7 +19,7 @@ import {
   resolvePriceListPriceSchema,
   type PriceListLineDTO,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /** Resolves a customer's assigned price list, so the resolve route can answer by customer as well as by list. */
 export interface PriceListCustomerLookup {
@@ -74,7 +74,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createPriceListsRoutes(
   repo: PriceListRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   customers?: PriceListCustomerLookup,
 ) {
   const app = new Hono();

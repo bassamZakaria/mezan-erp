@@ -16,6 +16,7 @@ import {
 import { createSqliteVanTripRepository, type SqliteVanTripRepositoryHandle } from "../../persistence/src/van-trip-store.js";
 import { createFieldSalesRoutes } from "./field-sales-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 /**
  * In-memory StockLedgerRepository/CostLayerRepository/WacSnapshotRepository
  * mirroring `packages/domain/src/inventory/test-helpers/in-memory-stores.ts`
@@ -100,7 +101,7 @@ function newApp() {
   handles.push(trips);
   const stock = buildStockService();
   const treasuryTransfer = vi.fn(async () => {});
-  const app = createFieldSalesRoutes({ trips, stock, treasuryTransfer });
+  const app = createFieldSalesRoutes({ trips, stock, treasuryTransfer }, insecureHeaderAuthContextResolver);
   return { app, trips, stock, treasuryTransfer };
 }
 

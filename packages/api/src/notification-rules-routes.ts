@@ -14,7 +14,7 @@ import {
   type NotificationRuleRepository,
 } from "@mezan/domain";
 import { createNotificationRuleSchema, updateNotificationRuleSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 function serialize(rule: NotificationRule) {
   return {
@@ -59,7 +59,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createNotificationRulesRoutes(
   repo: NotificationRuleRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   emittedEventCodes: readonly EventCode[] = [],
 ) {
   const app = new Hono();

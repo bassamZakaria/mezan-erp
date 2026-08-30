@@ -43,7 +43,7 @@ import {
   voucherListQuerySchema,
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
-import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createPermissionGate, getAuthContext, headerAuthContextResolver, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createPermissionGate, getAuthContext, withinScope } from "./permission-gate.js";
 
 /**
  * Everything the voucher routes bind the {@link VoucherService} to. Numbering
@@ -179,7 +179,7 @@ const gateActorRoles = callerRoleCodes;
 
 export function createVouchersRoutes(
   deps: VoucherRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -500,7 +500,7 @@ export function createVouchersRoutes(
  */
 export function createAllocationRoutes(
   deps: VoucherRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

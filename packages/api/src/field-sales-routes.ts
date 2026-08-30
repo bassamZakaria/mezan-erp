@@ -25,7 +25,7 @@ import {
   type TreasuryTransferInput,
 } from "@mezan/domain";
 import { createVanSchema, openVanTripSchema, recordVanCashMovementSchema, settleVanTripSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Field/Van Sales routes (docs/archive/catalog/07-mfg-projects-assets.md "رحلات
@@ -145,7 +145,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createVansRoutes(
   vans: VanRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -192,7 +192,7 @@ export function createVansRoutes(
 
 export function createFieldSalesRoutes(
   deps: FieldSalesRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

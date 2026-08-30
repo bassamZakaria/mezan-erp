@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { createWarehouse, updateWarehouse, InvalidWarehouseError, type WarehouseRepository } from "@mezan/domain";
 import { createWarehouseSchema, updateWarehouseSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 /** Warehouse CRUD routes (docs/archive/catalog/09 §"إدارة المستودعات"), gated by admin.warehouses.*. */
 export function createWarehousesRoutes(
   store: WarehouseRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

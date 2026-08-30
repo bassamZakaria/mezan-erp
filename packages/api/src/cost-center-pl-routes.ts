@@ -5,7 +5,7 @@ import {
   type CostCenterRepository,
   type LedgerRepository,
 } from "@mezan/domain";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 export interface CostCenterPnLRoutesDeps {
   readonly ledger: Pick<LedgerRepository, "listLines">;
@@ -20,7 +20,7 @@ export interface CostCenterPnLRoutesDeps {
  */
 export function createCostCenterPnLRoutes(
   deps: CostCenterPnLRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

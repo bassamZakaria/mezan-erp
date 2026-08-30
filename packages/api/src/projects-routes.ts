@@ -13,7 +13,7 @@ import {
   type CostCenterRepository,
 } from "@mezan/domain";
 import { createProjectSchema, updateProjectSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 function serialize(project: Project) {
   return {
@@ -69,7 +69,7 @@ export interface ProjectsRoutesDeps {
  */
 export function createProjectsRoutes(
   deps: ProjectsRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

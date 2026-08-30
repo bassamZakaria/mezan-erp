@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { createSupplier, updateSupplier, InvalidSupplierError, Money, type AuditSink, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
 import { createSupplierSchema, updateSupplierSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 
 /**
@@ -59,7 +59,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createSuppliersRouter(
   repo: SupplierRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   payables?: SupplierPayablesSource,
   /**
    * The twin of the customer trail. A supplier's bank details and opening

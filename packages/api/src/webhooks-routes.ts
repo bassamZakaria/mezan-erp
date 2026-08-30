@@ -16,7 +16,7 @@ import {
   type AuditSink,
 } from "@mezan/domain";
 import { createWebhookSchema, updateWebhookSchema } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 function generateSecret(): string {
   return `whsec_${randomBytes(24).toString("base64url")}`;
@@ -68,7 +68,7 @@ export interface WebhooksRoutesDeps {
  */
 export function createWebhooksRoutes(
   deps: WebhooksRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   audit?: AuditSink,
 ) {
   const app = new Hono();

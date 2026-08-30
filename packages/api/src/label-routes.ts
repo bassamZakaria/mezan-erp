@@ -10,7 +10,7 @@ import {
   type LabelLayoutRepository,
 } from "@mezan/domain";
 import { createLabelLayoutSchema, updateLabelLayoutSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * `/label-layouts` — تخطيطات الملصقات (docs/archive/catalog/03 §"طباعة الباركود
@@ -59,7 +59,7 @@ function handleDomainError(c: Context, err: unknown) {
 
 export function createLabelLayoutsRouter(
   layouts: LabelLayoutRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

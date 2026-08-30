@@ -10,6 +10,7 @@ import {
 import { LEAVE_TYPE_DEFINITIONS, type User, type UserRepository } from "@mezan/domain";
 import { createHrRoutes, type HrRoutesDeps } from "./hr-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: { close(): void }[] = [];
 afterEach(() => {
   for (const h of handles.splice(0)) h.close();
@@ -72,7 +73,7 @@ function newApp(users: User[] = []) {
       },
     },
   };
-  const app = createHrRoutes(deps);
+  const app = createHrRoutes(deps, insecureHeaderAuthContextResolver);
   return { app, ...deps };
 }
 

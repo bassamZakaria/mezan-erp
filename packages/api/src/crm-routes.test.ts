@@ -15,6 +15,7 @@ import {
 import type { CustomerRepository, Customer } from "@mezan/domain";
 import { createCrmRoutes } from "./crm-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: { close(): void }[] = [];
 
 afterEach(() => {
@@ -41,7 +42,7 @@ function newApp() {
   const activities: SqliteActivityRepositoryHandle = createSqliteActivityRepository();
   handles.push(leads, opportunities, pipelineStages, activities);
   const customers = inMemoryCustomers();
-  const app = createCrmRoutes({ leads, opportunities, pipelineStages, activities, customers });
+  const app = createCrmRoutes({ leads, opportunities, pipelineStages, activities, customers }, insecureHeaderAuthContextResolver);
   return { app, leads, opportunities, pipelineStages, activities, customers };
 }
 

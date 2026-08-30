@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { createAuthContext, ALL_SCOPE } from "@mezan/domain";
-import { createPermissionGate, headerAuthContextResolver, getAuthContext } from "./permission-gate.js";
+import { createPermissionGate, insecureHeaderAuthContextResolver, getAuthContext } from "./permission-gate.js";
 
 function appWithContext(permissions: string[]) {
   const ctx = createAuthContext({ userId: "u1", permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
@@ -33,9 +33,9 @@ describe("permission gate middleware", () => {
   });
 });
 
-describe("headerAuthContextResolver", () => {
+describe("insecureHeaderAuthContextResolver", () => {
   it("resolves permissions/scopes from headers, defaulting to no access", async () => {
-    const gate = createPermissionGate(headerAuthContextResolver);
+    const gate = createPermissionGate(insecureHeaderAuthContextResolver);
     const app = new Hono();
     app.get("/settings", gate("admin.settings.view"), (c) => c.json({ ok: true }));
 
@@ -49,7 +49,7 @@ describe("headerAuthContextResolver", () => {
   });
 
   it("treats the wildcard permission as full admin access", async () => {
-    const gate = createPermissionGate(headerAuthContextResolver);
+    const gate = createPermissionGate(insecureHeaderAuthContextResolver);
     const app = new Hono();
     app.get("/settings", gate("admin.settings.edit"), (c) => c.json({ ok: true }));
 

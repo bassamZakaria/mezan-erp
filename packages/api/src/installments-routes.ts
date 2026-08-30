@@ -24,7 +24,7 @@ import {
   createFollowUpSchema,
   completeFollowUpSchema,
 } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate, headerAuthContextResolver } from "./permission-gate.js";
+import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 
 function serializePlanLine(l: InstallmentLine) {
@@ -91,7 +91,7 @@ export interface InstallmentsRoutesDeps {
  */
 export function createInstallmentsRoutes(
   deps: InstallmentsRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

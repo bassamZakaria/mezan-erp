@@ -55,7 +55,7 @@ import {
 } from "@mezan/contracts";
 import type { CurrencyCheck } from "./currency-policy.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
-import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, headerAuthContextResolver, warehouseScopeOf } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf } from "./permission-gate.js";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -330,7 +330,7 @@ const gateActorRoles = callerRoleCodes;
 
 export function createSalesInvoicesRoutes(
   deps: SalesInvoiceRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

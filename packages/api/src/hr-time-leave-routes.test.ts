@@ -14,6 +14,7 @@ import {
 import { createEmployee, createLeaveRequest } from "@mezan/domain";
 import { createHrTimeLeaveRoutes } from "./hr-time-leave-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const dirs: string[] = [];
 const handles: { close(): void }[] = [];
 
@@ -56,7 +57,7 @@ async function newApp() {
         return { formatted: `${code}-${String(counter).padStart(4, "0")}` };
       },
     },
-  });
+  }, insecureHeaderAuthContextResolver);
 
   const employee = await createEmployee(
     {

@@ -9,7 +9,7 @@ export { createAccountsRouter } from "./accounts.js";
 export {
   createAuthenticatedGate,
   createPermissionGate,
-  headerAuthContextResolver,
+  insecureHeaderAuthContextResolver,
   getAuthContext,
   type AuthContextResolver,
 } from "./permission-gate.js";

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteNotificationRuleStore, type SqliteNotificationRuleStoreHandle } from "@mezan/persistence";
 import { createNotificationRulesRoutes } from "./notification-rules-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteNotificationRuleStoreHandle[] = [];
 
 afterEach(() => {
@@ -11,7 +12,7 @@ afterEach(() => {
 function newApp() {
   const repo = createSqliteNotificationRuleStore();
   handles.push(repo);
-  const app = createNotificationRulesRoutes(repo);
+  const app = createNotificationRulesRoutes(repo, insecureHeaderAuthContextResolver);
   return { app, repo };
 }
 

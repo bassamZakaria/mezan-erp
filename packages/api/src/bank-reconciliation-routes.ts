@@ -22,7 +22,7 @@ import {
   addManualLineSchema,
   bankStatementListQuerySchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 export type BankReconciliationRoutesDeps = BankReconciliationServiceDeps & {
   /** Generates ids (statement id, statement-line id) when the request omits them. Defaults to a UUID. */
@@ -89,7 +89,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  */
 export function createBankReconciliationRoutes(
   deps: BankReconciliationRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

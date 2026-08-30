@@ -43,7 +43,7 @@ import {
   createPipelineStageSchema,
   createActivitySchema,
 } from "@mezan/contracts";
-import { branchScopeOf, createPermissionGate, headerAuthContextResolver, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * CRM routes (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
@@ -142,7 +142,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   throw err;
 }
 
-export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthContextResolver = headerAuthContextResolver): Hono {
+export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthContextResolver): Hono {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 

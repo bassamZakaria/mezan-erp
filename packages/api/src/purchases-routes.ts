@@ -74,7 +74,6 @@ import type { CurrencyCheck } from "./currency-policy.js";
 import {
   createPermissionGate,
   getAuthContext,
-  headerAuthContextResolver,
   type AuthContextResolver,
   branchScopeOf,
   warehouseScopeOf,
@@ -313,7 +312,7 @@ function handleDomainError(c: Context, err: unknown): Response {
 
 export function createPurchasesRoutes(
   deps: PurchasesRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

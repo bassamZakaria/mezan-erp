@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteTreasuryAccountRepository, type SqliteTreasuryAccountRepositoryHandle } from "@mezan/persistence";
 import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteTreasuryAccountRepositoryHandle[] = [];
 
 afterEach(() => {
@@ -11,7 +12,7 @@ afterEach(() => {
 function newApp() {
   const repo = createSqliteTreasuryAccountRepository();
   handles.push(repo);
-  const app = createTreasuryAccountsRoutes(repo);
+  const app = createTreasuryAccountsRoutes(repo, insecureHeaderAuthContextResolver);
   return { app, repo };
 }
 

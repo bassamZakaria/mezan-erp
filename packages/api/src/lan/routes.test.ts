@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createEntitlements, SeatSessionRegistry } from "@mezan/domain";
 import { createLanRoutes } from "./routes.js";
 
+import { insecureHeaderAuthContextResolver } from "../permission-gate.js";
 const LICENSED_FLAG = { "lan.multi_till": true };
 
 function buildApp(params: { seats: number; licensed: boolean; sseHeartbeatMs?: number }) {
@@ -26,6 +27,7 @@ function buildApp(params: { seats: number; licensed: boolean; sseHeartbeatMs?: n
     resolveEntitlements: () => entitlements,
     registry,
     sseHeartbeatMs: params.sseHeartbeatMs,
+    resolveAuthContext: insecureHeaderAuthContextResolver,
   });
   return { app, registry };
 }

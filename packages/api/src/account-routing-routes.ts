@@ -7,7 +7,7 @@ import {
   type AccountRoutingRepository,
 } from "@mezan/domain";
 import { updateAccountRoutingSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * توجيه الحسابات (R6.1), mounted at `/accounting/account-routing`.
@@ -36,7 +36,7 @@ function serialize(routing: AccountRouting) {
 
 export function createAccountRoutingRoutes(
   repo: AccountRoutingRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

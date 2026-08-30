@@ -12,7 +12,7 @@ import {
   type FiscalPeriodRepository,
 } from "@mezan/domain";
 import { generateFiscalYearSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 
 function serialize(period: FiscalPeriod) {
@@ -54,7 +54,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createFiscalPeriodsRoutes(
   repo: FiscalPeriodRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   /**
    * Who closed, reopened or locked a period. Reopening a closed period is the
    * move that lets a posted month be changed after the fact, and it left no

@@ -15,7 +15,6 @@ import { historicalImportBatchSchema } from "@mezan/contracts";
 import {
   createPermissionGate,
   getAuthContext,
-  headerAuthContextResolver,
   type AuthContextResolver,
 } from "./permission-gate.js";
 
@@ -82,7 +81,7 @@ function serializeGroup(g: HistoricalImportGroup) {
 
 export function createHistoricalImportRoutes(
   deps: HistoricalImportRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

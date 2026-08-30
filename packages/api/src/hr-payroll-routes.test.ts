@@ -15,6 +15,7 @@ import {
 import { Money, PAYROLL_GL_ACCOUNTS, createEmployee, type Account, type JournalPostingDeps } from "@mezan/domain";
 import { createHrPayrollRoutes } from "./hr-payroll-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const dirs: string[] = [];
 const handles: { close(): void }[] = [];
 
@@ -99,7 +100,7 @@ async function newApp() {
       },
     },
     idGen: () => `gen-${++counter}`,
-  });
+  }, insecureHeaderAuthContextResolver);
 
   await createEmployee(
     {

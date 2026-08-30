@@ -9,7 +9,7 @@ import {
   type SequenceOverride,
 } from "@mezan/domain";
 import { sequenceOverrideSchema, resetSequenceCounterSchema, type SequenceListItemDTO } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Read/config surface for the numbering engine (`/settings/sequences`,
@@ -77,7 +77,7 @@ function actorOf(c: Context): string {
 
 export function createSequencesRoutes(
   deps: SequencesRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

@@ -28,6 +28,7 @@ import {
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const AR = "1105";
 const REVENUE = "4000";
 const TAX = "2201";
@@ -71,7 +72,7 @@ async function harness() {
     stock: createSalesInvoiceStockHook(stockService),
     now: () => NOW,
   };
-  return { app: createSalesInvoicesRoutes(deps), repo };
+  return { app: createSalesInvoicesRoutes(deps, insecureHeaderAuthContextResolver), repo };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string; userId?: string } = {}) {
@@ -223,7 +224,7 @@ describe("LIMITATION (D70): sibling modules gate on `.view` and lock out a `.vie
         workflow: createDocumentWorkflowGate(() => null),
       },
     );
-    return createSalesReturnsRoutes(service);
+    return createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver);
   }
 
   it("refuses a `sales.return.view_own` holder with 403 on the returns list", async () => {

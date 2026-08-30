@@ -19,7 +19,7 @@ import {
   itemTypeTracksStock,
   matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /** Wire representation of an item — money as decimal strings, byte-stable. */
 function serialize(item: Item) {
@@ -101,7 +101,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createItemsRouter(
   repo: ItemRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   snapshots?: WacSnapshotRepository,
   /** Tenant settings, so a new item inherits the tenant's own default VAT rate (§"الضريبة"). */
   settings?: SettingsRepository,

@@ -3,6 +3,7 @@ import type { Account } from "@mezan/domain";
 import { createSqliteLedgerStore, createSqliteAccountRepository, createSqliteFiscalPeriodRepository, createSqliteChequeRepository } from "@mezan/persistence";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -36,7 +37,7 @@ async function newApp() {
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => `gen-${++idSeq}`,
   };
-  return { app: createChequesRoutes(deps), ledger };
+  return { app: createChequesRoutes(deps, insecureHeaderAuthContextResolver), ledger };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

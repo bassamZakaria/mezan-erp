@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteProductTemplateStore, createSqliteItemStore } from "@mezan/persistence";
 import { createProductTemplatesRoutes, type ProductTemplatesRoutesDeps } from "./product-templates-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: { close(): void }[] = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -20,7 +21,7 @@ async function newApp() {
     idGen: () => `id-${++n}`,
   };
 
-  return { app: createProductTemplatesRoutes(deps), store, items };
+  return { app: createProductTemplatesRoutes(deps, insecureHeaderAuthContextResolver), store, items };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

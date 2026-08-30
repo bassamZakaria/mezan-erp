@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { DEFAULT_PRINT_TEMPLATE_CONFIG, type PrintTemplateConfig, type PrintTemplateConfigRepository } from "@mezan/domain";
 import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 class InMemoryPrintTemplateConfigRepo implements PrintTemplateConfigRepository {
   private saved: PrintTemplateConfig | null = null;
   async get() {
@@ -14,7 +15,7 @@ class InMemoryPrintTemplateConfigRepo implements PrintTemplateConfigRepository {
 
 function newApp() {
   const repo = new InMemoryPrintTemplateConfigRepo();
-  const app = createPrintTemplateConfigRoutes({ repo });
+  const app = createPrintTemplateConfigRoutes({ repo }, insecureHeaderAuthContextResolver);
   return { app, repo };
 }
 

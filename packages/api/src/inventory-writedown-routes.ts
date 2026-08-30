@@ -16,7 +16,7 @@ import {
 } from "@mezan/domain";
 import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain";
 import { createWritedownRunSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Inventory aging-based write-down batch routes (docs/archive/phase-backlog.md Phase 4
@@ -80,7 +80,7 @@ function handleDomainError(c: Context, err: unknown) {
 
 export function createInventoryWritedownRoutes(
   deps: InventoryWritedownRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

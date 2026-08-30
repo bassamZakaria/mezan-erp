@@ -46,7 +46,7 @@ import { openingBalanceImportBatchSchema, type OpeningBalanceImportRowDTO } from
 export interface DataMigrationTransactor {
   run<T>(fn: () => Promise<T>): Promise<T>;
 }
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * نقل البيانات (Data Migration wizard) — docs/archive/catalog/09 §"نقل البيانات":
@@ -208,7 +208,7 @@ async function resolveDefaultBranchId(branches: BranchRepository, branchCode: st
 
 export function createDataMigrationRoutes(
   deps: DataMigrationRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

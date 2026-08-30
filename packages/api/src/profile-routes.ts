@@ -14,7 +14,7 @@ import {
   type AuditSink,
 } from "@mezan/domain";
 import { updateProfileSchema, changePasswordSchema, changePinSchema } from "@mezan/contracts";
-import { headerAuthContextResolver, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 function serializeProfile(user: User) {
   return {
@@ -80,7 +80,7 @@ function requireCaller(resolveAuthContext: AuthContextResolver): MiddlewareHandl
 export function createProfileRoutes(
   uow: UnitOfWork,
   hasher: SecretHasher,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   audit?: AuditSink,
 ) {
   const app = new Hono();

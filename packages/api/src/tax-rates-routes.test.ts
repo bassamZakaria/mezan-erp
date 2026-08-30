@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteTaxRateRepository, type SqliteTaxRateRepositoryHandle } from "@mezan/persistence";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteTaxRateRepositoryHandle[] = [];
 
 afterEach(() => {
@@ -11,7 +12,7 @@ afterEach(() => {
 function newApp() {
   const repo = createSqliteTaxRateRepository();
   handles.push(repo);
-  const app = createTaxRatesRoutes(repo);
+  const app = createTaxRatesRoutes(repo, insecureHeaderAuthContextResolver);
   return { app, repo };
 }
 

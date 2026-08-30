@@ -31,7 +31,7 @@ import {
   updateEtaItemMappingSchema,
   updateEtaUnitMappingSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 export interface EtaRoutesDeps {
   readonly service: EtaService;
@@ -144,7 +144,7 @@ function handleError(c: Context, err: unknown): Response {
  */
 export function createEtaRoutes(
   deps: EtaRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

@@ -3,6 +3,7 @@ import { NextNumberService, type PurchaseOrder, type PurchaseOrderRepository, ty
 import { createSqliteSequenceStore } from "@mezan/persistence";
 import { createRfqRoutes } from "./rfq-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -60,7 +61,7 @@ function newApp() {
   const rfqs = new InMemoryRfqRepo();
   const quotes = new InMemoryQuoteRepo();
   const orders = new InMemoryOrderRepo();
-  const app = createRfqRoutes({ rfqs, quotes, orders, numbering, now: () => "2026-08-21T09:00:00.000Z" });
+  const app = createRfqRoutes({ rfqs, quotes, orders, numbering, now: () => "2026-08-21T09:00:00.000Z" }, insecureHeaderAuthContextResolver);
   return { app, rfqs, quotes, orders };
 }
 

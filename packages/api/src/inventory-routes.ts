@@ -30,7 +30,7 @@ import {
   postedAdjustmentListQuerySchema,
   postedTransferListQuerySchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Permission-gated routes for the costing + stock-ledger engine (docs/archive/catalog/03).
@@ -167,7 +167,7 @@ function requireQuery(c: Context, name: string): string {
 
 export function createInventoryRoutes(
   service: StockLedgerService,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
   /**
    * Open documents that have committed stock they have not yet moved (R5.6).
    * Optional: without it every position reports zero reserved rather than a

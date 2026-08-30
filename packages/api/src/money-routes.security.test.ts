@@ -10,6 +10,7 @@ import {
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 /**
  * Every route here moves money. A 403 that still wrote the row is the bug worth
  * catching, so each refusal is followed by a re-read of BOTH stores: the
@@ -73,7 +74,7 @@ async function glHarness() {
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => "rev-fixed",
   };
-  return { app: createGlRoutes(deps), ledger };
+  return { app: createGlRoutes(deps, insecureHeaderAuthContextResolver), ledger };
 }
 
 function entry(id: string, amount: string) {
@@ -207,7 +208,7 @@ async function voucherHarness() {
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => `gen-${++seq}`,
   };
-  return { app: createVouchersRoutes(deps), ledger, store };
+  return { app: createVouchersRoutes(deps, insecureHeaderAuthContextResolver), ledger, store };
 }
 
 function voucher(id: string, amount: string) {

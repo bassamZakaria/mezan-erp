@@ -34,7 +34,6 @@ import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import {
   createPermissionGate,
   getAuthContext,
-  headerAuthContextResolver,
   type AuthContextResolver,
   branchScopeOf,
   withinScope,} from "./permission-gate.js";
@@ -162,7 +161,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  */
 export function createSalesQuotesRoutes(
   deps: SalesQuoteRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

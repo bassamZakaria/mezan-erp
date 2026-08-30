@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { AuditQueryPort } from "@mezan/domain";
 import { auditQuerySchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Read-only query surface over the append-only audit trail (`/audit`,
@@ -16,7 +16,7 @@ import { createPermissionGate, headerAuthContextResolver, type AuthContextResolv
  */
 export function createAuditRoutes(
   store: AuditQueryPort,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

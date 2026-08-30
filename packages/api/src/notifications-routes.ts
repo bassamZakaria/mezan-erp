@@ -7,7 +7,7 @@ import {
   type NotificationRepository,
 } from "@mezan/domain";
 import { notificationListQuerySchema } from "@mezan/contracts";
-import { headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { type AuthContextResolver } from "./permission-gate.js";
 
 function serialize(n: Notification) {
   return {
@@ -42,7 +42,7 @@ function handleDomainError(c: Context, err: unknown) {
  */
 export function createNotificationsRoutes(
   repo: NotificationRepository,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
 

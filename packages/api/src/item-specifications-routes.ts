@@ -12,7 +12,7 @@ import {
   type ItemSpecificationUsageCounter,
 } from "@mezan/domain";
 import { createItemSpecificationSchema, updateItemSpecificationSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * المواصفات — the reusable specification/attribute registry, mounted at
@@ -58,7 +58,7 @@ function handleDomainError(c: Context, err: unknown) {
 
 export function createItemSpecificationsRoutes(
   deps: ItemSpecificationsRoutesDeps,
-  resolveAuthContext: AuthContextResolver = deps.resolveAuthContext ?? headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

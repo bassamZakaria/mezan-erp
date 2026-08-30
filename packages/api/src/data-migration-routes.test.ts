@@ -18,6 +18,7 @@ import {
 import type { Department, DepartmentRepository, Employee, EmployeeRepository } from "@mezan/domain";
 import { createDataMigrationRoutes } from "./data-migration-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 /** Trivial in-memory fakes — the real HR SQLite store is a sibling in-flight
  * task; this test only needs something implementing the two ports. */
 function inMemoryDepartments(): DepartmentRepository {
@@ -105,7 +106,7 @@ async function newApp() {
     assetCategories,
     assets,
     branches,
-  });
+  }, insecureHeaderAuthContextResolver);
   return { app, departments, employees, treasuryAccounts, suppliers, customers, items, assetCategories, assets };
 }
 

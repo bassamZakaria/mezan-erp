@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteExchangeRateRepository, type SqliteExchangeRateRepositoryHandle } from "@mezan/persistence";
 import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteExchangeRateRepositoryHandle[] = [];
 afterEach(() => {
   for (const h of handles.splice(0)) h.close();
@@ -10,7 +11,7 @@ afterEach(() => {
 function newApp() {
   const repo = createSqliteExchangeRateRepository();
   handles.push(repo);
-  return { app: createExchangeRatesRoutes(repo), repo };
+  return { app: createExchangeRatesRoutes(repo, insecureHeaderAuthContextResolver), repo };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {

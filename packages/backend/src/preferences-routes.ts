@@ -27,7 +27,7 @@ import {
 import {
   createPermissionGate,
   getAuthContext,
-  headerAuthContextResolver,
+  insecureHeaderAuthContextResolver,
   type AuthContextResolver,
 } from "@mezan/api";
 
@@ -127,7 +127,7 @@ function preferencesError(c: Context, err: unknown) {
 
 export function createPreferencesRoutes(
   deps: PreferencesRoutesDeps,
-  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const requireAuth = requireCaller(resolveAuthContext);

@@ -11,6 +11,7 @@ import {
 import { createVouchersRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 import { createCostCentersRoutes } from "./cost-centers-routes.js";
 
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 /**
  * Branch scope is only real if the other branch data is actually absent. Two
  * branches are seeded with money in both, the caller is scoped to one, and the
@@ -99,7 +100,7 @@ async function voucherHarness() {
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => `gen-${++seq}`,
   };
-  const app = createVouchersRoutes(deps);
+  const app = createVouchersRoutes(deps, insecureHeaderAuthContextResolver);
 
   for (const branch of ["b1", "b2"]) {
     const payload = {
@@ -182,7 +183,7 @@ describe("cost centres — the list narrows, the tree and the detail do not", ()
   async function costCenterApp() {
     const repo = createSqliteCostCenterRepository();
     closers.push(repo);
-    const app = createCostCentersRoutes(repo);
+    const app = createCostCentersRoutes(repo, insecureHeaderAuthContextResolver);
     for (const branch of ["b1", "b2"]) {
       const payload = { id: `cc-${branch}`, code: `CC-${branch}`, nameAr: `مركز ${branch}`, branchId: branch };
       const res = await app.fetch(req("/", { method: "POST", permissions: "*", body: JSON.stringify(payload) }));

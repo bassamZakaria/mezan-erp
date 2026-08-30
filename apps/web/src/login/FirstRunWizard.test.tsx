@@ -34,7 +34,12 @@ function goToAdminStep() {
 
 function fillAdminForm() {
   fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "سارة حسن" } });
-  fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "sara@cyag.example" } });
+  // `exact: false`: the email label's `<label>` wrapper also carries a hint
+  // sentence ("هذا البريد هو اسم الدخول لهذا الحساب.") as a sibling of the
+  // input, so the field's full accessible name is the two concatenated.
+  fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), {
+    target: { value: "sara@cyag.example" },
+  });
   fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "432198" } });
   fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "432198" } });
 }

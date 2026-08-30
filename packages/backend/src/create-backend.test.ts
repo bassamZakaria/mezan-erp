@@ -146,6 +146,7 @@ const AUTHED_PERMISSIONS = [
   "sales.quote.view",
   "sales.quote.send",
   "sales.quote.edit",
+  "inventory.item.create",
 ];
 
 /** A live session holding exactly {@link AUTHED_PERMISSIONS}, as user `u1`. */
@@ -173,6 +174,18 @@ async function createCustomer(app: App, id: string, creditLimit: string) {
     creditLimit,
     taxExempt: false,
     etaBuyerType: "auto",
+  });
+  expect(res.status).toBe(201);
+}
+
+/** Every document line names a real catalogue item (D38), so the suite registers SVC-1 for real. */
+async function createServiceItem(app: App) {
+  const res = await authedPost(app, "/items", {
+    id: "SVC-1",
+    code: "SVC-1",
+    nameAr: "خدمة",
+    type: "service",
+    baseUnitCode: "PCS",
   });
   expect(res.status).toBe(201);
 }
@@ -242,6 +255,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
   it("mounts /sales-quotes and converts an accepted quote to a draft invoice", async () => {
     const app = await newBackend();
     await createCustomer(app, "cust-q1", "0");
+    await createServiceItem(app);
     const create = await authedPost(app, "/sales-quotes", {
       id: "quote-1",
       date: "2026-08-22",
@@ -287,6 +301,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
   it("credit control BLOCK stops confirm once the customer exceeds their credit limit", async () => {
     const app = await newBackend();
     await createCustomer(app, "cust-cc1", "100");
+    await createServiceItem(app);
     const putSettings = await app.fetch(
       new Request("http://local/settings", {
         method: "PUT",
@@ -308,6 +323,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
   it("credit control WARNING lets an over-limit confirm through, flagged as held", async () => {
     const app = await newBackend();
     await createCustomer(app, "cust-cc2", "100");
+    await createServiceItem(app);
     const putSettings = await app.fetch(
       new Request("http://local/settings", {
         method: "PUT",
@@ -328,6 +344,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
   it("under the credit limit confirms cleanly with credit control BLOCK on", async () => {
     const app = await newBackend();
     await createCustomer(app, "cust-cc3", "1000");
+    await createServiceItem(app);
     const putSettings = await app.fetch(
       new Request("http://local/settings", {
         method: "PUT",
@@ -603,6 +620,15 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
       admin(app),
     );
     expect(item.status).toBe(201);
+
+    // The crew must be REAL employees (R3.13) — a typed id is refused.
+    const driver = await post(
+      app,
+      "/hr/employees",
+      { id: "emp-1", firstName: "سائق", lastName: "الڤان", branchId: "BR-MAIN", hireDate: "2026-01-01" },
+      admin(app),
+    );
+    expect(driver.status).toBe(201);
 
     // fund the source treasury account with a REAL posted capital-injection voucher —
     // a treasury account's own `openingBalance` field is metadata only; its actual

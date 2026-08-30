@@ -37,6 +37,16 @@ const inactiveSupplier = supplier({
   active: false,
 });
 
+/** `TextField` renders a plain `<label>` with no `for`/`aria-labelledby`, so
+ * `getByLabelText` cannot find its `<input>` — locate it by DOM adjacency
+ * instead, matching the `Field` primitive's label-then-control layout. */
+function textboxByLabel(container: HTMLElement, label: string): HTMLInputElement {
+  const labelNode = within(container).getByText(label);
+  const input = labelNode.parentElement?.querySelector("input, textarea");
+  if (!input) throw new Error(`no text input associated with label "${label}"`);
+  return input as HTMLInputElement;
+}
+
 function renderScreen(suppliers: SupplierDTO[] = [supplier(), inactiveSupplier]) {
   let current = [...suppliers];
   const transport = stubTransport({
@@ -109,8 +119,8 @@ describe("SuppliersScreen", () => {
     renderScreen();
     await screen.findByText("جاري");
     fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
-    expect(screen.queryByText("جاري")).not.toBeInTheDocument();
-    expect(screen.getByText("مورد قطع الغيار الشرقي")).toBeInTheDocument();
+    expect(await screen.findByText("مورد قطع الغيار الشرقي", {}, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("جاري")).not.toBeInTheDocument());
   });
 
   it("adds a new supplier through the side panel", async () => {
@@ -119,7 +129,7 @@ describe("SuppliersScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة مورد" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة مورد" });
-    fireEvent.change(within(dialog).getByLabelText("اسم المورد *"), { target: { value: "مورد تجريبي" } });
+    fireEvent.change(textboxByLabel(dialog, "اسم المورد *"), { target: { value: "مورد تجريبي" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة مورد" }));
 
     expect(await screen.findByText("مورد تجريبي")).toBeInTheDocument();
@@ -141,7 +151,7 @@ describe("SuppliersScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تعديل" }));
 
     const dialog = screen.getByRole("dialog", { name: "تعديل مورد" });
-    fireEvent.change(within(dialog).getByLabelText("الهاتف"), { target: { value: "01000000000" } });
+    fireEvent.change(textboxByLabel(dialog, "الهاتف"), { target: { value: "01000000000" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ التعديلات" }));
 
     await waitFor(() => expect(screen.getByText(/3,200|3200/)).toBeInTheDocument());

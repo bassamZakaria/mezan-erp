@@ -7,6 +7,12 @@ import type { BranchDTO, ChequeDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO
 import { ChequesScreen } from "./ChequesScreen";
 import { renderWithProviders, stubTransport, testAdminSession, type StubResult } from "../data/test-support";
 
+// jsdom has no layout engine and does not implement scrollIntoView; the
+// custom Select combobox calls it when opening its dropdown.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 function cheque(overrides: Partial<ChequeDTO> = {}): ChequeDTO {
   return {
     id: "chq-1",

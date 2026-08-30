@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
 import { FiscalPeriodsScreen } from "./FiscalPeriodsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -109,33 +109,43 @@ describe("FiscalPeriodsScreen", () => {
   it("filters the grid by status via the chip row", async () => {
     renderScreen();
     await screen.findByText(`${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}`);
-    fireEvent.click(screen.getByRole("button", { name: /^مقفلة/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^مقفلة/ }));
+    await waitFor(() => expect(screen.queryByText(`${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}`)).not.toBeInTheDocument());
     expect(screen.getByText(`${MONTH_LABEL_AR[LOCKED_MONTH - 1]} ${CURRENT_YEAR}`)).toBeInTheDocument();
-    expect(screen.queryByText(`${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}`)).not.toBeInTheDocument();
   });
 
   it("closes an open period", async () => {
     renderScreen();
-    const row = (await screen.findByText(`${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}`)).closest("tr");
+    const row = (await screen.findByText(`${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}`)).closest("tr") as HTMLElement;
     expect(row).not.toBeNull();
-    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "إغلاق" }));
-    expect(await within(row as HTMLElement).findByText("مغلقة")).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: `إجراءات ${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}` }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "إغلاق" }));
+    expect(await within(row).findByText("مغلقة")).toBeInTheDocument();
   });
 
   it("locks a closed period", async () => {
     renderScreen();
-    const row = (await screen.findByText(`${MONTH_LABEL_AR[CLOSED_MONTH - 1]} ${CURRENT_YEAR}`)).closest("tr");
+    const row = (await screen.findByText(`${MONTH_LABEL_AR[CLOSED_MONTH - 1]} ${CURRENT_YEAR}`)).closest("tr") as HTMLElement;
     expect(row).not.toBeNull();
-    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "قفل" }));
-    expect(await within(row as HTMLElement).findByText("مقفلة")).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: `إجراءات ${MONTH_LABEL_AR[CLOSED_MONTH - 1]} ${CURRENT_YEAR}` }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "قفل" }));
+    expect(await within(row).findByText("مقفلة")).toBeInTheDocument();
   });
 
   it("reopens a closed period", async () => {
     renderScreen();
-    const row = (await screen.findByText(`${MONTH_LABEL_AR[CLOSED_MONTH - 1]} ${CURRENT_YEAR}`)).closest("tr");
+    const row = (await screen.findByText(`${MONTH_LABEL_AR[CLOSED_MONTH - 1]} ${CURRENT_YEAR}`)).closest("tr") as HTMLElement;
     expect(row).not.toBeNull();
-    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "إعادة فتح" }));
-    expect(await within(row as HTMLElement).findByText("مفتوحة")).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: `إجراءات ${MONTH_LABEL_AR[CLOSED_MONTH - 1]} ${CURRENT_YEAR}` }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "إعادة فتح" }));
+    expect(await within(row).findByText("مفتوحة")).toBeInTheDocument();
+  });
+
+  it("shows an error banner with a retry action when periods fail to load", async () => {
+    const transport = stubTransport({ "GET /fiscal-periods": () => ({ status: 500, body: { error: "INTERNAL" } }) });
+    renderWithProviders(<FiscalPeriodsScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل الفترات المالية.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 
   it("generates the next fiscal year's 12 periods and switches to it", async () => {
@@ -143,8 +153,11 @@ describe("FiscalPeriodsScreen", () => {
     await screen.findByText(`${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}`);
     const nextYear = CURRENT_YEAR + 1;
     fireEvent.click(screen.getByRole("button", { name: "إنشاء السنة التالية" }));
-    expect(await screen.findByRole("option", { name: String(nextYear) })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "السنة المالية" })).toHaveValue(String(nextYear));
+    const combobox = await screen.findByRole("combobox", { name: "السنة المالية" });
+    expect(combobox).toHaveTextContent(String(nextYear));
     expect(await screen.findByText(`يناير ${nextYear}`)).toBeInTheDocument();
+
+    fireEvent.click(combobox);
+    expect(screen.getByRole("option", { name: String(nextYear) })).toHaveAttribute("aria-selected", "true");
   });
 });

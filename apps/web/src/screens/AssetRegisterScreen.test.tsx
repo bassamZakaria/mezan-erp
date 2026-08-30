@@ -107,11 +107,15 @@ describe("AssetRegisterScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تسجيل أصل" }));
 
     const dialog = screen.getByRole("dialog", { name: "تسجيل أصل" });
-    fireEvent.change(within(dialog).getByLabelText("الاسم بالعربية *"), { target: { value: "رافعة شوكية" } });
-    fireEvent.change(within(dialog).getByLabelText("كود الأصل *"), { target: { value: "EQ-002" } });
-    fireEvent.change(within(dialog).getByLabelText("التصنيف *"), { target: { value: "cat-1" } });
-    fireEvent.change(within(dialog).getByLabelText("تاريخ الاقتناء *"), { target: { value: "2026-01-01" } });
-    fireEvent.change(within(dialog).getByLabelText("العمر الإنتاجي (شهور) *"), { target: { value: "48" } });
+    // Identity section renders name(ar), name(en), code as plain text inputs in
+    // that order — the name(en) field is left untouched (optional).
+    const [nameArInput, , codeInput, acquisitionDateInput] = within(dialog).getAllByRole("textbox");
+    fireEvent.change(nameArInput, { target: { value: "رافعة شوكية" } });
+    fireEvent.change(codeInput, { target: { value: "EQ-002" } });
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "التصنيف *" }));
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "FA-01 — مركبات" }));
+    fireEvent.change(acquisitionDateInput, { target: { value: "2026-01-01" } });
+    fireEvent.change(within(dialog).getByRole("spinbutton"), { target: { value: "48" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByText("رافعة شوكية")).toBeInTheDocument();
@@ -122,11 +126,13 @@ describe("AssetRegisterScreen", () => {
     await screen.findByText("سيارة النقل الرئيسية");
     fireEvent.click(screen.getByRole("button", { name: "تسجيل أصل" }));
     const dialog = screen.getByRole("dialog", { name: "تسجيل أصل" });
-    fireEvent.change(within(dialog).getByLabelText("الاسم بالعربية *"), { target: { value: "نسخة" } });
-    fireEvent.change(within(dialog).getByLabelText("كود الأصل *"), { target: { value: "VEH-001" } });
-    fireEvent.change(within(dialog).getByLabelText("التصنيف *"), { target: { value: "cat-1" } });
-    fireEvent.change(within(dialog).getByLabelText("تاريخ الاقتناء *"), { target: { value: "2026-01-01" } });
-    fireEvent.change(within(dialog).getByLabelText("العمر الإنتاجي (شهور) *"), { target: { value: "48" } });
+    const [nameArInput, , codeInput, acquisitionDateInput] = within(dialog).getAllByRole("textbox");
+    fireEvent.change(nameArInput, { target: { value: "نسخة" } });
+    fireEvent.change(codeInput, { target: { value: "VEH-001" } });
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "التصنيف *" }));
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "FA-01 — مركبات" }));
+    fireEvent.change(acquisitionDateInput, { target: { value: "2026-01-01" } });
+    fireEvent.change(within(dialog).getByRole("spinbutton"), { target: { value: "48" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("مستخدم بالفعل");

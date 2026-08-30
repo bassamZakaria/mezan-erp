@@ -12,7 +12,26 @@ function entitlements(activeModules: string[]) {
   return createEntitlements({ plan: "STANDARD", activeModules, features: {}, seats: 5, expiresAt: null });
 }
 
+const systemRole = {
+  id: "role-sys",
+  code: "ADMIN",
+  name: "مدير النظام",
+  description: "",
+  permissions: [],
+  isSystem: true,
+  createdAt: "2026-08-08T00:00:00.000Z",
+};
+
 describe("RoleEditorPage", () => {
+  it("disables editing a system role's fields and its save action", () => {
+    render(
+      <RoleEditorPage role={systemRole} entitlements={entitlements(["sales"])} onSave={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.getByText("تعديل الدور")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("مدير النظام")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "حفظ الدور" })).toBeDisabled();
+  });
+
   it("renders only permissions from licensed modules", () => {
     render(
       <RoleEditorPage

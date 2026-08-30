@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import type { RoleDTO, UserDTO } from "@mezan/contracts";
 import { UsersPage } from "./UsersPage";
@@ -61,7 +61,28 @@ function renderPage(overrides: Partial<Parameters<typeof UsersPage>[0]> = {}) {
   );
 }
 
+const inactiveUser: UserDTO = {
+  ...user,
+  id: "user-2",
+  nameAr: "سارة عبد الله",
+  email: "sara@cyag.test",
+  isCompanyAdmin: false,
+  roleId: "role-1",
+  status: "inactive",
+};
+
 describe("UsersPage", () => {
+  it("filters to inactive users via the status chip", async () => {
+    renderPage({ users: [user, inactiveUser] });
+    expect(screen.getByText("محمد الشهابي")).toBeInTheDocument();
+    expect(screen.getByText("سارة عبد الله")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
+    expect(screen.getByText("سارة عبد الله")).toBeInTheDocument();
+    // The status filter round-trips through the URL (useUrlParam), so the row list settles a tick later.
+    await waitFor(() => expect(screen.queryByText("محمد الشهابي")).not.toBeInTheDocument());
+  });
+
   it("lists users with their role badge", () => {
     renderPage();
     expect(screen.getByText("محمد الشهابي")).toBeInTheDocument();

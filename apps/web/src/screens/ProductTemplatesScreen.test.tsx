@@ -2,9 +2,46 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
+import { useState, type ReactElement } from "react";
 import type { ProductTemplateDTO, ProductTemplateVariantDTO } from "@mezan/contracts";
 import { ProductTemplatesScreen } from "./ProductTemplatesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
+
+/**
+ * `Field` renders its `<label>` as a sibling of the control, not wrapping it,
+ * and never wires `htmlFor`/`id` — so `getByLabelText` cannot resolve a
+ * `TextField`. Locate the control by walking from the visible label text.
+ */
+function fieldInput(container: HTMLElement, label: string): HTMLElement {
+  const labelEl = within(container).getByText(label);
+  const control = labelEl.parentElement?.querySelector("input, textarea, select");
+  if (!control) throw new Error(`no control found for label "${label}"`);
+  return control as HTMLElement;
+}
+
+/**
+ * The create/detail forms are sub-pages addressed via `useSubPage()`, which
+ * reads from `NavigationContext` — there is no router wired up outside
+ * `AppLayout`, so a test that opens one needs its own stateful provider.
+ */
+function WithSubPageNav({ children }: { children: ReactElement }) {
+  const [segments, setSegments] = useState<string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: (next) => setSegments([...next]),
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 function template(overrides: Partial<ProductTemplateDTO> = {}): ProductTemplateDTO {
   return {
@@ -58,7 +95,12 @@ function renderScreen(initial: ProductTemplateDTO[] = [template()]) {
       return { status: 201, body: { created, skippedExisting: 0 } };
     },
   });
-  return renderWithProviders(<ProductTemplatesScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(
+    <WithSubPageNav>
+      <ProductTemplatesScreen />
+    </WithSubPageNav>,
+    { transport, initialSession: testAdminSession },
+  );
 }
 
 describe("ProductTemplatesScreen", () => {
@@ -73,27 +115,29 @@ describe("ProductTemplatesScreen", () => {
     expect(await screen.findByText(/لا توجد قوالب منتجات/)).toBeInTheDocument();
   });
 
-  it("creates a new template through the side panel", async () => {
+  it("creates a new template through the create sub-page", async () => {
     renderScreen();
     await screen.findByText("تيشيرت");
     fireEvent.click(screen.getByRole("button", { name: "قالب جديد" }));
 
-    const dialog = screen.getByRole("dialog", { name: "قالب منتج جديد" });
-    fireEvent.change(within(dialog).getByLabelText("اسم المنتج *"), { target: { value: "بنطلون" } });
-    fireEvent.change(within(dialog).getByLabelText("الكود *"), { target: { value: "PANTS" } });
-    fireEvent.change(within(dialog).getByLabelText("وحدة القياس الأساسية *"), { target: { value: "PCS" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "إنشاء" }));
+    expect(screen.getByRole("heading", { name: "قالب منتج جديد" })).toBeInTheDocument();
+    const body = screen.getByRole("heading", { name: "قالب منتج جديد" }).closest("div.w-full") as HTMLElement;
+    fireEvent.change(fieldInput(body, "اسم المنتج *"), { target: { value: "بنطلون" } });
+    fireEvent.change(fieldInput(body, "الكود *"), { target: { value: "PANTS" } });
+    fireEvent.change(fieldInput(body, "وحدة القياس الأساسية *"), { target: { value: "PCS" } });
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء" }));
 
-    expect((await screen.findAllByText("بنطلون")).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "بنطلون" })).toBeInTheDocument();
   });
 
   it("opens a template, adds an attribute, and generates a variant end to end", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("تيشيرت"));
 
-    const detail = screen.getByRole("dialog", { name: "تيشيرت" });
-    fireEvent.change(within(detail).getByLabelText("اسم الخاصية"), { target: { value: "اللون" } });
-    fireEvent.change(within(detail).getByLabelText("القيم مفصولة بفواصل"), { target: { value: "أحمر, أزرق" } });
+    expect(screen.getByRole("heading", { name: "تيشيرت" })).toBeInTheDocument();
+    const detail = screen.getByRole("heading", { name: "تيشيرت" }).closest("div.w-full") as HTMLElement;
+    fireEvent.change(fieldInput(detail, "اسم الخاصية"), { target: { value: "اللون" } });
+    fireEvent.change(fieldInput(detail, "القيم مفصولة بفواصل"), { target: { value: "أحمر, أزرق" } });
     fireEvent.click(within(detail).getByRole("button", { name: "إضافة خاصية" }));
 
     expect(await within(detail).findByText(/اللون/)).toBeInTheDocument();

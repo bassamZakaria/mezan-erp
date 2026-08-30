@@ -163,8 +163,8 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [rfq({ number: "RFQ-000003", status: "sent" })] }),
         "GET /suppliers": () => ({ body: [supplier()] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/rfq-1/quotes": () => ({ body: [] }),
-        "GET /rfqs/rfq-1/comparison": () => ({
+        "GET /rfqs/RFQ-000003/quotes": () => ({ body: [] }),
+        "GET /rfqs/RFQ-000003/comparison": () => ({
           body: { rfq: rfq(), supplierIds: [], rows: [], totalsBySupplier: {} },
         }),
       }),
@@ -184,8 +184,8 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [current] }),
         "GET /suppliers": () => ({ body: [supplier()] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/rfq-1/quotes": () => ({ body: [] }),
-        "GET /rfqs/rfq-1/comparison": () => ({
+        "GET /rfqs/RFQ-000001/quotes": () => ({ body: [] }),
+        "GET /rfqs/RFQ-000001/comparison": () => ({
           body: { rfq: current, supplierIds: [], rows: [], totalsBySupplier: {} },
         }),
         "POST /rfqs/rfq-1/send": () => {
@@ -209,8 +209,8 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [current] }),
         "GET /suppliers": () => ({ body: [supplier()] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/rfq-1/quotes": () => ({ body: [] }),
-        "GET /rfqs/rfq-1/comparison": () => ({
+        "GET /rfqs/RFQ-000001/quotes": () => ({ body: [] }),
+        "GET /rfqs/RFQ-000001/comparison": () => ({
           body: { rfq: current, supplierIds: [], rows: [], totalsBySupplier: {} },
         }),
         "POST /rfqs/rfq-1/cancel": () => {
@@ -224,7 +224,7 @@ describe("RfqsScreen", () => {
     await waitFor(() => expect(screen.getByText("ملغي")).toBeInTheDocument());
   });
 
-  it("opens the new-RFQ side panel", async () => {
+  it("navigates to the new-RFQ sub-page", async () => {
     const user = userEvent.setup();
     renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
       initialSession: testAdminSession,
@@ -235,8 +235,14 @@ describe("RfqsScreen", () => {
       }),
     });
     await screen.findByText("لا توجد طلبات عروض أسعار — أنشئ طلب عرض سعر لمقارنة أسعار الموردين قبل إصدار أمر الشراء");
-    await user.click(screen.getByRole("button", { name: "طلب عرض سعر جديد" }));
-    expect(screen.getByRole("dialog", { name: "طلب عرض سعر جديد" })).toBeInTheDocument();
+    // Two buttons share this label: the header action and the empty-state's own action.
+    const [newButton] = screen.getAllByRole("button", { name: "طلب عرض سعر جديد" });
+    await user.click(newButton as HTMLElement);
+    // Create is now a sub-page, not a dialog: the list is replaced, not overlaid.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "طلب عرض سعر جديد" })).toBeInTheDocument();
+    expect(screen.getByText("اختر الأصناف والكميات المطلوبة لمقارنة عروض الموردين")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "طلبات عروض الأسعار" })).not.toBeInTheDocument();
   });
 
   it("shows the quote comparison grid from GET /rfqs/:id/comparison with the cheapest price highlighted, and converts the chosen supplier's quote into a real PO", async () => {
@@ -248,10 +254,10 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [current] }),
         "GET /suppliers": () => ({ body: [supplier({ id: "sup-1" }), supplier({ id: "sup-2", nameAr: "مورد آخر" })] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/rfq-1/quotes": () => ({
+        "GET /rfqs/RFQ-000001/quotes": () => ({
           body: [quote({ id: "q1", supplierId: "sup-1" }), quote({ id: "q2", supplierId: "sup-2" })],
         }),
-        "GET /rfqs/rfq-1/comparison": () => ({
+        "GET /rfqs/RFQ-000001/comparison": () => ({
           body: {
             rfq: current,
             supplierIds: ["sup-1", "sup-2"],
@@ -292,8 +298,8 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [rfq({ status: "sent" })] }),
         "GET /suppliers": () => ({ body: [supplier({ id: "sup-1" }), supplier({ id: "sup-2", nameAr: "مورد آخر" })] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/rfq-1/quotes": () => ({ body: [quote({ supplierId: "sup-1" })] }),
-        "GET /rfqs/rfq-1/comparison": () => ({
+        "GET /rfqs/RFQ-000001/quotes": () => ({ body: [quote({ supplierId: "sup-1" })] }),
+        "GET /rfqs/RFQ-000001/comparison": () => ({
           body: { rfq: rfq({ status: "sent" }), supplierIds: ["sup-1"], rows: [], totalsBySupplier: {} },
         }),
       }),

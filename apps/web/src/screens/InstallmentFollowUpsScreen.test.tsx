@@ -67,7 +67,9 @@ describe("InstallmentFollowUpsScreen", () => {
     });
     renderWithProviders(<InstallmentFollowUpsScreen />, { transport, initialSession: testAdminSession });
     await screen.findByText("لم يتم إنشاء أي متابعات بعد");
-    fireEvent.click(screen.getByRole("button", { name: "متابعة جديدة" }));
+    // Both the header action and the empty state's own action share the
+    // "متابعة جديدة" label while the list is empty — the header one is used here.
+    fireEvent.click(screen.getAllByRole("button", { name: "متابعة جديدة" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "متابعة جديدة" });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
     const table = await screen.findByRole("table");

@@ -66,6 +66,14 @@ function renderScreen(activities: ActivityDTO[] = sampleActivities) {
 }
 
 describe("ActivitiesScreen", () => {
+  it("shows an error state with a retry action when the list fails to load", async () => {
+    const transport = stubTransport({ "GET /crm/activities": () => ({ status: 500, body: { error: "DOWN" } }) });
+    renderWithProviders(<ActivitiesScreen />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText("تعذّر تحميل الأنشطة.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
+
   it("lists activities from the real backend", async () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "الأنشطة" })).toBeInTheDocument();

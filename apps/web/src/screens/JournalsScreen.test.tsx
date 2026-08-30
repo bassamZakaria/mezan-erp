@@ -118,15 +118,21 @@ function renderScreen(entries: JournalEntryDTO[] = sampleEntries) {
   );
 }
 
+/** The account picker is a listbox combobox, not a native <select> — open it, then commit an option (Select.tsx commits on mousedown). */
+function chooseAccount(lineLabel: string, code: string) {
+  fireEvent.click(screen.getByRole("combobox", { name: lineLabel }));
+  fireEvent.mouseDown(screen.getByRole("option", { name: new RegExp(`^${code}`) }));
+}
+
 function fillBalancedEntry() {
   fireEvent.click(screen.getByRole("button", { name: "قيد جديد" }));
   // The description field's label ("الوصف *") isn't wired to its input via
   // htmlFor/id (settings/form-controls.tsx's Field passes no htmlFor), so it
   // isn't reachable by accessible label — locate it by its placeholder instead.
   fireEvent.change(screen.getByPlaceholderText("وصف القيد..."), { target: { value: "قيد اختبار" } });
-  fireEvent.change(screen.getByLabelText("الحساب للسطر 1"), { target: { value: "1300-1" } });
+  chooseAccount("الحساب للسطر 1", "1300-1");
   fireEvent.change(screen.getByLabelText("مدين للسطر 1"), { target: { value: "100" } });
-  fireEvent.change(screen.getByLabelText("الحساب للسطر 2"), { target: { value: "4100" } });
+  chooseAccount("الحساب للسطر 2", "4100");
   fireEvent.change(screen.getByLabelText("دائن للسطر 2"), { target: { value: "100" } });
 }
 
@@ -168,13 +174,13 @@ describe("JournalsScreen — create: balance gating", () => {
 
     // One-sided (debit only) → still unbalanced → disabled.
     fireEvent.change(screen.getByPlaceholderText("وصف القيد..."), { target: { value: "قيد" } });
-    fireEvent.change(screen.getByLabelText("الحساب للسطر 1"), { target: { value: "1300-1" } });
+    chooseAccount("الحساب للسطر 1", "1300-1");
     fireEvent.change(screen.getByLabelText("مدين للسطر 1"), { target: { value: "100" } });
     expect(post).toBeDisabled();
     expect(screen.getByText("غير متوازن")).toBeInTheDocument();
 
     // Balance it → enabled + "متوازن ✓".
-    fireEvent.change(screen.getByLabelText("الحساب للسطر 2"), { target: { value: "4100" } });
+    chooseAccount("الحساب للسطر 2", "4100");
     fireEvent.change(screen.getByLabelText("دائن للسطر 2"), { target: { value: "100" } });
     expect(post).toBeEnabled();
     expect(screen.getByText("متوازن ✓")).toBeInTheDocument();

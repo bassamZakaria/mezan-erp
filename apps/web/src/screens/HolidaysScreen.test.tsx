@@ -51,8 +51,9 @@ describe("HolidaysScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة إجازة" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة إجازة" });
-    fireEvent.change(within(dialog).getByLabelText("التاريخ *"), { target: { value: `${currentYear}-01-07` } });
-    fireEvent.change(within(dialog).getByLabelText("الاسم بالإنجليزية *"), { target: { value: "Coptic Christmas" } });
+    const [dateInput, englishNameInput] = within(dialog).getAllByRole("textbox");
+    fireEvent.change(dateInput!, { target: { value: `${currentYear}-01-07` } });
+    fireEvent.change(englishNameInput!, { target: { value: "Coptic Christmas" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByText("Coptic Christmas")).toBeInTheDocument();
@@ -63,6 +64,16 @@ describe("HolidaysScreen", () => {
     await screen.findByText("اليوم الوطني");
     fireEvent.click(screen.getByRole("button", { name: "حذف اليوم الوطني" }));
 
+    const confirmDialog = screen.getByRole("dialog", { name: "حذف العطلة؟" });
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "حذف" }));
+
     expect(await screen.findByText("لا توجد إجازات رسمية لهذا العام")).toBeInTheDocument();
+  });
+
+  it("shows an error banner with a retry action when holidays fail to load", async () => {
+    const transport = stubTransport({ "GET /hr/holidays": () => ({ status: 500, body: { error: "INTERNAL" } }) });
+    renderWithProviders(<HolidaysScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل الإجازات الرسمية.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 });

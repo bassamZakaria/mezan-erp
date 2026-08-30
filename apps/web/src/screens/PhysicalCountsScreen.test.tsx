@@ -1,10 +1,35 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
+import { useState, type ReactNode } from "react";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import type { ItemDTO, PhysicalCountDTO, StockBalanceRowDTO, WarehouseDTO } from "@mezan/contracts";
 import { PhysicalCountsScreen } from "./PhysicalCountsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
+
+/**
+ * PhysicalCountsScreen's "new count" and detail views are sub-pages addressed via the
+ * shell's `useSubPage` (navigation.tsx), which no-ops outside a real `NavigationProvider`.
+ * This stands in for the shell's URL-driven one with in-memory segments.
+ */
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 const warehouses: WarehouseDTO[] = [
   { id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
@@ -60,7 +85,12 @@ function baseHandlers(current: PhysicalCountDTO[]) {
 
 function renderEmptyScreen() {
   const transport = stubTransport(baseHandlers([]));
-  return renderWithProviders(<PhysicalCountsScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(
+    <TestNavigation>
+      <PhysicalCountsScreen />
+    </TestNavigation>,
+    { transport, initialSession: testAdminSession },
+  );
 }
 
 describe("PhysicalCountsScreen — empty seeded state", () => {
@@ -163,7 +193,12 @@ describe("PhysicalCountsScreen — count → variance → adjustment flow", () =
         return { body: { count: current.find((c) => c.id === id), adjustment: null } };
       },
     });
-    renderWithProviders(<PhysicalCountsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(
+      <TestNavigation>
+        <PhysicalCountsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
 
     // Wait for the list's own data (warehouses/items included) to settle before opening the dialog.
     await screen.findByText("لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام");

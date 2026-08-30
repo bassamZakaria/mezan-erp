@@ -1,11 +1,38 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
+import { useState, type ReactNode } from "react";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import type { AccountDTO, BranchDTO, CustomerDTO, OpenInvoiceDTO, SupplierDTO, TreasuryAccountDTO, VoucherAllocationDTO, VoucherDTO } from "@mezan/contracts";
 import { TreasuryVouchersScreen } from "./TreasuryVouchersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { VoucherDetailDTO, VoucherRowDTO } from "../data/hooks";
+import { NavigationProvider } from "../navigation";
+
+/**
+ * TreasuryVouchersScreen's create and detail views are sub-pages addressed via
+ * the shell's `useSubPage` (navigation.tsx), which no-ops outside a real
+ * `NavigationProvider`. This stands in for the shell's URL-driven one with
+ * in-memory segments — enough for the screen under test to open, close and
+ * read its own sub-page.
+ */
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 afterEach(() => {
   document.documentElement.removeAttribute("data-theme");
@@ -85,12 +112,58 @@ const openInvoices: OpenInvoiceDTO[] = [
   { id: "inv-2", invoiceNo: "INV-000002", kind: "sales", partyId: "cust-amal", date: "2026-08-11", total: "600.000000", allocated: "0", outstanding: "600.000000" },
 ];
 
+function countsOf(rows: VoucherRowDTO[]): Record<string, number> {
+  const counts: Record<string, number> = {
+    all: rows.length,
+    confirmed: 0,
+    draft: 0,
+    cancelled: 0,
+    needs_allocation: 0,
+    needs_allocation_receipt: 0,
+    needs_allocation_payment: 0,
+  };
+  for (const r of rows) {
+    counts[r.status] = (counts[r.status] ?? 0) + 1;
+    counts[`type:${r.voucherType}`] = (counts[`type:${r.voucherType}`] ?? 0) + 1;
+    if (r.allocationSummary?.needsAllocation) {
+      counts.needs_allocation = (counts.needs_allocation ?? 0) + 1;
+      if (r.direction === "receipt") counts.needs_allocation_receipt = (counts.needs_allocation_receipt ?? 0) + 1;
+      if (r.direction === "payment") counts.needs_allocation_payment = (counts.needs_allocation_payment ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+function statsOf(rows: VoucherRowDTO[]): Record<string, number> {
+  return {
+    count: rows.length,
+    confirmed: rows.filter((r) => r.status === "confirmed").length,
+    draft: rows.filter((r) => r.status === "draft").length,
+    needsAllocation: rows.filter((r) => r.allocationSummary?.needsAllocation).length,
+  };
+}
+
 function renderScreen() {
   let current = [...seededVouchers];
   let nextSeq = 5;
   const allocationsByVoucher = { ...seededAllocations };
   const transport = stubTransport({
-    "GET /vouchers": () => ({ body: current }),
+    "GET /vouchers": (_init, path) => {
+      const params = new URLSearchParams(path.split("?")[1] ?? "");
+      const type = params.get("type");
+      const status = params.get("status");
+      const needsAllocation = params.get("needsAllocation");
+      const rows = current.filter((v) => {
+        if (type && v.voucherType !== type) return false;
+        if (status && v.status !== status) return false;
+        if (needsAllocation === "any" && !v.allocationSummary?.needsAllocation) return false;
+        if (needsAllocation === "receipt" && !(v.allocationSummary?.needsAllocation && v.direction === "receipt")) return false;
+        if (needsAllocation === "payment" && !(v.allocationSummary?.needsAllocation && v.direction === "payment")) return false;
+        return true;
+      });
+      return { body: rows };
+    },
+    "GET /vouchers/counts": () => ({ body: countsOf(current) }),
+    "GET /vouchers/stats": () => ({ body: statsOf(current) }),
     "GET /vouchers/cv-1": () => {
       const doc = current.find((v) => v.id === "cv-1")!;
       return { body: { ...doc, allocations: allocationsByVoucher["cv-1"] ?? [] } satisfies VoucherDetailDTO };
@@ -124,7 +197,12 @@ function renderScreen() {
       return { body: allocationsByVoucher["cv-1"]!.find((a) => a.id === "alloc-1") };
     },
   });
-  return renderWithProviders(<TreasuryVouchersScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(
+    <TestNavigation>
+      <TreasuryVouchersScreen />
+    </TestNavigation>,
+    { transport, initialSession: testAdminSession },
+  );
 }
 
 describe("TreasuryVouchersScreen — list", () => {
@@ -133,8 +211,9 @@ describe("TreasuryVouchersScreen — list", () => {
     expect(screen.getByRole("heading", { name: "السندات النقدية" })).toBeInTheDocument();
     expect(await screen.findByText("CV-000001")).toBeInTheDocument();
     expect(screen.getByText("CV-000004")).toBeInTheDocument();
-    // Type-breakdown quick-filter chip for the collection type.
-    expect(screen.getByRole("button", { name: /تحصيل من عميل/ })).toBeInTheDocument();
+    // Type-breakdown quick-filter chip for the collection type — a radio
+    // inside the type-filter radiogroup, not a plain button.
+    expect(screen.getByRole("radio", { name: /تحصيل من عميل/ })).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no vouchers yet", async () => {

@@ -1,11 +1,38 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { useState, type ReactNode } from "react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { CustomerDTO, ItemDTO, SalesReturnDocumentDTO, WarehouseDTO } from "@mezan/contracts";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { SalesReturnsScreen } from "./SalesReturnsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
+
+/**
+ * SalesReturnsScreen's create/detail views are sub-pages addressed via the
+ * shell's `useSubPage` (navigation.tsx), which no-ops outside a real
+ * `NavigationProvider`. This stands in for the shell's URL-driven one with
+ * in-memory segments — enough for the screen under test to open, close and
+ * read its own sub-page.
+ */
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 const customers: CustomerDTO[] = [
   {
@@ -111,14 +138,14 @@ function baseHandlers(returns: SalesReturnDocumentDTO[]) {
 describe("SalesReturnsScreen", () => {
   it("shows the empty state when there are no returns", async () => {
     const transport = stubTransport(baseHandlers([]));
-    renderWithProviders(<SalesReturnsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     expect(screen.getByRole("heading", { name: "مرتجعات المبيعات" })).toBeInTheDocument();
     expect(await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً")).toBeInTheDocument();
   });
 
   it("lists sales returns from the real API", async () => {
     const transport = stubTransport(baseHandlers([salesReturn()]));
-    renderWithProviders(<SalesReturnsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     expect(await screen.findByText("SR-000001")).toBeInTheDocument();
     expect(screen.getByText("شركة الأمل للتجارة")).toBeInTheDocument();
   });
@@ -135,7 +162,7 @@ describe("SalesReturnsScreen", () => {
         return { status: 201, body: created };
       },
     });
-    renderWithProviders(<SalesReturnsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
     fireEvent.click(screen.getByRole("button", { name: "مرتجع جديد" }));
     const dialog = screen.getByRole("dialog", { name: "مرتجع مبيعات جديد" });
@@ -157,7 +184,7 @@ describe("SalesReturnsScreen", () => {
         return { body: current[0] };
       },
     });
-    renderWithProviders(<SalesReturnsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     fireEvent.click(await screen.findByText("SR-000001"));
     const dialog = screen.getByRole("dialog", { name: "SR-000001" });
     fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد المرتجع" }));

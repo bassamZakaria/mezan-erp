@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import type { RoleDTO as Role } from "@mezan/contracts";
 import { RolesPage } from "./RolesPage";
@@ -24,7 +24,43 @@ const role: Role = {
   createdAt: "2026-08-08T00:00:00.000Z",
 };
 
+const systemRole: Role = {
+  id: "role-2",
+  code: "ADMIN",
+  name: "مدير النظام",
+  description: "",
+  permissions: [],
+  isSystem: true,
+  createdAt: "2026-08-08T00:00:00.000Z",
+};
+
 describe("RolesPage", () => {
+  it("filters to system roles via the kind chip, then narrows further by search", async () => {
+    render(
+      <RolesPage
+        roles={[role, systemRole]}
+        usersByRoleId={new Map()}
+        onCreate={vi.fn()}
+        onEdit={vi.fn()}
+        onDuplicate={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("مندوب مبيعات")).toBeInTheDocument();
+    expect(screen.getByText("مدير النظام")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /نظام/ }));
+    expect(screen.getByText("مدير النظام")).toBeInTheDocument();
+    // The kind filter round-trips through the URL (useUrlParam), so the row list settles a tick later.
+    await waitFor(() => expect(screen.queryByText("مندوب مبيعات")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("tab", { name: /الكل/ }));
+    await screen.findByText("مندوب مبيعات");
+    fireEvent.change(screen.getByPlaceholderText("بحث باسم الدور أو الكود…"), { target: { value: "VAN_SALES" } });
+    expect(screen.getByText("مندوب مبيعات")).toBeInTheDocument();
+    expect(screen.queryByText("مدير النظام")).not.toBeInTheDocument();
+  });
+
   it("renders the role's permission count and custom/system badge", () => {
     render(<RolesPage roles={[role]} usersByRoleId={new Map()} onCreate={vi.fn()} onEdit={vi.fn()} onDuplicate={vi.fn()} onDelete={vi.fn()} />);
     expect(screen.getByText("مندوب مبيعات")).toBeInTheDocument();

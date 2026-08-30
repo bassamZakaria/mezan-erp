@@ -446,7 +446,7 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**Forty-three filed 2026-08-30 by the test-coverage pass** (D66–D108). D99 is the most serious: a live, ungated journal-posting route. They were found by
+**Forty-five filed 2026-08-30 by the test-coverage pass** (D66–D110). D109 is the most serious: an unauthenticated device on the shop wifi can post to the books. D99 is the most serious: a live, ungated journal-posting route. They were found by
 writing tests and manual scenarios against the real code, so each carries a file reference
 rather than a feeling. The ones marked **guarded** already have a passing test that pins the
 current behaviour and will go red the day it changes; the ones marked **reported** still
@@ -497,6 +497,8 @@ need a measured reading in the running app before anyone fixes them.
 | D106 | Row-action controls in the quotes list are not wrapped in a click-stopper, so clicking an inline action also fires the row's own handler and navigates away to the detail view mid-action | `apps/web/src/screens/sales-quotes/index.tsx` | guarded |
 | D107 | The convert-to-invoice warehouse is captured from `workingLocation` at first mount, before the branches and warehouses queries resolve, so it locks to the empty string permanently: every accepted quote blocks on «اختر المستودع.» even when a real default warehouse exists | `apps/web/src/screens/sales-quotes/QuoteDetailView.tsx` | guarded |
 | D108 | Converting a quote falls back to hardcoded GL account ids (1105 / 2200 / 4100 / 5100 / 1200) for any item with no account mapping of its own, never checked against the tenant's actual chart of accounts — on a tenant whose COA differs, the invoice posts to whatever those codes happen to be | `apps/web/src/screens/sales-quotes/quote-model.ts` | guarded |
+| D109 | **The desktop app is built with no session resolver at all.** `main/index.ts` calls `createApp(uow, { lan })` and never passes `resolveAuthContext`, so the default header resolver governs — the one `session-auth.ts` documents as the thing that must never front a socket bound for other machines. Combined with D99, an unauthenticated device on the shop wifi can POST a journal entry into the books across the LAN socket and read it back. Proven end to end over a real socket | `apps/desktop/src/main/index.ts`, `apps/api/src/app.ts:1449` | guarded (`lan-host.test.ts`) |
+| D110 | `finalize()` on a bank statement is tested as a happy path with three lines still unmatched, in both the domain and the route suite — the test documents D82 without naming it, which is how a real regression gets waved through | `packages/domain/src/bank-reconciliation/reconciliation-service.test.ts`, `packages/api/src/bank-reconciliation-routes.test.ts` | fixed in this pass |
 
 D1–D65 are closed; the register is `archive/defect-register.md`.
 

@@ -63,8 +63,8 @@ describe("MyLeaveScreen", () => {
     // Neither date label is programmatically linked to its input (see final report), so target
     // by position — start date then end date are the first two textboxes in the form.
     const [startInput, endInput] = within(dialog).getAllByRole("textbox");
-    fireEvent.change(startInput, { target: { value: "2026-08-25" } });
-    fireEvent.change(endInput, { target: { value: "2026-08-25" } });
+    fireEvent.change(startInput!, { target: { value: "2026-08-25" } });
+    fireEvent.change(endInput!, { target: { value: "2026-08-25" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إرسال الطلب" }));
 
     expect(await screen.findByText("إجازة سنوية")).toBeInTheDocument();

@@ -168,7 +168,7 @@ describe("ExchangeRatesScreen — add rate", () => {
     await screen.findByText("لا توجد أسعار صرف");
     // two buttons share this label while the list is empty (the header
     // action and the EmptyState's own action) — open the form via either.
-    await user.click(screen.getAllByRole("button", { name: "إضافة سعر صرف" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "إضافة سعر صرف" })[0]!);
 
     // pick a real currency from the combobox — not free text
     await user.click(screen.getByLabelText("العملة الأجنبية"));
@@ -200,7 +200,7 @@ describe("ExchangeRatesScreen — add rate", () => {
       }),
     });
     await screen.findByText("لا توجد أسعار صرف");
-    await user.click(screen.getAllByRole("button", { name: "إضافة سعر صرف" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "إضافة سعر صرف" })[0]!);
     await user.type(screen.getByLabelText("سعر الصرف"), "16.5");
     await user.click(screen.getByRole("button", { name: "حفظ" }));
 

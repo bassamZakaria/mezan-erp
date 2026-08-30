@@ -9,12 +9,11 @@ import type {
   InstallmentLineDTO,
   InstallmentPlanDocumentDTO,
   PriceListDTO,
-  SalesInvoiceDTO,
   SalesReturnDocumentDTO,
   SalesReturnLineDTO,
   VoucherAllocationDTO,
 } from "@mezan/contracts";
-import type { VoucherRowDTO } from "../data/hooks";
+import type { VoucherRowDTO, SalesInvoiceDTO } from "../data/hooks";
 import { CustomersScreen } from "./CustomersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 

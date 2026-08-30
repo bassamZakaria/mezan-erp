@@ -43,9 +43,9 @@ describe("useAttachments", () => {
         return { body: [{ id: "ATT-1" }] };
       },
     });
-    const { result } = renderHook(() => useAttachments("sales_invoice", "SI-1"), { wrapper: makeWrapper(transport).Wrapper });
+    const { result } = renderHook(() => useAttachments("sales-invoice", "SI-1"), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(seenPath).toBe("/attachments?entityType=sales_invoice&entityId=SI-1");
+    expect(seenPath).toBe("/attachments?entityType=sales-invoice&entityId=SI-1");
     expect(result.current.data).toEqual([{ id: "ATT-1" }]);
   });
 
@@ -57,21 +57,21 @@ describe("useAttachments", () => {
         return { body: [] };
       },
     });
-    renderHook(() => useAttachments("sales_invoice", null), { wrapper: makeWrapper(transport).Wrapper });
+    renderHook(() => useAttachments("sales-invoice", null), { wrapper: makeWrapper(transport).Wrapper });
     await new Promise((r) => setTimeout(r, 10));
     expect(called).toBe(false);
   });
 
   it("returns an empty list cleanly", async () => {
     const transport = stubTransport({ "GET /attachments": () => ({ body: [] }) });
-    const { result } = renderHook(() => useAttachments("sales_invoice", "SI-2"), { wrapper: makeWrapper(transport).Wrapper });
+    const { result } = renderHook(() => useAttachments("sales-invoice", "SI-2"), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([]);
   });
 
   it("surfaces a failure as an ApiError", async () => {
     const transport = stubTransport({ "GET /attachments": () => ({ status: 500, body: {} }) });
-    const { result } = renderHook(() => useAttachments("sales_invoice", "SI-3"), { wrapper: makeWrapper(transport).Wrapper });
+    const { result } = renderHook(() => useAttachments("sales-invoice", "SI-3"), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error).toBeInstanceOf(ApiError);
   });
@@ -85,7 +85,7 @@ describe("useUploadAttachment", () => {
         seenBody = JSON.parse((init?.body as string) ?? "{}");
         return {
           status: 201,
-          body: { id: "ATT-9", entityType: "sales_invoice", entityId: "SI-1", fileName: "a.pdf" },
+          body: { id: "ATT-9", entityType: "sales-invoice", entityId: "SI-1", fileName: "a.pdf" },
         };
       },
     });
@@ -94,7 +94,7 @@ describe("useUploadAttachment", () => {
     const { result } = renderHook(() => useUploadAttachment(), { wrapper: Wrapper });
 
     const input = {
-      entityType: "sales_invoice" as const,
+      entityType: "sales-invoice" as const,
       entityId: "SI-1",
       fileName: "a.pdf",
       mimeType: "application/pdf",
@@ -105,7 +105,7 @@ describe("useUploadAttachment", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(seenBody).toEqual(input);
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: attachmentsKey("sales_invoice", "SI-1") });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: attachmentsKey("sales-invoice", "SI-1") });
   });
 
   it("surfaces an upload failure with the server's message", async () => {
@@ -114,7 +114,7 @@ describe("useUploadAttachment", () => {
     });
     const { result } = renderHook(() => useUploadAttachment(), { wrapper: makeWrapper(transport).Wrapper });
     result.current.mutate({
-      entityType: "sales_invoice",
+      entityType: "sales-invoice",
       entityId: "SI-1",
       fileName: "big.pdf",
       mimeType: "application/pdf",
@@ -137,11 +137,11 @@ describe("useDeleteAttachment", () => {
     });
     const { Wrapper, queryClient } = makeWrapper(transport);
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-    const { result } = renderHook(() => useDeleteAttachment("sales_invoice", "SI-1"), { wrapper: Wrapper });
+    const { result } = renderHook(() => useDeleteAttachment("sales-invoice", "SI-1"), { wrapper: Wrapper });
     result.current.mutate("ATT-1");
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(seenPath).toBe("/attachments/ATT-1");
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: attachmentsKey("sales_invoice", "SI-1") });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: attachmentsKey("sales-invoice", "SI-1") });
   });
 });
 

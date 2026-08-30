@@ -284,6 +284,7 @@ describe("NotificationRulesPage", () => {
       bodyAr: "الكمية أقل من الحد الأدنى",
       condition: { field: "quantity", operator: "lt", value: "10" },
     });
-    expect((seenBody as { channels: string[] }).channels).toEqual(expect.arrayContaining(["in_app", "email"]));
+    expect(seenBody).not.toBeNull();
+    expect((seenBody as unknown as { channels: string[] }).channels).toEqual(expect.arrayContaining(["in_app", "email"]));
   });
 });

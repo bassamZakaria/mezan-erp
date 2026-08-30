@@ -127,17 +127,17 @@ describe("salesInvoicePrintModel", () => {
         ]),
       }),
     );
-    expect(model.totals.taxBreakdown.length).toBe(1);
-    expect(model.totals.taxBreakdown[0]?.rate).toBe(14);
+    expect(model.totals.taxBreakdown!.length!).toBe(1);
+    expect(model.totals.taxBreakdown![0]?.rate!).toBe(14);
     // (100 + 50) * 14% = 21.00
-    expect(model.totals.taxBreakdown[0]?.amount).toBeCloseTo(21, 6);
+    expect(model.totals.taxBreakdown![0]?.amount!).toBeCloseTo(21, 6);
   });
 
   it("a 0%-tax line contributes NO breakdown row at all", () => {
     const model = salesInvoicePrintModel(
       ctx({ invoice: invoice([line({ qty: "1", unitPrice: "100", taxRatePercent: 0 })]) }),
     );
-    expect(model.totals.taxBreakdown).toEqual([]);
+    expect(model.totals.taxBreakdown!).toEqual([]);
   });
 
   it("keeps a 14% line and a 0% line as two separate rows (a blended rate would be wrong)", () => {
@@ -149,7 +149,7 @@ describe("salesInvoicePrintModel", () => {
         ]),
       }),
     );
-    const rates = model.totals.taxBreakdown.map((b) => b.rate);
+    const rates = model.totals.taxBreakdown!.map((b) => b.rate)!;
     expect(rates).toEqual([14]);
   });
 
@@ -162,7 +162,7 @@ describe("salesInvoicePrintModel", () => {
         ]),
       }),
     );
-    expect(model.totals.taxBreakdown.map((b) => b.rate)).toEqual([5, 14]);
+    expect(model.totals.taxBreakdown!.map((b) => b.rate)!).toEqual([5, 14]);
   });
 
   it("computes amountInWords for a non-negative grand total and omits it for a negative one (credit note)", () => {
@@ -187,9 +187,9 @@ describe("salesInvoicePrintModel", () => {
     );
     expect(model.company.taxNumber).toBe("123-456-789");
     expect(model.company.name).toBe("شركة سايج");
-    expect(model.party.taxNumber).toBe("999-888-777");
-    expect(model.party.name).toBe("عميل تجريبي");
-    expect(model.party.code).toBe("CUST-1");
+    expect(model.party!.taxNumber!).toBe("999-888-777");
+    expect(model.party!.name!).toBe("عميل تجريبي");
+    expect(model.party!.code!).toBe("CUST-1");
     expect(model.number).toBe("INV-0001");
     expect(model.date).toBe("2026-03-01");
     expect(model.etaUuid).toBe("ETA-UUID-1");

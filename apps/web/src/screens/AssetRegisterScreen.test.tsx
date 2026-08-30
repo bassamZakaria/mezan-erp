@@ -110,11 +110,11 @@ describe("AssetRegisterScreen", () => {
     // Identity section renders name(ar), name(en), code as plain text inputs in
     // that order — the name(en) field is left untouched (optional).
     const [nameArInput, , codeInput, acquisitionDateInput] = within(dialog).getAllByRole("textbox");
-    fireEvent.change(nameArInput, { target: { value: "رافعة شوكية" } });
-    fireEvent.change(codeInput, { target: { value: "EQ-002" } });
+    fireEvent.change(nameArInput!, { target: { value: "رافعة شوكية" } });
+    fireEvent.change(codeInput!, { target: { value: "EQ-002" } });
     fireEvent.click(within(dialog).getByRole("combobox", { name: "التصنيف *" }));
     fireEvent.mouseDown(await screen.findByRole("option", { name: "FA-01 — مركبات" }));
-    fireEvent.change(acquisitionDateInput, { target: { value: "2026-01-01" } });
+    fireEvent.change(acquisitionDateInput!, { target: { value: "2026-01-01" } });
     fireEvent.change(within(dialog).getByRole("spinbutton"), { target: { value: "48" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
@@ -127,11 +127,11 @@ describe("AssetRegisterScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تسجيل أصل" }));
     const dialog = screen.getByRole("dialog", { name: "تسجيل أصل" });
     const [nameArInput, , codeInput, acquisitionDateInput] = within(dialog).getAllByRole("textbox");
-    fireEvent.change(nameArInput, { target: { value: "نسخة" } });
-    fireEvent.change(codeInput, { target: { value: "VEH-001" } });
+    fireEvent.change(nameArInput!, { target: { value: "نسخة" } });
+    fireEvent.change(codeInput!, { target: { value: "VEH-001" } });
     fireEvent.click(within(dialog).getByRole("combobox", { name: "التصنيف *" }));
     fireEvent.mouseDown(await screen.findByRole("option", { name: "FA-01 — مركبات" }));
-    fireEvent.change(acquisitionDateInput, { target: { value: "2026-01-01" } });
+    fireEvent.change(acquisitionDateInput!, { target: { value: "2026-01-01" } });
     fireEvent.change(within(dialog).getByRole("spinbutton"), { target: { value: "48" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 

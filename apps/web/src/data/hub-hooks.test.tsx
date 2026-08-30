@@ -116,7 +116,7 @@ describe("useScopeSelector", () => {
   });
 
   it("restricts branch options to the session's own branchScope when it isn't '*'", async () => {
-    const scoped = { ...testAdminSession, branchScope: ["B-ALEX"] } as const;
+    const scoped = { ...testAdminSession, branchScope: ["B-ALEX"] };
     const { result } = renderHook(() => useScopeSelector(), { wrapper: makeWrapper(scopeTransport(), scoped).Wrapper });
     await waitFor(() => expect(result.current.branchOptions.length).toBeGreaterThan(0));
     expect(result.current.branchOptions.map((b) => b.id)).toEqual(["B-ALEX"]);

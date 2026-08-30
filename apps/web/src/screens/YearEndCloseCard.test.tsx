@@ -71,7 +71,7 @@ function postedEntry(overrides: Partial<JournalEntryDTO> = {}): JournalEntryDTO 
     sourceDocType: null,
     sourceDocId: null,
     sourceDocNumber: null,
-    sourceModule: "gl",
+    sourceModule: "manual",
     lines: [],
     ...overrides,
   };

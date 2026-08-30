@@ -97,10 +97,10 @@ describe("AssetCategoriesScreen", () => {
     // its two numeric fields render useful life first, then salvage rate.
     const [codeInput, nameInput] = within(dialog).getAllByRole("textbox");
     const [lifeInput, salvageInput] = within(dialog).getAllByRole("spinbutton");
-    fireEvent.change(codeInput, { target: { value: "FA-03" } });
-    fireEvent.change(nameInput, { target: { value: "معدات تصنيع" } });
-    fireEvent.change(lifeInput, { target: { value: "48" } });
-    fireEvent.change(salvageInput, { target: { value: "5" } });
+    fireEvent.change(codeInput!, { target: { value: "FA-03" } });
+    fireEvent.change(nameInput!, { target: { value: "معدات تصنيع" } });
+    fireEvent.change(lifeInput!, { target: { value: "48" } });
+    fireEvent.change(salvageInput!, { target: { value: "5" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByText("معدات تصنيع")).toBeInTheDocument();
@@ -113,10 +113,10 @@ describe("AssetCategoriesScreen", () => {
     const dialog = screen.getByRole("dialog", { name: "إضافة تصنيف" });
     const [codeInput, nameInput] = within(dialog).getAllByRole("textbox");
     const [lifeInput, salvageInput] = within(dialog).getAllByRole("spinbutton");
-    fireEvent.change(codeInput, { target: { value: "FA-01" } });
-    fireEvent.change(nameInput, { target: { value: "نسخة" } });
-    fireEvent.change(lifeInput, { target: { value: "48" } });
-    fireEvent.change(salvageInput, { target: { value: "5" } });
+    fireEvent.change(codeInput!, { target: { value: "FA-01" } });
+    fireEvent.change(nameInput!, { target: { value: "نسخة" } });
+    fireEvent.change(lifeInput!, { target: { value: "48" } });
+    fireEvent.change(salvageInput!, { target: { value: "5" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("مستخدم بالفعل");

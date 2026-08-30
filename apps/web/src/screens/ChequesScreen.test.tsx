@@ -353,7 +353,7 @@ describe("ChequesScreen — create form", () => {
     });
     await screen.findByText("لا توجد شيكات");
     // the header action and the empty state's own action share the same label
-    await user.click(screen.getAllByRole("button", { name: "شيك جديد" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "شيك جديد" })[0]!);
 
     expect(screen.getByRole("heading", { name: "بيانات الشيك" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "القيمة والتواريخ" })).toBeInTheDocument();
@@ -403,7 +403,7 @@ describe("ChequesScreen — create form", () => {
       transport: stubTransport(baseHandlers([])),
     });
     await screen.findByText("لا توجد شيكات");
-    await user.click(screen.getAllByRole("button", { name: "شيك جديد" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "شيك جديد" })[0]!);
     expect(screen.getByRole("button", { name: "حفظ الشيك" })).toBeDisabled();
   });
 });

@@ -1,0 +1,45 @@
+#!/bin/sh
+#
+# Runs the two gates that CI runs first, and that a local `vitest` run does NOT
+# cover: the three typechecks, and the linters.
+#
+# This exists because of a real incident: `pnpm typecheck` runs THREE separate
+# checks —
+#
+#   tsc -p tsconfig.json && pnpm --filter @mezan/ui typecheck && pnpm --filter web typecheck
+#
+# — and a session ran only the first two. `apps/web` typechecks its own test
+# files, root tsc never sees them, so 84 errors in web test files reached main
+# and broke CI for two commits while every local check looked clean.
+#
+# Vitest does not typecheck. A green test run proves nothing about this.
+#
+# Escape hatch, for a deliberate work-in-progress commit only:
+#   SKIP_HOOKS=1 git commit ...
+
+set -e
+
+if [ "$SKIP_HOOKS" = "1" ]; then
+  echo "pre-commit: skipped (SKIP_HOOKS=1)"
+  exit 0
+fi
+
+echo "pre-commit: typecheck (root + @mezan/ui + web) …"
+if ! pnpm typecheck; then
+  echo ""
+  echo "pre-commit: TYPECHECK FAILED — this is exactly what breaks CI."
+  echo "  Note it runs three checks; 'apps/web' includes its own test files,"
+  echo "  which the root tsconfig does not reach."
+  exit 1
+fi
+
+echo "pre-commit: lint (eslint · RTL · tokens · controls · permission labels · theme) …"
+if ! pnpm lint; then
+  echo ""
+  echo "pre-commit: LINT FAILED."
+  echo "  The RTL check rejects physical left/right; append '// rtl-allow-physical'"
+  echo "  only where the browser API genuinely is physical (a DOMRect, say)."
+  exit 1
+fi
+
+echo "pre-commit: ok"

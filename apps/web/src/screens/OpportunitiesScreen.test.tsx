@@ -131,7 +131,7 @@ describe("OpportunitiesScreen", () => {
     expect(within(dialog).getByText("العنوان *")).toBeInTheDocument();
     // The "العنوان *" label isn't programmatically linked to its input (see final report),
     // so target the title field by position — first textbox in the form.
-    fireEvent.change(within(dialog).getAllByRole("textbox")[0], { target: { value: "فرصة تجريبية" } });
+    fireEvent.change(within(dialog).getAllByRole("textbox")[0]!, { target: { value: "فرصة تجريبية" } });
     fireEvent.focus(within(dialog).getByPlaceholderText("اختر العميل..."));
     fireEvent.mouseDown(within(dialog).getByText("شركة النور"));
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));

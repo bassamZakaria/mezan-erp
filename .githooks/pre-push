@@ -1,0 +1,39 @@
+#!/bin/sh
+#
+# The heavy gates, run once before anything leaves this machine rather than on
+# every commit — a hook slow enough to be annoying is a hook people bypass.
+#
+# `pnpm test` is vitest. `pnpm scenarios` is the OTHER suite: ~6,300 assertions
+# driven against a live seeded backend, checking that the sub-ledgers still tie
+# to their GL control accounts after every trail. It is not part of the
+# coverage number and vitest does not run it, so nothing else catches a change
+# that leaves inventory 500 short of GL 1200 — which has happened here.
+#
+# Escape hatch, for a deliberate WIP branch push only:
+#   SKIP_HOOKS=1 git push ...
+
+set -e
+
+if [ "$SKIP_HOOKS" = "1" ]; then
+  echo "pre-push: skipped (SKIP_HOOKS=1)"
+  exit 0
+fi
+
+echo "pre-push: vitest …"
+if ! pnpm test; then
+  echo ""
+  echo "pre-push: TESTS FAILED."
+  exit 1
+fi
+
+echo "pre-push: scenarios (sub-ledger vs GL across every trail) …"
+if ! pnpm scenarios; then
+  echo ""
+  echo "pre-push: SCENARIOS FAILED."
+  echo "  Each failure is either a product defect or a wrong assertion. Work out"
+  echo "  which before changing anything — and never weaken an assertion to get"
+  echo "  green."
+  exit 1
+fi
+
+echo "pre-push: ok"

@@ -6,6 +6,7 @@ import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { AccountDTO, CustomerDTO, ItemDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import { SalesInvoicesScreen } from "./SalesInvoicesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import type { Transport } from "../data/transport";
 import type { JournalEntryDTO, SalesInvoiceDTO, SalesQuoteRecord } from "../data/hooks";
 import { NavigationProvider } from "../navigation";
 
@@ -470,7 +471,7 @@ describe("SalesInvoicesScreen — row-scoped confirm from the list", () => {
   function renderWithGatedConfirm(gate: ReturnType<typeof deferred<void>>) {
     const list = [draftA, draftB];
     const base = stubTransport(baseHandlers(list));
-    const transport = async (path: string, init?: RequestInit) => {
+    const transport: Transport = async (path, init) => {
       const method = (init?.method ?? "GET").toUpperCase();
       if (method === "POST" && path === "/sales-invoices/inv-draft-a/confirm") {
         await gate.promise;
@@ -479,7 +480,7 @@ describe("SalesInvoicesScreen — row-scoped confirm from the list", () => {
         return {
           status: 200,
           ok: true,
-          json: async () => ({ ...confirmed, held: false }),
+          json: async <T,>() => ({ ...confirmed, held: false }) as T,
           text: async () => "",
         };
       }

@@ -527,6 +527,7 @@ describe("WorkOrdersScreen — activity tabs render the exact figures from the l
     const activity: WorkOrderActivity = {
       movements: [
         {
+          id: "mov-1",
           itemId: "item-table",
           warehouseId: "wh-raw",
           direction: "OUT",
@@ -541,6 +542,7 @@ describe("WorkOrdersScreen — activity tabs render the exact figures from the l
       ],
       receipts: [
         {
+          id: "rcpt-1",
           itemId: "item-table",
           warehouseId: "wh-fg",
           direction: "IN",

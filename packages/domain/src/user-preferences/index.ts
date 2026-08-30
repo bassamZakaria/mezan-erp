@@ -13,6 +13,7 @@ export {
   resetUserPreferences,
   customizedSections,
   isDefaultUserPreferences,
+  sanitizeStoredUserPreferences,
   type PinnedScreen,
   type RecentRecord,
   type DashboardWidget,

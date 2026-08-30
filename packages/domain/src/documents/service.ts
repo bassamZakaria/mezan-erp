@@ -241,7 +241,13 @@ export class DocumentService<Line> {
   async cancel(id: string): Promise<FrameworkDocument<Line>> {
     const existing = await this.require(id);
     assertTransition(this.def.code, id, existing.status, "cancelled");
-    const cancelled: FrameworkDocument<Line> = { ...existing, status: "cancelled", workflowRequestId: null };
+    const cancelledLines = this.def.onCancel?.(existing) ?? existing.lines;
+    const cancelled: FrameworkDocument<Line> = {
+      ...existing,
+      status: "cancelled",
+      lines: cancelledLines,
+      workflowRequestId: null,
+    };
     await this.deps.repo.update(cancelled);
     await this.recordAudit("CANCEL", cancelled, "WARNING");
     this.emit("DOCUMENT_CANCELLED", cancelled);

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { AssetDTO, BranchDTO, EmployeeDTO, ItemDTO, StockBalanceRowDTO, WarehouseDTO } from "@mezan/contracts";
 import { BranchesPage } from "./BranchesPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -46,6 +46,8 @@ function renderScreen(
     stockByWarehouse?: Record<string, StockBalanceRowDTO[]>;
     onCreateBranch?: (body: Record<string, unknown>) => { status?: number; body: unknown } | undefined;
     createRequests?: Record<string, unknown>[];
+    onUpdateBranch?: (id: string, body: Record<string, unknown>) => { status?: number; body: unknown } | undefined;
+    updateRequests?: { id: string; body: Record<string, unknown> }[];
     employees?: EmployeeDTO[];
     assets?: AssetDTO[];
     assetCategories?: { id: string; nameAr: string }[];
@@ -91,6 +93,23 @@ function renderScreen(
       };
       current = [...current, created];
       return { status: 201, body: created };
+    },
+    "PUT /branches/*": (init, path) => {
+      const id = path.split("/").pop() as string;
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      opts.updateRequests?.push({ id, body });
+      const overridden = opts.onUpdateBranch?.(id, body);
+      if (overridden) return overridden;
+      const existing = current.find((b) => b.id === id);
+      if (!existing) return { status: 404, body: { error: "NOT_FOUND" } };
+      // Mirrors packages/domain/src/settings/branch.ts's `validate`: a branch
+      // cannot be its own parent.
+      if (body.parentBranchId === id) {
+        return { status: 422, body: { error: "INVALID_BRANCH", message: "لا يمكن أن يكون الفرع أباً لنفسه." } };
+      }
+      const updated: BranchDTO = { ...existing, ...body };
+      current = current.map((b) => (b.id === id ? updated : b));
+      return { body: updated };
     },
   });
   return renderWithProviders(<BranchesPage />, { transport, initialSession: testAdminSession });
@@ -211,40 +230,117 @@ describe("BranchesPage", () => {
     expect(cells[5]!.textContent).toBe("2");
   });
 
-  it("LIMITATION (D125): a branch row opens a read-only detail view — there is no edit or deactivate control anywhere in the list or the detail, and useUpdateBranch is not even imported by this screen", async () => {
-    renderScreen();
-    expect(screen.queryByRole("button", { name: "تعديل" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "تعطيل" })).not.toBeInTheDocument();
+  it("fixed (D125): the detail view offers an Edit control that opens a form pre-filled with the branch's real data, and saving PUTs exactly the changed field to /branches/:id — the other fields ride along unchanged", async () => {
+    const updateRequests: { id: string; body: Record<string, unknown> }[] = [];
+    renderScreen(sampleBranches, { updateRequests });
+    fireEvent.click(await screen.findByText("فرع الإسكندرية"));
 
-    fireEvent.click(await screen.findByText("MAIN"));
-    // The detail view's only action is the back button — no edit, no
-    // deactivate, no "set parent" control exists anywhere on this screen.
-    expect(screen.getByRole("button", { name: "رجوع لقائمة الفروع" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "تعديل" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "تعطيل" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "تعديل" }));
+    const dialog = screen.getByRole("dialog", { name: "تعديل الفرع" });
+    expect(textboxByLabel(dialog, "اسم الفرع")).toHaveValue("فرع الإسكندرية");
+    expect(textboxByLabel(dialog, "رمز الفرع")).toHaveValue("ALEX");
+    expect(textboxByLabel(dialog, "الهاتف")).toHaveValue("0334567890");
+
+    fireEvent.change(textboxByLabel(dialog, "الهاتف"), { target: { value: "0355555555" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ التعديلات" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(updateRequests).toHaveLength(1);
+    expect(updateRequests[0]!.id).toBe("b2");
+    expect(updateRequests[0]!.body.phone).toBe("0355555555");
+    // Fields the user did not touch travelled through unchanged, not blanked.
+    expect(updateRequests[0]!.body.name).toBe("فرع الإسكندرية");
+    expect(updateRequests[0]!.body.code).toBe("ALEX");
+    // The detail view reflects the saved value without a manual reload.
+    expect(await screen.findByText("0355555555")).toBeInTheDocument();
   });
 
-  it("LIMITATION (D125): the add-branch form has no parent-branch field, so a newly created branch's 'الفرع الرئيسي' (parent) column can never be set through the UI — it only shows data seeded outside this screen", async () => {
+  it("fixed (D125): the parent-branch select on the edit form excludes the branch itself, and choosing a parent PUTs that real branch id", async () => {
+    const threeBranches: BranchDTO[] = [
+      ...sampleBranches,
+      { id: "b3", code: "GIZA", name: "فرع الجيزة", parentBranchId: null, phone: null, email: null, address: null, isMain: false, active: true },
+    ];
+    const updateRequests: { id: string; body: Record<string, unknown> }[] = [];
+    renderScreen(threeBranches, { updateRequests });
+    fireEvent.click(await screen.findByText("فرع الجيزة"));
+    fireEvent.click(screen.getByRole("button", { name: "تعديل" }));
+    const dialog = screen.getByRole("dialog", { name: "تعديل الفرع" });
+
+    const parentSelect = within(dialog).getByRole("combobox", { name: "الفرع الأب" });
+    fireEvent.click(parentSelect);
+    // "فرع الجيزة" (the branch being edited) must not be offered as its own parent.
+    expect(screen.queryByRole("option", { name: "فرع الجيزة" })).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("option", { name: "فرع الإسكندرية" }));
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ التعديلات" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(updateRequests).toHaveLength(1);
+    expect(updateRequests[0]!.body.parentBranchId).toBe("b2");
+    // The list's «الفرع الرئيسي» column now resolves the real parent name.
+    fireEvent.click(screen.getByRole("button", { name: "رجوع لقائمة الفروع" }));
+    const row = screen.getByText("فرع الجيزة").closest("tr")!;
+    expect(within(row).getByText("فرع الإسكندرية")).toBeInTheDocument();
+  });
+
+  it("fixed (D125): the deactivate control PUTs the inverted active flag, and the button label and status pill flip after the round trip — a re-render does not reset it", async () => {
+    const updateRequests: { id: string; body: Record<string, unknown> }[] = [];
+    renderScreen(sampleBranches, { updateRequests });
+    fireEvent.click(await screen.findByText("فرع الإسكندرية"));
+
+    const toggleButton = screen.getByRole("button", { name: "تعطيل" });
+    fireEvent.click(toggleButton);
+
+    await waitFor(() => expect(updateRequests).toHaveLength(1));
+    expect(updateRequests[0]!.id).toBe("b2");
+    expect(updateRequests[0]!.body).toEqual({ active: false });
+    expect(await screen.findByRole("button", { name: "تفعيل" })).toBeInTheDocument();
+    expect(screen.getAllByText("غير نشط").length).toBeGreaterThan(0);
+
+    // Leaving and returning to the detail must not revert the saved status.
+    fireEvent.click(screen.getByRole("button", { name: "رجوع لقائمة الفروع" }));
+    fireEvent.click(screen.getByText("فرع الإسكندرية"));
+    expect(screen.getByRole("button", { name: "تفعيل" })).toBeInTheDocument();
+  });
+
+  it("fixed (D125): a save the backend refuses (a branch as its own parent) shows the error and keeps the edited fields in the form instead of silently reverting them", async () => {
+    renderScreen(sampleBranches, {
+      onUpdateBranch: () => ({ status: 422, body: { error: "INVALID_BRANCH", message: "لا يمكن أن يكون الفرع أباً لنفسه." } }),
+    });
+    fireEvent.click(await screen.findByText("فرع الإسكندرية"));
+    fireEvent.click(screen.getByRole("button", { name: "تعديل" }));
+    const dialog = screen.getByRole("dialog", { name: "تعديل الفرع" });
+
+    fireEvent.change(textboxByLabel(dialog, "اسم الفرع"), { target: { value: "فرع الإسكندرية الجديد" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ التعديلات" }));
+
+    expect(await within(dialog).findByText("لا يمكن أن يكون الفرع أباً لنفسه.")).toBeInTheDocument();
+    // The dialog stays open with the user's edit still in the field — not reverted to "فرع الإسكندرية".
+    expect(screen.getByRole("dialog", { name: "تعديل الفرع" })).toBeInTheDocument();
+    expect(textboxByLabel(dialog, "اسم الفرع")).toHaveValue("فرع الإسكندرية الجديد");
+  });
+
+  it("fixed (D125): the add-branch form now has a real parent-branch picker, and choosing a parent creates the branch with that real id — the list resolves it to a name instead of '—'", async () => {
     const createRequests: Record<string, unknown>[] = [];
     renderScreen(sampleBranches, { createRequests });
     await screen.findByText("MAIN");
 
     fireEvent.click(screen.getByRole("button", { name: "إضافة فرع" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة فرع" });
-    // Every field the create form actually exposes.
-    expect(within(dialog).getAllByRole("textbox")).toHaveLength(5);
-    expect(within(dialog).queryByText(/الفرع الأب|فرع أب|parent/i)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: "الفرع الأب" })).toBeInTheDocument();
 
     fireEvent.change(textboxByLabel(dialog, "اسم الفرع"), { target: { value: "فرع طنطا" } });
     fireEvent.change(textboxByLabel(dialog, "رمز الفرع"), { target: { value: "TANTA" } });
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "الفرع الأب" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: "الفرع الرئيسي" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ الفرع" }));
     await screen.findByText("فرع طنطا");
 
     expect(createRequests).toHaveLength(1);
-    expect(createRequests[0]).not.toHaveProperty("parentBranchId");
+    expect(createRequests[0]!.parentBranchId).toBe("b1");
 
     const row = screen.getByText("فرع طنطا").closest("tr")!;
-    expect(within(row).getByRole("cell", { name: "—" })).toBeInTheDocument();
+    expect(within(row).getByText("الفرع الرئيسي")).toBeInTheDocument();
   });
 
   it("BranchInventoryTab: a failed fetch shows a retry control that re-issues the request", async () => {

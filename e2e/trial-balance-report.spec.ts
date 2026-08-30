@@ -37,8 +37,8 @@ async function createPostedJournalEntry(page: Page, memo: string, date: string, 
   await page.getByRole("button", { name: "قيد جديد" }).first().click();
   await expect(page.getByRole("heading", { name: "إنشاء قيد يومي" })).toBeVisible();
 
-  // "تاريخ القيد *" goes through the same broken TextField as "الوصف *"
-  // (journals.spec.ts's dedicated test.fail() documents the root cause).
+  // Positional locator (e2e/support/broken-label.ts); journals.spec.ts holds
+  // the guarantee that this field's label names its input.
   await brokenLabelField(page, "تاريخ القيد *").fill(date);
   await page.getByPlaceholder("وصف القيد...").fill(memo);
   await chooseCombo(page, "الحساب للسطر 1", /^1300-1 —/);

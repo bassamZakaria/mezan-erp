@@ -9,7 +9,19 @@ import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
 import { screen, within, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ItemCategoryDTO, ItemDTO, PriceListDTO } from "@mezan/contracts";
+import type {
+  AccountDTO,
+  AuditEventDTO,
+  ItemBrandDTO,
+  ItemCategoryDTO,
+  ItemDTO,
+  ItemSeasonDTO,
+  ItemSpecificationDTO,
+  PriceListDTO,
+  SupplierDTO,
+  WarehouseDTO,
+} from "@mezan/contracts";
+import type { ItemCostLayerRecord, ItemStockPositionRecord, StockMovementRowDTO } from "../data/hooks";
 import { ItemsScreen } from "./ItemsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import { NavigationProvider } from "../navigation";
@@ -24,15 +36,17 @@ import type { ScreenKey } from "../router/screens";
 function TestNavigation({
   children,
   onOpenScreenAt,
+  onNavigate,
 }: {
   children: ReactNode;
   onOpenScreenAt?: (screen: ScreenKey, segments: readonly string[]) => void;
+  onNavigate?: (screen: ScreenKey) => void;
 }) {
   const [segments, setSegments] = useState<readonly string[]>([]);
   return (
     <NavigationProvider
       value={{
-        navigate: () => {},
+        navigate: onNavigate ?? (() => {}),
         segments,
         openSubPage: setSegments,
         openScreenAt: onOpenScreenAt ?? (() => {}),
@@ -90,6 +104,122 @@ const sampleItems: ItemDTO[] = [
   item({ id: "itm-3", code: "ITM-000003", nameAr: "ورق طباعة A4 (رزمة 500 ورقة)", nameEn: null }),
 ];
 
+function warehouse(overrides: Partial<WarehouseDTO> = {}): WarehouseDTO {
+  return { id: "wh-1", code: "MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true, ...overrides };
+}
+
+function account(overrides: Partial<AccountDTO> = {}): AccountDTO {
+  return {
+    id: "acc-1",
+    code: "4101",
+    nameAr: "إيرادات المبيعات",
+    nameEn: null,
+    type: "revenue",
+    naturalBalance: "credit",
+    parentId: null,
+    isHeader: false,
+    status: "active",
+    ...overrides,
+  };
+}
+
+function supplier(overrides: Partial<SupplierDTO> = {}): SupplierDTO {
+  return {
+    id: "sup-1",
+    code: "SUP-001",
+    nameAr: "مورد الأرز المصري",
+    nameEn: null,
+    phone: null,
+    email: null,
+    contactPerson: null,
+    taxNumber: null,
+    category: null,
+    notes: null,
+    paymentTermsDays: 30,
+    currency: "EGP",
+    openingBalance: "0.00",
+    active: true,
+    addressCity: null,
+    addressDistrict: null,
+    addressStreet: null,
+    ...overrides,
+  };
+}
+
+function brand(overrides: Partial<ItemBrandDTO> = {}): ItemBrandDTO {
+  return { id: "brand-1", code: "BR-01", nameAr: "الأهرام", nameEn: null, status: "active", ...overrides };
+}
+
+function season(overrides: Partial<ItemSeasonDTO> = {}): ItemSeasonDTO {
+  return { id: "season-1", code: "SUM", nameAr: "الصيف", nameEn: null, startDate: null, endDate: null, status: "active", ...overrides };
+}
+
+function specDefinition(overrides: Partial<ItemSpecificationDTO> = {}): ItemSpecificationDTO {
+  return {
+    code: "WEIGHT",
+    nameAr: "الوزن",
+    nameEn: null,
+    type: "text",
+    values: [],
+    unit: "كجم",
+    filterable: true,
+    status: "active",
+    usageCount: 0,
+    ...overrides,
+  };
+}
+
+function auditEvent(overrides: Partial<AuditEventDTO> = {}): AuditEventDTO {
+  return {
+    stream: "sensitive",
+    module: "items",
+    entityType: "ITEM",
+    entityId: "itm-1",
+    action: "UPDATE_ITEM",
+    actor: "محمد الشهابي",
+    branchId: null,
+    timestamp: "2026-08-15T10:00:00.000Z",
+    severity: "INFO",
+    details: null,
+    ...overrides,
+  };
+}
+
+function stockPosition(overrides: Partial<ItemStockPositionRecord> = {}): ItemStockPositionRecord {
+  return { warehouseId: "wh-1", onHand: "40.000000", reserved: "5.000000", available: "35.000000", totalValue: "6000.000000", averageCost: "150.000000", ...overrides };
+}
+
+function costLayer(overrides: Partial<ItemCostLayerRecord> = {}): ItemCostLayerRecord {
+  return {
+    id: "layer-1",
+    warehouseId: "wh-1",
+    unitCost: "150.000000",
+    originalQty: "50.000000",
+    remainingQty: "40.000000",
+    sourceDocType: "GOODS_RECEIPT",
+    sourceDocNumber: "GR-000001",
+    createdAt: "2026-07-01T09:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function movement(overrides: Partial<StockMovementRowDTO> = {}): StockMovementRowDTO {
+  return {
+    id: "mv-1",
+    itemId: "itm-1",
+    warehouseId: "wh-1",
+    direction: "IN",
+    qty: "50.000000",
+    unitCost: "150.000000",
+    sourceDocType: "GOODS_RECEIPT",
+    sourceDocId: "gr-1",
+    sourceDocNumber: "GR-000001",
+    reason: null,
+    occurredAt: "2026-07-01T09:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function renderScreen(
   items: ItemDTO[] = sampleItems,
   opts: {
@@ -97,6 +227,17 @@ function renderScreen(
     itemsRequests?: string[];
     onItemsGet?: (path: string) => { status?: number; body: unknown } | undefined;
     onCreateItem?: (body: Record<string, unknown>) => { status?: number; body: unknown } | undefined;
+    accounts?: AccountDTO[];
+    suppliers?: SupplierDTO[];
+    brands?: ItemBrandDTO[];
+    seasons?: ItemSeasonDTO[];
+    warehouses?: WarehouseDTO[];
+    specifications?: ItemSpecificationDTO[];
+    stockByItem?: Record<string, { positions: ItemStockPositionRecord[]; layers: ItemCostLayerRecord[] }>;
+    movementsByItem?: Record<string, StockMovementRowDTO[]>;
+    auditEventsByItem?: Record<string, AuditEventDTO[]>;
+    onOpenScreenAt?: (screen: ScreenKey, segments: readonly string[]) => void;
+    onNavigate?: (screen: ScreenKey) => void;
   } = {},
 ) {
   let current = [...items];
@@ -106,17 +247,51 @@ function renderScreen(
       itemsRequests.push(path);
       const overridden = opts.onItemsGet?.(path);
       if (overridden) return overridden;
-      const search = new URL(path, "http://x").searchParams.get("search");
-      const rows = search
-        ? current.filter((i) => [i.nameAr, i.nameEn, i.code].some((v) => v?.toLowerCase().includes(search.toLowerCase())))
-        : current;
+      const params = new URL(path, "http://x").searchParams;
+      const search = params.get("search");
+      const status = params.get("status");
+      const categoryId = params.get("categoryId");
+      const brandId = params.get("brandId");
+      const seasonId = params.get("seasonId");
+      const unitCode = params.get("unitCode");
+      let rows = current;
+      if (status === "active" || status === "inactive") rows = rows.filter((i) => i.status === status);
+      if (search) rows = rows.filter((i) => [i.nameAr, i.nameEn, i.code].some((v) => v?.toLowerCase().includes(search.toLowerCase())));
+      if (categoryId) rows = rows.filter((i) => i.categoryId === categoryId);
+      if (brandId) rows = rows.filter((i) => i.brandId === brandId);
+      if (seasonId) rows = rows.filter((i) => i.seasonId === seasonId);
+      if (unitCode) rows = rows.filter((i) => i.baseUnitCode === unitCode);
       return { body: rows };
     },
-    "GET /accounts": () => ({ body: [] }),
+    "GET /items/counts": () => {
+      const active = current.filter((i) => i.status === "active").length;
+      return { body: { all: current.length, active, inactive: current.length - active } };
+    },
+    "GET /items/stats": () => {
+      const active = current.filter((i) => i.status === "active").length;
+      return { body: { count: current.length, active, stockTracked: current.filter((i) => i.trackInventory).length, nonStock: current.filter((i) => !i.trackInventory).length } };
+    },
+    "GET /accounts": () => ({ body: opts.accounts ?? [] }),
     "GET /item-categories": () => ({ body: opts.categories ?? [] }),
-    "GET /item-brands": () => ({ body: [] }),
-    "GET /item-seasons": () => ({ body: [] }),
+    "GET /item-brands": () => ({ body: opts.brands ?? [] }),
+    "GET /item-seasons": () => ({ body: opts.seasons ?? [] }),
     "GET /item-units": () => ({ body: [] }),
+    "GET /suppliers": () => ({ body: opts.suppliers ?? [] }),
+    "GET /warehouses": () => ({ body: opts.warehouses ?? [] }),
+    "GET /item-specifications": () => ({ body: opts.specifications ?? [] }),
+    "GET /inventory/items/*/stock": (_init, path) => {
+      const itemId = path.split("/")[3]!.split("?")[0]!;
+      return { body: opts.stockByItem?.[itemId] ?? { positions: [], layers: [] } };
+    },
+    "GET /inventory/movements": (_init, path) => {
+      const params = new URL(path, "http://x").searchParams;
+      const itemId = params.get("itemId") ?? "";
+      return { body: opts.movementsByItem?.[itemId] ?? [] };
+    },
+    "GET /audit": (_init, path) => {
+      const entityId = new URL(path, "http://x").searchParams.get("entityId") ?? "";
+      return { body: opts.auditEventsByItem?.[entityId] ?? [] };
+    },
     "POST /items": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       const overridden = opts.onCreateItem?.(body);
@@ -133,7 +308,7 @@ function renderScreen(
     },
   });
   return renderWithProviders(
-    <TestNavigation>
+    <TestNavigation onOpenScreenAt={opts.onOpenScreenAt} onNavigate={opts.onNavigate}>
       <ItemsScreen />
     </TestNavigation>,
     { transport, initialSession: testAdminSession },
@@ -259,20 +434,16 @@ describe("ItemsScreen", () => {
     expect(screen.queryByText("تعذّر تحميل الأصناف.")).not.toBeInTheDocument();
   });
 
-  it("LIMITATION: a failed list load also shows the empty-list message below the error banner", async () => {
+  it("does NOT show the empty-list message when the load failed — the banner is the only story (D123)", async () => {
     renderScreen(sampleItems, {
       onItemsGet: () => ({ status: 500, body: { error: "INTERNAL" } }),
     });
 
     expect(await screen.findByText("تعذّر تحميل الأصناف.")).toBeInTheDocument();
-    // ItemsScreen.tsx renders the error banner ABOVE the DocumentList, but never
-    // suppresses the list's own `emptyState` — `query.data` is undefined on a
-    // failed fetch, so `items`/`filtered` fall back to `[]` and DocumentList
-    // reads that as "no rows yet". A user cannot tell "the load failed" from
-    // "there are no items" from this message alone. When ItemsScreen.tsx hides
-    // `emptyState` (or passes a loading/error-aware one) while `query.isError`,
-    // this assertion flips to `.not.toBeInTheDocument()`.
-    expect(screen.getByText("لا توجد أصناف مطابقة")).toBeInTheDocument();
+    // "The load failed" and "there are no items" are opposite facts. Saying
+    // the second while the first is true tells the operator their catalogue
+    // is gone.
+    expect(screen.queryByText("لا توجد أصناف مطابقة")).not.toBeInTheDocument();
   });
 
   it("sends the picked category's real id in the /items request when the category filter is applied", async () => {
@@ -637,5 +808,358 @@ describe("ItemsScreen", () => {
 
     await waitFor(() => expect(created).toBeDefined());
     expect(created?.alternateUnits).toEqual([{ code: "BOX", name: "صندوق", factor: 24 }]);
+  });
+
+  it("shows the stock tab's real warehouse positions and totals", async () => {
+    const user = userEvent.setup();
+    renderScreen(sampleItems, {
+      warehouses: [warehouse({ id: "wh-1", name: "المستودع الرئيسي" }), warehouse({ id: "wh-2", name: "مستودع الفرع" })],
+      stockByItem: {
+        "itm-1": {
+          positions: [
+            stockPosition({ warehouseId: "wh-1", onHand: "40.000000", reserved: "5.000000", available: "35.000000" }),
+            stockPosition({ warehouseId: "wh-2", onHand: "10.000000", reserved: "0.000000", available: "10.000000" }),
+          ],
+          layers: [],
+        },
+      },
+    });
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("tab", { name: "المخزون" }));
+
+    expect(await screen.findByText("المستودع الرئيسي")).toBeInTheDocument();
+    expect(screen.getByText("مستودع الفرع")).toBeInTheDocument();
+    // Totals are the sum across warehouses: onHand 40+10=50, available 35+10=45.
+    const totalRow = screen.getByText("الإجمالي").closest("tr")!;
+    const cells = within(totalRow).getAllByRole("cell");
+    expect(cells[1]?.textContent).toBe("50");
+    expect(cells[3]?.textContent).toBe("45");
+  });
+
+  it("BUG: the stock tab shows the empty message on a failed request, indistinguishable from an item that genuinely has no stock", async () => {
+    const user = userEvent.setup();
+    const transport = stubTransport({
+      "GET /items": () => ({ body: sampleItems }),
+      "GET /items/counts": () => ({ body: { all: 3, active: 3, inactive: 0 } }),
+      "GET /items/stats": () => ({ body: { count: 3, active: 3, stockTracked: 3, nonStock: 0 } }),
+      "GET /accounts": () => ({ body: [] }),
+      "GET /item-categories": () => ({ body: [] }),
+      "GET /item-brands": () => ({ body: [] }),
+      "GET /item-seasons": () => ({ body: [] }),
+      "GET /item-units": () => ({ body: [] }),
+      "GET /warehouses": () => ({ body: [] }),
+      "GET /inventory/items/*/stock": () => ({ status: 500, body: { error: "INTERNAL" } }),
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <ItemsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("tab", { name: "المخزون" }));
+
+    // `ItemStockTab` has no `isError` branch at all — a 500 renders the exact
+    // same "no stock anywhere" message a genuinely stock-free item would show,
+    // with no error text anywhere on the tab. An operator cannot tell a load
+    // failure from an empty warehouse.
+    expect(await screen.findByText("لا يوجد مخزون من هذا الصنف في أي مستودع.")).toBeInTheDocument();
+    expect(screen.queryByText(/تعذّر/)).not.toBeInTheDocument();
+  });
+
+  it("shows the movements tab's own rows, with the real warehouse name and direction label", async () => {
+    const user = userEvent.setup();
+    renderScreen(sampleItems, {
+      warehouses: [warehouse({ id: "wh-1", name: "المستودع الرئيسي" })],
+      stockByItem: { "itm-1": { positions: [stockPosition({ warehouseId: "wh-1" })], layers: [] } },
+      movementsByItem: {
+        "itm-1": [movement({ id: "mv-1", warehouseId: "wh-1", direction: "IN", qty: "50.000000", sourceDocNumber: "GR-000001" })],
+      },
+    });
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("tab", { name: "دفتر الحركة" }));
+
+    expect(await screen.findByText("GR-000001")).toBeInTheDocument();
+    expect(screen.getByText("المستودع الرئيسي")).toBeInTheDocument();
+    expect(screen.getByText("وارد")).toBeInTheDocument();
+  });
+
+  it("shows the movements tab's own empty message when the item has no positions to look movements up from", async () => {
+    const user = userEvent.setup();
+    renderScreen(sampleItems, { warehouses: [], stockByItem: { "itm-1": { positions: [], layers: [] } } });
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("tab", { name: "دفتر الحركة" }));
+
+    expect(await screen.findByText("لم تُسجَّل حركة على هذا الصنف بعد")).toBeInTheDocument();
+  });
+
+  it("shows the specifications tab's values with their units, hiding any spec left blank", async () => {
+    const user = userEvent.setup();
+    const items = [
+      item({
+        id: "itm-1",
+        specifications: [
+          { code: "WEIGHT", value: "5" },
+          { code: "COLOR", value: "" },
+        ],
+      }),
+    ];
+    renderScreen(items, {
+      specifications: [specDefinition({ code: "WEIGHT", nameAr: "الوزن", unit: "كجم" }), specDefinition({ code: "COLOR", nameAr: "اللون", unit: null })],
+    });
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("tab", { name: "المواصفات" }));
+
+    expect(await screen.findByText("الوزن")).toBeInTheDocument();
+    expect(screen.getByText("5 كجم")).toBeInTheDocument();
+    // COLOR's value is blank — it must not render a row at all.
+    expect(screen.queryByText("اللون")).not.toBeInTheDocument();
+  });
+
+  it("shows the specifications tab's own empty message when the item has no recorded values", async () => {
+    const user = userEvent.setup();
+    renderScreen([item({ id: "itm-1", specifications: [] })]);
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("tab", { name: "المواصفات" }));
+
+    expect(await screen.findByText("لم تُسجَّل مواصفات لهذا الصنف")).toBeInTheDocument();
+  });
+
+  it("shows the audit tab's own events, actor and action", async () => {
+    const user = userEvent.setup();
+    renderScreen(sampleItems, {
+      auditEventsByItem: { "itm-1": [auditEvent({ action: "UPDATE_ITEM", actor: "سارة عبد الله" })] },
+    });
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("tab", { name: "سجل التدقيق" }));
+
+    expect(await screen.findByText("UPDATE_ITEM")).toBeInTheDocument();
+    expect(screen.getByText("سارة عبد الله")).toBeInTheDocument();
+  });
+
+  it("shows the cost-layers tab's open layers, with remaining/original qty and the source document", async () => {
+    const user = userEvent.setup();
+    renderScreen(sampleItems, {
+      warehouses: [warehouse({ id: "wh-1", name: "المستودع الرئيسي" })],
+      stockByItem: {
+        "itm-1": {
+          positions: [],
+          layers: [costLayer({ id: "layer-1", warehouseId: "wh-1", remainingQty: "40.000000", originalQty: "50.000000", sourceDocNumber: "GR-000001" })],
+        },
+      },
+    });
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("tab", { name: "طبقات التكلفة" }));
+
+    expect(await screen.findByText("40 / 50")).toBeInTheDocument();
+    expect(screen.getByText("GR-000001")).toBeInTheDocument();
+  });
+
+  it("shows the cost-layers tab's own empty message when there are no open layers", async () => {
+    const user = userEvent.setup();
+    renderScreen(sampleItems, { stockByItem: { "itm-1": { positions: [], layers: [] } } });
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("tab", { name: "طبقات التكلفة" }));
+
+    expect(await screen.findByText("لا توجد طبقات تكلفة مفتوحة لهذا الصنف.")).toBeInTheDocument();
+  });
+
+  it("sends the GL account and ETA fields exactly as picked, binding the accounts to their real ids", async () => {
+    const user = userEvent.setup();
+    let created: Record<string, unknown> | undefined;
+    renderScreen(sampleItems, {
+      accounts: [account({ id: "acc-rev", code: "4101", nameAr: "إيرادات المبيعات" }), account({ id: "acc-cogs", code: "5101", nameAr: "تكلفة المبيعات" })],
+      onCreateItem: (body) => {
+        created = body;
+        return undefined;
+      },
+    });
+    await screen.findByText("أرز أبيض مصري 5 كجم");
+    await user.click(screen.getByRole("button", { name: "إضافة صنف" }));
+    await user.type(screen.getByLabelText("اسم الصنف *"), "صنف بحسابات مخصصة");
+
+    const revenueInput = screen.getByLabelText("حساب الإيراد");
+    await user.click(revenueInput);
+    await user.click(screen.getByRole("button", { name: /4101/ }));
+    const cogsInput = screen.getByLabelText("حساب التكلفة");
+    await user.click(cogsInput);
+    await user.click(screen.getByRole("button", { name: /5101/ }));
+
+    chooseSelectOption("نوع الكود (ETA)", "GPC");
+    await user.type(screen.getByLabelText("كود الصنف لدى المصلحة"), "EG-000000001-1");
+    await user.type(screen.getByLabelText("كود GPC"), "10000123");
+
+    await user.click(screen.getByRole("button", { name: "إضافة" }));
+
+    await waitFor(() => expect(created).toBeDefined());
+    expect(created?.revenueAccountId).toBe("acc-rev");
+    expect(created?.cogsAccountId).toBe("acc-cogs");
+    expect(created?.etaCodeType).toBe("GPC");
+    expect(created?.etaItemCode).toBe("EG-000000001-1");
+    expect(created?.gpcCode).toBe("10000123");
+  });
+
+  it("sends the classification fields — default supplier, brand, season and description — exactly as picked", async () => {
+    const user = userEvent.setup();
+    let created: Record<string, unknown> | undefined;
+    renderScreen(sampleItems, {
+      suppliers: [supplier({ id: "sup-rice", nameAr: "مورد الأرز المصري" })],
+      brands: [brand({ id: "brand-al-ahram", nameAr: "الأهرام" })],
+      seasons: [season({ id: "season-summer", nameAr: "الصيف" })],
+      onCreateItem: (body) => {
+        created = body;
+        return undefined;
+      },
+    });
+    await screen.findByText("أرز أبيض مصري 5 كجم");
+    await user.click(screen.getByRole("button", { name: "إضافة صنف" }));
+    await user.type(screen.getByLabelText("اسم الصنف *"), "صنف بتصنيف كامل");
+
+    chooseSelectOption("المورد الافتراضي", "مورد الأرز المصري");
+    chooseSelectOption("الماركة", "الأهرام");
+    chooseSelectOption("الموسم", "الصيف");
+    await user.type(screen.getByLabelText("الوصف"), "وصف تجريبي للصنف");
+
+    await user.click(screen.getByRole("button", { name: "إضافة" }));
+
+    await waitFor(() => expect(created).toBeDefined());
+    expect(created).toMatchObject({
+      defaultSupplierId: "sup-rice",
+      brandId: "brand-al-ahram",
+      seasonId: "season-summer",
+      description: "وصف تجريبي للصنف",
+    });
+  });
+
+  it("sends the stock-policy fields — reorder point/quantity and the batch-tracking toggle — from the edit form", async () => {
+    const user = userEvent.setup();
+    let patchBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      "GET /items": () => ({ body: sampleItems }),
+      "GET /items/counts": () => ({ body: { all: 3, active: 3, inactive: 0 } }),
+      "GET /items/stats": () => ({ body: { count: 3, active: 3, stockTracked: 3, nonStock: 0 } }),
+      "GET /accounts": () => ({ body: [] }),
+      "GET /item-categories": () => ({ body: [] }),
+      "GET /item-brands": () => ({ body: [] }),
+      "GET /item-seasons": () => ({ body: [] }),
+      "GET /item-units": () => ({ body: [] }),
+      "GET /suppliers": () => ({ body: [] }),
+      "GET /warehouses": () => ({ body: [] }),
+      "PATCH /items/itm-1": (init) => {
+        patchBody = JSON.parse((init?.body as string) ?? "{}");
+        return { body: { ...sampleItems[0]!, ...patchBody } };
+      },
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <ItemsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    await user.click(await screen.findByRole("button", { name: "تعديل أرز أبيض مصري 5 كجم" }));
+
+    const reorderPoint = screen.getByLabelText("نقطة إعادة الطلب");
+    await user.clear(reorderPoint);
+    await user.type(reorderPoint, "20");
+    const reorderQty = screen.getByLabelText("كمية إعادة الطلب");
+    await user.clear(reorderQty);
+    await user.type(reorderQty, "100");
+    await user.click(screen.getByRole("switch", { name: "تتبع الدفعات وتواريخ الصلاحية" }));
+
+    await user.click(screen.getByRole("button", { name: "حفظ" }));
+
+    await waitFor(() => expect(patchBody).toBeDefined());
+    expect(patchBody?.reorderPoint).toBe(20);
+    expect(patchBody?.reorderQty).toBe(100);
+    expect(patchBody?.trackBatches).toBe(true);
+  });
+
+  it("filters the list by brand and by season, each sending the real id", async () => {
+    const itemsRequests: string[] = [];
+    renderScreen(
+      [item({ id: "itm-1", brandId: "brand-1", seasonId: null }), item({ id: "itm-2", code: "ITM-000002", nameAr: "منتج آخر", brandId: null, seasonId: "season-1" })],
+      { itemsRequests, brands: [brand({ id: "brand-1", nameAr: "الأهرام" })], seasons: [season({ id: "season-1", nameAr: "الصيف" })] },
+    );
+    await screen.findByText("أرز أبيض مصري 5 كجم");
+    itemsRequests.length = 0;
+
+    chooseSelectOption("العلامة التجارية", "الأهرام");
+    await waitFor(() => {
+      expect(screen.queryByText("منتج آخر")).not.toBeInTheDocument();
+      expect(screen.getByText("أرز أبيض مصري 5 كجم")).toBeInTheDocument();
+    });
+    expect(itemsRequests.some((p) => new URL(p, "http://x").searchParams.get("brandId") === "brand-1")).toBe(true);
+
+    chooseSelectOption("العلامة التجارية", "كل العلامات");
+    await screen.findByText("منتج آخر");
+    itemsRequests.length = 0;
+
+    chooseSelectOption("الموسم", "الصيف");
+    await waitFor(() => {
+      expect(screen.queryByText("أرز أبيض مصري 5 كجم")).not.toBeInTheDocument();
+      expect(screen.getByText("منتج آخر")).toBeInTheDocument();
+    });
+    expect(itemsRequests.some((p) => new URL(p, "http://x").searchParams.get("seasonId") === "season-1")).toBe(true);
+  });
+
+  it("filters the list by status chip, narrowing to inactive items only", async () => {
+    const activeItem = item({ id: "itm-1", nameAr: "صنف نشط", status: "active" });
+    const inactiveItem = item({ id: "itm-2", code: "ITM-000002", nameAr: "صنف غير نشط", status: "inactive" });
+    const itemsRequests: string[] = [];
+    renderScreen([activeItem, inactiveItem], { itemsRequests });
+    await screen.findByText("صنف نشط");
+    await screen.findByText("صنف غير نشط");
+
+    fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("صنف نشط")).not.toBeInTheDocument();
+      expect(screen.getByText("صنف غير نشط")).toBeInTheDocument();
+    });
+  });
+
+  it("changes the page size, showing rows beyond the previous page's cutoff", async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 7 }, (_, i) => item({ id: `itm-${i + 1}`, code: `ITM-${String(i + 1).padStart(6, "0")}`, nameAr: `صنف رقم ${i + 1}` }));
+    renderScreen(many);
+    await screen.findByText("صنف رقم 1");
+    expect(screen.queryByText("صنف رقم 7")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("صفوف لكل صفحة"));
+    fireEvent.mouseDown(screen.getByRole("option", { name: "10" }));
+
+    await waitFor(() => expect(screen.getByText("صنف رقم 7")).toBeInTheDocument());
+  });
+
+  it("navigates to stock adjustment, transfer and purchase-request with the item's real id from the detail actions", async () => {
+    const user = userEvent.setup();
+    const navCalls: Array<{ screen: ScreenKey; segments: readonly string[] }> = [];
+    renderScreen(sampleItems, { onOpenScreenAt: (screen, segments) => navCalls.push({ screen, segments }) });
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+
+    await user.click(screen.getByRole("button", { name: "تسوية المخزون" }));
+    await user.click(screen.getByRole("button", { name: "تحويل مخزني" }));
+    await user.click(screen.getByRole("button", { name: "طلب شراء" }));
+
+    expect(navCalls).toContainEqual({ screen: "stock-adjustments", segments: ["new", "any", "itm-1"] });
+    expect(navCalls).toContainEqual({ screen: "stock-transfers", segments: ["new", "itm-1"] });
+    expect(navCalls).toContainEqual({ screen: "purchase-orders", segments: ["new", "any", "itm-1"] });
+  });
+
+  it("opens the edit form from the detail page's own edit action", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await user.click(await screen.findByText("أرز أبيض مصري 5 كجم"));
+    await user.click(screen.getByRole("button", { name: "تعديل" }));
+    expect(screen.getByRole("heading", { name: "تعديل صنف" })).toBeInTheDocument();
+  });
+
+  it("navigates to the labels screen from the print-labels action", async () => {
+    const user = userEvent.setup();
+    const navCalls: ScreenKey[] = [];
+    renderScreen(sampleItems, { onNavigate: (screen) => navCalls.push(screen) });
+    await screen.findByText("أرز أبيض مصري 5 كجم");
+    await user.click(screen.getByRole("button", { name: "طباعة الملصقات" }));
+    expect(navCalls).toContain("labels");
   });
 });

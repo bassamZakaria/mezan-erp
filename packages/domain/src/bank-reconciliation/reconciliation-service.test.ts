@@ -7,9 +7,11 @@ import {
   FakeTreasuryLedgerReader,
 } from "./test-helpers/in-memory-stores.js";
 import {
+  FinalizeOverrideReasonRequiredError,
   LineAlreadyMatchedError,
   LineNotMatchedError,
   StatementAlreadyFinalizedError,
+  StatementHasUnmatchedLinesError,
 } from "./errors.js";
 import type { TreasuryLedgerCandidate } from "./matching.js";
 
@@ -145,34 +147,86 @@ describe("BankReconciliationService.addManualLine", () => {
 });
 
 describe("BankReconciliationService.finalize", () => {
-  it("LIMITATION (D82): finalises with every line still unmatched, and locks the statement anyway", async () => {
+  it("GUARANTEE (D82): refuses to finalise while any line is still unmatched", async () => {
     const { service } = buildService();
     await service.importStatement(importCmd());
 
-    // Nothing has been matched: the reconciliation is closed with all of its
-    // differences still open, and the lock then prevents anyone from matching
-    // them afterwards. When D82 is fixed this call should be refused while any
-    // line is unmatched — that is the expectation to rewrite.
     const before = await service.listLines("stmt-1");
     expect(before.every((line) => line.status === "unmatched")).toBe(true);
+
+    // Three open differences. Closing over them and then locking the
+    // statement is how a difference stops being findable.
+    await expect(service.finalize("stmt-1")).rejects.toThrow(StatementHasUnmatchedLinesError);
+    const after = await service.findById("stmt-1");
+    expect(after?.status).toBe("imported");
+    expect(after?.finalizedAt).toBeNull();
+  });
+
+  it("GUARANTEE (D82): the refusal names how many lines are open", async () => {
+    const { service } = buildService();
+    const { lines } = await service.importStatement(importCmd());
+    await service.matchLine("stmt-1", lines[0]!.id, "je-1");
+
+    await expect(service.finalize("stmt-1")).rejects.toMatchObject({
+      code: "STATEMENT_HAS_UNMATCHED_LINES",
+      unmatchedCount: 2,
+    });
+  });
+
+  it("finalises cleanly once every line is matched (the negative control)", async () => {
+    const { service } = buildService();
+    const { lines } = await service.importStatement(importCmd());
+    for (const line of lines) await service.matchLine("stmt-1", line.id, `je-${line.id}`);
 
     const finalized = await service.finalize("stmt-1");
     expect(finalized.status).toBe("completed");
     expect(finalized.finalizedAt).toBe("2026-08-22T10:00:00.000Z");
-    expect((await service.listLines("stmt-1")).every((line) => line.status === "unmatched")).toBe(true);
+    expect(finalized.unmatchedAtFinalize).toBe(0);
+    expect(finalized.finalizeOverrideReason).toBeNull();
+  });
+
+  it("GUARANTEE (D82): the override closes it, and RECORDS how many were open and why", async () => {
+    const { service } = buildService();
+    const { lines } = await service.importStatement(importCmd());
+    await service.matchLine("stmt-1", lines[0]!.id, "je-1");
+
+    const finalized = await service.finalize("stmt-1", {
+      force: true,
+      reason: "رسوم بنكية تُقيَّد الشهر القادم",
+      actor: "user-7",
+    });
+    expect(finalized.status).toBe("completed");
+    // The whole point of allowing the override: the next person can see the
+    // reconciliation was closed over two open lines, and read the reason.
+    expect(finalized.unmatchedAtFinalize).toBe(2);
+    expect(finalized.finalizeOverrideReason).toBe("رسوم بنكية تُقيَّد الشهر القادم");
+    expect(finalized.finalizedBy).toBe("user-7");
+  });
+
+  it("GUARANTEE (D82): a forced finalise without a reason is refused, and writes nothing", async () => {
+    const { service } = buildService();
+    await service.importStatement(importCmd());
+
+    await expect(service.finalize("stmt-1", { force: true })).rejects.toThrow(FinalizeOverrideReasonRequiredError);
+    await expect(service.finalize("stmt-1", { force: true, reason: "   " })).rejects.toThrow(
+      FinalizeOverrideReasonRequiredError,
+    );
+    const after = await service.findById("stmt-1");
+    expect(after?.status).toBe("imported");
+    expect(after?.finalizedAt).toBeNull();
   });
 
   it("rejects finalizing twice", async () => {
     const { service } = buildService();
     await service.importStatement(importCmd());
-    await service.finalize("stmt-1");
+    await service.finalize("stmt-1", { force: true, reason: "إغلاق تجريبي" });
     await expect(service.finalize("stmt-1")).rejects.toThrow(StatementAlreadyFinalizedError);
   });
 
   it("blocks matching/unmatching/adding lines on a finalized statement", async () => {
     const { service } = buildService();
     const { lines } = await service.importStatement(importCmd());
-    await service.finalize("stmt-1");
+    await service.finalize("stmt-1", { force: true, reason: "إغلاق تجريبي" });
     await expect(service.matchLine("stmt-1", lines[0]!.id, "je-1")).rejects.toThrow(StatementAlreadyFinalizedError);
     await expect(
       service.addManualLine({ id: "x", statementId: "stmt-1", date: "2026-08-06", description: "x", amount: Money.zero() }),

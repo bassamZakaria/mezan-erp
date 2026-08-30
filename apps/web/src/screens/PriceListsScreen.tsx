@@ -259,7 +259,14 @@ export function PriceListsScreen() {
 
   async function submit() {
     if (!code.trim() || !nameAr.trim()) return;
-    await create.mutateAsync({ code: code.trim(), nameAr: nameAr.trim(), description: description.trim() || null, isBase });
+    try {
+      await create.mutateAsync({ code: code.trim(), nameAr: nameAr.trim(), description: description.trim() || null, isBase });
+    } catch {
+      // The panel stays open on the draft, and `create.isError` below renders
+      // the server's message. Swallowed here because nothing awaits submit():
+      // an escaping rejection is an unhandled one (D124).
+      return;
+    }
     setPanelOpen(false);
     resetForm();
   }
@@ -381,6 +388,7 @@ export function PriceListsScreen() {
         </Card>
       ) : null}
       <DocumentList<PriceListDTO>
+        loadFailed={query.isError}
         title={t("priceLists.title")}
         description={t("priceLists.description")}
         actions={

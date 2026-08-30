@@ -89,7 +89,7 @@ describe("useCustomerImportPreview / useCustomerImportCommit", () => {
           validCount: 1,
           errors: [
             { rowNumber: 2, reasons: ["الاسم مطلوب"] },
-            { rowNumber: 3, reasons: ["كود مكرر"] },
+            { rowNumber: 3, reasons: ["الكود مستخدم بالفعل"] },
           ],
         },
       }),
@@ -97,7 +97,9 @@ describe("useCustomerImportPreview / useCustomerImportCommit", () => {
     const { result } = renderHook(() => useCustomerImportCommit(), { wrapper: makeWrapper(transport).Wrapper });
     result.current.mutate({ rows: [] } as never);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.errors.length).toBe(2);
+    expect(result.current.data?.errors).toHaveLength(2);
+    expect(result.current.data?.validCount).toBe(1);
+    expect(result.current.data?.errors[0]?.rowNumber).toBe(2);
   });
 });
 

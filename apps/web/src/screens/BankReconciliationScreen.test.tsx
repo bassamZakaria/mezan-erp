@@ -256,12 +256,12 @@ describe("BankReconciliationScreen — import dialog", () => {
     // The identity/period text fields render in this order: period start,
     // period end, opening balance, closing balance, statement number.
     const [periodStartInput, periodEndInput, openingBalanceInput, closingBalanceInput, statementNumberInput] =
-      within(dialog).getAllByRole("textbox") as [HTMLElement, HTMLElement, HTMLElement, HTMLElement, HTMLElement];
-    await user.type(periodStartInput, "2026-08-01");
-    await user.type(periodEndInput, "2026-08-31");
-    await user.type(openingBalanceInput, "0.00");
-    await user.type(closingBalanceInput, "595.00");
-    await user.type(statementNumberInput, "ST-001");
+      within(dialog).getAllByRole("textbox");
+    await user.type(periodStartInput!, "2026-08-01");
+    await user.type(periodEndInput!, "2026-08-31");
+    await user.type(openingBalanceInput!, "0.00");
+    await user.type(closingBalanceInput!, "595.00");
+    await user.type(statementNumberInput!, "ST-001");
 
     await user.click(within(dialog).getByRole("button", { name: "تعيين الأعمدة" }));
     await pickColumn(user, dialog, "عمود التاريخ *", "التاريخ");

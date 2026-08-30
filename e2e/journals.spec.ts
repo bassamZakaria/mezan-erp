@@ -163,21 +163,17 @@ test.describe("Journal Entries — create: live balance gating", () => {
     await expect(page.getByRole("heading", { name: "إنشاء قيد يومي" })).toBeVisible();
   });
 
-  // BUG: apps/web/src/settings/form-controls.tsx's `Field`/`TextField` render
-  // a <label> with no `htmlFor`, and the <input> beside it has no matching
-  // `id` — so this screen's own memo field (bound through that exact wrapper,
-  // see JournalsScreen.tsx's `t("journals.description2")` field) is never
-  // programmatically associated with its label. A screen reader announces the
-  // field only by its placeholder, not "الوصف *", and clicking the label text
-  // does not focus the input. Every other field in this create form (the line
-  // account/memo/debit/credit cells) sets `aria-label` directly and is fine —
-  // only the header's memo and date fields go through the broken wrapper.
-  test("BUG: the memo field's «الوصف *» label is not associated with its input", async ({ page }) => {
-    test.fail();
-    // A short explicit timeout — the label truly never resolves, so failing
-    // fast (via a locator-level timeout, which test.fail() recognizes) keeps
-    // this from stalling on the whole-test 30s budget (which it would not).
-    await page.getByLabel("الوصف *").fill("قيد اختبار", { timeout: 3000 });
+  // D67 was here: `TextField` rendered a <label> with no `htmlFor` beside an
+  // <input> with no `id`, so this screen's memo field — bound through that
+  // wrapper (JournalsScreen.tsx's `t("journals.description2")`) — had no
+  // accessible name at all. The wrapper now generates the id, and this is the
+  // guarantee that made it a fix rather than a workaround: the label reaches
+  // the control, for a screen reader and for a click on the label text.
+  test("the memo field's «الوصف *» label names its input", async ({ page }) => {
+    const memo = page.getByLabel("الوصف *");
+    await memo.fill("قيد اختبار");
+    await expect(memo).toHaveValue("قيد اختبار");
+    await expect(memo).toHaveAttribute("placeholder", "وصف القيد...");
   });
 
   test("typing an unbalanced entry disables ترحيل القيد; balancing it enables the button", async ({ page }) => {

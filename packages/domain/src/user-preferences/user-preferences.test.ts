@@ -5,6 +5,7 @@ import {
   isDefaultUserPreferences,
   recordRecentlyOpened,
   resetUserPreferences,
+  sanitizeStoredUserPreferences,
   updateUserPreferences,
   validateUserPreferences,
   InvalidUserPreferencesError,
@@ -376,6 +377,26 @@ describe("recordRecentlyOpened", () => {
     expect(prefs.recentRecords[0]!.entityId).toBe(`INV-${RECENT_RECORDS_LIMIT + 4}`);
     expect(prefs.recentRecords.map((r) => r.entityId)).not.toContain("INV-0");
   });
+
+  it("keeps the NEWEST occurrence even when two opens share the exact same openedAt (a tie)", () => {
+    // Same instant is a real case: a client that stamps openedAt itself (the
+    // schema allows it) can send two opens of the same record at one
+    // millisecond-resolution timestamp, and a fixed test/replay clock produces
+    // the same thing. The tie-break must still prefer the SECOND (newer) call,
+    // not fall through to whichever the sort happens to leave first.
+    const sameInstant = "2026-01-01T00:00:00.000Z";
+    const withOne = updateUserPreferences(preferencesFor("u1"), {
+      recentRecords: [recent({ id: "r1", entityId: "INV-1", documentNumber: "OLD", openedAt: sameInstant })],
+    });
+    const reopened = recordRecentlyOpened(
+      withOne,
+      recent({ id: "r2", entityId: "INV-1", documentNumber: "NEW", openedAt: sameInstant }),
+      fixedNow(sameInstant),
+    );
+    expect(reopened.recentRecords).toHaveLength(1);
+    expect(reopened.recentRecords[0]!.id).toBe("r2");
+    expect(reopened.recentRecords[0]!.documentNumber).toBe("NEW");
+  });
 });
 
 describe("resetUserPreferences", () => {
@@ -524,5 +545,67 @@ describe("customizedSections / isDefaultUserPreferences", () => {
   it("flags the dashboard as customized when only the column count changed, even with no widgets", () => {
     const withColumns = updateUserPreferences(preferencesFor("u1"), { dashboard: { columns: 2, widgets: [] } });
     expect(customizedSections(withColumns).dashboard).toBe(true);
+  });
+});
+
+describe("sanitizeStoredUserPreferences — recovering a stored row instead of throwing", () => {
+  it("passes a fully valid row through unchanged (aside from normalization)", () => {
+    const valid = updateUserPreferences(preferencesFor("u1"), {
+      layoutName: "تخطيطي",
+      pinnedScreens: [pin({ id: "p1" })],
+    });
+    const sanitized = sanitizeStoredUserPreferences("u1", valid, fixedNow("2026-02-01T00:00:00.000Z"));
+    expect(sanitized.layoutName).toBe("تخطيطي");
+    expect(sanitized.pinnedScreens).toEqual(valid.pinnedScreens);
+  });
+
+  it("backfills a section missing entirely — a row written before that field existed", () => {
+    const legacy = {
+      userId: "u1",
+      layoutName: "تخطيطي قديم",
+      numerals: null,
+      railCollapsed: true,
+      pinnedScreens: [pin({ id: "p1" })],
+      recentRecords: [],
+      dashboard: { columns: 3, widgets: [] },
+      shortcutTiles: [],
+      // tableViews is entirely absent — the field this row predates.
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    };
+    const sanitized = sanitizeStoredUserPreferences("u1", legacy, fixedNow("2026-02-01T00:00:00.000Z"));
+    expect(sanitized.tableViews).toEqual([]);
+    // Everything else the row DID carry survives.
+    expect(sanitized.layoutName).toBe("تخطيطي قديم");
+    expect(sanitized.railCollapsed).toBe(true);
+    expect(sanitized.pinnedScreens).toEqual([pin({ id: "p1" })]);
+  });
+
+  it("falls back to the shipped default for a value validation would reject even after backfilling", () => {
+    const corrupt = { ...preferencesFor("u1"), dashboard: { columns: 99, widgets: [] } };
+    const sanitized = sanitizeStoredUserPreferences("u1", corrupt, fixedNow("2026-02-01T00:00:00.000Z"));
+    expect(sanitized.dashboard).toEqual({ columns: 3, widgets: [] });
+    expect(sanitized.layoutName).toBe(DEFAULT_LAYOUT_NAME);
+  });
+
+  it("falls back to the default for null, a primitive, or garbage input — never throws", () => {
+    for (const garbage of [null, undefined, "not an object", 42, []]) {
+      expect(() => sanitizeStoredUserPreferences("u1", garbage, fixedNow("2026-02-01T00:00:00.000Z"))).not.toThrow();
+    }
+    expect(sanitizeStoredUserPreferences("u1", null, fixedNow("2026-02-01T00:00:00.000Z"))).toEqual(
+      createDefaultUserPreferences("u1", fixedNow("2026-02-01T00:00:00.000Z")),
+    );
+  });
+
+  it("scopes the recovered default to the REQUESTED userId, never the row's own (possibly stale) one", () => {
+    const rowForSomeoneElse = { ...preferencesFor("u1"), dashboard: { columns: -1, widgets: [] } };
+    const sanitized = sanitizeStoredUserPreferences("u2", rowForSomeoneElse, fixedNow("2026-02-01T00:00:00.000Z"));
+    expect(sanitized.userId).toBe("u2");
+  });
+
+  it("discards an unrecognised numerals value rather than carrying it through", () => {
+    const legacy = { ...preferencesFor("u1"), numerals: "hindi-legacy" };
+    const sanitized = sanitizeStoredUserPreferences("u1", legacy, fixedNow("2026-02-01T00:00:00.000Z"));
+    expect(sanitized.numerals).toBeNull();
   });
 });

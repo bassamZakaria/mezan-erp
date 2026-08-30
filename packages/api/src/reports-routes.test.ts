@@ -13,6 +13,7 @@ import {
   createSqliteVoucherStore,
   createSqliteChequeRepository,
   createStandaloneSqliteSalesReturnStore,
+  createSqliteVanTripRepository,
 } from "@mezan/persistence";
 import {
   Money,
@@ -21,7 +22,20 @@ import {
   type SalesInvoice,
   type SalesInvoiceLine,
   type PurchaseInvoice,
+  type PurchaseInvoiceLine,
   type Cheque,
+  type Item,
+  type Bom,
+  type BomLine,
+  type BomRepository,
+  type Customer,
+  type Supplier,
+  type VanTrip,
+  type InstallmentPlanDocument,
+  type InstallmentLine,
+  type VoucherLine,
+  type FrameworkDocument,
+  StockLedgerService,
 } from "@mezan/domain";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 
@@ -769,5 +783,786 @@ describe("reports routes — sales-by-item and purchases-by-item reconciliation 
     expect(mismatched.reconciliation.referenceTotal).toBe(120);
     expect(mismatched.reconciliation.diff).toBe(-20);
     expect(mismatched.reconciliation.withinTolerance).toBe(false);
+  });
+});
+
+describe("reports routes — D112: the aging reports tie to the AR/AP control account", () => {
+  it("aging/customers' grand total EQUALS the AR (1105) control account balance, after a return and an unapplied cheque", async () => {
+    const { app, deps, salesReturns, cheques } = await newApp();
+    await deps.salesInvoices.save(
+      makeInvoice({
+        id: "inv-tie",
+        docNo: "INV-TIE",
+        date: "2026-01-01",
+        dueDate: "2026-01-01",
+        customerId: "cust-tie",
+        arAccountId: "1105",
+        lines: [makeInvoiceLine({ unitPrice: Money.fromMajor("1000.00"), qty: Qty.fromMajor("1") })],
+      }),
+    );
+    await deps.ledger.save({
+      id: "je-tie-invoice",
+      date: "2026-01-01",
+      memo: "invoice",
+      status: "posted",
+      source: "system",
+      sourceDocType: "SALES_INVOICE",
+      sourceDocId: "inv-tie",
+      lines: [
+        { accountId: "1105", debit: Money.fromMajor("1000.00"), credit: Money.zero() },
+        { accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("1000.00") },
+      ],
+    });
+
+    await salesReturns.save({
+      id: "sr-tie",
+      docType: "SALES_RETURN",
+      docNo: "SRT-TIE",
+      date: "2026-02-01",
+      memo: "return",
+      status: "confirmed",
+      lines: [
+        {
+          itemId: "item-1",
+          warehouseId: "wh-1",
+          customerId: "cust-tie",
+          sourceInvoiceId: "inv-tie",
+          sourceInvoiceNumber: "INV-TIE",
+          reason: "DEFECTIVE",
+          availableQty: Qty.fromMajor("1"),
+          qty: Qty.fromMajor("1"),
+          unitPrice: Money.fromMajor("300.00"),
+          unitCost: Money.fromMajor("60.00"),
+          taxAmount: Money.zero(),
+        },
+      ],
+      createdAt: "2026-02-01T00:00:00.000Z",
+      confirmedAt: "2026-02-01T00:00:00.000Z",
+      reversesDocId: null,
+      reversedByDocId: null,
+      workflowRequestId: null,
+      journalEntryId: null,
+    });
+    await deps.ledger.save({
+      id: "je-tie-return",
+      date: "2026-02-01",
+      memo: "return",
+      status: "posted",
+      source: "system",
+      sourceDocType: "SALES_RETURN",
+      sourceDocId: "sr-tie",
+      lines: [
+        { accountId: "4150", debit: Money.fromMajor("300.00"), credit: Money.zero() },
+        { accountId: "1105", debit: Money.zero(), credit: Money.fromMajor("300.00") },
+      ],
+    });
+
+    await cheques.save(
+      makeCheque({ id: "chq-tie", partyId: "cust-tie", amount: Money.fromMajor("100.00"), dueDate: "2026-03-01", issueDate: "2026-03-01" }),
+    );
+    await deps.ledger.save({
+      id: "je-tie-cheque",
+      date: "2026-03-01",
+      memo: "incoming cheque",
+      status: "posted",
+      source: "system",
+      sourceDocType: "CHEQUE_RECEIPT",
+      sourceDocId: "chq-tie",
+      lines: [
+        { accountId: "1320", debit: Money.fromMajor("100.00"), credit: Money.zero() },
+        { accountId: "1105", debit: Money.zero(), credit: Money.fromMajor("100.00") },
+      ],
+    });
+
+    const asOfDate = "2026-08-22";
+    const body = (await (await app.fetch(req(`/aging/customers?asOfDate=${asOfDate}`, "sales.invoice.view"))).json()) as {
+      rows: { customerId: string; total: number }[];
+    };
+    const row = body.rows.find((r) => r.customerId === "cust-tie");
+    expect(row).toBeDefined();
+
+    // The report's own figure...
+    const reportTotal = row!.total;
+    // ...independently recomputed from the ledger's own AR control account:
+    // 1000 invoiced, less 300 returned, less 100 collected via the cheque.
+    const controlBalance = await deps.ledger.accountBalance("1105", asOfDate);
+    expect(Number(controlBalance.balance.toString())).toBe(700 - 100);
+    expect(reportTotal).toBe(600);
+    expect(reportTotal).not.toBe(0);
+    expect(reportTotal).toBe(Number(controlBalance.balance.toString()));
+  });
+
+  it("aging/suppliers' grand total EQUALS the AP (2100) control account balance", async () => {
+    const { app, deps } = await newApp();
+    const invoice = makePurchaseInvoice({ id: "pi-tie", number: "PI-TIE", supplierId: "sup-tie", date: "2026-01-01", dueDate: "2026-01-01" });
+    await deps.purchaseInvoices.create(invoice);
+    const total = purchaseInvoiceTotal(invoice);
+    expect(total.toString()).toBe("100.000000");
+    await deps.ledger.save({
+      id: "je-tie-purchase",
+      date: "2026-01-01",
+      memo: "purchase invoice",
+      status: "posted",
+      source: "system",
+      sourceDocType: "PURCHASE_INVOICE",
+      sourceDocId: "pi-tie",
+      lines: [
+        { accountId: "1200", debit: Money.fromMajor("100.00"), credit: Money.zero() },
+        { accountId: "2100", debit: Money.zero(), credit: Money.fromMajor("100.00") },
+      ],
+    });
+
+    const asOfDate = "2026-08-22";
+    const body = (await (await app.fetch(req(`/aging/suppliers?asOfDate=${asOfDate}`, "purchases.invoice.view"))).json()) as {
+      rows: { supplierId: string; total: number }[];
+    };
+    const row = body.rows.find((r) => r.supplierId === "sup-tie");
+    expect(row).toBeDefined();
+    const controlBalance = await deps.ledger.accountBalance("2100", asOfDate);
+    // 2100 is a liability/control account: credit − debit is what is owed.
+    const owed = -Number(controlBalance.balance.toString());
+    expect(owed).toBe(100);
+    expect(owed).not.toBe(0);
+    expect(row!.total).toBe(owed);
+  });
+});
+
+describe("reports routes — D111: branch scope is NOT applied to any non-inventory report (pinned LIMITATION)", () => {
+  it("LIMITATION (D111): a caller scoped to one branch still sees every branch's invoices in /sales/by-period", async () => {
+    const { app, deps } = await newApp();
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-br1", docNo: "INV-BR1", date: "2026-08-10", branchId: "br-1", customerId: "cust-br1" }),
+    );
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-br2", docNo: "INV-BR2", date: "2026-08-10", branchId: "br-2", customerId: "cust-br2" }),
+    );
+
+    const scoped = await app.fetch(
+      new Request("http://local/sales/by-period?dateFrom=2026-08-01&dateTo=2026-08-31", {
+        headers: { "x-permissions": "sales.invoice.view", "x-branch-scope": "br-1" },
+      }),
+    );
+    const body = (await scoped.json()) as { kpis: { key: string; value: number }[] };
+    const revenueKpi = body.kpis.find((k) => k.key === "net");
+    // No branch narrowing exists on this route at all: a br-1-scoped caller's
+    // KPI still reflects BOTH invoices' revenue, not just br-1's.
+    expect(revenueKpi).toBeDefined();
+    expect(revenueKpi!.value).toBeGreaterThan(0);
+
+    const rows = (await (
+      await app.fetch(req("/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31", "sales.invoice.view"))
+    ).json()) as { rows: { customerId: string }[] };
+    const scopedRows = await app.fetch(
+      new Request("http://local/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31", {
+        headers: { "x-permissions": "sales.invoice.view", "x-branch-scope": "br-1" },
+      }),
+    );
+    const scopedBody = (await scopedRows.json()) as { rows: { customerId: string }[] };
+    // Both customers appear even though the request was scoped to br-1 only —
+    // the same rows an unscoped caller gets.
+    expect(scopedBody.rows.map((r) => r.customerId).sort()).toEqual(rows.rows.map((r) => r.customerId).sort());
+    expect(scopedBody.rows.some((r) => r.customerId === "cust-br2")).toBe(true);
+  });
+});
+
+function fakeBomRepository(list: readonly Bom[]): BomRepository {
+  return {
+    async findById(id) {
+      return list.find((b) => b.id === id) ?? null;
+    },
+    async list() {
+      return [...list];
+    },
+    async listByProduct(productItemId) {
+      return list.filter((b) => b.productItemId === productItemId);
+    },
+    async create() {
+      throw new Error("not implemented in this fake");
+    },
+    async update() {
+      throw new Error("not implemented in this fake");
+    },
+  };
+}
+
+function makeItem(overrides: Partial<Item> = {}): Item {
+  return {
+    id: "fin-1",
+    code: "SHIRT-1",
+    nameAr: "قميص",
+    nameEn: null,
+    type: "finished_good",
+    baseUnitCode: "PCS",
+    alternateUnits: [],
+    barcodes: [],
+    categoryId: null,
+    brandId: null,
+    description: null,
+    defaultSupplierId: null,
+    seasonId: null,
+    specifications: [],
+    costingMethod: "WAC",
+    salePrice: null,
+    costPrice: null,
+    taxRatePercent: 0,
+    trackInventory: true,
+    trackBatches: false,
+    trackExpiry: false,
+    reorderPoint: null,
+    imageAttachmentId: null,
+    reorderQty: null,
+    revenueAccountId: null,
+    cogsAccountId: null,
+    inventoryAccountId: null,
+    etaCodeType: null,
+    etaItemCode: null,
+    gpcCode: null,
+    status: "active",
+    ...overrides,
+  } as Item;
+}
+
+function makeBomLine(overrides: Partial<BomLine> = {}): BomLine {
+  return { itemId: "raw-1", qty: Qty.fromMajor("5"), wastePercent: 0, optional: false, notes: null, ...overrides };
+}
+
+function makeBom(overrides: Partial<Bom> = {}): Bom {
+  return {
+    id: "bom-1",
+    number: "BOM-000001",
+    productItemId: "fin-1",
+    version: 1,
+    standardQty: Qty.fromMajor("10"),
+    unit: "PCS",
+    laborCost: Money.fromMajor("0.00"),
+    overheadCost: Money.fromMajor("0.00"),
+    versionNotes: null,
+    lines: [makeBomLine()],
+    status: "active",
+    custom: false,
+    createdBy: "system",
+    createdAt: "2026-08-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function makePurchaseInvoiceLine(overrides: Partial<PurchaseInvoiceLine> = {}): PurchaseInvoiceLine {
+  return { itemId: "raw-1", description: null, kind: "inventory", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("10.00"), taxRatePercent: 0, ...overrides };
+}
+
+describe("reports routes — manufacturing/make-vs-buy", () => {
+  it("computes make cost from the BOM and buy cost from confirmed purchases, and picks the cheaper side", async () => {
+    const { deps } = await newApp();
+    await deps.items.create(makeItem());
+    await deps.items.create(makeItem({ id: "raw-1", code: "RAW-1", nameAr: "قماش خام", type: "raw_material" }));
+    await deps.purchaseInvoices.create(
+      makePurchaseInvoice({ id: "pi-raw", number: "PI-RAW", lines: [makePurchaseInvoiceLine({ qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("20.00") })] }),
+    );
+    await deps.purchaseInvoices.create(
+      makePurchaseInvoice({ id: "pi-fin", number: "PI-FIN", lines: [makePurchaseInvoiceLine({ itemId: "fin-1", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("3.00") })] }),
+    );
+
+    const app = createReportsRoutes({ ...deps, boms: fakeBomRepository([makeBom()]) }, insecureHeaderAuthContextResolver);
+    const res = await app.fetch(req("/manufacturing/make-vs-buy", "manufacturing.bom.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rows: { itemId: string; makeCost: number; buyCost: number; diff: number; verdict: string }[] };
+    expect(body.rows).toHaveLength(1);
+    const row = body.rows[0]!;
+    // material = 5 × 20.00 = 100.00; make cost = 100.00 / standardQty(10) = 10.00
+    expect(row.makeCost).toBe(10.0);
+    expect(row.buyCost).toBe(3.0);
+    expect(row.diff).toBe(-7.0);
+    expect(row.verdict).toBe("buy");
+  });
+
+  it("is not mounted at all when no boms port is wired", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/manufacturing/make-vs-buy", "manufacturing.bom.view"));
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("reports routes — field/van-sales", () => {
+  function makeVanTrip(overrides: Partial<VanTrip> = {}): VanTrip {
+    return {
+      id: "trip-1",
+      tripNo: "VT-000001",
+      date: "2026-08-10",
+      branchId: "br-1",
+      vanId: null,
+      vanWarehouseId: "wh-van",
+      vanTreasuryAccountId: "tr-van",
+      sourceWarehouseId: "wh-1",
+      sourceTreasuryAccountId: "tr-main",
+      openingCashFloat: Money.fromMajor("200.00"),
+      crew: [],
+      loadedStock: [{ itemId: "item-1", qty: Qty.fromMajor("50") }],
+      cashMovements: [{ id: "cm-1", kind: "sale", amount: Money.fromMajor("300.00"), occurredAt: "2026-08-10T10:00:00.000Z", notes: null }],
+      status: "settled",
+      openedAt: "2026-08-10T08:00:00.000Z",
+      settledAt: "2026-08-10T18:00:00.000Z",
+      settlement: {
+        expectedCash: Money.fromMajor("500.00"),
+        countedCash: Money.fromMajor("500.00"),
+        cashVariance: Money.zero(),
+        stockCounts: [{ itemId: "item-1", expectedQty: Qty.fromMajor("10"), countedQty: Qty.fromMajor("10"), varianceQty: Qty.zero() }],
+        settledAt: "2026-08-10T18:00:00.000Z",
+      },
+      notes: null,
+      ...overrides,
+    };
+  }
+
+  async function newVanApp() {
+    const vanTrips = createSqliteVanTripRepository();
+    handles.push(vanTrips);
+    const { deps } = await newApp();
+    return { app: createReportsRoutes({ ...deps, vanTrips }, insecureHeaderAuthContextResolver), vanTrips };
+  }
+
+  it("summarizes a settled trip's loaded/returned/dispatched qty and cash reconciliation exactly", async () => {
+    const { app, vanTrips } = await newVanApp();
+    await vanTrips.create(makeVanTrip());
+
+    const res = await app.fetch(req("/field/van-sales?dateFrom=2026-08-01&dateTo=2026-08-31&status=all", "field.van_trip.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rows: { tripId: string; loadedQty: number; returnedQty: number; dispatchedQty: number; salesCash: number; collectionsCash: number; countedCash: number; cashVariance: number }[];
+    };
+    expect(body.rows).toHaveLength(1);
+    const row = body.rows[0]!;
+    expect(row.loadedQty).toBe(50);
+    expect(row.returnedQty).toBe(10);
+    expect(row.dispatchedQty).toBe(40);
+    expect(row.salesCash).toBe(300);
+    expect(row.collectionsCash).toBe(0);
+    expect(row.countedCash).toBe(500);
+    expect(row.cashVariance).toBe(0);
+  });
+
+  it("is not mounted at all when no vanTrips port is wired", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/field/van-sales", "field.van_trip.view"));
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("reports routes — tax/withholding", () => {
+  it("reports gross/rate/withheld/net exactly for a confirmed voucher with a nonzero withholding, and excludes one with none", async () => {
+    const { deps, vouchers } = await newApp();
+    await deps.suppliers.save(makeSupplier({ id: "sup-wh", code: "SUP-WH", nameAr: "مورد الخصم" }));
+    const withheldDoc: FrameworkDocument<VoucherLine> = {
+      id: "v-wh-1",
+      docType: "VOUCHER",
+      docNo: "PAY-000001",
+      date: "2026-05-15",
+      memo: "supplier payment",
+      status: "confirmed",
+      lines: [
+        {
+          voucherType: "supplier_payment",
+          direction: "payment",
+          amount: Money.fromMajor("1000.00"),
+          currency: "EGP",
+          branchId: "br-1",
+          paymentMethod: "bank",
+          treasuryAccountId: "tr-1",
+          treasuryGlAccountId: "1010",
+          counterpartyGlAccountId: "2100",
+          counterTreasuryAccountId: null,
+          counterTreasuryGlAccountId: null,
+          customerId: null,
+          supplierId: "sup-wh",
+          referenceNo: null,
+          withholdingAmount: Money.fromMajor("50.00"),
+          withholdingRatePercent: 5,
+        },
+      ],
+      createdAt: "2026-05-15T00:00:00.000Z",
+      confirmedAt: "2026-05-15T00:00:00.000Z",
+      reversesDocId: null,
+      reversedByDocId: null,
+      workflowRequestId: null,
+      journalEntryId: null,
+    };
+    const noWithholdingDoc: FrameworkDocument<VoucherLine> = {
+      ...withheldDoc,
+      id: "v-nowh",
+      docNo: "PAY-000002",
+      lines: [{ ...withheldDoc.lines[0]!, withholdingAmount: Money.zero(), withholdingRatePercent: 0 }],
+    };
+    await vouchers.documents.save(withheldDoc);
+    await vouchers.documents.save(noWithholdingDoc);
+
+    const res = await app_fetch(deps, "/tax/withholding?fromDate=2026-01-01&toDate=2026-12-31", "accounting.reports.view");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rows: { voucherId: string; partyNameAr: string; grossAmount: number; ratePercent: number; withheldAmount: number; netPaidAmount: number }[];
+    };
+    expect(body.rows).toHaveLength(1);
+    const row = body.rows[0]!;
+    expect(row.voucherId).toBe("v-wh-1");
+    expect(row.partyNameAr).toBe("مورد الخصم");
+    expect(row.grossAmount).toBe(1000);
+    expect(row.ratePercent).toBe(5);
+    expect(row.withheldAmount).toBe(50);
+    expect(row.netPaidAmount).toBe(950);
+  });
+
+  it("date range is inclusive at both boundaries", async () => {
+    const { deps, vouchers } = await newApp();
+    const doc = (offset: string, id: string): FrameworkDocument<VoucherLine> => ({
+      id,
+      docType: "VOUCHER",
+      docNo: id,
+      date: offset,
+      memo: "",
+      status: "confirmed",
+      lines: [
+        {
+          voucherType: "supplier_payment",
+          direction: "payment",
+          amount: Money.fromMajor("100.00"),
+          currency: "EGP",
+          branchId: "br-1",
+          paymentMethod: "cash",
+          treasuryAccountId: "tr-1",
+          treasuryGlAccountId: "1010",
+          counterpartyGlAccountId: "2100",
+          counterTreasuryAccountId: null,
+          counterTreasuryGlAccountId: null,
+          customerId: null,
+          supplierId: null,
+          referenceNo: null,
+          withholdingAmount: Money.fromMajor("10.00"),
+          withholdingRatePercent: 10,
+        },
+      ],
+      createdAt: `${offset}T00:00:00.000Z`,
+      confirmedAt: `${offset}T00:00:00.000Z`,
+      reversesDocId: null,
+      reversedByDocId: null,
+      workflowRequestId: null,
+      journalEntryId: null,
+    });
+    await vouchers.documents.save(doc("2026-08-01", "v-first"));
+    await vouchers.documents.save(doc("2026-08-31", "v-last"));
+    await vouchers.documents.save(doc("2026-07-31", "v-before"));
+    await vouchers.documents.save(doc("2026-09-01", "v-after"));
+
+    const res = await app_fetch(deps, "/tax/withholding?fromDate=2026-08-01&toDate=2026-08-31", "accounting.reports.view");
+    const body = (await res.json()) as { rows: { voucherId: string }[] };
+    expect(body.rows.map((r) => r.voucherId).sort()).toEqual(["v-first", "v-last"]);
+  });
+});
+
+function makeSupplier(overrides: Partial<Supplier> = {}): Supplier {
+  return {
+    id: "sup-1",
+    code: "SUP-1",
+    nameAr: "مورد",
+    nameEn: null,
+    phone: null,
+    email: null,
+    contactPerson: null,
+    taxNumber: null,
+    category: null,
+    notes: null,
+    paymentTermsDays: 30,
+    currency: "EGP",
+    openingBalance: Money.zero(),
+    active: true,
+    addressCity: null,
+    addressDistrict: null,
+    addressStreet: null,
+    ...overrides,
+  };
+}
+
+function makeCustomer(overrides: Partial<Customer> = {}): Customer {
+  return {
+    id: "cust-1",
+    code: "CUST-1",
+    nameAr: "عميل",
+    nameEn: null,
+    phone: null,
+    email: null,
+    contactPerson: null,
+    taxNumber: null,
+    category: null,
+    notes: null,
+    paymentTermsDays: 30,
+    currency: "EGP",
+    openingBalance: Money.zero(),
+    active: true,
+    priceListId: null,
+    creditLimit: Money.zero(),
+    taxExempt: false,
+    etaBuyerType: "B2B",
+    commercialRegistrationNumber: null,
+    address: null,
+    logoAttachmentId: null,
+    nationalId: null,
+    ...overrides,
+  } as Customer;
+}
+
+function app_fetch(deps: ReportsRoutesDeps, path: string, permission: string) {
+  return createReportsRoutes(deps, insecureHeaderAuthContextResolver).fetch(req(path, permission));
+}
+
+describe("reports routes — installments/overdue", () => {
+  function makePlan(overrides: Partial<InstallmentPlanDocument> = {}, lineOverrides: Partial<InstallmentLine> = {}): InstallmentPlanDocument {
+    const id = overrides.id ?? "plan-1";
+    return {
+      id,
+      docType: "INSTALLMENT_PLAN",
+      docNo: `IPL-${id}`,
+      date: "2026-01-01",
+      memo: "",
+      status: "confirmed",
+      lines: [
+        {
+          no: 1,
+          customerId: "cust-inst",
+          sourceInvoiceId: "inv-inst",
+          sourceInvoiceNumber: "INV-INST",
+          frequency: "MONTHLY",
+          downPayment: Money.zero(),
+          dueDate: "2026-06-01",
+          amount: Money.fromMajor("500.00"),
+          paidAmount: Money.zero(),
+          status: "pending",
+          lateFeeAmount: Money.zero(),
+          ...lineOverrides,
+        },
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      confirmedAt: "2026-01-01T00:00:00.000Z",
+      reversesDocId: null,
+      reversedByDocId: null,
+      workflowRequestId: null,
+      journalEntryId: null,
+      ...overrides,
+    };
+  }
+
+  it("ranks by days-late descending and computes the exact remaining amount", async () => {
+    const { app, deps } = await newApp();
+    await deps.installmentPlans.save(
+      makePlan({ id: "plan-old" }, { dueDate: "2026-01-01", amount: Money.fromMajor("500.00"), paidAmount: Money.fromMajor("200.00") }),
+    );
+    await deps.installmentPlans.save(
+      makePlan({ id: "plan-recent" }, { dueDate: "2026-08-01", amount: Money.fromMajor("300.00"), paidAmount: Money.zero() }),
+    );
+    // Not overdue: due date is after asOfDate.
+    await deps.installmentPlans.save(
+      makePlan({ id: "plan-future" }, { dueDate: "2026-09-01", amount: Money.fromMajor("100.00") }),
+    );
+    // Overdue by date but already paid — must not appear.
+    await deps.installmentPlans.save(
+      makePlan({ id: "plan-paid" }, { dueDate: "2026-01-01", amount: Money.fromMajor("100.00"), status: "paid" }),
+    );
+
+    const res = await app.fetch(req("/installments/overdue?asOfDate=2026-08-22", "installments.plan.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rows: { planNo: string; amount: number; remaining: number; daysLate: number; rank: number }[] };
+    expect(body.rows).toHaveLength(2);
+    // Oldest due date is ranked first (largest days-late).
+    expect(body.rows[0]?.planNo).toBe("IPL-plan-old");
+    expect(body.rows[0]?.remaining).toBe(300); // 500 - 200 paid
+    expect(body.rows[0]?.rank).toBe(1);
+    expect(body.rows[1]?.remaining).toBe(300); // 300 - 0 paid
+    expect(body.rows[1]?.rank).toBe(2);
+    expect(body.rows[0]!.daysLate).toBeGreaterThan(body.rows[1]!.daysLate);
+  });
+
+  it("date boundary: a line due exactly on asOfDate is NOT yet overdue, one day earlier IS", async () => {
+    const { app, deps } = await newApp();
+    await deps.installmentPlans.save(makePlan({ id: "plan-on-date" }, { dueDate: "2026-08-22" }));
+    await deps.installmentPlans.save(makePlan({ id: "plan-day-before" }, { dueDate: "2026-08-21" }));
+
+    const res = await app.fetch(req("/installments/overdue?asOfDate=2026-08-22", "installments.plan.view"));
+    const body = (await res.json()) as { rows: { planNo: string }[] };
+    expect(body.rows.map((r) => r.planNo)).toEqual(["IPL-plan-day-before"]);
+  });
+});
+
+describe("reports routes — drill-down/customer/:id", () => {
+  it("404s an unknown customer", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/drill-down/customer/nope", "sales.customer.view"));
+    expect(res.status).toBe(404);
+  });
+
+  it("returns exact billed/outstanding totals and a capped, sorted document list for a known customer", async () => {
+    const { app, deps } = await newApp();
+    await deps.customers.save(makeCustomer({ id: "cust-dd", code: "CUST-DD", nameAr: "عميل التفاصيل", creditLimit: Money.fromMajor("5000.00") }));
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-dd-1", docNo: "INV-DD-1", date: "2026-08-01", customerId: "cust-dd", amountPaid: Money.fromMajor("50.00"), lines: [makeInvoiceLine({ unitPrice: Money.fromMajor("200.00"), qty: Qty.fromMajor("1") })] }),
+    );
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-dd-2", docNo: "INV-DD-2", date: "2026-08-05", customerId: "cust-dd", amountPaid: Money.fromMajor("100.00"), lines: [makeInvoiceLine({ unitPrice: Money.fromMajor("100.00"), qty: Qty.fromMajor("1") })] }),
+    );
+    // A draft invoice must not count — it never left the customer owing anything real.
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-dd-draft", docNo: "INV-DD-DRAFT", date: "2026-08-06", status: "draft", customerId: "cust-dd", lines: [makeInvoiceLine({ unitPrice: Money.fromMajor("9999.00"), qty: Qty.fromMajor("1") })] }),
+    );
+
+    const res = await app.fetch(req("/drill-down/customer/cust-dd", "sales.customer.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      titleAr: string;
+      facts: { key: string; value: string }[];
+      documents: { id: string; amount: number }[];
+      documentCount: number;
+    };
+    expect(body.titleAr).toBe("عميل التفاصيل");
+    const billed = body.facts.find((f) => f.key === "billed");
+    const outstanding = body.facts.find((f) => f.key === "outstanding");
+    // billed: 200 + 100 = 300 (draft excluded)
+    expect(billed?.value).toBe("300.00");
+    // outstanding: (200-50) + (100-100) = 150
+    expect(outstanding?.value).toBe("150.00");
+    expect(body.documentCount).toBe(2);
+    // Newest first.
+    expect(body.documents.map((d) => d.id)).toEqual(["inv-dd-2", "inv-dd-1"]);
+  });
+});
+
+describe("reports routes — drill-down/supplier/:id", () => {
+  it("404s an unknown supplier", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/drill-down/supplier/nope", "purchases.supplier.view"));
+    expect(res.status).toBe(404);
+  });
+
+  it("returns exact billed total and invoice count for a known supplier, excluding a non-confirmed invoice", async () => {
+    const { app, deps } = await newApp();
+    await deps.suppliers.save(makeSupplier({ id: "sup-dd", code: "SUP-DD", nameAr: "مورد التفاصيل" }));
+    await deps.purchaseInvoices.create(
+      makePurchaseInvoice({ id: "pi-dd-1", number: "PI-DD-1", supplierId: "sup-dd", date: "2026-08-01" }),
+    );
+    await deps.purchaseInvoices.create(
+      makePurchaseInvoice({ id: "pi-dd-2", number: "PI-DD-2", supplierId: "sup-dd", date: "2026-08-05" }),
+    );
+    await deps.purchaseInvoices.create(
+      makePurchaseInvoice({ id: "pi-dd-draft", number: "PI-DD-DRAFT", supplierId: "sup-dd", date: "2026-08-06", status: "draft" }),
+    );
+
+    const res = await app.fetch(req("/drill-down/supplier/sup-dd", "purchases.supplier.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { titleAr: string; facts: { key: string; value: string }[]; documentCount: number };
+    expect(body.titleAr).toBe("مورد التفاصيل");
+    // 2 confirmed invoices at 100.00 each = 200.00; the draft is excluded.
+    expect(body.facts.find((f) => f.key === "billed")?.value).toBe("200.00");
+    expect(body.documentCount).toBe(2);
+  });
+});
+
+describe("reports routes — drill-down/item/:id", () => {
+  it("404s an unknown item", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/drill-down/item/nope", "inventory.item.view"));
+    expect(res.status).toBe(404);
+  });
+
+  it("returns exact on-hand/value from snapshots and a movement history for a known item", async () => {
+    const { app, deps } = await newApp();
+    await deps.items.create(makeItem({ id: "item-dd", code: "ITEM-DD", nameAr: "صنف التفاصيل", baseUnitCode: "PCS" }));
+    const stockService = new StockLedgerService({
+      ledger: deps.stockLedger,
+      layers: deps.costLayers,
+      snapshots: deps.wacSnapshots,
+      policy: { allowNegativeStock: false },
+      transaction: async (fn) => fn(),
+    });
+    await stockService.recordOpeningBalance({
+      adjustmentId: "adj-dd",
+      warehouseId: "wh-1",
+      lines: [{ itemId: "item-dd", qty: Qty.fromMajor("40"), unitCost: Money.fromMajor("25.00") }],
+    });
+
+    const res = await app.fetch(req("/drill-down/item/item-dd", "inventory.item.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      titleAr: string;
+      facts: { key: string; value: string }[];
+      documents: { id: string; amount: number }[];
+      documentCount: number;
+    };
+    expect(body.titleAr).toBe("صنف التفاصيل");
+    expect(body.facts.find((f) => f.key === "onHand")?.value).toBe("40");
+    expect(body.facts.find((f) => f.key === "value")?.value).toBe("1000.00");
+    expect(body.documentCount).toBe(1);
+  });
+});
+
+describe("reports routes — drill-down/account/:id", () => {
+  it("404s an unknown account", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/drill-down/account/nope", "accounting.reports.view"));
+    expect(res.status).toBe(404);
+  });
+
+  it("returns exact debit/credit/balance, including a REVERSED entry alongside its reversal", async () => {
+    const { app, deps } = await newApp();
+    await deps.accounts.create({
+      id: "acct-dd",
+      code: "1105",
+      nameAr: "حساب العملاء",
+      nameEn: null,
+      type: "asset",
+      naturalBalance: "debit",
+      parentId: null,
+      isHeader: false,
+      status: "active",
+    });
+    await deps.ledger.save({
+      id: "je-dd-1",
+      date: "2026-08-01",
+      memo: "original",
+      status: "reversed",
+      source: "system",
+      lines: [
+        { accountId: "acct-dd", debit: Money.fromMajor("500.00"), credit: Money.zero() },
+        { accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("500.00") },
+      ],
+    });
+    await deps.ledger.save({
+      id: "je-dd-2",
+      date: "2026-08-02",
+      memo: "reversal",
+      status: "posted",
+      reversesEntryId: "je-dd-1",
+      source: "system",
+      lines: [
+        { accountId: "acct-dd", debit: Money.zero(), credit: Money.fromMajor("500.00") },
+        { accountId: "4100", debit: Money.fromMajor("500.00"), credit: Money.zero() },
+      ],
+    });
+    // An unrelated, unreversed posting on the same account.
+    await deps.ledger.save({
+      id: "je-dd-3",
+      date: "2026-08-03",
+      memo: "unrelated",
+      status: "posted",
+      source: "system",
+      lines: [
+        { accountId: "acct-dd", debit: Money.fromMajor("120.00"), credit: Money.zero() },
+        { accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("120.00") },
+      ],
+    });
+
+    const res = await app.fetch(req("/drill-down/account/acct-dd", "accounting.reports.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { titleAr: string; facts: { key: string; value: string }[]; documentCount: number };
+    expect(body.titleAr).toBe("حساب العملاء");
+    // debit: 500 (original) + 120 (unrelated) = 620; credit: 500 (reversal) = 500; balance = 120.
+    expect(body.facts.find((f) => f.key === "debit")?.value).toBe("620.00");
+    expect(body.facts.find((f) => f.key === "credit")?.value).toBe("500.00");
+    expect(body.facts.find((f) => f.key === "balance")?.value).toBe("120.00");
+    // All three postings touched this account: the original, its reversal, and the unrelated one.
+    expect(body.documentCount).toBe(3);
   });
 });

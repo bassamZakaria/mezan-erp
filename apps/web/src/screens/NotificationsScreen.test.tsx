@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import type { NotificationDTO } from "@mezan/contracts";
 import { NotificationsScreen } from "./NotificationsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import type { ComponentProps } from "react";
 import { NavigationProvider } from "../navigation";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -26,7 +27,7 @@ function TestNavigation({ children, navigate }: { children: ReactNode; navigate:
   return (
     <NavigationProvider
       value={{
-        navigate,
+        navigate: navigate as unknown as ComponentProps<typeof NavigationProvider>["value"]["navigate"],
         segments,
         openSubPage: setSegments,
         openScreenAt: () => {},

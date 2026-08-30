@@ -23,6 +23,11 @@ function flushData(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** The grand-total figure in the sticky summary card — distinct from a single line's own total, which can coincide with it. */
+function grandTotalText(): string | null {
+  return screen.getByText("الإجمالي الكلي").closest("div")?.querySelector(".mz-num")?.textContent ?? null;
+}
+
 function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
@@ -124,6 +129,114 @@ describe("QuoteFormView", () => {
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("الصنف غير متاح للبيع")).toBeInTheDocument();
     void getCreateBody;
+  });
+
+  it("editing qty on line 1 and adding a second line recomputes the summary to the exact decimal total, and both lines' real values reach the request", async () => {
+    const { getCreateBody } = renderForm();
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    await flushData();
+    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+
+    const qty1 = screen.getAllByText("الكمية")[0]!.parentElement!.querySelector("input")!;
+    fireEvent.change(qty1, { target: { value: "3" } });
+
+    // line1: 3 * 200 = 600, tax 14% = 84, total 684 — before the second line exists.
+    await waitFor(() => expect(grandTotalText()).toBe("684.00"));
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    pickFromCombobox(document.body, "الصنف — بند 2", "صنف تجريبي");
+
+    // line2 defaults to qty 1: 1 * 200 = 200, tax 28, total 228. Combined: subtotal 800, tax 112, grand 912.
+    await waitFor(() => expect(grandTotalText()).toBe("912.00"));
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const body = getCreateBody() as Record<string, unknown>;
+    const lines = body.lines as Array<Record<string, unknown>>;
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.qty).toBe("3.000000");
+    expect(lines[0]!.unitPrice).toBe("200.000000");
+    expect(lines[1]!.qty).toBe("1.000000");
+    expect(lines[1]!.unitPrice).toBe("200.000000");
+  });
+
+  it("removing a line drops it from the payload and the grand total falls by exactly that line's own amount", async () => {
+    const { getCreateBody } = renderForm();
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    await flushData();
+    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    const qty1 = screen.getAllByText("الكمية")[0]!.parentElement!.querySelector("input")!;
+    fireEvent.change(qty1, { target: { value: "3" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    pickFromCombobox(document.body, "الصنف — بند 2", "صنف تجريبي");
+    await waitFor(() => expect(grandTotalText()).toBe("912.00"));
+
+    fireEvent.click(screen.getByRole("button", { name: "حذف البند 2" }));
+
+    // Back to a single 684.00 line — the 228.00 removed line's own amount, exactly.
+    await waitFor(() => expect(grandTotalText()).toBe("684.00"));
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const lines = (getCreateBody() as Record<string, unknown>).lines as Array<Record<string, unknown>>;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.qty).toBe("3.000000");
+  });
+
+  it("the remove-line button is disabled on the last remaining line — a quote can never be submitted with zero lines by deleting them all", async () => {
+    renderForm();
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    await flushData();
+    expect(screen.getByRole("button", { name: "حذف البند 1" })).toBeDisabled();
+  });
+
+  it("expanding a line and editing its own discount % and tax % recomputes only that line's total, and reaches the request", async () => {
+    const { getCreateBody } = renderForm();
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    await flushData();
+    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    const qty1 = screen.getAllByText("الكمية")[0]!.parentElement!.querySelector("input")!;
+    fireEvent.change(qty1, { target: { value: "2" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "تفاصيل البند 1" }));
+    const discountInput = screen.getByText("خصم %").parentElement!.querySelector("input")!;
+    fireEvent.change(discountInput, { target: { value: "25" } });
+    const taxInput = screen.getByText("نسبة الضريبة %").parentElement!.querySelector("input")!;
+    fireEvent.change(taxInput, { target: { value: "5" } });
+
+    // gross 2*200=400, line discount 25% = 100, net/base 300, tax 5% of 300 = 15, total 315.
+    // With a single line the line total and grand total coincide.
+    await waitFor(() => expect(grandTotalText()).toBe("315.00"));
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const lines = (getCreateBody() as Record<string, unknown>).lines as Array<Record<string, unknown>>;
+    expect(lines[0]!.discountPercent).toBe(25);
+    expect(lines[0]!.taxRatePercent).toBe(5);
+    expect(lines[0]!.qty).toBe("2.000000");
+  });
+
+  it("the header discount percent reduces the taxable base and grand total by the exact rounded amount, and is carried as a percent discount", async () => {
+    const { getCreateBody } = renderForm();
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    await flushData();
+    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+
+    const discountValueInput = screen.getByText("قيمة الخصم").parentElement!.querySelector("input")!;
+    fireEvent.change(discountValueInput, { target: { value: "10" } });
+
+    // subtotal 200, header discount 10% = 20, taxable 180, tax 14% of 180 = 25.2, grand 205.20.
+    await waitFor(() => expect(grandTotalText()).toBe("205.20"));
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const body = getCreateBody() as Record<string, unknown>;
+    expect(body.discount).toEqual({ type: "percent", percent: 10 });
   });
 
   it("the branch defaults from working location and can be re-picked to a real branch id", async () => {

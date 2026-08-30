@@ -54,6 +54,7 @@ export function buildSalesReturnLinesFromInvoice(
       unitPrice: invLine.unitPrice,
       unitCost: invLine.unitCost,
       taxAmount: taxShare,
+      taxRatePercent: invLine.taxRatePercent ?? null,
     });
   }
   return lines;

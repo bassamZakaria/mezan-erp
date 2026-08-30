@@ -443,33 +443,63 @@ describe("installments plan router — status filters, chips and the KPI strip (
     expect(confirmedBody.paid).toBe("0.000000");
     expect(confirmedBody.remaining).toBe("10000.000000");
 
-    // The unfiltered strip sums all three plans' scheduled amounts — including
-    // C's, see the LIMITATION test below for why that is really a defect.
+    // The unfiltered strip counts all three plans but only sums the money
+    // still live: C was cancelled, so its 10,000 is out (D120).
     const all = await app.fetch(req("/plans/stats", { permissions: VIEW }));
     const allBody = (await all.json()) as { scheduled: string; count: number };
     expect(allBody.count).toBe(3);
-    expect(allBody.scheduled).toBe("30000.000000");
+    expect(allBody.scheduled).toBe("20000.000000");
   });
 
-  it("LIMITATION: cancelling a PLAN does not cancel its LINES, so /stats keeps counting a cancelled plan's installments as live scheduled/remaining money", async () => {
+  it("GUARANTEE (D120): cancelling a PLAN cancels its unpaid LINES, so /stats stops counting them as live money", async () => {
     const app = await scenario();
-    // The route's own comment claims "a cancelled installment is no longer
-    // scheduled money", but `DocumentService.cancel` only flips the document's
-    // own `status` field — it never touches `doc.lines` — and nothing else in
-    // this codebase ever sets an InstallmentLine's status to "cancelled"
-    // (INSTALLMENT_LINE_STATUSES declares it, but no writer produces it). So a
-    // cancelled plan's still-"pending" lines keep contributing to every total.
+    // `DocumentService.cancel` only flipped the document status and never
+    // touched `doc.lines`; nothing in the codebase produced the "cancelled"
+    // line status the enum declares, so a cancelled plan kept contributing
+    // its full scheduled and remaining amounts to every total (D120).
     const plan = (await (await app.fetch(req("/plans/C", { permissions: VIEW }))).json()) as PlanBody;
     expect(plan.status).toBe("cancelled");
-    expect(plan.lines[0]?.status).toBe("pending"); // not "cancelled" — the bug
+    expect(plan.lines.map((l) => l.status)).toEqual(["cancelled"]);
 
     const cancelledOnly = await app.fetch(req("/plans/stats?status=cancelled", { permissions: VIEW }));
     const cancelledBody = (await cancelledOnly.json()) as { scheduled: string; remaining: string; count: number };
     expect(cancelledBody.count).toBe(1);
-    // When this is fixed (either cascade-cancel the lines on plan cancel, or
-    // filter by the plan's own status here) this should read "0.000000".
-    expect(cancelledBody.scheduled).toBe("10000.000000");
-    expect(cancelledBody.remaining).toBe("10000.000000");
+    expect(cancelledBody.scheduled).toBe("0.000000");
+    expect(cancelledBody.remaining).toBe("0.000000");
+
+    // And the unfiltered strip drops the cancelled plan out of the money it
+    // reports as scheduled, while still counting the plan itself.
+    const all = await app.fetch(req("/plans/stats", { permissions: VIEW }));
+    const allBody = (await all.json()) as { scheduled: string; count: number };
+    expect(allBody.count).toBe(3);
+    expect(allBody.scheduled).toBe("20000.000000");
+  });
+
+  it("GUARANTEE (D120): a paid installment stays paid when the plan is cancelled", async () => {
+    // The negative control. Cancelling the plan cancels what is still OWED;
+    // money the customer actually handed over is not erased by it, or the
+    // paid total would fall and the treasury receipt would have nothing to
+    // reconcile against.
+    const deps = await buildDeps();
+    const app = createInstallmentsRoutes(deps, insecureHeaderAuthContextResolver);
+    await app.fetch(req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify({ ...planPayload, id: "PC", installmentCount: 2 }) }));
+
+    const doc = (await deps.plansRepo.findById("PC")) as InstallmentPlanDocument;
+    const settled: InstallmentLine = { ...(doc.lines[0] as InstallmentLine), paidAmount: Money.fromMajor("5000.00"), status: "paid" };
+    await deps.plansRepo.update({ ...doc, lines: [settled, doc.lines[1] as InstallmentLine] });
+
+    await app.fetch(req("/plans/PC/cancel", { method: "POST", permissions: CANCEL, body: "{}" }));
+    const after = (await (await app.fetch(req("/plans/PC", { permissions: VIEW }))).json()) as PlanBody;
+    expect(after.lines.map((l) => l.status)).toEqual(["paid", "cancelled"]);
+
+    const stats = (await (await app.fetch(req("/plans/stats?status=cancelled", { permissions: VIEW }))).json()) as {
+      scheduled: string;
+      paid: string;
+      remaining: string;
+    };
+    expect(stats.scheduled).toBe("5000.000000");
+    expect(stats.paid).toBe("5000.000000");
+    expect(stats.remaining).toBe("0.000000");
   });
 
   it("/stats' remaining figure counts what is owed, not a net position, once a line is overpaid", async () => {

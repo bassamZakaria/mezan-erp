@@ -53,6 +53,15 @@ export interface SalesReturnLine {
   readonly unitCost: Money;
   /** Proportional tax on this line's returned qty (0 if the item/customer is tax-exempt). */
   readonly taxAmount: Money;
+  /**
+   * The VAT rate the source invoice line charged, carried onto the return so
+   * the posting can tag both the credit and its base with it. Without it a
+   * mixed-rate return collapsed into one untagged VAT line and the VAT return
+   * could only divide tax by base, inventing a rate nobody charged (D28, D76).
+   * Optional: a return created before the dimension existed carries none and
+   * posts exactly the entry it always did.
+   */
+  readonly taxRatePercent?: number | null;
 }
 
 export type SalesReturnDocument = FrameworkDocument<SalesReturnLine>;
@@ -162,13 +171,37 @@ export function createSalesReturnDocumentType(
     buildGlPosting(doc): DocumentGlPosting | null {
       const { revenueValue, costValue, taxValue, grandTotal } = totals(doc.lines);
       if (grandTotal.scaled === 0n) return null;
+      // Grouped by the rate the source invoice line charged, so a mixed-rate
+      // return posts one base line and one VAT line PER RATE. The VAT return
+      // reports the rates actually charged, and it can only do that if the
+      // ledger recorded them (D28, D76). Lines carrying no rate group under
+      // `null` and post the single untagged pair they always did.
+      const byRate = new Map<number | null, { base: Money; tax: Money }>();
+      for (const l of doc.lines) {
+        const rate = l.taxRatePercent ?? null;
+        const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
+        byRate.set(rate, { base: slot.base.add(extend(l.qty, l.unitPrice)), tax: slot.tax.add(l.taxAmount) });
+      }
       const lines = [
-        { accountId: accounts.salesReturnsAccountId, debit: revenueValue, credit: Money.zero() },
-        ...(taxValue.scaled > 0n
-          ? [{ accountId: accounts.outputTaxPayableAccountId, debit: taxValue, credit: Money.zero() }]
-          : []),
+        ...[...byRate.entries()]
+          .filter(([, v]) => v.base.scaled !== 0n)
+          .map(([rate, v]) => ({
+            accountId: accounts.salesReturnsAccountId,
+            debit: v.base,
+            credit: Money.zero(),
+            taxRatePercent: rate,
+          })),
+        ...[...byRate.entries()]
+          .filter(([, v]) => v.tax.scaled > 0n)
+          .map(([rate, v]) => ({
+            accountId: accounts.outputTaxPayableAccountId,
+            debit: v.tax,
+            credit: Money.zero(),
+            taxRatePercent: rate,
+          })),
         { accountId: accounts.accountsReceivableId, debit: Money.zero(), credit: grandTotal },
       ];
+
       const stockLines =
         costValue.scaled > 0n
           ? [

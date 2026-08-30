@@ -4,6 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@11.12.0",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "build": "tsc -p tsconfig.json && pnpm --filter @mezan/ui typecheck && pnpm --filter web build",
     "typecheck": "tsc -p tsconfig.json && pnpm --filter @mezan/ui typecheck && pnpm --filter web typecheck",
     "test": "vitest run",

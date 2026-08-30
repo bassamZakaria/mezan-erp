@@ -21,6 +21,13 @@ function labelsByText(label: string): HTMLElement[] {
   return screen.getAllByText(label, { selector: "label" });
 }
 
+/** `Select` is a custom listbox (packages/ui/src/primitives/Select.tsx), not a native `<select>` —
+ * open it and mouseDown the option, the same interaction its own component test uses. */
+function selectOption(comboboxLabel: string, optionLabel: string): void {
+  fireEvent.click(screen.getByRole("combobox", { name: comboboxLabel }));
+  fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
+
 const baseSettings: TenantSettingsDTO = {
   currency: "EGP",
   secondaryCurrencies: ["SAR", "USD", "AED", "EUR", "KWD", "QAR", "JOD"],
@@ -175,5 +182,244 @@ describe("SettingsGeneral", () => {
     expect(screen.getByRole("switch", { name: "السماح بالمخزون السالب" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "يجب وجود أمر شراء قبل استلام البضاعة" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "منع الرصيد السالب للحسابات النقدية" })).toBeInTheDocument();
+  });
+
+  it("drives every field on بيانات المنشأة and الضريبة and PUTs the exact resulting values", async () => {
+    let lastBody: Record<string, unknown> | null = null;
+    let current: TenantSettingsDTO = { ...baseSettings };
+    const transport = stubTransport({
+      "GET /settings": () => ({ body: current }),
+      "PUT /settings": (init) => {
+        lastBody = JSON.parse((init?.body as string) ?? "{}");
+        current = { ...current, ...lastBody };
+        return { body: current };
+      },
+    });
+    renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "بيانات المنشأة" }));
+    fireEvent.change(textboxByLabel("اسم المنشأة"), { target: { value: "شركة سياج الجديدة" } });
+    fireEvent.change(textboxByLabel("الرقم الضريبي"), { target: { value: "300999999900003" } });
+    fireEvent.change(textboxByLabel("السجل التجاري"), { target: { value: "12345" } });
+    fireEvent.change(textboxByLabel("الهاتف"), { target: { value: "0298765432" } });
+    fireEvent.change(textboxByLabel("البريد الإلكتروني"), { target: { value: "new@cyag.example" } });
+    fireEvent.change(textboxByLabel("العنوان"), { target: { value: "مدينة نصر، القاهرة" } });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
+    fireEvent.click(screen.getByRole("switch", { name: "تفعيل ضريبة القيمة المضافة" }));
+    fireEvent.change(textboxByLabel("نسبة الضريبة الافتراضية (%)"), { target: { value: "15" } });
+    selectOption("طريقة حساب الضريبة", "شاملة (مضمنة في السعر)");
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
+
+    const body = lastBody as unknown as Partial<TenantSettingsDTO>;
+    expect(body.companyName).toBe("شركة سياج الجديدة");
+    expect(body.taxRegistrationNumber).toBe("300999999900003");
+    expect(body.commercialRegistrationNumber).toBe("12345");
+    expect(body.phone).toBe("0298765432");
+    expect(body.email).toBe("new@cyag.example");
+    expect(body.address).toBe("مدينة نصر، القاهرة");
+    expect(body.taxEnabled).toBe(false);
+    expect(body.defaultTaxRate).toBe(15);
+    expect(body.taxCalculation).toBe("INCLUSIVE");
+  });
+
+  it("drives every field on الإقليمية والعملة — text, toggle, select and both multi-chip pickers — and PUTs the exact values", async () => {
+    let lastBody: Record<string, unknown> | null = null;
+    const transport = stubTransport({
+      "GET /settings": () => ({ body: baseSettings }),
+      "PUT /settings": (init) => {
+        lastBody = JSON.parse((init?.body as string) ?? "{}");
+        return { body: { ...baseSettings, ...lastBody } };
+      },
+    });
+    renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "الإقليمية والعملة" }));
+
+    fireEvent.change(textboxByLabel("العملة الافتراضية"), { target: { value: "usd" } });
+    fireEvent.click(screen.getByRole("switch", { name: "تفعيل تعدد العملات" }));
+    // Additional currencies: remove SAR (present), add BHD (absent).
+    fireEvent.click(screen.getByRole("button", { name: "SAR" }));
+    fireEvent.click(screen.getByRole("button", { name: "BHD" }));
+    selectOption("سياسة غياب سعر الصرف", "السماح بالمتابعة بدون سعر صرف");
+    selectOption("اللغة الافتراضية", "English");
+    fireEvent.change(textboxByLabel("المنطقة الزمنية"), { target: { value: "Africa/Alexandria" } });
+    fireEvent.change(textboxByLabel("تنسيق التاريخ"), { target: { value: "YYYY-MM-DD" } });
+    selectOption("نظام الأرقام", "أرقام عربية (٠, ١, ٢, ٣)");
+    fireEvent.change(textboxByLabel("بداية السنة المالية (شهر)"), { target: { value: "7" } });
+    selectOption("أول أيام الأسبوع", "الأحد");
+    // Weekend days: drop السبت, add الأحد.
+    fireEvent.click(screen.getByRole("button", { name: "السبت" }));
+    fireEvent.click(screen.getByRole("button", { name: "الأحد" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
+
+    const body = lastBody as unknown as Partial<TenantSettingsDTO>;
+    expect(body.currency).toBe("USD");
+    expect(body.multiCurrencyEnabled).toBe(true);
+    expect(body.secondaryCurrencies).toEqual(expect.arrayContaining(["USD", "AED", "EUR", "KWD", "QAR", "JOD", "BHD"]));
+    expect(body.secondaryCurrencies).not.toContain("SAR");
+    expect(body.fxRateMissingPolicy).toBe("ALLOW_MISSING");
+    expect(body.language).toBe("en");
+    expect(body.timezone).toBe("Africa/Alexandria");
+    expect(body.dateFormat).toBe("YYYY-MM-DD");
+    expect(body.dateNumerals).toBe("arabic");
+    expect(body.fiscalYearStartMonth).toBe(7);
+    expect(body.weekStartDay).toBe(0);
+    expect(body.weekendDays?.slice().sort()).toEqual([0, 5]);
+  });
+
+  it("drives every field on السياسات — every toggle, number and select — and PUTs the exact values, leaving the untouched tabs' fields as they were", async () => {
+    let lastBody: Record<string, unknown> | null = null;
+    const transport = stubTransport({
+      "GET /settings": () => ({ body: baseSettings }),
+      "PUT /settings": (init) => {
+        lastBody = JSON.parse((init?.body as string) ?? "{}");
+        return { body: { ...baseSettings, ...lastBody } };
+      },
+    });
+    renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "السياسات" }));
+
+    fireEvent.click(screen.getByRole("switch", { name: "السماح بالبيع من مستودع آخر" }));
+    fireEvent.click(screen.getByRole("switch", { name: "عرض المخزون في المستودعات الأخرى" }));
+    fireEvent.click(screen.getByRole("switch", { name: "السماح بالطلبات المؤجلة" }));
+    fireEvent.click(screen.getByRole("switch", { name: "السماح بالمخزون السالب" }));
+    fireEvent.click(screen.getByRole("switch", { name: "توليد أرقام الدفعات تلقائيًا" }));
+
+    fireEvent.click(screen.getByRole("switch", { name: "تفعيل مخصص المخزون الراكد" }));
+    fireEvent.change(textboxByLabel("يُعدّ المخزون راكدًا بعد (شهر)"), { target: { value: "9" } });
+    fireEvent.change(textboxByLabel("نسبة المخصص (%)"), { target: { value: "40" } });
+
+    fireEvent.click(screen.getByRole("switch", { name: "يجب وجود أمر شراء قبل استلام البضاعة" }));
+    fireEvent.click(screen.getByRole("switch", { name: "يجب وجود استلام بضاعة قبل فاتورة الشراء" }));
+    fireEvent.click(screen.getByRole("switch", { name: "تتبع البضاعة المستهلكة من فواتير الشراء" }));
+
+    fireEvent.click(screen.getByRole("switch", { name: "تفعيل قوائم الأسعار" }));
+    fireEvent.click(screen.getByRole("switch", { name: "تفعيل الرقابة الائتمانية" }));
+    selectOption("وضع الرقابة", "منع تام (BLOCK)");
+    fireEvent.change(textboxByLabel("أقصى خصم للسطر بلا اعتماد (%)"), { target: { value: "20" } });
+
+    fireEvent.click(screen.getByRole("switch", { name: "منع الرصيد السالب للحسابات النقدية" }));
+    fireEvent.click(screen.getByRole("switch", { name: "السماح بالرصيد السالب للحسابات البنكية" }));
+
+    selectOption("إهلاك شهر الاقتناء", "شهر كامل");
+
+    // Allowed email domains: custom-entry chip, committed with Enter.
+    const domainEntry = screen.getByPlaceholderText("أضف نطاقاً (مثال: mezan.com)");
+    fireEvent.change(domainEntry, { target: { value: "mezan.com" } });
+    fireEvent.keyDown(domainEntry, { key: "Enter" });
+
+    fireEvent.change(textboxByLabel("فترة التنبيه على انتهاء العقد (يوم)"), { target: { value: "45" } });
+    fireEvent.change(textboxByLabel("معامل العمل الإضافي"), { target: { value: "2" } });
+    fireEvent.change(textboxByLabel("ساعات العمل اليومية القياسية"), { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
+
+    const body = lastBody as unknown as Partial<TenantSettingsDTO>;
+    expect(body.allowCrossWarehouseSales).toBe(false);
+    expect(body.showOtherWarehouseStock).toBe(false);
+    expect(body.allowBackorder).toBe(true);
+    expect(body.allowNegativeStock).toBe(true);
+    expect(body.autoGenerateBatchNumbers).toBe(true);
+    expect(body.agingWritedownEnabled).toBe(true);
+    expect(body.agingWritedownMonths).toBe(9);
+    expect(body.agingWritedownRatePercent).toBe(40);
+    expect(body.requirePoForGrn).toBe(true);
+    expect(body.requireGrnForInvoice).toBe(true);
+    expect(body.trackSoldPurchaseItems).toBe(false);
+    expect(body.priceListsEnabled).toBe(false);
+    expect(body.creditControlEnabled).toBe(true);
+    expect(body.creditControlMode).toBe("BLOCK");
+    expect(body.maxLineDiscountPercent).toBe(20);
+    expect(body.preventNegativeCashBalance).toBe(false);
+    expect(body.allowNegativeTreasury).toBe(false);
+    expect(body.depreciationProrate).toBe("FULL_MONTH");
+    expect(body.allowedEmailDomains).toEqual(["mezan.com"]);
+    expect(body.hrContractExpiryWarningDays).toBe(45);
+    expect(body.overtimeMultiplier).toBe(2);
+    expect(body.standardDailyWorkHours).toBe(10);
+    // Fields on the tabs never touched this run rode along unchanged, not blanked.
+    expect(body.companyName).toBe(baseSettings.companyName);
+    expect(body.currency).toBe(baseSettings.currency);
+  });
+
+  it("a toggle round-trips: after save, the switch stays on its saved value across a tab switch — it does not reset to the value the page first loaded with", async () => {
+    let current: TenantSettingsDTO = { ...baseSettings };
+    const transport = stubTransport({
+      "GET /settings": () => ({ body: current }),
+      "PUT /settings": (init) => {
+        const patch = JSON.parse((init?.body as string) ?? "{}") as Partial<TenantSettingsDTO>;
+        current = { ...current, ...patch };
+        return { body: current };
+      },
+    });
+    renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "السياسات" }));
+
+    const toggle = screen.getByRole("switch", { name: "السماح بالمخزون السالب" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
+
+    // Leave the tab and come back — a bug that re-seeds the draft from the
+    // ORIGINAL query data (rather than the server's saved response) would
+    // silently flip this back off.
+    fireEvent.click(screen.getByRole("tab", { name: "بيانات المنشأة" }));
+    fireEvent.click(screen.getByRole("tab", { name: "السياسات" }));
+    expect(screen.getByRole("switch", { name: "السماح بالمخزون السالب" })).toBeChecked();
+  });
+
+  it("a save failure keeps the user's edited values in the form — a multi-tab edit is not reverted by the rejection", async () => {
+    renderScreen();
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "بيانات المنشأة" }));
+    fireEvent.change(textboxByLabel("اسم المنشأة"), { target: { value: "اسم لن يُحفظ" } });
+    fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
+    fireEvent.change(textboxByLabel("نسبة الضريبة الافتراضية (%)"), { target: { value: "999" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+    expect(await screen.findByText("تعذر حفظ الإعدادات.")).toBeInTheDocument();
+    // The rejected out-of-range field AND the untouched-by-the-error field on
+    // the other tab both still hold the user's edits — nothing was reverted.
+    expect(textboxByLabel("نسبة الضريبة الافتراضية (%)")).toHaveValue(999);
+    fireEvent.click(screen.getByRole("tab", { name: "بيانات المنشأة" }));
+    expect(textboxByLabel("اسم المنشأة")).toHaveValue("اسم لن يُحفظ");
+  });
+
+  it("a blank required company name is rejected by the server (this screen has no client-side check), and the field stays empty rather than reverting to the loaded value", async () => {
+    let putCalls = 0;
+    const transport = stubTransport({
+      "GET /settings": () => ({ body: baseSettings }),
+      "PUT /settings": (init) => {
+        putCalls += 1;
+        const patch = JSON.parse((init?.body as string) ?? "{}") as Partial<TenantSettingsDTO>;
+        // Mirrors the real settings wire schema: companyName has a min(1).
+        if ((patch.companyName ?? "").trim() === "") {
+          return { status: 400, body: { error: "VALIDATION_ERROR" } };
+        }
+        return { body: { ...baseSettings, ...patch } };
+      },
+    });
+    renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "بيانات المنشأة" }));
+    fireEvent.change(textboxByLabel("اسم المنشأة"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+
+    expect(await screen.findByText("تعذر حفظ الإعدادات.")).toBeInTheDocument();
+    expect(putCalls).toBe(1);
+    expect(textboxByLabel("اسم المنشأة")).toHaveValue("");
   });
 });

@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../lib/cn";
+import { matchesSearch } from "../lib/search";
 import { useUiTranslation } from "../i18n";
 
 export interface EntityPickerOption {
@@ -45,13 +46,7 @@ export function EntityPicker({
   const inputId = id ?? generatedInputId;
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const filtered =
-    query.trim() === ""
-      ? options
-      : options.filter((option) => {
-          const haystack = `${option.label} ${option.sublabel ?? ""}`.toLowerCase();
-          return haystack.includes(query.trim().toLowerCase());
-        });
+  const filtered = options.filter((option) => matchesSearch(query, option.label, option.sublabel));
 
   function select(option: EntityPickerOption) {
     onChange(option);

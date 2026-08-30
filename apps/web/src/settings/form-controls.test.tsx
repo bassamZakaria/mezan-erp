@@ -43,16 +43,23 @@ describe("TextField", () => {
     expect(screen.getByRole("textbox")).toBeDisabled();
   });
 
-  it("LIMITATION (D67): the label is not associated with the input, so no screen reader announces it", () => {
+  it("names its input with its own label, so a screen reader announces it (D67)", () => {
     renderWithProviders(<TextField label="الاسم" value="" onChange={vi.fn()} />);
+    expect(screen.getByLabelText("الاسم")).toBe(screen.getByRole("textbox"));
+  });
 
-    // The label is on screen…
-    expect(screen.getByText("الاسم")).toBeInTheDocument();
-    // …and reaches nothing: no htmlFor, no matching id, so clicking it does not
-    // focus the field and a screen reader announces an unnamed text box. Every
-    // screen built on this wrapper is affected. When D67 is fixed, this
-    // expectation flips to `toBe(screen.getByRole("textbox"))`.
-    expect(screen.queryByLabelText("الاسم")).not.toBeInTheDocument();
+  it("gives two fields on the same page DIFFERENT ids, so each label reaches its own input", () => {
+    renderWithProviders(
+      <>
+        <TextField label="الاسم" value="محمد" onChange={vi.fn()} />
+        <TextField label="الهاتف" value="0100" onChange={vi.fn()} />
+      </>,
+    );
+    const name = screen.getByLabelText("الاسم") as HTMLInputElement;
+    const phone = screen.getByLabelText("الهاتف") as HTMLInputElement;
+    expect(name.value).toBe("محمد");
+    expect(phone.value).toBe("0100");
+    expect(name.id).not.toBe(phone.id);
   });
 });
 
@@ -71,6 +78,11 @@ describe("NumberField", () => {
     const input = container.querySelector('input[type="number"]') as HTMLInputElement;
     expect(input.value).toBe("");
   });
+
+  it("names its input with its own label (D67)", () => {
+    const { container } = renderWithProviders(<NumberField label="العدد" value={1} onChange={vi.fn()} />);
+    expect(screen.getByLabelText("العدد")).toBe(container.querySelector('input[type="number"]'));
+  });
 });
 
 describe("TextAreaField", () => {
@@ -79,6 +91,11 @@ describe("TextAreaField", () => {
     renderWithProviders(<TextAreaField label="ملاحظات" value="" onChange={onChange} />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "نص طويل" } });
     expect(onChange).toHaveBeenCalledWith("نص طويل");
+  });
+
+  it("names its textarea with its own label (D67)", () => {
+    renderWithProviders(<TextAreaField label="ملاحظات" value="" onChange={vi.fn()} />);
+    expect(screen.getByLabelText("ملاحظات")).toBe(screen.getByRole("textbox"));
   });
 });
 

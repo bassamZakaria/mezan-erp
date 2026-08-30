@@ -704,7 +704,13 @@ export function WorkOrdersScreen() {
         await completeOrder.mutateAsync(order.id);
       }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("workOrders.thatActionCouldNotBe"));
+      const message = err instanceof Error ? err.message : t("workOrders.thatActionCouldNotBe");
+      setActionError(message);
+      // Re-thrown so a caller waiting on this promise — the row menu's own
+      // success/failure toast — learns the action actually failed. Swallowing
+      // it here reported a locked-period refusal as "«بدء التصنيع» تم"، a
+      // false success on a call that never reached the server.
+      throw err instanceof Error ? err : new Error(message);
     }
   }
 
@@ -889,12 +895,23 @@ export function WorkOrdersScreen() {
   if (selected) {
     return (
       <>
+        {actionError && !buildPanelOpen ? (
+          <Card className="mb-[18px] p-[18px_20px]">
+            <p role="alert" className="text-[13px] font-semibold text-danger-ink">
+              {actionError}
+            </p>
+          </Card>
+        ) : null}
         <WorkOrderDetail
           order={selected}
           itemName={itemName}
           warehouseName={warehouseName}
           onBack={() => setSelectedId(null)}
-          onAdvance={() => advance(selected)}
+          onAdvance={() => {
+            advance(selected).catch(() => {
+              // Surfaced already via `actionError`, rendered just below.
+            });
+          }}
           advancing={advancing}
         />
         {createPanel}
@@ -986,7 +1003,7 @@ export function WorkOrdersScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => setSelectedId(o.id) },
             ...(next && o.status !== "cancelled" && o.status !== "completed"
-              ? [{ key: "advance", label: t(next), onSelect: () => void advance(o) }]
+              ? [{ key: "advance", label: t(next), onSelect: () => advance(o) }]
               : []),
           ];
           return (

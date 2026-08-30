@@ -6,6 +6,7 @@ export {
   HeaderAccountNotPostableError,
   CircularParentAccountError,
   HeaderAccountHasChildrenError,
+  AccountHasPostingsError,
 } from "./errors.js";
 export {
   buildAccountTree,
@@ -18,7 +19,7 @@ export {
   type FlattenedAccountRow,
 } from "./hierarchy.js";
 export { validateNewAccount, createAccount, type CreateAccountCommand } from "./create-account.js";
-export { updateAccount, type UpdateAccountCommand } from "./update-account.js";
+export { updateAccount, type UpdateAccountCommand, type PostedAccountLookup } from "./update-account.js";
 export { STANDARD_COA_TEMPLATE, seedStandardChartOfAccounts } from "./coa-template.js";
 
 export {

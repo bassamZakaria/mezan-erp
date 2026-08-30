@@ -236,11 +236,22 @@ export function validateUserPreferences(preferences: UserPreferences): readonly 
   return reasons;
 }
 
-/** Newest first, deduplicated on (entityType, entityId), capped — the shape the recents menu renders directly. */
+/**
+ * Newest first, deduplicated on (entityType, entityId), capped — the shape
+ * the recents menu renders directly.
+ *
+ * The comparator returns 0 on a tie (same `openedAt` instant — a real case:
+ * a client-stamped timestamp, or two opens within one clock tick) so
+ * `Array.prototype.sort`'s stability keeps the pre-sort order, which already
+ * has the newest call FIRST (`recordRecentlyOpened` prepends). A comparator
+ * that never returns 0 is not antisymmetric on a tie and silently lets the
+ * engine's sort put either side first — the dedupe below would then keep
+ * whichever one that was, not necessarily the newer one.
+ */
 function trimRecents(records: readonly RecentRecord[]): readonly RecentRecord[] {
   const seen = new Set<string>();
   const kept: RecentRecord[] = [];
-  for (const record of [...records].sort((a, b) => (a.openedAt < b.openedAt ? 1 : -1))) {
+  for (const record of [...records].sort((a, b) => (a.openedAt === b.openedAt ? 0 : a.openedAt < b.openedAt ? 1 : -1))) {
     const key = `${record.entityType}::${record.entityId}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -368,4 +379,48 @@ export function customizedSections(preferences: UserPreferences): CustomizedSect
 /** True when nothing has been customised — the reset control has nothing to undo. */
 export function isDefaultUserPreferences(preferences: UserPreferences): boolean {
   return Object.values(customizedSections(preferences)).every((changed) => !changed);
+}
+
+/**
+ * Recovers a stored row that does not (or no longer) shape up as a valid
+ * {@link UserPreferences} — a row written before a section existed, one
+ * hand-edited in the database, or one carrying a value a later validation
+ * rule now rejects. Missing/wrong-typed sections fall back to the shipped
+ * default for THAT section only; if the merged result still fails
+ * `validateUserPreferences`, the whole row degrades to the plain default.
+ *
+ * Never throws. Without this a shape drift in stored data (a field added to
+ * {@link UserPreferences} after rows already existed) turns the self-service
+ * `GET /preferences` into a 500 for every user whose row predates the field,
+ * rather than the empty-but-usable layout a first-time user gets.
+ */
+export function sanitizeStoredUserPreferences(
+  userId: string,
+  stored: unknown,
+  now: () => Date = () => new Date(),
+): UserPreferences {
+  const defaults = createDefaultUserPreferences(userId, now);
+  if (!stored || typeof stored !== "object") return defaults;
+  const raw = stored as Partial<UserPreferences>;
+  const dashboard =
+    raw.dashboard &&
+    typeof raw.dashboard === "object" &&
+    typeof raw.dashboard.columns === "number" &&
+    Array.isArray(raw.dashboard.widgets)
+      ? raw.dashboard
+      : defaults.dashboard;
+  const candidate: UserPreferences = {
+    userId,
+    layoutName: typeof raw.layoutName === "string" && raw.layoutName.trim() !== "" ? raw.layoutName : defaults.layoutName,
+    numerals: raw.numerals === "western" || raw.numerals === "arabic" ? raw.numerals : null,
+    railCollapsed: typeof raw.railCollapsed === "boolean" ? raw.railCollapsed : defaults.railCollapsed,
+    pinnedScreens: Array.isArray(raw.pinnedScreens) ? raw.pinnedScreens : defaults.pinnedScreens,
+    recentRecords: Array.isArray(raw.recentRecords) ? raw.recentRecords : defaults.recentRecords,
+    dashboard,
+    shortcutTiles: Array.isArray(raw.shortcutTiles) ? raw.shortcutTiles : defaults.shortcutTiles,
+    tableViews: Array.isArray(raw.tableViews) ? raw.tableViews : defaults.tableViews,
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : defaults.createdAt,
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : defaults.updatedAt,
+  };
+  return validateUserPreferences(candidate).length === 0 ? normalize(candidate) : defaults;
 }

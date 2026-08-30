@@ -63,3 +63,45 @@ describe("createInventoryValuationReport", () => {
     expect(outcome.grandTotals.totalValue).toBe(1250);
   });
 });
+
+describe("createInventoryValuationReport — the tie to the inventory control account (D112)", () => {
+  /**
+   * This is the single test that proves the costing engine: what the stock
+   * sub-ledger says the stock is worth must equal what every receipt, issue,
+   * adjustment and landed cost posted to GL 1200. The report declared no
+   * `reconciliation` at all, so nothing compared the two.
+   */
+  const definition = createInventoryValuationReport();
+  const twoItems = {
+    items: [item(), item({ id: "item-b", code: "SKU-B", nameAr: "صنف ب" })],
+    snapshots: [
+      snapshot({ itemId: "item-a", onHand: Qty.fromMajor("12"), totalValue: Money.fromMajor("1250.50"), averageCost: Money.fromMajor("104.208333") }),
+      snapshot({ itemId: "item-b", onHand: Qty.fromMajor("40"), totalValue: Money.fromMajor("3400.00"), averageCost: Money.fromMajor("85.00") }),
+    ],
+  };
+
+  it("ties when the valuation and GL 1200 hold the same NON-ZERO balance", () => {
+    const outcome = runReport(definition, { search: "", warehouseId: "" }, { ...twoItems, inventoryControlBalance: () => 4650.5 });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    expect(outcome.reconciliation?.reportTotal).toBe(4650.5);
+    expect(outcome.reconciliation?.referenceTotal).toBe(4650.5);
+    expect(outcome.reconciliation?.diff).toBe(0);
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+
+  it("flags a landed cost that debited GL 1200 and never reached the stock sub-ledger", () => {
+    // Exactly the D135 shape: 250.00 of freight booked after the goods were
+    // sold. The GL took it into inventory; the valuation cannot carry it
+    // because there are no units left to carry it.
+    const outcome = runReport(definition, { search: "", warehouseId: "" }, { ...twoItems, inventoryControlBalance: () => 4900.5 });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    expect(outcome.reconciliation?.reportTotal).toBe(4650.5);
+    expect(outcome.reconciliation?.referenceTotal).toBe(4900.5);
+    expect(outcome.reconciliation?.diff).toBe(-250);
+    expect(outcome.reconciliation?.withinTolerance).toBe(false);
+  });
+});

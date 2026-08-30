@@ -22,6 +22,13 @@ export interface AgingSuppliersContext {
    * this report did before payments could be recorded against a supplier.
    */
   readonly allocatedByInvoiceId?: ReadonlyMap<string, Money>;
+  /**
+   * Balance of the AP CONTROL account in the GL as of `asOfDate` (D112). Same
+   * reason as the customer ladder: the report walks invoices, the control
+   * account holds what they posted, and a difference means one of the two is
+   * wrong. Optional — omit it and the report makes no claim to tie.
+   */
+  readonly payablesControlBalance?: (params: AgingSuppliersParams) => number;
 }
 
 export interface AgingSuppliersParams {
@@ -90,6 +97,13 @@ export function createAgingSuppliersReport(
       { key: "over120", header: "أكثر من 120 يوم", format: "money", align: "end", total: true, value: (row) => row.over120 },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
     ],
+    reconciliation: {
+      labelAr: "إجمالي أعمار الديون مقابل حساب الموردين في دفتر الأستاذ",
+      computeReportTotal: (rows) => sumRows(rows, (row) => row.total),
+      computeReferenceTotal: (_rows, ctx, params) => ctx.payablesControlBalance?.(params) ?? 0,
+      available: (ctx) => ctx.payablesControlBalance !== undefined,
+      toleranceMoney: 0.01,
+    },
     chart: {
       labelColumn: "supplierNameAr",
       valueColumn: "total",

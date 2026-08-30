@@ -67,8 +67,9 @@ describe("startLanHost", () => {
  * `apps/desktop/src/main/index.ts` ships.
  *
  * D109 was: the socket served `app.fetch` whole, so every router the backend
- * mounts — `/bootstrap/*`, `/users`, `/gl`, `/reports`, and the ungated legacy
- * `POST /journal-entries` (D99) — answered anyone on the shop wifi. The
+ * mounts — `/bootstrap/*`, `/users`, `/gl`, `/reports`, and the then-ungated
+ * legacy `POST /journal-entries` (D99, gated since) — answered anyone on the
+ * shop wifi. The
  * allow-list in lan-host.ts is what closed it; these are the tests that keep
  * it closed, because a route added to the backend next month must not become
  * LAN-reachable by default.
@@ -215,9 +216,11 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
       body: JSON.stringify({ ...entry, id: "JE-STILL-OPEN" }),
     });
 
-    // `POST /journal-entries` is ungated inside the app regardless of the
-    // resolver (D99), which is exactly why the allow-list — not the resolver —
-    // is what has to keep it off this socket.
+    // D99 has since put a permission gate on `POST /journal-entries`, so with a
+    // real session resolver a stranger would get 401 from the gate. This still
+    // asserts 404, and that difference is the point: the allow-list refuses the
+    // route before any gate is consulted, so the socket's safety does not
+    // depend on every route below it having been remembered.
     expect(res.status).toBe(404);
     expect(await uow.journal.findById("JE-STILL-OPEN")).toBeNull();
 

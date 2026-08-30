@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteNotificationStore, type SqliteNotificationStoreHandle } from "@mezan/persistence";
-import type { Notification } from "@mezan/domain";
+import { ALL_SCOPE, createAuthContext, type Notification } from "@mezan/domain";
 import { createNotificationsRoutes } from "./notifications-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
@@ -107,5 +107,75 @@ describe("notifications router — scoped to the caller", () => {
 
     expect((await repo.countUnread("u-1"))).toBe(0);
     expect((await repo.countUnread("u-2"))).toBe(1);
+  });
+});
+
+/**
+ * The bell panel's routes take the caller's identity as the WHOLE
+ * authorization — which is correct, and is exactly why an unidentified caller
+ * must be turned away rather than served as `"anonymous"` (D132). A resolver
+ * reporting `authenticated: false` is what a real session store returns for an
+ * expired or unknown session.
+ */
+describe("an unidentified caller (D132)", () => {
+  function newAppWithoutSession() {
+    const repo = createSqliteNotificationStore();
+    handles.push(repo);
+    const app = createNotificationsRoutes(repo, () =>
+      createAuthContext({
+        userId: "anonymous",
+        permissions: [],
+        branchScope: ALL_SCOPE,
+        warehouseScope: ALL_SCOPE,
+        authenticated: false,
+      }),
+    );
+    return { app, repo };
+  }
+
+  it("is refused 401 on POST /:id/read, and the notification stays unread", async () => {
+    const { app, repo } = newAppWithoutSession();
+    await repo.save(makeNotification({ id: "n1", recipientUserId: "anonymous", status: "unread" }));
+
+    const res = await app.fetch(new Request("http://local/n1/read", { method: "POST" }));
+
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { error: string }).error).toBe("SESSION_EXPIRED");
+    // The side effect is the point: a 401 that still marked it read would be
+    // the same bug wearing a better status code.
+    expect(await repo.countUnread("anonymous")).toBe(1);
+  });
+
+  it("is refused 401 on POST /read-all, and every notification stays unread", async () => {
+    const { app, repo } = newAppWithoutSession();
+    await repo.save(makeNotification({ id: "n1", recipientUserId: "anonymous", status: "unread" }));
+    await repo.save(makeNotification({ id: "n2", recipientUserId: "anonymous", status: "unread" }));
+
+    const res = await app.fetch(new Request("http://local/read-all", { method: "POST" }));
+
+    expect(res.status).toBe(401);
+    expect(await repo.countUnread("anonymous")).toBe(2);
+  });
+
+  it("is refused 401 on the reads too, so an expired session cannot be mistaken for an empty inbox", async () => {
+    const { app, repo } = newAppWithoutSession();
+    await repo.save(makeNotification({ id: "n1", recipientUserId: "anonymous", status: "unread" }));
+
+    expect((await app.fetch(new Request("http://local/"))).status).toBe(401);
+    expect((await app.fetch(new Request("http://local/unread-count"))).status).toBe(401);
+  });
+
+  it("still serves an authenticated caller — the gate asks for a session, not for a permission", async () => {
+    const repo = createSqliteNotificationStore();
+    handles.push(repo);
+    const app = createNotificationsRoutes(repo, () =>
+      createAuthContext({ userId: "u-1", permissions: [], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }),
+    );
+    await repo.save(makeNotification({ id: "n1", recipientUserId: "u-1", status: "unread" }));
+
+    const read = await app.fetch(new Request("http://local/n1/read", { method: "POST" }));
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as { status: string }).status).toBe("read");
+    expect(await repo.countUnread("u-1")).toBe(0);
   });
 });

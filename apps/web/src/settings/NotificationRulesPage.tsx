@@ -170,22 +170,42 @@ export function NotificationRulesPage() {
     setForm(emptyForm());
   }
 
+  /**
+   * Every exit from the panel discards the draft — «إلغاء», the panel's own
+   * close control, and the scrim. Reopening on an abandoned draft with «حفظ»
+   * already live is how the next rule saved becomes the one they threw away
+   * (D134).
+   */
+  function closePanel() {
+    setPanelOpen(false);
+    resetForm();
+  }
+
   async function submit() {
     if (!form.name.trim() || !form.recipientValue.trim() || form.channels.length === 0) return;
-    await create.mutateAsync({
-      name: form.name.trim(),
-      eventCode: form.eventCode,
-      condition: form.hasCondition
-        ? { field: form.conditionField.trim(), operator: form.conditionOperator, value: form.conditionValue.trim() }
-        : null,
-      recipientType: form.recipientType,
-      recipientValue: form.recipientValue,
-      priority: form.priority,
-      channels: form.channels,
-      titleAr: form.titleAr.trim() || null,
-      bodyAr: form.bodyAr.trim() || null,
-      active: true,
-    });
+    // `onClick={submit}` does not await this, so a rejected mutation escapes as
+    // an unhandled promise rejection. react-query still renders the server's
+    // message, which is why it stays invisible until something else listens
+    // for rejections. Same shape as D124.
+    try {
+      await create.mutateAsync({
+        name: form.name.trim(),
+        eventCode: form.eventCode,
+        condition: form.hasCondition
+          ? { field: form.conditionField.trim(), operator: form.conditionOperator, value: form.conditionValue.trim() }
+          : null,
+        recipientType: form.recipientType,
+        recipientValue: form.recipientValue,
+        priority: form.priority,
+        channels: form.channels,
+        titleAr: form.titleAr.trim() || null,
+        bodyAr: form.bodyAr.trim() || null,
+        active: true,
+      });
+    } catch {
+      // The panel stays open on the draft; `create.isError` shows the message.
+      return;
+    }
     setPanelOpen(false);
     resetForm();
   }
@@ -294,7 +314,7 @@ export function NotificationRulesPage() {
         }
       />
 
-      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("notifRules.panel.title")}>
+      <SidePanel open={panelOpen} onClose={closePanel} title={t("notifRules.panel.title")}>
         <div className="flex flex-col gap-4 p-5">
           <TextField label={t("notifRules.field.name")} value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder={t("notifRules.field.namePlaceholder")} />
 
@@ -382,7 +402,7 @@ export function NotificationRulesPage() {
           ) : null}
 
           <div className="flex gap-2 pt-2">
-            <Button variant="default" onClick={() => setPanelOpen(false)}>
+            <Button variant="default" onClick={closePanel}>
               {t("notifRules.cancel")}
             </Button>
             <Button

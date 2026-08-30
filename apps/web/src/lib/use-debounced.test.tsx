@@ -84,9 +84,12 @@ describe("useDebounced", () => {
 
 describe("EMPTY", () => {
   it("is the same array every time, so a memo dependency can hold still", () => {
-    const maybeUndefined: readonly unknown[] | undefined = undefined;
-    const first: readonly unknown[] = maybeUndefined ?? EMPTY;
-    const second: readonly unknown[] = maybeUndefined ?? EMPTY;
+    // A memo dependency must hold still between renders, so the fallback has
+    // to be the SAME array each time, not a fresh [] — this is what stops a
+    // `useMemo([...deps])` re-running on every render for no reason.
+    const maybe: readonly unknown[] | undefined = undefined;
+    const first: readonly unknown[] = maybe ?? EMPTY;
+    const second: readonly unknown[] = maybe ?? EMPTY;
     expect(first).toBe(second);
     expect(first).toHaveLength(0);
   });

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { ItemDTO } from "@mezan/contracts";
 import { ConfigurableProductsScreen } from "./ConfigurableProductsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -206,6 +206,37 @@ describe("ConfigurableProductsScreen", () => {
     expect(await screen.findByRole("heading", { name: "المنتجات القابلة للتهيئة" })).toBeInTheDocument();
   });
 
+  it("reports failure — not a false success — when deactivating from the row menu is refused by the server", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/configurable-products": () => ({ body: [product()] }),
+      "GET /items": () => ({ body: items }),
+      "POST /manufacturing/configurable-products/cp-1/deactivate": () => ({ status: 409, body: { error: "IN_USE", message: "لا يمكن تعطيل منتج له أوامر تصنيع مخصص مفتوحة" } }),
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <ConfigurableProductsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("نافذة قابلة للتهيئة");
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات نافذة قابلة للتهيئة" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "تعطيل" }));
+    // «تعطيل» is destructive (tone: danger), so RowMenu asks for confirmation first.
+    const confirmDialog = screen.getByRole("dialog", { name: /تأكيد/ });
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "تعطيل" }));
+
+    // Two independent surfaces must both report the failure: the row menu's
+    // own toast (generic "«action» could not be completed"), and the screen's
+    // own actionError banner with the server's exact message.
+    await screen.findByText("لا يمكن تعطيل منتج له أوامر تصنيع مخصص مفتوحة");
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts.some((el) => el.textContent?.includes("تعذّر تنفيذ"))).toBe(true);
+    expect(screen.queryByRole("status", { name: /تم تنفيذ/ })).not.toBeInTheDocument();
+    const row = screen.getByText("نافذة قابلة للتهيئة").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText("نشط")).toBeInTheDocument();
+  });
+
   it("shows an error banner with a retry action when configurable products fail to load", async () => {
     const transport = stubTransport({
       "GET /manufacturing/configurable-products": () => ({ status: 500, body: { error: "INTERNAL" } }),
@@ -219,5 +250,132 @@ describe("ConfigurableProductsScreen", () => {
     );
     expect(await screen.findByText("تعذّر تحميل المنتجات القابلة للتهيئة.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+  });
+
+  it("adds and removes input/material rows, and only sends the rows the operator actually filled in", async () => {
+    let createdBody: Record<string, unknown> | null = null;
+    const transport = stubTransport({
+      "GET /manufacturing/configurable-products": () => ({ body: [] }),
+      "GET /items": () => ({ body: items }),
+      "POST /manufacturing/configurable-products": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 201, body: { ...product(), id: "cp-2", code: "DOOR" } };
+      },
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <ConfigurableProductsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "إضافة منتج قابل للتهيئة" }));
+    await screen.findByRole("heading", { name: "منتج قابل للتهيئة جديد" });
+    const page = document.body;
+
+    fireEvent.change(textFieldInput(page, "الكود *"), { target: { value: "DOOR" } });
+    fireEvent.change(textFieldInput(page, "الاسم بالعربية *"), { target: { value: "باب قابل للتهيئة" } });
+    pickFromCombobox(page, "المنتج الناتج *", "نافذة مخصصة");
+
+    // Two input rows; only the second gets filled in.
+    fireEvent.click(screen.getByRole("button", { name: "إضافة مدخل" }));
+    const idFields = screen.getAllByText("المعرف (للمعادلات)", { selector: "label" });
+    expect(idFields).toHaveLength(2);
+    const secondIdInput = idFields[1]!.parentElement!.querySelector("input")!;
+    const secondLabelInput = screen.getAllByText("التسمية", { selector: "label" })[1]!.parentElement!.querySelector("input")!;
+    fireEvent.change(secondIdInput, { target: { value: "height" } });
+    fireEvent.change(secondLabelInput, { target: { value: "الارتفاع" } });
+    // Remove the first (blank) input row — only the filled one must remain.
+    fireEvent.click(screen.getAllByRole("button", { name: "حذف المدخل" })[0]!);
+    expect(screen.getAllByText("المعرف (للمعادلات)", { selector: "label" })).toHaveLength(1);
+
+    // Materials: fill the first row, add a second, then remove the second.
+    pickFromCombobox(page, "الصنف", "زجاج (م²)");
+    fireEvent.change(textFieldInput(page, "معادلة الكمية"), { target: { value: "height/100" } });
+    fireEvent.change(textFieldInput(page, "نسبة الهالك %"), { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة خامة" }));
+    expect(screen.getAllByText("معادلة الكمية", { selector: "label" })).toHaveLength(2);
+    // Row 0 is the one already filled in — remove the blank row 1 instead.
+    fireEvent.click(screen.getAllByRole("button", { name: "حذف الخامة" })[1]!);
+    expect(screen.getAllByText("معادلة الكمية", { selector: "label" })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+    await waitFor(() => expect(createdBody).not.toBeNull());
+    expect(createdBody).toMatchObject({
+      code: "DOOR",
+      inputs: [{ id: "height", labelAr: "الارتفاع", min: null, max: null }],
+      materials: [{ itemId: "item-glass", qtyFormula: "height/100", wastePercent: 8 }],
+    });
+  });
+
+  it("requires a price formula only once pricing is switched to formula, and sends it exactly", async () => {
+    let createdBody: Record<string, unknown> | null = null;
+    const transport = stubTransport({
+      "GET /manufacturing/configurable-products": () => ({ body: [] }),
+      "GET /items": () => ({ body: items }),
+      "POST /manufacturing/configurable-products": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 201, body: { ...product(), id: "cp-2" } };
+      },
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <ConfigurableProductsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "إضافة منتج قابل للتهيئة" }));
+    await screen.findByRole("heading", { name: "منتج قابل للتهيئة جديد" });
+    const page = document.body;
+    fireEvent.change(textFieldInput(page, "الكود *"), { target: { value: "DOOR" } });
+    fireEvent.change(textFieldInput(page, "الاسم بالعربية *"), { target: { value: "باب قابل للتهيئة" } });
+    pickFromCombobox(page, "المنتج الناتج *", "نافذة مخصصة");
+    fireEvent.change(textFieldInput(page, "المعرف (للمعادلات)"), { target: { value: "width" } });
+    fireEvent.change(textFieldInput(page, "التسمية"), { target: { value: "العرض" } });
+    pickFromCombobox(page, "الصنف", "زجاج (م²)");
+    fireEvent.change(textFieldInput(page, "معادلة الكمية"), { target: { value: "width/100" } });
+
+    const save = screen.getByRole("button", { name: "حفظ" });
+    expect(screen.queryByText("معادلة السعر (للوحدة) *")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "طريقة التسعير" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: "معادلة" }));
+    expect(save).toBeDisabled();
+
+    fireEvent.change(textFieldInput(page, "معادلة السعر (للوحدة) *"), { target: { value: "width*height*3.5/100" } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+
+    await waitFor(() => expect(createdBody).not.toBeNull());
+    expect(createdBody).toMatchObject({ pricingMethod: "formula", priceFormula: "width*height*3.5/100" });
+  });
+
+  it("filters by status and search, opens the detail from the row menu's «عرض», and rows-per-page is wired through", async () => {
+    const inactive = product({ id: "cp-2", code: "DOOR", nameAr: "باب قابل للتهيئة", status: "inactive" });
+    renderScreen([product(), inactive]);
+    await screen.findByText("نافذة قابلة للتهيئة");
+
+    fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
+    expect(await screen.findByText("باب قابل للتهيئة")).toBeInTheDocument();
+    expect(screen.queryByText("نافذة قابلة للتهيئة")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /الكل/ }));
+    await screen.findByText("نافذة قابلة للتهيئة");
+    fireEvent.change(screen.getByPlaceholderText("بحث بالكود أو الاسم…"), { target: { value: "DOOR" } });
+    await waitFor(() => expect(screen.queryByText("نافذة قابلة للتهيئة")).not.toBeInTheDocument());
+    expect(screen.getByText("باب قابل للتهيئة")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("بحث بالكود أو الاسم…"), { target: { value: "" } });
+    await screen.findByText("نافذة قابلة للتهيئة");
+
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات نافذة قابلة للتهيئة" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "عرض" }));
+    expect(await screen.findByRole("heading", { name: /نافذة قابلة للتهيئة/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "رجوع للمنتجات القابلة للتهيئة" }));
+
+    await screen.findByText("نافذة قابلة للتهيئة");
+    fireEvent.click(screen.getByRole("combobox", { name: "صفوف لكل صفحة" }));
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "50" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "صفوف لكل صفحة" })).toHaveTextContent("50"));
   });
 });

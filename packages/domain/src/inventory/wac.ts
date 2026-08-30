@@ -39,6 +39,15 @@ export interface WacPosition {
   readonly averageCost: Money;
   /** Immutable layers with their current remainders, in FIFO (receipt) order. */
   readonly layers: readonly CostLayer[];
+  /**
+   * Landed cost this ledger could NOT capitalise, because the goods it
+   * attaches to had already been issued by the time it was booked (D84, D135).
+   * It is a period cost: the caller must post it to cost of sales (or a
+   * purchase-price-variance account) instead of to inventory. Nonzero here and
+   * the GL inventory control account will exceed the stock valuation by exactly
+   * this amount until that posting is made.
+   */
+  readonly unabsorbedRevaluation: Money;
 }
 
 export function emptyPosition(itemId: string, warehouseId: string): WacPosition {
@@ -49,6 +58,7 @@ export function emptyPosition(itemId: string, warehouseId: string): WacPosition 
     totalValue: Money.zero(),
     averageCost: Money.zero(),
     layers: [],
+    unabsorbedRevaluation: Money.zero(),
   };
 }
 
@@ -87,6 +97,17 @@ function consumeLayers(layers: readonly CostLayer[], qty: Qty): CostLayer[] {
 }
 
 /**
+ * The share of a revaluation the goods still on hand can carry: `remaining` of
+ * the `original` quantity the named receipt brought in, split by largest
+ * remainder so absorbed + unabsorbed is EXACTLY the amount booked.
+ */
+function absorbShare(amount: Money, remaining: bigint, original: bigint): Money {
+  if (original <= 0n || remaining <= 0n) return Money.zero();
+  if (remaining >= original) return amount;
+  return allocate(amount, [remaining, original - remaining])[0] as Money;
+}
+
+/**
  * Replay an ordered movement list into the authoritative position. Movements
  * MUST already be in ledger order (occurredAt, then insertion). This is the
  * function `rebuild` and the drift check both trust as ground truth.
@@ -99,24 +120,57 @@ export function replay(
   let onHand = Qty.zero();
   let totalValue = Money.zero();
   let layers: CostLayer[] = [];
+  let unabsorbedRevaluation = Money.zero();
+  // Original vs still-on-hand quantity per RECEIPT document, kept beside the
+  // layers because a fully-consumed layer is dropped from `layers` — and a
+  // receipt that is gone must be distinguishable from a receipt this ledger
+  // never recorded. The two need opposite treatment when a landed cost names
+  // one (see the revaluation branch).
+  const receipts = new Map<string, { original: bigint; remaining: bigint }>();
+  const recountRemaining = (): void => {
+    for (const r of receipts.values()) r.remaining = 0n;
+    for (const l of layers) {
+      const r = receipts.get(l.sourceDocId);
+      if (r) r.remaining += l.remainingQty.scaled;
+    }
+  };
 
   for (const m of movements) {
     if (isRevaluation(m)) {
-      // Value in, no quantity: raise the position's basis, and raise the unit
-      // cost of the specific layers the named receipt created, in proportion to
-      // their original quantity — the same arithmetic the live engine applies.
+      // Value in, no quantity: a landed cost. It belongs to the goods the
+      // named receipt brought in, so only the share those goods STILL
+      // represent may be capitalised; the share attaching to units already
+      // issued is a period cost — the goods it paid for have gone — and is
+      // accumulated in `unabsorbedRevaluation` for the caller to post to cost
+      // of sales / purchase price variance. Capitalising it regardless left a
+      // freight invoice sitting on a position holding nothing, invisible
+      // because the average of zero units is zero, and it then rode into the
+      // next receipt as a cost overstatement (D84, D135).
+      //
+      // When the named document is one this ledger never received stock under
+      // — the ordinary purchase flow names the purchase INVOICE while the
+      // layer carries the goods RECEIPT, so nothing matches — there is nothing to
+      // apportion against, so the position itself is the only basis: stock on
+      // hand can carry the cost, an empty position cannot.
       const delta = m.valueDelta as Money;
       const signed = m.direction === "IN" ? delta : Money.fromScaled(-delta.scaled);
-      totalValue = totalValue.add(signed);
+      const named = m.revaluesSourceDocId ? receipts.get(m.revaluesSourceDocId) : undefined;
+      const absorbed = named
+        ? absorbShare(signed, named.remaining, named.original)
+        : onHand.scaled > 0n
+          ? signed
+          : Money.zero();
+      totalValue = totalValue.add(absorbed);
+      unabsorbedRevaluation = unabsorbedRevaluation.add(signed.add(absorbed.negate()));
       const targets = layers.filter((l) => l.sourceDocId === m.revaluesSourceDocId);
-      const weights = targets.map((l) => l.originalQty.scaled);
-      if (targets.length > 0 && weights.some((wgt) => wgt !== 0n)) {
-        const shares = allocate(signed, weights);
+      const weights = targets.map((l) => l.remainingQty.scaled);
+      if (absorbed.scaled !== 0n && weights.some((wgt) => wgt > 0n)) {
+        const shares = allocate(absorbed, weights);
         const bumped = new Map(
           targets.map((l, i) => {
             const share = shares[i] as Money;
-            if (l.originalQty.isZero() || share.scaled === 0n) return [l.id, l] as const;
-            return [l.id, { ...l, unitCost: l.unitCost.add(unitCostOf(share, l.originalQty)) }] as const;
+            if (l.remainingQty.isZero() || share.scaled === 0n) return [l.id, l] as const;
+            return [l.id, { ...l, unitCost: l.unitCost.add(unitCostOf(share, l.remainingQty)) }] as const;
           }),
         );
         layers = layers.map((l) => bumped.get(l.id) ?? l);
@@ -140,6 +194,10 @@ export function replay(
         batchNo: m.batchNo ?? null,
         expiryDate: m.expiryDate ?? null,
       });
+      const seen = receipts.get(m.sourceDocId) ?? { original: 0n, remaining: 0n };
+      seen.original += m.qty.scaled;
+      seen.remaining += m.qty.scaled;
+      receipts.set(m.sourceDocId, seen);
     } else {
       // Value the issue at the cost the LEDGER recorded, not at a freshly
       // recomputed average. The movement carries the average it actually left
@@ -155,6 +213,7 @@ export function replay(
       totalValue = totalValue.add(cogs.negate());
       onHand = onHand.subtract(m.qty);
       layers = consumeLayers(layers, m.qty);
+      recountRemaining();
     }
   }
 
@@ -165,6 +224,7 @@ export function replay(
     totalValue,
     averageCost: unitCostOf(totalValue, onHand),
     layers,
+    unabsorbedRevaluation,
   };
 }
 
@@ -193,6 +253,14 @@ export interface DriftReport {
   readonly layerDrift: Money;
   /** True when |cacheDrift| is within `tolerance` (cache is trustworthy). */
   readonly withinTolerance: boolean;
+  /**
+   * Landed cost the ledger could not capitalise because the goods had already
+   * been issued (D84, D135). This is the amount the GL inventory control
+   * account holds that the stock valuation does not, until it is posted to
+   * cost of sales. Not part of `cacheDrift`: the cache is not wrong, the
+   * posting is missing.
+   */
+  readonly unabsorbedRevaluation: Money;
 }
 
 /**
@@ -227,5 +295,6 @@ export function checkDrift(
     cacheDrift,
     layerDrift,
     withinTolerance: driftMagnitude <= tolerance.scaled,
+    unabsorbedRevaluation: recomputed.unabsorbedRevaluation,
   };
 }

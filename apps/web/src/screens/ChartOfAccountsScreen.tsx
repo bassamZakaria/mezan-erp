@@ -494,6 +494,7 @@ export function ChartOfAccountsScreen() {
       </div>
 
       <AccountTree
+        loadFailed={query.isError}
         rows={treeRows}
         onToggle={(id) =>
           setExpandedOverride((prev) => {

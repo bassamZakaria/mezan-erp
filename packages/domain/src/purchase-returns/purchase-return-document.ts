@@ -13,7 +13,7 @@
  * `unitCost` only affects the GL side here, not the physical stock math).
  */
 
-import { Money, Qty } from "../money/index.js";
+import { Money, Qty, allocate } from "../money/index.js";
 import { extend } from "../inventory/wac-math.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
 import { buildEffects, type DocumentEffects } from "../documents/effects.js";
@@ -45,6 +45,14 @@ export interface PurchaseReturnLine {
   /** The invoice line's unit cost — see the module doc-comment's simplifying assumption. */
   readonly unitCost: Money;
   readonly taxAmount: Money;
+  /**
+   * The VAT rate the source invoice line was charged at, carried onto the
+   * return so the posting can tag the input-tax credit and its base with it.
+   * Without it a mixed-rate return collapsed into one untagged credit and the
+   * VAT return could only divide tax by base (D28, D76). Optional: a return
+   * carrying none posts exactly the entry it always did.
+   */
+  readonly taxRatePercent?: number | null;
 }
 
 export type PurchaseReturnDocument = FrameworkDocument<PurchaseReturnLine>;
@@ -142,6 +150,24 @@ export function createPurchaseReturnDocumentType(
       // were carrying less than the supplier refunds, so the difference is a
       // gain and the variance account is credited.
       const variance = Money.fromScaled(costValue.scaled - inventoryCredit.scaled);
+      // Both the inventory relief and the variance are split across the rates
+      // the source invoice lines carried, so `inventory + variance` per rate is
+      // exactly the supplier credit at that rate — the input base the VAT
+      // return needs. One untagged pair when no line carries a rate, which is
+      // the entry this type always posted (D28, D76).
+      const byRate = new Map<number | null, { base: Money; tax: Money }>();
+      for (const l of doc.lines) {
+        const rate = l.taxRatePercent ?? null;
+        const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
+        byRate.set(rate, { base: slot.base.add(extend(l.qty, l.unitCost)), tax: slot.tax.add(l.taxAmount) });
+      }
+      const rates = [...byRate.keys()];
+      const weights = rates.map((r) => (byRate.get(r) as { base: Money }).base.scaled);
+      const splitByRate = (amount: Money): Money[] =>
+        weights.some((w) => w > 0n) ? allocate(amount, weights) : rates.map(() => amount);
+      const inventoryShares = splitByRate(inventoryCredit);
+      const varianceShares = splitByRate(variance);
+
       return {
         sourceDocType: DOC_TYPE,
         sourceDocId: doc.id,
@@ -150,16 +176,27 @@ export function createPurchaseReturnDocumentType(
         memo: doc.memo || `مرتجع مشتريات ${doc.docNo ?? doc.id} — فاتورة ${doc.lines[0]?.sourceInvoiceNumber ?? doc.lines[0]?.sourceInvoiceId}`,
         lines: [
           { accountId: accounts.accountsPayableId, debit: grandTotal, credit: Money.zero() },
-          ...(taxValue.scaled > 0n
-            ? [{ accountId: accounts.inputTaxPayableId, debit: Money.zero(), credit: taxValue }]
-            : []),
-          { accountId: accounts.inventoryAccountId, debit: Money.zero(), credit: inventoryCredit },
-          ...(variance.scaled === 0n
-            ? []
-            : variance.scaled > 0n
-              ? [{ accountId: accounts.priceVarianceAccountId, debit: Money.zero(), credit: variance }]
-              : [{ accountId: accounts.priceVarianceAccountId, debit: variance.negate(), credit: Money.zero() }]),
+          ...rates.flatMap((rate) => {
+            const tax = (byRate.get(rate) as { tax: Money }).tax;
+            return tax.scaled > 0n
+              ? [{ accountId: accounts.inputTaxPayableId, debit: Money.zero(), credit: tax, taxRatePercent: rate }]
+              : [];
+          }),
+          ...rates.flatMap((rate, i) => {
+            const share = inventoryShares[i] as Money;
+            return share.scaled === 0n
+              ? []
+              : [{ accountId: accounts.inventoryAccountId, debit: Money.zero(), credit: share, taxRatePercent: rate }];
+          }),
+          ...rates.flatMap((rate, i) => {
+            const share = varianceShares[i] as Money;
+            if (share.scaled === 0n) return [];
+            return share.scaled > 0n
+              ? [{ accountId: accounts.priceVarianceAccountId, debit: Money.zero(), credit: share, taxRatePercent: rate }]
+              : [{ accountId: accounts.priceVarianceAccountId, debit: share.negate(), credit: Money.zero(), taxRatePercent: rate }];
+          }),
         ],
+
       };
     },
 

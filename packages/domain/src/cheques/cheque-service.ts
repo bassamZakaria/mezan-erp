@@ -286,6 +286,11 @@ export class ChequeService {
     if (!amount.equals(original.amount)) {
       throw new ReplacementAmountMismatchError(original.id);
     }
+    // The number must be free BEFORE the reclassification entry posts: storage
+    // enforces UNIQUE(direction, cheque_number), so a clash discovered at save
+    // time would leave the 1360 to 1320 journal entry committed with no cheque.
+    const clash = await this.deps.cheques.findByChequeNumber("incoming", cmd.newCheque.chequeNumber);
+    if (clash) throw new DuplicateChequeNumberError("incoming", cmd.newCheque.chequeNumber);
     const bouncedAccountId = original.controlAccounts.bouncedAccountId;
     if (!bouncedAccountId) throw new MissingBouncedAccountError(original.id);
 

@@ -70,25 +70,7 @@ const suppliers: SupplierDTO[] = [
 const items: ItemDTO[] = [
   { id: "item-cement", code: "ITM-1", nameAr: "أسمنت بورتلاندي", nameEn: null, type: "stock", baseUnitCode: "PCS", alternateUnits: [], barcodes: [], categoryId: null, brandId: null, seasonId: null, description: null, defaultSupplierId: null, specifications: [], costingMethod: "WAC", salePrice: "100.00", costPrice: "85.00", taxRatePercent: 14, trackInventory: true, trackBatches: false, trackExpiry: false, reorderPoint: null, imageAttachmentId: null, reorderQty: null, revenueAccountId: null, cogsAccountId: null, inventoryAccountId: null, etaCodeType: null, etaItemCode: null, gpcCode: null, status: "active" },
 ];
-const users: UserDTO[] = [
-  {
-    id: "USER-ADMIN",
-    nameAr: "محمد الشهابي",
-    nameEn: null,
-    email: "admin@cyag.example",
-    phone: null,
-    hasPin: false,
-    roleId: null,
-    isCompanyAdmin: true,
-    employeeId: null,
-    branchScope: "*",
-    warehouseScope: "*",
-    status: "active",
-    photoUrl: null,
-    lastLoginAt: null,
-    createdAt: "2026-08-08T00:00:00.000Z",
-  },
-];
+const users: UserDTO[] = [{ id: "USER-ADMIN", nameAr: "محمد الشهابي", nameEn: null, email: "admin@cyag.example", isCompanyAdmin: true, active: true, roleCode: null, photoUrl: null } as unknown as UserDTO];
 const treasuryAccounts: TreasuryAccountDTO[] = [
   { id: "treas-1", code: "CASH-1", name: "خزينة الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, status: "active" },
 ];
@@ -394,5 +376,55 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     expect(screen.getAllByText((_, el) => el?.textContent === "50.00").length).toBeGreaterThan(0);
     // The unrelated document's allocation must not leak in.
     expect(screen.queryByText((_, el) => el?.textContent === "999.00")).not.toBeInTheDocument();
+  });
+
+  it("the row action menu offers 'confirm' only on a draft invoice, and switches to landed-cost/return options on a confirmed one — never confirm again", async () => {
+    const draft = purchaseInvoice({ id: "pi-draft", number: "PI-000002", status: "draft" });
+    const confirmed = purchaseInvoice({ id: "pi-confirmed", number: "PI-000003", status: "confirmed", remainingBalance: "0.000000" });
+    renderScreen([draft, confirmed]);
+    await screen.findByText("PI-000002");
+
+    // The list sorts by number descending, so PI-000003 (confirmed) renders before PI-000002 (draft).
+    const rows = screen.getAllByRole("row").slice(1);
+    const [rowConfirmed, rowDraft] = rows;
+
+    fireEvent.click(within(rowDraft!).getByRole("button", { name: /^إجراءات/ }));
+    expect(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "توزيع تكلفة إضافية" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    fireEvent.click(within(rowConfirmed!).getByRole("button", { name: /^إجراءات/ }));
+    expect(await screen.findByRole("menuitem", { name: "توزيع تكلفة إضافية" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "مرتجع مشتريات" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "تأكيد الفاتورة" })).not.toBeInTheDocument();
+  });
+
+  it("an owing confirmed invoice shows the inline pay button on its row; a fully-settled one does not", async () => {
+    const owing = purchaseInvoice({ id: "pi-owing", number: "PI-000004", status: "confirmed", total: "500.000000", remainingBalance: "500.000000" });
+    const settled = purchaseInvoice({ id: "pi-settled", number: "PI-000005", status: "confirmed", total: "500.000000", amountPaid: "500.000000", remainingBalance: "0.000000" });
+    renderScreen([owing, settled]);
+    await screen.findByText("PI-000004");
+
+    // The list sorts by number descending, so PI-000005 (settled) renders before PI-000004 (owing).
+    const rows = screen.getAllByRole("row").slice(1);
+    const [rowSettled, rowOwing] = rows;
+    expect(within(rowOwing!).getByRole("button", { name: "تسجيل السداد" })).toBeInTheDocument();
+    expect(within(rowSettled!).queryByRole("button", { name: "تسجيل السداد" })).not.toBeInTheDocument();
+  });
+
+  it("KNOWN DEFECT: a rejected confirm from the row menu leaves the invoice a draft but shows the user no error at all — confirmSelected swallows the failure silently", async () => {
+    const draft = purchaseInvoice({ id: "pi-draft", number: "PI-000002", status: "draft" });
+    renderScreen([draft], {
+      "POST /purchases/invoices/pi-draft/confirm": () => ({ status: 409, body: { message: "الفترة المحاسبية مقفلة." } }),
+    });
+    await screen.findByText("PI-000002");
+    fireEvent.click(within(screen.getAllByRole("row")[1]!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+
+    // Give the rejected mutation a tick to settle, then confirm: still a draft…
+    await waitFor(() => expect(screen.getAllByText("مسودة").length).toBeGreaterThan(0));
+    // …and — this is the defect — the server's refusal message never reaches the screen anywhere.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("الفترة المحاسبية مقفلة.")).not.toBeInTheDocument();
   });
 });

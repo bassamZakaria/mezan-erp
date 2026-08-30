@@ -74,14 +74,16 @@ export async function run(ctx: Ctx): Promise<void> {
     const branchManager = ctxWith(["admin.users.edit"], ["BR-1"], ["WH-1"]);
     const admin = ctxWith(["*"], ["BR-1"]);
 
+    // The refusal is encoded as `"<dimension>:<id>"`, so the dimension travels
+    // with the id and one list carries both.
     check(
       "a scoped caller cannot grant ALL branches",
-      ungrantableScopes(branchManager, { branchScope: ALL_SCOPE }).some((s) => s.dimension === "branch"),
+      ungrantableScopes(branchManager, { branchScope: ALL_SCOPE }).includes("branch:*"),
       JSON.stringify(ungrantableScopes(branchManager, { branchScope: ALL_SCOPE })),
     );
     check(
       "a scoped caller cannot grant a branch outside its own",
-      ungrantableScopes(branchManager, { branchScope: ["BR-2"] }).some((s) => s.dimension === "branch"),
+      ungrantableScopes(branchManager, { branchScope: ["BR-2"] }).includes("branch:BR-2"),
     );
     check(
       "a scoped caller CAN grant its own branch",
@@ -89,7 +91,7 @@ export async function run(ctx: Ctx): Promise<void> {
     );
     check(
       "warehouses are compared too, not only branches",
-      ungrantableScopes(branchManager, { warehouseScope: ["WH-9"] }).some((s) => s.dimension === "warehouse"),
+      ungrantableScopes(branchManager, { warehouseScope: ["WH-9"] }).includes("warehouse:WH-9"),
     );
     check(
       "an unnamed dimension is not a widening",

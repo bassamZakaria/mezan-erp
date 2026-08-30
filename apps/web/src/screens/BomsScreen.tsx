@@ -247,7 +247,11 @@ export function BomsScreen() {
     try {
       await deactivateBom.mutateAsync(id);
     } catch {
-      // The list/detail re-render from the failed mutation's settled cache; nothing further to do here.
+      // Swallowed here on purpose: the banner below renders from
+      // `deactivateBom.isError`. Doing nothing at all — which is what this
+      // used to do — left a refused deactivate completely silent, so the BOM
+      // stayed active and the person had no way to know the server had said
+      // no.
     }
   }
 
@@ -354,6 +358,15 @@ export function BomsScreen() {
             {t("common.retry")}
           </Button>
         </Card>
+      ) : null}
+      {deactivateBom.isError ? (
+        <div
+          role="alert"
+          className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink"
+        >
+          {t("api.thatActionCouldNotBe")}{" "}
+          {deactivateBom.error instanceof Error ? deactivateBom.error.message : ""}
+        </div>
       ) : null}
       <DocumentList<BomRecord>
         title={t("boms.billsOfMaterials")}

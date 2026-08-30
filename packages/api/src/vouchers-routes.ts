@@ -356,9 +356,21 @@ export function createVouchersRoutes(
     });
   });
 
+  /**
+   * The document this caller may see, or null. A voucher outside the caller's
+   * branch scope is reported as ABSENT, not forbidden: the list already hides
+   * it, so answering 403 by id would confirm it exists (D130).
+   */
+  async function findInScope(c: Context, svc: VoucherService, id: string): Promise<VoucherDocument | null> {
+    const doc = await svc.findById(id);
+    if (!doc) return null;
+    const visible = withinScope([doc], branchScopeOf(c), (d) => voucherLine(d).branchId);
+    return visible.length === 1 ? doc : null;
+  }
+
   app.get("/:id", gate("treasury.cash_voucher.view"), async (c) => {
     const svc = serviceFor(c);
-    const doc = await svc.findById(c.req.param("id"));
+    const doc = await findInScope(c, svc, c.req.param("id"));
     if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
     const line = voucherLine(doc);
     const allocatable = getVoucherTypeDefinition(line.voucherType).allocatable;
@@ -465,7 +477,7 @@ export function createVouchersRoutes(
 
   app.get("/:id/allocations", gate("treasury.allocation.view"), async (c) => {
     const svc = serviceFor(c);
-    const doc = await svc.findById(c.req.param("id"));
+    const doc = await findInScope(c, svc, c.req.param("id"));
     if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
     const allocations = await svc.listAllocations(doc.id);
     return c.json({

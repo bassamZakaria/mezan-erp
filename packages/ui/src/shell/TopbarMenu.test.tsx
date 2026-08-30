@@ -85,3 +85,53 @@ describe("TopbarMenu", () => {
     expect(screen.getByText("محتوى ثابت")).toBeInTheDocument();
   });
 });
+
+/**
+ * D113: the panel is portaled to <body>, so it is nowhere near its trigger in
+ * the DOM. Without moving focus in, a keyboard user who opens it Tabs into
+ * whatever follows the trigger in the page instead; without moving it back
+ * out, the item they activate destroys the element focus was on and strands
+ * them on <body>, at the top of the document.
+ */
+describe("TopbarMenu — focus management (D113)", () => {
+  it("moves focus into the panel when it opens, so the first item is reachable without hunting for it", () => {
+    renderMenu();
+    const trigger = screen.getByRole("button", { name: "فتح القائمة" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "عنصر القائمة" }));
+  });
+
+  it("returns focus to the trigger when an item closes the panel", () => {
+    renderMenu();
+    const trigger = screen.getByRole("button", { name: "فتح القائمة" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const item = screen.getByRole("button", { name: "عنصر القائمة" });
+    // A keyboard user activates the item they are ON — so focus is inside the
+    // panel when it goes away, and something has to catch it.
+    item.focus();
+    fireEvent.click(item);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("leaves focus alone when the user dismisses it by clicking something else", () => {
+    const outside = document.createElement("button");
+    outside.textContent = "زر آخر";
+    document.body.append(outside);
+    try {
+      renderMenu();
+      const trigger = screen.getByRole("button", { name: "فتح القائمة" });
+      trigger.focus();
+      fireEvent.click(trigger);
+      fireEvent.mouseDown(outside);
+      expect(screen.queryByRole("menu")).toBeNull();
+      // The click owns the focus now; yanking it back to the trigger would
+      // fight the person who made it.
+      expect(document.activeElement).not.toBe(trigger);
+    } finally {
+      outside.remove();
+    }
+  });
+});

@@ -16,6 +16,8 @@ export {
 
 export {
   BankStatementNotFoundError,
+  FinalizeOverrideReasonRequiredError,
+  StatementHasUnmatchedLinesError,
   ColumnNotFoundError,
   InvalidColumnMappingError,
   InvalidStatementFileError,
@@ -40,6 +42,7 @@ export {
   BankReconciliationService,
   type AddManualLineCommand,
   type BankReconciliationServiceDeps,
+  type FinalizeOptions,
   type ImportStatementCommand,
   type MatchedStatementLine,
   type MatchSummary,

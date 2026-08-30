@@ -1,9 +1,10 @@
 import type { Money } from "../money/index.js";
-import { markEmployeeAdvanceDisbursed, type EmployeeAdvance, type EmployeeAdvanceRepository } from "./advance.js";
+import { canTransitionAdvance, markEmployeeAdvanceDisbursed, type EmployeeAdvance, type EmployeeAdvanceRepository } from "./advance.js";
 import { canTransitionPayrollRun, type PayrollGlAccounts, type PayrollRun, type PayrollRunRepository } from "./payroll-run.js";
 import {
   EmployeeAdvanceNotFoundError,
   InvalidEmployeeAdvanceError,
+  InvalidEmployeeAdvanceTransitionError,
   InvalidPayrollRunError,
   InvalidPayrollRunTransitionError,
   PayrollRunNotFoundError,
@@ -83,6 +84,12 @@ export async function disburseEmployeeAdvance(
 ): Promise<EmployeeAdvance> {
   const advance = await deps.advances.findById(advanceId);
   if (!advance) throw new EmployeeAdvanceNotFoundError(advanceId);
+  // The state check must precede the treasury call: disbursing first and
+  // asserting after paid an unapproved (or already-paid) advance out of the
+  // safe and only then refused, leaving the cash gone and the advance reusable.
+  if (!canTransitionAdvance(advance.status, "disbursed")) {
+    throw new InvalidEmployeeAdvanceTransitionError(advance.status, "disbursed");
+  }
   validateInput(input);
   const treasury = requirePort(deps.treasury);
 

@@ -28,7 +28,7 @@ async function main() {
   const postRes = await honoApp.fetch(
     new Request("http://local/journal-entries", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
       body: JSON.stringify(entry),
     }),
   );
@@ -36,7 +36,9 @@ async function main() {
   console.log("[desktop] body:", await postRes.json());
 
   const getRes = await honoApp.fetch(
-    new Request(`http://local/journal-entries/${entry.id}`),
+    new Request(`http://local/journal-entries/${entry.id}`, {
+      headers: { "x-permissions": "accounting.journal.view" },
+    }),
   );
   console.log(`[desktop] GET  -> ${getRes.status}`);
   console.log("[desktop] body:", await getRes.json());

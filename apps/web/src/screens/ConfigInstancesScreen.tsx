@@ -355,7 +355,12 @@ export function ConfigInstancesScreen() {
     try {
       await closeInstance.mutateAsync(id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("customOrders.theOrderCouldNotBe"));
+      const message = err instanceof Error ? err.message : t("customOrders.theOrderCouldNotBe");
+      setActionError(message);
+      // Re-thrown so the row menu's own success/failure toast — which awaits
+      // this promise — learns the close actually failed, instead of reporting
+      // a refused close as done.
+      throw err instanceof Error ? err : new Error(message);
     }
   }
 
@@ -364,7 +369,9 @@ export function ConfigInstancesScreen() {
     try {
       await cancelInstance.mutateAsync(id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("customOrders.theOrderCouldNotBe2"));
+      const message = err instanceof Error ? err.message : t("customOrders.theOrderCouldNotBe2");
+      setActionError(message);
+      throw err instanceof Error ? err : new Error(message);
     }
   }
 
@@ -503,8 +510,13 @@ export function ConfigInstancesScreen() {
           customerName={customerName}
           itemName={itemName}
           onBack={() => setSelectedId(null)}
-          onClose={() => doClose(selected.id)}
-          onCancel={() => doCancel(selected.id)}
+          onClose={() => {
+            // Surfaced already via `actionError`, rendered just above.
+            doClose(selected.id).catch(() => {});
+          }}
+          onCancel={() => {
+            doCancel(selected.id).catch(() => {});
+          }}
           closing={closeInstance.isPending}
           cancelling={cancelInstance.isPending}
         />
@@ -567,14 +579,14 @@ export function ConfigInstancesScreen() {
                 key: "close",
                 label: t("customOrders.closeOrder"),
                 disabled: pendingId === i.id,
-                onSelect: () => void runRowAction(i.id, "close"),
+                onSelect: () => runRowAction(i.id, "close"),
               },
               {
                 key: "cancel",
                 label: t("common.cancel"),
                 tone: "danger",
                 disabled: pendingId === i.id,
-                onSelect: () => void runRowAction(i.id, "cancel"),
+                onSelect: () => runRowAction(i.id, "cancel"),
               },
             );
           }

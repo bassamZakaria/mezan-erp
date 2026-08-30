@@ -47,6 +47,14 @@ export class UserNotFoundError extends Error {
   }
 }
 
+export class LastCompanyAdminError extends Error {
+  readonly code = "LAST_COMPANY_ADMIN";
+  constructor(readonly userId: string) {
+    super("لا يمكن تعطيل أو تنزيل آخر مدير شركة نشط. عيّن مديرًا آخر أولاً.");
+    this.name = "LastCompanyAdminError";
+  }
+}
+
 const PIN_PATTERN = /^\d{4,6}$/;
 
 /**
@@ -120,6 +128,22 @@ export interface SaveUserOptions {
   readonly allowedEmailDomains?: readonly string[];
 }
 
+/**
+ * True when `user` is the ONLY active company admin the tenant has left.
+ *
+ * Deactivating or demoting that account locks the shop out of its own books
+ * with no way back through the product — there is no support console to undo
+ * it and no other account that can grant the flag again. An INACTIVE admin does
+ * not count: it cannot sign in, so it is not a way back either (D117).
+ */
+async function isLastActiveCompanyAdmin(user: User, uow: UnitOfWork): Promise<boolean> {
+  if (!user.isCompanyAdmin || user.status !== "active") return false;
+  const others = (await uow.users.list()).filter(
+    (u) => u.id !== user.id && u.isCompanyAdmin && u.status === "active",
+  );
+  return others.length === 0;
+}
+
 export async function saveUser(
   cmd: SaveUserCommand,
   uow: UnitOfWork,
@@ -166,6 +190,11 @@ export async function saveUser(
   }
 
   const prior = await uow.users.findById(cmd.id);
+
+  const staysAdmin = cmd.isCompanyAdmin && cmd.status === "active";
+  if (prior && !staysAdmin && (await isLastActiveCompanyAdmin(prior, uow))) {
+    throw new LastCompanyAdminError(prior.id);
+  }
 
   const passwordHash = cmd.password
     ? await hasher.hash(cmd.password)
@@ -235,6 +264,9 @@ export async function setUserStatus(
 ): Promise<User> {
   const user = await uow.users.findById(userId);
   if (!user) throw new UserNotFoundError(userId);
+  if (status !== "active" && (await isLastActiveCompanyAdmin(user, uow))) {
+    throw new LastCompanyAdminError(userId);
+  }
   const next: User = { ...user, status };
   await uow.users.save(next);
   return next;

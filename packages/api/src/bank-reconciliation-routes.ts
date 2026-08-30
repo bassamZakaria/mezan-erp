@@ -9,7 +9,9 @@ import {
   InvalidStatementFileError,
   LineAlreadyMatchedError,
   LineNotMatchedError,
+  FinalizeOverrideReasonRequiredError,
   StatementAlreadyFinalizedError,
+  StatementHasUnmatchedLinesError,
   StatementLineNotFoundError,
   type BankStatement,
   type BankReconciliationServiceDeps,
@@ -22,7 +24,7 @@ import {
   addManualLineSchema,
   bankStatementListQuerySchema,
 } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 export type BankReconciliationRoutesDeps = BankReconciliationServiceDeps & {
   /** Generates ids (statement id, statement-line id) when the request omits them. Defaults to a UUID. */
@@ -42,6 +44,9 @@ function serializeStatement(s: BankStatement) {
     status: s.status,
     importedAt: s.importedAt,
     finalizedAt: s.finalizedAt,
+    unmatchedAtFinalize: s.unmatchedAtFinalize ?? null,
+    finalizeOverrideReason: s.finalizeOverrideReason ?? null,
+    finalizedBy: s.finalizedBy ?? null,
   };
 }
 
@@ -66,6 +71,12 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof LineAlreadyMatchedError || err instanceof LineNotMatchedError || err instanceof StatementAlreadyFinalizedError) {
     return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof StatementHasUnmatchedLinesError) {
+    return c.json({ error: err.code, message: err.message, unmatchedCount: err.unmatchedCount }, 422);
+  }
+  if (err instanceof FinalizeOverrideReasonRequiredError) {
+    return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof InvalidStatementFileError || err instanceof ColumnNotFoundError || err instanceof InvalidColumnMappingError) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -240,9 +251,24 @@ export function createBankReconciliationRoutes(
     }
   });
 
+  /**
+   * Refused with 422 while any line is still unmatched. `{ "force": true,
+   * "reason": "..." }` closes it anyway and records both on the statement —
+   * a reconciliation locked over open differences must say so (D82).
+   */
   app.post("/:id/finalize", gate("treasury.reconciliation.finalize"), async (c) => {
+    let body: { force?: boolean; reason?: string } = {};
     try {
-      const statement = await service.finalize(c.req.param("id"));
+      body = ((await c.req.json()) ?? {}) as { force?: boolean; reason?: string };
+    } catch {
+      body = {};
+    }
+    try {
+      const statement = await service.finalize(c.req.param("id"), {
+        force: body.force === true,
+        reason: body.reason,
+        actor: callerUserId(c),
+      });
       return c.json(serializeStatement(statement));
     } catch (err) {
       return handleDomainError(c, err);

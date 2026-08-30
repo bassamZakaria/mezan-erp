@@ -17,7 +17,10 @@ function newApp() {
 function post(path: string, body: unknown) {
   return new Request(`http://local${path}`, {
     method: "POST",
-    headers: new Headers({ "content-type": "application/json" }),
+    // The legacy poster is permission-gated as of D99; this file is about the
+    // money literal, so the caller is given the permission and the malformed
+    // amount stays the only thing under test.
+    headers: new Headers({ "content-type": "application/json", "x-permissions": "accounting.journal.post" }),
     body: JSON.stringify(body),
   });
 }

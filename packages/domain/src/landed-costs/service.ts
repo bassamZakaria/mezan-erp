@@ -19,7 +19,38 @@
 import type { DocumentService, ConfirmOptions, ConfirmResult } from "../documents/service.js";
 import type { StockLedgerService } from "../inventory/stock-ledger-service.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
+import { Money } from "../money/index.js";
 import type { LandedCostLine } from "./landed-cost-document.js";
+
+/**
+ * One landed-cost line the stock could not absorb: the goods it attaches to
+ * had already been issued when the cost was booked (D84, D135).
+ */
+export interface UnabsorbedLandedCost {
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly sourceInvoiceId: string;
+  readonly amount: Money;
+}
+
+/**
+ * DECISION PENDING — the GL half of D135.
+ *
+ * `buildGlPosting` debits the inventory control account for the WHOLE document
+ * because it is pure over the document and cannot know what is still on hand.
+ * When `unabsorbedTotal` is nonzero that debit is wrong by exactly that amount:
+ * the stock valuation report will be lower than GL inventory until the
+ * remainder is posted to an expense account instead.
+ *
+ * Closing it needs a mapping decision nobody has made: cost of sales
+ * (`item_type.cogs`, 5100 in the standard chart) or a dedicated landed-cost /
+ * purchase-price-variance account. Until then this figure is returned so the
+ * caller can surface it rather than have it disappear.
+ */
+export interface LandedCostConfirmResult extends ConfirmResult<LandedCostLine> {
+  readonly unabsorbed: readonly UnabsorbedLandedCost[];
+  readonly unabsorbedTotal: Money;
+}
 
 export class LandedCostService {
   constructor(
@@ -27,12 +58,13 @@ export class LandedCostService {
     private readonly stock: StockLedgerService,
   ) {}
 
-  async confirm(id: string, opts: ConfirmOptions = {}): Promise<ConfirmResult<LandedCostLine>> {
+  async confirm(id: string, opts: ConfirmOptions = {}): Promise<LandedCostConfirmResult> {
     const result = await this.documents.confirm(id, opts);
-    if (result.held) return result; // pending approval — no revaluation until it actually confirms
+    if (result.held) return { ...result, unabsorbed: [], unabsorbedTotal: Money.zero() };
 
+    const unabsorbed: UnabsorbedLandedCost[] = [];
     for (const line of result.document.lines) {
-      await this.stock.applyLandedCostRevaluation({
+      const absorption = await this.stock.applyLandedCostRevaluation({
         itemId: line.itemId,
         warehouseId: line.warehouseId,
         sourceDocId: line.sourceInvoiceId,
@@ -41,7 +73,15 @@ export class LandedCostService {
         landedCostDocNumber: result.document.docNo,
         occurredAt: occurredAtFromDocumentDate(result.document.date),
       });
+      if (absorption.unabsorbed.scaled !== 0n) {
+        unabsorbed.push({
+          itemId: line.itemId,
+          warehouseId: line.warehouseId,
+          sourceInvoiceId: line.sourceInvoiceId,
+          amount: absorption.unabsorbed,
+        });
+      }
     }
-    return result;
+    return { ...result, unabsorbed, unabsorbedTotal: Money.sum(unabsorbed.map((u) => u.amount)) };
   }
 }

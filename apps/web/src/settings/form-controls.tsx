@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   Chip,
   cn,
@@ -18,13 +18,15 @@ import {
 export interface FieldProps {
   label: string;
   hint?: string;
+  /** The id of the control inside. Without it the label names nothing (D67). */
+  htmlFor?: string;
   className?: string;
   children: ReactNode;
 }
 
-export function Field({ label, hint, className, children }: FieldProps) {
+export function Field({ label, hint, htmlFor, className, children }: FieldProps) {
   return (
-    <UiField label={label} hint={hint} className={className}>
+    <UiField label={label} hint={hint} htmlFor={htmlFor} className={className}>
       {children}
     </UiField>
   );
@@ -41,9 +43,11 @@ export interface TextFieldProps {
 }
 
 export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text" }: TextFieldProps) {
+  const id = useId();
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label} hint={hint} htmlFor={id}>
       <TextInput
+        id={id}
         type={type}
         value={value}
         placeholder={placeholder}
@@ -66,9 +70,11 @@ export interface NumberFieldProps {
 }
 
 export function NumberField({ label, value, onChange, hint, min, max, step, disabled }: NumberFieldProps) {
+  const id = useId();
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label} hint={hint} htmlFor={id}>
       <TextInput
+        id={id}
         type="number"
         numeric
         value={Number.isNaN(value) ? "" : value}
@@ -93,9 +99,11 @@ export interface TextAreaFieldProps {
 }
 
 export function TextAreaField({ label, value, onChange, placeholder, hint, disabled, rows = 3 }: TextAreaFieldProps) {
+  const id = useId();
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label} hint={hint} htmlFor={id}>
       <TextArea
+        id={id}
         value={value}
         placeholder={placeholder}
         disabled={disabled}

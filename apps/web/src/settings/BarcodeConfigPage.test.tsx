@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { screen, fireEvent, within } from "@testing-library/react";
 import type { BarcodeConfigDTO } from "@mezan/contracts";
 import { BarcodeConfigPage } from "./BarcodeConfigPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -61,7 +61,7 @@ describe("BarcodeConfigPage", () => {
     fireEvent.mouseDown(screen.getByRole("option", { name: "توليد تلقائي" }));
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
+    expect(await screen.findByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled();
     expect((getSeenBody() as BarcodeConfigDTO).itemBarcodeMode).toBe("AUTO");
   });
 
@@ -127,6 +127,56 @@ describe("BarcodeConfigPage", () => {
     expect(screen.getByText("جارِ التحميل…")).toBeInTheDocument();
   });
 
+  it("a load failure shows a retry control that re-issues the request", async () => {
+    let calls = 0;
+    let fail = true;
+    const transport = stubTransport({
+      "GET /barcode-config": () => {
+        calls += 1;
+        if (fail) return { status: 500, body: { error: "INTERNAL" } };
+        return { body: baseConfig };
+      },
+    });
+    renderWithProviders(<BarcodeConfigPage />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل إعدادات الباركود.")).toBeInTheDocument();
+    const callsBeforeRetry = calls;
+
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    await screen.findByRole("heading", { name: "إعدادات الباركود" });
+    expect(calls).toBeGreaterThan(callsBeforeRetry);
+  });
+
+  it("client-side validation blocks the save when a rule's own numbers are inconsistent (value overruns the total length) — the mutation is never called", async () => {
+    let putCalls = 0;
+    const config: BarcodeConfigDTO = {
+      ...baseConfig,
+      embeddedRules: [
+        { id: "R-A", nameAr: "قاعدة السعر", prefix: "2", totalLength: 13, itemCodeStart: 1, itemCodeLength: 5, valueStart: 7, valueLength: 5, valueType: "PRICE", valueDecimals: 2, active: true },
+      ],
+    };
+    const transport = stubTransport({
+      "GET /barcode-config": () => ({ body: config }),
+      "PUT /barcode-config": () => {
+        putCalls += 1;
+        return { body: config };
+      },
+    });
+    renderWithProviders(<BarcodeConfigPage />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("heading", { name: "إعدادات الباركود" });
+    fireEvent.click(screen.getByRole("tab", { name: "قواعد الباركود المدمج" }));
+
+    // Shrink the total length under the value's own end (valueStart 7 + valueLength 5 = 12 > new total 5).
+    const totalLengthInput = screen.getAllByRole("spinbutton")[0]!;
+    fireEvent.change(totalLengthInput, { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+
+    expect(await screen.findByText(/القيمة تتجاوز الطول الكلي للباركود/)).toBeInTheDocument();
+    expect(putCalls).toBe(0);
+    // The save button stays enabled (still dirty) — nothing was silently accepted.
+    expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeEnabled();
+  });
+
   const twoRuleConfig: BarcodeConfigDTO = {
     ...baseConfig,
     embeddedRules: [
@@ -145,7 +195,7 @@ describe("BarcodeConfigPage", () => {
     // spinbuttons[0] is rule A's "الطول الكلي" (totalLength) — the first NumberField in the first RuleCard.
     fireEvent.change(spinbuttons[0]!, { target: { value: "14" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
+    expect(await screen.findByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled();
 
     const body = getSeenBody() as BarcodeConfigDTO;
     expect(body.embeddedRules).toHaveLength(2);
@@ -170,7 +220,7 @@ describe("BarcodeConfigPage", () => {
     expect(screen.getByDisplayValue("قاعدة السعر")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
+    expect(await screen.findByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled();
     const body = getSeenBody() as BarcodeConfigDTO;
     expect(body.embeddedRules).toHaveLength(1);
     expect(body.embeddedRules[0]).toEqual(twoRuleConfig.embeddedRules[0]);
@@ -203,7 +253,7 @@ describe("BarcodeConfigPage", () => {
     expect(screen.getAllByRole("switch", { name: "القاعدة مفعّلة" })[1]).toBeChecked();
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
+    expect(await screen.findByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled();
     const body = getSeenBody() as BarcodeConfigDTO;
     expect(body.embeddedRules[1]!.active).toBe(true);
     expect(body.embeddedRules[0]!.active).toBe(true);
@@ -223,7 +273,7 @@ describe("BarcodeConfigPage", () => {
 
     fireEvent.change(prefixInput, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
+    expect(await screen.findByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled();
     const body = getSeenBody() as BarcodeConfigDTO;
     expect(body.autoGeneratePrefix).toBeNull();
   });

@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
+import { FOCUSABLE_SELECTOR } from "../hooks/useFocusTrap";
 import { POPUP_Z_CLASS, usePopupPosition } from "./popup-position";
 
 export interface TopbarMenuTriggerProps {
@@ -53,6 +54,39 @@ export function TopbarMenu({ label, trigger, children, panelClassName }: TopbarM
     setOpen(false);
   }
 
+  /**
+   * FOCUS. The panel is portaled to <body>, so it is nowhere near the trigger
+   * in the DOM: without moving focus in, Tab from the trigger walks the page
+   * behind the open menu, and an item activated from the keyboard takes the
+   * focused element down with it and strands the user on <body> (D113).
+   *
+   * The one exception is a dismissal by clicking somewhere else — that click
+   * owns the focus, and pulling it back to the trigger would fight it.
+   */
+  const dismissedByPointerRef = useRef(false);
+
+  // A ref callback, not an effect: the panel mounts on a second render (the
+  // position is measured in a layout effect), so an effect keyed on `open`
+  // can run while the panel node does not exist yet.
+  const attachPanel = useCallback((node: HTMLDivElement | null) => {
+    panelRef.current = node;
+    if (!node) return;
+    const first = node.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    (first ?? node).focus();
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    dismissedByPointerRef.current = false;
+    return () => {
+      if (dismissedByPointerRef.current) return;
+      // The panel is already detached here, so focus that was inside it has
+      // fallen to <body> — that, and only that, is what to catch.
+      const active = document.activeElement;
+      if (active === null || active === document.body) triggerRef.current?.focus();
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -60,6 +94,7 @@ export function TopbarMenu({ label, trigger, children, panelClassName }: TopbarM
       const target = event.target as Node;
       if (containerRef.current?.contains(target)) return;
       if (panelRef.current?.contains(target)) return;
+      dismissedByPointerRef.current = true;
       setOpen(false);
     }
     function onKeyDown(event: KeyboardEvent) {
@@ -91,9 +126,10 @@ export function TopbarMenu({ label, trigger, children, panelClassName }: TopbarM
       {open && position
         ? createPortal(
             <div
-              ref={panelRef}
+              ref={attachPanel}
               id={panelId}
               role="menu"
+              tabIndex={-1}
               aria-label={label}
               style={{
                 position: "fixed",

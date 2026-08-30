@@ -56,3 +56,39 @@ describe("createAgingSuppliersReport", () => {
     expect(outcome.rows[0]?.supplierNameAr).toBe("مورد النيل");
   });
 });
+
+describe("createAgingSuppliersReport — the tie to the AP control account (D112)", () => {
+  const definition = createAgingSuppliersReport("2026-08-22");
+  const twoInvoices = [
+    pinvoice({ id: "pinv-1", supplierId: "sup-1", lines: [pline({ unitCost: Money.fromMajor("1250.50") })] }),
+    pinvoice({ id: "pinv-2", supplierId: "sup-2", lines: [pline({ unitCost: Money.fromMajor("3400.00") })] }),
+  ];
+  const suppliers = [supplier(), supplier({ id: "sup-2", code: "S002", nameAr: "مورد ب" })];
+
+  it("ties when the ladder and the control account hold the same NON-ZERO balance", () => {
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-08-22" },
+      { invoices: twoInvoices, suppliers, payablesControlBalance: () => 4650.5 },
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    expect(outcome.reconciliation?.reportTotal).toBe(4650.5);
+    expect(outcome.reconciliation?.referenceTotal).toBe(4650.5);
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+
+  it("flags the difference when a payment reached the GL and not the allocation sub-ledger", () => {
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-08-22" },
+      { invoices: twoInvoices, suppliers, payablesControlBalance: () => 4000 },
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    expect(outcome.reconciliation?.diff).toBe(650.5);
+    expect(outcome.reconciliation?.withinTolerance).toBe(false);
+  });
+});

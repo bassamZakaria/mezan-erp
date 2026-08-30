@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import { useTranslation } from "../i18n";
 import { cn } from "../lib/cn";
 
@@ -74,14 +75,41 @@ export function NotificationsPanel({
   loading,
 }: NotificationsPanelProps) {
   const { t } = useTranslation();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  /**
+   * `aria-modal="true"` is a promise that the rest of the page is inert. A
+   * portaled dialog that never takes focus does not keep it: the bell keeps
+   * the focus, Tab walks the page behind the panel, and closing destroys
+   * whatever was focused and drops the user on <body> (D113). Same pattern as
+   * SidePanel.
+   */
+  const attachDialog = useCallback((node: HTMLDivElement | null) => {
+    dialogRef.current = node;
+    if (!node) return;
+    // Read the outgoing focus HERE, not in an effect: a ref callback runs
+    // during the commit, before effects, so by the time an effect ran the
+    // dialog would already be the active element and would be "restored" onto
+    // itself.
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The dialog itself, not its first button: the first control is «تحديد
+    // الكل كمقروء», and a list you open to READ must not put a bulk action
+    // one Enter away.
+    node.focus();
+  }, []);
+
   useEffect(() => {
     if (!open) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+    return () => {
+      // The dialog is detached by now, so focus that was inside it has fallen
+      // to <body> — that, and only that, is what to restore.
+      const active = document.activeElement;
+      if (active === null || active === document.body) previousFocusRef.current?.focus();
+    };
+  }, [open]);
+
+  useFocusTrap({ active: open, containerRef: dialogRef, onEscape: onClose });
 
   if (!open) return null;
 
@@ -100,8 +128,10 @@ export function NotificationsPanel({
       }}
     >
       <div
+        ref={attachDialog}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-label={t("notifications.title")}
         className="flex max-h-[min(620px,76vh)] w-full max-w-[460px] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2"
       >

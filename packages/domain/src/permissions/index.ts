@@ -23,7 +23,6 @@ export {
   ungrantableScopes,
   targetOutranksCaller,
   type AccountAuthority,
-  type ScopeEscalation,
 } from "./escalation.js";
 
 export {

@@ -80,6 +80,16 @@ export interface ReportReconciliationSpec<Row, Ctx, TParams = unknown> {
   readonly computeReferenceTotal: (rows: readonly Row[], ctx: Ctx, params: TParams) => number;
   /** Absolute-difference tolerance before the banner flags a mismatch. Defaults to 0. */
   readonly toleranceMoney?: number;
+  /**
+   * Whether the reference figure is actually available in this context.
+   * Returns false and the banner is not shown at all.
+   *
+   * A report whose reference source is optional (a control-account balance the
+   * caller may or may not wire) would otherwise compare its real total against
+   * a defaulted 0 and declare a mismatch on every run — which trains everyone
+   * to ignore the banner, the opposite of what it is for.
+   */
+  readonly available?: (ctx: Ctx) => boolean;
 }
 
 export interface ReportDefinition<TParams, Row, Ctx = unknown> {

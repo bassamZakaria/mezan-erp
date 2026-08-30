@@ -7,15 +7,16 @@ import {
   ungrantablePermissions,
   ungrantableScopes,
   type AccountAuthority,
-  type ScopeEscalation,
   InvalidUserError,
   DuplicateUserEmailError,
   EmailDomainNotAllowedError,
   UnknownRoleError,
   UserNotFoundError,
+  LastCompanyAdminError,
   type AuditSink,
   type User,
   type UnitOfWork,
+  type ScopeSelection,
   type SecretHasher,
 } from "@mezan/domain";
 import { createUserSchema, updateUserSchema } from "@mezan/contracts";
@@ -63,6 +64,11 @@ function userErrorResponse(c: Context, err: unknown) {
   }
   if (err instanceof UserNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
+  }
+  // 409, not 400: the request is well formed and the caller is allowed to
+  // deactivate users — it is the tenant's state that forbids this one (D117).
+  if (err instanceof LastCompanyAdminError) {
+    return c.json({ error: err.code, message: err.message }, 409);
   }
   throw err;
 }
@@ -230,23 +236,23 @@ export function createUsersRoutes(
     };
   }
 
+  function refuseScope(c: Context, scopes: readonly string[]) {
+    return c.json(
+      {
+        error: "PRIVILEGE_ESCALATION_DENIED",
+        scopes: [...scopes],
+        message: "لا يمكنك منح نطاق أوسع من نطاقك.",
+      },
+      403,
+    );
+  }
+
   function refuseGrant(c: Context, permissions: readonly string[]) {
     return c.json(
       {
         error: "PRIVILEGE_ESCALATION_DENIED",
         permissions: [...permissions],
         message: "لا يمكنك منح صلاحيات لا تملكها.",
-      },
-      403,
-    );
-  }
-
-  function refuseScope(c: Context, scopes: readonly ScopeEscalation[]) {
-    return c.json(
-      {
-        error: "PRIVILEGE_ESCALATION_DENIED",
-        scopes: scopes.map((s) => ({ dimension: s.dimension, requested: s.requested })),
-        message: "لا يمكنك منح نطاق فروع أو مستودعات أوسع من نطاقك.",
       },
       403,
     );
@@ -276,12 +282,8 @@ export function createUsersRoutes(
    */
   async function refuseIfEscalating(
     c: Context,
-    granted: {
-      roleId: string | null;
-      isCompanyAdmin: boolean;
-      branchScope?: AccountAuthority["branchScope"];
-      warehouseScope?: AccountAuthority["warehouseScope"];
-    },
+    granted: { roleId: string | null; isCompanyAdmin: boolean; branchScope?: ScopeSelection; warehouseScope?: ScopeSelection },
+    /** The account being written, so a refusal can name what was reached for. Null on create. */
     targetId: string | null,
   ) {
     const ctx = getAuthContext(c);
@@ -296,6 +298,10 @@ export function createUsersRoutes(
       await auditRefusal(c, targetId, { reason: "GRANT_UNHELD_PERMISSIONS", permissions: ungrantable });
       return refuseGrant(c, ungrantable);
     }
+    // WHERE is authority too: a caller who can write a wider branch/warehouse
+    // scope than they hold defeats every read-narrowing at once (D118). Audited
+    // like every other refusal — a probe that leaves no row is a probe nobody
+    // ever sees.
     const overreach = ungrantableScopes(ctx, granted);
     if (overreach.length > 0) {
       await auditRefusal(c, targetId, { reason: "WIDEN_SCOPE", scopes: overreach });

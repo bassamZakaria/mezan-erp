@@ -5,6 +5,7 @@ import {
   isDefaultUserPreferences,
   recordRecentlyOpened,
   resetUserPreferences,
+  sanitizeStoredUserPreferences,
   updateUserPreferences,
   InvalidUserPreferencesError,
   type UnitOfWork,
@@ -134,11 +135,22 @@ export function createPreferencesRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const now = deps.now ?? (() => new Date());
 
-  /** A user who never customised anything still has a layout: the shipped default, materialised. */
+  /**
+   * A user who never customised anything still has a layout: the shipped
+   * default, materialised. A stored row that fails to read cleanly (a
+   * section added after the row was written, a value a newer validation rule
+   * rejects) is recovered rather than thrown — see
+   * `sanitizeStoredUserPreferences`'s doc comment.
+   */
   async function load(userId: string): Promise<{ preferences: UserPreferences; stored: boolean }> {
-    const stored = await deps.store.get(userId);
+    let stored: UserPreferences | null;
+    try {
+      stored = await deps.store.get(userId);
+    } catch {
+      stored = null;
+    }
     return stored
-      ? { preferences: stored, stored: true }
+      ? { preferences: sanitizeStoredUserPreferences(userId, stored, now), stored: true }
       : { preferences: createDefaultUserPreferences(userId, now), stored: false };
   }
 
@@ -150,7 +162,8 @@ export function createPreferencesRoutes(
   app.get("/defaults", requireAuth, (c) => c.json(serialize(createDefaultUserPreferences(callerId(c), now), false)));
 
   app.get("/users", gate("admin.users.view"), async (c) => {
-    const [rows, users] = await Promise.all([deps.store.list(), deps.uow.users.list()]);
+    const [storedRows, users] = await Promise.all([deps.store.list(), deps.uow.users.list()]);
+    const rows = storedRows.map((row) => sanitizeStoredUserPreferences(row.userId, row, now));
     const byId = new Map(rows.map((row) => [row.userId, row]));
     const summaries: UserPreferencesSummaryDTO[] = users.map((user) => {
       const row = byId.get(user.id);

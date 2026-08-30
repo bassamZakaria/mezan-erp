@@ -101,7 +101,8 @@ export function computeReconciliation<TParams, Row, Ctx>(
   params: TParams,
 ): ReportReconciliationResult | null {
   if (!definition.reconciliation) return null;
-  const { labelAr, computeReportTotal, computeReferenceTotal, toleranceMoney = 0 } = definition.reconciliation;
+  const { labelAr, computeReportTotal, computeReferenceTotal, toleranceMoney = 0, available } = definition.reconciliation;
+  if (available && !available(ctx)) return null;
   const reportTotal = computeReportTotal(rows);
   const referenceTotal = computeReferenceTotal(rows, ctx, params);
   const diff = reportTotal - referenceTotal;

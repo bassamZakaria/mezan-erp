@@ -277,19 +277,42 @@ describe("bank reconciliation routes — manual lines and finalize", () => {
     expect(((await (await app.fetch(req("/stmt-1"))).json()) as any).lines).toHaveLength(4);
   });
 
-  it("LIMITATION (D82): finalizes with lines still unmatched, then locks every mutation with 409", async () => {
+  it("GUARANTEE (D82): refuses to finalize while lines are unmatched, and writes nothing", async () => {
     const { app } = await newApp();
     await app.fetch(importReq());
-    // Every imported line is still unmatched at this point — the route never
-    // checks, so the reconciliation closes over its own open differences.
     const lines = ((await (await app.fetch(req("/stmt-1"))).json()) as any).lines as { status: string }[];
     expect(lines.every((line) => line.status === "unmatched")).toBe(true);
 
     const res = await app.fetch(req("/stmt-1/finalize", { method: "POST" }));
-    expect(res.status).toBe(200);
-    expect((await res.json()) as any).toMatchObject({ status: "completed", finalizedAt: "2026-08-22T10:00:00.000Z" });
+    expect(res.status).toBe(422);
+    expect((await res.json()) as any).toMatchObject({ error: "STATEMENT_HAS_UNMATCHED_LINES", unmatchedCount: 3 });
 
-    expect((await app.fetch(req("/stmt-1/finalize", { method: "POST" }))).status).toBe(409);
+    // Nothing was written: the statement is still open and still editable.
+    expect((await (await app.fetch(req("/stmt-1"))).json()) as any).toMatchObject({
+      status: "imported",
+      finalizedAt: null,
+    });
+    expect(
+      (await app.fetch(req("/stmt-1/lines", { method: "POST", body: JSON.stringify({ date: "2026-08-10", description: "x", amount: "1.00" }) }))).status,
+    ).toBe(201);
+  });
+
+  it("GUARANTEE (D82): the recorded override closes it and locks every mutation with 409", async () => {
+    const { app } = await newApp();
+    await app.fetch(importReq());
+
+    const res = await app.fetch(
+      req("/stmt-1/finalize", { method: "POST", body: JSON.stringify({ force: true, reason: "فروق تُسوّى الشهر القادم" }) }),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()) as any).toMatchObject({
+      status: "completed",
+      finalizedAt: "2026-08-22T10:00:00.000Z",
+      unmatchedAtFinalize: 3,
+      finalizeOverrideReason: "فروق تُسوّى الشهر القادم",
+    });
+
+    expect((await app.fetch(req("/stmt-1/finalize", { method: "POST", body: JSON.stringify({ force: true, reason: "x" }) }))).status).toBe(409);
     expect(
       (await app.fetch(req("/stmt-1/lines/stmt-1:L0/match", { method: "POST", body: JSON.stringify({ entryId: "je-1" }) }))).status,
     ).toBe(409);

@@ -16,8 +16,9 @@ import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
  * Branch scope is only real if the other branch data is actually absent. Two
  * branches are seeded with money in both, the caller is scoped to one, and the
  * question asked of every read surface is the same: are the other branch ids
- * there. The list surfaces narrow. The single-GET-by-id surfaces do not — that
- * is what these tests pin.
+ * there. Lists, trees and single-GET-by-id surfaces must all answer no
+ * (D130, D131) — and the caller's OWN branch must still come back, or the
+ * narrowing would be a guard that refuses everything.
  */
 
 const closers: Array<{ close(): void }> = [];
@@ -156,30 +157,61 @@ describe("a branch-scoped clerk reading the voucher LIST", () => {
   });
 });
 
-describe("the same clerk fetching the other branch document BY ID", () => {
-  it("LIMITATION: GET /vouchers/:id ignores branch scope and serves the other branch voucher in full", async () => {
+describe("the same clerk fetching the other branch document BY ID (D130)", () => {
+  it("GET /vouchers/:id answers 404 for a voucher outside the caller's branch scope", async () => {
     const app = await voucherHarness();
 
     const res = await app.fetch(req("/v-b2", SCOPED));
 
-    // What SHOULD happen: 404, exactly as the own-visibility narrowing on
-    // sales invoices does — whether a document they may not see exists is
-    // itself information. What DOES happen:
-    expect(res.status).toBe(200);
-    const doc = (await res.json()) as { id: string; branchId: string; amount: string };
-    expect(doc.id).toBe("v-b2");
-    expect(doc.branchId).toBe("b2");
-    expect(doc.amount).toBe("7500.000000");
+    // 404, not 403, exactly as the own-visibility narrowing on sales invoices
+    // does: whether a document they may not see exists is itself information.
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: string; branchId?: string; amount?: string };
+    expect(body.error).toBe("NOT_FOUND");
+    // The 7,500.00 of branch b2 must not leak through the error body either.
+    expect(body.branchId).toBeUndefined();
+    expect(body.amount).toBeUndefined();
   });
 
-  it("LIMITATION: the allocations of the other branch voucher are readable by id too", async () => {
+  it("still serves the caller's OWN branch voucher in full — the guard narrows, it does not refuse", async () => {
     const app = await voucherHarness();
-    const res = await app.fetch(req("/v-b2/allocations", { permissions: "treasury.allocation.view", branchScope: "b1" }));
+
+    const res = await app.fetch(req("/v-b1", SCOPED));
+
     expect(res.status).toBe(200);
+    const doc = (await res.json()) as { id: string; branchId: string; amount: string };
+    expect(doc.id).toBe("v-b1");
+    expect(doc.branchId).toBe("b1");
+    expect(doc.amount).toBe("300.000000");
+  });
+
+  it("an unscoped caller still reads the b2 voucher, so the 404 is the SCOPE talking and not a broken id", async () => {
+    const app = await voucherHarness();
+
+    const res = await app.fetch(req("/v-b2", { permissions: "*" }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { amount: string }).toMatchObject({ branchId: "b2", amount: "7500.000000" });
+  });
+
+  it("GET /vouchers/:id/allocations answers 404 for the other branch voucher, and 200 for the caller's own", async () => {
+    const app = await voucherHarness();
+    const allocViewer = { permissions: "treasury.allocation.view", branchScope: "b1" };
+
+    const other = await app.fetch(req("/v-b2/allocations", allocViewer));
+    expect(other.status).toBe(404);
+    // The allocation summary carries the voucher's amount, so a 200 here leaks
+    // the same 7,500.00 the detail route was closed for.
+    expect((await other.json()) as { allocationSummary?: unknown }).not.toHaveProperty("allocationSummary");
+
+    const own = await app.fetch(req("/v-b1/allocations", allocViewer));
+    expect(own.status).toBe(200);
+    const body = (await own.json()) as { allocationSummary: { voucherAmount: string } };
+    expect(body.allocationSummary.voucherAmount).toBe("300.000000");
   });
 });
 
-describe("cost centres — the list narrows, the tree and the detail do not", () => {
+describe("cost centres — the list, the tree and the detail all narrow (D131)", () => {
   async function costCenterApp() {
     const repo = createSqliteCostCenterRepository();
     closers.push(repo);
@@ -200,18 +232,46 @@ describe("cost centres — the list narrows, the tree and the detail do not", ()
     expect(rows.map((r) => r.id)).toEqual(["cc-b1"]);
   });
 
-  it("LIMITATION: GET /cost-centers/tree reads the whole table with no scope at all", async () => {
+  it("GET /cost-centers/tree — the shape the screen renders — carries only the caller's branch", async () => {
     const app = await costCenterApp();
     const tree = (await (await app.fetch(req("/tree", viewer))).json()) as Array<{ id: string }>;
-    // The list above returned one row. The tree — the shape the screen renders
-    // — returns both branches.
-    expect(tree.map((n) => n.id).sort()).toEqual(["cc-b1", "cc-b2"]);
+    expect(tree.map((n) => n.id)).toEqual(["cc-b1"]);
+
+    // Unscoped, both are still there: the tree narrowed, it did not empty.
+    const all = (await (await app.fetch(req("/tree", { permissions: "*" }))).json()) as Array<{ id: string }>;
+    expect(all.map((n) => n.id).sort()).toEqual(["cc-b1", "cc-b2"]);
   });
 
-  it("LIMITATION: GET /cost-centers/:id serves the other branch cost centre", async () => {
+  it("keeps a child whose parent is out of scope visible as a root rather than dropping it", async () => {
     const app = await costCenterApp();
-    const res = await app.fetch(req("/cc-b2", viewer));
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { branchId: string }).branchId).toBe("b2");
+    const child = { id: "cc-b1-child", code: "CC-b1-CH", nameAr: "فرعي", branchId: "b1", parentId: "cc-b2" };
+    expect((await app.fetch(req("/", { method: "POST", permissions: "*", body: JSON.stringify(child) }))).status).toBe(201);
+
+    const tree = (await (await app.fetch(req("/tree", viewer))).json()) as Array<{ id: string }>;
+    // Filtering the parent out must not take the in-scope child with it — a
+    // silently missing cost centre is a report that no longer adds up.
+    expect(tree.map((n) => n.id).sort()).toEqual(["cc-b1", "cc-b1-child"]);
+  });
+
+  it("GET /cost-centers/:id answers 404 for the other branch cost centre and 200 for its own", async () => {
+    const app = await costCenterApp();
+
+    const other = await app.fetch(req("/cc-b2", viewer));
+    expect(other.status).toBe(404);
+    expect((await other.json()) as { branchId?: string }).not.toHaveProperty("branchId");
+
+    const own = await app.fetch(req("/cc-b1", viewer));
+    expect(own.status).toBe(200);
+    expect((await own.json()) as { branchId: string }).toMatchObject({ id: "cc-b1", branchId: "b1" });
+  });
+
+  it("a cost centre with no branch at all stays visible to a scoped caller — it is not attributable to another branch", async () => {
+    const app = await costCenterApp();
+    const shared = { id: "cc-shared", code: "CC-SHARED", nameAr: "مشترك" };
+    expect((await app.fetch(req("/", { method: "POST", permissions: "*", body: JSON.stringify(shared) }))).status).toBe(201);
+
+    expect((await app.fetch(req("/cc-shared", viewer))).status).toBe(200);
+    const tree = (await (await app.fetch(req("/tree", viewer))).json()) as Array<{ id: string }>;
+    expect(tree.map((n) => n.id).sort()).toEqual(["cc-b1", "cc-shared"]);
   });
 });

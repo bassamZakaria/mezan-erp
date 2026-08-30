@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { Money, type Account } from "@mezan/domain";
+import { Money, type Account, type VatFiling, type VatFilingRepository } from "@mezan/domain";
 import {
   createSqliteLedgerStore,
   createSqliteAccountRepository,
@@ -150,6 +150,25 @@ describe("gl-routes — create + post", () => {
     const body = (await res.json()) as { error: string; totalDebit: string };
     expect(body.error).toBe("UNBALANCED_ENTRY");
     expect(body.totalDebit).toBe("100.000000");
+  });
+
+  it("400s a structurally invalid entry: a line that is both a debit and a credit", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/journal-entries", {
+        method: "POST",
+        permissions: "accounting.journal.post",
+        body: JSON.stringify({
+          ...balanced,
+          lines: [
+            { accountId: "1300-1", debit: "10", credit: "10" },
+            { accountId: "4000", debit: "0", credit: "0" },
+          ],
+        }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("INVALID_JOURNAL_ENTRY");
   });
 
   it("422s posting to a header account", async () => {
@@ -688,5 +707,421 @@ describe("gl-routes — balances by currency", () => {
     expect(body.payables).toHaveLength(1);
     expect(body.payables[0]?.outstandingBase).toBe("500.000000");
     expect(body.payableTotalBase).toBe("500.000000");
+  });
+});
+
+describe("gl-routes — validation errors that must not reach the domain layer", () => {
+  it("400s a malformed create+post body", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/journal-entries", { method: "POST", permissions: "accounting.journal.post", body: JSON.stringify({ id: "bad" }) }),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
+  });
+
+  it("400s a malformed draft body", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/journal-entries/draft", { method: "POST", permissions: "accounting.journal.create", body: JSON.stringify({ id: "bad" }) }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("409s a domain error surfaced through the DRAFT path (duplicate id)", async () => {
+    const { app } = await newApp();
+    const first = await app.fetch(
+      req("/journal-entries/draft", { method: "POST", permissions: "accounting.journal.create", body: JSON.stringify(balanced) }),
+    );
+    expect(first.status).toBe(201);
+    const second = await app.fetch(
+      req("/journal-entries/draft", { method: "POST", permissions: "accounting.journal.create", body: JSON.stringify(balanced) }),
+    );
+    expect(second.status).toBe(409);
+    expect(((await second.json()) as { error: string }).error).toBe("DUPLICATE_JOURNAL_ENTRY");
+  });
+
+  it("400s a malformed reversal body (wrong type for reversalId)", async () => {
+    const { app } = await newApp();
+    await postBalanced(app);
+    const res = await app.fetch(
+      req("/journal-entries/je-1/reverse", {
+        method: "POST",
+        permissions: "accounting.journal.post",
+        body: JSON.stringify({ reversalId: 12345 }),
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("tolerates an unparseable JSON reversal body by falling back to defaults", async () => {
+    const { app } = await newApp();
+    await postBalanced(app);
+    const res = await app.fetch(
+      new Request("http://local/journal-entries/je-1/reverse", {
+        method: "POST",
+        headers: { "x-permissions": "accounting.journal.post", "content-type": "application/json" },
+        body: "not json at all",
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { reversal: { id: string } };
+    expect(body.reversal.id).toBe("rev-fixed");
+  });
+
+  it("400s a malformed list-query filter on /counts", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/journal-entries/counts?status=not-a-status", { permissions: "accounting.journal.view" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("400s a malformed list-query filter on /stats", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/journal-entries/stats?status=not-a-status", { permissions: "accounting.journal.view" }));
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("gl-routes — search narrows the register", () => {
+  it("search matches the memo and excludes the non-matching entry", async () => {
+    const { app } = await newApp();
+    await app.fetch(
+      req("/journal-entries", {
+        method: "POST",
+        permissions: "accounting.journal.post",
+        body: JSON.stringify({ ...balanced, id: "je-alpha", memo: "دفعة عميل ألفا" }),
+      }),
+    );
+    await app.fetch(
+      req("/journal-entries", {
+        method: "POST",
+        permissions: "accounting.journal.post",
+        body: JSON.stringify({ ...balanced, id: "je-beta", memo: "دفعة مورد بيتا" }),
+      }),
+    );
+    const res = await app.fetch(req("/journal-entries?search=ألفا", { permissions: "accounting.journal.view" }));
+    const rows = (await res.json()) as { id: string }[];
+    expect(rows.map((r) => r.id)).toEqual(["je-alpha"]);
+  });
+});
+
+function inMemoryVatFilings(): VatFilingRepository {
+  const store = new Map<string, VatFiling>();
+  return {
+    async findById(id) {
+      return store.get(id) ?? null;
+    },
+    async list() {
+      return [...store.values()];
+    },
+    async save(filing) {
+      store.set(filing.id, filing);
+    },
+    async findCovering(date) {
+      return [...store.values()].filter((f) => f.periodFrom <= date && date <= f.periodTo);
+    },
+  };
+}
+
+async function newAppWithVatFilings() {
+  const harness = await newApp();
+  const vatFilings = inMemoryVatFilings();
+  const deps: GlRoutesDeps = {
+    ledger: harness.ledger,
+    accounts: harness.accounts,
+    periods: harness.periods,
+    numbering: harness.ledger.numbering,
+    vatFilings,
+    now: () => "2026-08-22T10:00:00.000Z",
+    idGen: () => "rev-fixed",
+  };
+  return { app: createGlRoutes(deps, insecureHeaderAuthContextResolver), vatFilings, ledger: harness.ledger };
+}
+
+describe("gl-routes — VAT filings lock the period they cover (D29)", () => {
+  it("reports an empty list when no vatFilings port is wired, rather than erroring", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/vat-filings", { permissions: "accounting.reports.view" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown[]).toEqual([]);
+  });
+
+  it("404s recording a filing when no vatFilings port is wired", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/vat-filings", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ id: "vf-1", periodFrom: "2026-08-01", periodTo: "2026-08-31", netAmount: "1000" }),
+      }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("400s a malformed filing body", async () => {
+    const { app } = await newAppWithVatFilings();
+    const res = await app.fetch(
+      req("/vat-filings", { method: "POST", permissions: "accounting.period.close", body: JSON.stringify({ id: "vf-1" }) }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("records a filing, lists it, and refuses a second filing over the same period", async () => {
+    const { app } = await newAppWithVatFilings();
+    const res = await app.fetch(
+      req("/vat-filings", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ id: "vf-1", periodFrom: "2026-08-01", periodTo: "2026-08-31", netAmount: "1250.50", referenceNo: "ETA-991" }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    const filing = (await res.json()) as { id: string; netAmount: string; status: string };
+    expect(filing.netAmount).toBe("1250.500000");
+    expect(filing.status).toBe("filed");
+
+    const listRes = await app.fetch(req("/vat-filings", { permissions: "accounting.reports.view" }));
+    const list = (await listRes.json()) as { id: string }[];
+    expect(list.map((f) => f.id)).toEqual(["vf-1"]);
+
+    const dup = await app.fetch(
+      req("/vat-filings", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ id: "vf-2", periodFrom: "2026-08-15", periodTo: "2026-08-31", netAmount: "1"} ),
+      }),
+    );
+    expect(dup.status).toBe(409);
+    expect(((await dup.json()) as { error: string }).error).toBe("VAT_PERIOD_ALREADY_HAS_FILING");
+  });
+
+  it("refuses a posting dated inside a filed period, and posts nothing", async () => {
+    const { app } = await newAppWithVatFilings();
+    await app.fetch(
+      req("/vat-filings", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ id: "vf-1", periodFrom: "2026-08-01", periodTo: "2026-08-31", netAmount: "1000" }),
+      }),
+    );
+    const res = await app.fetch(
+      req("/journal-entries", { method: "POST", permissions: "accounting.journal.post", body: JSON.stringify({ ...balanced, date: "2026-08-15" }) }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("VAT_PERIOD_ALREADY_FILED");
+    const list = await app.fetch(req("/journal-entries", { permissions: "accounting.journal.view" }));
+    expect((await list.json()) as unknown[]).toEqual([]);
+  });
+
+  it("posting outside the filed window is unaffected", async () => {
+    const { app } = await newAppWithVatFilings();
+    await app.fetch(
+      req("/vat-filings", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ id: "vf-1", periodFrom: "2026-08-01", periodTo: "2026-08-15", netAmount: "1000" }),
+      }),
+    );
+    const res = await app.fetch(
+      req("/journal-entries", { method: "POST", permissions: "accounting.journal.post", body: JSON.stringify({ ...balanced, date: "2026-08-22" }) }),
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("404s amending a filing that does not exist", async () => {
+    const { app } = await newAppWithVatFilings();
+    const res = await app.fetch(
+      req("/vat-filings/ghost/amend", { method: "POST", permissions: "accounting.period.close", body: JSON.stringify({ reason: "correction" }) }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("400s amending with no reason", async () => {
+    const { app } = await newAppWithVatFilings();
+    await app.fetch(
+      req("/vat-filings", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ id: "vf-1", periodFrom: "2026-08-01", periodTo: "2026-08-31", netAmount: "1000" }),
+      }),
+    );
+    const res = await app.fetch(
+      req("/vat-filings/vf-1/amend", { method: "POST", permissions: "accounting.period.close", body: JSON.stringify({ reason: "" }) }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("404s amending when no vatFilings port is wired", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/vat-filings/vf-1/amend", { method: "POST", permissions: "accounting.period.close", body: JSON.stringify({ reason: "x" }) }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("amending a filing reopens its window for posting", async () => {
+    const { app } = await newAppWithVatFilings();
+    await app.fetch(
+      req("/vat-filings", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ id: "vf-1", periodFrom: "2026-08-01", periodTo: "2026-08-31", netAmount: "1000" }),
+      }),
+    );
+    const blocked = await app.fetch(
+      req("/journal-entries", { method: "POST", permissions: "accounting.journal.post", body: JSON.stringify({ ...balanced, date: "2026-08-15" }) }),
+    );
+    expect(blocked.status).toBe(422);
+
+    const amendRes = await app.fetch(
+      req("/vat-filings/vf-1/amend", { method: "POST", permissions: "accounting.period.close", body: JSON.stringify({ reason: "correction after audit" }) }),
+    );
+    expect(amendRes.status).toBe(200);
+    const amended = (await amendRes.json()) as { status: string; amendmentReason: string };
+    expect(amended.status).toBe("amended");
+    expect(amended.amendmentReason).toBe("correction after audit");
+
+    const allowed = await app.fetch(
+      req("/journal-entries", { method: "POST", permissions: "accounting.journal.post", body: JSON.stringify({ ...balanced, date: "2026-08-15" }) }),
+    );
+    expect(allowed.status).toBe(201);
+  });
+});
+
+describe("gl-routes — year-end close", () => {
+  async function withPnlActivity() {
+    const harness = await newApp();
+    // Revenue 4000 credited 8,000; expense 5000 debited 3,000 — both dated inside 2026.
+    await harness.app.fetch(
+      req("/journal-entries", {
+        method: "POST",
+        permissions: "accounting.journal.post",
+        body: JSON.stringify({
+          id: "je-rev",
+          date: "2026-08-10",
+          memo: "sale",
+          lines: [
+            { accountId: "1300-1", debit: "8000", credit: "0" },
+            { accountId: "4000", debit: "0", credit: "8000" },
+          ],
+        }),
+      }),
+    );
+    await harness.app.fetch(
+      req("/journal-entries", {
+        method: "POST",
+        permissions: "accounting.journal.post",
+        body: JSON.stringify({
+          id: "je-exp",
+          date: "2026-08-10",
+          memo: "rent",
+          lines: [
+            { accountId: "5000", debit: "3000", credit: "0" },
+            { accountId: "1300-1", debit: "0", credit: "3000" },
+          ],
+        }),
+      }),
+    );
+    return harness;
+  }
+
+  it("previews the close without posting anything", async () => {
+    const { app } = await withPnlActivity();
+    const res = await app.fetch(req("/year-end-close/2026/preview", { permissions: "accounting.period.close" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      netResult: string;
+      revenueClosed: string;
+      expensesClosed: string;
+      lines: Array<{ accountId: string; debit: string; credit: string }>;
+    };
+    expect(body.revenueClosed).toBe("8000.000000");
+    expect(body.expensesClosed).toBe("3000.000000");
+    expect(body.netResult).toBe("5000.000000");
+    expect(body.lines).toHaveLength(2);
+
+    // A preview posts nothing.
+    const list = (await (await app.fetch(req("/journal-entries", { permissions: "accounting.journal.view" }))).json()) as unknown[];
+    expect(list).toHaveLength(2);
+  });
+
+  it("400s an invalid year on the preview", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/year-end-close/not-a-year/preview", { permissions: "accounting.period.close" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("422s previewing a year with no P&L activity at all", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/year-end-close/2026/preview", { permissions: "accounting.period.close" }));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("NOTHING_TO_CLOSE");
+  });
+
+  it("closes the year, posting a balanced entry that rolls the exact net result into retained earnings", async () => {
+    const { app } = await withPnlActivity();
+    const res = await app.fetch(
+      req("/year-end-close", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ year: 2026, retainedEarningsAccountId: "3900" }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      journalEntryId: string;
+      netResult: string;
+      revenueClosed: string;
+      expensesClosed: string;
+      accountsClosed: number;
+    };
+    expect(body.netResult).toBe("5000.000000");
+    expect(body.revenueClosed).toBe("8000.000000");
+    expect(body.expensesClosed).toBe("3000.000000");
+    expect(body.accountsClosed).toBe(2);
+
+    const entry = await app.fetch(req(`/journal-entries/${body.journalEntryId}`, { permissions: "accounting.journal.view" }));
+    const entryBody = (await entry.json()) as { lines: Array<{ accountId: string; debit: string; credit: string }> };
+    const retained = entryBody.lines.find((l) => l.accountId === "3900");
+    expect(retained?.credit).toBe("5000.000000");
+    const totalDebit = entryBody.lines.reduce((s, l) => s + Number(l.debit), 0);
+    const totalCredit = entryBody.lines.reduce((s, l) => s + Number(l.credit), 0);
+    expect(totalDebit).toBe(totalCredit);
+
+    // Closing the same year again is refused, not posted a second time.
+    const again = await app.fetch(
+      req("/year-end-close", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ year: 2026, retainedEarningsAccountId: "3900" }),
+      }),
+    );
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as { error: string }).error).toBe("YEAR_ALREADY_CLOSED");
+
+    // The preview after closing reports the same refusal.
+    const previewAfter = await app.fetch(req("/year-end-close/2026/preview", { permissions: "accounting.period.close" }));
+    expect(previewAfter.status).toBe(409);
+  });
+
+  it("422s closing a year with no revenue or expense balances", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/year-end-close", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ year: 2026, retainedEarningsAccountId: "3900" }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("NOTHING_TO_CLOSE");
+  });
+
+  it("400s a malformed close-year body", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/year-end-close", { method: "POST", permissions: "accounting.period.close", body: JSON.stringify({ year: "not-a-number" }) }),
+    );
+    expect(res.status).toBe(400);
   });
 });

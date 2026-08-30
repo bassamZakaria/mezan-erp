@@ -16,6 +16,7 @@ export {
   EmailDomainNotAllowedError,
   UnknownRoleError,
   UserNotFoundError,
+  LastCompanyAdminError,
   type SaveUserCommand,
   type SaveUserOptions,
 } from "./save-user.js";

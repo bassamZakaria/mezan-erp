@@ -25,6 +25,12 @@ export const TEST_ACCOUNTS: Account[] = [
   leaf("3100", "3100", "equity", "credit"), // partner capital
   leaf("4900", "4900", "revenue", "credit"), // other income
   leaf("5900", "5900", "expense", "debit"), // other expense
+  leaf("1160", "1160", "asset", "debit"), // employee advances (عهدة)
+  leaf("2160", "2160", "liability", "credit"), // contracting customer advances
+  leaf("2210", "2210", "liability", "credit"), // withholding tax payable
+  leaf("3200", "3200", "equity", "debit"), // partner drawings (contra-equity)
+  leaf("4910", "4910", "revenue", "credit"), // sundry income default
+  leaf("5910", "5910", "expense", "debit"), // sundry expense default
 ];
 
 export const TEST_TREASURY_ACCOUNTS: TreasuryAccount[] = [

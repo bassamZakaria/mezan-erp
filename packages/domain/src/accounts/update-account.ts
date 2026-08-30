@@ -1,5 +1,6 @@
 import type { Account, AccountRepository, AccountStatus, AccountType, NaturalBalance } from "./account.js";
 import {
+  AccountHasPostingsError,
   AccountNotFoundError,
   CircularParentAccountError,
   HeaderAccountHasChildrenError,
@@ -18,19 +19,35 @@ export interface UpdateAccountCommand {
 }
 
 /**
- * Edits an existing account (docs/archive/catalog/04's "Add Account" dialog doubles
- * as the edit form). Re-validates the hierarchy rules that still apply after
- * the change:
+ * The single question the account editor has to ask the ledger: has anything
+ * ever been posted to this account? Structurally satisfied by
+ * `LedgerRepository.accountLedger`, so the GL ledger drops straight in without
+ * the chart of accounts depending on the GL module.
+ */
+export interface PostedAccountLookup {
+  accountLedger(accountId: string, asOfDate?: string): Promise<readonly unknown[]>;
+}
+
+/**
+ * Edits an existing account (the "Add Account" dialog doubles as the edit form).
+ * Re-validates the hierarchy rules that still apply after the change:
  *   - a new parent must exist and must be a header account,
- *   - reparenting must not create a cycle (an account can't become its own
- *     ancestor),
+ *   - reparenting must not create a cycle,
  *   - a header account with children may not be flipped to a postable detail
  *     account (it would strand its children).
+ *
+ * And, when a `ledger` is supplied, the rule the hierarchy checks cannot see:
+ * an account that has already been POSTED TO may not become a header and may
+ * not change type. Both edits leave the money in the ledger while moving it out
+ * of the report that reads it, so the trial balance stops footing and the
+ * year-end close stops carrying the right result. Renaming, reparenting and
+ * deactivating stay open — none of them changes what a posted line means.
  */
 export async function updateAccount(
   accountId: string,
   command: UpdateAccountCommand,
   repo: AccountRepository,
+  ledger?: PostedAccountLookup,
 ): Promise<Account> {
   const current = await repo.findById(accountId);
   if (!current) throw new AccountNotFoundError(accountId);
@@ -59,6 +76,18 @@ export async function updateAccount(
   const nextIsHeader = command.isHeader !== undefined ? command.isHeader : current.isHeader;
   if (current.isHeader && !nextIsHeader && hasChildren(existing, accountId)) {
     throw new HeaderAccountHasChildrenError(accountId);
+  }
+
+  const becomesHeader = !current.isHeader && nextIsHeader;
+  const changesType = command.type !== undefined && command.type !== current.type;
+  if (ledger && (becomesHeader || changesType)) {
+    const movements = await ledger.accountLedger(accountId);
+    if (movements.length > 0) {
+      throw new AccountHasPostingsError(
+        accountId,
+        becomesHeader ? "تحويله إلى حساب رئيسي" : "تغيير نوعه",
+      );
+    }
   }
 
   const updated: Account = {

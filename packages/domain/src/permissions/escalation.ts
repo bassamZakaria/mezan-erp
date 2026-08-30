@@ -44,53 +44,6 @@ export function ungrantablePermissions(
   return [...resolvePermissions(requested)].filter((code) => !ctx.permissions.has(code));
 }
 
-/** One scope dimension a caller reached past. */
-export interface ScopeEscalation {
-  readonly dimension: "branch" | "warehouse";
-  /** What was asked for: `"*"`, or the specific ids outside the caller's own grant. */
-  readonly requested: "*" | readonly string[];
-}
-
-/**
- * True when `requested` reaches somewhere `granted` does not.
- *
- * A caller holding `ALL_SCOPE` may grant anything. A caller holding a list may
- * grant only a subset of that list, and may never grant `ALL_SCOPE` — "every
- * branch" is strictly more than any enumeration of branches, including the one
- * the caller holds.
- */
-function scopeExceeds(granted: ScopeSelection, requested: ScopeSelection): "*" | readonly string[] | null {
-  if (granted === ALL_SCOPE) return null;
-  if (requested === ALL_SCOPE) return ALL_SCOPE;
-  const allowed = new Set(granted);
-  const outside = requested.filter((id) => !allowed.has(id));
-  return outside.length > 0 ? outside : null;
-}
-
-/**
- * The scope dimensions this caller may NOT grant — empty when the requested
- * branch/warehouse reach is within the caller's own.
- *
- * Omitted dimensions are not checked: a command that does not name a scope is
- * not widening one.
- */
-export function ungrantableScopes(
-  ctx: AuthContext,
-  requested: { readonly branchScope?: ScopeSelection; readonly warehouseScope?: ScopeSelection },
-): ScopeEscalation[] {
-  if (isTenantAdmin(ctx)) return [];
-  const out: ScopeEscalation[] = [];
-  if (requested.branchScope !== undefined) {
-    const over = scopeExceeds(ctx.branchScope, requested.branchScope);
-    if (over) out.push({ dimension: "branch", requested: over });
-  }
-  if (requested.warehouseScope !== undefined) {
-    const over = scopeExceeds(ctx.warehouseScope, requested.warehouseScope);
-    if (over) out.push({ dimension: "warehouse", requested: over });
-  }
-  return out;
-}
-
 /** The authority an existing account carries, flattened for comparison. */
 export interface AccountAuthority {
   readonly isCompanyAdmin: boolean;
@@ -130,4 +83,42 @@ export function targetOutranksCaller(ctx: AuthContext, target: AccountAuthority)
   if (target.roleUnresolved) return true;
   if (ungrantablePermissions(ctx, target.permissions).length > 0) return true;
   return ungrantableScopes(ctx, target).length > 0;
+}
+
+/**
+ * The scope ids in `requested` this caller may NOT hand out, tagged with the
+ * dimension they came from (`"branch:BR-ALEX"`, `"warehouse:*"`).
+ *
+ * WHERE is authority just as much as WHAT. Every read-narrowing in the app
+ * consults `branchScope`/`warehouseScope`, so a caller who can write a wider
+ * scope onto an account — their own most of all — defeats all of them at once
+ * without ever touching a permission code. A caller already holding `"*"` on a
+ * dimension can grant anything on it; anyone else may grant only ids they hold,
+ * and may never grant `"*"`.
+ */
+export function ungrantableScopes(
+  ctx: AuthContext,
+  requested: { readonly branchScope?: ScopeSelection; readonly warehouseScope?: ScopeSelection },
+): string[] {
+  // A tenant admin is unscoped by definition — `can()` bypasses both scope
+  // dimensions for them — so refusing them a scope they can already act in
+  // would be a rule the rest of the system does not enforce. Without this a
+  // company admin whose own row happens to carry a narrow branch list could
+  // not grant what they themselves may already do.
+  if (isTenantAdmin(ctx)) return [];
+  return [
+    ...ungrantableScope("branch", ctx.branchScope, requested.branchScope),
+    ...ungrantableScope("warehouse", ctx.warehouseScope, requested.warehouseScope),
+  ];
+}
+
+function ungrantableScope(
+  dimension: string,
+  held: ScopeSelection,
+  requested: ScopeSelection | undefined,
+): string[] {
+  if (requested === undefined || held === ALL_SCOPE) return [];
+  if (requested === ALL_SCOPE) return [`${dimension}:${ALL_SCOPE}`];
+  const mine = new Set(held);
+  return requested.filter((id) => !mine.has(id)).map((id) => `${dimension}:${id}`);
 }

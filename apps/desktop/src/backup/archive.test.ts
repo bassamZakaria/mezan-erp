@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { create as tarCreate } from "tar";
 import { createArchive, extractArchive, DB_ENTRY_NAME, MANIFEST_ENTRY_NAME } from "./archive.js";
 import { ArchiveContentsError } from "./errors.js";
 
@@ -82,5 +83,100 @@ describe("createArchive / extractArchive", () => {
     await expect(extractArchive(outputPath, path.join(dir, "out"))).rejects.toThrow(
       ArchiveContentsError,
     );
+  });
+});
+
+describe("extractArchive — a hostile archive", () => {
+  /**
+   * A backup file is attacker-influenced input at restore time: it travels on a
+   * USB stick or a network share, and the operator is told to trust it. These
+   * tests pack archives by hand rather than through `createArchive`, because
+   * the question is what the EXTRACTOR does with a file it did not write.
+   */
+  async function packRaw(dir: string, entries: readonly { name: string; body: string }[]): Promise<string> {
+    const staging = path.join(dir, "hostile-staging");
+    await mkdir(staging, { recursive: true });
+    const members: string[] = [];
+    for (const entry of entries) {
+      const target = path.join(staging, entry.name);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, entry.body, "utf8");
+      members.push(entry.name);
+    }
+    const archivePath = path.join(dir, "hostile.mezanbak");
+    await tarCreate({ gzip: true, file: archivePath, cwd: staging, portable: true }, members);
+    return archivePath;
+  }
+
+  it("does not write outside the destination when an entry name climbs out of it", async () => {
+    const dir = await tmpDir();
+    const outside = path.join(dir, "outside");
+    await mkdir(outside, { recursive: true });
+
+    // The entry is named so that a naive extractor would drop it in the
+    // PARENT of destDir — the classic tar-slip.
+    const archivePath = await packRaw(dir, [
+      { name: MANIFEST_ENTRY_NAME, body: "{}" },
+      { name: DB_ENTRY_NAME, body: "not a database" },
+      { name: "../outside/planted.txt", body: "written outside the restore directory" },
+    ]);
+
+    // Packing the archive necessarily wrote the file at that relative path on
+    // the way in; remove it, so what the check below sees can only have come
+    // from the EXTRACTION.
+    await rm(path.join(outside, "planted.txt"), { force: true });
+    expect(await readFile(path.join(outside, "planted.txt"), "utf8").catch(() => null)).toBeNull();
+
+    const destDir = path.join(dir, "restore");
+    await extractArchive(archivePath, destDir).catch(() => undefined);
+
+    // Whatever the extractor decides to do with the entry, the one thing it
+    // must never do is write it back out here.
+    const planted = await readFile(path.join(outside, "planted.txt"), "utf8").catch(() => null);
+    expect(planted).toBeNull();
+  });
+
+  it("does not follow an absolute entry name to the filesystem root", async () => {
+    const dir = await tmpDir();
+    const archivePath = await packRaw(dir, [
+      { name: MANIFEST_ENTRY_NAME, body: "{}" },
+      { name: DB_ENTRY_NAME, body: "not a database" },
+    ]);
+
+    const destDir = path.join(dir, "restore");
+    await extractArchive(archivePath, destDir).catch(() => undefined);
+
+    // Everything the extraction produced stays under destDir.
+    const written = await readdir(destDir).catch(() => [] as string[]);
+    for (const name of written) expect(path.resolve(destDir, name).startsWith(path.resolve(destDir))).toBe(true);
+  });
+
+  it("refuses an archive with no database inside it, rather than restoring an empty tenant", async () => {
+    const dir = await tmpDir();
+    const archivePath = await packRaw(dir, [{ name: MANIFEST_ENTRY_NAME, body: "{}" }]);
+
+    await expect(extractArchive(archivePath, path.join(dir, "restore"))).rejects.toBeTruthy();
+  });
+
+  it("refuses an archive with no manifest, which is the only record of what it holds", async () => {
+    const dir = await tmpDir();
+    const archivePath = await packRaw(dir, [{ name: DB_ENTRY_NAME, body: "not a database" }]);
+
+    await expect(extractArchive(archivePath, path.join(dir, "restore"))).rejects.toBeTruthy();
+  });
+
+  it("clears the destination first, so a restore cannot inherit a previous one's files", async () => {
+    const dir = await tmpDir();
+    const destDir = path.join(dir, "restore");
+    await mkdir(destDir, { recursive: true });
+    await writeFile(path.join(destDir, "leftover.txt"), "from an earlier restore", "utf8");
+
+    const archivePath = await packRaw(dir, [
+      { name: MANIFEST_ENTRY_NAME, body: "{}" },
+      { name: DB_ENTRY_NAME, body: "not a database" },
+    ]);
+    await extractArchive(archivePath, destDir);
+
+    expect(await readFile(path.join(destDir, "leftover.txt"), "utf8").catch(() => null)).toBeNull();
   });
 });

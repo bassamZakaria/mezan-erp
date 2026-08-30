@@ -446,7 +446,7 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**Thirty-four filed 2026-08-30 by the test-coverage pass** (D66–D99). D99 is the most serious: a live, ungated journal-posting route. They were found by
+**Thirty-five filed 2026-08-30 by the test-coverage pass** (D66–D100). D99 is the most serious: a live, ungated journal-posting route. They were found by
 writing tests and manual scenarios against the real code, so each carries a file reference
 rather than a feeling. The ones marked **guarded** already have a passing test that pins the
 current behaviour and will go red the day it changes; the ones marked **reported** still
@@ -488,6 +488,7 @@ need a measured reading in the running app before anyone fixes them.
 | D97 | `createSalesInvoiceLineSchema` has no `costCenterId`, so a revenue line cannot be attributed to a cost centre at creation and the Cost Centre P&L cannot see it | `packages/contracts/src/sales-invoice.ts` | guarded (`sales-invoice.test.ts`) |
 | D98 | Report date parameters are validated by SHAPE only, so `2026-13-45` — no thirteenth month, no forty-fifth day — is accepted by both the aging and the period reports and silently matches nothing, which reads on screen as "no sales in that range" rather than "that is not a date" | `packages/api/src/reports-routes.ts` | guarded (`reports-routes.test.ts`) |
 | D99 | **`POST /journal-entries` is a live, UNGATED posting route.** It is the spike's original poster, still mounted in the app the desktop shell serves, and it has no permission gate, no fiscal-period check, no account validation, no document numbering, no audit event and no GL event — and its line contract carries no cost centre, currency, rate or tax rate. Anyone who can reach the API can post a journal entry into any period, including one that was never opened. The correct route, `POST /gl/journal-entries`, sits beside it fully gated | `packages/api/src/app.ts:1449` and `:1492`, `packages/domain/src/post-journal-entry.ts` | guarded (`legacy-journal-entries.abuse.test.ts`) |
+| D100 | `useUpdateSequence` throws a fixed generic Arabic message and never reads the response body, so the server's actual refusal — a duplicate prefix, say — never reaches the user; sibling hooks parse `body.message` correctly | `apps/web/src/data/platform-hooks.ts` | guarded (`SequencesPage.test.tsx`) |
 
 D1–D65 are closed; the register is `archive/defect-register.md`.
 

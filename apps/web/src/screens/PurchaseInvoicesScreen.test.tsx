@@ -1,0 +1,380 @@
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, expect, it } from "vitest";
+import { useState, type ReactNode } from "react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type {
+  BranchDTO,
+  GoodsReceiptDTO,
+  ItemDTO,
+  LandedCostDocumentDTO,
+  PurchaseInvoiceDTO,
+  SupplierDTO,
+  TreasuryAccountDTO,
+  UserDTO,
+  WarehouseDTO,
+} from "@mezan/contracts";
+import { PurchaseInvoicesScreen } from "./PurchaseInvoicesScreen";
+import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
+
+// jsdom has no layout engine and does not implement scrollIntoView; the
+// dropdown menu (Select) calls it when the active option changes.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
+
+function fieldInput(container: HTMLElement, labelText: string): HTMLElement {
+  const label = within(container).getByText(labelText);
+  const input = label.parentElement?.querySelector("input");
+  if (!input) throw new Error(`no input found next to label "${labelText}"`);
+  return input;
+}
+
+function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+  const input = within(container).getByLabelText(label);
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: optionLabel } });
+  const option = within(container).getByRole("button", { name: (n) => n.startsWith(optionLabel) });
+  fireEvent.mouseDown(option);
+}
+
+const branches: BranchDTO[] = [
+  { id: "MAIN", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
+];
+const warehouses: WarehouseDTO[] = [
+  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "main", isDefault: true, active: true },
+];
+const suppliers: SupplierDTO[] = [
+  { id: "sup-1", code: "S1", nameAr: "شركة النيل للتوريدات", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null, category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null },
+];
+const items: ItemDTO[] = [
+  { id: "item-cement", code: "ITM-1", nameAr: "أسمنت بورتلاندي", nameEn: null, type: "stock", baseUnitCode: "PCS", alternateUnits: [], barcodes: [], categoryId: null, brandId: null, seasonId: null, description: null, defaultSupplierId: null, specifications: [], costingMethod: "WAC", salePrice: "100.00", costPrice: "85.00", taxRatePercent: 14, trackInventory: true, trackBatches: false, trackExpiry: false, reorderPoint: null, imageAttachmentId: null, reorderQty: null, revenueAccountId: null, cogsAccountId: null, inventoryAccountId: null, etaCodeType: null, etaItemCode: null, gpcCode: null, status: "active" },
+];
+const users: UserDTO[] = [{ id: "USER-ADMIN", nameAr: "محمد الشهابي", nameEn: null, email: "admin@cyag.example", isCompanyAdmin: true, active: true, roleCode: null, photoUrl: null } as UserDTO];
+const treasuryAccounts: TreasuryAccountDTO[] = [
+  { id: "treas-1", code: "CASH-1", name: "خزينة الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, status: "active" },
+];
+
+function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO {
+  return {
+    id: "gr-1",
+    number: "GR-000001",
+    purchaseOrderId: "po-2",
+    supplierId: "sup-1",
+    warehouseId: "MAIN-WH",
+    date: "2026-08-19",
+    notes: null,
+    lines: [{ itemId: "item-cement", description: null, qty: "20.000000", unitCost: "85.000000", batchNo: null, expiryDate: null }],
+    status: "confirmed",
+    invoiced: false,
+    totalCost: "1700.000000",
+    createdBy: "USER-ADMIN",
+    createdAt: "2026-08-19T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseInvoiceDTO {
+  return {
+    id: "pi-1",
+    number: "PI-000001",
+    supplierId: "sup-1",
+    date: "2026-08-20",
+    dueDate: "2026-09-04",
+    supplierInvoiceNumber: null,
+    branchId: "MAIN",
+    warehouseId: "MAIN-WH",
+    currency: "EGP",
+    notes: null,
+    receiptId: null,
+    lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, batchNo: null, expiryDate: null }],
+    status: "confirmed",
+    subtotal: "100.000000",
+    tax: "0.000000",
+    total: "100.000000",
+    amountPaid: "0.000000",
+    remainingBalance: "100.000000",
+    createdBy: "USER-ADMIN",
+    createdAt: "2026-08-20T09:30:00.000Z",
+    ...overrides,
+  };
+}
+
+function renderScreen(
+  invoices: PurchaseInvoiceDTO[] = [purchaseInvoice()],
+  extra: Record<string, (init: RequestInit | undefined, path: string) => { status?: number; body: unknown }> = {},
+) {
+  let current = [...invoices];
+  let lastListPath = "";
+  let lastCreateBody: unknown = null;
+  let lastPayBody: unknown = null;
+  const transport = stubTransport({
+    "GET /branches": () => ({ body: branches }),
+    "GET /warehouses": () => ({ body: warehouses }),
+    "GET /suppliers": () => ({ body: suppliers }),
+    "GET /items": () => ({ body: items }),
+    "GET /users": () => ({ body: users }),
+    "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
+    "GET /purchases/receipts": () => ({ body: [] }),
+    "GET /landed-costs": () => ({ body: [] }),
+    "GET /settings/currencies": () => ({ body: { base: "EGP", multiCurrencyEnabled: false, allowed: [] } }),
+    "GET /purchases/invoices": (_init, path) => {
+      lastListPath = path;
+      return { body: current };
+    },
+    "GET /purchases/invoices/counts": () => ({
+      body: { all: current.length, overdue: 0, due_soon: 0, draft: 0, confirmed: current.length, cancelled: 0, partially_paid: 0, paid: 0 },
+    }),
+    "GET /purchases/invoices/stats": () => ({
+      body: {
+        purchases: current.reduce((s, i) => s + Number(i.total), 0).toFixed(6),
+        paid: current.reduce((s, i) => s + Number(i.amountPaid), 0).toFixed(6),
+        unpaid: current.reduce((s, i) => s + Number(i.remainingBalance), 0).toFixed(6),
+      },
+    }),
+    "GET /purchases/invoices/*/fulfilment": () => ({ body: { lines: [] } }),
+    "POST /purchases/invoices": (init) => {
+      lastCreateBody = JSON.parse((init?.body as string) ?? "{}");
+      const body = lastCreateBody as Partial<PurchaseInvoiceDTO>;
+      const created = purchaseInvoice({ id: "pi-new", number: "PI-000002", subtotal: "0", total: "0", ...body });
+      current = [...current, created];
+      return { body: created };
+    },
+    "POST /purchases/invoices/*/payments": (init, path) => {
+      lastPayBody = JSON.parse((init?.body as string) ?? "{}");
+      const id = path.split("/")[3]!;
+      current = current.map((i) => (i.id === id ? { ...i, amountPaid: "100.000000", remainingBalance: "0.000000" } : i));
+      return { body: { ...current.find((i) => i.id === id)!, voucherId: "v-1", voucherNo: "PV-000001" } };
+    },
+    ...extra,
+  });
+  const result = renderWithProviders(
+    <TestNavigation>
+      <PurchaseInvoicesScreen />
+    </TestNavigation>,
+    { transport, initialSession: testAdminSession },
+  );
+  return { ...result, getListPath: () => lastListPath, getCreateBody: () => lastCreateBody, getPayBody: () => lastPayBody };
+}
+
+describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => {
+  it("the branch/warehouse/supplier filters and date range each change the outgoing list request", async () => {
+    const user = userEvent.setup();
+    const { getListPath } = renderScreen();
+    await screen.findByText("PI-000001");
+
+    await user.click(screen.getByRole("combobox", { name: "الفرع" }));
+    await user.click(await screen.findByRole("option", { name: "الفرع الرئيسي" }));
+    await waitFor(() => expect(getListPath()).toContain("branchId=MAIN"));
+
+    await user.click(screen.getByRole("combobox", { name: "المورد" }));
+    await user.click(await screen.findByRole("option", { name: "شركة النيل للتوريدات" }));
+    await waitFor(() => expect(getListPath()).toContain("supplierId=sup-1"));
+
+    fireEvent.change(fieldInput(document.body, "من تاريخ"), { target: { value: "2026-08-01" } });
+    await waitFor(() => expect(getListPath()).toContain("fromDate=2026-08-01"));
+  });
+
+  it("status chips change the outgoing status filter", async () => {
+    const { getListPath } = renderScreen();
+    await screen.findByText("PI-000001");
+    fireEvent.click(screen.getByRole("tab", { name: /^مؤكدة|^مؤكد/ }));
+    await waitFor(() => expect(getListPath()).toContain("status=confirmed"));
+  });
+
+  it("the attention banners set the status filter when clicked", async () => {
+    const { getListPath } = renderScreen([purchaseInvoice({ dueDate: "2020-01-01" })], {
+      "GET /purchases/invoices/counts": () => ({ body: { all: 1, overdue: 1, due_soon: 0, draft: 0, confirmed: 1, cancelled: 0, partially_paid: 0, paid: 0 } }),
+    });
+    await screen.findByText("PI-000001");
+    fireEvent.click(screen.getByText(/فواتير موردين متأخرة عن السداد/));
+    await waitFor(() => expect(getListPath()).toContain("status=overdue"));
+  });
+
+  it("the KPI strip renders Money-formatted stats, never a raw scaled-decimal string, and unpaid turns danger-toned", async () => {
+    renderScreen([purchaseInvoice({ total: "5000.000000", remainingBalance: "5000.000000" })]);
+    await screen.findByText("PI-000001");
+    expect(screen.queryByText("5000.000000")).not.toBeInTheDocument();
+    expect(screen.getAllByText((_, el) => el?.textContent === "5,000.00").length).toBeGreaterThan(0);
+  });
+
+  it("creates a manual invoice with the real picked supplier and item ids in the POST body", async () => {
+    const { getCreateBody } = renderScreen([]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const body = getCreateBody() as Record<string, unknown>;
+    expect(body.supplierId).toBe("sup-1");
+    const lines = body.lines as Array<Record<string, unknown>>;
+    expect(lines[0]!.itemId).toBe("item-cement");
+    expect(lines[0]!.kind).toBe("inventory");
+  });
+
+  it("switching a line's kind off 'inventory' clears the item id and switches to a free-text description field", async () => {
+    renderScreen([]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    fireEvent.click(screen.getByText("مصروف"));
+    expect(screen.queryByLabelText("الصنف")).not.toBeInTheDocument();
+    expect(screen.getByText("وصف المصروف")).toBeInTheDocument();
+  });
+
+  it("creating from a receipt derives preview lines from the real receipt and posts its id", async () => {
+    const { getCreateBody } = renderScreen([], {
+      "GET /purchases/receipts": () => ({ body: [goodsReceipt()] }),
+    });
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(await screen.findByText("من إيصال استلام"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "إيصال الاستلام *", "GR-000001");
+    expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const body = getCreateBody() as Record<string, unknown>;
+    expect(body.receiptId).toBe("gr-1");
+    expect(body.lines).toBeUndefined();
+  });
+
+  it("a server refusal on create renders the screen's Arabic formError, not raw JSON", async () => {
+    renderScreen([], {
+      "POST /purchases/invoices": () => ({ status: 400, body: { message: "لا يمكن إنشاء فاتورة بدون بنود" } }),
+    });
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+    expect(await screen.findByText("لا يمكن إنشاء فاتورة بدون بنود")).toBeInTheDocument();
+  });
+
+  it("payment tab: guards block submit with Arabic messages, then posts the real treasury id and shows the voucher note", async () => {
+    const { getPayBody } = renderScreen([purchaseInvoice({ remainingBalance: "100.000000", status: "confirmed" })]);
+    fireEvent.click(await screen.findByText("PI-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: "السداد" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "تسجيل السداد" }));
+    expect(await screen.findByText("قيمة السداد يجب أن تكون أكبر من صفر.")).toBeInTheDocument();
+
+    const amountInput = fieldInput(document.body, "قيمة السداد");
+    fireEvent.change(amountInput, { target: { value: "100" } });
+    fireEvent.click(screen.getByRole("button", { name: "تسجيل السداد" }));
+    expect(await screen.findByText("اختر الخزينة التي سيُصرف منها.")).toBeInTheDocument();
+    expect(getPayBody()).toBeNull();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("combobox", { name: "الخزينة" }));
+    await user.click(await screen.findByRole("option", { name: /خزينة الفرع الرئيسي/ }));
+    fireEvent.click(screen.getByRole("button", { name: "تسجيل السداد" }));
+    await waitFor(() => expect(getPayBody()).not.toBeNull());
+    const body = getPayBody() as Record<string, unknown>;
+    expect(body.treasuryAccountId).toBe("treas-1");
+    // The successful-payment note (voucher PV-000001) and the post-refetch
+    // "fully settled" message are mutually exclusive renders of the same slot
+    // (`canPay` flips false the instant the invalidated invoice refetches with
+    // remainingBalance 0) — assert whichever the DOM has settled on.
+    await waitFor(() => {
+      const done = screen.queryByText((_, el) => el?.textContent === "تم إنشاء سند الصرف PV-000001 وتخصيصه على الفاتورة.");
+      const settled = screen.queryByText("الفاتورة مسدَّدة بالكامل.");
+      expect(done ?? settled).not.toBeNull();
+    });
+  });
+
+  it("landed-costs tab shows only the lines that reference THIS invoice, formatted money and the real item name", async () => {
+    const landedDocs: LandedCostDocumentDTO[] = [
+      {
+        id: "lc-1",
+        docType: "LANDED_COST",
+        docNo: "LC-000001",
+        date: "2026-08-21",
+        memo: "شحن ورسوم جمركية",
+        status: "confirmed",
+        lines: [
+          {
+            itemId: "item-cement",
+            warehouseId: "MAIN-WH",
+            sourceInvoiceId: "pi-1",
+            sourceInvoiceNumber: "PI-000001",
+            qty: "1.000000",
+            unitCost: "100.000000",
+            weight: "1.000000",
+            allocatedAmount: "50.000000",
+            newUnitCost: "150.000000",
+            distributionMethod: "BY_VALUE",
+            costItems: [{ costType: "SHIPPING", description: "شحن", amount: "50.000000" }],
+          },
+        ],
+        createdAt: "2026-08-21T00:00:00.000Z",
+        confirmedAt: "2026-08-21T00:00:00.000Z",
+        reversesDocId: null,
+        reversedByDocId: null,
+        workflowRequestId: null,
+        journalEntryId: null,
+      },
+      {
+        id: "lc-2",
+        docType: "LANDED_COST",
+        docNo: "LC-000002",
+        date: "2026-08-21",
+        memo: "غير متعلق",
+        status: "confirmed",
+        lines: [
+          {
+            itemId: "item-cement",
+            warehouseId: "MAIN-WH",
+            sourceInvoiceId: "pi-unrelated",
+            sourceInvoiceNumber: "PI-999999",
+            qty: "1.000000",
+            unitCost: "100.000000",
+            weight: "1.000000",
+            allocatedAmount: "999.000000",
+            newUnitCost: "200.000000",
+            distributionMethod: "BY_VALUE",
+            costItems: [{ costType: "CUSTOMS", description: "جمارك", amount: "999.000000" }],
+          },
+        ],
+        createdAt: "2026-08-21T00:00:00.000Z",
+        confirmedAt: "2026-08-21T00:00:00.000Z",
+        reversesDocId: null,
+        reversedByDocId: null,
+        workflowRequestId: null,
+        journalEntryId: null,
+      },
+    ];
+    renderScreen([purchaseInvoice()], { "GET /landed-costs": () => ({ body: landedDocs }) });
+    fireEvent.click(await screen.findByText("PI-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /التكاليف الإضافية/ }));
+    expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
+    expect(screen.queryByText("999.000000")).not.toBeInTheDocument();
+    expect(screen.getAllByText((_, el) => el?.textContent === "50.00").length).toBeGreaterThan(0);
+    // The unrelated document's allocation must not leak in.
+    expect(screen.queryByText((_, el) => el?.textContent === "999.00")).not.toBeInTheDocument();
+  });
+});

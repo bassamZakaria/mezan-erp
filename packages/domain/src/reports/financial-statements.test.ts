@@ -29,9 +29,12 @@ const YEAR_END = "2026-12-31";
 describe("golden fixture — integrity", () => {
   it("every posted entry balances (debit = credit)", () => {
     for (const entry of financialStatementEntries) {
-      const debit = entry.lines.reduce((s, l) => s + Number(l.debit.toString()), 0);
-      const credit = entry.lines.reduce((s, l) => s + Number(l.credit.toString()), 0);
-      expect(debit).toBeCloseTo(credit, 6);
+      // Summed as bigints at scale 1e-6: a float comparison cannot tell a
+      // one-micro-unit drift from an exact balance, which is the whole reason
+      // money is a bigint here.
+      const debit = entry.lines.reduce((s, l) => s + l.debit.scaled, 0n);
+      const credit = entry.lines.reduce((s, l) => s + l.credit.scaled, 0n);
+      expect(debit).toBe(credit);
     }
   });
 });

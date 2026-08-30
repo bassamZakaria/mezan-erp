@@ -32,14 +32,16 @@ describe("financialStatementEntries", () => {
 
   it("the trial balance nets to zero and totals Σdebit = 452,400 as of year end, as documented", () => {
     const balances = netBalancesByAccount(financialStatementEntries, { to: "2026-12-31" });
-    let netSum = 0;
+    let netSum = 0n;
     let totalPositive = 0;
     for (const money of balances.values()) {
+      netSum += money.scaled;
       const value = moneyToNumber(money);
-      netSum += value;
       if (value > 0) totalPositive += value;
     }
-    expect(netSum).toBeCloseTo(0, 6);
+    // Exact, in bigint: a fixture that is off by one micro-unit is a broken
+    // fixture, and a float comparison would call it balanced.
+    expect(netSum).toBe(0n);
     expect(totalPositive).toBe(452400);
   });
 

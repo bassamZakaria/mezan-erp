@@ -19,13 +19,15 @@ describe("sampleReportJournalEntries", () => {
   it("nets to zero across the whole ledger and totals Σdebit = 147,000.00 once every entry is posted, as documented", () => {
     const balances = netBalancesByAccount(sampleReportJournalEntries);
     let totalPositive = 0;
-    let netSum = 0;
+    let netSum = 0n;
     for (const money of balances.values()) {
+      netSum += money.scaled;
       const value = moneyToNumber(money);
-      netSum += value;
       if (value > 0) totalPositive += value;
     }
-    expect(netSum).toBeCloseTo(0, 6);
+    // Exact, in bigint: a fixture that is off by one micro-unit is a broken
+    // fixture, and a float comparison would call it balanced.
+    expect(netSum).toBe(0n);
     expect(totalPositive).toBe(147000);
   });
 

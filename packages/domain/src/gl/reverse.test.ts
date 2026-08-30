@@ -182,3 +182,77 @@ describe("reverseJournalEntry", () => {
     ).rejects.toBeInstanceOf(JournalEntryAlreadyReversedError);
   });
 });
+
+describe("reverseJournalEntry — every dimension travels with the mirror", () => {
+  const dimensioned = {
+    id: "je-dim",
+    date: "2026-08-22",
+    memo: "بيع بالدولار على مركز تكلفة",
+    lines: [
+      {
+        accountId: "1300-1",
+        debit: Money.fromMajor("485.00"),
+        credit: Money.zero(),
+        costCenterId: "cc-cairo",
+        currency: "USD",
+        fxRate: "48.500000",
+        taxRatePercent: 14,
+        memo: "سطر مدين",
+      },
+      {
+        accountId: "4000",
+        debit: Money.zero(),
+        credit: Money.fromMajor("485.00"),
+        costCenterId: "cc-cairo",
+        currency: "USD",
+        fxRate: "48.500000",
+        taxRatePercent: 14,
+        memo: "سطر دائن",
+      },
+    ],
+  };
+
+  it("carries the cost centre, the currency and its rate, and the tax rate onto the reversing line", async () => {
+    const { deps } = await harness();
+    await postJournalEntry(dimensioned, deps);
+
+    const { reversal } = await reverseJournalEntry("je-dim", deps, { reversalId: "je-dim-rev" });
+
+    // The mirror's own docstring promises this: a reversal that keeps only the
+    // account and the amount un-tags itself, and the cost-centre P&L, the VAT
+    // return and FX revaluation all stop seeing it.
+    for (const [index, line] of reversal.lines.entries()) {
+      const source = dimensioned.lines[index] as (typeof dimensioned.lines)[number];
+      expect(line.costCenterId).toBe(source.costCenterId);
+      expect(line.currency).toBe(source.currency);
+      expect(line.fxRate).toBe(source.fxRate);
+      expect(line.taxRatePercent).toBe(source.taxRatePercent);
+      expect(line.accountId).toBe(source.accountId);
+      expect(line.memo).toBe(source.memo);
+    }
+  });
+
+  it("swaps the two sides exactly, and nothing else", async () => {
+    const { deps } = await harness();
+    await postJournalEntry(dimensioned, deps);
+
+    const { reversal } = await reverseJournalEntry("je-dim", deps, { reversalId: "je-dim-rev" });
+
+    for (const [index, line] of reversal.lines.entries()) {
+      const source = dimensioned.lines[index] as (typeof dimensioned.lines)[number];
+      expect(line.debit.scaled).toBe(source.credit.scaled);
+      expect(line.credit.scaled).toBe(source.debit.scaled);
+    }
+  });
+
+  it("nets the position to zero once both entries are posted", async () => {
+    const { deps, ledger } = await harness();
+    await postJournalEntry(dimensioned, deps);
+    await reverseJournalEntry("je-dim", deps, { reversalId: "je-dim-rev" });
+
+    for (const accountId of ["1300-1", "4000"]) {
+      const balance = await ledger.accountBalance(accountId);
+      expect(balance.debit.scaled).toBe(balance.credit.scaled);
+    }
+  });
+});

@@ -114,6 +114,18 @@ describe("postJournalEntry — happy path", () => {
     expect(entry.source).toBe("manual");
     expect(entry.postedAt).toBe("2026-08-22T10:00:00.000Z");
     expect(await ledger.findById("je-1")).not.toBeNull();
+
+    // Which accounts moved, by how much, and on which side — a posting that
+    // swapped an account or an amount would otherwise pass this test.
+    expect((await ledger.accountBalance("1300-1")).debit.toString()).toBe("1150.750000");
+    expect((await ledger.accountBalance("1300-1")).credit.toString()).toBe("0.000000");
+    expect((await ledger.accountBalance("4000")).credit.toString()).toBe("1009.430000");
+    expect((await ledger.accountBalance("2200")).credit.toString()).toBe("141.320000");
+
+    const debit = entry.lines.reduce((acc, l) => acc + l.debit.scaled, 0n);
+    const credit = entry.lines.reduce((acc, l) => acc + l.credit.scaled, 0n);
+    expect(debit).toBe(credit);
+    expect(debit).toBe(1_150_750_000n);
   });
 
   it("allocates gap-free sequential JE numbers", async () => {

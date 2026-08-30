@@ -289,3 +289,80 @@ describe("what the caller may claim on a return (D102)", () => {
     expect(res.status).toBe(201);
   });
 });
+
+describe("who a return credits (D89)", () => {
+  const sourceInvoice = {
+    id: "INV1",
+    number: "INV-000014",
+    customerId: "CUST1",
+    warehouseId: "WH1",
+    date: "2026-08-20",
+    status: "confirmed" as const,
+    lines: [
+      {
+        itemId: "ITEM1",
+        itemName: "صنف",
+        qty: Qty.fromMajor("3"),
+        alreadyReturnedQty: Qty.zero(),
+        unitPrice: Money.fromMajor("100"),
+        unitCost: Money.fromMajor("60"),
+        taxAmount: Money.fromMajor("42"),
+      },
+    ],
+  };
+
+  async function appWithInvoices() {
+    const service = await buildService();
+    return createSalesReturnsRoutes(service, undefined, {
+      async findConfirmedInvoice(id: string) {
+        return id === "INV1" ? sourceInvoice : null;
+      },
+    });
+  }
+
+  it("LIMITATION (D89): the return credits whatever customer the request names, not the invoice's own", async () => {
+    const app = await appWithInvoices();
+
+    // The invoice belongs to CUST1. The request says CUST-ACCOMPLICE, and the
+    // route resolves the returnable quantity by item id alone — it never
+    // compares the customer.
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-DIVERTED",
+          lines: [{ ...payload.lines[0], customerId: "CUST-ACCOMPLICE", availableQty: "3", qty: "1" }],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { lines: { customerId: string }[] };
+    expect(created.lines[0]?.customerId).toBe("CUST-ACCOMPLICE");
+    expect(created.lines[0]?.customerId).not.toBe(sourceInvoice.customerId);
+
+    // The credit — and any refund raised against it — therefore lands on an
+    // account that never bought the goods. When D89 is closed, the customer
+    // must come off the invoice, or a mismatch must be refused.
+  });
+
+  it("still resolves the QUANTITY from the invoice even when the customer is wrong", async () => {
+    const app = await appWithInvoices();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-DIVERTED-OVER",
+          lines: [{ ...payload.lines[0], customerId: "CUST-ACCOMPLICE", availableQty: "99", qty: "4" }],
+        }),
+      }),
+    );
+    // Four against an invoice holding three: the quantity control still bites,
+    // which is what makes the customer hole the specific gap it is.
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});

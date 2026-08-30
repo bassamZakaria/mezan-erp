@@ -19,7 +19,7 @@ function newAppWithStore(permissions: string[] = ["*"]) {
   const uow = createSqliteUnitOfWork(":memory:");
   handles.push(uow);
   const ctx = createAuthContext({ userId: "u1", permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
-  return { app: createApp(uow, { resolveAuthContext: () => ctx }), users: uow.users };
+  return { app: createApp(uow, { resolveAuthContext: () => ctx }), users: uow.users, roles: uow.roles };
 }
 
 async function json(res: Response) {
@@ -253,5 +253,123 @@ describe("who may make themselves a company admin (D86)", () => {
       }),
     );
     expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe("scope self-widening and the last admin (D118, D117)", () => {
+  const scoped = {
+    ...newUserBody,
+    nameAr: "منى عبد الله",
+    email: "mona@cyag.test",
+    roleId: null,
+    isCompanyAdmin: false,
+  };
+
+  async function seedUser(
+    users: ReturnType<typeof newAppWithStore>["users"],
+    overrides: Record<string, unknown> = {},
+  ) {
+    await users.save({
+      id: "u-scoped",
+      nameAr: "منى عبد الله",
+      nameEn: null,
+      email: "mona@cyag.test",
+      phone: null,
+      passwordHash: "hashed:x",
+      pinHash: null,
+      roleId: null,
+      isCompanyAdmin: false,
+      employeeId: null,
+      branchScope: ["BR-CAIRO"],
+      warehouseScope: ["WH-MAIN"],
+      status: "active",
+      photoUrl: null,
+      lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      ...overrides,
+    } as never);
+  }
+
+  it("LIMITATION (D118): a caller scoped to one branch can widen their own scope to every branch", async () => {
+    const { app, users, roles } = newAppWithStore(["admin.users.view", "admin.users.edit"]);
+    await roles.save({
+      id: "role-clerk",
+      code: "CLERK",
+      name: "كاتب",
+      description: "",
+      permissions: ["admin.users.view"],
+      isSystem: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
+    await seedUser(users, { roleId: "role-clerk" });
+    expect((await users.findById("u-scoped"))?.branchScope).toEqual(["BR-CAIRO"]);
+
+    const widened = await app.fetch(
+      new Request("http://x/users/u-scoped", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...scoped, roleId: "role-clerk", branchScope: "*", warehouseScope: "*" }),
+      }),
+    );
+
+    expect(widened.status).toBe(200);
+    const after = await users.findById("u-scoped");
+    expect(after?.branchScope).toBe("*");
+    expect(after?.warehouseScope).toBe("*");
+
+    // Every scope-narrowing control proven elsewhere reads THIS field, so
+    // widening it here defeats all of them at once. When D118 is closed the
+    // edit should be refused unless the caller already holds the wider scope.
+  });
+
+  it("LIMITATION (D117): the only company admin can be demoted, leaving the tenant with none", async () => {
+    const { app, users, roles } = newAppWithStore();
+    await seedUser(users, { id: "u-admin", isCompanyAdmin: true, email: "admin@cyag.test", branchScope: "*", warehouseScope: "*" });
+
+    const admins = (await users.list()).filter((u) => u.isCompanyAdmin);
+    expect(admins).toHaveLength(1);
+
+    // Demoting the last one needs a role to move to, since a user must hold
+    // exactly one authority — but nothing checks that an admin remains.
+    await roles.save({
+      id: "role-clerk",
+      code: "CLERK",
+      name: "كاتب",
+      description: "",
+      permissions: ["admin.users.view"],
+      isSystem: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
+
+    const demoted = await app.fetch(
+      new Request("http://x/users/u-admin", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...scoped,
+          email: "admin@cyag.test",
+          roleId: "role-clerk",
+          isCompanyAdmin: false,
+          branchScope: "*",
+          warehouseScope: "*",
+        }),
+      }),
+    );
+
+    expect(demoted.status).toBe(200);
+    expect((await users.list()).filter((u) => u.isCompanyAdmin)).toHaveLength(0);
+
+    // The tenant now has no company admin and no way back through the product.
+  });
+
+  it("LIMITATION (D117): the only company admin can be deactivated just as easily", async () => {
+    const { app, users } = newAppWithStore();
+    await seedUser(users, { id: "u-admin", isCompanyAdmin: true, email: "admin@cyag.test", branchScope: "*", warehouseScope: "*" });
+
+    const res = await app.fetch(new Request("http://x/users/u-admin/deactivate", { method: "POST" }));
+    expect(res.status).toBe(200);
+
+    const remaining = (await users.list()).filter((u) => u.isCompanyAdmin && u.status === "active");
+    expect(remaining).toHaveLength(0);
   });
 });

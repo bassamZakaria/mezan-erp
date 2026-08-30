@@ -22,14 +22,25 @@ scenario builds its own fixture as an explicit step. Seed roles referenced throu
 `INV-DEMO-1..6`, purchase invoices `PI-DEMO-1,6,7`, items `ITEM-DEMO-1..8`, warehouses
 `WH-MAIN`, `WH-DEMO-2`, `WH-DEMO-VAN`, `WH-DEMO-TRANSIT`, branch `BR-MAIN`.
 
-**Auth model note (read before every scenario below):** the real composition root
-(`create-backend.ts:1165`, `packages/api/src/index.ts`) wires
-`createSessionAuthContextResolver` — permissions are resolved server-side from a session
-token (`session-auth.ts`), never trusted off an `x-permissions` header. The header-trusting
-`headerAuthContextResolver` (`permission-gate.ts:15`) is a spike/test default only; it is not
-reachable in the shipped desktop/LAN edition. Every "direct HTTP" step below therefore means
-"the same signed-in user's real session token, replayed with a hand-crafted body" — not a
-forged identity. This is the correct threat model for an inside job.
+**Auth model note (read before every scenario below) — CORRECTED 2026-08-30.** An earlier
+version of this note said the header-trusting resolver was "not reachable in the shipped
+desktop/LAN edition." **That is false**, and a test now proves it:
+`apps/desktop/src/main/lan-host.test.ts` builds the app from the exact composition
+`apps/desktop/src/main/index.ts` ships — `createApp(uow, { lan })` with no
+`resolveAuthContext` — starts the real LAN socket, and posts a journal entry into the books
+**with no credential of any kind** (D109, compounding the ungated legacy route D99).
+
+So there are two threat models here, not one:
+
+- **The server edition** (`create-backend.ts`, which `apps/server` runs) does wire
+  `createSessionAuthContextResolver`: permissions come from a session token and an
+  `x-permissions` header is inert. Against that composition, every "direct HTTP" step below
+  means *the same signed-in user's real session token, replayed with a hand-crafted body* —
+  an inside job.
+- **The desktop edition, and the LAN socket it opens for other tills**, resolves permissions
+  from whatever the caller writes in a header. Against that composition the attacker need not
+  be an employee at all — anyone on the shop wifi will do. **Read D109 as the most severe
+  finding in this plan**, ahead of every insider scenario below, until it is closed.
 
 ---
 

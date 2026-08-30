@@ -111,7 +111,12 @@ describe("backupThenMigrate — the books are safe before the schema moves", () 
     const [archive] = await archives(backupsDir);
     const logged = errors.map((args) => String(args[0])).join("\n");
     expect(logged).toContain(archive as string);
-    expect(logged).toContain("restore");
+    // It has to name a place a PERSON can go. This used to say "restore it via
+    // the backup module's restoreBackup()" — a function call, not a step a
+    // shop owner can perform, and at the time also the only instruction the
+    // product gave, because nothing called that function.
+    expect(logged).toContain("الإعدادات");
+    expect(logged).toContain("الاستعادة");
   });
 
   it("tags the archive's manifest as the pre-migration one, so retention can tell it apart", async () => {

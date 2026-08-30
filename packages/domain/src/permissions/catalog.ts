@@ -60,7 +60,7 @@ export const MODULES: readonly ModuleDef[] = [
   { id: "cheques", labelAr: "الأوراق المالية", count: 5 },
   { id: "manufacturing", labelAr: "التصنيع", count: 5 },
   { id: "assets", labelAr: "الأصول", count: 7 },
-  { id: "admin", labelAr: "الإدارة", count: 25 },
+  { id: "admin", labelAr: "الإدارة", count: 27 },
   { id: "notifications", labelAr: "الإشعارات", count: 2 },
   { id: "audit", labelAr: "المراجعة", count: 1 },
   { id: "transactions", labelAr: "المعاملات", count: 2 },
@@ -362,7 +362,7 @@ const ROWS: readonly Row[] = [
   ["assets.depreciation.run", "assets.depreciation.view"],
   ["assets.depreciation.void", "assets.depreciation.run"],
 
-  // 16. admin — 25
+  // 16. admin — 27
   ["admin.users.view"],
   ["admin.users.create", "admin.users.view"],
   ["admin.users.edit", "admin.users.view"],
@@ -395,6 +395,13 @@ const ROWS: readonly Row[] = [
   // permission meant only the owner could unblock the counter.
   ["admin.devices.view"],
   ["admin.devices.manage", "admin.devices.view"],
+  // Backup and restore. Its own pair rather than a reuse of
+  // `admin.tenant.settings.edit`, because restoring REPLACES the books: it is
+  // the single most destructive act the product offers, and it should be
+  // grantable to whoever holds the recovery runbook without also handing them
+  // every tenant setting.
+  ["admin.backup.view"],
+  ["admin.backup.restore", "admin.backup.view"],
 
   // 17. notifications — 2
   ["notifications.rule.view"],

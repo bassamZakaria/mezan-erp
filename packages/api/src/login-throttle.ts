@@ -116,13 +116,26 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
       if (!record) return 0;
       if (record.lockedUntil > at) return Math.ceil((record.lockedUntil - at) / 1000);
       if (record.lockedUntil !== 0) {
-        // A SERVED LOCK IS SPENT. Leaving the streak at its high-water mark
-        // meant the state after a fifteen-minute wait was "one more typo buys
-        // another fifteen minutes", for the next full hour — so the person who
-        // had just been let back in was one slip from being locked out again,
-        // and the doubling ratchet never came down. Serving the lock returns
-        // the account to a full set of free attempts.
-        record.failures = 0;
+        // A SERVED LOCK STEPS THE LADDER DOWN ONE RUNG — it does not reset it.
+        //
+        // Leaving the streak at its high-water mark meant that after waiting
+        // fifteen minutes, one more typo bought another THIRTY: the ratchet
+        // only ever went up, so a person who had just been let back in was one
+        // slip from a longer lock than the one they had served.
+        //
+        // Resetting it to zero instead — which is the obvious fix, and the one
+        // this file first shipped — is worse, and the existing suite said so.
+        // Five free attempts per served lock is 7,200 guesses a day, which
+        // walks a six-digit keyspace in about four months; the whole point of
+        // the ratchet is that a sweep costs decades, not that a guess costs a
+        // minute. Stepping down one rung keeps the ceiling exactly where it
+        // was (one guess per fifteen minutes at the top, ~28 years for a full
+        // sweep) while making a single post-lock typo cost the same wait
+        // again rather than double it.
+        //
+        // For the person who is simply locked out and needs to work now, the
+        // answer is `POST /users/:id/unlock`, not a weaker ladder.
+        record.failures = Math.max(0, record.failures - 1);
         record.lockedUntil = 0;
       }
       return 0;

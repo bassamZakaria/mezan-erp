@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { createBackend } from "@mezan/backend";
+import { createBackend, takeSeededAdminSecrets } from "@mezan/backend";
 
 /**
  * Cloud-edition mount: the shared, seeded Hono app served over an HTTP socket.
@@ -11,6 +11,27 @@ import { createBackend } from "@mezan/backend";
 const dbPath = process.env.MEZAN_DB ?? "./mezan.db";
 const seedDemoData = process.env.MEZAN_SEED_DEMO === "1";
 const { app } = await createBackend({ dbPath, seedDemoData });
+
+/**
+ * A generated seed PIN is PRINTED, once, on the run that generated it.
+ *
+ * On `NODE_ENV=production` the fallback admin gets a random PIN rather than the
+ * published `123456`, which is right — every install sharing one working
+ * company-admin login was the defect that change closed. But the secret was
+ * then printed nowhere, so a headless deployment seeded an admin nobody could
+ * ever sign in as, with none of the desktop first-run wizard to recover
+ * through: the install was unusable from the moment it started. It goes to
+ * stdout here, once, and the operator is expected to sign in and change it.
+ */
+const seeded = takeSeededAdminSecrets();
+if (seeded?.generated) {
+  console.log("[server] ------------------------------------------------------------");
+  console.log("[server] A fallback admin was seeded with a GENERATED PIN. It is shown");
+  console.log("[server] once, here, and is not recoverable from the database.");
+  console.log(`[server]   admin PIN: ${seeded.pin}`);
+  console.log("[server] Sign in, create your own admin, and disable this account.");
+  console.log("[server] ------------------------------------------------------------");
+}
 const port = Number(process.env.PORT ?? 3000);
 
 serve({ fetch: app.fetch, port }, (info) => {

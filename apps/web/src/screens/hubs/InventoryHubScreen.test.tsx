@@ -124,7 +124,7 @@ describe("InventoryHubScreen", () => {
   it("shows the configured empty state when nothing needs attention", async () => {
     renderScreen({
       "GET /reports/inventory/stock-levels": () => ({
-        body: stockLevelsBody([{ ...sampleRows[0], status: "normal" }]),
+        body: stockLevelsBody([{ ...lowRow, status: "normal" }]),
       }),
     });
     expect(await screen.findByText("لا توجد أصناف تحتاج انتباهاً حالياً.")).toBeInTheDocument();

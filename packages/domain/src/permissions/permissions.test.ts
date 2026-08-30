@@ -16,11 +16,20 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("has the documented 268 permissions plus 2 promotion permissions (phase5/full-sales), a new 2-permission projects module (phase11/crm-projects-assets-field), 3 phase4 inventory.count.* permissions, and 6 inv/labels-templates-writedown inventory permissions (labels, templates, aging write-down) — 281 across 20 modules", () => {
-    expect(PERMISSIONS).toHaveLength(281);
+  it("has the documented 268 permissions plus 2 promotion permissions (phase5/full-sales), a new 2-permission projects module (phase11/crm-projects-assets-field), 3 phase4 inventory.count.* permissions, 6 inv/labels-templates-writedown inventory permissions (labels, templates, aging write-down), and 5 admin permissions for the operational acts that had no code of their own — 286 across 20 modules", () => {
+    // `admin.users.unlock`, `admin.devices.view`, `admin.devices.manage`,
+    // `admin.backup.view`, `admin.backup.restore`.
+    //
+    // Clearing a login lockout and freeing a stuck till seat were both gated on
+    // `admin.settings.edit`, which NO seeded role holds — so the person beside
+    // the counter could do neither, and giving them the settings permission to
+    // fix that would also have handed them every colleague's PIN. Restore has
+    // its own pair because it REPLACES the books: it should be grantable to
+    // whoever holds the recovery runbook without every tenant setting alongside.
+    expect(PERMISSIONS).toHaveLength(286);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(281);
+    expect(summed).toBe(286);
   });
 
   it("passes integrity checks (unique codes, resolvable deps, module counts)", () => {

@@ -120,16 +120,27 @@ describe("createLoginThrottle — the sequence has to cost something", () => {
     expect(throttle.fail("cashier@shop.test")).toBe(0);
   });
 
-  it("keeps counting while an account is already locked, so waiting out the first lock is not free", () => {
-    // An attacker who sleeps 60s and resumes must find a longer lock, not the
-    // same one. This is what makes the sequence expensive rather than each
-    // guess.
+  it("steps the ladder down one rung when a lock is served, rather than up or to zero", () => {
+    // Two failure modes, one rung apart.
+    //
+    // Leaving the streak at its high-water mark (what this shipped with) meant
+    // waiting out fifteen minutes and then mistyping once bought THIRTY — the
+    // ratchet only ever went up, so serving a lock left you worse off than
+    // before it. Resetting the streak to zero (the obvious fix) is worse
+    // still: five free attempts per served lock is 7,200 guesses a day, which
+    // walks the six-digit keyspace in about four months.
+    //
+    // One rung down: a post-lock typo costs the SAME wait again, and the
+    // ceiling — one guess per fifteen minutes — is untouched.
     const { throttle, advance } = throttleAt();
     for (let i = 0; i < 6; i++) throttle.fail("owner@shop.test");
     expect(throttle.retryAfter("owner@shop.test")).toBe(60);
 
     advance(60_000);
     expect(throttle.retryAfter("owner@shop.test")).toBe(0);
+    expect(throttle.fail("owner@shop.test")).toBe(60);
+
+    // And it still climbs while the failures keep coming.
     expect(throttle.fail("owner@shop.test")).toBe(120);
   });
 

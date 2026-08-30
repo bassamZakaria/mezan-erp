@@ -30,7 +30,11 @@ export async function backupThenMigrate(params: {
   } catch (err) {
     console.error(
       `[backup] migration failed — pre-migration backup preserved at ${backup.archivePath}. ` +
-        "Restore it via the backup module's restoreBackup() before retrying.",
+        // This used to say "restore it via the backup module's restoreBackup()",
+        // which is a function call, not a step a shop owner or their nephew can
+        // perform — and at the time it was also the ONLY instruction the product
+        // gave, because nothing called that function. There is a screen now.
+        "Restore it from الإعدادات ← النسخ الاحتياطي والاستعادة before retrying.",
       err,
     );
     throw err;

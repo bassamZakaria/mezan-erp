@@ -28,6 +28,7 @@ import {
   useRoles,
   useSetUserStatus,
   useUpdateRole,
+  useUnlockUser,
   useUpdateUser,
   useUsers,
   useWarehouses,
@@ -108,6 +109,7 @@ export function AppLayout() {
   // Read before the session gate: it decides whether a signed-out visitor sees
   // the login form or the first-run wizard. Ungated, like `/tenant`.
   const bootstrapStatus = useBootstrapStatus();
+  const unlockUser = useUnlockUser();
 
   /*
    * The URL is the source of truth for which screen and sub-page is on
@@ -411,6 +413,20 @@ export function AppLayout() {
     }
   }
 
+  /**
+   * Clears a failed-login lockout. Refuses quietly rather than throwing: this
+   * is a button pressed at a counter, and the row that failed must go back to
+   * being pressable.
+   */
+  async function handleUnlockUser(userId: string) {
+    try {
+      const value = await unlockUser.mutateAsync(userId);
+      return { ok: true as const, value };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : t("api.theAccountCouldNotBeUnlocked") };
+    }
+  }
+
   async function handleSaveRole(cmd: { code: string; name: string; description: string; permissions: string[] }) {
     try {
       const value = editingRole ? await updateRole.mutateAsync({ id: editingRole.id, body: cmd }) : await createRole.mutateAsync(cmd);
@@ -534,6 +550,7 @@ export function AppLayout() {
           employees={employees}
           onSave={handleSaveUser}
           onToggleStatus={handleToggleUserStatus}
+          onUnlock={handleUnlockUser}
         />
       ) : null}
 

@@ -112,11 +112,13 @@ export function resolveSeedAdminSecrets(
   if (override && /^\d{6}$/.test(override)) {
     return { pin: override, password: SEED_ADMIN_PASSWORD, generated: false };
   }
-  // `NODE_ENV=production` is NOT a packaged desktop build. Treating it as one
-  // meant any headless deployment of this backend — apps/server, a container,
-  // a demo box — silently seeded an admin nobody could ever log in as, with
-  // none of the first-run wizard that makes that survivable on the desktop.
-  const packaged = env["MEZAN_PACKAGED"] === "1";
+  // Both a packaged desktop build and a headless production deployment get a
+  // generated PIN. The objection to including `NODE_ENV=production` was real —
+  // it silently seeded an admin nobody could log in as, on deployments with no
+  // first-run wizard to recover through — but the answer to that is to PRINT
+  // the secret, not to leave a server build on the published `123456`.
+  // `takeSeededAdminSecrets()` below is how the composition root gets it.
+  const packaged = env["MEZAN_PACKAGED"] === "1" || env["NODE_ENV"] === "production";
   if (!packaged) return { pin: SEED_ADMIN_PIN, password: SEED_ADMIN_PASSWORD, generated: false };
   return {
     pin: String(randomInt(0, 1_000_000)).padStart(6, "0"),

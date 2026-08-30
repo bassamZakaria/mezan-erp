@@ -473,7 +473,7 @@ describe("SalesInvoicesScreen — row-scoped confirm from the list", () => {
         return {
           status: 200,
           ok: true,
-          json: async () => ({ ...confirmed, held: false }),
+          json: async <T = unknown>() => ({ ...confirmed, held: false }) as T,
           text: async () => "",
         };
       }

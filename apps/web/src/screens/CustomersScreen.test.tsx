@@ -2,9 +2,10 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { CustomerDTO, PriceListDTO, SalesInvoiceDTO } from "@mezan/contracts";
+import type { CustomerDTO, PriceListDTO } from "@mezan/contracts";
 import { CustomersScreen } from "./CustomersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import type { SalesInvoiceDTO } from "../data/hooks";
 
 /**
  * `TextField` (settings/form-controls.tsx) renders a `<label>` that is never

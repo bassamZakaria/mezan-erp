@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { deviceSessionSchema, connectDeviceRequestSchema, lanStatusSchema, lanSessionsListSchema } from "./lan.js";
 
 describe("deviceSessionSchema", () => {
-  const session = { sessionId: "sess-1", deviceId: "dev-1", deviceLabel: "Till 1", connectedAt: 1000, lastSeenAt: 2000 };
+  const session = { sessionId: "sess-1", userId: "u-1", deviceId: "dev-1", deviceLabel: "Till 1", connectedAt: 1000, lastSeenAt: 2000 };
 
   it("accepts a minimal valid session and preserves every field verbatim", () => {
     const result = deviceSessionSchema.safeParse(session);
@@ -24,7 +24,11 @@ describe("deviceSessionSchema", () => {
 });
 
 describe("connectDeviceRequestSchema", () => {
-  const request = { sessionId: "sess-1", deviceId: "dev-1" };
+  // NO `sessionId`. The caller used to name its own seat identity, and
+  // `connectDevice` is idempotent only on that id — so any signed-in cashier
+  // could loop with a fresh random one and burn every seat. The seat key is
+  // derived server-side now, from the authenticated session plus the device.
+  const request = { deviceId: "dev-1" };
 
   it("accepts a minimal valid request with the optional label omitted", () => {
     const result = connectDeviceRequestSchema.safeParse(request);
@@ -32,11 +36,17 @@ describe("connectDeviceRequestSchema", () => {
     if (result.success) expect(result.data).toEqual(request);
   });
 
-  it("rejects a request missing sessionId", () => {
-    const { sessionId, ...rest } = request;
+  it("rejects a request missing deviceId", () => {
+    const { deviceId, ...rest } = request;
     const result = connectDeviceRequestSchema.safeParse(rest);
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("sessionId");
+    if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("deviceId");
+  });
+
+  it("silently strips a caller-supplied sessionId, so it cannot choose its own seat key", () => {
+    const result = connectDeviceRequestSchema.safeParse({ ...request, sessionId: "mine-1" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).not.toHaveProperty("sessionId");
   });
 
   it("silently strips an unrecognised branchId — a real dimension a caller could lose", () => {
@@ -72,7 +82,7 @@ describe("lanSessionsListSchema", () => {
   const list = {
     seats: 5,
     connected: 1,
-    sessions: [{ sessionId: "sess-1", deviceId: "dev-1", deviceLabel: "Till 1", connectedAt: 1000, lastSeenAt: 2000 }],
+    sessions: [{ sessionId: "sess-1", userId: "u-1", deviceId: "dev-1", deviceLabel: "Till 1", connectedAt: 1000, lastSeenAt: 2000 }],
   };
 
   it("accepts a minimal valid list and preserves every field verbatim", () => {

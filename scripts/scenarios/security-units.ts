@@ -25,6 +25,18 @@ import { createSessionRegistry } from "../../packages/api/src/session-auth.js";
  * runs in CI, so this is the layer that actually guards these functions.
  */
 
+/**
+ * The wait a further failure costs once the ladder is at its ceiling. Proves
+ * the step-down did not lower the top of the ladder, which is where a sweeping
+ * attacker actually lives.
+ */
+function lockDurationAtCeiling(throttle: { fail(key: string): number }, _at: number): number {
+  const key = "ceiling-probe@shop.example";
+  let last = 0;
+  for (let i = 0; i < 25; i += 1) last = throttle.fail(key);
+  return last;
+}
+
 function ctxWith(permissions: string[], branch: typeof ALL_SCOPE | string[] = ALL_SCOPE, warehouse: typeof ALL_SCOPE | string[] = ALL_SCOPE) {
   return createAuthContext({ userId: "U", permissions, branchScope: branch, warehouseScope: warehouse });
 }
@@ -128,12 +140,15 @@ export async function run(ctx: Ctx): Promise<void> {
     for (let i = 0; i < 10; i += 1) last = throttle.fail(key);
     check("and it ceilings at fifteen minutes", last === 900, String(last));
 
-    // A SERVED LOCK IS SPENT. Leaving the streak at its high-water mark meant
-    // the state after waiting fifteen minutes was "one more typo buys another
-    // fifteen", for a full hour.
+    // A SERVED LOCK STEPS THE LADDER DOWN ONE RUNG. Leaving the streak at its
+    // high-water mark meant waiting out fifteen minutes and then mistyping once
+    // bought thirty. Resetting it to zero is worse — five free guesses per
+    // served lock walks a six-digit keyspace in about four months — so the
+    // ceiling has to stay where it is.
     clock += 901_000;
     check("waiting the lock out clears it", throttle.retryAfter(key) === 0, String(throttle.retryAfter(key)));
-    check("and returns a full set of free attempts", throttle.fail(key) === 0);
+    check("but the next failure costs the SAME wait, not double", throttle.fail(key) === 900, String(throttle.fail(key)));
+    check("so the ceiling is unmoved — one guess per fifteen minutes", lockDurationAtCeiling(throttle, clock) === 900);
 
     // The DoS shape: a remote attacker must not be able to lock the console at
     // the counter, because the two are counted under different keys.

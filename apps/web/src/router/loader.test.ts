@@ -54,7 +54,7 @@ describe("listLoader", () => {
 
     expect(result).toBeNull();
     expect(build).toHaveBeenCalledTimes(1);
-    expect(seenUrl?.toString()).toBe("http://localhost/customers?status=active");
+    expect(seenUrl!.toString()).toBe("http://localhost/customers?status=active");
     expect(ensureQueryData).toHaveBeenCalledTimes(1);
     expect(ensureQueryData.mock.calls[0]![0]).toMatchObject({ queryKey: ["customers", { status: "active" }] });
   });

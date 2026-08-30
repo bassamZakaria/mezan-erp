@@ -1,51 +1,38 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it, vi } from "vitest";
-import { render as rtlRender, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConnectedDevicesPanel } from "./ConnectedDevicesPanel";
-import { AppI18nProvider } from "../i18n";
-
-const render = (ui: React.ReactElement) => rtlRender(<AppI18nProvider>{ui}</AppI18nProvider>);
-
-function jsonResponse(body: unknown, init: ResponseInit = {}) {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-    ...init,
-  });
-}
+import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
 describe("ConnectedDevicesPanel", () => {
   it("shows an unlicensed message and no table when LAN mode is not licensed", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ licensed: false, seats: 0, connected: 0 }));
-    render(<ConnectedDevicesPanel fetchImpl={fetchImpl} pollIntervalMs={0} />);
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: { licensed: false, seats: 0, connected: 0 } }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText(/غير مفعّل/)).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
   it("lists connected devices with seat usage when licensed", async () => {
-    const fetchImpl = vi.fn().mockImplementation((url: string) => {
-      if (url.endsWith("/lan/status")) {
-        return Promise.resolve(jsonResponse({ licensed: true, seats: 2, connected: 2 }));
-      }
-      if (url.endsWith("/lan/sessions")) {
-        return Promise.resolve(
-          jsonResponse({
-            seats: 2,
-            connected: 2,
-            sessions: [
-              { sessionId: "s1", deviceId: "till-1", deviceLabel: "Front till", connectedAt: 1000, lastSeenAt: 2000 },
-              { sessionId: "s2", deviceId: "till-2", deviceLabel: "Back office", connectedAt: 1500, lastSeenAt: 2500 },
-            ],
-          }),
-        );
-      }
-      throw new Error(`unexpected fetch: ${url}`);
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: { licensed: true, seats: 2, connected: 2 } }),
+      "GET /lan/sessions": () => ({
+        body: {
+          seats: 2,
+          connected: 2,
+          sessions: [
+            { sessionId: "s1", userId: "USER-ADMIN", deviceId: "till-1", deviceLabel: "Front till", connectedAt: 1000, lastSeenAt: 2000 },
+            { sessionId: "s2", userId: "USER-ADMIN", deviceId: "till-2", deviceLabel: "Back office", connectedAt: 1500, lastSeenAt: 2500 },
+          ],
+        },
+      }),
     });
 
-    render(<ConnectedDevicesPanel fetchImpl={fetchImpl} pollIntervalMs={0} />);
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText("Front till")).toBeInTheDocument();
     expect(screen.getByText("Back office")).toBeInTheDocument();
@@ -55,28 +42,28 @@ describe("ConnectedDevicesPanel", () => {
   it("disconnects only the clicked row and refreshes, without disabling the other row", async () => {
     const user = userEvent.setup();
     let connected = 2;
-    const fetchImpl = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-      if (url.endsWith("/lan/status")) {
-        return Promise.resolve(jsonResponse({ licensed: true, seats: 2, connected }));
-      }
-      if (url.endsWith("/lan/sessions")) {
-        const sessions =
-          connected === 2
-            ? [
-                { sessionId: "s1", deviceId: "till-1", deviceLabel: "Front till", connectedAt: 1000, lastSeenAt: 2000 },
-                { sessionId: "s2", deviceId: "till-2", deviceLabel: "Back office", connectedAt: 1500, lastSeenAt: 2500 },
-              ]
-            : [{ sessionId: "s2", deviceId: "till-2", deviceLabel: "Back office", connectedAt: 1500, lastSeenAt: 2500 }];
-        return Promise.resolve(jsonResponse({ seats: 2, connected, sessions }));
-      }
-      if (init?.method === "DELETE") {
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: { licensed: true, seats: 2, connected } }),
+      "GET /lan/sessions": () => ({
+        body: {
+          seats: 2,
+          connected,
+          sessions:
+            connected === 2
+              ? [
+                  { sessionId: "s1", userId: "USER-ADMIN", deviceId: "till-1", deviceLabel: "Front till", connectedAt: 1000, lastSeenAt: 2000 },
+                  { sessionId: "s2", userId: "USER-ADMIN", deviceId: "till-2", deviceLabel: "Back office", connectedAt: 1500, lastSeenAt: 2500 },
+                ]
+              : [{ sessionId: "s2", userId: "USER-ADMIN", deviceId: "till-2", deviceLabel: "Back office", connectedAt: 1500, lastSeenAt: 2500 }],
+        },
+      }),
+      "DELETE /lan/sessions/s1": () => {
         connected -= 1;
-        return Promise.resolve(new Response(null, { status: 204 }));
-      }
-      throw new Error(`unexpected fetch: ${url}`);
+        return { status: 204, body: null };
+      },
     });
 
-    render(<ConnectedDevicesPanel fetchImpl={fetchImpl} pollIntervalMs={0} />);
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     const frontRow = (await screen.findByText("Front till")).closest("tr")!;
     const backRow = screen.getByText("Back office").closest("tr")!;

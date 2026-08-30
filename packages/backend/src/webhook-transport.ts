@@ -117,7 +117,7 @@ export class WebhookDestinationRefusedError extends Error {
   }
 }
 
-interface PinnedDestination {
+export interface PinnedDestination {
   readonly url: URL;
   /** The exact address the socket will connect to — resolved ONCE, then reused. */
   readonly address: string;
@@ -189,7 +189,22 @@ async function resolveDeliverableDestination(rawUrl: string): Promise<PinnedDest
  * public URL that answers `302 http://192.168.1.1/` is the same attack from
  * the other end.
  */
-export function createFetchWebhookTransport(): WebhookTransportPort {
+/**
+ * The step that actually opens the socket.
+ *
+ * A seam, and a deliberately narrow one: it takes the ALREADY-VETTED
+ * destination, so a test can substitute it without being able to skip the
+ * destination check. The previous tests stubbed global `fetch`, which meant
+ * they could not see which address the connection would have used — the one
+ * fact the DNS-rebinding fix turns on. They can assert it now.
+ */
+export type WebhookDialer = (
+  request: WebhookHttpRequest,
+  pinned: PinnedDestination,
+  timeoutMs: number,
+) => Promise<number>;
+
+export function createFetchWebhookTransport(dial: WebhookDialer = sendPinned): WebhookTransportPort {
   return {
     async send(request: WebhookHttpRequest): Promise<WebhookHttpResponse> {
       const startedAt = Date.now();
@@ -205,7 +220,7 @@ export function createFetchWebhookTransport(): WebhookTransportPort {
       }
       const remaining = Math.max(1, request.timeoutMs - (Date.now() - startedAt));
       try {
-        const status = await sendPinned(request, pinned, remaining);
+        const status = await dial(request, pinned, remaining);
         return {
           statusCode: status,
           errorMessage: status >= 200 && status < 300 ? null : `HTTP ${status}`,

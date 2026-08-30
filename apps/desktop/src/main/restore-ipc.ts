@@ -34,7 +34,14 @@ import {
  * tier regardless: replacing the database is the single most destructive act in
  * the product, and this is the catalogue's company-admin-only settings grant.
  */
-const RESTORE_PERMISSION = "admin.tenant.settings.edit";
+/**
+ * Restoring REPLACES the books, so it has a permission of its own rather than
+ * riding on the tenant-settings grant: the person who holds the recovery
+ * runbook should be able to do this without also being handed every setting in
+ * the product.
+ */
+const RESTORE_PERMISSION = "admin.backup.restore";
+const VIEW_PERMISSION = "admin.backup.view";
 
 /**
  * Long enough for the `ipcMain.handle` reply to reach the renderer and paint,

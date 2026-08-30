@@ -105,12 +105,15 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   }
 
   // Ticks the lockout down so the form re-enables itself the moment the wait
-  // is over, rather than after a reload nobody thinks to do.
+  // is over, rather than after a reload nobody thinks to do. Keyed on WHETHER
+  // a lock is running, not on the number: depending on the count would tear
+  // down and rebuild the interval every second.
+  const isLocked = lockedForSeconds > 0;
   useEffect(() => {
-    if (lockedForSeconds <= 0) return;
+    if (!isLocked) return;
     const id = setInterval(() => setLockedForSeconds((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
-  }, [lockedForSeconds > 0]);
+  }, [isLocked]);
 
   /**
    * The fourth digit submits. `submit()` is idempotent per (identity, pin) via

@@ -26,7 +26,7 @@ function TestNavigation({ children, navigate }: { children: ReactNode; navigate:
   return (
     <NavigationProvider
       value={{
-        navigate: navigate as (screen: never) => void,
+        navigate,
         segments,
         openSubPage: setSegments,
         openScreenAt: () => {},

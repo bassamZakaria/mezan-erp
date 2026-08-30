@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { BarcodeConfigDTO } from "@mezan/contracts";
 import { BarcodeConfigPage } from "./BarcodeConfigPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -61,7 +61,7 @@ describe("BarcodeConfigPage", () => {
     fireEvent.mouseDown(screen.getByRole("option", { name: "توليد تلقائي" }));
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
 
-    await screen.findByRole("button", { name: "حفظ الإعدادات", disabled: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
     expect((getSeenBody() as BarcodeConfigDTO).itemBarcodeMode).toBe("AUTO");
   });
 
@@ -145,7 +145,7 @@ describe("BarcodeConfigPage", () => {
     // spinbuttons[0] is rule A's "الطول الكلي" (totalLength) — the first NumberField in the first RuleCard.
     fireEvent.change(spinbuttons[0]!, { target: { value: "14" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    await screen.findByRole("button", { name: "حفظ الإعدادات", disabled: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
 
     const body = getSeenBody() as BarcodeConfigDTO;
     expect(body.embeddedRules).toHaveLength(2);
@@ -170,7 +170,7 @@ describe("BarcodeConfigPage", () => {
     expect(screen.getByDisplayValue("قاعدة السعر")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    await screen.findByRole("button", { name: "حفظ الإعدادات", disabled: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
     const body = getSeenBody() as BarcodeConfigDTO;
     expect(body.embeddedRules).toHaveLength(1);
     expect(body.embeddedRules[0]).toEqual(twoRuleConfig.embeddedRules[0]);
@@ -203,7 +203,7 @@ describe("BarcodeConfigPage", () => {
     expect(screen.getAllByRole("switch", { name: "القاعدة مفعّلة" })[1]).toBeChecked();
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    await screen.findByRole("button", { name: "حفظ الإعدادات", disabled: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
     const body = getSeenBody() as BarcodeConfigDTO;
     expect(body.embeddedRules[1]!.active).toBe(true);
     expect(body.embeddedRules[0]!.active).toBe(true);
@@ -223,7 +223,7 @@ describe("BarcodeConfigPage", () => {
 
     fireEvent.change(prefixInput, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    await screen.findByRole("button", { name: "حفظ الإعدادات", disabled: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
     const body = getSeenBody() as BarcodeConfigDTO;
     expect(body.autoGeneratePrefix).toBeNull();
   });

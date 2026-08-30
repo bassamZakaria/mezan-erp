@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createFetchWebhookTransport } from "./webhook-transport.js";
+import { createFetchWebhookTransport, type PinnedDestination, type WebhookDialer } from "./webhook-transport.js";
 
 /**
  * S10 — server-side request forgery through a webhook URL.
@@ -15,13 +15,18 @@ import { createFetchWebhookTransport } from "./webhook-transport.js";
  * dispatcher loses the delivery instead of reporting it.
  */
 
-const transport = createFetchWebhookTransport();
-
-/** Any real network call would make these tests slow, flaky and dangerous. */
-const fetchSpy = vi.spyOn(globalThis, "fetch");
+/**
+ * The socket, stubbed. Any real network call would make these tests slow,
+ * flaky and dangerous — and stubbing HERE rather than at `fetch` is what lets
+ * them assert the address the connection would have used, which is the fact
+ * the DNS-rebinding fix turns on and the old `fetch` spy could not see.
+ */
+let dial = vi.fn<WebhookDialer>(async () => 200);
+let transport = createFetchWebhookTransport((...args) => dial(...args));
 
 afterEach(() => {
-  fetchSpy.mockReset();
+  dial = vi.fn<WebhookDialer>(async () => 200);
+  transport = createFetchWebhookTransport((...args) => dial(...args));
 });
 
 function deliver(url: string) {
@@ -61,7 +66,7 @@ describe("a webhook may not be pointed inside the shop's own network (S10)", () 
     // Refused, and refused BEFORE the request went out. Asserting only the
     // result would pass against a transport that fetched the router and then
     // reported a failure.
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(dial).not.toHaveBeenCalled();
     expect(result.statusCode).toBeNull();
     expect(result.errorMessage ?? "").not.toBe("");
   });
@@ -76,7 +81,7 @@ describe("a webhook may not be pointed inside the shop's own network (S10)", () 
       "javascript:alert(1)",
     ]) {
       const result = await deliver(url);
-      expect(fetchSpy, url).not.toHaveBeenCalled();
+      expect(dial, url).not.toHaveBeenCalled();
       expect(result.statusCode, url).toBeNull();
     }
   });
@@ -84,7 +89,7 @@ describe("a webhook may not be pointed inside the shop's own network (S10)", () 
   it("refuses a malformed URL rather than handing it to fetch", async () => {
     for (const url of ["", "not a url", "http://", "://missing-scheme"]) {
       const result = await deliver(url);
-      expect(fetchSpy, url).not.toHaveBeenCalled();
+      expect(dial, url).not.toHaveBeenCalled();
       expect(result.statusCode, url).toBeNull();
     }
   });
@@ -109,42 +114,42 @@ describe("a webhook may not be pointed inside the shop's own network (S10)", () 
 });
 
 describe("a public destination is still delivered to (the negative control)", () => {
-  it("fetches a public address and returns its status", async () => {
+  it("connects to a public address and returns its status", async () => {
     // Without this, every test above is satisfied by a transport that refuses
     // everything — which would silently disable the whole webhook feature.
-    fetchSpy.mockResolvedValue(new Response("ok", { status: 200 }));
+    dial.mockResolvedValue(200);
 
     const result = await deliver("http://93.184.216.34/hook");
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(dial).toHaveBeenCalledTimes(1);
     expect(result.statusCode).toBe(200);
   });
 
-  it("does not follow a redirect, so a public URL cannot bounce it inside", async () => {
-    // The other half of SSRF: a destination that answers `302 http://192.168.1.1/`.
-    // `redirect: "manual"` is what closes it, and it is asserted on the real
-    // options object rather than assumed from the source.
-    fetchSpy.mockResolvedValue(new Response(null, { status: 302 }));
-
+  it("connects to the address it VETTED, not to the name it was given", async () => {
+    // The rebinding fix, asserted directly. `lookup()` used to vet the
+    // addresses and then `fetch` resolved the name again, independently — so
+    // an author running their own authoritative DNS answered the check with a
+    // public address and the connection with an internal one.
     await deliver("http://93.184.216.34/hook");
 
-    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
-    expect(init.redirect).toBe("manual");
+    const [, pinned] = dial.mock.calls[0] as [unknown, PinnedDestination, number];
+    expect(pinned.address).toBe("93.184.216.34");
+    expect(pinned.family).toBe(4);
   });
 
   it("reports a 302 as the 302 it is, rather than as a success", async () => {
-    fetchSpy.mockResolvedValue(new Response(null, { status: 302, headers: { location: "http://192.168.1.1/" } }));
+    // A 3xx is not a delivery, and it is never followed: recording it as a
+    // success would mark the webhook healthy while the payload went nowhere,
+    // and following it is the other half of SSRF.
+    dial.mockResolvedValue(302);
 
     const result = await deliver("http://93.184.216.34/hook");
 
-    // A 3xx is not a delivery. Recording it as one would mark the webhook
-    // healthy while the payload went nowhere.
     expect(result.statusCode).toBe(302);
+    expect(result.errorMessage).toBe("HTTP 302");
   });
 
   it("still sends the body and headers it was given", async () => {
-    fetchSpy.mockResolvedValue(new Response("ok", { status: 200 }));
-
     await transport.send({
       url: "http://93.184.216.34/hook",
       headers: { "content-type": "application/json", "x-mezan-signature": "sha256=abc" },
@@ -152,18 +157,25 @@ describe("a public destination is still delivered to (the negative control)", ()
       timeoutMs: 1_000,
     });
 
-    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
-    expect(init.method).toBe("POST");
-    expect(init.body).toBe('{"event":"sales-invoice.posted"}');
-    expect(init.headers).toMatchObject({ "x-mezan-signature": "sha256=abc" });
+    const [sent] = dial.mock.calls[0] as [{ body: string; headers: Record<string, string> }, PinnedDestination, number];
+    expect(sent.body).toBe('{"event":"sales-invoice.posted"}');
+    expect(sent.headers).toMatchObject({ "x-mezan-signature": "sha256=abc" });
   });
 
   it("reports a network failure as a failed attempt, not as a throw", async () => {
-    fetchSpy.mockRejectedValue(new Error("ECONNREFUSED"));
+    dial.mockRejectedValue(new Error("ECONNREFUSED"));
 
     const result = await deliver("http://93.184.216.34/hook");
 
     expect(result.statusCode).toBeNull();
     expect(result.errorMessage).toContain("ECONNREFUSED");
+  });
+
+  it("never reaches the socket for a refused destination", async () => {
+    // The ordering that matters: the check runs inside send(), before the
+    // connection, so every dispatcher retry re-checks rather than trusting a
+    // verdict from the first attempt.
+    await deliver("http://192.168.1.1/hook");
+    expect(dial).not.toHaveBeenCalled();
   });
 });

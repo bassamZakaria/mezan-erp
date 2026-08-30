@@ -32,6 +32,16 @@ export interface UsersPageProps {
   employees: { id: string; name: string; position: string }[];
   onSave: (draft: UserFormDraft, editingId: string | null) => Promise<StoreResult<UserDTO>>;
   onToggleStatus: (userId: string, status: UserStatusDTO) => Promise<StoreResult<UserDTO>>;
+  /**
+   * Clears a failed-login lockout.
+   *
+   * Optional so a caller that has not wired it simply shows no button. The
+   * lockout had no way out inside the product at all: an account was locked
+   * for up to fifteen minutes with no admin recourse, and the only workaround
+   * — that restarting the desktop app drops the in-memory throttle — was an
+   * accident of the implementation and took the whole shop offline to use.
+   */
+  onUnlock?: (userId: string) => Promise<StoreResult<unknown>>;
 }
 
 export interface UserFormDraft {
@@ -93,7 +103,7 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
   };
 }
 
-export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus }: UsersPageProps) {
+export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus, onUnlock }: UsersPageProps) {
   const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
     UserStatusDTO | "all",
@@ -105,6 +115,12 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   const [draft, setDraft] = useState<UserFormDraft>(emptyDraft());
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /**
+   * WHICH row is unlocking, not whether any row is. Binding a mutation-wide
+   * pending flag to every row's `disabled` freezes the whole list while one
+   * row acts, and this list is read at a counter with a queue behind it.
+   */
+  const [unlockingId, setUnlockingId] = useState<string | null>(null);
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
   const allBranchIds = useMemo(() => branches.map((b) => b.id), [branches]);
@@ -218,16 +234,35 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       header: "",
       align: "end",
       render: (row) => (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            void onToggleStatus(row.id, row.status === "active" ? "inactive" : "active");
-          }}
-        >
-          {row.status === "active" ? t("users.disable") : t("users.enable")}
-        </Button>
+        <div className="flex items-center justify-end gap-[6px]">
+          {onUnlock && row.status === "active" ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={unlockingId === row.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (unlockingId) return;
+                setUnlockingId(row.id);
+                // `finally`, not `then`: a row that fails to unlock must not
+                // stay stuck showing a spinner nobody can clear.
+                void onUnlock(row.id).finally(() => setUnlockingId(null));
+              }}
+            >
+              {unlockingId === row.id ? t("common.loading") : t("users.unlock")}
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              void onToggleStatus(row.id, row.status === "active" ? "inactive" : "active");
+            }}
+          >
+            {row.status === "active" ? t("users.disable") : t("users.enable")}
+          </Button>
+        </div>
       ),
     },
   ];

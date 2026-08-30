@@ -496,4 +496,68 @@ export async function run(ctx: Ctx): Promise<void> {
     }
     check("a packaged build cannot resolve a caller from headers", threw);
   });
+
+  await ctx.scenario("security — a refused request is a recorded request", async () => {
+    // The gate answered 403 and wrote nothing, so a clerk probing fifty
+    // screens they cannot reach left zero rows — and the refusal is a free
+    // oracle over the org's authority map, which is exactly what makes the
+    // probing worth seeing.
+    const clerk = asUser("scn-sec-prober", "sales.invoice.view");
+    const refused = await req("GET", "/financial-reports/trial-balance", undefined, clerk);
+    check("a clerk is refused the trial balance", refused.status === 403, `got ${refused.status}`);
+
+    const audit = await req("GET", "/audit?stream=security&action=PERMISSION_DENIED&limit=20");
+    const events = ctx.rows(audit.body).length ? ctx.rows(audit.body) : (audit.body?.events ?? []);
+    check("and the refusal is recorded", events.length > 0, JSON.stringify(audit.body).slice(0, 160));
+    check("naming the permission that was missing", !!events[0]?.details?.permission, JSON.stringify(events[0]?.details));
+    check("and the route that was reached for", !!events[0]?.details?.path, JSON.stringify(events[0]?.details));
+  });
+
+  await ctx.scenario("security — the exception reports answer what the raw log cannot", async () => {
+    const exceptions = await req("GET", "/security-reports/exceptions");
+    check("the security exception report answers", exceptions.status === 200, `got ${exceptions.status}`);
+    check("with a watchlist of the named controls", Array.isArray(exceptions.body?.watchlist), JSON.stringify(exceptions.body).slice(0, 200));
+    // A ZERO ROW IS THE POINT. An absent row is indistinguishable from a
+    // control that was never wired; a zero says the control reported and
+    // found nothing.
+    const watchlist = exceptions.body?.watchlist ?? [];
+    for (const action of ["PRIVILEGE_ESCALATION_DENIED", "CREDENTIAL_RESET_BY_ADMIN", "ACCOUNT_LOCKED"]) {
+      check(`${action} is always on the watchlist`, watchlist.some((w: any) => w.action === action), watchlist.map((w: any) => w.action).join(","));
+    }
+    check(
+      "and the escalations this run actually attempted are counted",
+      Number(watchlist.find((w: any) => w.action === "PRIVILEGE_ESCALATION_DENIED")?.count) > 0,
+      JSON.stringify(watchlist.find((w: any) => w.action === "PRIVILEGE_ESCALATION_DENIED")),
+    );
+    // The honest half: what the ledger cannot answer must be stated, not
+    // papered over with a plausible figure.
+    check("the report names its own gaps", Array.isArray(exceptions.body?.gaps) && exceptions.body.gaps.length > 0, JSON.stringify(exceptions.body?.gaps).slice(0, 200));
+    check("and says whether its totals are a floor", typeof exceptions.body?.coverage?.truncated === "boolean", JSON.stringify(exceptions.body?.coverage));
+
+    const afterHours = await req("GET", "/security-reports/after-hours");
+    check("the after-hours report answers", afterHours.status === 200, `got ${afterHours.status}`);
+    check(
+      "and admits when its working-day start is an assumption",
+      afterHours.body?.workingHours?.startHourSource === "default" || afterHours.body?.workingHours?.startHourSource === "settings",
+      JSON.stringify(afterHours.body?.workingHours),
+    );
+
+    const postPosting = await req("GET", "/security-reports/post-posting-changes");
+    check("the post-posting report answers", postPosting.status === 200, `got ${postPosting.status}`);
+
+    const ghosts = await req("GET", "/security-reports/new-accounts?days=90");
+    check("the new-accounts report answers", ghosts.status === 200, `got ${ghosts.status}`);
+    check("grouping accounts under who created them", Array.isArray(ghosts.body?.groups), JSON.stringify(ghosts.body).slice(0, 200));
+    // The ghost-employee join: this suite has created accounts through an
+    // admin session, so at least one group must name a creator.
+    check("and this run's own accounts appear", Number(ghosts.body?.grandTotals?.count ?? 0) > 0, JSON.stringify(ghosts.body?.grandTotals));
+
+    // Never trust a caller-supplied limit.
+    const clamped = await req("GET", "/security-reports/new-accounts?days=99999");
+    check("an absurd window is clamped server-side", clamped.status === 200 && Number(clamped.body?.params?.days) <= 365, JSON.stringify(clamped.body?.params));
+
+    const clerk = asUser("scn-sec-nosy", "sales.invoice.view");
+    const denied = await req("GET", "/security-reports/exceptions", undefined, clerk);
+    check("and the reports are gated", denied.status === 403, `got ${denied.status}`);
+  });
 }

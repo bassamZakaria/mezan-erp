@@ -189,6 +189,8 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
+import { createSecurityReportsRoutes } from "./security-reports-routes.js";
+import { permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
 import { createApiKeysRoutes } from "./api-keys-routes.js";
@@ -344,6 +346,12 @@ export interface CreateAppOptions {
     readonly sessions?: SessionRegistry;
     readonly loginThrottle?: LoginThrottle;
   };
+  /**
+   * Called when a gated route refuses a caller. Omit and refusals go
+   * unrecorded, which is what every app did before: a 403 wrote nothing, so
+   * probing left no trace at all.
+   */
+  readonly onPermissionRefused?: PermissionRefusalReporter;
   /** Mounts `/api-keys` when present. */
   readonly apiKeys?: { readonly repo: ApiKeyRepository; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/webhooks` when present. */
@@ -837,11 +845,15 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // production build, so a composition that forgets to pass a real resolver
   // cannot ship — it can only fail in dev, where someone will see it.
   const resolveAuth = options.resolveAuthContext ?? insecureHeaderAuthContextResolver;
-
   const resolveEntitlements = options.resolveEntitlements ?? defaultEntitlementsResolver();
   const hasher = options.hasher ?? createScryptHasher();
 
   const app = new Hono();
+
+  // Bound per app, not per process: two backends in one process must not share
+  // — or silently steal — each other's forensic trail. Registered before every
+  // route so a refusal anywhere below reaches it.
+  if (options.onPermissionRefused) app.use("*", permissionRefusalReporting(options.onPermissionRefused));
 
   if (options.settingsStore) {
     app.route("/settings", createSettingsRoutes(options.settingsStore, resolveAuth, options.auditSink));
@@ -1209,7 +1221,19 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/sequences", createSequencesRoutes(options.sequences, (options.sequences.resolveAuthContext ?? resolveAuth)));
   }
   if (options.audit) {
-    app.route("/audit", createAuditRoutes(options.audit.store, (options.audit.resolveAuthContext ?? resolveAuth)));
+    const auditAuth = options.audit.resolveAuthContext ?? resolveAuth;
+    app.route("/audit", createAuditRoutes(options.audit.store, auditAuth));
+    // تقارير الرقابة والأمان — the exception reports over the SAME trail
+    // `/audit` serves raw. Wired off the same option deliberately: an install
+    // that records a forensic trail and reports nothing on it is the gap these
+    // exist to close, so the two must not be mountable apart.
+    app.route(
+      "/security-reports",
+      createSecurityReportsRoutes(
+        { audit: options.audit.store, users: uow.users, settings: options.settingsStore },
+        auditAuth,
+      ),
+    );
   }
   if (options.labelLayouts) {
     app.route("/label-layouts", createLabelLayoutsRouter(options.labelLayouts.repo, (options.labelLayouts.resolveAuthContext ?? resolveAuth)));

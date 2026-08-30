@@ -1,15 +1,22 @@
 import { app, BrowserWindow } from "electron";
 import Database from "better-sqlite3";
-import { createBackend, type BackendHandle } from "@mezan/backend";
+import { createBackend, takeSeededAdminSecrets, type BackendHandle } from "@mezan/backend";
 import { SeatSessionRegistry } from "@mezan/domain";
 import { registerHonoOverIpc, registerPrintToPdfOverIpc } from "./ipc.js";
-import { createWindow } from "./window.js";
+import { registerRestoreOverIpc } from "./restore-ipc.js";
+import { createWindow, hardenWebContents } from "./window.js";
 import { initAutoUpdater } from "./updater.js";
 import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
-import { defaultDbPath, isDev, rendererRoot } from "./env.js";
+import { defaultBackupsDir, defaultDbPath, isDev, rendererEntry, rendererRoot } from "./env.js";
 import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./renderer-protocol.js";
 import { resolveDesktopEntitlements } from "./entitlements.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
+import {
+  clearRecoveryPinIfClaimed,
+  resetSeedAdminPin,
+  wantsAdminReset,
+  writeRecoveryPin,
+} from "./recovery.js";
 
 /**
  * Electron main process entry point.
@@ -39,13 +46,59 @@ let lanHost: LanHostHandle | undefined;
 // exact failure this scheme exists to avoid.
 registerRendererScheme();
 
-app.whenReady().then(async () => {
-  if (shouldServeRenderer()) serveRenderer(rendererRoot());
+/**
+ * The navigation posture, for EVERY frame — not just the main window.
+ *
+ * `createWindow` bound `will-navigate` and `setWindowOpenHandler` to the one
+ * `webContents` it had just created, so any other frame the app ever produces
+ * started on Electron's defaults. Registered before `whenReady` because a
+ * `web-contents-created` listener added after a frame exists never sees it.
+ */
+app.on("web-contents-created", (_event, contents) => {
+  hardenWebContents(contents, rendererEntry().url);
+});
 
+app.whenReady().then(async () => {
   const dbPath = isDev() ? ":memory:" : defaultDbPath();
   // Tells the seed whether this is a real install: a packaged build must not
   // create its fallback admin with the published demo PIN (see seed.ts).
   process.env["MEZAN_PACKAGED"] = app.isPackaged ? "1" : "0";
+
+  /**
+   * `--reset-admin`, and it runs before anything else opens the database.
+   *
+   * Authorised by filesystem access to the database directory, which is the
+   * honest bar: that directory holds an unencrypted SQLite file with every
+   * customer, price and salary in it, so somebody who can run this flag could
+   * already read everything it protects. What it buys is the install that would
+   * otherwise be lost — a random packaged PIN nobody wrote down, or a backup
+   * restored onto replacement hardware by somebody who never knew the old one.
+   */
+  if (wantsAdminReset()) {
+    if (isDev()) {
+      console.error("[recovery] --reset-admin needs a packaged build with a database on disk.");
+      app.exit(1);
+      return;
+    }
+    const reset = await resetSeedAdminPin(dbPath).catch((err: unknown) => {
+      console.error("[recovery] --reset-admin failed", err);
+      return null;
+    });
+    if (!reset) {
+      console.error(`[recovery] no seeded administrator account found in ${dbPath}.`);
+      app.exit(1);
+      return;
+    }
+    console.log(
+      `\nرمز الدخول الجديد لحساب المدير / New administrator PIN: ${reset.pin}\n` +
+        `${reset.reactivated ? "أُعيد تفعيل الحساب. / The account was reactivated.\n" : ""}` +
+        `كُتب أيضاً في / Also written to: ${reset.recoveryFile}\n`,
+    );
+    app.exit(0);
+    return;
+  }
+
+  if (shouldServeRenderer()) serveRenderer(rendererRoot());
 
   if (!isDev()) {
     // A dedicated connection to the same on-disk file, used only for
@@ -79,8 +132,68 @@ app.whenReady().then(async () => {
     dbPath,
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
   });
+
+  if (!isDev()) {
+    /**
+     * The seeded admin's credentials, printed exactly once, where a human can
+     * read them.
+     *
+     * A packaged build's seed PIN is random (seed.ts), and it used to go
+     * nowhere: the owner met a login screen asking for a PIN that had never
+     * been shown to anybody, on an install with no other account and no reset
+     * route. `takeSeededAdminSecrets()` is a one-shot read, so this writes the
+     * file only on the launch that actually seeded the tenant — never on the
+     * ones after it, and never over a PIN the owner has since changed.
+     */
+    const seeded = takeSeededAdminSecrets();
+    if (seeded?.generated) {
+      const target = await writeRecoveryPin(dbPath, seeded.pin, "first-run").catch(
+        (err: unknown) => {
+          console.error("[recovery] could not write the recovery file", err);
+          return null;
+        },
+      );
+      // The PIN also goes to stdout, because the recovery file is unreachable
+      // on the failure that matters most — a first launch that cannot write to
+      // its own data directory.
+      console.log(
+        `[recovery] first-run administrator PIN: ${seeded.pin}` +
+          (target ? ` (also written to ${target})` : " (recovery file NOT written)"),
+      );
+    } else {
+      // Cheap, and it runs on every launch: the file is a live credential and
+      // stops being needed the moment the owner has an account of their own.
+      await clearRecoveryPinIfClaimed(dbPath).catch((err: unknown) => {
+        console.warn("[recovery] could not clear the recovery file", err);
+        return false;
+      });
+    }
+  }
+
   registerHonoOverIpc(backend.app);
   registerPrintToPdfOverIpc();
+  // The verified restore in backup/restore-service.ts had no caller at all —
+  // no IPC, no menu, no screen — so the product shipped backups nobody could
+  // put back. These three channels are what the settings screen drives.
+  registerRestoreOverIpc({
+    dbPath,
+    backupsDir: defaultBackupsDir(),
+    appVersion: app.getVersion(),
+    sqlite: () => backupConn,
+    closeLiveConnections: () => {
+      disposeBackupSchedule?.();
+      disposeBackupSchedule = undefined;
+      backend?.close();
+      backend = undefined;
+      backupConn?.close();
+      backupConn = undefined;
+    },
+    relaunch: () => {
+      app.relaunch();
+      app.exit(0);
+    },
+    sessions: backend.sessions,
+  });
   lanHost = startLanHost({ app: backend.app, entitlements });
 
   createWindow();

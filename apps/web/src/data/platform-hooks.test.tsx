@@ -108,11 +108,11 @@ describe("useAuditLog", () => {
       },
     });
     const { result } = renderHook(
-      () => useAuditLog({ stream: "domain", module: "sales", action: "create", severity: "info", limit: 50, offset: 0 }),
+      () => useAuditLog({ stream: "security", module: "sales", action: "create", severity: "INFO", limit: 50, offset: 0 }),
       { wrapper: makeWrapper(transport).Wrapper },
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(seenPath).toBe("/audit?stream=domain&module=sales&action=create&severity=info&limit=50");
+    expect(seenPath).toBe("/audit?stream=security&module=sales&action=create&severity=INFO&limit=50");
   });
 
   it("omits the query string entirely for an empty filter", async () => {

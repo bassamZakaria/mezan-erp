@@ -260,7 +260,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
       },
       {
         key: "permissions",
-        itemKeys: ["users", "roles", "settings-workflow", "notification-rules", "audit"],
+        itemKeys: ["users", "roles", "settings-workflow", "notification-rules", "audit", "devices"],
       },
     ],
   },

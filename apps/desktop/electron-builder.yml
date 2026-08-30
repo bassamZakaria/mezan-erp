@@ -33,6 +33,17 @@ productName: Mezan
 directories:
   output: release
   buildResources: build
+
+# Explicit, not left to the default, because this is the setting that decides
+# whether the shipped app can open its own database. `better-sqlite3` is native
+# and scripts/build.mjs declares it `external`, so the packaged app loads a
+# `.node` binary that must match Electron's NODE_MODULE_VERSION (Electron 39 is
+# ABI 140; the Node 22 that runs the tests is 131). Without a rebuild, the
+# `new Database(dbPath)` in main/index.ts throws before the pre-migration backup
+# runs — the app does not start, and takes no backup on the way down. The repo
+# went 33 → 39 with nothing rebuilding it and no CI job that launched Electron;
+# .github/workflows/ci.yml's `desktop` job is the gate that now proves it.
+npmRebuild: true
 files:
   - dist/main/**
   - dist/preload/**

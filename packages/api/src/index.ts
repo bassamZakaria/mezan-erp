@@ -64,6 +64,7 @@ export {
 } from "./session-auth.js";
 export { createLoginThrottle, throttleKey, type LoginThrottle } from "./login-throttle.js";
 export { requestOrigin } from "./request-origin.js";
+export { permissionRefusalReporting, type PermissionRefusal, type PermissionRefusalReporter } from "./permission-gate.js";
 export {
   createSecurityReportsRoutes,
   type SecurityReportsRoutesDeps,

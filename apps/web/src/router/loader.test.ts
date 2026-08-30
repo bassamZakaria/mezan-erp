@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publishLoaderApi } from "../data/api-bridge";
 import type { LoaderFunctionArgs } from "react-router";
+import type { Transport } from "../data/transport";
 import { listLoader } from "./loader";
 
 /**
@@ -34,14 +35,19 @@ describe("listLoader", () => {
   });
 
   it("builds queries from the request URL and warms each one via ensureQueryData while signed in", async () => {
-    const ensureQueryData = vi.fn(async () => undefined);
-    const fakeRequest = vi.fn(async () => ({ ok: true, status: 200, json: async () => [], text: async () => "" }));
+    const ensureQueryData = vi.fn(async (_options: unknown) => undefined);
+    const fakeRequest = vi.fn(async (_path: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async <T = unknown>() => [] as T,
+      text: async () => "",
+    }));
     publishLoaderApi({ request: fakeRequest as never, queryClient: { ensureQueryData } as never, isAuthenticated: true });
 
     let seenUrl: URL | null = null;
     const build = vi.fn((url: URL) => {
       seenUrl = url;
-      return [{ queryKey: ["customers", { status: "active" }], queryFn: async (req: typeof fakeRequest) => req("/customers") }];
+      return [{ queryKey: ["customers", { status: "active" }], queryFn: async (req: Transport) => req("/customers") }];
     });
     const loader = listLoader(build);
     const result = await loader(args("http://localhost/customers?status=active"));

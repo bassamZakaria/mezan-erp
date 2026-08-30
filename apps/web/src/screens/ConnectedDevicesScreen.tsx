@@ -1,0 +1,23 @@
+import { ConnectedDevicesPanel } from "../lan/ConnectedDevicesPanel";
+import { useAppTranslation } from "../i18n";
+
+/**
+ * الأجهزة المتصلة — the LAN multi-till seat panel, as a routed screen.
+ *
+ * The panel itself has existed since the LAN work landed and was reachable
+ * from NOWHERE: `grep ConnectedDevicesPanel` found only its own test. So
+ * freeing a seat — which a stuck till at the counter blocks every other till
+ * on until somebody does — had no control surface in the shipped product at
+ * all, and the API route that does it was permission-gated against a screen
+ * that did not exist.
+ */
+export function ConnectedDevicesScreen() {
+  const { t } = useAppTranslation();
+  return (
+    <div className="p-[20px]">
+      <h1 className="mb-[4px] font-display text-[18px] font-bold text-ink">{t("nav.item.devices")}</h1>
+      <p className="mb-[16px] text-[12.5px] text-ink-muted">{t("devices.screenHint")}</p>
+      <ConnectedDevicesPanel />
+    </div>
+  );
+}

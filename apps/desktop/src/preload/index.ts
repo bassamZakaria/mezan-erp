@@ -1,7 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
+  MEZAN_BACKUP_CREATE_CHANNEL,
+  MEZAN_BACKUP_LIST_CHANNEL,
+  MEZAN_BACKUP_RESTORE_CHANNEL,
   MEZAN_FETCH_CHANNEL,
   MEZAN_PRINT_TO_PDF_CHANNEL,
+  type BackupCreateResult,
+  type BackupFailure,
+  type BackupListResult,
+  type BackupRestoreResult,
   type IpcFetchRequest,
   type IpcFetchResponse,
   type MezanBridge,
@@ -49,6 +56,27 @@ const mezanBridge: MezanBridge = {
   },
   printToPDF(options?: PrintToPdfOptions): Promise<Uint8Array> {
     return ipcRenderer.invoke(MEZAN_PRINT_TO_PDF_CHANNEL, options);
+  },
+  /**
+   * Backup and restore. Each call forwards the caller's SESSION TOKEN — the
+   * one `POST /auth/login` minted — because an IPC channel carries no headers
+   * and the main process must not take the renderer's word for what it may do
+   * (main/restore-ipc.ts verifies it against the live session registry).
+   *
+   * This is a passthrough and nothing more: the bridge never reads the token,
+   * never keeps it, and adds no arguments of its own, so the whole of the
+   * restore contract stays in one place instead of half of it living here.
+   */
+  backup: {
+    list(sessionToken: string): Promise<BackupListResult | BackupFailure> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_LIST_CHANNEL, sessionToken);
+    },
+    create(sessionToken: string): Promise<BackupCreateResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_CREATE_CHANNEL, sessionToken);
+    },
+    restore(sessionToken: string, fileName: string): Promise<BackupRestoreResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_RESTORE_CHANNEL, sessionToken, fileName);
+    },
   },
 };
 

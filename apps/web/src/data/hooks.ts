@@ -272,6 +272,8 @@ import type {
   HrDashboardSummaryDTO,
   WritedownRunDTO,
   YearEndClosePreviewDTO,
+  LanStatusDTO,
+  LanSessionsListDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
@@ -6034,6 +6036,87 @@ export function useNotificationTriggers(): UseQueryResult<NotificationTriggerCat
       const res = await request("/notification-rules/triggers");
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationEventsCouldNotBe")));
       return res.json<NotificationTriggerCatalogDTO>();
+    },
+  });
+}
+
+/**
+ * LAN multi-till: seat occupancy, the connected devices, and freeing a seat.
+ *
+ * These went through a BARE `fetch` with no `Authorization` header, which was
+ * invisible until every `/lan` route started requiring a session. After that
+ * `GET /lan/status` answered 401, the panel parsed the error body as a status
+ * DTO, read `licensed` as `undefined`, and rendered "multi-till is not
+ * licensed" — telling a licensed shop its licence was missing, with no error
+ * shown anywhere. And `handleDisconnect` never checked `res.ok`, so a 403
+ * rendered as a successful disconnect that silently did nothing.
+ */
+export function useLanStatus(): UseQueryResult<LanStatusDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<LanStatusDTO, ApiError>({
+    queryKey: ["lan", "status"],
+    enabled: session !== null,
+    refetchInterval: 5000,
+    queryFn: async () => {
+      const res = await request("/lan/status");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("devices.couldNotLoadTheConnected")));
+      return res.json<LanStatusDTO>();
+    },
+  });
+}
+
+export function useLanSessions(enabled: boolean): UseQueryResult<LanSessionsListDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<LanSessionsListDTO, ApiError>({
+    queryKey: ["lan", "sessions"],
+    enabled: session !== null && enabled,
+    refetchInterval: 5000,
+    queryFn: async () => {
+      const res = await request("/lan/sessions");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("devices.couldNotLoadTheConnected")));
+      return res.json<LanSessionsListDTO>();
+    },
+  });
+}
+
+export function useDisconnectLanSession() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (sessionId) => {
+      const res = await request(`/lan/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+      // A 403 used to render as a successful disconnect that did nothing.
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("devices.couldNotDisconnectTheDevice")));
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["lan"] });
+    },
+  });
+}
+
+/**
+ * Clears a failed-login lockout.
+ *
+ * The lockout had no way out inside the product: an account was locked for up
+ * to fifteen minutes with no admin recourse, and the only workaround — that
+ * restarting the desktop app drops the in-memory throttle — was an accident of
+ * the implementation, undocumented, and took the whole shop offline to use.
+ */
+export function useUnlockUser() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ ok: boolean; userId: string }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/users/${encodeURIComponent(id)}/unlock`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBeUnlocked")));
+      return res.json<{ ok: boolean; userId: string }>();
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 }

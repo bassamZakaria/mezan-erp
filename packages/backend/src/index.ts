@@ -6,6 +6,12 @@ export {
   SEED_ADMIN_NAME,
   SEED_ADMIN_EMAIL,
   SEED_ADMIN_PIN,
+  // The desktop shell needs both: the id to reset the fallback admin's PIN from
+  // `--reset-admin`, and the one-shot handover to write a freshly-generated PIN
+  // to the recovery file. A packaged build's PIN is random and was printed
+  // nowhere, so a forgotten one bricked the install (apps/desktop/src/main/recovery.ts).
+  SEED_ADMIN_USER_ID,
+  takeSeededAdminSecrets,
   resolveSeedAdminSecrets,
   type SeedStores,
   type SeedAdminSecrets,

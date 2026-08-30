@@ -113,6 +113,7 @@ export const SCREEN_MODULES = {
   "settings-barcode": () => import("../settings/BarcodeConfigPage").then((m) => ({ Component: m.BarcodeConfigPage })),
   "settings-profile": () => import("../settings/ProfilePage").then((m) => ({ Component: m.ProfilePage })),
   audit: () => import("../screens/AuditLogScreen").then((m) => ({ Component: m.AuditLogScreen })),
+  devices: () => import("../screens/ConnectedDevicesScreen").then((m) => ({ Component: m.ConnectedDevicesScreen })),
   approvals: () => import("../screens/ApprovalsInboxScreen").then((m) => ({ Component: m.ApprovalsInboxScreen })),
   leads: () => import("../screens/LeadsScreen").then((m) => ({ Component: m.LeadsScreen })),
   opportunities: () => import("../screens/OpportunitiesScreen").then((m) => ({ Component: m.OpportunitiesScreen })),

@@ -114,7 +114,7 @@ describe("LeadsScreen", () => {
     expect(within(dialog).getByText("الاسم *")).toBeInTheDocument();
     // The "الاسم *" label isn't programmatically linked to its input (see final report),
     // so target the name field by its position — first textbox in the form.
-    fireEvent.change(within(dialog).getAllByRole("textbox")[0], { target: { value: "خالد يوسف" } });
+    fireEvent.change(within(dialog).getAllByRole("textbox")[0]!, { target: { value: "خالد يوسف" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByText("خالد يوسف")).toBeInTheDocument();

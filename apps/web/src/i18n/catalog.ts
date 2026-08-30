@@ -241,6 +241,8 @@ const webAr = {
   "nav.item.settings-warehouses": "المستودعات",
   "nav.item.settings-print": "قوالب الطباعة",
   "nav.item.notification-rules": "قواعد الإشعارات",
+  "nav.item.devices": "الأجهزة المتصلة",
+  "devices.screenHint": "الأجهزة التي تشغل مقعداً على الشبكة المحلية. افصل جهازاً لتحرير مقعده.",
   "nav.item.settings-data-migration": "نقل البيانات",
   "nav.item.settings-workflow": "إعدادات الموافقات",
   "nav.item.settings-sequences": "تسلسلات الترقيم",
@@ -4055,6 +4057,7 @@ const webAr = {
 
   // api
   "api.signInFailed": "تعذّر تسجيل الدخول.",
+  "api.theAccountCouldNotBeUnlocked": "تعذّر فكّ قفل الحساب.",
   "api.theCoreDataCouldNot": "تعذّرت تهيئة البيانات الأساسية.",
   "api.theCompanySDetailsCould": "تعذّر تحميل بيانات المنشأة.",
   "api.theCoreDataStatusCould": "تعذّر قراءة حالة البيانات الأساسية.",
@@ -7318,6 +7321,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "nav.item.settings-warehouses": "Warehouses",
   "nav.item.settings-print": "Print templates",
   "nav.item.notification-rules": "Notification rules",
+  "nav.item.devices": "Connected devices",
+  "devices.screenHint": "Devices holding a seat on the local network. Disconnect one to free its seat.",
   "nav.item.settings-data-migration": "Data migration",
   "nav.item.settings-workflow": "Approval settings",
   "nav.item.settings-sequences": "Numbering sequences",
@@ -11132,6 +11137,7 @@ const webEn: Record<WebTranslationKey, string> = {
 
   // api
   "api.signInFailed": "Sign-in failed.",
+  "api.theAccountCouldNotBeUnlocked": "The account could not be unlocked.",
   "api.theCoreDataCouldNot": "The core data could not be initialised.",
   "api.theCompanySDetailsCould": "The company's details could not be loaded.",
   "api.theCoreDataStatusCould": "The core-data status could not be read.",

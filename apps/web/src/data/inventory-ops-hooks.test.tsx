@@ -186,11 +186,11 @@ describe("physical counts", () => {
         return { body: [] };
       },
     });
-    const { result } = renderHook(() => usePhysicalCounts({ status: "in_progress", warehouseId: "WH-1" }), {
+    const { result } = renderHook(() => usePhysicalCounts({ status: "IN_PROGRESS", warehouseId: "WH-1" }), {
       wrapper: makeWrapper(transport).Wrapper,
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(seenPath).toBe("/inventory/physical-counts?status=in_progress&warehouseId=WH-1");
+    expect(seenPath).toBe("/inventory/physical-counts?status=IN_PROGRESS&warehouseId=WH-1");
   });
 
   it("every count lifecycle mutation invalidates ['inventory','physical-counts']", async () => {

@@ -107,26 +107,97 @@ jobs:
           path: playwright-report/
           retention-days: 14
 
+  # The gate that would have caught the Electron 33 → 39 bump.
+  #
+  # `better-sqlite3` is native and is declared esbuild-`external`, so its `.node`
+  # binary has to match the runtime's NODE_MODULE_VERSION: Node 22 is ABI 131,
+  # Electron 39 is ABI 140. Nothing above can see the difference — typecheck,
+  # lint, test and build all pass on a desktop build that throws at the
+  # `new Database(dbPath)` in main/index.ts, which runs BEFORE the pre-migration
+  # backup, so the app fails to start AND takes no backup on the way down. The
+  # repo crossed that ABI boundary with no `electron-rebuild`, no `npmRebuild`,
+  # no postinstall, and — as apps/desktop/scripts/build.mjs says itself — no CI
+  # step that ever launched Electron.
+  #
+  # The ABI steps BLOCK. Packaging does not: electron-builder pulls installers
+  # and toolchains over the network and its Linux targets are the flakiest part
+  # of this repo's CI surface, so a bad afternoon at a mirror must not close the
+  # pipeline — but a native module that genuinely cannot load must.
+  desktop:
+    name: desktop · native ABI · package
+    runs-on: ubuntu-latest
+    env:
+      # Overrides the workflow-level skip: this is the ONE job that needs the
+      # real Electron binary, because loading better-sqlite3 under Electron is
+      # the entire point of it.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pnpm-workspace.yaml sets `allowBuilds.electron: false`, which blocks
+      # electron's own postinstall for every other job — correct there, since
+      # none of them launch it, and the download is ~100MB. Running the
+      # package's documented install script here fetches the binary for this job
+      # only, without editing the workspace policy every other job depends on.
+      - name: Fetch the Electron binary
+        run: pnpm --filter desktop exec node ./node_modules/electron/install.js
+
+      - name: Rebuild native modules against Electron's ABI
+        run: |
+          ELECTRON_VERSION=$(node -p "require('./apps/desktop/node_modules/electron/package.json').version")
+          echo "Rebuilding apps/desktop's native modules for Electron ${ELECTRON_VERSION} (ABI $(cat apps/desktop/node_modules/electron/abi_version))"
+          # Not added to package.json: a devDependency here would need a
+          # pnpm-lock.yaml change, and this tool is wanted in exactly one CI job.
+          npx --yes --package @electron/rebuild -- electron-rebuild -v "${ELECTRON_VERSION}" -m apps/desktop -f
+
+      # THE GATE. Launches the real Electron binary, loads the real
+      # better-sqlite3, opens a database and round-trips an Arabic row through
+      # it. An ABI mismatch fails here with the NODE_MODULE_VERSION numbers in
+      # the log, instead of on a customer's machine on a Friday morning.
+      - name: Native ABI check (Electron opens a database)
+        run: xvfb-run -a pnpm --filter desktop run check:abi
+
+      - name: Build the main/preload bundles
+        run: pnpm --filter desktop run build:main
+
+      # From here down, failures are reported and not fatal — see the note above.
+      - name: Build the web bundle (electron-builder copies it as extraResources)
+        continue-on-error: true
+        run: pnpm --filter web build
+
+      - name: Package the Linux app
+        continue-on-error: true
+        run: pnpm --filter desktop exec electron-builder --linux --publish never
+
+      - name: Upload the packaged app
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: apps/desktop/release/*.AppImage
+          retention-days: 7
+          if-no-files-found: ignore
+
   # ---------------------------------------------------------------------------
-  # Placeholder for later Phase 0 / release work — NOT implemented yet.
-  #
-  # A future job matrix will, on `main` and on tags:
-  #   - run Playwright Electron E2E on windows/macOS/linux runners
-  #   - rebuild the better-sqlite3 native module per Electron ABI
-  #   - build, code-sign and notarize the desktop installers
-  #   - publish electron-updater release artifacts
-  #
-  # Intentionally left as a documented stub so packaging/signing is a later
-  # issue, not something half-wired now. See docs/archive/plan.md §2.7 (CI section).
-  #
-  # release:
-  #   name: electron E2E + signed installers (TODO)
-  #   needs: build
-  #   if: github.ref == 'refs/heads/main'
-  #   strategy:
-  #     matrix:
-  #       os: [ubuntu-latest, macos-latest, windows-latest]
-  #   runs-on: ${{ matrix.os }}
-  #   steps:
-  #     - run: echo "Electron E2E + signed-installer release not implemented yet"
+  # Still missing, and deliberately so — a later, dedicated release issue owns it:
+  #   - Playwright Electron E2E driving the real window on win/macOS/linux
+  #   - code-signing and macOS notarization of the installers
+  #     (apps/desktop/electron-builder.yml documents why the auto-updater stays
+  #     switched off until those exist)
+  #   - publishing electron-updater release artifacts to a real feed
+  # See docs/archive/plan.md §2.7 (CI section).
   # ---------------------------------------------------------------------------

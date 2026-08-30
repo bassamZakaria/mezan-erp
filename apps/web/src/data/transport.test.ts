@@ -108,7 +108,7 @@ describe("resolveDefaultTransport", () => {
   });
 
   it("falls back to the HTTP transport when no bridge is present", async () => {
-    const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
+    const fetchSpy = vi.fn(async (_input: RequestInfo, _init?: RequestInit) => new Response("{}", { status: 200 }));
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
     const transport = resolveDefaultTransport();

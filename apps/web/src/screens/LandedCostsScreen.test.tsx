@@ -107,12 +107,12 @@ describe("LandedCostsScreen", () => {
     });
     renderWithProviders(<LandedCostsScreen />, { transport, initialSession: testAdminSession });
     await screen.findByText("أنشئ مستند تكلفة لتوزيع التكاليف الإضافية على المشتريات");
-    fireEvent.click(screen.getAllByRole("button", { name: "مستند تكلفة جديد" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "مستند تكلفة جديد" })[0]!);
     const dialog = screen.getByRole("dialog", { name: "مستند تكلفة إضافية جديد" });
     expect(within(dialog).getByText("المبلغ")).toBeInTheDocument();
     // The cost-line "المبلغ" number field is the first spinbutton in the panel (its <label> isn't
     // programmatically linked to the input, so getByLabelText can't find it — see final report).
-    const amountInput = within(dialog).getAllByRole("spinbutton")[0];
+    const amountInput = within(dialog).getAllByRole("spinbutton")[0]!;
     fireEvent.change(amountInput, { target: { value: "200" } });
     expect(await within(dialog).findByText("معاينة التوزيع")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));

@@ -1,12 +1,12 @@
 import { ipcMain } from "electron";
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
+import { extract as tarExtract } from "tar";
 import type Database from "better-sqlite3";
 import type { SessionRegistry } from "@mezan/api";
 import {
   createBackup,
-  extractArchive,
   listBackups,
   parseManifest,
   restoreBackup,
@@ -36,6 +36,12 @@ import {
  */
 const RESTORE_PERMISSION = "admin.tenant.settings.edit";
 
+/**
+ * Long enough for the `ipcMain.handle` reply to reach the renderer and paint,
+ * short enough that nobody starts typing into a window that is about to close.
+ */
+const RELAUNCH_DELAY_MS = 750;
+
 export interface RestoreIpcDeps {
   readonly dbPath: string;
   readonly backupsDir: string;
@@ -43,7 +49,7 @@ export interface RestoreIpcDeps {
   /**
    * The live backup connection main/index.ts holds — the same dedicated
    * better-sqlite3 handle the scheduled backups use. Read through a getter
-   * because it is undefined in dev (`:memory:`, nothing to back up).
+   * because it is undefined in dev (`:memory:`, nothing on disk to copy).
    */
   readonly sqlite: () => Database.Database | undefined;
   /**
@@ -54,9 +60,9 @@ export interface RestoreIpcDeps {
    * inode — the restore appears to work and the next launch shows the old data.
    */
   readonly closeLiveConnections: () => void;
-  /** `app.relaunch(); app.exit(0)`, injected so this module imports no Electron lifecycle. */
+  /** `app.relaunch(); app.exit(0)`, injected so this module needs no Electron lifecycle of its own. */
   readonly relaunch: () => void;
-  /** Reads the caller's grant from the live session registry. */
+  /** Reads the caller's grant from the live session registry (api/session-auth.ts). */
   readonly sessions: SessionRegistry;
 }
 
@@ -76,7 +82,9 @@ const UNAUTHORIZED = failure(
  * payload — but it is still a token the server minted at login and holds in
  * `session-auth.ts`'s registry, never a permission the caller asserts about
  * itself. That distinction is the whole of this codebase's authorization
- * history: `x-permissions` was the client answering its own question.
+ * history: `x-permissions` was the client answering its own question, and these
+ * three channels would otherwise be the one write surface in the product that
+ * asks nobody anything.
  */
 function authorize(deps: RestoreIpcDeps, token: unknown): BackupFailure | null {
   if (typeof token !== "string" || token === "") return UNAUTHORIZED;
@@ -95,9 +103,9 @@ function authorize(deps: RestoreIpcDeps, token: unknown): BackupFailure | null {
  * The renderer never hands over a path, and this never trusts one: a name with
  * a separator, a `..`, or anything that is not one of our own
  * `mezan-backup-*.mezanbak` files is refused before it reaches the filesystem.
- * The alternative — passing absolute paths across the bridge — would let
- * anything running in the renderer nominate any file on the machine to be
- * opened, integrity-checked and copied over the company's database.
+ * Passing absolute paths across the bridge instead would let anything running
+ * in the renderer nominate any file on the machine to be opened,
+ * integrity-checked and copied over the company's database.
  */
 function resolveArchivePath(backupsDir: string, fileName: unknown): string | null {
   if (typeof fileName !== "string" || fileName === "") return null;
@@ -109,33 +117,33 @@ function resolveArchivePath(backupsDir: string, fileName: unknown): string | nul
 }
 
 /**
- * Reads an archive's manifest without unpacking its database.
+ * Reads an archive's manifest and nothing else — `manifest.json` only, not the
+ * database beside it. Listing ten backups the other way would copy ten whole
+ * databases through the temp directory to render one screen.
  *
  * A manifest that will not parse does NOT drop the archive from the list. A
  * shop owner looking for last Tuesday's file needs to see that it is there and
  * damaged; a list that quietly omits it tells them the backup was never taken.
  */
 async function describeArchive(archivePath: string, createdAtFallback: Date): Promise<BackupEntryDTO> {
-  const fileName = path.basename(archivePath);
   const sizeBytes = await stat(archivePath)
     .then((s) => s.size)
     .catch(() => 0);
 
+  const workDir = path.join(tmpdir(), `mezan-manifest-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   let manifest: BackupManifest | null = null;
-  const workDir = path.join(tmpdir(), `mezan-manifest-${process.pid}-${Date.now()}`);
   try {
-    const extracted = await extractArchive(archivePath, workDir);
-    manifest = parseManifest(
-      await readFile(path.join(extracted.destDir, MANIFEST_ENTRY_NAME), "utf8"),
-    );
+    await mkdir(workDir, { recursive: true });
+    await tarExtract({ file: archivePath, cwd: workDir }, [MANIFEST_ENTRY_NAME]);
+    manifest = parseManifest(await readFile(path.join(workDir, MANIFEST_ENTRY_NAME), "utf8"));
   } catch {
     manifest = null;
   } finally {
-    await import("node:fs/promises").then(({ rm }) => rm(workDir, { recursive: true, force: true }));
+    await rm(workDir, { recursive: true, force: true });
   }
 
   return {
-    fileName,
+    fileName: path.basename(archivePath),
     createdAt: manifest?.createdAt ?? createdAtFallback.toISOString(),
     appVersion: manifest?.appVersion ?? null,
     reason: manifest?.reason ?? null,
@@ -209,16 +217,14 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       if (!archivePath) {
         return failure("INVALID_NAME", "اسم ملف النسخة الاحتياطية غير صالح.");
       }
-
-      const describedBefore = await stat(archivePath).catch(() => null);
-      if (!describedBefore) {
+      if (!(await stat(archivePath).catch(() => null))) {
         return failure("NOT_FOUND", "ملف النسخة الاحتياطية غير موجود. حدّث القائمة وحاول مرة أخرى.");
       }
 
-      // The safety copy comes FIRST and comes from the live connection, because
-      // after the next few lines there is no live connection to take one from.
-      // Without it, restoring the wrong file — the one thing a worried owner
-      // does at 9pm with the shop shut — is irreversible.
+      // The safety copy comes FIRST, and from the live connection, because after
+      // the next few lines there is no live connection to take one from.
+      // Without it, restoring the wrong file — which is exactly what a worried
+      // owner does at 9pm with the shop shut — is irreversible.
       let safetyBackupFileName: string | null = null;
       const sqlite = deps.sqlite();
       if (sqlite) {
@@ -234,11 +240,12 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
           console.error("[backup] safety backup before restore failed", err);
           return failure(
             "FAILED",
-            "تعذّر أخذ نسخة احتياطية من البيانات الحالية قبل الاستعادة، ولم تتم الاستعادة.",
+            "تعذّر أخذ نسخة احتياطية من بياناتك الحالية قبل الاستعادة، ولم تتم الاستعادة.",
           );
         }
       }
 
+      const restoredFrom = await describeArchive(archivePath, new Date());
       deps.closeLiveConnections();
 
       try {
@@ -252,33 +259,22 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
             `(taken ${restored.manifest.createdAt} by app ${restored.manifest.appVersion})`,
         );
         // Scheduled, not awaited: `app.exit()` kills the process, and the reply
-        // to this invoke has not been written to the renderer yet. The screen
-        // gets its confirmation, then the window goes.
+        // to this invoke has not reached the renderer yet. The screen gets its
+        // confirmation, then the window goes.
         setTimeout(deps.relaunch, RELAUNCH_DELAY_MS);
-        return {
-          ok: true,
-          restoredFrom: await describeArchive(archivePath, new Date(restored.manifest.createdAt)),
-          safetyBackupFileName,
-          relaunching: true,
-        };
+        return { ok: true, restoredFrom, safetyBackupFileName, relaunching: true };
       } catch (err) {
         console.error("[backup] restore failed", err);
-        // The verification steps all run BEFORE the atomic rename, so the live
-        // database file is untouched — but its connections are closed, and the
-        // running process can no longer serve anything. Relaunching brings the
-        // app back on exactly the data it had a moment ago.
+        // Every verification step runs BEFORE the atomic rename, so the live
+        // database file is untouched — but its connections are now closed and
+        // this process can no longer serve anything. Relaunching brings the app
+        // back on exactly the data it had a moment ago.
         setTimeout(deps.relaunch, RELAUNCH_DELAY_MS);
         return failure(
           "VERIFICATION_FAILED",
-          "فشل التحقق من ملف النسخة الاحتياطية، ولم يتم تغيير بياناتك. سيُعاد تشغيل البرنامج الآن.",
+          "فشل التحقق من ملف النسخة الاحتياطية، ولم تتغيّر بياناتك. سيُعاد تشغيل البرنامج الآن.",
         );
       }
     },
   );
 }
-
-/**
- * Long enough for the `ipcMain.handle` reply to reach the renderer and paint,
- * short enough that nobody starts typing into a window that is about to close.
- */
-const RELAUNCH_DELAY_MS = 750;

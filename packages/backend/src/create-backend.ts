@@ -5,6 +5,7 @@ import {
   createSessionAuthContextResolver,
   createSessionRegistry,
   type App,
+  type PermissionRefusal,
   type CreateAppOptions,
   type SessionRegistry,
 } from "@mezan/api";
@@ -63,6 +64,7 @@ import {
   type DocumentEventType,
   type EventCode,
   createProductTemplateSpecificationUsage,
+  recordSecurityEvent,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -1183,9 +1185,40 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    */
   const loginThrottle = createLoginThrottle();
 
+  /**
+   * Refused requests, recorded.
+   *
+   * `createPermissionGate` answered 403 and wrote nothing, so "who was refused
+   * which screen fifty times last night" was not a question this product could
+   * answer at all — and a refusal is a free oracle over the org's authority
+   * map, which makes the probing worth seeing. Rate-limited per
+   * (actor, permission) so a screen that polls a route the user cannot reach
+   * writes one row a minute rather than one row a second.
+   */
+  const refusalSeenAt = new Map<string, number>();
+  const onPermissionRefused = (refusal: PermissionRefusal) => {
+    if (!refusal.authenticated) return; // an expired session is a 401 story, not a probe
+    const key = `${refusal.userId}|${refusal.permission}`;
+    const now = Date.now();
+    const last = refusalSeenAt.get(key) ?? 0;
+    if (now - last < 60_000) return;
+    refusalSeenAt.set(key, now);
+    if (refusalSeenAt.size > 5_000) refusalSeenAt.clear();
+    void recordSecurityEvent(auditSink, {
+      module: "admin",
+      entityType: "PERMISSION",
+      entityId: refusal.permission,
+      action: "PERMISSION_DENIED",
+      actor: refusal.userId,
+      severity: "WARNING",
+      details: { permission: refusal.permission, method: refusal.method, path: refusal.path },
+    }).catch(() => undefined);
+  };
+
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },
+    onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue
     // into, or a disconnect revokes a token nobody is holding.
     ...(options.lan ? { lan: { ...options.lan, sessions } } : {}),

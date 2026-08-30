@@ -109,7 +109,7 @@ describe("AssetRegisterScreen", () => {
     const dialog = screen.getByRole("dialog", { name: "تسجيل أصل" });
     // Identity section renders name(ar), name(en), code as plain text inputs in
     // that order — the name(en) field is left untouched (optional).
-    const [nameArInput, , codeInput, acquisitionDateInput] = within(dialog).getAllByRole("textbox");
+    const [nameArInput, , codeInput, acquisitionDateInput] = within(dialog).getAllByRole("textbox") as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
     fireEvent.change(nameArInput, { target: { value: "رافعة شوكية" } });
     fireEvent.change(codeInput, { target: { value: "EQ-002" } });
     fireEvent.click(within(dialog).getByRole("combobox", { name: "التصنيف *" }));
@@ -126,7 +126,7 @@ describe("AssetRegisterScreen", () => {
     await screen.findByText("سيارة النقل الرئيسية");
     fireEvent.click(screen.getByRole("button", { name: "تسجيل أصل" }));
     const dialog = screen.getByRole("dialog", { name: "تسجيل أصل" });
-    const [nameArInput, , codeInput, acquisitionDateInput] = within(dialog).getAllByRole("textbox");
+    const [nameArInput, , codeInput, acquisitionDateInput] = within(dialog).getAllByRole("textbox") as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
     fireEvent.change(nameArInput, { target: { value: "نسخة" } });
     fireEvent.change(codeInput, { target: { value: "VEH-001" } });
     fireEvent.click(within(dialog).getByRole("combobox", { name: "التصنيف *" }));

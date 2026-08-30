@@ -84,8 +84,9 @@ describe("useDebounced", () => {
 
 describe("EMPTY", () => {
   it("is the same array every time, so a memo dependency can hold still", () => {
-    const first: readonly unknown[] = undefined ?? EMPTY;
-    const second: readonly unknown[] = undefined ?? EMPTY;
+    const maybeUndefined: readonly unknown[] | undefined = undefined;
+    const first: readonly unknown[] = maybeUndefined ?? EMPTY;
+    const second: readonly unknown[] = maybeUndefined ?? EMPTY;
     expect(first).toBe(second);
     expect(first).toHaveLength(0);
   });

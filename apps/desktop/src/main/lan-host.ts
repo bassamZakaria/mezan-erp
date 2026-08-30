@@ -1,7 +1,7 @@
 import type { AddressInfo } from "node:net";
 import { networkInterfaces } from "node:os";
 import { serve } from "@hono/node-server";
-import type { FetchCallback, Http2Bindings, HttpBindings } from "@hono/node-server";
+import type { Http2Bindings, HttpBindings } from "@hono/node-server";
 import { hasFeature, LAN_MULTI_TILL_FEATURE, type Entitlements } from "@mezan/domain";
 import type { App } from "@mezan/api";
 
@@ -218,9 +218,11 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
   const hostname = options.host ?? resolveBindAddress();
   const port = options.port ?? DEFAULT_LAN_PORT;
 
-  const handle: FetchCallback = (request, env) => {
-    const bindings = env as HttpBindings | Http2Bindings;
-    const remoteRaw = bindings.incoming.socket.remoteAddress;
+  const handle = (
+    request: Request,
+    env: HttpBindings | Http2Bindings,
+  ): Response | Promise<Response> => {
+    const remoteRaw = env.incoming.socket.remoteAddress;
     const remote = remoteRaw ? normalizeRemoteAddress(remoteRaw) : null;
 
     if (remote === null || !isOnOwnSubnet(remote)) {

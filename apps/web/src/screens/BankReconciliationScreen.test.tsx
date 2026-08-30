@@ -179,7 +179,7 @@ describe("BankReconciliationScreen — import dialog", () => {
       transport: stubTransport({ ...baseHandlers([]), "GET /bank-statements/column-mapping/ta-bank1": () => ({ status: 404, body: {} }) }),
     });
     await screen.findByText("لا توجد كشوف بنك بعد");
-    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]!);
 
     const dialog = await screen.findByRole("dialog", { name: "استيراد كشف بنك" });
     expect(within(dialog).getByRole("button", { name: "تعيين الأعمدة" })).toBeDisabled();
@@ -216,7 +216,7 @@ describe("BankReconciliationScreen — import dialog", () => {
       }),
     });
     await screen.findByText("لا توجد كشوف بنك بعد");
-    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "استيراد كشف بنك" });
 
     await user.type(within(dialog).getByPlaceholderText("اختر حسابا بنكيا"), "بنك");
@@ -247,7 +247,7 @@ describe("BankReconciliationScreen — import dialog", () => {
       }),
     });
     await screen.findByText("لا توجد كشوف بنك بعد");
-    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "استيراد كشف بنك" });
 
     await user.type(within(dialog).getByPlaceholderText("اختر حسابا بنكيا"), "بنك");
@@ -256,7 +256,7 @@ describe("BankReconciliationScreen — import dialog", () => {
     // The identity/period text fields render in this order: period start,
     // period end, opening balance, closing balance, statement number.
     const [periodStartInput, periodEndInput, openingBalanceInput, closingBalanceInput, statementNumberInput] =
-      within(dialog).getAllByRole("textbox");
+      within(dialog).getAllByRole("textbox") as [HTMLElement, HTMLElement, HTMLElement, HTMLElement, HTMLElement];
     await user.type(periodStartInput, "2026-08-01");
     await user.type(periodEndInput, "2026-08-31");
     await user.type(openingBalanceInput, "0.00");

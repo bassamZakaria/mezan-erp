@@ -57,6 +57,67 @@ export function insecureHeaderAuthContextResolver(c: Context): AuthContext {
 const AUTH_CONTEXT_KEY = "authContext";
 
 /**
+ * Where a refused request is reported.
+ *
+ * WHY THIS EXISTS. Every gated route in this product refused with a bare 403
+ * and wrote NOTHING, so a clerk probing fifty screens they cannot reach left
+ * zero rows — the reconnaissance half of an insider fraud was invisible, and
+ * the refusal is itself a free oracle over the org's authority map, which is
+ * exactly what makes the probing worth seeing.
+ *
+ * WHY IT RIDES ON THE REQUEST rather than in a module-level variable. The
+ * first version of this was a process-wide singleton, on the reasoning that a
+ * cross-cutting concern should not change the signature of ~68 route
+ * factories. It was wrong for the reason a second backend is always the reason:
+ * the security scenarios build a SECOND `createBackend` to exercise the LAN
+ * mount, which replaced the reporter with one bound to that app's audit sink
+ * and then closed it — after which every refusal on the first app was written
+ * into a closed store and vanished. The suite caught it. One app, one reporter,
+ * carried on the context the app already sets.
+ *
+ * Absent in any app that mounts no audit sink, in which case refusals are
+ * simply not reported — never an error, and never a 500 on a legitimate 403.
+ */
+export interface PermissionRefusal {
+  readonly userId: string;
+  readonly permission: string;
+  readonly method: string;
+  readonly path: string;
+  readonly authenticated: boolean;
+}
+
+export type PermissionRefusalReporter = (refusal: PermissionRefusal) => void;
+
+const REFUSAL_REPORTER_KEY = "permissionRefusalReporter";
+
+/**
+ * Middleware that binds a refusal reporter to every request this app serves.
+ * Mounted by `createApp`; there is no other way to install one.
+ */
+export function permissionRefusalReporting(report: PermissionRefusalReporter): MiddlewareHandler {
+  return async function bindRefusalReporter(c, next) {
+    c.set(REFUSAL_REPORTER_KEY, report);
+    await next();
+  };
+}
+
+function refuse(c: Context, ctx: AuthContext, permission: string) {
+  const report = c.get(REFUSAL_REPORTER_KEY) as PermissionRefusalReporter | undefined;
+  if (!report) return;
+  try {
+    report({
+      userId: ctx.userId,
+      permission,
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      authenticated: ctx.authenticated,
+    });
+  } catch {
+    // A forensic write must never turn a legitimate refusal into a 500.
+  }
+}
+
+/**
  * Builds a permission-gate factory bound to one {@link AuthContextResolver}.
  * Mirrors `createModuleGate`'s shape (./module-gate.ts) but checks a specific
  * permission code via the domain's `can()` instead of module entitlement.
@@ -101,6 +162,7 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
       const ctx = await resolveAuthContext(c);
       if (!ctx.authenticated) return unauthenticated(c);
       if (!can(ctx, permission)) {
+        refuse(c, ctx, permission);
         return c.json(
           {
             error: "PERMISSION_DENIED",
@@ -131,6 +193,7 @@ export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver)
       const ctx = await resolveAuthContext(c);
       if (!ctx.authenticated) return unauthenticated(c);
       if (!permissions.some((permission) => can(ctx, permission))) {
+        refuse(c, ctx, permissions[0] ?? "");
         return c.json(
           {
             error: "PERMISSION_DENIED",

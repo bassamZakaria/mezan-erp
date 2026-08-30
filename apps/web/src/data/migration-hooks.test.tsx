@@ -84,13 +84,20 @@ describe("useCustomerImportPreview / useCustomerImportCommit", () => {
     const transport = stubTransport({
       "POST /data-migration/customers/commit": () => ({
         status: 422,
-        body: { total: 3, valid: 1, invalid: 2, rows: [{ row: 2, error: "الاسم مطلوب" }] },
+        body: {
+          total: 3,
+          validCount: 1,
+          errors: [
+            { rowNumber: 2, reasons: ["الاسم مطلوب"] },
+            { rowNumber: 3, reasons: ["كود مكرر"] },
+          ],
+        },
       }),
     });
     const { result } = renderHook(() => useCustomerImportCommit(), { wrapper: makeWrapper(transport).Wrapper });
     result.current.mutate({ rows: [] } as never);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.invalid).toBe(2);
+    expect(result.current.data?.errors.length).toBe(2);
   });
 });
 

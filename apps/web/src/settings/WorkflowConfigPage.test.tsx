@@ -6,6 +6,12 @@ import type { RoleDTO, WorkflowConfigDTO } from "@mezan/contracts";
 import { WorkflowConfigPage } from "./WorkflowConfigPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
+/** The Select combobox commits on mousedown, not change (Select.tsx) — open it, then commit the matching option. */
+function chooseSelectOption(container: HTMLElement, triggerLabel: string, optionLabel: string) {
+  fireEvent.click(within(container).getByRole("combobox", { name: triggerLabel }));
+  fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
+
 const sampleRoles: RoleDTO[] = [
   { id: "role-admin", code: "ADMIN", name: "مدير", description: "", permissions: ["*"], isSystem: true, createdAt: "2026-08-01T00:00:00.000Z" },
   {
@@ -86,8 +92,8 @@ describe("WorkflowConfigPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة سير عمل جديد" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة سير عمل جديد" });
-    fireEvent.change(within(dialog).getByLabelText("نوع الإجراء"), { target: { value: "PURCHASE_ORDER_CONFIRM" } });
-    fireEvent.change(within(dialog).getByLabelText("اختر الدور"), { target: { value: "FINANCE_MANAGER" } });
+    chooseSelectOption(dialog, "نوع الإجراء", "تأكيد أمر الشراء");
+    chooseSelectOption(dialog, "اختر الدور", "مدير مالي");
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ سير العمل" }));
 
     const table = await screen.findByRole("table");
@@ -99,8 +105,8 @@ describe("WorkflowConfigPage", () => {
     await screen.findByText("لا توجد إعدادات موافقات");
     fireEvent.click(screen.getByRole("button", { name: "إضافة سير عمل جديد" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة سير عمل جديد" });
-    const roleSelect = within(dialog).getByLabelText("اختر الدور") as HTMLSelectElement;
-    const optionLabels = Array.from(roleSelect.options).map((o) => o.textContent);
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "اختر الدور" }));
+    const optionLabels = screen.getAllByRole("option").map((o) => o.textContent);
     expect(optionLabels).toEqual(["مشرف", "مدير مالي"]);
     expect(optionLabels).not.toContain("مدير");
   });

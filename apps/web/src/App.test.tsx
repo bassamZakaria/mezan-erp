@@ -86,7 +86,10 @@ describe("App", () => {
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
-    fireEvent.click(screen.getByRole("button", { name: "المحاسبة" }));
+    // المحاسبة is now المالية والإقفال, and its "الدليل والتعريفات" shelf
+    // (only 4 items) flattens straight onto row two instead of staying a
+    // dropdown — see WorkspaceScreensBar's `isFlattenable`.
+    fireEvent.click(screen.getByRole("button", { name: "المالية والإقفال" }));
     fireEvent.click(screen.getByRole("button", { name: "دليل الحسابات" }));
     // The router resolves the screen's lazy module before it swaps the match,
     // so the assertion has to await it — a synchronous read here still sees
@@ -145,9 +148,12 @@ describe("App", () => {
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
-    // A section is a MENU on row two, not a row in the column: التقارير carries
-    // every one of its screens in sections and none directly, so a bar that
-    // listed only direct items would drop the whole shelf.
+    // Reports are no longer one shared workspace: each workspace (البيع
+    // والتحصيل here) carries its own التقارير shelf as a menu on row two —
+    // always a dropdown regardless of size (WorkspaceScreensBar's
+    // `ALWAYS_A_MENU`) — so a bar that listed only direct items would drop
+    // the whole shelf.
+    fireEvent.click(screen.getByRole("button", { name: "البيع والتحصيل" }));
     fireEvent.click(screen.getByRole("button", { name: "التقارير" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "المبيعات حسب الفترة" }));
     expect(await screen.findByRole("heading", { name: "المبيعات حسب الفترة" })).toBeInTheDocument();
@@ -165,10 +171,11 @@ describe("App", () => {
 
     // The header gear is gone: الإعدادات is a workspace on the rail and nowhere
     // else, so this is now the only route to a settings screen. إعدادات
-    // الموافقات hangs off a section rather than the group itself, so the
+    // الموافقات hangs off الصلاحيات (5 items, so it stays a dropdown rather
+    // than flattening — WorkspaceScreensBar's `isFlattenable`), so the
     // workspace opens first and the section's dropdown carries the screen.
     fireEvent.click(screen.getByRole("button", { name: "الإعداد والصلاحيات" }));
-    fireEvent.click(await screen.findByRole("button", { name: "سير العمل" }));
+    fireEvent.click(await screen.findByRole("button", { name: "الصلاحيات" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "إعدادات الموافقات" }));
     expect(await screen.findByRole("heading", { name: "إعدادات الموافقات" })).toBeInTheDocument();
   });

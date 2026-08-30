@@ -52,19 +52,19 @@ describe("DataMigrationPage", () => {
     await waitFor(() => expect(screen.getByText("مسجّل: 1")).toBeInTheDocument());
 
     for (const title of [
-      "١. الأقسام",
-      "٢. الموظفين",
-      "٣. حسابات الخزينة",
-      "٤. الموردون",
-      "٥. العملاء",
-      "٦. الأصناف",
-      "٧. وحدات الأصناف",
-      "٨. تصنيفات الأصول",
-      "٩. الأصول",
-      "١٠. فواتير المبيعات السابقة",
-      "١١. مرتجعات المبيعات السابقة",
-      "١٢. فواتير المشتريات السابقة",
-      "١٣. مرتجعات المشتريات السابقة",
+      "1. الأقسام",
+      "2. الموظفين",
+      "3. حسابات الخزينة",
+      "4. الموردون",
+      "5. العملاء",
+      "6. الأصناف",
+      "7. وحدات الأصناف",
+      "8. تصنيفات الأصول",
+      "9. الأصول",
+      "10. فواتير المبيعات السابقة",
+      "11. مرتجعات المبيعات السابقة",
+      "12. فواتير المشتريات السابقة",
+      "13. مرتجعات المشتريات السابقة",
     ]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
@@ -72,7 +72,7 @@ describe("DataMigrationPage", () => {
     // First step opens by default (its download/import controls are visible)...
     expect(screen.getAllByRole("button", { name: "تنزيل النموذج" })).toHaveLength(1);
     // ...opening a second step keeps only that step's controls visible (single-open accordion).
-    fireEvent.click(screen.getByText("٢. الموظفين"));
+    fireEvent.click(screen.getByText("2. الموظفين"));
     expect(screen.getAllByRole("button", { name: "تنزيل النموذج" })).toHaveLength(1);
   });
 
@@ -105,7 +105,7 @@ describe("DataMigrationPage", () => {
       },
     });
     renderWithProviders(<DataMigrationPage />, { transport, initialSession: testAdminSession });
-    await waitFor(() => expect(screen.getByText("١. الأقسام")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("1. الأقسام")).toBeInTheDocument());
 
     const commitButton = screen.getByRole("button", { name: "تأكيد الاستيراد" });
     expect(commitButton).toBeDisabled();
@@ -119,6 +119,43 @@ describe("DataMigrationPage", () => {
 
     fireEvent.click(commitButton);
     await waitFor(() => expect(committed).not.toBeNull());
-    await waitFor(() => expect(screen.getByText("تم استيراد 1 سجل بنجاح.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("تم الاستيراد بنجاح — عدد السجلات: 1.")).toBeInTheDocument());
+  });
+
+  it("shows row-level errors from a bad preview and keeps commit disabled", async () => {
+    const transport = stubTransport({
+      "GET /data-migration/status": () => ({
+        body: {
+          departments: 0,
+          employees: 0,
+          treasuryAccounts: 0,
+          suppliers: 0,
+          customers: 0,
+          items: 0,
+          itemUnits: 0,
+          assetCategories: 0,
+          assets: 0,
+          salesInvoices: 0,
+          salesReturns: 0,
+          purchaseInvoices: 0,
+          purchaseReturns: 0,
+        },
+      }),
+      "POST /data-migration/departments/preview": () => ({
+        body: { validCount: 0, errors: [{ rowNumber: 2, reasons: ["الكود مطلوب"] }] },
+      }),
+    });
+    renderWithProviders(<DataMigrationPage />, { transport, initialSession: testAdminSession });
+    await waitFor(() => expect(screen.getByText("1. الأقسام")).toBeInTheDocument());
+
+    const commitButton = screen.getByRole("button", { name: "تأكيد الاستيراد" });
+    const file = await buildDepartmentsFile();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByText("0 صف صالح من إجمالي 1.")).toBeInTheDocument());
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("الكود مطلوب")).toBeInTheDocument();
+    expect(commitButton).toBeDisabled();
   });
 });

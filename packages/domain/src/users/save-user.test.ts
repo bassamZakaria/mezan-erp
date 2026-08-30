@@ -44,7 +44,7 @@ describe("saveUser", () => {
     const uow = createFakeUow();
     const user = await saveUser(baseCmd, uow, fakeHasher());
     expect(user.passwordHash).toBe("hashed:TempPass123");
-    expect(user.pinHash).toBe("hashed:1234");
+    expect(user.pinHash).toBe(`hashed:${baseCmd.pin}`);
     expect(user.roleId).toBeNull();
     expect(user.isCompanyAdmin).toBe(true);
   });

@@ -2,19 +2,45 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
+import { useState, type ReactElement } from "react";
 import type { ItemDTO } from "@mezan/contracts";
 import { BomsScreen } from "./BomsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
 import type { BomRecord } from "../data/hooks";
 
 /** Type into an EntityPicker combobox and pick the matching option — selection
  * fires on `onMouseDown` (not `click`), so the input's blur never wins the race. */
-function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: string) {
-  const input = within(dialog).getByLabelText(label);
+function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+  const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(dialog).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
+  const option = within(container).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
   fireEvent.mouseDown(option);
+}
+
+/**
+ * The create form is a sub-page addressed via `useSubPage()`, which reads
+ * from `NavigationContext` — there is no router wired up outside `AppLayout`,
+ * so a test that opens it needs its own stateful provider (the same pattern
+ * ProductTemplatesScreen.test.tsx and PurchaseReturnsScreen.test.tsx use).
+ */
+function WithSubPageNav({ children }: { children: ReactElement }) {
+  const [segments, setSegments] = useState<string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: (next) => setSegments([...next]),
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
 }
 
 function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
@@ -106,7 +132,12 @@ function renderScreen(boms: BomRecord[] = [bom()]) {
       return { status: 201, body: created };
     },
   });
-  return renderWithProviders(<BomsScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(
+    <WithSubPageNav>
+      <BomsScreen />
+    </WithSubPageNav>,
+    { transport, initialSession: testAdminSession },
+  );
 }
 
 describe("BomsScreen", () => {
@@ -122,15 +153,33 @@ describe("BomsScreen", () => {
     expect(screen.getByText("طاولة خشبية")).toBeInTheDocument();
   });
 
-  it("creates a new BOM through the side panel and round-trips through the stubbed transport", async () => {
+  it("shows a retry banner when the list fails to load", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/boms": () => ({ status: 500, body: { error: "INTERNAL" } }),
+      "GET /items": () => ({ body: items }),
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <BomsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    expect(await screen.findByText("تعذّر تحميل قوائم المواد.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
+
+  it("creates a new BOM through its own sub-page and round-trips through the stubbed transport", async () => {
     renderScreen();
     await screen.findByText("BOM-0001");
     fireEvent.click(screen.getByRole("button", { name: "قائمة مواد جديدة" }));
 
-    const dialog = screen.getByRole("dialog", { name: "قائمة مواد جديدة" });
-    pickFromCombobox(dialog, "الصنف المجمَّع *", "طاولة خشبية");
-    pickFromCombobox(dialog, "الصنف", "لوح خشب");
-    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ قائمة المواد" }));
+    // the create form used to be a side-panel dialog; it is now a sub-page
+    // addressed at its own URL segment (`useSubPage`), rendered as a full page.
+    const heading = screen.getByRole("heading", { name: "قائمة مواد جديدة" });
+    const page = heading.closest("div.w-full") as HTMLElement;
+    pickFromCombobox(page, "الصنف المجمَّع *", "طاولة خشبية");
+    pickFromCombobox(page, "الصنف", "لوح خشب");
+    fireEvent.click(within(page).getByRole("button", { name: "حفظ قائمة المواد" }));
 
     expect(await screen.findByText("BOM-0002")).toBeInTheDocument();
   });

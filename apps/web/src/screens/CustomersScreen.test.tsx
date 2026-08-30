@@ -6,6 +6,20 @@ import type { CustomerDTO } from "@mezan/contracts";
 import { CustomersScreen } from "./CustomersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
+/**
+ * `TextField` (settings/form-controls.tsx) renders a `<label>` that is never
+ * associated with its input via `for`/`id`, so `getByLabelText` can't find
+ * these fields. Fall back to the DOM structure the shared `Field` wrapper
+ * always uses: a `<label>` immediately followed by its control in the same
+ * wrapper `<div>`.
+ */
+function textFieldInput(container: HTMLElement, labelText: string): HTMLInputElement {
+  const label = within(container).getByText(labelText, { selector: "label" });
+  const input = label.parentElement?.querySelector<HTMLInputElement>("input, textarea");
+  if (!input) throw new Error(`No input control found next to label "${labelText}"`);
+  return input;
+}
+
 function customer(overrides: Partial<CustomerDTO> = {}): CustomerDTO {
   return {
     id: "cust-1",
@@ -45,7 +59,26 @@ const inactiveCustomer = customer({
 function renderScreen(customers: CustomerDTO[] = [customer(), inactiveCustomer]) {
   let current = [...customers];
   const transport = stubTransport({
-    "GET /customers": () => ({ body: current }),
+    "GET /customers": (_init, path) => {
+      const status = new URL(path, "http://test").searchParams.get("status");
+      const rows = status === "active" ? current.filter((c) => c.active) : status === "inactive" ? current.filter((c) => !c.active) : current;
+      return { body: rows };
+    },
+    // The status chips (ListViews) hide any chip whose count is 0, so the
+    // real counts endpoint has to be stubbed too, or the "active"/"inactive"
+    // tabs never render for the test to click.
+    "GET /customers/counts": () => {
+      const active = current.filter((c) => c.active).length;
+      return { body: { all: current.length, active, inactive: current.length - active } };
+    },
+    "GET /customers/stats": () => ({
+      body: {
+        count: current.length,
+        active: current.filter((c) => c.active).length,
+        creditLimits: "0",
+        toCollect: "0",
+      },
+    }),
     "POST /customers": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       const created: CustomerDTO = { ...customer(), ...body, id: body.id, code: body.code };
@@ -103,8 +136,13 @@ describe("CustomersScreen", () => {
     renderScreen();
     await screen.findByText("شركة الأمل للتجارة");
     fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
-    expect(screen.queryByText("شركة الأمل للتجارة")).not.toBeInTheDocument();
-    expect(screen.getByText("مصنع الوادي الأخضر")).toBeInTheDocument();
+    // `useUrlParam`'s write is buffered onto a microtask (url-state.ts), and the
+    // list itself is server-filtered by status, so the rows only settle once
+    // both the URL update and the refetch it triggers have gone through.
+    await waitFor(() => {
+      expect(screen.queryByText("شركة الأمل للتجارة")).not.toBeInTheDocument();
+      expect(screen.getByText("مصنع الوادي الأخضر")).toBeInTheDocument();
+    });
   });
 
   it("adds a new customer through the side panel", async () => {
@@ -113,7 +151,7 @@ describe("CustomersScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة عميل" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة عميل" });
-    fireEvent.change(within(dialog).getByLabelText("اسم العميل *"), { target: { value: "عميل تجريبي" } });
+    fireEvent.change(textFieldInput(dialog, "اسم العميل *"), { target: { value: "عميل تجريبي" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة عميل" }));
 
     expect(await screen.findByText("عميل تجريبي")).toBeInTheDocument();
@@ -135,9 +173,24 @@ describe("CustomersScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تعديل" }));
 
     const dialog = screen.getByRole("dialog", { name: "تعديل عميل" });
-    fireEvent.change(within(dialog).getByLabelText("الهاتف"), { target: { value: "01000000000" } });
+    fireEvent.change(textFieldInput(dialog, "الهاتف"), { target: { value: "01000000000" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ التعديلات" }));
 
     await waitFor(() => expect(screen.getByText(/15,000|15000/)).toBeInTheDocument());
+  });
+
+  it("shows an error banner with a retry action when customers fail to load", async () => {
+    const transport = stubTransport({
+      "GET /customers": () => ({ status: 500, body: { error: "INTERNAL" } }),
+      "GET /customers/counts": () => ({ body: {} }),
+      "GET /customers/stats": () => ({ body: {} }),
+      "GET /sales-invoices": () => ({ body: [] }),
+      "GET /sales-returns": () => ({ body: [] }),
+      "GET /vouchers": () => ({ body: [] }),
+      "GET /reports/aging/customers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
+    });
+    renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل العملاء.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 });

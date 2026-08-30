@@ -59,23 +59,24 @@ async function harness() {
     clock: () => "2026-08-21T00:00:00.000Z",
   });
 
-  // Seed a receipt so it has a cost layer tagged with sourceDocId "PI1" — the
-  // target purchase invoice landed cost allocates onto.
-  await stockService.postAdjustment({
-    adjustmentId: "SEED",
+  // Seed the receipt as purchase invoice PI1 — the target the landed cost
+  // allocates onto. It goes into the LEDGER, not the layer cache: the engine
+  // rebuilds layers by replaying movements, so a layer re-tagged behind the
+  // ledger's back is discarded on the next rebuild.
+  await stockLedger.append({
+    id: "PI1:ITEM1:WH1",
+    itemId: "ITEM1",
     warehouseId: "WH1",
-    reason: "INITIAL_STOCK",
-    lines: [{ itemId: "ITEM1", direction: "IN", qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("50") }],
+    direction: "IN",
+    qty: Qty.fromMajor("10"),
+    unitCost: Money.fromMajor("50"),
+    sourceDocType: "PURCHASE_INVOICE",
+    sourceDocId: "PI1",
+    sourceDocNumber: "PI-000002",
+    reason: null,
+    occurredAt: "2026-08-20T00:00:00.000Z",
   });
-  // Re-tag the seeded layer/movement as if it came from purchase invoice PI1
-  // isn't possible via the public API (sourceDocId is set at receipt time) —
-  // instead seed directly through the layers/ledger stores so the landed-cost
-  // revaluation has a real "PI1" layer to find.
-  const layersForPosition = await layers.listByPosition("ITEM1", "WH1");
-  for (const l of layersForPosition) {
-    await layers.remove(l.id);
-    await layers.add({ ...l, sourceDocId: "PI1", sourceDocType: "PURCHASE_INVOICE" });
-  }
+  await stockService.rebuild("ITEM1", "WH1");
 
   const repo = new InMemoryDocumentRepository<LandedCostLine>();
   const documentType = createLandedCostDocumentType(ACCOUNTS);

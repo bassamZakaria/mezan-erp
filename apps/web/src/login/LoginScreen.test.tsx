@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi } from "../data/ApiContext";
+import { markSessionExpired } from "../data/session";
 import { rememberDeviceUser } from "./device-users";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -97,6 +98,12 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
 
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+  });
+
+  it("shows the session-expired notice when the tab was left open past a dead token", () => {
+    markSessionExpired();
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByRole("status")).toHaveTextContent("انتهت الجلسة. سجّل الدخول من جديد للمتابعة.");
   });
 
   it("calls onStartWizard from the first-run link", () => {

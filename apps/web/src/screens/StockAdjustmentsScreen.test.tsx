@@ -1,15 +1,48 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState, type ReactNode } from "react";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import type { AccountDTO, ItemDTO, StockAdjustmentDocumentDTO, WarehouseDTO } from "@mezan/contracts";
 import { StockAdjustmentsScreen } from "./StockAdjustmentsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { JournalEntryDTO } from "../data/hooks";
+import { NavigationProvider } from "../navigation";
 
 afterEach(() => {
   document.documentElement.removeAttribute("data-theme");
 });
+
+/**
+ * StockAdjustmentsScreen's detail view and add flow are sub-pages addressed
+ * via the shell's `useSubPage` (navigation.tsx), which no-ops outside a real
+ * `NavigationProvider`. This stands in for the shell's URL-driven one with
+ * in-memory segments — enough for the screen under test to open, close and
+ * read its own sub-page.
+ */
+/** The Select combobox commits on mousedown, not change (packages/ui's Select) — open it, then commit the matching option. */
+function chooseSelectOption(triggerLabel: string, optionLabel: string) {
+  fireEvent.click(screen.getByRole("combobox", { name: triggerLabel }));
+  fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
+
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 const warehouses: WarehouseDTO[] = [{ id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true }];
 
@@ -96,9 +129,24 @@ const journalEntry: JournalEntryDTO = {
   ],
 };
 
-function baseHandlers(current: StockAdjustmentDocumentDTO[]) {
+function baseHandlers(getCurrent: () => StockAdjustmentDocumentDTO[]) {
   return {
-    "GET /inventory/stock-adjustments": () => ({ body: current }),
+    "GET /inventory/stock-adjustments": (_init: RequestInit | undefined, path: string) => {
+      const current = getCurrent();
+      const status = new URL(path, "http://x").searchParams.get("status");
+      const rows = status ? current.filter((d) => d.status === status) : current;
+      return { body: rows };
+    },
+    "GET /inventory/stock-adjustments/counts": () => {
+      const current = getCurrent();
+      return {
+        body: {
+          all: current.length,
+          draft: current.filter((d) => d.status === "draft").length,
+          confirmed: current.filter((d) => d.status === "confirmed").length,
+        },
+      };
+    },
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /items": () => ({ body: items }),
     "GET /accounts": () => ({ body: accounts }),
@@ -108,8 +156,14 @@ function baseHandlers(current: StockAdjustmentDocumentDTO[]) {
 }
 
 function renderScreen() {
-  const transport = stubTransport(baseHandlers([adj1, adj5]));
-  return renderWithProviders(<StockAdjustmentsScreen />, { transport, initialSession: testAdminSession });
+  const current = [adj1, adj5];
+  const transport = stubTransport(baseHandlers(() => current));
+  return renderWithProviders(
+    <TestNavigation>
+      <StockAdjustmentsScreen />
+    </TestNavigation>,
+    { transport, initialSession: testAdminSession },
+  );
 }
 
 describe("StockAdjustmentsScreen — list", () => {
@@ -144,6 +198,18 @@ describe("StockAdjustmentsScreen — list", () => {
     fireEvent.click(screen.getByRole("tab", { name: "المحاسبة" }));
     expect(await screen.findByText(/لا يوجد قيد محاسبي/)).toBeInTheDocument();
   });
+
+  it("shows an empty state when there are no stock adjustments yet", async () => {
+    const current: StockAdjustmentDocumentDTO[] = [];
+    const transport = stubTransport(baseHandlers(() => current));
+    renderWithProviders(
+      <TestNavigation>
+        <StockAdjustmentsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    expect(await screen.findByText("لا توجد تسويات مطابقة")).toBeInTheDocument();
+  });
 });
 
 describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow", () => {
@@ -152,8 +218,7 @@ describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow"
     vi.spyOn(crypto, "randomUUID").mockReturnValue(generatedId as ReturnType<typeof crypto.randomUUID>);
     let current = [adj1, adj5];
     const transport = stubTransport({
-      ...baseHandlers(current),
-      "GET /inventory/stock-adjustments": () => ({ body: current }),
+      ...baseHandlers(() => current),
       "POST /inventory/stock-adjustments/draft": (init) => {
         const body = JSON.parse((init?.body as string) ?? "{}");
         const created: StockAdjustmentDocumentDTO = {
@@ -182,7 +247,12 @@ describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow"
         return { body: { document: confirmed, held: false } };
       },
     });
-    renderWithProviders(<StockAdjustmentsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(
+      <TestNavigation>
+        <StockAdjustmentsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
     await screen.findByText("ADJ-000001");
     fireEvent.click(screen.getByRole("button", { name: "تسوية جديدة" }));
     expect(screen.getByRole("heading", { name: "اختر سبب التسوية" })).toBeInTheDocument();
@@ -190,7 +260,7 @@ describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow"
     fireEvent.click(screen.getByRole("button", { name: /رصيد افتتاحي/ }));
     expect(screen.getByRole("heading", { name: "الرصيد الافتتاحي" })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("الصنف للسطر 1"), { target: { value: "itm-3" } });
+    chooseSelectOption("الصنف للسطر 1", "منتج 3");
     fireEvent.change(screen.getByLabelText("الكمية للسطر 1"), { target: { value: "40" } });
     fireEvent.change(screen.getByLabelText("سعر التكلفة للسطر 1"), { target: { value: "60" } });
 

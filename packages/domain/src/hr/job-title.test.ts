@@ -27,4 +27,10 @@ describe("updateJobTitle", () => {
     expect(updated.active).toBe(false);
     expect(updated.departmentId).toBe("dept-1");
   });
+
+  it("rejects blanking the name on update", async () => {
+    const repo = createInMemoryJobTitleRepository();
+    const jt = await createJobTitle({ id: "jt-1", departmentId: "dept-1", name: "Sales Officer" }, repo);
+    expect(() => updateJobTitle(jt, { name: "" })).toThrow(InvalidJobTitleError);
+  });
 });

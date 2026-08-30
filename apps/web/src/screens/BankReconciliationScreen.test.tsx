@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { BankStatementDTO, BankStatementListItemDTO, StatementLineDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { BankReconciliationScreen } from "./BankReconciliationScreen";
@@ -88,6 +88,16 @@ function csvFile(): File {
   return new File([CSV], "statement.csv", { type: "text/csv" });
 }
 
+/**
+ * The column-mapping fields are the custom `Select` combobox (@mezan/ui), not
+ * a native `<select>`: opening it renders the option list into a portal, and
+ * an option commits on `mousedown` rather than `click`.
+ */
+async function pickColumn(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement, comboboxLabel: string, optionLabel: string) {
+  await user.click(within(dialog).getByRole("combobox", { name: comboboxLabel }));
+  fireEvent.mouseDown(await screen.findByRole("option", { name: optionLabel }));
+}
+
 function baseHandlers(statements: BankStatementDTO[]): Record<string, () => StubResult> {
   return {
     "GET /bank-statements": () => ({ body: statements.map((s) => listItem(s)) }),
@@ -104,6 +114,17 @@ describe("BankReconciliationScreen — list", () => {
     expect(await screen.findByText("بنك مصر — الحساب الجاري")).toBeInTheDocument();
     expect(screen.getByText("ST-001")).toBeInTheDocument();
     expect(screen.getByText("2026-08-01 — 2026-08-31")).toBeInTheDocument();
+  });
+
+  it("shows the load error instead of the empty state when the statements request fails", async () => {
+    renderWithProviders(<BankReconciliationScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        "GET /bank-statements": () => ({ status: 500, body: { error: "INTERNAL" } }),
+        "GET /treasury-accounts": () => ({ body: [BANK_ACCOUNT] }),
+      }),
+    });
+    expect(await screen.findByText("تعذّر تحميل كشوف البنك.")).toBeInTheDocument();
   });
 
   it("shows the documented empty state when no statement has been imported", async () => {
@@ -168,9 +189,9 @@ describe("BankReconciliationScreen — import dialog", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "تعيين الأعمدة" }));
     // the selects are populated from the uploaded file's real header row
-    const dateSelect = within(dialog).getByLabelText("عمود التاريخ *");
-    expect(within(dateSelect).getByRole("option", { name: "التاريخ" })).toBeInTheDocument();
-    expect(within(dateSelect).getByRole("option", { name: "المرجع" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("combobox", { name: "عمود التاريخ *" }));
+    expect(await screen.findByRole("option", { name: "التاريخ" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "المرجع" })).toBeInTheDocument();
   });
 
   it("prefills the mapping from the account's saved per-account mapping", async () => {
@@ -203,10 +224,10 @@ describe("BankReconciliationScreen — import dialog", () => {
     await user.upload(within(dialog).getByLabelText("ملف الكشف"), csvFile());
     await user.click(within(dialog).getByRole("button", { name: "تعيين الأعمدة" }));
 
-    await waitFor(() => expect(within(dialog).getByLabelText("عمود التاريخ *")).toHaveValue("التاريخ"));
-    expect(within(dialog).getByLabelText("عمود المدين")).toHaveValue("مدين");
-    expect(within(dialog).getByLabelText("عمود الدائن")).toHaveValue("دائن");
-    expect(within(dialog).getByLabelText("صيغة التاريخ")).toHaveValue("DD/MM/YYYY");
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "عمود التاريخ *" })).toHaveTextContent("التاريخ"));
+    expect(within(dialog).getByRole("combobox", { name: "عمود المدين" })).toHaveTextContent("مدين");
+    expect(within(dialog).getByRole("combobox", { name: "عمود الدائن" })).toHaveTextContent("دائن");
+    expect(within(dialog).getByRole("combobox", { name: "صيغة التاريخ" })).toHaveTextContent("DD/MM/YYYY");
   });
 
   it("posts the raw CSV plus the chosen mapping to POST /bank-statements/import", async () => {
@@ -232,19 +253,23 @@ describe("BankReconciliationScreen — import dialog", () => {
     await user.type(within(dialog).getByPlaceholderText("اختر حسابا بنكيا"), "بنك");
     await user.click(await within(dialog).findByText("بنك مصر — الحساب الجاري (BANK-001)"));
     await user.upload(within(dialog).getByLabelText("ملف الكشف"), csvFile());
-    await user.type(within(dialog).getByLabelText("بداية الفترة *"), "2026-08-01");
-    await user.type(within(dialog).getByLabelText("نهاية الفترة *"), "2026-08-31");
-    await user.type(within(dialog).getByLabelText("الرصيد الافتتاحي *"), "0.00");
-    await user.type(within(dialog).getByLabelText("الرصيد الختامي *"), "595.00");
-    await user.type(within(dialog).getByLabelText("رقم الكشف"), "ST-001");
+    // The identity/period text fields render in this order: period start,
+    // period end, opening balance, closing balance, statement number.
+    const [periodStartInput, periodEndInput, openingBalanceInput, closingBalanceInput, statementNumberInput] =
+      within(dialog).getAllByRole("textbox");
+    await user.type(periodStartInput, "2026-08-01");
+    await user.type(periodEndInput, "2026-08-31");
+    await user.type(openingBalanceInput, "0.00");
+    await user.type(closingBalanceInput, "595.00");
+    await user.type(statementNumberInput, "ST-001");
 
     await user.click(within(dialog).getByRole("button", { name: "تعيين الأعمدة" }));
-    await user.selectOptions(within(dialog).getByLabelText("عمود التاريخ *"), "التاريخ");
-    await user.selectOptions(within(dialog).getByLabelText("عمود البيان *"), "البيان");
-    await user.selectOptions(within(dialog).getByLabelText("عمود المدين"), "مدين");
-    await user.selectOptions(within(dialog).getByLabelText("عمود الدائن"), "دائن");
-    await user.selectOptions(within(dialog).getByLabelText("عمود المرجع"), "المرجع");
-    await user.selectOptions(within(dialog).getByLabelText("صيغة التاريخ"), "DD/MM/YYYY");
+    await pickColumn(user, dialog, "عمود التاريخ *", "التاريخ");
+    await pickColumn(user, dialog, "عمود البيان *", "البيان");
+    await pickColumn(user, dialog, "عمود المدين", "مدين");
+    await pickColumn(user, dialog, "عمود الدائن", "دائن");
+    await pickColumn(user, dialog, "عمود المرجع", "المرجع");
+    await pickColumn(user, dialog, "صيغة التاريخ", "DD/MM/YYYY");
 
     await user.click(within(dialog).getByRole("button", { name: "استيراد" }));
     await waitFor(() => expect(imported).not.toBeNull());
@@ -276,8 +301,9 @@ describe("BankReconciliationScreen — matching", () => {
       initialSession: testAdminSession,
       transport: stubTransport({ ...baseHandlers([statement()]), ...handlers }),
     });
-    await screen.findByText("ST-001");
-    await user.click(screen.getByRole("button", { name: "فتح التسوية" }));
+    const row = (await screen.findByText("ST-001")).closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "إجراءات ST-001" }));
+    await user.click(within(row).getByRole("menuitem", { name: "فتح التسوية" }));
     return { user, panel: await screen.findByRole("dialog", { name: /تسوية/ }) };
   }
 
@@ -311,17 +337,23 @@ describe("BankReconciliationScreen — matching", () => {
         matchedEntryId = null;
         return { body: line() };
       },
+      // Manual matching picks from real treasury movements — it never asks
+      // the user to type a journal-entry id.
+      "GET /bank-statements/stmt-1/candidates": () => ({
+        body: [{ entryId: "je-deposit", entryNo: "JE-000010", date: "2026-08-01", amount: "1000.000000", description: "إيداع نقدي - سند قبض" }],
+      }),
     });
 
     await within(panel).findByText("إيداع نقدي");
-    await user.type(within(panel).getByLabelText("معرّف القيد"), "je-deposit");
+    await user.type(within(panel).getByLabelText("طابِق مع حركة خزينة"), "سند قبض");
+    await user.click(await within(panel).findByText("إيداع نقدي - سند قبض"));
     await user.click(within(panel).getByRole("button", { name: "مطابقة" }));
     await waitFor(() => expect(matchedEntryId).toBe("je-deposit"));
     expect(await within(panel).findByText("القيد: je-deposit")).toBeInTheDocument();
 
     await user.click(within(panel).getByRole("button", { name: "إلغاء المطابقة" }));
     await waitFor(() => expect(matchedEntryId).toBeNull());
-    expect(await within(panel).findByLabelText("معرّف القيد")).toBeInTheDocument();
+    expect(await within(panel).findByLabelText("طابِق مع حركة خزينة")).toBeInTheDocument();
   });
 
   it("runs auto-match and reports the server's applied count through the refreshed summary", async () => {
@@ -371,9 +403,13 @@ describe("BankReconciliationScreen — matching", () => {
         status: 409,
         body: { error: "LINE_ALREADY_MATCHED", message: "السطر مطابَق بالفعل." },
       }),
+      "GET /bank-statements/stmt-1/candidates": () => ({
+        body: [{ entryId: "je-1", entryNo: null, date: "2026-08-01", amount: "1000.000000", description: "قيد يدوي" }],
+      }),
     });
     await within(panel).findByText("إيداع نقدي");
-    await user.type(within(panel).getByLabelText("معرّف القيد"), "je-1");
+    await user.type(within(panel).getByLabelText("طابِق مع حركة خزينة"), "قيد");
+    await user.click(await within(panel).findByText("قيد يدوي"));
     await user.click(within(panel).getByRole("button", { name: "مطابقة" }));
     expect(await within(panel).findByRole("alert")).toHaveTextContent("السطر مطابَق بالفعل.");
   });

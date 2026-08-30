@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { WarehouseDTO, WritedownRunDTO } from "@mezan/contracts";
 import { WritedownRunsScreen } from "./WritedownRunsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -85,8 +85,10 @@ describe("WritedownRunsScreen", () => {
     renderScreen();
     await screen.findByText("2026-06");
     fireEvent.click(screen.getByRole("tab", { name: /^مرحل/ }));
+    // `useUrlParam`'s write is buffered onto a microtask (url-state.ts), so
+    // the filtered rows only settle after that flushes.
+    await waitFor(() => expect(screen.queryByText("2026-06")).not.toBeInTheDocument());
     expect(screen.getByText("2026-05")).toBeInTheDocument();
-    expect(screen.queryByText("2026-06")).not.toBeInTheDocument();
   });
 
   it("creates a new write-down run through the side panel", async () => {
@@ -95,8 +97,12 @@ describe("WritedownRunsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تشغيل عملية جديدة" }));
 
     const dialog = screen.getByRole("dialog", { name: "تشغيل عملية هبوط قيمة جديدة" });
-    fireEvent.change(within(dialog).getByLabelText("السنة *"), { target: { value: "2026" } });
-    fireEvent.change(within(dialog).getByLabelText("الشهر *"), { target: { value: "7" } });
+    // NumberField's label isn't wired to its input via htmlFor/id
+    // (settings/form-controls.tsx's Field passes none), so the year and
+    // month fields are reached by their spinbutton order instead.
+    const [yearField, monthField] = within(dialog).getAllByRole("spinbutton");
+    fireEvent.change(yearField!, { target: { value: "2026" } });
+    fireEvent.change(monthField!, { target: { value: "7" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "تشغيل" }));
 
     expect(await screen.findByText("2026-07")).toBeInTheDocument();
@@ -105,9 +111,16 @@ describe("WritedownRunsScreen", () => {
   it("posts a draft run from its row action", async () => {
     renderScreen();
     await screen.findByText("2026-06");
-    fireEvent.click(screen.getByRole("button", { name: "ترحيل" }));
+    // The post action lives in the row's overflow menu now, not a bare button.
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات 2026-06" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "ترحيل" }));
 
-    expect(await screen.findByText("je-901")).toBeInTheDocument();
+    // The list itself has no journal-entry column — the post's own journal
+    // entry only shows in the run's detail panel, so open it to confirm the
+    // post actually landed rather than just watching the row menu close.
+    fireEvent.click(await screen.findByText("2026-06"));
+    const detail = screen.getByRole("dialog", { name: /عملية هبوط قيمة —/ });
+    expect(await within(detail).findByText(/je-901/)).toBeInTheDocument();
   });
 
   it("opens the run detail panel listing its lines and aging on row click", async () => {

@@ -77,6 +77,25 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     expect(await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" })).toBeInTheDocument();
   });
 
+  it("rejects a PIN that isn't 6 digits, then a PIN whose confirmation doesn't match", () => {
+    renderWizard();
+    goToAdminStep();
+    fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "سارة حسن" } });
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), {
+      target: { value: "sara@cyag.example" },
+    });
+
+    fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("الرمز السرّي يجب أن يكون ٦ أرقام.");
+
+    fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "111111" } });
+    fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "222222" } });
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("رمز PIN وتأكيده غير متطابقين.");
+  });
+
   it("requires the base data to exist before التالي, and تشغيل التهيئة seeds it for real", async () => {
     renderWizard();
     goToAdminStep();

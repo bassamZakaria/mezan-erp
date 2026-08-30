@@ -22,12 +22,12 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
         <div
           class="flex flex-col gap-[3px]"
         >
-          <h1
+          <div
             class="font-display text-[19px] font-bold"
             style="color: rgb(31, 41, 55);"
           >
             شركة سياج للتجارة والتوزيع
-          </h1>
+          </div>
           <div
             class="mt-[4px] flex flex-col gap-[1px] text-[10.5px] text-ink-muted"
           >

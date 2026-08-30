@@ -298,11 +298,17 @@ describe("sales-invoice lifecycle transitions", () => {
     expect(canSalesInvoiceTransition("confirmed", "partially_paid")).toBe(true);
     expect(canSalesInvoiceTransition("partially_paid", "paid")).toBe(true);
     expect(canSalesInvoiceTransition("confirmed", "reversed")).toBe(true);
+    // Reversing an allocation genuinely un-pays an invoice, so the payment
+    // states walk backwards as well as forwards (status.ts).
+    expect(canSalesInvoiceTransition("paid", "partially_paid")).toBe(true);
+    expect(canSalesInvoiceTransition("paid", "confirmed")).toBe(true);
 
     expect(canSalesInvoiceTransition("draft", "paid")).toBe(false);
     expect(canSalesInvoiceTransition("confirmed", "cancelled")).toBe(false); // live → must reverse
-    expect(canSalesInvoiceTransition("paid", "confirmed")).toBe(false);
+    expect(canSalesInvoiceTransition("paid", "cancelled")).toBe(false); // live → must reverse
+    expect(canSalesInvoiceTransition("paid", "draft")).toBe(false);
     expect(canSalesInvoiceTransition("cancelled", "confirmed")).toBe(false);
+    expect(canSalesInvoiceTransition("reversed", "confirmed")).toBe(false);
   });
 
   it("cancel moves a draft to cancelled but refuses a confirmed invoice", async () => {

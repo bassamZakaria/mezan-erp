@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
-import type { VanTripDTO, WarehouseDTO, TreasuryAccountDTO, BranchDTO, ItemDTO } from "@mezan/contracts";
+import type { VanTripDTO, WarehouseDTO, TreasuryAccountDTO, BranchDTO, ItemDTO, VanDTO, EmployeeDTO } from "@mezan/contracts";
 import { VanTripsScreen } from "./VanTripsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -13,7 +13,7 @@ function typeMoney(input: HTMLElement, value: string) {
 }
 
 const warehouses: WarehouseDTO[] = [
-  { id: "wh-van1", code: "VAN-01", name: "ڤان القاهرة", nameEn: null, branchId: "b1", type: "VAN", isDefault: false, active: true },
+  { id: "wh-van1", code: "VAN-01", name: "مخزن ڤان القاهرة", nameEn: null, branchId: "b1", type: "VAN", isDefault: false, active: true },
   { id: "wh-main1", code: "MAIN-01", name: "المخزن الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
 ];
 
@@ -24,6 +24,45 @@ const treasuryAccounts: TreasuryAccountDTO[] = [
 
 const branches: BranchDTO[] = [
   { id: "b1", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
+];
+
+const vans: VanDTO[] = [
+  { id: "van-1", code: "VAN-1", nameAr: "ڤان القاهرة", nameEn: null, plateNumber: "س ب ل 123", branchId: "b1", warehouseId: "wh-van1", treasuryAccountId: "ta-van1", active: true },
+];
+
+const employees: EmployeeDTO[] = [
+  {
+    id: "emp-9",
+    code: "EMP-0009",
+    firstName: "Ahmed",
+    lastName: "Nabil",
+    firstNameAr: "أحمد",
+    lastNameAr: "نبيل",
+    email: null,
+    phone: null,
+    birthDate: null,
+    nationalId: null,
+    gender: null,
+    maritalStatus: null,
+    departmentId: null,
+    jobTitleId: null,
+    managerId: null,
+    branchId: "b1",
+    hireDate: "2026-01-01",
+    workerCategory: "staff",
+    employmentType: "full_time",
+    overtimeEligibility: "inherit_department",
+    standardWorkHours: null,
+    probationEndDate: null,
+    priorServiceYears: 0,
+    requireSelfieAtClockIn: false,
+    requireBiometricAtClockIn: false,
+    address: null,
+    emergencyContact: null,
+    status: "active",
+    terminatedAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
 ];
 
 const items: ItemDTO[] = [
@@ -87,16 +126,22 @@ function renderScreen(trips: VanTripDTO[] = [ongoingTrip]) {
     "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
     "GET /branches": () => ({ body: branches }),
     "GET /items": () => ({ body: items }),
+    "GET /field/vans": () => ({ body: vans }),
+    "GET /hr/employees": () => ({ body: employees }),
     "POST /field/van-trips": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
+      // Only `vanId` leaves the browser now — the van's warehouse, till and
+      // branch are resolved server-side from the van registry, the same way
+      // the real backend does (VanTripsScreen.tsx's handleSubmit comment).
+      const van = vans.find((v) => v.id === body.vanId)!;
       const created: VanTripDTO = {
         id: body.id,
         tripNo: "VT-000002",
         date: body.date,
-        branchId: body.branchId ?? "b1",
+        branchId: van.branchId,
         vanId: body.vanId ?? null,
-        vanWarehouseId: body.vanWarehouseId ?? "wh-van1",
-        vanTreasuryAccountId: body.vanTreasuryAccountId ?? "ta-van1",
+        vanWarehouseId: van.warehouseId,
+        vanTreasuryAccountId: van.treasuryAccountId,
         sourceWarehouseId: body.sourceWarehouseId,
         sourceTreasuryAccountId: body.sourceTreasuryAccountId,
         openingCashFloat: body.openingCashFloat ?? "0.000000",
@@ -162,14 +207,24 @@ describe("VanTripsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "فتح رحلة" }));
 
     const dialog = screen.getByRole("dialog", { name: "فتح رحلة" });
-    fireEvent.change(within(dialog).getByLabelText("الڤان *"), { target: { value: "wh-van1" } });
-    fireEvent.change(within(dialog).getByLabelText("مخزن التحميل *"), { target: { value: "wh-main1" } });
-    fireEvent.change(within(dialog).getByLabelText("خزينة الڤان *"), { target: { value: "ta-van1" } });
-    fireEvent.change(within(dialog).getByLabelText("خزينة المصدر *"), { target: { value: "ta-main1" } });
-    fireEvent.change(within(dialog).getByLabelText("الفرع *"), { target: { value: "b1" } });
+    // Every picker here is a listbox combobox, not a native <select> — open
+    // it, then commit an option (Select.tsx commits on mousedown). The option
+    // list itself renders through a portal onto `document.body`, outside the
+    // dialog's own DOM subtree, so it has to be queried from `screen`.
+    function choose(labelText: string, optionName: RegExp) {
+      fireEvent.click(within(dialog).getByRole("combobox", { name: labelText }));
+      fireEvent.mouseDown(screen.getByRole("option", { name: optionName }));
+    }
+
+    // Choosing the van cascades its warehouse, till and branch (R3.13) — those
+    // three are read-only CascadedValues afterwards, not fields to fill in.
+    choose("الڤان *", /^ڤان القاهرة/);
+    expect(within(dialog).getByText("مستودع المركبة")).toBeInTheDocument();
+    choose("مستودع التحميل *", /^المخزن الرئيسي/);
+    choose("خزينة المصدر *", /^الصندوق الرئيسي/);
 
     const crewSection = within(dialog).getByText("الطاقم *").closest("div")!;
-    fireEvent.change(within(crewSection).getByLabelText("اختر موظفاً"), { target: { value: "emp-9" } });
+    choose("اختر موظفاً", /^أحمد نبيل/);
     fireEvent.click(within(crewSection).getByRole("button", { name: "إضافة" }));
 
     fireEvent.click(within(dialog).getByRole("button", { name: "فتح رحلة" }));

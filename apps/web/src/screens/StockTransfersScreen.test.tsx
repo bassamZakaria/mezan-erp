@@ -1,14 +1,47 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState, type ReactNode } from "react";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import type { ItemDTO, StockTransferDocumentDTO, WarehouseDTO } from "@mezan/contracts";
 import { StockTransfersScreen } from "./StockTransfersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
 
 afterEach(() => {
   document.documentElement.removeAttribute("data-theme");
 });
+
+/**
+ * StockTransfersScreen's detail view and add flow are sub-pages addressed
+ * via the shell's `useSubPage` (navigation.tsx), which no-ops outside a real
+ * `NavigationProvider`. This stands in for the shell's URL-driven one with
+ * in-memory segments — enough for the screen under test to open, close and
+ * read its own sub-page.
+ */
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
+
+/** The Select combobox commits on mousedown, not change (packages/ui's Select) — open it, then commit the matching option. */
+function chooseSelectOption(triggerLabel: string, optionLabel: string) {
+  fireEvent.click(screen.getByRole("combobox", { name: triggerLabel }));
+  fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
 
 const warehouses: WarehouseDTO[] = [
   { id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
@@ -84,7 +117,12 @@ function baseHandlers(current: StockTransferDocumentDTO[]) {
 
 function renderScreen() {
   const transport = stubTransport(baseHandlers([trf1, trf2]));
-  return renderWithProviders(<StockTransfersScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(
+    <TestNavigation>
+      <StockTransfersScreen />
+    </TestNavigation>,
+    { transport, initialSession: testAdminSession },
+  );
 }
 
 describe("StockTransfersScreen — list", () => {
@@ -101,6 +139,17 @@ describe("StockTransfersScreen — list", () => {
     expect(screen.getByLabelText("حالة المستند")).toBeInTheDocument();
     expect(screen.getByText("لا يتغير إجمالي قيمة المخزون")).toBeInTheDocument();
     expect(screen.getByText(/لا يمكن إلغاء تحويل مؤكد/)).toBeInTheDocument();
+  });
+
+  it("shows an empty state when there are no stock transfers yet", async () => {
+    const transport = stubTransport(baseHandlers([]));
+    renderWithProviders(
+      <TestNavigation>
+        <StockTransfersScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    expect(await screen.findByText("لا توجد تحويلات مطابقة")).toBeInTheDocument();
   });
 });
 
@@ -139,13 +188,18 @@ describe("StockTransfersScreen — create: valuation neutrality end to end", () 
         return { body: { document: confirmed, held: false } };
       },
     });
-    renderWithProviders(<StockTransfersScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(
+      <TestNavigation>
+        <StockTransfersScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
 
     await screen.findByText("TRF-000001");
-    fireEvent.click(screen.getByRole("button", { name: "تحويل جديد" }));
+    fireEvent.click(screen.getByRole("button", { name: /تحويل جديد/ }));
     expect(screen.getByRole("heading", { name: "تحويل مخزون جديد" })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("الصنف للسطر 1"), { target: { value: "itm-1" } });
+    chooseSelectOption("الصنف للسطر 1", "منتج 1");
     fireEvent.change(screen.getByLabelText("كمية التحويل للسطر 1"), { target: { value: "5" } });
 
     const save = screen.getByRole("button", { name: "حفظ" });
@@ -159,10 +213,8 @@ describe("StockTransfersScreen — create: valuation neutrality end to end", () 
   it("blocks posting when source and destination warehouses are the same", async () => {
     renderScreen();
     await screen.findByText("TRF-000001");
-    fireEvent.click(screen.getByRole("button", { name: "تحويل جديد" }));
-    fireEvent.change(screen.getByLabelText("المستودع الوجهة *"), {
-      target: { value: (screen.getByLabelText("المستودع المصدر *") as HTMLSelectElement).value },
-    });
+    fireEvent.click(screen.getByRole("button", { name: /تحويل جديد/ }));
+    chooseSelectOption("المستودع الوجهة *", "المستودع الرئيسي");
     expect(screen.getByText("يجب أن يختلف المستودع المصدر عن مستودع الوجهة.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "حفظ" })).toBeDisabled();
   });

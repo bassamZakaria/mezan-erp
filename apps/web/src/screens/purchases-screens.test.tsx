@@ -1,12 +1,40 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
+import { useState, type ReactNode } from "react";
 import { screen, fireEvent } from "@testing-library/react";
 import type { GoodsReceiptDTO, ItemDTO, PurchaseInvoiceDTO, PurchaseOrderDTO, SupplierDTO } from "@mezan/contracts";
 import { PurchaseOrdersScreen } from "./PurchaseOrdersScreen";
 import { GoodsReceiptsScreen } from "./GoodsReceiptsScreen";
 import { PurchaseInvoicesScreen } from "./PurchaseInvoicesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
+
+/**
+ * The create/detail views are all sub-pages addressed via `useSubPage()`
+ * (navigation.tsx), which reads from `NavigationContext` and no-ops outside a
+ * real `NavigationProvider`. `renderWithProviders` only wires a `MemoryRouter`,
+ * not the shell's URL-driven navigation, so this stands in for it with
+ * in-memory segments — enough for the screen under test to open, close and
+ * read its own sub-page.
+ */
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 const suppliers: SupplierDTO[] = [
   {
@@ -102,7 +130,12 @@ describe("PurchaseOrdersScreen", () => {
         return { body: current.find((o) => o.id === "po-3")! };
       },
     });
-    return renderWithProviders(<PurchaseOrdersScreen />, { transport, initialSession: testAdminSession });
+    return renderWithProviders(
+      <TestNavigation>
+        <PurchaseOrdersScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
   }
 
   it("lists the purchase orders", async () => {
@@ -127,11 +160,36 @@ describe("PurchaseOrdersScreen", () => {
     expect(screen.queryByRole("button", { name: "تأكيد وإرسال" })).not.toBeInTheDocument();
   });
 
-  it("opens the new-PO side panel", async () => {
+  it("opens the new-PO create page", async () => {
     renderScreen();
     await screen.findByText("PO-000003");
     fireEvent.click(screen.getByRole("button", { name: "أمر شراء جديد" }));
-    expect(screen.getByRole("dialog", { name: "أمر شراء جديد" })).toBeInTheDocument();
+    // The create form is a sub-page now, not a dialog — it replaces the list.
+    expect(screen.getByRole("heading", { name: "أمر شراء جديد" })).toBeInTheDocument();
+    expect(screen.getByText("المورد *")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "أوامر الشراء" })).not.toBeInTheDocument();
+  });
+
+  it("shows a load-failed banner with a retry that re-fetches the list", async () => {
+    let calls = 0;
+    const transport = stubTransport({
+      "GET /purchases/orders": () => {
+        calls += 1;
+        return calls === 1 ? { status: 500, body: { error: "SERVER_ERROR" } } : { body: [purchaseOrder()] };
+      },
+      "GET /suppliers": () => ({ body: suppliers }),
+      "GET /items": () => ({ body: items }),
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <PurchaseOrdersScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    expect(await screen.findByText("تعذّر تحميل أوامر الشراء.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(await screen.findByText("PO-000003")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل أوامر الشراء.")).not.toBeInTheDocument();
   });
 });
 
@@ -143,7 +201,12 @@ describe("GoodsReceiptsScreen", () => {
       "GET /suppliers": () => ({ body: suppliers }),
       "GET /items": () => ({ body: items }),
     });
-    return renderWithProviders(<GoodsReceiptsScreen />, { transport, initialSession: testAdminSession });
+    return renderWithProviders(
+      <TestNavigation>
+        <GoodsReceiptsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
   }
 
   it("lists the receipts and opens a confirmed receipt with stock effects", async () => {
@@ -154,13 +217,25 @@ describe("GoodsReceiptsScreen", () => {
     expect(screen.getByText(/تمت زيادة كمية المخزون/)).toBeInTheDocument();
   });
 
-  it("opens the new-receipt panel with the create-from-PO note", async () => {
+  it("opens the new-receipt page with the create-from-PO note", async () => {
     renderScreen();
     await screen.findByText("GR-000001");
     fireEvent.click(screen.getByRole("button", { name: "إيصال استلام جديد" }));
-    const dialog = screen.getByRole("dialog", { name: "إيصال استلام جديد" });
-    expect(dialog).toBeInTheDocument();
+    // The create form is a sub-page now, not a dialog — it replaces the list.
+    expect(screen.getByRole("heading", { name: "إيصال استلام جديد" })).toBeInTheDocument();
     expect(screen.getByText(/الاستلام يبدأ دائماً من أمر شراء/)).toBeInTheDocument();
+  });
+
+  it("blocks the direct-receipt method while the require-PO policy is on", async () => {
+    // No `/settings` stub — `useSettings()` errors and the screen falls back
+    // to the safe default (`requirePoForGrn: true`), which is the state most
+    // tenants run in and had no coverage at all.
+    renderScreen();
+    await screen.findByText("GR-000001");
+    fireEvent.click(screen.getByRole("button", { name: "إيصال استلام جديد" }));
+    const adHocButton = screen.getByRole("button", { name: /استلام مباشر/ });
+    expect(adHocButton).toBeDisabled();
+    expect(screen.getByText(/سياسة «إلزام أمر الشراء قبل الاستلام» مفعّلة/)).toBeInTheDocument();
   });
 });
 
@@ -172,7 +247,12 @@ describe("PurchaseInvoicesScreen", () => {
       "GET /suppliers": () => ({ body: suppliers }),
       "GET /items": () => ({ body: items }),
     });
-    return renderWithProviders(<PurchaseInvoicesScreen />, { transport, initialSession: testAdminSession });
+    return renderWithProviders(
+      <TestNavigation>
+        <PurchaseInvoicesScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
   }
 
   it("lists the invoices", async () => {
@@ -193,8 +273,12 @@ describe("PurchaseInvoicesScreen", () => {
     renderScreen();
     await screen.findByText("PI-000001");
     fireEvent.click(screen.getByRole("button", { name: "فاتورة مشتريات جديدة" }));
-    expect(screen.getByRole("dialog", { name: "فاتورة مشتريات جديدة" })).toBeInTheDocument();
+    // The create form is a sub-page now, not a dialog — it replaces the list.
+    expect(screen.getByRole("heading", { name: "فاتورة مشتريات جديدة" })).toBeInTheDocument();
+    // Creation method is a step: choosing "from receipt" then confirming it
+    // is what swaps the manual line editor for the receipt picker.
     fireEvent.click(screen.getByText("من إيصال استلام"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
     expect(await screen.findByText("إيصال الاستلام *")).toBeInTheDocument();
   });
 });

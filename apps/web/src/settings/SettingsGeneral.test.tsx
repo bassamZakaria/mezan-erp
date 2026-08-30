@@ -1,10 +1,25 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { TenantSettingsDTO } from "@mezan/contracts";
 import { SettingsGeneral } from "./SettingsGeneral";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+
+/** `TextField`/`NumberField` render a plain `<label>` with no `for`/`aria-labelledby`, so
+ * `getByLabelText` cannot find their `<input>` — locate it by DOM adjacency instead,
+ * matching the `Field` primitive's label-then-control layout (form-controls.tsx). */
+function textboxByLabel(label: string, container: HTMLElement = document.body): HTMLInputElement {
+  const labelNode = within(container).getByText(label);
+  const input = labelNode.parentElement?.querySelector("input, textarea");
+  if (!input) throw new Error(`no text input associated with label "${label}"`);
+  return input as HTMLInputElement;
+}
+
+/** Counts the actual `<label>` elements naming a field — `getByLabelText` finds none (see above). */
+function labelsByText(label: string): HTMLElement[] {
+  return screen.getAllByText(label, { selector: "label" });
+}
 
 const baseSettings: TenantSettingsDTO = {
   currency: "EGP",
@@ -91,25 +106,25 @@ describe("SettingsGeneral", () => {
     renderScreen();
     expect(await screen.findByRole("heading", { name: "الإعدادات" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "بيانات المنشأة" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByLabelText("اسم المنشأة")).toBeInTheDocument();
+    expect(textboxByLabel("اسم المنشأة")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "الإقليمية والعملة" }));
-    expect(screen.getByLabelText("العملة الافتراضية")).toBeInTheDocument();
+    expect(textboxByLabel("العملة الافتراضية")).toBeInTheDocument();
   });
 
   it("renders each field exactly once across the whole screen", async () => {
     renderScreen();
     await screen.findByRole("button", { name: "حفظ الإعدادات" });
     // Guards the defect this shape was built to remove: الرقم الضريبي used to
-    // render on «بيانات المنشأة» AND «الضريبة», and أيام العطلة الأسبوعية on
+    // render on «بيانات المنشأة» AND «الضريبة», and أيام نهاية الأسبوع on
     // «عام» AND «بيانات المنشأة» — two controls writing one field behind one
     // save button, so whichever tab was touched last silently won.
     for (const tab of ["الضريبة", "السياسات", "الإقليمية والعملة", "بيانات المنشأة"]) {
       fireEvent.click(screen.getByRole("tab", { name: tab }));
     }
-    expect(screen.getAllByLabelText("الرقم الضريبي")).toHaveLength(1);
+    expect(labelsByText("الرقم الضريبي")).toHaveLength(1);
     fireEvent.click(screen.getByRole("tab", { name: "الإقليمية والعملة" }));
-    expect(screen.getAllByLabelText("أيام العطلة الأسبوعية")).toHaveLength(1);
+    expect(labelsByText("أيام نهاية الأسبوع")).toHaveLength(1);
   });
 
   it("keeps the save button disabled until a field is dirtied", async () => {
@@ -117,7 +132,7 @@ describe("SettingsGeneral", () => {
     expect(await screen.findByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("tab", { name: "بيانات المنشأة" }));
-    fireEvent.change(screen.getByLabelText("اسم المنشأة"), { target: { value: "Cyag" } });
+    fireEvent.change(textboxByLabel("اسم المنشأة"), { target: { value: "Cyag" } });
 
     expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeEnabled();
   });
@@ -126,7 +141,7 @@ describe("SettingsGeneral", () => {
     renderScreen();
     await screen.findByRole("button", { name: "حفظ الإعدادات" });
     fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
-    fireEvent.change(screen.getByLabelText("نسبة الضريبة الافتراضية (%)"), { target: { value: "15" } });
+    fireEvent.change(textboxByLabel("نسبة الضريبة الافتراضية (%)"), { target: { value: "15" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
   });
@@ -135,11 +150,21 @@ describe("SettingsGeneral", () => {
     renderScreen();
     await screen.findByRole("button", { name: "حفظ الإعدادات" });
     fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
-    fireEvent.change(screen.getByLabelText("نسبة الضريبة الافتراضية (%)"), { target: { value: "999" } });
+    fireEvent.change(textboxByLabel("نسبة الضريبة الافتراضية (%)"), { target: { value: "999" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
     // Still dirty — the invalid patch was rejected by the server, not silently saved.
     expect(await screen.findByText("تعذر حفظ الإعدادات.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeEnabled();
+  });
+
+  it("shows the load-error copy with a retry button when /settings fails", async () => {
+    const transport = stubTransport({
+      "GET /settings": () => ({ status: 500, body: { error: "INTERNAL" } }),
+    });
+    renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText("تعذّر تحميل الإعدادات.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 
   it("exposes the credit-control / inventory / purchase / treasury policy toggles", async () => {

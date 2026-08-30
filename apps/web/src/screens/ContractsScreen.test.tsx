@@ -14,6 +14,20 @@ function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: strin
   fireEvent.mouseDown(option);
 }
 
+/**
+ * `TextField` (settings/form-controls.tsx) renders a `<label>` that is never
+ * associated with its input via `for`/`id`, so `getByLabelText` can't find
+ * these fields. Fall back to the DOM structure the shared `Field` wrapper
+ * always uses: a `<label>` immediately followed by its control in the same
+ * wrapper `<div>`.
+ */
+function textFieldInput(container: HTMLElement, labelText: string): HTMLInputElement {
+  const label = within(container).getByText(labelText, { selector: "label" });
+  const input = label.parentElement?.querySelector<HTMLInputElement>("input, textarea");
+  if (!input) throw new Error(`No input control found next to label "${labelText}"`);
+  return input;
+}
+
 /** MoneyInput only commits its draft to React state on blur. */
 function typeMoney(input: HTMLElement, value: string) {
   fireEvent.change(input, { target: { value } });
@@ -130,7 +144,7 @@ describe("ContractsScreen", () => {
 
     const dialog = screen.getByRole("dialog", { name: "عقد جديد" });
     pickFromCombobox(dialog, "اسم الموظف *", "EMP-0001");
-    fireEvent.change(within(dialog).getByLabelText("تاريخ البداية *"), { target: { value: "2026-08-21" } });
+    fireEvent.change(textFieldInput(dialog, "تاريخ البداية *"), { target: { value: "2026-08-21" } });
     typeMoney(within(dialog).getByLabelText("الراتب الشهري"), "15000");
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
@@ -144,5 +158,15 @@ describe("ContractsScreen", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "إنهاء العقد" }));
 
     expect(await within(dialog).findByText("مفسوخ")).toBeInTheDocument();
+  });
+
+  it("shows an error banner with a retry action when contracts fail to load", async () => {
+    const transport = stubTransport({
+      "GET /hr/contracts": () => ({ status: 500, body: { error: "INTERNAL" } }),
+      "GET /hr/employees": () => ({ body: sampleEmployees }),
+    });
+    renderWithProviders(<ContractsScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل العقود.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 });

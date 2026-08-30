@@ -145,4 +145,34 @@ describe("WorkOrdersScreen", () => {
     expect(await screen.findByRole("button", { name: "تجميع المنتج" })).toBeInTheDocument();
     expect(screen.getByText("جارٍ التنفيذ")).toBeInTheDocument();
   });
+
+  it("warns and blocks the build when there isn't enough of a component on hand", async () => {
+    renderScreen([
+      workOrder({
+        status: "in_progress",
+        stage: "started",
+        startedAt: "2026-08-21T09:00:00.000Z",
+        materials: [
+          {
+            itemId: "item-table",
+            requiredQty: "40",
+            wastePercent: 5,
+            optional: false,
+            issuedQty: "0",
+            returnedQty: "0",
+            netQty: "0",
+            availableQty: "10",
+            shortageQty: "30",
+            wipOnHandQty: null,
+            issuedUnitCost: "0",
+          },
+        ],
+      }),
+    ]);
+    fireEvent.click(await screen.findByText("WO-0001"));
+    fireEvent.click(screen.getByRole("button", { name: "تجميع المنتج" }));
+
+    expect(await screen.findByText("المكونات غير كافية لتجميع هذه الكمية.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "احفظ التجميع" })).toBeDisabled();
+  });
 });

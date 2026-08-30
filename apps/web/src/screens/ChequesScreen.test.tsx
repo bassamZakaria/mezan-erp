@@ -215,8 +215,15 @@ describe("ChequesScreen — list", () => {
     }
 
     await user.click(screen.getByRole("tab", { name: /^تحت التحصيل بالبنك/ }));
-    await waitFor(() => expect(screen.queryByText("CHQ-5001")).not.toBeInTheDocument());
-    expect(screen.getByText("CHQ-5002")).toBeInTheDocument();
+    // Both conditions must hold on the SAME poll — CHQ-5002 is also present
+    // pre-filter, so waiting for it alone would pass instantly without ever
+    // exercising the filter; and the row list is briefly empty mid-refetch
+    // (no `keepPreviousData`), so checking CHQ-5001's absence alone can pass
+    // on that transient empty state instead of the actual filtered result.
+    await waitFor(() => {
+      expect(screen.queryByText("CHQ-5001")).not.toBeInTheDocument();
+      expect(screen.getByText("CHQ-5002")).toBeInTheDocument();
+    });
   });
 
   it("filters by cheque number through the search box", async () => {
@@ -231,9 +238,21 @@ describe("ChequesScreen — list", () => {
     await screen.findByText("CHQ-5001");
     await user.type(screen.getByPlaceholderText("بحث برقم الشيك..."), "9999");
     // useUrlSearch settles the query into the address 300ms after typing stops
-    // (apps/web/src/lib/url-state.ts), so the server-bound refetch trails the keystrokes.
-    await waitFor(() => expect(screen.queryByText("CHQ-5001")).not.toBeInTheDocument(), { timeout: 3000 });
-    expect(screen.getByText("CHQ-9999")).toBeInTheDocument();
+    // (apps/web/src/lib/url-state.ts); the row list is briefly empty while that
+    // refetch is in flight (no `keepPreviousData`), so wait for the row that
+    // should survive the filter rather than only for the one that should not.
+    // Both conditions must hold on the SAME poll — CHQ-9999 is also present
+    // pre-filter, so waiting for it alone would pass instantly without ever
+    // exercising the filter; and the row list is briefly empty mid-refetch
+    // (no `keepPreviousData`), so checking CHQ-5001's absence alone can pass
+    // on that transient empty state instead of the actual filtered result.
+    await waitFor(
+      () => {
+        expect(screen.queryByText("CHQ-5001")).not.toBeInTheDocument();
+        expect(screen.getByText("CHQ-9999")).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("sends the direction filter to the server as a query param", async () => {

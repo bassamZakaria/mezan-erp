@@ -3,7 +3,7 @@ import { createInMemoryEmployeeRepository } from "./test-helpers/in-memory-hr-re
 import { createEmployee, updateEmployee } from "./create-employee.js";
 import { transitionEmployee, terminateEmployee } from "./transition-employee.js";
 import { InvalidEmployeeError, InvalidEmployeeTransitionError } from "./errors.js";
-import { fullNameAr, fullNameEn, toEmployeeRef, createEmployeeDirectory } from "./employee.js";
+import { fullNameAr, fullNameEn, toEmployeeRef, createEmployeeDirectory, getEmployeeStatusLabel, EMPLOYEE_STATUS_DEFINITIONS, type EmployeeStatus } from "./employee.js";
 
 const BASE = {
   id: "emp-1",
@@ -34,6 +34,7 @@ describe("createEmployee", () => {
   it("rejects missing required fields", async () => {
     const repo = createInMemoryEmployeeRepository();
     await expect(createEmployee({ ...BASE, firstName: "" }, repo)).rejects.toThrow(InvalidEmployeeError);
+    await expect(createEmployee({ ...BASE, lastName: "" }, repo)).rejects.toThrow(InvalidEmployeeError);
     await expect(createEmployee({ ...BASE, branchId: "" }, repo)).rejects.toThrow(InvalidEmployeeError);
     await expect(createEmployee({ ...BASE, hireDate: "" }, repo)).rejects.toThrow(InvalidEmployeeError);
   });
@@ -51,6 +52,12 @@ describe("updateEmployee", () => {
     const updated = updateEmployee(emp, { departmentId: "dept-1", jobTitleId: "jt-1", priorServiceYears: 3 });
     expect(updated.departmentId).toBe("dept-1");
     expect(updated.priorServiceYears).toBe(3);
+  });
+
+  it("rejects a patch that re-validates invalid (e.g. blanking the first name)", async () => {
+    const repo = createInMemoryEmployeeRepository();
+    const emp = await createEmployee(BASE, repo);
+    expect(() => updateEmployee(emp, { firstName: "" })).toThrow(InvalidEmployeeError);
   });
 });
 
@@ -78,6 +85,18 @@ describe("employee status transitions", () => {
     const emp = await createEmployee(BASE, repo);
     const terminated = terminateEmployee(emp);
     expect(() => terminateEmployee(terminated)).toThrow(InvalidEmployeeTransitionError);
+  });
+});
+
+describe("getEmployeeStatusLabel", () => {
+  it("returns the Arabic label for every defined status", () => {
+    for (const def of EMPLOYEE_STATUS_DEFINITIONS) {
+      expect(getEmployeeStatusLabel(def.code)).toBe(def.labelAr);
+    }
+  });
+
+  it("falls back to the raw code for an unknown status", () => {
+    expect(getEmployeeStatusLabel("bogus" as EmployeeStatus)).toBe("bogus");
   });
 });
 

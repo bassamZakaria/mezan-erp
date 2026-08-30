@@ -32,7 +32,7 @@ describe("ReportScreen (real data-client wiring)", () => {
 
     renderWithProviders(<SalesByPeriodReportScreen />, { transport, initialSession: testAdminSession });
 
-    await waitFor(() => expect(screen.getByText("2026-08-10")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("cell", { name: "2026-08-10" })).toBeInTheDocument());
     expect(requestedPath).toContain("/reports/sales/by-period");
     expect(requestedPath).toContain("dateFrom=2026-08-01");
     expect(requestedPath).toContain("groupBy=day");

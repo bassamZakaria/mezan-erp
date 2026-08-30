@@ -125,6 +125,13 @@ describe("PurchaseReturnsScreen", () => {
     expect(screen.getByText("شركة النيل للتوريدات")).toBeInTheDocument();
   });
 
+  it("shows a load-failed banner with a retry when the list request fails", async () => {
+    const transport = stubTransport({ ...baseHandlers([]), "GET /purchase-returns": () => ({ status: 500, body: { error: "SERVER_ERROR" } }) });
+    renderWithProviders(<PurchaseReturnsScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل مرتجعات المشتريات.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
+
   it("creates a draft return against a confirmed purchase invoice", async () => {
     let current: PurchaseReturnDocumentDTO[] = [];
     const transport = stubTransport({

@@ -15,6 +15,13 @@ function newApp(permissions: string[] = ["*"]) {
   return createApp(uow, { resolveAuthContext: () => ctx });
 }
 
+function newAppWithStore(permissions: string[] = ["*"]) {
+  const uow = createSqliteUnitOfWork(":memory:");
+  handles.push(uow);
+  const ctx = createAuthContext({ userId: "u1", permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  return { app: createApp(uow, { resolveAuthContext: () => ctx }), users: uow.users };
+}
+
 async function json(res: Response) {
   return res.json();
 }
@@ -100,22 +107,24 @@ describe("users routes", () => {
   });
 
   it("keeps the password hash stable across an update that omits password", async () => {
-    const app = newApp();
+    const { app, users } = newAppWithStore();
     const createRes = await app.fetch(
       new Request("http://x/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(newUserBody) }),
     );
     const created = (await json(createRes)) as { id: string };
+    const hashBefore = (await users.findById(created.id))?.passwordHash;
+    expect(hashBefore).toBeTruthy();
 
     const { password: _password, ...withoutPassword } = newUserBody;
     const updateRes = await app.fetch(
       new Request(`http://x/users/${created.id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...withoutPassword, nameAr: "محمد الشهابي (محدث)",
-    nameEn: null }),
+        body: JSON.stringify({ ...withoutPassword, nameAr: "محمد الشهابي (محدث)", nameEn: null }),
       }),
     );
     expect(updateRes.status).toBe(200);
-    expect(((await json(updateRes)) as { fullName: string }).fullName).toBe("محمد الشهابي (محدث)");
+    expect(((await json(updateRes)) as { nameAr: string }).nameAr).toBe("محمد الشهابي (محدث)");
+    expect((await users.findById(created.id))?.passwordHash).toBe(hashBefore);
   });
 });

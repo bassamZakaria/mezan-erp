@@ -17,6 +17,22 @@ function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: strin
   fireEvent.mouseDown(option);
 }
 
+/**
+ * settings/form-controls.tsx's `TextField` renders a `<label>` without a
+ * `for`/`id`, so it has no programmatic association with its `<input>` —
+ * `getByLabelText` cannot find it (the spec fields here are TextField, unlike
+ * the EntityPicker fields above which do wire a real `for`/`id`). Falls back
+ * to the DOM adjacency the visible label still has to the control.
+ */
+function inputNextToLabel(container: HTMLElement, labelText: string): HTMLElement {
+  const label = within(container).getByText(labelText);
+  const input = label.parentElement?.querySelector("input, textarea");
+  if (!(input instanceof HTMLElement)) {
+    throw new Error(`No form control found next to the label "${labelText}"`);
+  }
+  return input;
+}
+
 const items: ItemDTO[] = [
   {
     id: "item-glass",
@@ -79,6 +95,8 @@ const customers: CustomerDTO[] = [
 const warehouses: WarehouseDTO[] = [
   { id: "wh-raw", code: "RAW-WH", name: "مستودع الخامات", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
   { id: "wh-fg", code: "FG-WH", name: "مستودع المنتجات التامة", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
+  // the WIP warehouse field defaults from the shop's PRODUCTION-type warehouse.
+  { id: "wh-wip", code: "WIP-WH", name: "مستودع التشغيل", nameEn: null, branchId: "MAIN", type: "PRODUCTION", isDefault: false, active: true },
 ];
 
 const products: ConfigurableProductRecord[] = [
@@ -195,6 +213,19 @@ describe("ConfigInstancesScreen", () => {
     expect(screen.getByText("شركة الأمل للتجارة")).toBeInTheDocument();
   });
 
+  it("shows a retry banner when the list fails to load", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => ({ status: 500, body: { error: "INTERNAL" } }),
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل أوامر التصنيع المخصص.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
+
   it("previews materials/cost and creates a new order through the side panel, round-tripping through the stubbed transport", async () => {
     renderScreen();
     await screen.findByText("CM-000001");
@@ -202,7 +233,7 @@ describe("ConfigInstancesScreen", () => {
 
     const dialog = screen.getByRole("dialog", { name: "أمر تصنيع مخصص جديد" });
     pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
-    fireEvent.change(within(dialog).getByLabelText("العرض"), { target: { value: "150" } });
+    fireEvent.change(inputNextToLabel(dialog, "العرض"), { target: { value: "150" } });
 
     expect(await within(dialog).findByText("زجاج (م²)")).toBeInTheDocument();
 

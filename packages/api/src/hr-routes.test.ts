@@ -7,7 +7,7 @@ import {
   createSqliteHolidayRepository,
   createSqliteLeaveRequestRepository,
 } from "@mezan/persistence";
-import type { User, UserRepository } from "@mezan/domain";
+import { LEAVE_TYPE_DEFINITIONS, type User, type UserRepository } from "@mezan/domain";
 import { createHrRoutes, type HrRoutesDeps } from "./hr-routes.js";
 
 const handles: { close(): void }[] = [];
@@ -314,9 +314,13 @@ describe("HR dashboard", () => {
     await app.fetch(jsonReq("/employees", "hr.employee.create", { firstName: "A", lastName: "B", branchId: "MAIN", hireDate: new Date().toISOString().slice(0, 10) }));
     const res = await app.fetch(req("/dashboard", { permissions: "hr.employee.view" }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { activeEmployees: number; hiresThisMonth: number; leaveConsumption: unknown[] };
+    const body = (await res.json()) as {
+      activeEmployees: number;
+      hiresThisMonth: number;
+      leaveConsumption: { leaveType: string }[];
+    };
     expect(body.activeEmployees).toBe(1);
     expect(body.hiresThisMonth).toBe(1);
-    expect(body.leaveConsumption).toHaveLength(3);
+    expect(body.leaveConsumption.map((row) => row.leaveType)).toEqual(LEAVE_TYPE_DEFINITIONS.map((d) => d.code));
   });
 });

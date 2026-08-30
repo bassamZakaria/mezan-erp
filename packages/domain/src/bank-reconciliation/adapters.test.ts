@@ -47,8 +47,8 @@ describe("createTreasuryLedgerReader", () => {
     const reader = createTreasuryLedgerReader({ treasuryAccounts: fakeTreasuryAccounts([BANK_ACCOUNT]), ledger: fakeLedger(lines) });
     const candidates = await reader.entriesForTreasuryAccount("ta-bank1", "2026-08-01", "2026-08-31");
     expect(candidates).toEqual([
-      { entryId: "je-1", date: "2026-08-01", amount: Money.fromMajor("100"), description: "in" },
-      { entryId: "je-2", date: "2026-08-02", amount: Money.fromMajor("-30"), description: "out" },
+      { entryId: "je-1", entryNo: "JE-1", date: "2026-08-01", amount: Money.fromMajor("100"), description: "in" },
+      { entryId: "je-2", entryNo: "JE-2", date: "2026-08-02", amount: Money.fromMajor("-30"), description: "out" },
     ]);
   });
 

@@ -1,11 +1,23 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { NotificationRuleDTO } from "@mezan/contracts";
 import { NotificationRulesPage } from "./NotificationRulesPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+
+function textboxByLabel(container: HTMLElement, label: string): HTMLInputElement {
+  const labelNode = within(container).getByText(label);
+  const input = labelNode.parentElement?.querySelector("input, textarea");
+  if (!input) throw new Error(`no text input associated with label "${label}"`);
+  return input as HTMLInputElement;
+}
+
+function chooseSelectOption(triggerLabel: string, optionMatch: string | RegExp) {
+  fireEvent.click(screen.getByRole("combobox", { name: triggerLabel }));
+  fireEvent.mouseDown(screen.getByRole("option", { name: optionMatch }));
+}
 
 function rule(overrides: Partial<NotificationRuleDTO> = {}): NotificationRuleDTO {
   return {
@@ -78,9 +90,9 @@ describe("NotificationRulesPage", () => {
     await user.click(screen.getByRole("button", { name: "إضافة قاعدة" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة قاعدة" });
-    await user.type(within(dialog).getByLabelText("اسم القاعدة *"), "نقص مخزون حرج");
-    await user.selectOptions(within(dialog).getByLabelText("الحدث *"), "LOW_STOCK_DETECTED");
-    await user.selectOptions(within(dialog).getByLabelText("قيمة المستلم *"), "sales.invoice.view");
+    await user.type(textboxByLabel(dialog, "اسم القاعدة *"), "نقص مخزون حرج");
+    chooseSelectOption("الحدث *", /LOW_STOCK_DETECTED/);
+    chooseSelectOption("قيمة المستلم *", /sales\.invoice\.view$/);
     await user.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "إضافة قاعدة" })).not.toBeInTheDocument());
@@ -102,8 +114,34 @@ describe("NotificationRulesPage", () => {
       }),
     });
 
-    expect(await screen.findByText("نشط")).toBeInTheDocument();
-    await user.click(screen.getByText("نشط"));
-    expect(await screen.findByText("غير نشط")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "نشط" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "نشط" }));
+    expect(await screen.findByRole("button", { name: "غير نشط" })).toBeInTheDocument();
+  });
+
+  it("deletes a rule through DELETE /notification-rules/:id after the confirm dialog is accepted", async () => {
+    const user = userEvent.setup();
+    let deleted: string | null = null;
+    renderWithProviders(<NotificationRulesPage />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        ...BASE_HANDLERS,
+        "GET /notification-rules": () => ({ body: deleted ? [] : [rule()] }),
+        "DELETE /notification-rules/rule-1": () => {
+          deleted = "rule-1";
+          return { status: 204, body: null };
+        },
+      }),
+    });
+
+    await screen.findByText("فاتورة مبيعات مؤكدة");
+    await user.click(screen.getByRole("button", { name: "حذف" }));
+
+    const confirmDialog = screen.getByRole("dialog", { name: "حذف قاعدة التنبيه؟" });
+    expect(within(confirmDialog).getByText("لن يصل أي تنبيه بعد الآن عن «فاتورة مبيعات مؤكدة».")).toBeInTheDocument();
+    await user.click(within(confirmDialog).getByRole("button", { name: "حذف" }));
+
+    await waitFor(() => expect(deleted).toBe("rule-1"));
+    expect(await screen.findByText("لا توجد قواعد إشعارات")).toBeInTheDocument();
   });
 });

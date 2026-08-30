@@ -56,7 +56,9 @@ describe("ExchangeRatesScreen", () => {
     expect(screen.getByRole("heading", { name: "أسعار الصرف" })).toBeInTheDocument();
     expect(await screen.findByText("USD / EGP")).toBeInTheDocument();
     const sarRow = screen.getByText("SAR / EGP").closest("tr") as HTMLElement;
-    fireEvent.click(within(sarRow).getByRole("button", { name: "اعتماد" }));
+    // The approve action lives in the row's overflow menu now, not a bare button.
+    fireEvent.click(within(sarRow).getByRole("button", { name: "إجراءات SAR" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "اعتماد" }));
     expect(await within(sarRow).findByText("معتمد")).toBeInTheDocument();
   });
 });
@@ -103,7 +105,8 @@ describe("ReconciliationScreen", () => {
 
     expect(screen.getByRole("heading", { name: "مطابقة الأرصدة" })).toBeInTheDocument();
     expect(await screen.findByText("تقييم المخزون مقابل دفتر الأستاذ")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /القيود غير المرتبطة/ }));
+    // The summary/unlinked-entries switch is a radio pair now, not buttons.
+    fireEvent.click(screen.getByRole("radio", { name: /القيود غير المرتبطة/ }));
     expect(await screen.findByText("تسوية يدوية على حساب المخزون")).toBeInTheDocument();
   });
 });
@@ -134,8 +137,15 @@ describe("EtaScreen", () => {
     renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
 
     expect(screen.getByRole("heading", { name: "الفاتورة الإلكترونية" })).toBeInTheDocument();
+    // The submission queue lives under its own tab now, not the default "عام" one.
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
     const row = (await screen.findByText("INV-000014")).closest("tr") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "إرسال" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(/قائمة الإرسال/);
+    // The submit action lives in the row's overflow menu now, not a bare
+    // button. The row menu also announces a generic "«إرسال» executed" via
+    // its own sr-only `role="status"` region, so the offline-queued notice
+    // (a second, visible `role="status"` banner) is found by its text.
+    fireEvent.click(within(row).getByRole("button", { name: "إجراءات INV-000014" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "إرسال" }));
+    expect(await screen.findByText(/قائمة الإرسال/)).toBeInTheDocument();
   });
 });

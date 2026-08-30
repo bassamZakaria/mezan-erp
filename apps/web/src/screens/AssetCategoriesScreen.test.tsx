@@ -121,4 +121,11 @@ describe("AssetCategoriesScreen", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("مستخدم بالفعل");
   });
+
+  it("shows a retry banner instead of the list when the categories fail to load", async () => {
+    const transport = stubTransport({ "GET /assets/categories": () => ({ status: 500, body: { error: "INTERNAL" } }) });
+    renderWithProviders(<AssetCategoriesScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل تصنيفات الأصول.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
 });

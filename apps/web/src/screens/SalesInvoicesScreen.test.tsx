@@ -1,24 +1,63 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { AccountDTO, CustomerDTO, ItemDTO, WarehouseDTO } from "@mezan/contracts";
+import { useState, type ReactNode } from "react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
+import type { AccountDTO, CustomerDTO, ItemDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import { SalesInvoicesScreen } from "./SalesInvoicesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { JournalEntryDTO, SalesInvoiceDTO } from "../data/hooks";
+import { NavigationProvider } from "../navigation";
 
-function openNewInvoicePanel() {
-  fireEvent.click(screen.getByRole("button", { name: "فاتورة جديدة" }));
-  return screen.getByRole("dialog", { name: "فاتورة مبيعات جديدة" });
+/**
+ * SalesInvoicesScreen's create/detail views are sub-pages addressed via the
+ * shell's `useSubPage` (navigation.tsx), which no-ops outside a real
+ * `NavigationProvider`. This stands in for the shell's URL-driven one with
+ * in-memory segments — enough for the screen under test to open, close and
+ * read its own sub-page.
+ */
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
 }
 
-/** Type into an EntityPicker combobox and pick the matching option — selection
- * fires on `onMouseDown` (not `click`), so the input's blur never wins the race. */
-function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: string) {
-  const input = within(dialog).getByLabelText(label);
+/**
+ * Opens the new-invoice sub-page and clicks past its creation-method step
+ * (manual is the default choice) so the line-item form is on screen.
+ */
+function openNewInvoicePage() {
+  fireEvent.click(screen.getByRole("button", { name: /^فاتورة جديدة/ }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "فاتورة مبيعات جديدة" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+}
+
+/**
+ * Type into an EntityPicker combobox and pick the matching option — selection
+ * fires on `onMouseDown` (not `click`), so the input's blur never wins the
+ * race. The create page is a sub-page now, mounted fresh on navigation rather
+ * than pre-rendered behind a hidden dialog, so its own entity list (customers,
+ * items, …) may still be in flight the instant the form appears — `findByRole`
+ * polls for the option instead of assuming it is already there.
+ */
+async function pickFromCombobox(label: string, optionLabel: string) {
+  const input = screen.getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(dialog).getByRole("button", { name: new RegExp(optionLabel) });
+  const option = await screen.findByRole("button", { name: new RegExp(optionLabel) });
   fireEvent.mouseDown(option);
 }
 
@@ -28,11 +67,24 @@ function typeMoney(input: HTMLElement, value: string) {
   fireEvent.blur(input);
 }
 
+/** Opens a `Select` field's popup by its trigger's accessible label and picks the named option — commit fires on `onMouseDown`. */
+function selectOption(label: string, optionLabel: string) {
+  fireEvent.click(screen.getByRole("combobox", { name: label }));
+  fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
+
 const customers: CustomerDTO[] = [
   {
     id: "cust-amal", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
     category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, priceListId: null,
     creditLimit: "0", taxExempt: false, etaBuyerType: "auto", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
+  },
+];
+
+const treasuryAccounts: TreasuryAccountDTO[] = [
+  {
+    id: "tr-cash-main", code: "TR-01", name: "خزينة الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP",
+    branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, status: "active",
   },
 ];
 
@@ -122,13 +174,36 @@ const seededInvoices: SalesInvoiceDTO[] = [
   invoice({ id: "inv-3", docNo: "INV-000003", status: "partially_paid", amountPaid: "50.000000", remainingBalance: "160.900000" }),
 ];
 
+const LIST_STATUSES = ["draft", "confirmed", "partially_paid", "paid", "cancelled"] as const;
+
+/** The chip-count breakdown the real `/sales-invoices/counts` route computes server-side. */
+function countsFor(list: SalesInvoiceDTO[]): Record<string, number> {
+  const counts: Record<string, number> = {
+    all: list.length,
+    open: list.filter((i) => i.status !== "paid" && i.status !== "cancelled").length,
+    overdue: 0,
+  };
+  for (const status of LIST_STATUSES) counts[status] = list.filter((i) => i.status === status).length;
+  return counts;
+}
+
 function baseHandlers(current: SalesInvoiceDTO[]) {
   return {
-    "GET /sales-invoices": () => ({ body: current }),
+    "GET /sales-invoices": (_init: RequestInit | undefined, path: string) => {
+      const status = new URLSearchParams(path.split("?")[1] ?? "").get("status");
+      return { body: status ? current.filter((inv) => inv.status === status) : current };
+    },
+    "GET /sales-invoices/counts": () => ({ body: countsFor(current) }),
+    "GET /sales-invoices/*": (_init: RequestInit | undefined, path: string) => {
+      const idOrDocNo = decodeURIComponent(path.split("/").pop() ?? "");
+      const found = current.find((inv) => inv.id === idOrDocNo || inv.docNo === idOrDocNo);
+      return found ? { body: found } : { status: 404, body: { error: "NOT_FOUND" } };
+    },
     "GET /customers": () => ({ body: customers }),
     "GET /items": () => ({ body: items }),
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /accounts": () => ({ body: accounts }),
+    "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
     "GET /gl/journal-entries/je-1": () => ({ body: journalEntry }),
   };
 }
@@ -136,7 +211,7 @@ function baseHandlers(current: SalesInvoiceDTO[]) {
 describe("SalesInvoicesScreen — list", () => {
   it("renders the heading and seeded invoices with KPIs", async () => {
     const transport = stubTransport(baseHandlers(seededInvoices));
-    renderWithProviders(<SalesInvoicesScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     expect(screen.getByRole("heading", { name: "فواتير المبيعات" })).toBeInTheDocument();
     expect(await screen.findByText("INV-000001")).toBeInTheDocument();
     expect(screen.getByText("INV-000002")).toBeInTheDocument();
@@ -145,25 +220,31 @@ describe("SalesInvoicesScreen — list", () => {
 
   it("shows an empty state when there are no invoices yet", async () => {
     const transport = stubTransport(baseHandlers([]));
-    renderWithProviders(<SalesInvoicesScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     expect(await screen.findByText("لا توجد فواتير مطابقة")).toBeInTheDocument();
   });
 
   it("filters to مدفوع via the status chips", async () => {
     const transport = stubTransport(baseHandlers(seededInvoices));
-    renderWithProviders(<SalesInvoicesScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     await screen.findByText("INV-000001");
     // "مدفوع" is a prefix of "مدفوع جزئياً" too, so anchor on the trailing count.
     fireEvent.click(screen.getByRole("tab", { name: /^مدفوع\s?\d/ }));
-    expect(screen.getByText("INV-000002")).toBeInTheDocument();
-    expect(screen.queryByText("INV-000001")).not.toBeInTheDocument();
+    // The status filter is now server-side: the row list only updates once the
+    // refetch settles, and a transient loading state can briefly show neither
+    // row — assert the settled state (both conditions) in one waitFor, not two.
+    await waitFor(() => {
+      expect(screen.queryByText("INV-000001")).not.toBeInTheDocument();
+      expect(screen.getByText("INV-000002")).toBeInTheDocument();
+    });
   });
 
   it("opens the detail view with the effects panel and tabs", async () => {
     const transport = stubTransport(baseHandlers(seededInvoices));
-    renderWithProviders(<SalesInvoicesScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     fireEvent.click(await screen.findByText("INV-000001"));
-    expect(screen.getByRole("heading", { name: "INV-000001" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "INV-000001" })).toBeInTheDocument();
     expect(screen.getByText("تأثيرات هذه الفاتورة")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "بنود الفاتورة" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "القيود المحاسبية" })).toBeInTheDocument();
@@ -188,30 +269,31 @@ describe("SalesInvoicesScreen — create + confirm flow", () => {
         return { body: { ...current.find((inv) => inv.id === "inv-4")!, held: false } };
       },
     });
-    renderWithProviders(<SalesInvoicesScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     await screen.findByText("INV-000001");
-    const dialog = openNewInvoicePanel();
+    openNewInvoicePage();
 
-    pickFromCombobox(dialog, "العميل *", "شركة الأمل للتجارة");
-    pickFromCombobox(dialog, "الصنف — سطر 1", "أرز أبيض مصري");
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
 
-    const confirmButton = within(dialog).getByRole("button", { name: "تأكيد الفاتورة" });
+    const confirmButton = screen.getByRole("button", { name: "تأكيد الفاتورة" });
     await waitFor(() => expect(confirmButton).toBeEnabled());
     fireEvent.click(confirmButton);
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "فاتورة مبيعات جديدة" })).not.toBeInTheDocument());
+    // Create is a sub-page: success closes it back to the list, not a dialog.
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "فاتورة مبيعات جديدة" })).not.toBeInTheDocument());
     expect(await screen.findByText("INV-000004")).toBeInTheDocument();
   });
 
   it("shows a domain validation error instead of confirming an invoice without a customer", async () => {
     const transport = stubTransport(baseHandlers(seededInvoices));
-    renderWithProviders(<SalesInvoicesScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     await screen.findByText("INV-000001");
-    const dialog = openNewInvoicePanel();
-    pickFromCombobox(dialog, "الصنف — سطر 1", "أرز أبيض مصري");
+    openNewInvoicePage();
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
 
     // With no customer chosen the confirm button stays disabled — no invoice is created.
-    expect(within(dialog).getByRole("button", { name: "تأكيد الفاتورة" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "تأكيد الفاتورة" })).toBeDisabled();
   });
 });
 
@@ -221,16 +303,23 @@ describe("SalesInvoicesScreen — payments", () => {
     const transport = stubTransport({
       ...baseHandlers(current),
       "GET /sales-invoices": () => ({ body: current }),
+      "GET /sales-invoices/*": (_init, path) => {
+        const idOrDocNo = decodeURIComponent(path.split("/").pop() ?? "");
+        const found = current.find((inv) => inv.id === idOrDocNo || inv.docNo === idOrDocNo);
+        return found ? { body: found } : { status: 404, body: { error: "NOT_FOUND" } };
+      },
       "POST /sales-invoices/inv-1/payments": () => {
         current = current.map((inv) => (inv.id === "inv-1" ? { ...inv, status: "partially_paid" as const, amountPaid: "50.000000", remainingBalance: "160.900000" } : inv));
         return { body: current.find((inv) => inv.id === "inv-1")! };
       },
     });
-    renderWithProviders(<SalesInvoicesScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     fireEvent.click(await screen.findByText("INV-000001"));
+    await screen.findByRole("heading", { name: "INV-000001" });
     fireEvent.click(screen.getByRole("tab", { name: "المدفوعات" }));
 
     typeMoney(screen.getByLabelText("قيمة الدفعة"), "50");
+    selectOption("الخزينة المستلمة", "خزينة الفرع الرئيسي (TR-01)");
     fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
 
     await waitFor(() => expect(screen.getAllByText("مدفوع جزئياً").length).toBeGreaterThan(0));
@@ -241,13 +330,19 @@ describe("SalesInvoicesScreen — payments", () => {
     const transport = stubTransport({
       ...baseHandlers(current),
       "GET /sales-invoices": () => ({ body: current }),
+      "GET /sales-invoices/*": (_init, path) => {
+        const idOrDocNo = decodeURIComponent(path.split("/").pop() ?? "");
+        const found = current.find((inv) => inv.id === idOrDocNo || inv.docNo === idOrDocNo);
+        return found ? { body: found } : { status: 404, body: { error: "NOT_FOUND" } };
+      },
       "POST /sales-invoices/inv-3/payments": () => {
         current = current.map((inv) => (inv.id === "inv-3" ? { ...inv, status: "paid" as const, amountPaid: "210.900000", remainingBalance: "0.000000" } : inv));
         return { body: current.find((inv) => inv.id === "inv-3")! };
       },
     });
-    renderWithProviders(<SalesInvoicesScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     fireEvent.click(await screen.findByText("INV-000003"));
+    await screen.findByRole("heading", { name: "INV-000003" });
     fireEvent.click(screen.getByRole("tab", { name: "المدفوعات" }));
 
     // Pay the remaining balance shown in the المتبقي cell.
@@ -255,6 +350,7 @@ describe("SalesInvoicesScreen — payments", () => {
     const remainingText = remainingCell?.textContent?.replace(/[^\d.]/g, "") ?? "0";
 
     typeMoney(screen.getByLabelText("قيمة الدفعة"), remainingText);
+    selectOption("الخزينة المستلمة", "خزينة الفرع الرئيسي (TR-01)");
     fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
 
     await waitFor(() => expect(screen.getAllByText("مدفوع").length).toBeGreaterThan(0));

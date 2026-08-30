@@ -6,6 +6,8 @@ import {
   StockLedgerService,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
+  postJournalEntry,
+  applyAllocatedSettlement,
   type Account,
 } from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "@mezan/persistence";
@@ -16,6 +18,8 @@ const REVENUE = "4000";
 const TAX = "2200";
 const COGS = "5000";
 const INVENTORY = "1200";
+const TREASURY_GL = "1310";
+const TREASURY_ACCOUNT = "ta-cash";
 const NOW = "2026-08-22T10:00:00.000Z";
 
 const closers: SqliteSalesInvoiceStoreHandle[] = [];
@@ -52,6 +56,7 @@ async function harness() {
       [TAX, account(TAX, { type: "liability", naturalBalance: "credit" })],
       [COGS, account(COGS, { type: "expense" })],
       [INVENTORY, account(INVENTORY)],
+      [TREASURY_GL, account(TREASURY_GL)],
     ]),
     async findById(id: string) { return this.map.get(id) ?? null; },
   };
@@ -87,6 +92,7 @@ async function harness() {
   const repo = createSqliteSalesInvoiceStore();
   closers.push(repo);
 
+  const collectionNumbering = new NextNumberService(new MemSeq());
   const deps: SalesInvoiceRoutesDeps = {
     repo,
     numbering: { next: () => new NextNumberService(new MemSeq()).next("SALES_INVOICE") },
@@ -94,6 +100,35 @@ async function harness() {
     stock: createSalesInvoiceStockHook(stockService),
     now: () => NOW,
     idGen: (() => { let n = 0; return () => `inv-${++n}`; })(),
+    /**
+     * A collection is a confirmed receipt voucher, so the money must land in a
+     * real treasury account AND in the ledger: Dr treasury / Cr AR, then the
+     * invoice's amountPaid follows from the allocation, never from the request.
+     */
+    collect: async (input) => {
+      if (input.treasuryAccountId !== TREASURY_ACCOUNT) {
+        throw new Error(`unknown treasury account ${input.treasuryAccountId}`);
+      }
+      const voucherId = `COLL:${input.invoiceId}`;
+      await postJournalEntry(
+        {
+          id: voucherId,
+          date: input.date,
+          memo: input.memo ?? "",
+          source: "system",
+          sourceDocType: "VOUCHER",
+          sourceDocId: voucherId,
+          lines: [
+            { accountId: TREASURY_GL, debit: input.amount, credit: Money.zero() },
+            { accountId: AR, debit: Money.zero(), credit: input.amount },
+          ],
+        },
+        { ledger: ledger as any, accounts, periods, numbering: collectionNumbering, now: () => NOW, actor: "u1" },
+      );
+      const invoice = await repo.findById(input.invoiceId);
+      await applyAllocatedSettlement(repo, input.invoiceId, (invoice?.amountPaid ?? Money.zero()).add(input.amount));
+      return { voucherId };
+    },
   };
   return { app: createSalesInvoicesRoutes(deps), ledger };
 }
@@ -168,17 +203,43 @@ describe("sales-invoices routes", () => {
   });
 
   it("records a payment moving the invoice to partially paid", async () => {
+    const { app, ledger } = await harness();
+    const create = await app.fetch(req("/", { method: "POST", body: JSON.stringify(draftBody), permissions: "sales.invoice.create" }));
+    const { id } = (await create.json()) as any;
+    await app.fetch(req(`/${id}/confirm`, { method: "POST", body: JSON.stringify({}), permissions: "sales.invoice.confirm" }));
+
+    const pay = await app.fetch(
+      req(`/${id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({ amount: "100", treasuryAccountId: TREASURY_ACCOUNT }),
+        permissions: "sales.invoice.edit",
+      }),
+    );
+    expect(pay.status).toBe(200);
+    const paid = (await pay.json()) as any;
+    expect(paid.status).toBe("partially_paid");
+    expect(paid.amountPaid).toBe("100.000000");
+    expect(paid.remainingBalance).toBe("287.600000");
+
+    // The sub-ledger movement has its GL side: Dr treasury 100 / Cr AR 100.
+    const collection = await ledger.findById(paid.voucherId);
+    expect(collection?.status).toBe("posted");
+    const debit = Money.sum(collection.lines.map((l: any) => l.debit)).toString();
+    const credit = Money.sum(collection.lines.map((l: any) => l.credit)).toString();
+    expect(debit).toBe(credit);
+    expect(debit).toBe("100.000000");
+    expect(collection.lines.find((l: any) => l.accountId === AR)?.credit.toString()).toBe("100.000000");
+    expect(collection.lines.find((l: any) => l.accountId === TREASURY_GL)?.debit.toString()).toBe("100.000000");
+  });
+
+  it("refuses a collection that names no treasury account — money must land somewhere", async () => {
     const { app } = await harness();
     const create = await app.fetch(req("/", { method: "POST", body: JSON.stringify(draftBody), permissions: "sales.invoice.create" }));
     const { id } = (await create.json()) as any;
     await app.fetch(req(`/${id}/confirm`, { method: "POST", body: JSON.stringify({}), permissions: "sales.invoice.confirm" }));
 
     const pay = await app.fetch(req(`/${id}/payments`, { method: "POST", body: JSON.stringify({ amount: "100" }), permissions: "sales.invoice.edit" }));
-    expect(pay.status).toBe(200);
-    const paid = (await pay.json()) as any;
-    expect(paid.status).toBe("partially_paid");
-    expect(paid.amountPaid).toBe("100.000000");
-    expect(paid.remainingBalance).toBe("287.600000");
+    expect(pay.status).toBe(400);
   });
 
   it("validates the request body", async () => {

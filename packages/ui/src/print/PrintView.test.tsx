@@ -100,6 +100,10 @@ describe("PrintView", () => {
     const { container } = render(
       <PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={createSampleInvoiceDocument()} showToolbar={false} />,
     );
+    // The preview is embedded inside a screen that already owns the page
+    // heading, so the company name is not an <h1> — two of those on one page
+    // is the defect this guards.
+    expect(container.querySelectorAll("h1")).toHaveLength(0);
     expect(container.firstChild).toMatchSnapshot();
   });
 });

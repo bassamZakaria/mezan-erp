@@ -6,11 +6,17 @@
 // runtime via vitest.config.ts's `setupFiles`.
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, within, fireEvent } from "@testing-library/react";
+import { screen, within, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AccountDTO } from "@mezan/contracts";
 import { ChartOfAccountsScreen } from "./ChartOfAccountsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+
+// jsdom has no layout engine and does not implement scrollIntoView; the
+// custom Select combobox (the type/status filters) calls it when opening.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
 
 const sampleAccounts: AccountDTO[] = [
   { id: "1000", code: "1000", nameAr: "الأصول", nameEn: "Assets", type: "asset", naturalBalance: "debit", parentId: null, isHeader: true, status: "active" },
@@ -61,8 +67,20 @@ describe("ChartOfAccountsScreen", () => {
     renderScreen();
     await screen.findByText("الأصول");
     await user.type(screen.getByPlaceholderText("بحث بالاسم أو الرقم..."), "النقدية");
+    // useUrlSearch settles the query into the address 300ms after typing stops
+    // (apps/web/src/lib/url-state.ts); the tree filter only re-derives once it does.
+    await waitFor(() => expect(screen.queryByText("الالتزامات")).not.toBeInTheDocument());
     expect(screen.getByText("النقدية")).toBeInTheDocument();
-    expect(screen.queryByText("الالتزامات")).not.toBeInTheDocument();
+  });
+
+  it("filters the visible rows by account type", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("الأصول");
+    await user.click(screen.getByLabelText("تصفية حسب النوع"));
+    await user.click(await screen.findByRole("option", { name: "التزامات" }));
+    await waitFor(() => expect(screen.queryByText("الأصول")).not.toBeInTheDocument());
+    expect(screen.getByText("الالتزامات")).toBeInTheDocument();
   });
 
   it("opens the account detail panel on row click, showing balance and parent", async () => {

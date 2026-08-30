@@ -6,6 +6,13 @@ import type { BranchDTO } from "@mezan/contracts";
 import { BranchesPage } from "./BranchesPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
+function textboxByLabel(container: HTMLElement, label: string): HTMLInputElement {
+  const labelNode = within(container).getByText(label);
+  const input = labelNode.parentElement?.querySelector("input, textarea");
+  if (!input) throw new Error(`no text input associated with label "${label}"`);
+  return input as HTMLInputElement;
+}
+
 const sampleBranches: BranchDTO[] = [
   {
     id: "b1",
@@ -93,8 +100,8 @@ describe("BranchesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة فرع" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة فرع" });
-    fireEvent.change(within(dialog).getByLabelText("اسم الفرع"), { target: { value: "فرع الجيزة" } });
-    fireEvent.change(within(dialog).getByLabelText("رمز الفرع"), { target: { value: "GIZA" } });
+    fireEvent.change(textboxByLabel(dialog, "اسم الفرع"), { target: { value: "فرع الجيزة" } });
+    fireEvent.change(textboxByLabel(dialog, "رمز الفرع"), { target: { value: "GIZA" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ الفرع" }));
 
     expect(await screen.findByText("فرع الجيزة")).toBeInTheDocument();

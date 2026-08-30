@@ -1,10 +1,22 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { CustomerDTO, ProjectDTO, UserDTO } from "@mezan/contracts";
 import { ProjectsScreen } from "./ProjectsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+
+/**
+ * `Field` renders its `<label>` as a sibling of the control, not wrapping it,
+ * and never wires `htmlFor`/`id` — so `getByLabelText` cannot resolve a
+ * `TextField`. Locate the control by walking from the visible label text.
+ */
+function fieldInput(container: HTMLElement, label: string | RegExp): HTMLElement {
+  const labelEl = within(container).getByText(label);
+  const control = labelEl.parentElement?.querySelector("input, textarea, select");
+  if (!control) throw new Error(`no control found for label "${label}"`);
+  return control as HTMLElement;
+}
 
 const sampleCustomers: CustomerDTO[] = [
   {
@@ -126,7 +138,7 @@ function renderScreen(projects: ProjectDTO[] = sampleProjects) {
 describe("ProjectsScreen", () => {
   it("lists projects from the real backend", async () => {
     renderScreen();
-    expect(screen.getByRole("heading", { name: "المشاريع والمقاولات" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "المقاولات" })).toBeInTheDocument();
     expect(await screen.findByText("برج الأفق")).toBeInTheDocument();
     expect(screen.getByText("فيلا النخيل")).toBeInTheDocument();
     expect(screen.getByText("شركة الأفق")).toBeInTheDocument();
@@ -142,8 +154,8 @@ describe("ProjectsScreen", () => {
     renderScreen();
     await screen.findByText("برج الأفق");
     fireEvent.click(screen.getByRole("tab", { name: /^نشط/ }));
+    await waitFor(() => expect(screen.queryByText("برج الأفق")).not.toBeInTheDocument());
     expect(screen.getByText("فيلا النخيل")).toBeInTheDocument();
-    expect(screen.queryByText("برج الأفق")).not.toBeInTheDocument();
   });
 
   it("creates a new project through the side panel", async () => {
@@ -152,8 +164,8 @@ describe("ProjectsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "مشروع جديد" }));
 
     const dialog = screen.getByRole("dialog", { name: "مشروع جديد" });
-    fireEvent.change(within(dialog).getByLabelText(/^كود المشروع \*/), { target: { value: "MALL-C" } });
-    fireEvent.change(within(dialog).getByLabelText("اسم المشروع *"), { target: { value: "مول وسط البلد" } });
+    fireEvent.change(fieldInput(dialog, /^كود المشروع \*/), { target: { value: "MALL-C" } });
+    fireEvent.change(fieldInput(dialog, "اسم المشروع *"), { target: { value: "مول وسط البلد" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByText("مول وسط البلد")).toBeInTheDocument();
@@ -164,8 +176,8 @@ describe("ProjectsScreen", () => {
     await screen.findByText("برج الأفق");
     fireEvent.click(screen.getByRole("button", { name: "مشروع جديد" }));
     const dialog = screen.getByRole("dialog", { name: "مشروع جديد" });
-    fireEvent.change(within(dialog).getByLabelText(/^كود المشروع \*/), { target: { value: "TOWER-A" } });
-    fireEvent.change(within(dialog).getByLabelText("اسم المشروع *"), { target: { value: "نسخة" } });
+    fireEvent.change(fieldInput(dialog, /^كود المشروع \*/), { target: { value: "TOWER-A" } });
+    fireEvent.change(fieldInput(dialog, "اسم المشروع *"), { target: { value: "نسخة" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("مستخدم بالفعل");
@@ -178,7 +190,10 @@ describe("ProjectsScreen", () => {
     const detail = screen.getByRole("dialog", { name: /مشروع —/ });
     expect(within(detail).getByText("CC-PRJ-TOWER-A")).toBeInTheDocument();
 
-    fireEvent.change(within(detail).getByLabelText("الحالة"), { target: { value: "active" } });
+    // `Select` is a custom combobox whose option list renders in a body portal,
+    // outside the dialog's own DOM subtree — open it, then pick from `screen`.
+    fireEvent.click(within(detail).getByRole("combobox", { name: "الحالة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: "نشط" }));
     fireEvent.click(within(detail).getByRole("button", { name: "حفظ" }));
 
     expect((await within(detail).findAllByText("نشط")).length).toBeGreaterThan(0);

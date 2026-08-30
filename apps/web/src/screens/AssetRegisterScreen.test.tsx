@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { AssetCategoryDTO, AssetDTO, BranchDTO } from "@mezan/contracts";
 import { AssetRegisterScreen } from "./AssetRegisterScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -144,5 +144,36 @@ describe("AssetRegisterScreen", () => {
 
     const detail = screen.getByRole("dialog", { name: /أصل —/ });
     expect(within(detail).getByText("VEH-001")).toBeInTheDocument();
+  });
+
+  it("disposes an asset with no sale proceeds, then locks the dispose control", async () => {
+    let disposedBody: Record<string, unknown> | null = null;
+    let disposed = false;
+    const transport = stubTransport({
+      "GET /assets": () => ({ body: disposed ? [{ ...sampleAssets[0], status: "disposed" }] : sampleAssets }),
+      "GET /assets/categories": () => ({ body: sampleCategories }),
+      "GET /branches": () => ({ body: sampleBranches }),
+      "POST /assets/asset-1/dispose": (init) => {
+        disposedBody = JSON.parse(String(init?.body));
+        disposed = true;
+        return { body: { ...sampleAssets[0], status: "disposed" } };
+      },
+    });
+    renderWithProviders(<AssetRegisterScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("سيارة النقل الرئيسية"));
+    const detail = screen.getByRole("dialog", { name: /أصل —/ });
+
+    fireEvent.click(within(detail).getByRole("button", { name: "التخلص من الأصل" }));
+    fireEvent.click(within(detail).getByRole("button", { name: "تأكيد التخلص" }));
+
+    await waitFor(() => expect(disposedBody).not.toBeNull());
+    expect(disposedBody).toMatchObject({ proceedsAccountId: null });
+    // A successful disposal closes the detail panel outright.
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /أصل —/ })).not.toBeInTheDocument());
+
+    fireEvent.click(await screen.findByText("سيارة النقل الرئيسية"));
+    const reopened = screen.getByRole("dialog", { name: /أصل —/ });
+    expect(within(reopened).getByText("تم التخلص")).toBeInTheDocument();
+    expect(within(reopened).queryByRole("button", { name: "التخلص من الأصل" })).not.toBeInTheDocument();
   });
 });

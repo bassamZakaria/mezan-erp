@@ -1,20 +1,60 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
+import { useState, type ReactNode } from "react";
 import { screen, fireEvent, within } from "@testing-library/react";
 import type { ItemDTO } from "@mezan/contracts";
 import { ConfigurableProductsScreen } from "./ConfigurableProductsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { ConfigurableProductRecord } from "../data/hooks";
+import { NavigationProvider } from "../navigation";
+
+/**
+ * The "new configurable product" view is a sub-page addressed via the shell's
+ * `useSubPage` (navigation.tsx), which no-ops outside a real `NavigationProvider`.
+ * This stands in for the shell's URL-driven one with in-memory segments — enough
+ * for the screen under test to open and read its own sub-page.
+ */
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 /** Type into an EntityPicker combobox and pick the matching option — selection
  * fires on `onMouseDown` (not `click`), so the input's blur never wins the race. */
-function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: string) {
-  const input = within(dialog).getByLabelText(label);
+function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+  const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(dialog).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
+  const option = within(container).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
   fireEvent.mouseDown(option);
+}
+
+/**
+ * `TextField`/`NumberField` (settings/form-controls.tsx) render a `<label>`
+ * that is never associated with its input via `for`/`id` — only `SelectField`
+ * and `EntityPicker` wire that up. `getByLabelText` can't find these fields,
+ * so fall back to the DOM structure the shared `Field` wrapper always uses: a
+ * `<label>` immediately followed by its control in the same wrapper `<div>`.
+ */
+function textFieldInput(container: HTMLElement, labelText: string): HTMLInputElement {
+  const label = within(container).getByText(labelText, { selector: "label" });
+  const input = label.parentElement?.querySelector<HTMLInputElement>("input, textarea");
+  if (!input) throw new Error(`No input control found next to label "${labelText}"`);
+  return input;
 }
 
 function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
@@ -104,8 +144,21 @@ function renderScreen(products: ConfigurableProductRecord[] = [product()]) {
       current = [...current, created];
       return { status: 201, body: created };
     },
+    "POST /manufacturing/configurable-products/*/deactivate": (_init, path) => {
+      const id = path.split("/").at(-2);
+      const target = current.find((p) => p.id === id);
+      if (!target) return { status: 404, body: { error: "NOT_FOUND" } };
+      const updated: ConfigurableProductRecord = { ...target, status: "inactive" };
+      current = current.map((p) => (p.id === id ? updated : p));
+      return { body: updated };
+    },
   });
-  return renderWithProviders(<ConfigurableProductsScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(
+    <TestNavigation>
+      <ConfigurableProductsScreen />
+    </TestNavigation>,
+    { transport, initialSession: testAdminSession },
+  );
 }
 
 describe("ConfigurableProductsScreen", () => {
@@ -121,22 +174,50 @@ describe("ConfigurableProductsScreen", () => {
     expect(screen.getByText("WINDOW")).toBeInTheDocument();
   });
 
-  it("adds a new configurable product through the side panel and round-trips through the stubbed transport", async () => {
+  it("adds a new configurable product through the create sub-page and round-trips through the stubbed transport", async () => {
     renderScreen();
     await screen.findByText("نافذة قابلة للتهيئة");
     fireEvent.click(screen.getByRole("button", { name: "إضافة منتج قابل للتهيئة" }));
 
-    const dialog = screen.getByRole("dialog", { name: "منتج قابل للتهيئة جديد" });
-    fireEvent.change(within(dialog).getByLabelText("الكود *"), { target: { value: "DOOR" } });
-    fireEvent.change(within(dialog).getByLabelText("الاسم بالعربية *"), { target: { value: "باب قابل للتهيئة" } });
-    pickFromCombobox(dialog, "المنتج الناتج *", "نافذة مخصصة");
-    fireEvent.change(within(dialog).getByLabelText("المعرف (للمعادلات)"), { target: { value: "width" } });
-    fireEvent.change(within(dialog).getByLabelText("التسمية"), { target: { value: "العرض" } });
-    pickFromCombobox(dialog, "الصنف", "زجاج (م²)");
-    fireEvent.change(within(dialog).getByLabelText("معادلة الكمية"), { target: { value: "width/100" } });
+    await screen.findByRole("heading", { name: "منتج قابل للتهيئة جديد" });
+    const page = document.body;
+    fireEvent.change(textFieldInput(page, "الكود *"), { target: { value: "DOOR" } });
+    fireEvent.change(textFieldInput(page, "الاسم بالعربية *"), { target: { value: "باب قابل للتهيئة" } });
+    pickFromCombobox(page, "المنتج الناتج *", "نافذة مخصصة");
+    fireEvent.change(textFieldInput(page, "المعرف (للمعادلات)"), { target: { value: "width" } });
+    fireEvent.change(textFieldInput(page, "التسمية"), { target: { value: "العرض" } });
+    pickFromCombobox(page, "الصنف", "زجاج (م²)");
+    fireEvent.change(textFieldInput(page, "معادلة الكمية"), { target: { value: "width/100" } });
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByText("باب قابل للتهيئة")).toBeInTheDocument();
+  });
+
+  it("opens the product detail and deactivates it from there", async () => {
+    renderScreen();
+    fireEvent.click(await screen.findByText("نافذة قابلة للتهيئة"));
+
+    expect(screen.getByText("نشط")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "تعطيل" }));
+    expect(await screen.findByText("غير نشط")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "رجوع للمنتجات القابلة للتهيئة" }));
+    expect(await screen.findByRole("heading", { name: "المنتجات القابلة للتهيئة" })).toBeInTheDocument();
+  });
+
+  it("shows an error banner with a retry action when configurable products fail to load", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/configurable-products": () => ({ status: 500, body: { error: "INTERNAL" } }),
+      "GET /items": () => ({ body: items }),
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <ConfigurableProductsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    expect(await screen.findByText("تعذّر تحميل المنتجات القابلة للتهيئة.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 });

@@ -112,4 +112,14 @@ describe("ApprovalsInboxScreen", () => {
     // The row survives the failed decision — still in the list.
     expect(within(await screen.findByRole("table")).getByText("تأكيد فاتورة المبيعات")).toBeInTheDocument();
   });
+
+  it("shows a retry banner instead of the list when the pending requests fail to load", async () => {
+    const transport = stubTransport({
+      "GET /workflow/requests/pending": () => ({ status: 500, body: { error: "INTERNAL" } }),
+    });
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل الموافقات المعلّقة.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
 });

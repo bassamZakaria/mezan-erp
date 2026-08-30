@@ -92,6 +92,22 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
       screen.getByText("جميع الأرقام المالية مصدرها القيود المحاسبية المرحلة · نطاق الفرع لا يؤثر على الأرقام على مستوى الشركة"),
     ).toBeInTheDocument();
   });
+
+  it("shows an error state with a retry when the summary request fails", async () => {
+    let calls = 0;
+    renderDashboard(
+      stubTransport({
+        "GET /dashboard/summary": () => {
+          calls += 1;
+          return calls === 1 ? { status: 500, body: { error: "SERVER_ERROR" } } : { body: summary() };
+        },
+      }),
+    );
+    expect(await screen.findByText("تعذّر تحميل بيانات لوحة التحكم.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(await screen.findAllByText("86,240.00")).not.toHaveLength(0);
+  });
 });
 
 describe("DashboardScreen quick actions", () => {

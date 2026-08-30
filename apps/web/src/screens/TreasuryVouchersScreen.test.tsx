@@ -232,12 +232,16 @@ describe("TreasuryVouchersScreen — list", () => {
     renderScreen();
     await screen.findByText("CV-000001");
     fireEvent.click(screen.getByRole("tab", { name: /بحاجة لتخصيص/ }));
-    // The filter round-trips through the (re-fetched) server query, so wait
-    // for it rather than asserting on the pre-refetch DOM.
-    // CV-000002 (other income, not allocatable) is filtered out.
-    await waitFor(() => expect(screen.queryByText("CV-000002")).not.toBeInTheDocument());
-    // CV-000001 (1000, only 400 allocated) needs allocation and stays visible.
-    expect(screen.getByText("CV-000001")).toBeInTheDocument();
+    // `useUrlParam`'s write is buffered onto a microtask (url-state.ts) and the
+    // filter is a server query, so both conditions have to be checked in the
+    // same settled snapshot — not sequentially, which can catch the DOM
+    // between the old and new fetch (both rows briefly absent while loading).
+    await waitFor(() => {
+      // CV-000001 (1000, only 400 allocated) needs allocation and stays visible.
+      expect(screen.getByText("CV-000001")).toBeInTheDocument();
+      // CV-000002 (other income, not allocatable) is filtered out.
+      expect(screen.queryByText("CV-000002")).not.toBeInTheDocument();
+    });
   });
 });
 

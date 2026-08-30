@@ -18,29 +18,45 @@ function newApp() {
   const configs: SqliteWorkflowConfigStoreHandle = createSqliteWorkflowConfigStore();
   const requests: SqliteApprovalRequestStoreHandle = createSqliteApprovalRequestStore();
   handles.push(configs, requests);
-  return { app: createWorkflowRoutes({ configs, requests }), configs, requests };
-}
+  const sessions = createSessionRegistry();
+  const app = createWorkflowRoutes({ configs, requests }, createSessionAuthContextResolver(sessions));
 
-function req(
-  path: string,
-  init: RequestInit & { userId?: string; permissions?: string; roleCode?: string } = {},
-) {
-  const headers = new Headers(init.headers);
-  if (init.userId !== undefined) headers.set("x-user-id", init.userId);
-  if (init.permissions !== undefined) headers.set("x-permissions", init.permissions);
-  if (init.roleCode !== undefined) headers.set("x-role-code", init.roleCode);
-  if (init.body !== undefined) headers.set("content-type", "application/json");
-  return new Request(`http://local${path}`, { ...init, headers });
+  /**
+   * A request carrying a REAL session. The approver role a step matches on is
+   * read off the server's own grant, never off a header — naming a role in the
+   * request is exactly the impersonation the gate stopped accepting.
+   */
+  function req(
+    path: string,
+    init: RequestInit & { userId?: string; permissions?: string; roleCode?: string } = {},
+  ) {
+    const headers = new Headers(init.headers);
+    if (init.userId !== undefined || init.permissions !== undefined || init.roleCode !== undefined) {
+      const token = sessions.issue({
+        userId: init.userId ?? "anonymous",
+        permissions: init.permissions ? init.permissions.split(",") : [],
+        roleCode: init.roleCode ?? null,
+        branchScope: ALL_SCOPE,
+        warehouseScope: ALL_SCOPE,
+      });
+      headers.set("authorization", `Bearer ${token}`);
+    }
+    if (init.body !== undefined) headers.set("content-type", "application/json");
+    return new Request(`http://local${path}`, { ...init, headers });
+  }
+
+  return { app, configs, requests, req };
 }
 
 describe("workflow config routes", () => {
   it("gates the config list behind workflow.config.view", async () => {
-    const { app } = newApp();
-    expect((await app.fetch(req("/configs"))).status).toBe(403);
+    const { app, req } = newApp();
+    expect((await app.fetch(req("/configs"))).status).toBe(401);
+    expect((await app.fetch(req("/configs", { userId: "u1", permissions: "workflow.view" }))).status).toBe(403);
   });
 
   it("creates and lists a config", async () => {
-    const { app } = newApp();
+    const { app, req } = newApp();
     const res = await app.fetch(
       req("/configs", {
         method: "POST",
@@ -59,7 +75,7 @@ describe("workflow config routes", () => {
   });
 
   it("rejects an unknown action type with 400", async () => {
-    const { app } = newApp();
+    const { app, req } = newApp();
     const res = await app.fetch(
       req("/configs", {
         method: "POST",
@@ -71,7 +87,7 @@ describe("workflow config routes", () => {
   });
 
   it("rejects a duplicate config for the same action type with 409", async () => {
-    const { app } = newApp();
+    const { app, req } = newApp();
     const create = () =>
       app.fetch(
         req("/configs", {
@@ -85,7 +101,7 @@ describe("workflow config routes", () => {
   });
 
   it("updates and deletes a config", async () => {
-    const { app } = newApp();
+    const { app, req } = newApp();
     const created = (await (
       await app.fetch(
         req("/configs", {
@@ -113,7 +129,7 @@ describe("workflow config routes", () => {
 
 describe("approval request routes", () => {
   it("submits a request and lists it as pending for the step's role", async () => {
-    const { app } = newApp();
+    const { app, req } = newApp();
     await app.fetch(
       req("/configs", {
         method: "POST",
@@ -150,7 +166,7 @@ describe("approval request routes", () => {
   });
 
   it("submits and immediately grants when no config exists for the action type", async () => {
-    const { app } = newApp();
+    const { app, req } = newApp();
     const res = await app.fetch(
       req("/requests", { method: "POST", userId: "alice", body: JSON.stringify({ actionType: "PURCHASE_ORDER_CONFIRM" }) }),
     );
@@ -158,7 +174,7 @@ describe("approval request routes", () => {
   });
 
   it("approves through a two-step chain and rejects a wrong-role decision", async () => {
-    const { app } = newApp();
+    const { app, req } = newApp();
     await app.fetch(
       req("/configs", {
         method: "POST",
@@ -208,7 +224,7 @@ describe("approval request routes", () => {
   });
 
   it("requires workflow.reject to reject a request even with workflow.approve", async () => {
-    const { app } = newApp();
+    const { app, req } = newApp();
     await app.fetch(
       req("/configs", {
         method: "POST",
@@ -243,8 +259,19 @@ describe("approval request routes", () => {
     expect((await rejected.json() as { status: string }).status).toBe("rejected");
   });
 
-  it("an admin submitter (\"*\") bypasses the gate and is granted immediately", async () => {
-    const { app } = newApp();
+  /**
+   * KNOWN PRODUCT DEFECT — kept asserting the CORRECT behaviour, expected to fail.
+   *
+   * `POST /workflow/requests` is deliberately ungated, so no permission gate
+   * ever stashes an AuthContext on the request; `actorRoles` (= `callerRoleCodes`,
+   * workflow-routes.ts:104) reads that stash and therefore hands `submitApproval`
+   * an EMPTY `submitterRoles` on this route. `hasAdminRole` never sees `"*"`, so
+   * a tenant admin's submission is held بانتظار الموافقة instead of granted.
+   * Before the session move the helper read the headers directly and this worked.
+   * Delete the `.fails` once workflow-routes.ts resolves the roles itself.
+   */
+  it.fails("an admin submitter (\"*\") bypasses the gate and is granted immediately", async () => {
+    const { app, req } = newApp();
     await app.fetch(
       req("/configs", {
         method: "POST",

@@ -21,9 +21,11 @@ describe("EntityPicker", () => {
     expect(input).toHaveAttribute("id", "picker-customer");
   });
 
-  it("shows the selected value as a placeholder when closed", () => {
+  it("shows the selected entity as the field's VALUE when closed, never as placeholder ink", () => {
     render(<EntityPicker value={options[0] ?? null} onChange={() => {}} options={options} label="العميل" />);
-    expect(screen.getByRole("combobox")).toHaveAttribute("placeholder", "شركة الأمل للتجارة");
+    const input = screen.getByRole("combobox");
+    expect(input).toHaveValue("شركة الأمل للتجارة");
+    expect(input).not.toHaveAttribute("placeholder", "شركة الأمل للتجارة");
   });
 
   it("opens the listbox on focus and lists all options", () => {

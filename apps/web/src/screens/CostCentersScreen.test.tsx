@@ -1,10 +1,35 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { CostCenterDTO } from "@mezan/contracts";
 import { CostCentersScreen } from "./CostCentersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+
+/**
+ * `TextField` (settings/form-controls.tsx) renders a `<label>` that is never
+ * associated with its input via `for`/`id`, so `getByLabelText` can't find
+ * these fields. Fall back to the DOM structure the shared `Field` wrapper
+ * always uses: a `<label>` immediately followed by its control in the same
+ * wrapper `<div>`.
+ */
+function textFieldInput(container: HTMLElement, labelText: string): HTMLInputElement {
+  const label = within(container).getByText(labelText, { selector: "label" });
+  const input = label.parentElement?.querySelector<HTMLInputElement>("input, textarea");
+  if (!input) throw new Error(`No input control found next to label "${labelText}"`);
+  return input;
+}
+
+/**
+ * `Select` (packages/ui/src/primitives/Select.tsx) is a styled listbox, not a
+ * native `<select>` — it has no `value` to `fireEvent.change`. Open it and
+ * commit the option the same way a pointer user does: `mousedown`, since the
+ * listbox commits on `onMouseDown` rather than `click`.
+ */
+function selectOption(trigger: HTMLElement, optionLabel: string) {
+  fireEvent.click(trigger);
+  fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
 
 function costCenter(overrides: Partial<CostCenterDTO> = {}): CostCenterDTO {
   return {
@@ -100,9 +125,11 @@ describe("CostCentersScreen", () => {
   it("filters the list by type", async () => {
     renderScreen();
     await screen.findByText("الإدارة العامة");
-    fireEvent.change(screen.getByLabelText("تصفية حسب النوع"), { target: { value: "branch" } });
+    selectOption(screen.getByLabelText("تصفية حسب النوع"), "فرع");
+    // `useUrlParam`'s write is buffered onto a microtask (url-state.ts), so the
+    // filtered rows only settle after that flushes.
+    await waitFor(() => expect(screen.queryByText("الإدارة العامة")).not.toBeInTheDocument());
     expect(screen.getByText("فرع الإسكندرية")).toBeInTheDocument();
-    expect(screen.queryByText("الإدارة العامة")).not.toBeInTheDocument();
   });
 
   it("adds a new root cost center through the side panel", async () => {
@@ -111,8 +138,8 @@ describe("CostCentersScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة مركز تكلفة" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة مركز تكلفة" });
-    fireEvent.change(within(dialog).getByLabelText("الكود *"), { target: { value: "CC-099" } });
-    fireEvent.change(within(dialog).getByLabelText("الاسم *"), { target: { value: "مركز تجريبي" } });
+    fireEvent.change(textFieldInput(dialog, "الكود *"), { target: { value: "CC-099" } });
+    fireEvent.change(textFieldInput(dialog, "الاسم *"), { target: { value: "مركز تجريبي" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByText("مركز تجريبي")).toBeInTheDocument();
@@ -123,8 +150,8 @@ describe("CostCentersScreen", () => {
     await screen.findByText("الإدارة العامة");
     fireEvent.click(screen.getByRole("button", { name: "إضافة مركز تكلفة" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة مركز تكلفة" });
-    fireEvent.change(within(dialog).getByLabelText("الكود *"), { target: { value: "CC-001" } });
-    fireEvent.change(within(dialog).getByLabelText("الاسم *"), { target: { value: "نسخة" } });
+    fireEvent.change(textFieldInput(dialog, "الكود *"), { target: { value: "CC-001" } });
+    fireEvent.change(textFieldInput(dialog, "الاسم *"), { target: { value: "نسخة" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(within(dialog).getByRole("alert")).toHaveTextContent("مستخدم بالفعل");
@@ -146,7 +173,7 @@ describe("CostCentersScreen", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "تعديل" }));
 
     const dialog = screen.getByRole("dialog", { name: "تعديل مركز تكلفة" });
-    fireEvent.change(within(dialog).getByLabelText("ملاحظات"), { target: { value: "ملاحظة جديدة" } });
+    fireEvent.change(textFieldInput(dialog, "ملاحظات"), { target: { value: "ملاحظة جديدة" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     await screen.findByText("الإدارة العامة");
@@ -160,5 +187,15 @@ describe("CostCentersScreen", () => {
     const picker = within(dialog).getByLabelText("المركز الرئيسي");
     expect(picker).toHaveAttribute("role", "combobox");
     expect(picker.tagName).toBe("INPUT");
+  });
+
+  it("shows an error banner with a retry action when cost centres fail to load", async () => {
+    const transport = stubTransport({
+      "GET /cost-centers": () => ({ status: 500, body: { error: "INTERNAL" } }),
+      "GET /branches": () => ({ body: [] }),
+    });
+    renderWithProviders(<CostCentersScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل مراكز التكلفة.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 });

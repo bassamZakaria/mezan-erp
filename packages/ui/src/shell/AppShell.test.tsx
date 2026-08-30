@@ -44,14 +44,14 @@ afterEach(() => {
 });
 
 describe("AppShell — workspace column plus a two-row bar", () => {
-  it("renders the wordmark, the page children and the three navigation landmarks", () => {
+  it("renders the wordmark, the page children and the two navigation landmarks", () => {
     renderShell();
     expect(screen.getByText("ميزان")).toBeInTheDocument();
     expect(screen.getByText("محتوى الصفحة")).toBeInTheDocument();
     const names = screen.getAllByRole("navigation").map((nav) => nav.getAttribute("aria-label"));
-    expect(names).toEqual(["روابط مباشرة", "التنقل بين مساحات العمل", "شاشات مساحة العمل — الشراء والتوريد"]);
-    // Every name distinct — three landmarks called the same thing name none.
-    expect(new Set(names).size).toBe(3);
+    expect(names).toEqual(["التنقل بين مساحات العمل", "شاشات مساحة العمل — الشراء والتوريد"]);
+    // Every name distinct — two landmarks called the same thing name neither.
+    expect(new Set(names).size).toBe(2);
   });
 
   it("makes the logo and wordmark one named link to the dashboard", () => {
@@ -64,32 +64,39 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(onNavigateHome).toHaveBeenCalledOnce();
   });
 
-  it("draws a one-screen destination as a standalone link beside the tabs, not as a workspace tab", () => {
+  it("draws a one-screen destination beside the wordmark, not as a workspace tab", () => {
     const onClick = vi.fn();
     renderShell({
       directNavItems: [{ key: "approvals", label: "الموافقات", tag: { label: "3" }, onClick }],
       activeNavKey: "approvals",
     });
+    const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
     const approvals = screen.getByRole("button", { name: "الموافقات (3)" });
     // Not a workspace tab: it opens one screen and has no second row of its own.
     expect(approvals).toHaveAttribute("aria-current", "page");
-    expect(within(screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" })).queryByText("الموافقات")).toBeNull();
-    expect(approvals.closest("nav")?.getAttribute("aria-label")).toBe("روابط مباشرة");
+    expect(rail).toContainElement(approvals);
+    // It sits in the column's brand header, NOT in the workspace list beneath it.
+    expect(approvals.closest("li")).toBeNull();
+    expect(within(rail).getByRole("button", { name: "الشراء والتوريد" }).closest("li")).not.toBeNull();
     fireEvent.click(approvals);
     expect(onClick).toHaveBeenCalledOnce();
   });
 
-  it("keeps the last workspace on row two when the open screen belongs to no tab", () => {
+  it("drops row two entirely when the open screen belongs to no workspace", () => {
     const { rerender } = renderShell();
+    expect(screen.getByRole("navigation", { name: /شاشات مساحة العمل/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();
-    // Off-workspace (an approvals or settings screen): no tab is current, and
-    // row two must NOT silently swap to the first workspace.
+    // Off-workspace (an approvals or settings screen): the bar's claim is
+    // "these are the screens of the workspace you are in", and here the user is
+    // in none — an honest empty beats the last workspace's unrelated chips, and
+    // no tab may claim to be current either.
     rerender(
       <AppShell user={user} workspaceGroups={workspaceGroups} activeNavKey="approvals">
         <div>محتوى الصفحة</div>
       </AppShell>,
     );
-    expect(screen.getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: /شاشات مساحة العمل/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "لوحة المشتريات" })).toBeNull();
     const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
     expect(within(rail).queryByRole("button", { current: "page" })).toBeNull();
   });
@@ -98,8 +105,13 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     renderShell();
     const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
     const rowTwo = screen.getByRole("navigation", { name: "شاشات مساحة العمل — الشراء والتوريد" });
+    // The column lists the workspaces, all of them, in the nav config's order.
+    expect(
+      within(rail)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["البيع والتحصيل", "الشراء والتوريد", "المخزون والتصنيع"]);
     expect(within(rail).getByRole("button", { name: "الشراء والتوريد" })).toBeInTheDocument();
-    expect(within(rail).getByText("مساحات العمل")).toBeInTheDocument();
     expect(within(rowTwo).getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();
     // «كل الشاشات» lives under the column's divider, not on row two.
     expect(within(rail).getByRole("button", { name: /كل الشاشات/ })).toBeInTheDocument();
@@ -115,16 +127,20 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(document.getElementById("mz-main")?.tagName).toBe("MAIN");
   });
 
-  it("renders row two as the ACTIVE workspace's hub plus ONE DROPDOWN PER SECTION", () => {
+  it("renders row two as the ACTIVE workspace's hub, short shelves flattened, التقارير always a menu", () => {
     renderShell();
     const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
     expect(within(rowTwo).getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();
-    // Every section is a dropdown — no section's screens sit on the bar as chips…
-    expect(within(rowTwo).queryByRole("button", { name: "أوامر الشراء" })).toBeNull();
-    expect(within(rowTwo).getByRole("button", { name: "الشغل اليومي" })).toHaveAttribute("aria-haspopup", "menu");
+    // A shelf this short reads as tabs: its screens sit on the bar, and the
+    // section name is NOT drawn as a caret hiding one row.
+    const purchaseOrders = within(rowTwo).getByRole("button", { name: "أوامر الشراء" });
+    expect(purchaseOrders).not.toHaveAttribute("aria-haspopup");
+    expect(within(rowTwo).queryByRole("button", { name: "الشغل اليومي" })).toBeNull();
+    // التقارير never flattens, however few reports the workspace has today.
     const reports = within(rowTwo).getByRole("button", { name: "التقارير" });
     expect(reports).toHaveAttribute("aria-haspopup", "menu");
-    // …until one is opened.
+    expect(within(rowTwo).queryByRole("button", { name: "أعمار الموردين" })).toBeNull();
+    // …until it is opened.
     fireEvent.click(reports);
     expect(screen.getByRole("menuitem", { name: "أعمار الموردين" })).toBeInTheDocument();
   });
@@ -202,7 +218,7 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     renderShell();
     const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
     const hub = within(rowTwo).getByRole("button", { name: "لوحة المشتريات" });
-    const daily = within(rowTwo).getByRole("button", { name: "الشغل اليومي" });
+    const daily = within(rowTwo).getByRole("button", { name: "أوامر الشراء" });
     const reports = within(rowTwo).getByRole("button", { name: "التقارير" });
     hub.focus();
 
@@ -248,13 +264,17 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(within(rail).getByRole("button", { name: "البيع والتحصيل" })).toHaveAttribute("tabindex", "-1");
     const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
     expect(within(rowTwo).getByRole("button", { name: "لوحة المشتريات" })).toHaveAttribute("tabindex", "0");
-    expect(within(rowTwo).getByRole("button", { name: "الشغل اليومي" })).toHaveAttribute("tabindex", "-1");
+    expect(within(rowTwo).getByRole("button", { name: "أوامر الشراء" })).toHaveAttribute("tabindex", "-1");
   });
 
-  it("opens the command palette from row one's command bar", () => {
+  it("opens the command palette from the column's search control", () => {
     renderShell();
     expect(screen.queryByRole("listbox", { name: "لوحة الأوامر" })).not.toBeInTheDocument();
-    fireEvent.focus(screen.getByRole("combobox", { name: "لوحة الأوامر" }));
+    const trigger = screen.getByRole("button", { name: "بحث وأوامر (CtrlK)" });
+    // The shortcut is announced, not folklore.
+    expect(trigger).toHaveAttribute("aria-keyshortcuts", "Meta+K Control+K");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("combobox", { name: "لوحة الأوامر" })).toBeInTheDocument();
     expect(screen.getByRole("listbox", { name: "لوحة الأوامر" })).toBeInTheDocument();
   });
 
@@ -278,18 +298,32 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(screen.getByRole("button", { name: "التبديل إلى الإنجليزية" })).toBeInTheDocument();
   });
 
-  it("wires the branch/warehouse switchers into row one, and there is no rail to hold them", () => {
-    const branchOptions: TopbarScopeOption[] = [{ id: "BR-MAIN", label: "الفرع الرئيسي" }];
+  it("wires the branch switcher into the workspace column's foot — row one is gone", () => {
+    const branchOptions: TopbarScopeOption[] = [
+      { id: "BR-MAIN", label: "الفرع الرئيسي" },
+      { id: "BR-GIZA", label: "فرع الجيزة" },
+    ];
     const onSelectBranch = vi.fn();
     renderShell({ branchOptions, selectedBranchId: null, onSelectBranch });
     const branchSelect = screen.getByRole("combobox", { name: "الفرع الحالي" });
-    expect(branchSelect.closest("aside")).toBeNull();
-    expect(branchSelect.closest("header")).not.toBeNull();
+    expect(branchSelect.closest("header")).toBeNull();
+    expect(branchSelect.closest("nav")?.getAttribute("aria-label")).toBe("التنقل بين مساحات العمل");
     // `Select` is a portaled listbox, not a native <select>: choose by clicking
     // the option, which is the only path a real user has.
     fireEvent.click(branchSelect);
     fireEvent.mouseDown(screen.getByRole("option", { name: "الفرع الرئيسي" }));
     expect(onSelectBranch).toHaveBeenCalledWith("BR-MAIN");
+  });
+
+  /**
+   * ONE option is not a choice: a shop with a single branch met a dropdown
+   * offering «كل الفروع» and the only branch there is — two labels for one
+   * scope. It reads as a static label instead.
+   */
+  it("draws a single-branch scope as a label, not as a dropdown", () => {
+    renderShell({ branchOptions: [{ id: "BR-MAIN", label: "الفرع الرئيسي" }], selectedBranchId: null, onSelectBranch: vi.fn() });
+    expect(screen.queryByRole("combobox", { name: "الفرع الحالي" })).toBeNull();
+    expect(screen.getByTitle("الفرع الحالي: الفرع الرئيسي")).toBeInTheDocument();
   });
 
   // The bell is gone: notifications are صندوق الوارد, a pinned destination at

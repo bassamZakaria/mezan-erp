@@ -79,7 +79,7 @@ describe("price-lists router — CRUD", () => {
     expect(getRes.status).toBe(200);
     const body = (await getRes.json()) as { code: string; lines: { itemId: string; price: string }[] };
     expect(body).toMatchObject({ id: "pl1", code: "RETAIL", isBase: false, active: true });
-    expect(body.lines).toEqual([{ itemId: "item-1", price: "100.500000" }]);
+    expect(body.lines).toEqual([{ itemId: "item-1", price: "100.500000", minQty: "0.000000", unitCode: null }]);
   });
 
   it("generates an id when the create payload omits one", async () => {

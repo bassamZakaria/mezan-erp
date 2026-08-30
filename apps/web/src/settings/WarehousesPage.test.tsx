@@ -6,6 +6,13 @@ import type { BranchDTO, WarehouseDTO } from "@mezan/contracts";
 import { WarehousesPage } from "./WarehousesPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
+function textboxByLabel(container: HTMLElement, label: string): HTMLInputElement {
+  const labelNode = within(container).getByText(label);
+  const input = labelNode.parentElement?.querySelector("input, textarea");
+  if (!input) throw new Error(`no text input associated with label "${label}"`);
+  return input as HTMLInputElement;
+}
+
 const sampleBranches: BranchDTO[] = [
   { id: "b1", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
   { id: "b2", code: "ALEX", name: "فرع الإسكندرية", parentBranchId: "b1", phone: null, email: null, address: null, isMain: false, active: true },
@@ -49,18 +56,20 @@ describe("WarehousesPage", () => {
     expect(screen.getByRole("heading", { name: "المستودعات" })).toBeInTheDocument();
     expect(await screen.findByText("مستودع الفرع الرئيسي")).toBeInTheDocument();
     expect(screen.getByText("سياره نقل ١")).toBeInTheDocument();
-    // The 5 type filter chips are rendered.
+    // The 5 type filter chips are rendered as a radio group (Chip's default ARIA).
     for (const label of ["رئيسي", "مستودع وسيط", "مرتجعات", "إنتاج", "ڤان (سيارة توزيع)"]) {
-      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: label })).toBeInTheDocument();
     }
   });
 
   it("filters the list by warehouse type", async () => {
     renderScreen();
     await screen.findByText("مستودع الفرع الرئيسي");
-    fireEvent.click(screen.getByRole("button", { name: "ڤان (سيارة توزيع)" }));
+    fireEvent.click(screen.getByRole("radio", { name: "ڤان (سيارة توزيع)" }));
+    // useUrlParam's patch queues a microtask before it commits the URL param, so the
+    // filtered re-render lands a tick after the click — wait for it rather than asserting sync.
+    await waitFor(() => expect(screen.queryByText("مستودع الفرع الرئيسي")).not.toBeInTheDocument());
     expect(screen.getByText("سياره نقل ١")).toBeInTheDocument();
-    expect(screen.queryByText("مستودع الفرع الرئيسي")).not.toBeInTheDocument();
   });
 
   it("adds a new warehouse through the side panel, defaulting to type MAIN and the first branch", async () => {
@@ -69,9 +78,10 @@ describe("WarehousesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة مستودع" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة مستودع" });
-    await waitFor(() => expect(within(dialog).getByLabelText("اسم الفرع")).toHaveValue("b1"));
-    fireEvent.change(within(dialog).getByLabelText("اسم المستودع"), { target: { value: "مستودع تجريبي" } });
-    fireEvent.change(within(dialog).getByLabelText("رمز المستودع"), { target: { value: "WH-TEST" } });
+    // Defaults to the first branch: the combobox's committed value renders that branch's name.
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "اسم الفرع" })).toHaveTextContent("الفرع الرئيسي"));
+    fireEvent.change(textboxByLabel(dialog, "اسم المستودع"), { target: { value: "مستودع تجريبي" } });
+    fireEvent.change(textboxByLabel(dialog, "رمز المستودع"), { target: { value: "WH-TEST" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ المستودع" }));
 
     expect(await screen.findByText("مستودع تجريبي")).toBeInTheDocument();

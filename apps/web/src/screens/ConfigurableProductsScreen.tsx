@@ -9,7 +9,6 @@ import {
   EntityPicker,
   RowMenu,
   StatusPill,
-  SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
@@ -23,7 +22,8 @@ import {
   useItems,
   type ConfigurableProductRecord,
 } from "../data/hooks";
-import { TextField, NumberField, SelectField } from "../settings/form-controls";
+import { FormColumns, FormError, FormPage, SectionCard, TextField, NumberField, SelectField } from "../settings/form-controls";
+import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsBomComponent } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
@@ -193,7 +193,7 @@ export function ConfigurableProductsScreen() {
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const subPage = useSubPage();
   const [code, setCode] = useState("");
   const [nameAr, setNameAr] = useState("");
   const [nameEn, setNameEn] = useState("");
@@ -259,7 +259,7 @@ export function ConfigurableProductsScreen() {
     setOverheadFormula("");
     setItemPolicy("per_order");
     setFormError(null);
-    setPanelOpen(true);
+    subPage.open("new");
   }
 
   const validInputs = inputs.filter((i) => i.id.trim() !== "" && i.labelAr.trim() !== "");
@@ -292,7 +292,7 @@ export function ConfigurableProductsScreen() {
         overheadFormula: overheadFormula.trim() === "" ? null : overheadFormula.trim(),
         itemPolicy,
       });
-      setPanelOpen(false);
+      subPage.close();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("configProducts.theConfigurableProductCouldNot"));
     }
@@ -311,35 +311,73 @@ export function ConfigurableProductsScreen() {
     }
   }
 
-  const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("configProducts.newConfigurableProduct")} description={t("configProducts.defineTheInputsAndThe")}>
-      <div className="flex flex-col gap-[14px]">
-        {formError ? (
-          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-            {formError}
-          </div>
-        ) : null}
-        <div className="grid grid-cols-2 gap-[10px]">
+  const pricingSection = (
+      <SectionCard title={t("configProducts.section.pricing")}>
+      <SelectField
+        label={t("configProducts.pricingMethod")}
+        value={pricingMethod}
+        onChange={(v) => setPricingMethod(v as "manual" | "formula")}
+        options={[
+          { value: "manual", label: t("configProducts.nonePricedByHand") },
+          { value: "formula", label: t("configProducts.formula") },
+        ]}
+      />
+      {pricingMethod === "formula" ? (
+        <TextField label={t("configProducts.priceFormulaPerUnit")} value={priceFormula} onChange={setPriceFormula} placeholder="width*height*3.5/100" />
+      ) : null}
+      <TextField label={t("configProducts.labourCostFormulaPerUnit")} value={laborFormula} onChange={setLaborFormula} placeholder="width/10" />
+      <TextField label={t("configProducts.overheadFormulaPerUnit")} value={overheadFormula} onChange={setOverheadFormula} placeholder="5" />
+      <SelectField
+        label={t("configProducts.itemPolicy")}
+        value={itemPolicy}
+        onChange={(v) => setItemPolicy(v as "per_order" | "per_spec")}
+        options={[
+          { value: "per_order", label: t("configProducts.oneItemPerOrder") },
+          { value: "per_spec", label: t("configProducts.oneItemPerSpecification") },
+        ]}
+      />
+      </SectionCard>
+  );
+
+  const createPage = (
+    <FormPage
+      eyebrow={t("eyebrow.items.configurableProducts")}
+      title={t("configProducts.newConfigurableProduct")}
+      description={t("configProducts.defineTheInputsAndThe")}
+      actions={
+        <>
+          <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
+          <Button variant="primary" onClick={save} disabled={!canSave || createProduct.isPending}>
+            {t("common.save")}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <FormError message={formError} />
+
+        <FormColumns aside={pricingSection}>
+        <SectionCard title={t("configProducts.section.identity")}>
           <TextField label={t("configProducts.code")} value={code} onChange={setCode} />
           <TextField label={t("configProducts.arabicName")} value={nameAr} onChange={setNameAr} />
-        </div>
-        <TextField label={t("configProducts.englishName")} value={nameEn} onChange={setNameEn} />
-        <EntityPicker
-          label={t("configProducts.resultingProduct")}
-          value={outputItem}
-          onChange={(opt) => {
-            setOutputItem(opt);
-            const item = items.find((i) => i.id === opt?.id);
-            if (item) setUnit(item.baseUnitCode);
-          }}
-          options={itemOptions}
-          placeholder={t("configProducts.chooseTheResultingProduct")}
-        />
-        <TextField label={t("configProducts.finishedProductUnit")} value={unit} onChange={setUnit} />
-        <TextField label={t("configProducts.description")} value={description} onChange={setDescription} />
+          <TextField label={t("configProducts.englishName")} value={nameEn} onChange={setNameEn} />
+          <EntityPicker
+            label={t("configProducts.resultingProduct")}
+            value={outputItem}
+            onChange={(opt) => {
+              setOutputItem(opt);
+              const item = items.find((i) => i.id === opt?.id);
+              if (item) setUnit(item.baseUnitCode);
+            }}
+            options={itemOptions}
+            placeholder={t("configProducts.chooseTheResultingProduct")}
+          />
+          <TextField label={t("configProducts.finishedProductUnit")} value={unit} onChange={setUnit} />
+          <TextField label={t("configProducts.description")} value={description} onChange={setDescription} />
+        </SectionCard>
 
-        <div className="flex flex-col gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">{t("configProducts.configurationInputs2")}</span>
+        <SectionCard title={t("configProducts.section.inputs")} columns={1}>
+          <div className="flex flex-col gap-[10px]">
           {inputs.map((inp, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
               <div className="grid grid-cols-2 gap-[10px]">
@@ -375,11 +413,12 @@ export function ConfigurableProductsScreen() {
               ) : null}
             </div>
           ))}
-          <Button onClick={() => setInputs((prev) => [...prev, { id: "", labelAr: "", min: null, max: null }])}>{t("configProducts.addInput")}</Button>
-        </div>
+            <Button onClick={() => setInputs((prev) => [...prev, { id: "", labelAr: "", min: null, max: null }])}>{t("configProducts.addInput")}</Button>
+          </div>
+        </SectionCard>
 
-        <div className="flex flex-col gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">{t("configProducts.manufacturingMaterials2")}</span>
+        <SectionCard title={t("configProducts.section.materials")} columns={1}>
+          <div className="flex flex-col gap-[10px]">
           {materials.map((m, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
               <EntityPicker
@@ -410,42 +449,16 @@ export function ConfigurableProductsScreen() {
               ) : null}
             </div>
           ))}
-          <Button onClick={() => setMaterials((prev) => [...prev, { itemId: "", qtyFormula: "", wastePercent: 0 }])}>{t("configProducts.addMaterial")}</Button>
-        </div>
+            <Button onClick={() => setMaterials((prev) => [...prev, { itemId: "", qtyFormula: "", wastePercent: 0 }])}>{t("configProducts.addMaterial")}</Button>
+          </div>
+        </SectionCard>
 
-        <SelectField
-          label={t("configProducts.pricingMethod")}
-          value={pricingMethod}
-          onChange={(v) => setPricingMethod(v as "manual" | "formula")}
-          options={[
-            { value: "manual", label: t("configProducts.nonePricedByHand") },
-            { value: "formula", label: t("configProducts.formula") },
-          ]}
-        />
-        {pricingMethod === "formula" ? (
-          <TextField label={t("configProducts.priceFormulaPerUnit")} value={priceFormula} onChange={setPriceFormula} placeholder="width*height*3.5/100" />
-        ) : null}
-        <TextField label={t("configProducts.labourCostFormulaPerUnit")} value={laborFormula} onChange={setLaborFormula} placeholder="width/10" />
-        <TextField label={t("configProducts.overheadFormulaPerUnit")} value={overheadFormula} onChange={setOverheadFormula} placeholder="5" />
-        <SelectField
-          label={t("configProducts.itemPolicy")}
-          value={itemPolicy}
-          onChange={(v) => setItemPolicy(v as "per_order" | "per_spec")}
-          options={[
-            { value: "per_order", label: t("configProducts.oneItemPerOrder") },
-            { value: "per_spec", label: t("configProducts.oneItemPerSpecification") },
-          ]}
-        />
-
-        <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={save} disabled={!canSave || createProduct.isPending}>
-            {t("common.save")}
-          </Button>
-        </div>
+        </FormColumns>
       </div>
-    </SidePanel>
+    </FormPage>
   );
+
+  if (subPage.segments[0] === "new") return createPage;
 
   if (selected) {
     return (
@@ -462,7 +475,6 @@ export function ConfigurableProductsScreen() {
           onDeactivate={() => void deactivate(selected.id)}
           deactivating={pendingId === selected.id}
         />
-        {panel}
       </>
     );
   }
@@ -549,7 +561,6 @@ export function ConfigurableProductsScreen() {
           )
         }
       />
-      {panel}
     </>
   );
 }

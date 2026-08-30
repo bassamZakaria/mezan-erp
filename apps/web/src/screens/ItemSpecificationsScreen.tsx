@@ -6,12 +6,12 @@ import {
   DocumentList,
   EmptyState,
   IconButton,
-  SidePanel,
   StatusPill,
   type DocumentListColumn,
 } from "@mezan/ui";
 import type { ItemSpecificationDTO, ItemSpecificationTypeDTO } from "@mezan/contracts";
-import { SelectField, TextField, ToggleField } from "../settings/form-controls";
+import { FormColumns, FormError, FormPage, SectionCard, SelectField, TextField, ToggleField } from "../settings/form-controls";
+import { useSubPage } from "../navigation";
 import {
   useCreateItemSpecification,
   useDeleteItemSpecification,
@@ -106,60 +106,29 @@ function valuesCell(specification: ItemSpecificationDTO, noUnitLabel: string) {
   return <span className="text-ink-faint">—</span>;
 }
 
-export function ItemSpecificationsScreen() {
+/**
+ * The create/edit form as its own PAGE, mounted per address.
+ *
+ * The draft is seeded from `specification` at MOUNT rather than pushed in by
+ * an `openEdit` click, which is what lets `…/item-specifications/COLOR` be
+ * reloaded, bookmarked and reached with Back. A panel opened by a click holds
+ * only the state that click set, and a reload emptied it.
+ */
+function SpecificationFormPage({
+  specification,
+  onClose,
+}: {
+  specification: ItemSpecificationDTO | null;
+  onClose: () => void;
+}) {
   const { t } = useAppTranslation();
-  const query = useItemSpecifications();
   const createSpecification = useCreateItemSpecification();
   const updateSpecification = useUpdateItemSpecification();
-  const deleteSpecification = useDeleteItemSpecification();
-
-  const specifications = query.data ?? EMPTY;
-
-  const [searchText, setSearchText, search] = useUrlSearch();
-  const [typeFilter, setTypeFilter] = useUrlParam("type", "all") as [
-    ItemSpecificationTypeDTO | "all",
-    (next: string) => void,
-  ];
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [editingCode, setEditingCode] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>(blankDraft());
+  const [draft, setDraft] = useState<Draft>(specification ? draftOf(specification) : blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
-  const [deletingCode, setDeletingCode] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
-  const [page, setPage] = useUrlNumber("page", 1);
-  const [pageSize, setPageSize] = useUrlNumber("size", 25);
+  const editingCode = specification?.code ?? null;
 
-  const filtered = useMemo(() => {
-    let rows = specifications;
-    if (typeFilter !== "all") rows = rows.filter((s) => s.type === typeFilter);
-    const q = search.trim();
-    if (q !== "") {
-      rows = rows.filter((s) => matchesSearch(q, s.code, s.nameAr));
-    }
-    return rows;
-  }, [specifications, typeFilter, search]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
-  useEffect(() => {
-    if (page > pageCount) setPage(1);
-  }, [page, pageCount, setPage]);
-
-  function openCreate() {
-    setEditingCode(null);
-    setDraft(blankDraft());
-    setFormError(null);
-    setPanelOpen(true);
-  }
-
-  function openEdit(specification: ItemSpecificationDTO) {
-    setEditingCode(specification.code);
-    setDraft(draftOf(specification));
-    setFormError(null);
-    setPanelOpen(true);
-  }
-
-  async function submit(event: FormEvent) {
+  async function submitForm(event: FormEvent) {
     event.preventDefault();
     const error = validate(draft);
     if (error) {
@@ -194,10 +163,141 @@ export function ItemSpecificationsScreen() {
           filterable: draft.filterable,
         });
       }
-      setPanelOpen(false);
+      onClose();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("common.failed"));
     }
+  }
+
+  return (
+    <FormPage
+      eyebrow={t("eyebrow.items.specifications")}
+      title={editingCode ? t("specs.editSpecification") : t("specs.newSpecification")}
+      description={t("specs.typeAndCodeAreFixed")}
+      actions={
+        <>
+          <Button type="button" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="submit"
+            form="specification-form"
+            variant="primary"
+            disabled={createSpecification.isPending || updateSpecification.isPending}
+          >
+            {t("common.save")}
+          </Button>
+        </>
+      }
+    >
+      <form id="specification-form" onSubmit={submitForm} className="flex flex-col gap-4">
+        <FormError message={formError} />
+
+        <FormColumns
+          aside={
+            <SectionCard title={t("specs.section.behaviour")} columns={1}>
+              <ToggleField
+                label={t("specs.filterableInTheCatalogue")}
+                checked={draft.filterable}
+                onChange={(v) => setDraft((d) => ({ ...d, filterable: v }))}
+              />
+              <ToggleField
+                label={t("specs.active")}
+                checked={draft.active}
+                onChange={(v) => setDraft((d) => ({ ...d, active: v }))}
+              />
+            </SectionCard>
+          }
+        >
+        <SectionCard title={t("specs.section.definition")}>
+          <TextField
+            label={t("specs.code")}
+            value={draft.code}
+            onChange={(v) => setDraft((d) => ({ ...d, code: v.toUpperCase() }))}
+            disabled={editingCode !== null}
+            hint={t("specs.capitalLettersDigitsOr")}
+          />
+          <SelectField
+            label={t("common.type")}
+            value={draft.type}
+            onChange={(v) => setDraft((d) => ({ ...d, type: v as ItemSpecificationTypeDTO }))}
+            options={TYPE_VALUES.map((value) => ({ value, label: t(TYPE_KEY[value]) }))}
+            disabled={editingCode !== null}
+          />
+          <TextField
+            label={t("specs.arabicName")}
+            value={draft.nameAr}
+            onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))}
+          />
+          <TextField
+            label={t("specs.englishName")}
+            value={draft.nameEn}
+            onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))}
+          />
+          {draft.type === "select" ? (
+            <TextField
+              label={t("specs.allowedValues")}
+              value={draft.values}
+              onChange={(v) => setDraft((d) => ({ ...d, values: v }))}
+              placeholder={t("specs.redGreenBlue")}
+              hint={t("specs.separateValuesWithCommas")}
+            />
+          ) : null}
+          {draft.type === "number" ? (
+            <TextField
+              label={t("common.unit")}
+              value={draft.unit}
+              onChange={(v) => setDraft((d) => ({ ...d, unit: v }))}
+              placeholder={t("specs.kg")}
+            />
+          ) : null}
+        </SectionCard>
+        </FormColumns>
+      </form>
+    </FormPage>
+  );
+}
+
+export function ItemSpecificationsScreen() {
+  const { t } = useAppTranslation();
+  const query = useItemSpecifications();
+  const deleteSpecification = useDeleteItemSpecification();
+
+  const specifications = query.data ?? EMPTY;
+
+  const [searchText, setSearchText, search] = useUrlSearch();
+  const [typeFilter, setTypeFilter] = useUrlParam("type", "all") as [
+    ItemSpecificationTypeDTO | "all",
+    (next: string) => void,
+  ];
+  const subPage = useSubPage();
+  const [deletingCode, setDeletingCode] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+  const [page, setPage] = useUrlNumber("page", 1);
+  const [pageSize, setPageSize] = useUrlNumber("size", 25);
+
+  const filtered = useMemo(() => {
+    let rows = specifications;
+    if (typeFilter !== "all") rows = rows.filter((s) => s.type === typeFilter);
+    const q = search.trim();
+    if (q !== "") {
+      rows = rows.filter((s) => matchesSearch(q, s.code, s.nameAr));
+    }
+    return rows;
+  }, [specifications, typeFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount, setPage]);
+
+  function openCreate() {
+    subPage.open("new");
+  }
+
+  function openEdit(specification: ItemSpecificationDTO) {
+    subPage.open(specification.code);
   }
 
   async function remove(specification: ItemSpecificationDTO) {
@@ -270,6 +370,30 @@ export function ItemSpecificationsScreen() {
       ),
     },
   ];
+
+  /**
+   * `new` creates; any other segment is a specification CODE to edit. The
+   * record must be in hand before the form mounts — it seeds the draft — so a
+   * code still loading renders the wait, and one that never resolves says so
+   * rather than silently opening a blank create form.
+   */
+  const [segment] = subPage.segments;
+  if (segment === "new") return <SpecificationFormPage specification={null} onClose={subPage.close} />;
+  if (segment !== undefined) {
+    const editing = specifications.find((row) => row.code === segment);
+    if (editing) return <SpecificationFormPage specification={editing} onClose={subPage.close} />;
+    if (query.isLoading) return <div className="w-full p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>;
+    return (
+      <div className="w-full p-8 text-center text-sm text-ink-muted">
+        {t("specs.notFound")}
+        <div className="mt-3">
+          <Button variant="default" onClick={subPage.close}>
+            {t("specs.backToList")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full">
@@ -356,88 +480,6 @@ export function ItemSpecificationsScreen() {
         }
       />
 
-      <SidePanel
-        open={panelOpen}
-        onClose={() => setPanelOpen(false)}
-        title={editingCode ? t("specs.editSpecification") : t("specs.newSpecification")}
-        description={t("specs.typeAndCodeAreFixed")}
-      >
-        <form onSubmit={submit} className="flex flex-col gap-[14px] p-5">
-          {formError ? (
-            <div
-              role="alert"
-              className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink"
-            >
-              {formError}
-            </div>
-          ) : null}
-
-          <TextField
-            label={t("specs.code")}
-            value={draft.code}
-            onChange={(v) => setDraft((d) => ({ ...d, code: v.toUpperCase() }))}
-            disabled={editingCode !== null}
-            hint={t("specs.capitalLettersDigitsOr")}
-          />
-          <TextField
-            label={t("specs.arabicName")}
-            value={draft.nameAr}
-            onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))}
-          />
-          <TextField
-            label={t("specs.englishName")}
-            value={draft.nameEn}
-            onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))}
-          />
-          <SelectField
-            label={t("common.type")}
-            value={draft.type}
-            onChange={(v) => setDraft((d) => ({ ...d, type: v as ItemSpecificationTypeDTO }))}
-            options={TYPE_VALUES.map((value) => ({ value, label: t(TYPE_KEY[value]) }))}
-            disabled={editingCode !== null}
-          />
-          {draft.type === "select" ? (
-            <TextField
-              label={t("specs.allowedValues")}
-              value={draft.values}
-              onChange={(v) => setDraft((d) => ({ ...d, values: v }))}
-              placeholder={t("specs.redGreenBlue")}
-              hint={t("specs.separateValuesWithCommas")}
-            />
-          ) : null}
-          {draft.type === "number" ? (
-            <TextField
-              label={t("common.unit")}
-              value={draft.unit}
-              onChange={(v) => setDraft((d) => ({ ...d, unit: v }))}
-              placeholder={t("specs.kg")}
-            />
-          ) : null}
-          <ToggleField
-            label={t("specs.filterableInTheCatalogue")}
-            checked={draft.filterable}
-            onChange={(v) => setDraft((d) => ({ ...d, filterable: v }))}
-          />
-          <ToggleField
-            label={t("specs.active")}
-            checked={draft.active}
-            onChange={(v) => setDraft((d) => ({ ...d, active: v }))}
-          />
-
-          <div className="flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setPanelOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={createSpecification.isPending || updateSpecification.isPending}
-            >
-              {t("common.save")}
-            </Button>
-          </div>
-        </form>
-      </SidePanel>
     </div>
   );
 }

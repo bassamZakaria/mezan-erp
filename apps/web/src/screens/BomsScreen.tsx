@@ -9,7 +9,6 @@ import {
   Money as MoneyValue,
   RowMenu,
   StatusPill,
-  SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
@@ -18,7 +17,8 @@ import {
 } from "@mezan/ui";
 import { useBoms, useCreateBom, useDeactivateBom, useItems, type BomRecord } from "../data/hooks";
 import { useUnitLabel } from "../lib/item-labels";
-import { TextField, NumberField, SelectField } from "../settings/form-controls";
+import { FormColumns, FormError, FormPage, SectionCard, TextField, NumberField, SelectField } from "../settings/form-controls";
+import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsBomComponent } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
@@ -158,7 +158,7 @@ export function BomsScreen() {
   const [productFilter, setProductFilter] = useState("");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const subPage = useSubPage();
   const [product, setProduct] = useState<EntityPickerOption | null>(null);
   const [standardQty, setStandardQty] = useState(1);
   const [unit, setUnit] = useState("PCS");
@@ -216,7 +216,7 @@ export function BomsScreen() {
     setVersionNotes("");
     setLines([{ itemId: "", qty: 1, wastePercent: 0 }]);
     setFormError(null);
-    setPanelOpen(true);
+    subPage.open("new");
   }
 
   const canSave = product !== null && lines.some((l) => l.itemId !== "" && l.qty > 0);
@@ -237,7 +237,7 @@ export function BomsScreen() {
           .filter((l) => l.itemId !== "" && l.qty > 0)
           .map((l) => ({ itemId: l.itemId, qty: String(l.qty), wastePercent: l.wastePercent })),
       });
-      setPanelOpen(false);
+      subPage.close();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("boms.theBillOfMaterialsCould"));
     }
@@ -251,36 +251,50 @@ export function BomsScreen() {
     }
   }
 
-  const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("boms.newBillOfMaterials")} description={t("boms.chooseTheFinishedProductAnd")}>
-      <div className="flex flex-col gap-[14px]">
-        {formError ? (
-          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-            {formError}
-          </div>
-        ) : null}
-        <EntityPicker
-          label={t("boms.finishedProduct2")}
-          value={product}
-          onChange={(opt) => {
-            setProduct(opt);
-            const item = items.find((i) => i.id === opt?.id);
-            if (item) setUnit(item.baseUnitCode);
-          }}
-          options={itemOptions}
-          placeholder={t("boms.chooseTheFinishedProduct")}
-        />
-        <div className="grid grid-cols-2 gap-[10px]">
+  const createPage = (
+    <FormPage
+      eyebrow={t("eyebrow.items.boms")}
+      title={t("boms.newBillOfMaterials")}
+      description={t("boms.chooseTheFinishedProductAnd")}
+      actions={
+        <>
+          <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
+          <Button variant="primary" onClick={save} disabled={!canSave || createBom.isPending}>
+            {t("boms.saveBillOfMaterials")}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <FormError message={formError} />
+
+        <FormColumns
+          aside={
+            <SectionCard title={t("boms.section.costs")} columns={1}>
+              <NumberField label={t("boms.labourCost")} value={laborCost} min={0} onChange={setLaborCost} />
+              <NumberField label={t("boms.overheadCost")} value={overheadCost} min={0} onChange={setOverheadCost} />
+            </SectionCard>
+          }
+        >
+        <SectionCard title={t("boms.section.product")}>
+          <EntityPicker
+            label={t("boms.finishedProduct2")}
+            value={product}
+            onChange={(opt) => {
+              setProduct(opt);
+              const item = items.find((i) => i.id === opt?.id);
+              if (item) setUnit(item.baseUnitCode);
+            }}
+            options={itemOptions}
+            placeholder={t("boms.chooseTheFinishedProduct")}
+          />
           <NumberField label={t("boms.standardQuantity")} value={standardQty} min={0} onChange={setStandardQty} />
           <TextField label={t("common.unit")} value={unit} onChange={setUnit} />
-        </div>
-        <div className="grid grid-cols-2 gap-[10px]">
-          <NumberField label={t("boms.labourCost")} value={laborCost} min={0} onChange={setLaborCost} />
-          <NumberField label={t("boms.overheadCost")} value={overheadCost} min={0} onChange={setOverheadCost} />
-        </div>
-        <TextField label={t("boms.versionNotes")} value={versionNotes} onChange={setVersionNotes} />
-        <div className="flex flex-col gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">{t("boms.rawMaterialLines")}</span>
+          <TextField label={t("boms.versionNotes")} value={versionNotes} onChange={setVersionNotes} />
+        </SectionCard>
+
+        <SectionCard title={t("boms.section.lines")} columns={1}>
+          <div className="flex flex-col gap-[10px]">
           {lines.map((line, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
               <EntityPicker
@@ -306,17 +320,15 @@ export function BomsScreen() {
               ) : null}
             </div>
           ))}
-          <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, wastePercent: 0 }])}>{t("boms.addItem")}</Button>
-        </div>
-        <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={save} disabled={!canSave || createBom.isPending}>
-            {t("boms.saveBillOfMaterials")}
-          </Button>
-        </div>
+            <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, wastePercent: 0 }])}>{t("boms.addItem")}</Button>
+          </div>
+        </SectionCard>
+        </FormColumns>
       </div>
-    </SidePanel>
+    </FormPage>
   );
+
+  if (subPage.segments[0] === "new") return createPage;
 
   if (selected) {
     return (
@@ -329,7 +341,6 @@ export function BomsScreen() {
           onDeactivate={() => deactivate(selected.id)}
           deactivating={deactivateBom.isPending}
         />
-        {panel}
       </>
     );
   }
@@ -417,7 +428,6 @@ export function BomsScreen() {
           )
         }
       />
-      {panel}
     </>
   );
 }

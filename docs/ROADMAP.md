@@ -446,7 +446,7 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**Fifty-three filed 2026-08-30 by the test-coverage pass** (D66–D118). D109 is the most serious: an unauthenticated device on the shop wifi can post to the books. D99 is the most serious: a live, ungated journal-posting route. They were found by
+**Fifty-seven filed 2026-08-30 by the test-coverage pass** (D66–D122). D109 is the most serious: an unauthenticated device on the shop wifi can post to the books. D99 is the most serious: a live, ungated journal-posting route. They were found by
 writing tests and manual scenarios against the real code, so each carries a file reference
 rather than a feeling. The ones marked **guarded** already have a passing test that pins the
 current behaviour and will go red the day it changes; the ones marked **reported** still
@@ -507,6 +507,10 @@ need a measured reading in the running app before anyone fixes them.
 | D116 | Roughly a third of the permission catalogue gates nothing. The entire POS module (33 codes) has no route at all; eleven treasury codes, `sales.invoice.void`, `sales.customer.merge`, `crm.lead.assign`, `hr.payroll.run`, `installments.collect` and others gate nothing either. An admin can tick any of them in the role editor and the product does not change — and a confirmed sales invoice cannot be voided through any route, only a draft cancelled | `packages/domain/src/permissions/catalog.ts` vs `packages/api/src/*-routes.ts` | guarded (`permission-catalog-coverage.test.ts`) |
 | D117 | Nothing stops the last company admin being deactivated or demoted. `saveUser` and `setUserStatus` have no last-admin check, so a departing employee holding `admin.users.deactivate` — or one fat-fingered click — can lock the shop out of its own books with no way back through the product | `packages/domain/src/users/save-user.ts` | reported |
 | D118 | `PUT /users/:id` lets a caller holding only `admin.users.edit` set their own `branchScope` and `warehouseScope` to `*`, defeating every read-narrowing the app applies. The same shape as D86, for scope rather than the admin flag | `packages/api/src/users-routes.ts` | reported |
+| D119 | **An instalment can never be collected.** The catalogue defines `installments.collect` and `installments.collection.create`; the router mounts a route for neither, and nothing in the codebase ever writes `InstallmentLine.paidAmount` after the schedule is generated. The whole follow-up queue tracks money that the product has no way to receive | `packages/api/src/installments-routes.ts` | guarded (`installments-routes.test.ts`) |
+| D120 | Cancelling an instalment plan flips the document's status and never its lines — nothing anywhere produces the `cancelled` line status the enum declares — so `/plans/stats` keeps reporting a cancelled plan's full scheduled and remaining amounts as live money | `packages/api/src/installments-routes.ts` | guarded |
+| D121 | The ETA payload that will actually be filed is built and stored on the submission, and no route ever returns it: `serializeSubmission` omits it and there is no `GET /submissions/:id`. Nobody — screen or auditor — can inspect what is about to go to the authority | `packages/api/src/eta-routes.ts` | guarded |
+| D122 | D77's root cause, located: the enqueue bridge reacts only to a `DOCUMENT_CONFIRMED` event whose `docType` is `SALES_INVOICE`, so confirmed sales and purchase RETURNS never reach the queue at all — the queue itself handles credit and debit notes correctly when fed directly | `packages/backend/src/create-backend.ts` | guarded at the boundary |
 
 D1–D65 are closed; the register is `archive/defect-register.md`.
 

@@ -39,3 +39,10 @@ docs/artifacts/trail-pack.html
 
 # scratch DB for the router-migration worktree
 router-dev.db*
+
+# Local development database — a real SQLite file with user rows and
+# credential hashes in it. Never a repo artefact.
+dev.db
+dev.db-*
+sec.db
+sec.db-*

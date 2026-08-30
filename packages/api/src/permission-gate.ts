@@ -52,6 +52,22 @@ function unauthenticated(c: Parameters<MiddlewareHandler>[0]) {
   );
 }
 
+/**
+ * A gate that asks only "is this somebody?" — no permission code.
+ *
+ * For routes whose authority IS the session: a till reporting its own device,
+ * a stream it subscribes to for itself. Without it such a route had to either
+ * invent a permission nobody is granted, or stay open to the network.
+ */
+export function createAuthenticatedGate(resolveAuthContext: AuthContextResolver): MiddlewareHandler {
+  return async function authenticatedGate(c, next) {
+    const ctx = await resolveAuthContext(c);
+    if (!ctx.authenticated) return unauthenticated(c);
+    c.set(AUTH_CONTEXT_KEY, ctx);
+    await next();
+  };
+}
+
 export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
   return function gate(permission: string): MiddlewareHandler {
     return async function permissionGate(c, next) {

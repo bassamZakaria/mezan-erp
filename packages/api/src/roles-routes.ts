@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import {
   saveRole,
   deleteRole,
+  ungrantablePermissions,
   UnknownPermissionError,
   UnlicensedPermissionError,
   DuplicateRoleCodeError,
@@ -13,7 +14,12 @@ import {
   type UnitOfWork,
 } from "@mezan/domain";
 import { createRoleSchema, updateRoleSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import {
+  createPermissionGate,
+  getAuthContext,
+  headerAuthContextResolver,
+  type AuthContextResolver,
+} from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import type { EntitlementsResolver } from "./module-gate.js";
 
@@ -90,6 +96,27 @@ export function createRolesRoutes(
     });
   }
 
+  /**
+   * A role is a bundle of authority, so writing one is a GRANT. `admin.roles.manage`
+   * says the caller may curate roles; it does not say which permissions they may
+   * put in one. Without this, the shortest path to `"*"` on this whole system was
+   * for a role manager to rewrite their own role's permission list — measured, and
+   * it worked.
+   */
+  function refuseUngrantable(c: Context, permissions: readonly string[]) {
+    const ctx = getAuthContext(c);
+    const ungrantable = ctx ? ungrantablePermissions(ctx, permissions) : [...permissions];
+    if (ungrantable.length === 0) return null;
+    return c.json(
+      {
+        error: "PRIVILEGE_ESCALATION_DENIED",
+        permissions: ungrantable,
+        message: "لا يمكنك منح صلاحيات لا تملكها.",
+      },
+      403,
+    );
+  }
+
   app.get("/", gate("admin.roles.view"), async (c) => {
     const roles = await uow.roles.list();
     return c.json(roles.map(serializeRole));
@@ -106,6 +133,8 @@ export function createRolesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const escalation = refuseUngrantable(c, parsed.data.permissions);
+    if (escalation) return escalation;
     const entitlements = await resolveEntitlements(c);
     if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);
     try {
@@ -126,11 +155,20 @@ export function createRolesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const escalation = refuseUngrantable(c, parsed.data.permissions);
+    if (escalation) return escalation;
     const entitlements = await resolveEntitlements(c);
     if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);
     // Read BEFORE the write: an after-only record cannot answer "what did this
     // role gain?", which is the only question an auditor asks of a role edit.
     const before = await uow.roles.findById(c.req.param("id"));
+    // The permissions a role ALREADY holds are authority too: stripping them
+    // from a role the caller cannot itself hold is a privilege change on every
+    // account that carries it.
+    if (before) {
+      const outranks = refuseUngrantable(c, before.permissions);
+      if (outranks) return outranks;
+    }
     try {
       const role = await saveRole(
         { id: c.req.param("id"), ...parsed.data, createdAt: new Date().toISOString() },

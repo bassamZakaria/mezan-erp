@@ -2,6 +2,10 @@ import { Hono, type Context } from "hono";
 import {
   saveUser,
   setUserStatus,
+  isTenantAdmin,
+  targetOutranksCaller,
+  ungrantablePermissions,
+  type AccountAuthority,
   InvalidUserError,
   DuplicateUserEmailError,
   EmailDomainNotAllowedError,
@@ -13,7 +17,12 @@ import {
   type SecretHasher,
 } from "@mezan/domain";
 import { createUserSchema, updateUserSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import {
+  createPermissionGate,
+  getAuthContext,
+  headerAuthContextResolver,
+  type AuthContextResolver,
+} from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 
 function serializeUser(user: User) {
@@ -106,6 +115,62 @@ export function createUsersRoutes(
   }
   const saveOptions = async () => ({ allowedEmailDomains: (await readAllowedEmailDomains?.()) ?? [] });
 
+  /**
+   * The authority an account carries — the admin flag plus whatever its role
+   * grants. Read from the ROLE STORE, never from the request: the caller names
+   * a roleId, and what that id is worth is the server's to say.
+   */
+  async function authorityOf(account: { roleId: string | null; isCompanyAdmin: boolean }): Promise<AccountAuthority> {
+    if (!account.roleId) return { isCompanyAdmin: account.isCompanyAdmin, permissions: [] };
+    const role = await uow.roles.findById(account.roleId);
+    return { isCompanyAdmin: account.isCompanyAdmin, permissions: role ? [...role.permissions] : [] };
+  }
+
+  function refuseGrant(c: Context, permissions: readonly string[]) {
+    return c.json(
+      {
+        error: "PRIVILEGE_ESCALATION_DENIED",
+        permissions: [...permissions],
+        message: "لا يمكنك منح صلاحيات لا تملكها.",
+      },
+      403,
+    );
+  }
+
+  function refuseOutranked(c: Context) {
+    return c.json(
+      {
+        error: "PRIVILEGE_ESCALATION_DENIED",
+        message: "لا يمكنك تعديل حساب صلاحياته أوسع من صلاحياتك.",
+      },
+      403,
+    );
+  }
+
+  /**
+   * The second half of authorization, and the half that was missing: the gate
+   * says the caller may edit users, this says WHICH authority they may hand
+   * out. Returns a refusal response, or null when the grant is within reach.
+   */
+  async function refuseIfEscalating(c: Context, granted: { roleId: string | null; isCompanyAdmin: boolean }) {
+    const ctx = getAuthContext(c);
+    if (!ctx) return refuseOutranked(c);
+    const authority = await authorityOf(granted);
+    if (authority.isCompanyAdmin && !isTenantAdmin(ctx)) return refuseGrant(c, ["*"]);
+    const ungrantable = ungrantablePermissions(ctx, authority.permissions);
+    if (ungrantable.length > 0) return refuseGrant(c, ungrantable);
+    return null;
+  }
+
+  /** Refuses any write against an account that already outranks the caller. */
+  async function refuseIfTargetOutranks(c: Context, targetId: string) {
+    const ctx = getAuthContext(c);
+    const target = await uow.users.findById(targetId);
+    if (!target) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+    if (!ctx || targetOutranksCaller(ctx, await authorityOf(target))) return refuseOutranked(c);
+    return null;
+  }
+
   app.get("/", gate("admin.users.view"), async (c) => {
     const users = await uow.users.list();
     return c.json(users.map(serializeUser));
@@ -122,6 +187,8 @@ export function createUsersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const escalation = await refuseIfEscalating(c, parsed.data);
+    if (escalation) return escalation;
     try {
       const user = await saveUser(
         { id: crypto.randomUUID(), ...parsed.data, createdAt: new Date().toISOString() },
@@ -143,9 +210,18 @@ export function createUsersRoutes(
     }
     // Read before the write: "role changed" is only evidence with both ends.
     const before = await uow.users.findById(c.req.param("id"));
+    // A PUT is an EDIT. Letting an unknown id fall through created the account
+    // instead, so a caller-chosen id was a second, unaudited create route.
+    if (!before) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+    const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
+    if (outranked) return outranked;
+    const escalation = await refuseIfEscalating(c, parsed.data);
+    if (escalation) return escalation;
     try {
       const user = await saveUser(
-        { id: c.req.param("id"), ...parsed.data, createdAt: new Date().toISOString() },
+        // The account keeps the date it was created on; stamping `now` here
+        // reset it on every edit.
+        { id: c.req.param("id"), ...parsed.data, createdAt: before.createdAt },
         uow,
         hasher,
         await saveOptions(),
@@ -158,6 +234,8 @@ export function createUsersRoutes(
   });
 
   app.post("/:id/deactivate", gate("admin.users.deactivate"), async (c) => {
+    const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
+    if (outranked) return outranked;
     try {
       const user = await setUserStatus(c.req.param("id"), "inactive", uow);
       await auditUser(c, user, "DEACTIVATE");
@@ -168,6 +246,8 @@ export function createUsersRoutes(
   });
 
   app.post("/:id/activate", gate("admin.users.edit"), async (c) => {
+    const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
+    if (outranked) return outranked;
     try {
       const user = await setUserStatus(c.req.param("id"), "active", uow);
       await auditUser(c, user, "ACTIVATE");

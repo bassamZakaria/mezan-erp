@@ -9,6 +9,6 @@
   "dependencies": {
     "@mezan/domain": "workspace:*",
     "better-sqlite3": "^11.7.0",
-    "drizzle-orm": "^0.38.2"
+    "drizzle-orm": "^0.45.2"
   }
 }

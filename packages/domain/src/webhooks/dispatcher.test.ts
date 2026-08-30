@@ -89,8 +89,8 @@ function domainEvent(overrides: Partial<DomainEvent> = {}): DomainEvent {
 
 let idCounter = 0;
 function freshDeps(overrides: Partial<{
-  webhooks: WebhookRepository;
-  deliveries: WebhookDeliveryRepository;
+  webhooks: FakeWebhookRepository;
+  deliveries: FakeDeliveryRepository;
   transport: WebhookTransportPort;
 }> = {}) {
   idCounter = 0;

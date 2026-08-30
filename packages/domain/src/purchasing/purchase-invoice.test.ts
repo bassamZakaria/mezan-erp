@@ -57,6 +57,14 @@ class RecordingAllocatable implements AllocatableInvoiceRepository {
   async listOpen(): Promise<readonly AllocatableInvoice[]> {
     return this.saved;
   }
+  async allocatedByIds(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {
+    const out = new Map<string, Money>();
+    for (const id of ids) {
+      const invoice = this.saved.find((s) => s.id === id);
+      if (invoice) out.set(id, invoice.allocated);
+    }
+    return out;
+  }
 }
 
 function poBase() {

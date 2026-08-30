@@ -64,7 +64,7 @@ describe("createApiKey — happy path", () => {
   it("accepts multiple distinct known permission scopes — grants no more than exactly those", async () => {
     const repo = new FakeApiKeyRepository();
     const key = await createApiKey(cmd({ scopes: ["sales.invoice.view", "sales.invoice.create"] }), repo, hasher);
-    expect(key.scopes.sort()).toEqual(["sales.invoice.create", "sales.invoice.view"].sort());
+    expect([...key.scopes].sort()).toEqual(["sales.invoice.create", "sales.invoice.view"].sort());
     expect(key.scopes).not.toContain("*");
   });
 });

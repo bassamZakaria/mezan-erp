@@ -133,8 +133,8 @@ describe("describeSalesInvoiceEffects", () => {
     const inv = invoice({ lines });
     const totals = computeInvoiceTotals(lines, inv.discount, { taxExempt: inv.customerTaxExempt });
     const effects = describeSalesInvoiceEffects(inv, totals);
-    expect(effects.totalDebit.toString()).toBe(totals.grandTotal.toString());
-    expect(effects.totalCredit.toString()).toBe(totals.grandTotal.toString());
+    expect(effects.totalDebit?.toString()).toBe(totals.grandTotal.toString());
+    expect(effects.totalCredit?.toString()).toBe(totals.grandTotal.toString());
     expect(effects.balanced).toBe(true);
   });
 });

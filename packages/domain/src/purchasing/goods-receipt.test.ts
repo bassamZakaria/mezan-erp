@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
+import type { PurchaseGlAccounts } from "./types.js";
 import {
   createGoodsReceipt,
   confirmGoodsReceipt,
@@ -183,19 +184,36 @@ describe("goods receipt — receiving lifecycle", () => {
 });
 
 describe("goods receipt — GL posting (both stock and control account)", () => {
-  const ACCOUNTS = { inventoryAccountId: "1300-inventory", goodsReceivedNotInvoicedAccountId: "2150-grni" };
+  const ACCOUNTS: PurchaseGlAccounts = {
+    inventoryAccountId: "1300-inventory",
+    payableAccountId: "2100-payables",
+    taxAccountId: "1360-input-vat",
+    goodsReceivedNotInvoicedAccountId: "2150-grni",
+  };
 
   it("buildGoodsReceiptPosting: Dr Inventory / Cr GRNI, balanced, equal to the receipt's own total", () => {
     const receipt = {
       id: "gr-1",
       number: "GR-000001",
       date: "2026-08-22",
+      purchaseOrderId: "po-1",
+      supplierId: "sup-1",
+      branchId: "MAIN",
+      warehouseId: WH,
+      status: "confirmed",
+      invoiced: false,
+      notes: null,
+      createdBy: "user-1",
+      createdAt: "2026-08-22T00:00:00.000Z",
       lines: [
         { itemId: "item-A", description: null, qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("25.00") },
         { itemId: "item-B", description: null, qty: Qty.fromMajor("5"), unitCost: Money.fromMajor("12.00") },
       ],
     } as Parameters<typeof buildGoodsReceiptPosting>[0];
-    const posting = buildGoodsReceiptPosting(receipt, ACCOUNTS);
+    const posting = buildGoodsReceiptPosting(receipt, {
+      inventoryAccountId: ACCOUNTS.inventoryAccountId,
+      goodsReceivedNotInvoicedAccountId: ACCOUNTS.goodsReceivedNotInvoicedAccountId as string,
+    });
     expect(posting.lines).toEqual([
       { accountId: "1300-inventory", debit: expect.anything(), credit: Money.zero() },
       { accountId: "2150-grni", debit: Money.zero(), credit: expect.anything() },
@@ -235,14 +253,19 @@ describe("goods receipt — GL posting (both stock and control account)", () => 
     const stock = makeStockService();
     const gl = new RecordingGlPort();
     await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
-    await confirmGoodsReceipt("gr-1", { receipts, orders, stock, gl, accounts: { inventoryAccountId: "1300-inventory" } });
+    await confirmGoodsReceipt("gr-1", { receipts, orders, stock, gl, accounts: { inventoryAccountId: "1300-inventory", payableAccountId: "2100-payables", taxAccountId: "1360-input-vat" } });
     expect(gl.postings).toHaveLength(0);
     expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("10.000000");
   });
 });
 
 describe("goods receipt — cancel restores both sides", () => {
-  const ACCOUNTS = { inventoryAccountId: "1300-inventory", goodsReceivedNotInvoicedAccountId: "2150-grni" };
+  const ACCOUNTS: PurchaseGlAccounts = {
+    inventoryAccountId: "1300-inventory",
+    payableAccountId: "2100-payables",
+    taxAccountId: "1360-input-vat",
+    goodsReceivedNotInvoicedAccountId: "2150-grni",
+  };
 
   it("cancelling a confirmed receipt reverses stock and rolls the PO back to sent", async () => {
     const { orders, numbering } = await sentOrder();

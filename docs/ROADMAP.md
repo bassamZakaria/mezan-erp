@@ -446,7 +446,7 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**Thirty-two filed 2026-08-30 by the test-coverage pass** (D66–D97). They were found by
+**Thirty-four filed 2026-08-30 by the test-coverage pass** (D66–D99). D99 is the most serious: a live, ungated journal-posting route. They were found by
 writing tests and manual scenarios against the real code, so each carries a file reference
 rather than a feeling. The ones marked **guarded** already have a passing test that pins the
 current behaviour and will go red the day it changes; the ones marked **reported** still
@@ -486,6 +486,8 @@ need a measured reading in the running app before anyone fixes them.
 | D95 | `projectSchema` requires `costCenterId`, and neither `createProjectSchema` nor `updateProjectSchema` carries the field — so a project's cost centre can never be set or corrected through the API; the key is stripped on both paths | `packages/contracts/src/project.ts` | guarded (`project.test.ts`) |
 | D96 | `journalLineSchema` — the line shape `createJournalEntrySchema` uses, and the one `app.ts` posts manual entries through — carries only `accountId`, `debit` and `credit`. The cost centre, the currency and its rate, and the tax rate are all stripped, though `gl.ts`'s newer `glJournalLineSchema` carries every one of them. A manual journal entry therefore loses every dimension a later report needs | `packages/contracts/src/journal.ts` vs `packages/contracts/src/gl.ts` | guarded (`journal.test.ts`) |
 | D97 | `createSalesInvoiceLineSchema` has no `costCenterId`, so a revenue line cannot be attributed to a cost centre at creation and the Cost Centre P&L cannot see it | `packages/contracts/src/sales-invoice.ts` | guarded (`sales-invoice.test.ts`) |
+| D98 | Report date parameters are validated by SHAPE only, so `2026-13-45` — no thirteenth month, no forty-fifth day — is accepted by both the aging and the period reports and silently matches nothing, which reads on screen as "no sales in that range" rather than "that is not a date" | `packages/api/src/reports-routes.ts` | guarded (`reports-routes.test.ts`) |
+| D99 | **`POST /journal-entries` is a live, UNGATED posting route.** It is the spike's original poster, still mounted in the app the desktop shell serves, and it has no permission gate, no fiscal-period check, no account validation, no document numbering, no audit event and no GL event — and its line contract carries no cost centre, currency, rate or tax rate. Anyone who can reach the API can post a journal entry into any period, including one that was never opened. The correct route, `POST /gl/journal-entries`, sits beside it fully gated | `packages/api/src/app.ts:1449` and `:1492`, `packages/domain/src/post-journal-entry.ts` | guarded (`legacy-journal-entries.abuse.test.ts`) |
 
 D1–D65 are closed; the register is `archive/defect-register.md`.
 

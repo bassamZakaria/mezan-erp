@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { ALL_SCOPE } from "@mezan/domain";
+import { ALL_SCOPE, type AuthContext } from "@mezan/domain";
 import {
   createSessionAuthContextResolver,
   createSessionRegistry,
@@ -16,11 +16,7 @@ function guardedApp(sessions: ReturnType<typeof createSessionRegistry>) {
   const app = new Hono();
   app.get("/secret", gate("accounting.coa.view"), (c) => c.json({ ok: true }));
   app.get("/whoami", gate("accounting.coa.view"), (c) => {
-    const ctx = c.get("authContext") as {
-      userId: string;
-      branchScope: readonly string[] | typeof ALL_SCOPE;
-      warehouseScope: readonly string[] | typeof ALL_SCOPE;
-    };
+    const ctx = (c as unknown as { get(key: string): AuthContext }).get("authContext");
     return c.json({
       userId: ctx.userId,
       branchScope: ctx.branchScope === ALL_SCOPE ? "*" : [...ctx.branchScope],
@@ -62,7 +58,7 @@ describe("session tokens — brute force and forgery", () => {
     const token = sessions.issue(clerkGrant);
     const app = guardedApp(sessions);
 
-    const headers = [
+    const headers: Record<string, string>[] = [
       { authorization: token },
       { authorization: `Basic ${token}` },
       { authorization: "Bearer" },

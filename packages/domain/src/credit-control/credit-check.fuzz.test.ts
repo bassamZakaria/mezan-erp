@@ -4,7 +4,7 @@ import { Money } from "../money/index.js";
 import { checkCustomerCredit } from "./credit-check.js";
 
 const moneyArb = fc.bigInt({ min: 0n, max: 10n ** 14n }).map((s) => Money.fromScaled(s));
-const modeArb = fc.constantFrom("WARN" as const, "BLOCK" as const);
+const modeArb = fc.constantFrom("WARNING" as const, "BLOCK" as const);
 
 describe("customer credit control — fuzz", () => {
   it("fuzz: the projected balance is always exactly balance plus this invoice", () => {
@@ -71,10 +71,10 @@ describe("customer credit control — fuzz", () => {
     );
   });
 
-  it("fuzz: WARN never blocks and BLOCK always blocks, for the same numbers", () => {
+  it("fuzz: WARNING never blocks and BLOCK always blocks, for the same numbers", () => {
     fc.assert(
       fc.property(moneyArb, moneyArb, moneyArb, (creditLimit, currentBalance, newExposure) => {
-        const warn = checkCustomerCredit({ enabled: true, mode: "WARN", creditLimit, currentBalance, newExposure });
+        const warn = checkCustomerCredit({ enabled: true, mode: "WARNING", creditLimit, currentBalance, newExposure });
         const block = checkCustomerCredit({ enabled: true, mode: "BLOCK", creditLimit, currentBalance, newExposure });
 
         expect(warn.status).not.toBe("blocked");

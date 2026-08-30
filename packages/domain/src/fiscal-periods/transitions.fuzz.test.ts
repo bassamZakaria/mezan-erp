@@ -14,11 +14,12 @@ const actionArb = fc.constantFrom<Action>("close", "reopen", "lock");
 function periodOf(status: FiscalPeriodStatus): FiscalPeriod {
   return {
     id: "FP-2026-01",
-    name: "يناير 2026",
+    year: 2026,
+    periodNumber: 1,
     startDate: "2026-01-01",
     endDate: "2026-01-31",
     status,
-  } as FiscalPeriod;
+  };
 }
 
 function apply(period: FiscalPeriod, action: Action): FiscalPeriod {

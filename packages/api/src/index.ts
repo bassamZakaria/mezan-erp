@@ -4,6 +4,13 @@ export {
   type EntitlementsResolver,
 } from "./module-gate.js";
 export { createLanGate } from "./lan/gate.js";
+export {
+  createWriteGate,
+  WRITABLE_LICENSE_STATE,
+  type LicenseStateView,
+  type LicenseStateName,
+  type LicenseStateResolver,
+} from "./license-gate.js";
 export { createLanRoutes, type LanRoutesOptions } from "./lan/routes.js";
 export { createAccountsRouter } from "./accounts.js";
 export {

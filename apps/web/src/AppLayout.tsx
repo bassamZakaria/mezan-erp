@@ -40,6 +40,8 @@ import { NavigationProvider, toScreenIntent, type ScreenIntent, type ScreenInten
 import { groupKeyForScreen, hubScreenForGroup, parsePath, pathForRoute } from "./routing";
 import { isRoutable, type RoutableKey, type ScreenKey } from "./router/screens";
 import { Breadcrumbs, parentSegments } from "./Breadcrumbs";
+import { LicenseBanner } from "./LicenseBanner";
+import { UpdateBanner } from "./UpdateBanner";
 import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
 import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
 import { EMPTY } from "./lib/empty";
@@ -524,6 +526,8 @@ export function AppLayout() {
       onSelectBranch={setBranch}
       onSelectWarehouse={setWarehouse}
     >
+      <LicenseBanner />
+      <UpdateBanner />
       <Breadcrumbs screen={activeScreen} />
       {/*
         The matched screen renders here.

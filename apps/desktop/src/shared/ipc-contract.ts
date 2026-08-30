@@ -132,6 +132,42 @@ export type BackupRestoreResult =
  * session registry and requires `admin.tenant.settings.edit`; it never reads a
  * permission the caller states about itself.
  */
+/**
+ * Auto-update channel (docs/archive/plan.md §2.3). Two directions:
+ *   - renderer → main INVOKE (`mezan:update:invoke`): user-driven actions —
+ *     `check` for updates, `download` (only after the user consents), `install`
+ *     (quit-and-install the already-verified download).
+ *   - main → renderer EVENT (`mezan:update:event`): unsolicited progress —
+ *     available, download percent, signature verification, ready, error. The
+ *     download is NEVER silent and an update is applied only after its Ed25519
+ *     signature verifies against the vendor key (main/update-verify.ts).
+ */
+export const MEZAN_UPDATE_INVOKE_CHANNEL = "mezan:update:invoke";
+export const MEZAN_UPDATE_EVENT_CHANNEL = "mezan:update:event";
+
+export type UpdateAction = "check" | "download" | "install";
+
+export type UpdatePhase =
+  | "idle"
+  | "checking"
+  | "available"
+  | "not-available"
+  | "downloading"
+  | "verifying"
+  | "ready"
+  | "error"
+  | "rejected";
+
+export interface UpdateStatus {
+  readonly phase: UpdatePhase;
+  readonly version?: string;
+  readonly releaseNotes?: string;
+  /** Download progress, 0–100, while `phase === "downloading"`. */
+  readonly percent?: number;
+  /** Machine reason for `error`/`rejected` (the UI maps it to Arabic copy). */
+  readonly reason?: string;
+}
+
 export interface MezanBridge {
   fetch(input: string, init?: RequestInit): Promise<IpcFetchResponse>;
   printToPDF(options?: PrintToPdfOptions): Promise<Uint8Array>;
@@ -140,4 +176,8 @@ export interface MezanBridge {
     create(sessionToken: string): Promise<BackupCreateResult>;
     restore(sessionToken: string, fileName: string): Promise<BackupRestoreResult>;
   };
+  /** Drives a user-initiated update action; resolves with the resulting status. */
+  update(action: UpdateAction): Promise<UpdateStatus>;
+  /** Subscribes to push update status; returns an unsubscribe function. */
+  onUpdateEvent(listener: (status: UpdateStatus) => void): () => void;
 }

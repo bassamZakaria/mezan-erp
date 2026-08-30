@@ -5,11 +5,11 @@ import { SeatSessionRegistry } from "@mezan/domain";
 import { registerHonoOverIpc, registerPrintToPdfOverIpc } from "./ipc.js";
 import { registerRestoreOverIpc } from "./restore-ipc.js";
 import { createWindow, hardenWebContents } from "./window.js";
-import { initAutoUpdater } from "./updater.js";
+import { registerAutoUpdater } from "./updater.js";
 import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
 import { defaultBackupsDir, defaultDbPath, isDev, rendererEntry, rendererRoot } from "./env.js";
 import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./renderer-protocol.js";
-import { resolveDesktopEntitlements } from "./entitlements.js";
+import { loadDesktopLicense } from "./license-runtime.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
 import {
   clearRecoveryPinIfClaimed,
@@ -121,7 +121,15 @@ app.whenReady().then(async () => {
   // `lan.multi_till`, a LAN-visible socket for other tills/tablets in the
   // shop (§6.3.3). `/lan/sessions` seat enforcement lives on this one app
   // instance in both cases — see @mezan/api's lan/routes.ts.
-  const entitlements = resolveDesktopEntitlements();
+  // The Ed25519 offline license is the ONE source of both entitlements and
+  // write permission (docs/archive/plan.md §2.5). Past its grace window it
+  // resolves to READ_ONLY: data stays viewable, new postings are refused by
+  // the write-gate below — closes D115, where an unsigned env var decided this.
+  const license = await loadDesktopLicense({
+    userDataDir: app.getPath("userData"),
+    packaged: app.isPackaged,
+  });
+  const entitlements = license.entitlements;
   const seatRegistry = new SeatSessionRegistry(entitlements.seats);
   // `createBackend`, NOT `createApp`. This is the composition that carries the
   // session resolver, the seeded tenant and the real `/auth` routes; building
@@ -131,6 +139,7 @@ app.whenReady().then(async () => {
   backend = await createBackend({
     dbPath,
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
+    resolveLicenseState: () => license.state,
   });
 
   if (!isDev()) {
@@ -196,8 +205,8 @@ app.whenReady().then(async () => {
   });
   lanHost = startLanHost({ app: backend.app, entitlements });
 
-  createWindow();
-  initAutoUpdater();
+  const mainWindow = createWindow();
+  registerAutoUpdater(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

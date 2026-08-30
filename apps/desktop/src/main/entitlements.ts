@@ -35,8 +35,21 @@ const UNLICENSED_ENTITLEMENTS: EntitlementsView = createEntitlements({
 export function resolveDesktopEntitlements(
   env: Record<string, string | undefined> = process.env,
 ): EntitlementsView {
+  return parseDesktopEntitlementsJson(env) ?? UNLICENSED_ENTITLEMENTS;
+}
+
+/**
+ * Parses the dev/back-compat `MEZAN_ENTITLEMENTS_JSON` blob, returning `null`
+ * (not the unlicensed fallback) when it is absent or invalid — so the license
+ * resolver can tell "no dev entitlements configured" apart from "configured but
+ * empty". This env path is a DEVELOPER CONVENIENCE only; a packaged build
+ * derives entitlements from the verified license, never from this var.
+ */
+export function parseDesktopEntitlementsJson(
+  env: Record<string, string | undefined> = process.env,
+): EntitlementsView | null {
   const raw = env["MEZAN_ENTITLEMENTS_JSON"];
-  if (!raw) return UNLICENSED_ENTITLEMENTS;
+  if (!raw) return null;
 
   let parsedJson: unknown;
   try {
@@ -46,7 +59,7 @@ export function resolveDesktopEntitlements(
       "[entitlements] MEZAN_ENTITLEMENTS_JSON is not valid JSON — falling back to unlicensed",
       err,
     );
-    return UNLICENSED_ENTITLEMENTS;
+    return null;
   }
 
   const parsed = entitlementsSchema.safeParse(parsedJson);
@@ -55,7 +68,7 @@ export function resolveDesktopEntitlements(
       "[entitlements] MEZAN_ENTITLEMENTS_JSON failed schema validation — falling back to unlicensed",
       parsed.error.flatten(),
     );
-    return UNLICENSED_ENTITLEMENTS;
+    return null;
   }
 
   return createEntitlements(parsed.data);

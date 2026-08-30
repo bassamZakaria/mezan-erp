@@ -113,6 +113,11 @@ import type { LoginThrottle } from "./login-throttle.js";
 import type { EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
 import { createPermissionGate, insecureHeaderAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import {
+  createWriteGate,
+  WRITABLE_LICENSE_STATE,
+  type LicenseStateResolver,
+} from "./license-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
@@ -775,6 +780,13 @@ export interface CreateAppOptions {
    * the file hangs off, so there is no attachment permission of its own.
    */
   readonly attachments?: { readonly repo: AttachmentRepository; readonly resolveAuthContext?: AuthContextResolver };
+  /**
+   * The license state every mutating request is gated against, and that
+   * `GET /license/state` reports (docs/archive/plan.md §2.5). Supplied by
+   * apps/desktop from the verified offline license. Omitted everywhere else,
+   * where the app stays fully writable (`WRITABLE_LICENSE_STATE`).
+   */
+  readonly resolveLicenseState?: LicenseStateResolver;
 }
 
 /**
@@ -854,6 +866,21 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // — or silently steal — each other's forensic trail. Registered before every
   // route so a refusal anywhere below reaches it.
   if (options.onPermissionRefused) app.use("*", permissionRefusalReporting(options.onPermissionRefused));
+
+  /**
+   * License write-gate, FIRST so it wraps every route mounted below — the
+   * `/auth` and `/dashboard` routes createBackend adds to this same instance
+   * included. Inert (never registered) when no license source is wired, so
+   * cloud and tests stay fully writable; only a desktop install past its
+   * grace window resolves to READ_ONLY and starts refusing new postings.
+   */
+  const resolveLicenseState = options.resolveLicenseState;
+  if (resolveLicenseState) {
+    app.use("*", createWriteGate(resolveLicenseState));
+  }
+  app.get("/license/state", async (c) =>
+    c.json(resolveLicenseState ? await resolveLicenseState(c) : WRITABLE_LICENSE_STATE),
+  );
 
   if (options.settingsStore) {
     app.route("/settings", createSettingsRoutes(options.settingsStore, resolveAuth, options.auditSink));

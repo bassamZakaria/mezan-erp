@@ -128,3 +128,130 @@ describe("users routes", () => {
     expect((await users.findById(created.id))?.passwordHash).toBe(hashBefore);
   });
 });
+
+describe("who may make themselves a company admin (D86)", () => {
+  const clerk = {
+    ...newUserBody,
+    nameAr: "منى عبد الله",
+    email: "mona@cyag.test",
+    roleId: null,
+    isCompanyAdmin: false,
+  };
+
+  it("LIMITATION (D86): a caller holding only admin.users.edit can promote a user to company admin", async () => {
+    // The caller is NOT an admin: they hold exactly the two codes the edit
+    // route gates on, and nothing else.
+    const { app, users } = newAppWithStore(["admin.users.view", "admin.users.edit"]);
+
+    const created = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...clerk, id: "u-clerk" }),
+      }),
+    );
+    // Creating needs its own permission, which this caller does not hold.
+    expect(created.status).toBe(403);
+
+    // But EDITING does not check what the editor themselves holds. Seed the
+    // user directly, then edit it up to company admin over HTTP.
+    await users.save({
+      id: "u-clerk",
+      nameAr: "منى عبد الله",
+      nameEn: null,
+      email: "mona@cyag.test",
+      phone: null,
+      passwordHash: "hashed:x",
+      pinHash: null,
+      roleId: null,
+      isCompanyAdmin: false,
+      employeeId: null,
+      branchScope: "*",
+      warehouseScope: "*",
+      status: "active",
+      photoUrl: null,
+      lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const promoted = await app.fetch(
+      new Request("http://x/users/u-clerk", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...clerk, roleId: null, isCompanyAdmin: true }),
+      }),
+    );
+
+    expect(promoted.status).toBe(200);
+    expect((await users.findById("u-clerk"))?.isCompanyAdmin).toBe(true);
+
+    // When D86 is closed, this edit should be refused unless the caller is
+    // themselves a company admin — that is the expectation to rewrite.
+  });
+
+  it("LIMITATION (D86): saveUser never sees the actor, so the ceiling cannot live in the domain", async () => {
+    // (command, unitOfWork, hasher, options) — there is no actor in the
+    // signature, so "you may not grant more than you hold" has to be enforced
+    // by the route's gate, and today no gate distinguishes the two cases.
+    const { app, users } = newAppWithStore(["admin.users.view", "admin.users.edit"]);
+    await users.save({
+      id: "u-self",
+      nameAr: "المستخدم نفسه",
+      nameEn: null,
+      email: "self@cyag.test",
+      phone: null,
+      passwordHash: "hashed:x",
+      pinHash: null,
+      roleId: null,
+      isCompanyAdmin: false,
+      employeeId: null,
+      branchScope: "*",
+      warehouseScope: "*",
+      status: "active",
+      photoUrl: null,
+      lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    // The caller edits THEIR OWN record — the shortest path in the product.
+    const promoted = await app.fetch(
+      new Request("http://x/users/u-self", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...clerk,
+          email: "self@cyag.test",
+          roleId: null,
+          isCompanyAdmin: true,
+        }),
+      }),
+    );
+
+    expect(promoted.status).toBe(200);
+    expect((await users.findById("u-self"))?.isCompanyAdmin).toBe(true);
+  });
+
+  it("still refuses the caller with no user permissions at all", async () => {
+    const { app } = newAppWithStore(["sales.invoice.view"]);
+    const res = await app.fetch(
+      new Request("http://x/users/u-any", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...clerk, isCompanyAdmin: true }),
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("still enforces the one-authority rule: a role AND company admin together is refused", async () => {
+    const { app } = newAppWithStore();
+    const res = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...clerk, id: "u-both", roleId: "role-x", isCompanyAdmin: true }),
+      }),
+    );
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});

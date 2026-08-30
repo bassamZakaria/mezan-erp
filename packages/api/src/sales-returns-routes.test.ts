@@ -5,6 +5,8 @@ import {
   createJournalGlHook,
   createInventoryStockHook,
   createSalesReturnDocumentType,
+  Money,
+  Qty,
   StockLedgerService,
 } from "@mezan/domain";
 import {
@@ -29,7 +31,7 @@ afterEach(() => {
   for (const h of closers.splice(0)) h.close();
 });
 
-async function newApp() {
+async function buildService() {
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
   const periods = createSqliteFiscalPeriodRepository();
@@ -70,7 +72,11 @@ async function newApp() {
     workflow: createDocumentWorkflowGate(() => null),
   });
 
-  return createSalesReturnsRoutes(service);
+  return service;
+}
+
+async function newApp() {
+  return createSalesReturnsRoutes(await buildService());
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -139,5 +145,147 @@ describe("sales-returns router — create + confirm", () => {
     const bad = { ...payload, id: "SR2", lines: [{ ...payload.lines[0], qty: "10", availableQty: "5" }] };
     const res = await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(bad) }));
     expect(res.status).toBe(422);
+  });
+});
+
+describe("what the caller may claim on a return (D102)", () => {
+  /** The invoice as the books actually hold it: 3 sold, 1 already returned. */
+  const sourceInvoice = {
+    id: "INV1",
+    number: "INV-000014",
+    customerId: "CUST1",
+    warehouseId: "WH1",
+    date: "2026-08-20",
+    status: "confirmed" as const,
+    lines: [
+      {
+        itemId: "ITEM1",
+        itemName: "صنف",
+        qty: Qty.fromMajor("3"),
+        alreadyReturnedQty: Qty.fromMajor("1"),
+        unitPrice: Money.fromMajor("100"),
+        unitCost: Money.fromMajor("60"),
+        taxAmount: Money.fromMajor("42"),
+      },
+    ],
+  };
+
+  async function appWithInvoices() {
+    const service = await buildService();
+    const invoices = {
+      async findConfirmedInvoice(id: string) {
+        return id === "INV1" ? sourceInvoice : null;
+      },
+    };
+    return createSalesReturnsRoutes(service, undefined, invoices);
+  }
+
+  it("recomputes the returnable quantity from the invoice, ignoring what the caller claims", async () => {
+    const app = await appWithInvoices();
+
+    // The caller says five are available. The invoice says two (3 sold, 1
+    // already returned), so a return of three must be refused.
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-OVER",
+          lines: [{ ...payload.lines[0], availableQty: "5", qty: "3" }],
+        }),
+      }),
+    );
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("accepts exactly what the invoice has left, and refuses one micro-unit more", async () => {
+    const app = await appWithInvoices();
+
+    const exact = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-EXACT",
+          lines: [{ ...payload.lines[0], availableQty: "999", qty: "2" }],
+        }),
+      }),
+    );
+    expect(exact.status).toBe(201);
+
+    const overByOne = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-OVER-1",
+          lines: [{ ...payload.lines[0], availableQty: "999", qty: "2.000001" }],
+        }),
+      }),
+    );
+    expect(overByOne.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("refuses a return against an invoice the books do not have", async () => {
+    const app = await appWithInvoices();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-GHOST",
+          lines: [{ ...payload.lines[0], sourceInvoiceId: "INV-NOT-REAL", availableQty: "99", qty: "1" }],
+        }),
+      }),
+    );
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("LIMITATION (D102): the caller's own unitCost is still taken verbatim, even with the invoice resolvable", async () => {
+    const app = await appWithInvoices();
+
+    // The invoice cost is 60.00. The caller says 600.00, and the return
+    // restocks at the caller's figure — ten times what the goods actually cost.
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-COST",
+          lines: [{ ...payload.lines[0], availableQty: "2", qty: "1", unitCost: "600", unitPrice: "100" }],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { lines: { unitCost: string }[] };
+    expect(created.lines[0]?.unitCost).toBe("600.000000");
+
+    // When D102 is closed the cost should come off the invoice line (60.00)
+    // rather than off the request — that is the expectation to rewrite.
+  });
+
+  it("LIMITATION (D102): with no invoices port wired, the caller's own availableQty IS the limit", async () => {
+    // This is the composition the rest of this file uses, and the one an
+    // edition without an invoices module ships: the claim is trusted.
+    const app = await newApp();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-TRUSTED",
+          lines: [{ ...payload.lines[0], availableQty: "9999", qty: "500" }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 });

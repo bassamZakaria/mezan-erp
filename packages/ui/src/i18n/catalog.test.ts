@@ -32,16 +32,16 @@ describe("uiCatalogs", () => {
   it("every English entry carries the same {placeholder} parameters as its Arabic source, so interpolation cannot silently drop one", () => {
     const mismatches: string[] = [];
     for (const key of Object.keys(uiCatalogs.ar)) {
-      const arPlaceholders = placeholdersOf(uiCatalogs.ar[key as keyof typeof uiCatalogs.ar]);
-      const enPlaceholders = placeholdersOf(uiCatalogs.en[key as keyof typeof uiCatalogs.en]);
+      const arPlaceholders = placeholdersOf(uiCatalogs.ar[key as keyof typeof uiCatalogs.ar] ?? "");
+      const enPlaceholders = placeholdersOf(uiCatalogs.en[key as keyof typeof uiCatalogs.en] ?? "");
       if (arPlaceholders.join(",") !== enPlaceholders.join(",")) mismatches.push(key);
     }
     expect(mismatches).toEqual([]);
   });
 
   it("a parameterized entry actually interpolates in both locales", () => {
-    expect(interpolate(uiCatalogs.ar["shell.notifications.withCount"], { count: 3 })).toBe("الإشعارات (3)");
-    expect(interpolate(uiCatalogs.en["shell.notifications.withCount"], { count: 3 })).toBe("Notifications (3)");
+    expect(interpolate(uiCatalogs.ar["shell.notifications.withCount"]!, { count: 3 })).toBe("الإشعارات (3)");
+    expect(interpolate(uiCatalogs.en["shell.notifications.withCount"]!, { count: 3 })).toBe("Notifications (3)");
   });
 
   it("the endonyms used by shell.language.switchTo are themselves untranslated in both locales", () => {

@@ -137,7 +137,7 @@ describe("RowMenu", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent("تأكيد: إلغاء");
     expect(dialog).toHaveTextContent("سيتم تنفيذ «إلغاء» على إجراءات INV-000001");
-    await user.click(screen.getByRole("button", { name: "إلغاء", exact: true }));
+    await user.click(screen.getByRole("button", { name: "إلغاء" }));
     expect(onSelect).toHaveBeenCalledOnce();
   });
 

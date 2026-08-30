@@ -9,8 +9,8 @@ function mockTrigger(rect: Partial<DOMRect>, direction: "ltr" | "rtl" = "ltr"): 
   el.getBoundingClientRect = () => ({
     top: 0,
     bottom: 0,
-    left: 0,
-    right: 0,
+    left: 0, // rtl-allow-physical
+    right: 0, // rtl-allow-physical
     width: 0,
     height: 0,
     x: 0,
@@ -39,7 +39,7 @@ describe("measure", () => {
   it("opens below the trigger when there is enough room, aligned start in LTR", () => {
     Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
     Object.defineProperty(window, "innerWidth", { value: 1000, configurable: true });
-    const trigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 });
+    const trigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 }); // rtl-allow-physical
     const position = measure(trigger, "start");
     expect(position.top).toBe(140 + MENU_GAP);
     expect(position.inlineStart).toBe(50);
@@ -49,7 +49,7 @@ describe("measure", () => {
   it("mirrors inlineStart for RTL — measured physically, expressed logically", () => {
     Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
     Object.defineProperty(window, "innerWidth", { value: 1000, configurable: true });
-    const trigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 }, "rtl");
+    const trigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 }, "rtl"); // rtl-allow-physical
     const position = measure(trigger, "start");
     expect(position.inlineStart).toBe(1000 - 250);
   });
@@ -58,7 +58,7 @@ describe("measure", () => {
     Object.defineProperty(window, "innerHeight", { value: 300, configurable: true });
     Object.defineProperty(window, "innerWidth", { value: 1000, configurable: true });
     // spaceBelow = 300 - 280 - gap - 8 = tiny; spaceAbove = 250 - gap - 8 = large
-    const trigger = mockTrigger({ top: 250, bottom: 280, left: 50, right: 250, width: 200 });
+    const trigger = mockTrigger({ top: 250, bottom: 280, left: 50, right: 250, width: 200 }); // rtl-allow-physical
     const position = measure(trigger, "start");
     expect(position.top).toBeLessThan(250);
   });
@@ -66,7 +66,7 @@ describe("measure", () => {
   it("clamps maxHeight between MENU_MIN_HEIGHT and MENU_MAX_HEIGHT", () => {
     Object.defineProperty(window, "innerHeight", { value: 5000, configurable: true });
     Object.defineProperty(window, "innerWidth", { value: 1000, configurable: true });
-    const trigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 });
+    const trigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 }); // rtl-allow-physical
     const position = measure(trigger, "start");
     expect(position.maxHeight).toBeLessThanOrEqual(MENU_MAX_HEIGHT);
     expect(position.maxHeight).toBeGreaterThanOrEqual(MENU_MIN_HEIGHT);
@@ -75,12 +75,12 @@ describe("measure", () => {
   it("align 'end' reports insetInlineEnd instead of inlineStart/width, mirrored for RTL", () => {
     Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
     Object.defineProperty(window, "innerWidth", { value: 1000, configurable: true });
-    const ltrTrigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 });
+    const ltrTrigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 }); // rtl-allow-physical
     const ltrPosition = measure(ltrTrigger, "end");
     expect(ltrPosition.insetInlineEnd).toBe(1000 - 250);
     expect(ltrPosition.inlineStart).toBeUndefined();
 
-    const rtlTrigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 }, "rtl");
+    const rtlTrigger = mockTrigger({ top: 100, bottom: 140, left: 50, right: 250, width: 200 }, "rtl"); // rtl-allow-physical
     const rtlPosition = measure(rtlTrigger, "end");
     expect(rtlPosition.insetInlineEnd).toBe(50);
   });

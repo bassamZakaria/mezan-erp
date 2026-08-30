@@ -49,6 +49,7 @@ export default tseslint.config(
       "**/*.config.mjs",
       "scripts/**",
       ".worktrees/**",
+      "coverage/**",
     ],
   },
   {

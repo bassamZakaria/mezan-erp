@@ -102,7 +102,7 @@ async function harness() {
     transaction: stock.transaction,
   });
 
-  // The position the goods left: 100 at 10.00. Then a later receipt at 20.00
+  // The cost the goods departed at: 100 at 10.00. Then a later receipt at 20.00
   // moves the weighted average to 15.00, so a return valued at TODAY average
   // and a return valued at the invoice cost are 5.00 a unit apart.
   await stockService.recordOpeningBalance({

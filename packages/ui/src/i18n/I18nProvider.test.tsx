@@ -132,6 +132,6 @@ describe("I18nProvider / useTranslation", () => {
         <UiProbe />
       </I18nProvider>,
     );
-    expect(screen.getByTestId("ui")).toHaveTextContent(uiCatalogs.ar["shell.signOut"]);
+    expect(screen.getByTestId("ui")).toHaveTextContent(uiCatalogs.ar["shell.signOut"]!);
   });
 });

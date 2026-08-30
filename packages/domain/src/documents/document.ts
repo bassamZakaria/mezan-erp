@@ -85,6 +85,16 @@ export interface DocumentTypeDefinition<Line> {
   branchOf?(doc: FrameworkDocument<Line>): string | null;
   /** Build the stock plan to hand the stock hook, or null if this document moves no stock. */
   buildStockPlan?(doc: FrameworkDocument<Line>): DocumentStockPlan | null;
+  /**
+   * The lines a CANCELLED document should hold. Return null (or omit the
+   * hook) to leave them untouched.
+   *
+   * Cancelling used to flip the document status and nothing else, so a plan
+   * whose header read ملغاة still carried lines reading قيد الاستحقاق and
+   * every total that walked the lines kept counting them as live money
+   * (D120). A line status a type declares must have a writer.
+   */
+  onCancel?(doc: FrameworkDocument<Line>): readonly Line[] | null;
   /** Compute the "تأثيرات هذا المستند" descriptor for the panel + confirm gate. Pure. */
   describeEffects(doc: FrameworkDocument<Line>): DocumentEffects;
 }

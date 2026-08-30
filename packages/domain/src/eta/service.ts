@@ -188,6 +188,15 @@ export class EtaService {
     return { submitted, queued };
   }
 
+  /**
+   * One submission, payload and all. The payload is the only record of what
+   * will be filed with the authority, so it has to be readable somewhere
+   * (D121); the queue list deliberately omits it.
+   */
+  async findById(id: string): Promise<EtaSubmission | null> {
+    return this.deps.submissions.findById(id);
+  }
+
   private async require(id: string): Promise<EtaSubmission> {
     const submission = await this.deps.submissions.findById(id);
     if (!submission) throw new EtaSubmissionNotFoundError(id);

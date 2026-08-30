@@ -183,20 +183,29 @@ export function NotificationRulesPage() {
 
   async function submit() {
     if (!form.name.trim() || !form.recipientValue.trim() || form.channels.length === 0) return;
-    await create.mutateAsync({
-      name: form.name.trim(),
-      eventCode: form.eventCode,
-      condition: form.hasCondition
-        ? { field: form.conditionField.trim(), operator: form.conditionOperator, value: form.conditionValue.trim() }
-        : null,
-      recipientType: form.recipientType,
-      recipientValue: form.recipientValue,
-      priority: form.priority,
-      channels: form.channels,
-      titleAr: form.titleAr.trim() || null,
-      bodyAr: form.bodyAr.trim() || null,
-      active: true,
-    });
+    // `onClick={submit}` does not await this, so a rejected mutation escapes as
+    // an unhandled promise rejection. react-query still renders the server's
+    // message, which is why it stays invisible until something else listens
+    // for rejections. Same shape as D124.
+    try {
+      await create.mutateAsync({
+        name: form.name.trim(),
+        eventCode: form.eventCode,
+        condition: form.hasCondition
+          ? { field: form.conditionField.trim(), operator: form.conditionOperator, value: form.conditionValue.trim() }
+          : null,
+        recipientType: form.recipientType,
+        recipientValue: form.recipientValue,
+        priority: form.priority,
+        channels: form.channels,
+        titleAr: form.titleAr.trim() || null,
+        bodyAr: form.bodyAr.trim() || null,
+        active: true,
+      });
+    } catch {
+      // The panel stays open on the draft; `create.isError` shows the message.
+      return;
+    }
     setPanelOpen(false);
     resetForm();
   }

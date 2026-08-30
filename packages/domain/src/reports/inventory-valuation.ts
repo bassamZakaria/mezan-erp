@@ -15,6 +15,15 @@ import { itemTypeTracksStock } from "../items/item-type.js";
 export interface InventoryValuationContext {
   readonly items: readonly Item[];
   readonly snapshots: readonly WacSnapshot[];
+  /**
+   * Balance of the inventory CONTROL account in the GL (D112).
+   *
+   * This is the single test that proves the costing engine: the valuation this
+   * report sums from the stock sub-ledger must equal what every receipt,
+   * issue, adjustment and landed cost actually posted to inventory. Optional —
+   * omit it and the report runs without claiming to tie.
+   */
+  readonly inventoryControlBalance?: () => number;
 }
 
 export interface InventoryValuationParams {
@@ -59,6 +68,12 @@ export function createInventoryValuationReport(): ReportDefinition<
       { key: "unitCost", header: "متوسط التكلفة", format: "money", align: "end", value: (row) => row.unitCost },
       { key: "totalValue", header: "القيمة الإجمالية", format: "money", align: "end", total: true, value: (row) => row.totalValue },
     ],
+    reconciliation: {
+      labelAr: "قيمة المخزون مقابل حساب المخزون في دفتر الأستاذ",
+      computeReportTotal: (rows) => sumRows(rows, (row) => row.totalValue),
+      computeReferenceTotal: (_rows, ctx) => ctx.inventoryControlBalance?.() ?? 0,
+      toleranceMoney: 0.01,
+    },
     chart: {
       labelColumn: "itemNameAr",
       valueColumn: "totalValue",

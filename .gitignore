@@ -49,3 +49,8 @@ sec.db-*
 
 # Coverage reports are build output — regenerate with `pnpm test:coverage`.
 coverage/
+
+# Agent scratch files — never part of the repo.
+.tmp-*
+**/__probe.test.ts
+*.bak

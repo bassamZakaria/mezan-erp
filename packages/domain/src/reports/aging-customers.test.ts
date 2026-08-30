@@ -77,3 +77,68 @@ describe("createAgingCustomersReport", () => {
     expect(outcome.rows[0]?.total).toBe(400);
   });
 });
+
+describe("createAgingCustomersReport — the tie to the AR control account (D112)", () => {
+  /**
+   * The ladder walks invoices; GL 1120 holds what those invoices, their
+   * collections and their returns actually posted. Declaring no
+   * `reconciliation` meant the first report an accountant opens agreed only
+   * with itself.
+   */
+  const definition = createAgingCustomersReport("2026-08-22");
+  const twoInvoices = [
+    invoice({ id: "inv-1", customerId: "c1", lines: [line({ unitPrice: Money.fromMajor("1250.50") })] }),
+    invoice({ id: "inv-2", customerId: "c2", customerNameAr: "عميل ب", lines: [line({ unitPrice: Money.fromMajor("3400.00") })] }),
+  ];
+
+  it("ties when the ladder and the control account hold the same NON-ZERO balance", () => {
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-08-22" },
+      { invoices: twoInvoices, receivablesControlBalance: () => 4650.5 },
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    expect(outcome.reconciliation?.reportTotal).toBe(4650.5);
+    expect(outcome.reconciliation?.referenceTotal).toBe(4650.5);
+    expect(outcome.reconciliation?.diff).toBe(0);
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+
+  it("flags the difference when a collection hit the GL and never reached the ladder", () => {
+    // 1,000.00 was collected and posted to the GL but no allocation reached
+    // the report, so the ladder still shows the debt. This is exactly the
+    // condition the banner exists to catch, and the one nothing detected.
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-08-22" },
+      { invoices: twoInvoices, receivablesControlBalance: () => 3650.5 },
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    expect(outcome.reconciliation?.reportTotal).toBe(4650.5);
+    expect(outcome.reconciliation?.referenceTotal).toBe(3650.5);
+    expect(outcome.reconciliation?.diff).toBe(1000);
+    expect(outcome.reconciliation?.withinTolerance).toBe(false);
+  });
+
+  it("recomputes the reference against the params the report RAN with, not its defaults", () => {
+    // A reference total computed over the default period would silently stop
+    // matching the moment the user moved the date.
+    const seen: string[] = [];
+    runReport(
+      definition,
+      { asOfDate: "2026-10-23" },
+      {
+        invoices: twoInvoices,
+        receivablesControlBalance: (params) => {
+          seen.push(params.asOfDate);
+          return 4650.5;
+        },
+      },
+    );
+    expect(seen).toEqual(["2026-10-23"]);
+  });
+});

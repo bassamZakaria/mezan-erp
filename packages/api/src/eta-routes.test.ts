@@ -230,13 +230,32 @@ describe("eta router — the payload built for a real document", () => {
     expect(payload.totalTaxAmount).toBe("42");
     expect(payload.totalAmount).toBe("342");
 
-    // GET /submissions serializes the queue row without the payload the queue
-    // itself holds — nothing reachable from this router ever surfaces it, so
-    // there is no way for a caller (screen or API consumer) to inspect what
-    // will actually be filed.
+    // GET /submissions keeps the payload OFF the list — it is large and the
+    // queue screen does not need it — but GET /submissions/:id returns it, so
+    // a screen or an auditor can inspect exactly what will be filed with the
+    // authority before it goes (D121).
     const list = (await (await app.fetch(req("/submissions", { permissions: VIEW }))).json()) as Record<string, unknown>[];
     expect(list).toHaveLength(1);
     expect(Object.keys(list[0]!)).not.toContain("payload");
+
+    const one = await app.fetch(req(`/submissions/${submission.id}`, { permissions: VIEW }));
+    expect(one.status).toBe(200);
+    const body = (await one.json()) as Record<string, unknown>;
+    expect(body.id).toBe(submission.id);
+    expect(body.payload).toEqual(buildEtaPayload(invoiceInput, config));
+  });
+
+  it("GET /submissions/:id is gated and 404s an unknown id (D121)", async () => {
+    const { app, service } = newApp();
+    const submission = await service.enqueue(invoiceInput);
+
+    // A payload that is about to be filed with the tax authority is not
+    // public: the read needs the same permission the queue does.
+    const denied = await app.fetch(req(`/submissions/${submission.id}`, { permissions: "sales.invoice.view" }));
+    expect(denied.status).toBe(403);
+    expect(Object.keys((await denied.json()) as Record<string, unknown>)).not.toContain("payload");
+
+    expect((await app.fetch(req("/submissions/NOPE", { permissions: VIEW }))).status).toBe(404);
   });
 });
 

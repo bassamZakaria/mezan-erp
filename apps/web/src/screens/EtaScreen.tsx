@@ -232,23 +232,32 @@ function GeneralTab({ config }: { config: EtaConfigDTO | null }) {
 
   async function save() {
     setSaved(false);
-    await update.mutateAsync({
-      environment: form.environment,
-      taxRegistrationNumber: form.taxRegistrationNumber.trim() || null,
-      activityCode: form.activityCode.trim() || null,
-      address: addressComplete
-        ? {
-            governorate: form.governorate.trim(),
-            city: form.city.trim(),
-            street: form.street.trim(),
-            buildingNumber: form.buildingNumber.trim(),
-            postalCode: form.postalCode.trim() || null,
-          }
-        : null,
-      buyerDataThreshold: Number(form.buyerDataThreshold) || 0,
-      documentVersion: form.documentVersion,
-      autoSubmitOnConfirm: form.autoSubmitOnConfirm,
-    });
+    // `onClick={save}` does not await this, so a rejected mutation escapes as
+    // an unhandled promise rejection — and `setSaved(true)` below would run on
+    // a save that never happened. Same shape as D124.
+    try {
+      await update.mutateAsync({
+        environment: form.environment,
+        taxRegistrationNumber: form.taxRegistrationNumber.trim() || null,
+        activityCode: form.activityCode.trim() || null,
+        address: addressComplete
+          ? {
+              governorate: form.governorate.trim(),
+              city: form.city.trim(),
+              street: form.street.trim(),
+              buildingNumber: form.buildingNumber.trim(),
+              postalCode: form.postalCode.trim() || null,
+            }
+          : null,
+        buyerDataThreshold: Number(form.buyerDataThreshold) || 0,
+        documentVersion: form.documentVersion,
+        autoSubmitOnConfirm: form.autoSubmitOnConfirm,
+      });
+    } catch {
+      // `update.isError` carries the server's message; the form keeps the draft
+      // and must NOT claim it saved.
+      return;
+    }
     setSaved(true);
   }
 
@@ -453,11 +462,17 @@ function CredentialsTab({ config }: { config: EtaConfigDTO | null }) {
 
   async function save() {
     setSaved(false);
-    await update.mutateAsync({
-      clientId: clientId.trim() || null,
-      signingMethod,
-      ...(clientSecret.trim() === "" ? {} : { clientSecret: clientSecret.trim() }),
-    });
+    try {
+      await update.mutateAsync({
+        clientId: clientId.trim() || null,
+        signingMethod,
+        ...(clientSecret.trim() === "" ? {} : { clientSecret: clientSecret.trim() }),
+      });
+    } catch {
+      // Keep the typed secret so a failed save is retryable, and do not claim
+      // it saved.
+      return;
+    }
     setClientSecret("");
     setSaved(true);
   }

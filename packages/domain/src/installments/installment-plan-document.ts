@@ -73,6 +73,20 @@ export const installmentPlanDocumentType: DocumentTypeDefinition<InstallmentLine
     }
   },
 
+  /**
+   * Cancelling the plan cancels what is still OWED. A line the customer has
+   * already paid stays paid — the money moved, and erasing it would drop the
+   * paid total the treasury receipt reconciles against. Without this the
+   * document read ملغاة while every one of its installments stayed
+   * قيد الاستحقاق, so `/plans/stats` reported a dead plan's full scheduled
+   * and remaining amounts as live money (D120).
+   */
+  onCancel(doc) {
+    return doc.lines.map((line) =>
+      line.status === "paid" || line.paidAmount.scaled > 0n ? line : { ...line, status: "cancelled" as const },
+    );
+  },
+
   describeEffects(doc): DocumentEffects {
     const { scheduled, downPayment, grandTotal } = totals(doc.lines);
     return buildEffects({

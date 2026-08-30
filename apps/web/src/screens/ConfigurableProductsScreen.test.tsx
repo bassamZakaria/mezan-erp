@@ -206,6 +206,33 @@ describe("ConfigurableProductsScreen", () => {
     expect(await screen.findByRole("heading", { name: "المنتجات القابلة للتهيئة" })).toBeInTheDocument();
   });
 
+  it("reports failure — not a false success — when deactivating from the row menu is refused by the server", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/configurable-products": () => ({ body: [product()] }),
+      "GET /items": () => ({ body: items }),
+      "POST /manufacturing/configurable-products/cp-1/deactivate": () => ({ status: 409, body: { error: "IN_USE", message: "لا يمكن تعطيل منتج له أوامر تصنيع مخصص مفتوحة" } }),
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <ConfigurableProductsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("نافذة قابلة للتهيئة");
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات نافذة قابلة للتهيئة" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "تعطيل" }));
+    // «تعطيل» is destructive (tone: danger), so RowMenu asks for confirmation first.
+    const confirmDialog = screen.getByRole("dialog", { name: /تأكيد/ });
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "تعطيل" }));
+
+    const toast = await screen.findByRole("alert");
+    expect(toast).toHaveTextContent("تعذّر تنفيذ");
+    expect(screen.queryByRole("status", { name: /تم تنفيذ/ })).not.toBeInTheDocument();
+    const row = screen.getByText("نافذة قابلة للتهيئة").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText("نشط")).toBeInTheDocument();
+  });
+
   it("shows an error banner with a retry action when configurable products fail to load", async () => {
     const transport = stubTransport({
       "GET /manufacturing/configurable-products": () => ({ status: 500, body: { error: "INTERNAL" } }),

@@ -95,8 +95,16 @@ function serializeConfig(config: EtaConfig, counts?: EtaReadinessCounts) {
   };
 }
 
-function serializeSubmission(s: EtaSubmission) {
+/**
+ * The queue row. The payload is deliberately OFF the list — it is large and no
+ * list screen reads it — and available on `GET /submissions/:id` instead
+ * (D121). Before that it was reachable from nowhere at all: the one thing
+ * that will actually be filed with the authority could not be inspected by a
+ * screen or an auditor.
+ */
+function serializeSubmission(s: EtaSubmission, opts: { payload?: boolean } = {}) {
   return {
+    ...(opts.payload ? { payload: s.payload } : {}),
     id: s.id,
     internalId: s.internalId,
     documentType: s.documentType,
@@ -360,7 +368,15 @@ export function createEtaRoutes(
   app.get("/submissions", gate("accounting.eta.view"), async (c) => {
     const status = c.req.query("status") as EtaSubmissionStatus | undefined;
     const submissions = await service.list(status);
-    return c.json(submissions.map(serializeSubmission));
+    return c.json(submissions.map((s) => serializeSubmission(s)));
+  });
+
+  app.get("/submissions/:id", gate("accounting.eta.view"), async (c) => {
+    const submission = await service.findById(c.req.param("id"));
+    if (!submission) {
+      return c.json({ error: "ETA_SUBMISSION_NOT_FOUND", message: `الإرسال \"${c.req.param("id")}\" غير موجود.` }, 404);
+    }
+    return c.json(serializeSubmission(submission, { payload: true }));
   });
 
   app.post("/submissions/:id/submit", gate("accounting.eta.submit"), async (c) => {
@@ -373,7 +389,7 @@ export function createEtaRoutes(
 
   app.post("/submissions/submit-all", gate("accounting.eta.submit"), async (c) => {
     const result = await service.submitAllReady();
-    return c.json({ submitted: result.submitted.map(serializeSubmission), queued: result.queued });
+    return c.json({ submitted: result.submitted.map((s) => serializeSubmission(s)), queued: result.queued });
   });
 
   app.post("/submissions/:id/accept", gate("accounting.eta.submit"), async (c) => {

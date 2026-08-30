@@ -2021,4 +2021,592 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
     expect(row(body, "ap").controlAccountId).toBe("2100");
     for (const r of body.rows) expect(/[؀-ۿ]/.test((r as { label?: string }).label ?? "")).toBe(true);
   });
+
+  it("ar: an on-account customer-collection voucher (no invoice) still nets the sub-ledger down, and the GL still ties", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-onacct", "0");
+    await createServiceItem(app);
+    await authedPost(app, "/sales-invoices", invoiceBody("inv-onacct", "cust-onacct", "1000.00"));
+    await authedPost(app, "/sales-invoices/inv-onacct/confirm", {});
+
+    const ta = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-onacct", code: "TA-ONACCT", name: "خزينة", branchId: "BR1", glAccountId: "1300-1" },
+      admin(app),
+    );
+    expect(ta.status).toBe(201);
+
+    const voucher = await post(
+      app,
+      "/vouchers",
+      {
+        id: "voucher-onacct",
+        date: "2026-08-22",
+        voucherType: "customer_collection",
+        amount: "300.00",
+        branchId: "BR1",
+        paymentMethod: "cash",
+        treasuryAccountId: "ta-onacct",
+        treasuryGlAccountId: "1300-1",
+        counterpartyGlAccountId: "1105",
+        customerId: "cust-onacct",
+      },
+      admin(app),
+    );
+    expect(voucher.status).toBe(201);
+    expect((await post(app, "/vouchers/voucher-onacct/confirm", {}, admin(app))).status).toBe(200);
+
+    const body = await reconciliation(app);
+    const ar = row(body, "ar");
+    // 1000 invoiced, 300 collected on account (never allocated to the invoice) —
+    // the sub-ledger must still fall by 300, because the voucher moved real cash.
+    expect(ar.subLedgerBalance).toBe("700.000000");
+    expect(ar.glBalance).toBe("700.000000");
+    expect(ar.matched).toBe(true);
+  });
+
+  it("ar: an incoming cheque against 1105 reclassifies AR the moment it is written, and the GL ties", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-chq-recon", "0");
+    await createServiceItem(app);
+    await authedPost(app, "/sales-invoices", invoiceBody("inv-chq-recon", "cust-chq-recon", "1000.00"));
+    await authedPost(app, "/sales-invoices/inv-chq-recon/confirm", {});
+
+    const chq = await post(
+      app,
+      "/cheques",
+      {
+        id: "chq-recon-1",
+        direction: "incoming",
+        chequeNumber: "CHQ-RECON-1",
+        bankName: "بنك مصر",
+        amount: "250.00",
+        issueDate: "2026-08-22",
+        dueDate: "2026-08-22",
+        branchId: "BR1",
+        partyId: "cust-chq-recon",
+        counterpartyGlAccountId: "1105",
+        controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
+      },
+      admin(app),
+    );
+    expect(chq.status).toBe(201);
+
+    const body = await reconciliation(app);
+    const ar = row(body, "ar");
+    expect(ar.subLedgerBalance).toBe("750.000000");
+    expect(ar.glBalance).toBe("750.000000");
+    expect(ar.matched).toBe(true);
+  });
+
+  it("ap: a confirmed purchase return debits AP, and the sub-ledger still ties to the GL", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/items", { id: "item-pr", code: "ITEM-PR", nameAr: "صنف مرتجع", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+    ).toBe(201);
+    expect(
+      (await post(app, "/suppliers", { id: "sup-pr", code: "sup-pr", nameAr: "مورد مرتجع", currency: "EGP", openingBalance: "0" }, admin(app))).status,
+    ).toBe(201);
+
+    const createInvoice = await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-pr",
+        supplierId: "sup-pr",
+        date: "2026-08-22",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ itemId: "item-pr", description: "صنف مرتجع", kind: "inventory", qty: "10", unitCost: "20.00", taxRatePercent: 0 }],
+      },
+      admin(app),
+    );
+    expect(createInvoice.status).toBe(201);
+    const confirmInvoice = await post(app, "/purchases/invoices/pi-pr/confirm", {}, admin(app));
+    expect(confirmInvoice.status).toBe(200);
+    const invoice = (await confirmInvoice.json()) as { id: string; docNo: string };
+
+    const before = await reconciliation(app);
+    expect(row(before, "ap").subLedgerBalance).toBe("200.000000"); // 10 * 20.00
+
+    const createReturn = await post(
+      app,
+      "/purchase-returns/from-invoice",
+      {
+        id: "pr-recon-1",
+        date: "2026-08-23",
+        memo: "",
+        sourceInvoiceId: invoice.id,
+        warehouseId: "WH-MAIN",
+        reason: "DEFECTIVE",
+        requested: [{ itemId: "item-pr", qty: "3" }],
+      },
+      admin(app),
+    );
+    expect(createReturn.status).toBe(201);
+    const draftReturn = (await createReturn.json()) as { id: string };
+    const confirmReturn = await post(app, `/purchase-returns/${draftReturn.id}/confirm`, {}, admin(app));
+    expect(confirmReturn.status).toBe(200);
+
+    const after = await reconciliation(app);
+    const ap = row(after, "ap");
+    // 200 owed minus 3 * 20.00 (60.00) returned = 140.00.
+    expect(ap.subLedgerBalance).toBe("140.000000");
+    expect(ap.glBalance).toBe("140.000000");
+    expect(ap.matched).toBe(true);
+  });
+});
+
+describe("createBackend — stock reservations (مخزون محجوز), derived from open documents", () => {
+  it("a draft sales invoice's stock line reserves qty, confirming it releases the reservation and moves onHand instead", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/items", { id: "item-resv", code: "ITEM-RESV", nameAr: "صنف محجوز", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/stock-adjustments/draft",
+          { id: "sa-resv", date: "2026-08-01", lines: [{ itemId: "item-resv", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "50", unitCost: "10" }] },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/inventory/stock-adjustments/sa-resv/confirm", {}, admin(app))).status).toBe(200);
+
+    await createCustomer(app, "cust-resv", "0");
+    const createInvoice = await post(
+      app,
+      "/sales-invoices",
+      {
+        id: "inv-resv-1",
+        date: "2026-08-22",
+        dueDate: "2026-09-21",
+        customerId: "cust-resv",
+        customerNameAr: "عميل cust-resv",
+        warehouseId: "WH-MAIN",
+        branchId: "BR-MAIN",
+        arAccountId: "1105",
+        taxAccountId: "2200",
+        lines: [
+          {
+            lineId: "L1",
+            itemId: "item-resv",
+            itemNameAr: "صنف محجوز",
+            isStock: true,
+            qty: "12",
+            unitPrice: "30",
+            taxRatePercent: 0,
+            revenueAccountId: "4100",
+            cogsAccountId: "5100",
+            inventoryAccountId: "1200",
+          },
+        ],
+      },
+      admin(app),
+    );
+    expect(createInvoice.status).toBe(201);
+
+    const beforeConfirm = await app.fetch(
+      new Request("http://local/inventory/stock-balance?warehouseId=WH-MAIN", { headers: admin(app) }),
+    );
+    expect(beforeConfirm.status).toBe(200);
+    const beforeBody = (await beforeConfirm.json()) as { rows: { itemId: string; onHand: string; reserved: string; available: string }[] };
+    const beforeRow = beforeBody.rows.find((r) => r.itemId === "item-resv");
+    expect(beforeRow).toBeDefined();
+    expect(beforeRow!.onHand).toBe("50.000000");
+    expect(beforeRow!.reserved).toBe("12.000000");
+    expect(beforeRow!.available).toBe("38.000000");
+
+    expect((await post(app, "/sales-invoices/inv-resv-1/confirm", {}, admin(app))).status).toBe(200);
+
+    const afterConfirm = await app.fetch(
+      new Request("http://local/inventory/stock-balance?warehouseId=WH-MAIN", { headers: admin(app) }),
+    );
+    const afterBody = (await afterConfirm.json()) as { rows: { itemId: string; onHand: string; reserved: string; available: string }[] };
+    const afterRow = afterBody.rows.find((r) => r.itemId === "item-resv");
+    expect(afterRow).toBeDefined();
+    // The reservation is released the moment the stock actually moves.
+    expect(afterRow!.onHand).toBe("38.000000");
+    expect(afterRow!.reserved).toBe("0.000000");
+    expect(afterRow!.available).toBe("38.000000");
+  });
+
+  it("a draft stock transfer reserves qty out of its SOURCE warehouse only, not the destination", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/items", { id: "item-resv-t", code: "ITEM-RESV-T", nameAr: "صنف تحويل", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/stock-adjustments/draft",
+          { id: "sa-resv-t", date: "2026-08-01", lines: [{ itemId: "item-resv-t", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "30", unitCost: "5" }] },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/inventory/stock-adjustments/sa-resv-t/confirm", {}, admin(app))).status).toBe(200);
+    expect(
+      (await post(app, "/warehouses", { id: "WH-DEST", code: "WH-DEST", name: "مستودع الوجهة", nameEn: null, branchId: "BR-MAIN", type: "STANDARD" }, admin(app))).status,
+    ).toBe(201);
+
+    const draft = await post(
+      app,
+      "/inventory/stock-transfers/draft",
+      { id: "trf-resv-1", date: "2026-08-22", lines: [{ itemId: "item-resv-t", fromWarehouseId: "WH-MAIN", toWarehouseId: "WH-DEST", qty: "9" }] },
+      admin(app),
+    );
+    expect(draft.status).toBe(201);
+
+    const balance = await app.fetch(
+      new Request("http://local/inventory/stock-balance?warehouseId=WH-MAIN", { headers: admin(app) }),
+    );
+    const body = (await balance.json()) as { rows: { itemId: string; reserved: string }[] };
+    const sourceRow = body.rows.find((r) => r.itemId === "item-resv-t");
+    expect(sourceRow?.reserved).toBe("9.000000");
+
+    const destBalance = await app.fetch(
+      new Request("http://local/inventory/stock-balance?warehouseId=WH-DEST", { headers: admin(app) }),
+    );
+    const destBody = (await destBalance.json()) as { rows: { itemId: string; reserved: string }[] };
+    const destRow = destBody.rows.find((r) => r.itemId === "item-resv-t");
+    // The destination gains nothing until the transfer confirms — reserving there would invent stock.
+    expect(destRow === undefined || destRow.reserved === "0.000000").toBe(true);
+  });
+});
+
+describe("createBackend — سداد للمورد / تحصيل من عميل refuse a treasury account with no GL account, and post nothing", () => {
+  it("purchases pay(): a treasury account with no glAccountId is refused", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/suppliers", { id: "sup-notreas", code: "sup-notreas", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status,
+    ).toBe(201);
+    const createInvoice = await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-notreas",
+        supplierId: "sup-notreas",
+        date: "2026-08-22",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ description: "خدمة", kind: "expense", qty: "1", unitCost: "100.00", taxRatePercent: 0 }],
+      },
+      admin(app),
+    );
+    expect(createInvoice.status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-notreas/confirm", {}, admin(app))).status).toBe(200);
+
+    const pay = await post(
+      app,
+      "/purchases/invoices/pi-notreas/payments",
+      { amount: "50.00", treasuryAccountId: "no-such-treasury", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(pay.status).toBeGreaterThanOrEqual(400);
+
+    const invoiceRes = await app.fetch(new Request("http://local/purchases/invoices/pi-notreas", { headers: admin(app) }));
+    const invoice = (await invoiceRes.json()) as { status: string };
+    // Nothing was paid — the invoice's own status must not have moved.
+    expect(invoice.status).not.toBe("paid");
+  });
+
+  it("sales collect(): a treasury account with no glAccountId is refused, and posts nothing", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-notreas", "0");
+    await createServiceItem(app);
+    await authedPost(app, "/sales-invoices", invoiceBody("inv-notreas", "cust-notreas", "100.00"));
+    await authedPost(app, "/sales-invoices/inv-notreas/confirm", {});
+
+    const collect = await post(
+      app,
+      "/sales-invoices/inv-notreas/payments",
+      { amount: "50.00", treasuryAccountId: "no-such-treasury", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(collect.status).toBeGreaterThanOrEqual(400);
+
+    const invoiceRes = await app.fetch(new Request("http://local/sales-invoices/inv-notreas", { headers: admin(app) }));
+    const invoice = (await invoiceRes.json()) as { amountPaid: string };
+    expect(invoice.amountPaid).toBe("0.000000");
+  });
+});
+
+describe("createBackend — استرداد للعميل: refunding a confirmed sales return posts a real balanced voucher", () => {
+  it("refunds a confirmed return in full, debiting AR and crediting the till by the exact amount", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-refund", "0");
+    await createServiceItem(app);
+    const invoiceRes = await authedPost(app, "/sales-invoices", invoiceBody("inv-refund", "cust-refund", "200.00"));
+    expect(invoiceRes.status).toBe(201);
+    const confirmInvoice = await authedPost(app, "/sales-invoices/inv-refund/confirm", {});
+    expect(confirmInvoice.status).toBe(200);
+    const invoice = (await confirmInvoice.json()) as { id: string; docNo: string };
+
+    const ta = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-refund", code: "TA-REFUND", name: "خزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "1000" },
+      admin(app),
+    );
+    expect(ta.status).toBe(201);
+
+    const createReturn = await post(
+      app,
+      "/sales-returns",
+      {
+        id: "sr-refund-1",
+        date: "2026-08-23",
+        memo: "",
+        lines: [
+          {
+            itemId: "SVC-1",
+            warehouseId: "WH1",
+            customerId: "cust-refund",
+            sourceInvoiceId: invoice.id,
+            sourceInvoiceNumber: invoice.docNo,
+            reason: "DEFECTIVE",
+            availableQty: "1",
+            qty: "1",
+            unitPrice: "200",
+            unitCost: "0",
+            taxAmount: "0",
+          },
+        ],
+      },
+      admin(app),
+    );
+    expect(createReturn.status).toBe(201);
+    const confirmReturn = await post(app, "/sales-returns/sr-refund-1/confirm", {}, admin(app));
+    expect(confirmReturn.status).toBe(200);
+    const confirmed = (await confirmReturn.json()) as { document: { awaitingRefund: boolean; refundDue: string } };
+    expect(confirmed.document.awaitingRefund).toBe(true);
+    expect(confirmed.document.refundDue).toBe("200.000000");
+
+    const refund = await post(
+      app,
+      "/sales-returns/sr-refund-1/refund",
+      { amount: "200.00", treasuryAccountId: "ta-refund", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(refund.status).toBe(200);
+    const refunded = (await refund.json()) as { awaitingRefund: boolean; refundDue: string; voucherId: string; voucherNo: string | null };
+    expect(refunded.awaitingRefund).toBe(false);
+    expect(refunded.refundDue).toBe("0.000000");
+    expect(refunded.voucherId).toBeTruthy();
+    expect(refunded.voucherNo).toBeTruthy();
+
+    const voucherRes = await app.fetch(new Request(`http://local/vouchers/${refunded.voucherId}`, { headers: admin(app) }));
+    expect(voucherRes.status).toBe(200);
+    const voucher = (await voucherRes.json()) as { status: string; journalEntryId: string; amount: string };
+    expect(voucher.status).toBe("confirmed");
+    expect(voucher.amount).toBe("200.000000");
+
+    const je = await app.fetch(new Request(`http://local/gl/journal-entries/${voucher.journalEntryId}`, { headers: admin(app) }));
+    const lines = ((await je.json()) as { lines: { accountId: string; debit: string; credit: string }[] }).lines;
+    const ar = lines.find((l) => l.accountId === "1105");
+    const till = lines.find((l) => l.accountId === "1300-1");
+    expect(ar?.debit).toBe("200.000000");
+    expect(till?.credit).toBe("200.000000");
+  });
+});
+
+describe("createBackend — تحصيل من عميل السعر (D35): pricing variance surfaces on confirm", () => {
+  it("charging below the customer's own price list produces an exact pricing variance on confirm", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    const priceList = await authedPost(app, "/price-lists", {
+      id: "pl-var-1",
+      code: "PL-VAR-1",
+      nameAr: "قائمة أسعار خاصة",
+      isBase: false,
+      lines: [{ itemId: "SVC-1", unitCode: "PCS", minQty: "0", price: "150.00" }],
+    });
+    expect(priceList.status).toBe(201);
+
+    const customer = await authedPost(app, "/customers", {
+      id: "cust-pvar",
+      code: "cust-pvar",
+      nameAr: "عميل قائمة الأسعار",
+      paymentTermsDays: 30,
+      currency: "EGP",
+      openingBalance: "0",
+      active: true,
+      creditLimit: "0",
+      taxExempt: false,
+      etaBuyerType: "auto",
+      priceListId: "pl-var-1",
+    });
+    expect(customer.status).toBe(201);
+
+    const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-pvar-1", "cust-pvar", "100.00"));
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-pvar-1/confirm", {});
+    expect(confirm.status).toBe(200);
+    const body = (await confirm.json()) as {
+      pricingVariances: { lineId: string; itemId: string; listPrice: string; chargedPrice: string }[];
+    };
+    expect(body.pricingVariances).toHaveLength(1);
+    expect(body.pricingVariances[0]?.itemId).toBe("SVC-1");
+    expect(body.pricingVariances[0]?.listPrice).toBe("150.000000");
+    expect(body.pricingVariances[0]?.chargedPrice).toBe("100.000000");
+  });
+
+  it("charging AT or ABOVE the list price produces no variance", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await authedPost(app, "/price-lists", {
+      id: "pl-var-2",
+      code: "PL-VAR-2",
+      nameAr: "قائمة أسعار خاصة 2",
+      isBase: false,
+      lines: [{ itemId: "SVC-1", unitCode: "PCS", minQty: "0", price: "80.00" }],
+    });
+    await authedPost(app, "/customers", {
+      id: "cust-pvar2",
+      code: "cust-pvar2",
+      nameAr: "عميل 2",
+      paymentTermsDays: 30,
+      currency: "EGP",
+      openingBalance: "0",
+      active: true,
+      creditLimit: "0",
+      taxExempt: false,
+      etaBuyerType: "auto",
+      priceListId: "pl-var-2",
+    });
+    const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-pvar-2", "cust-pvar2", "100.00"));
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-pvar-2/confirm", {});
+    expect(confirm.status).toBe(200);
+    const body = (await confirm.json()) as { pricingVariances: unknown[] };
+    expect(body.pricingVariances).toEqual([]);
+  });
+});
+
+describe("createBackend — السماح بالبيع من مستودع آخر: cross-warehouse sales fallback", () => {
+  it("a stock line pulls from the OTHER warehouse when the invoiced warehouse holds none of the item", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/items", { id: "item-xwh", code: "ITEM-XWH", nameAr: "صنف متعدد المخازن", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+    ).toBe(201);
+    expect(
+      (await post(app, "/warehouses", { id: "WH-OTHER", code: "WH-OTHER", name: "مستودع آخر", nameEn: null, branchId: "BR-MAIN", type: "STANDARD" }, admin(app))).status,
+    ).toBe(201);
+    // Stock exists ONLY in WH-OTHER, never in WH-MAIN.
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/stock-adjustments/draft",
+          { id: "sa-xwh", date: "2026-08-01", lines: [{ itemId: "item-xwh", warehouseId: "WH-OTHER", reason: "INITIAL_STOCK", direction: "IN", qty: "20", unitCost: "15" }] },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/inventory/stock-adjustments/sa-xwh/confirm", {}, admin(app))).status).toBe(200);
+
+    await createCustomer(app, "cust-xwh", "0");
+    const createInvoice = await post(
+      app,
+      "/sales-invoices",
+      {
+        id: "inv-xwh-1",
+        date: "2026-08-22",
+        dueDate: "2026-09-21",
+        customerId: "cust-xwh",
+        customerNameAr: "عميل cust-xwh",
+        warehouseId: "WH-MAIN",
+        branchId: "BR-MAIN",
+        arAccountId: "1105",
+        taxAccountId: "2200",
+        lines: [
+          {
+            lineId: "L1",
+            itemId: "item-xwh",
+            itemNameAr: "صنف متعدد المخازن",
+            isStock: true,
+            qty: "5",
+            unitPrice: "30",
+            taxRatePercent: 0,
+            revenueAccountId: "4100",
+            cogsAccountId: "5100",
+            inventoryAccountId: "1200",
+          },
+        ],
+      },
+      admin(app),
+    );
+    expect(createInvoice.status).toBe(201);
+    const confirm = await post(app, "/sales-invoices/inv-xwh-1/confirm", {}, admin(app));
+    // Without cross-warehouse fallback this would refuse for negative stock in WH-MAIN.
+    expect(confirm.status).toBe(200);
+
+    const otherBalance = await app.fetch(
+      new Request("http://local/inventory/balance?itemId=item-xwh&warehouseId=WH-OTHER", { headers: admin(app) }),
+    );
+    expect(Number(((await otherBalance.json()) as { onHand: string }).onHand)).toBe(15); // 20 - 5 pulled
+    const mainBalance = await app.fetch(
+      new Request("http://local/inventory/balance?itemId=item-xwh&warehouseId=WH-MAIN", { headers: admin(app) }),
+    );
+    expect(Number(((await mainBalance.json()) as { onHand: string }).onHand)).toBe(0);
+  });
+});
+
+describe("createBackend — GET /gl/balances-by-currency reads real open receivables/payables", () => {
+  it("ties to the same base-currency totals a confirmed invoice and purchase invoice carry, net of allocation", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-bal", "0");
+    await createServiceItem(app);
+    await authedPost(app, "/sales-invoices", invoiceBody("inv-bal-1", "cust-bal", "1000.00"));
+    await authedPost(app, "/sales-invoices/inv-bal-1/confirm", {});
+
+    await post(app, "/suppliers", { id: "sup-bal", code: "sup-bal", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app));
+    const createInvoice = await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-bal-1",
+        supplierId: "sup-bal",
+        date: "2026-08-22",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ description: "خدمة", kind: "expense", qty: "1", unitCost: "400.00", taxRatePercent: 0 }],
+      },
+      admin(app),
+    );
+    expect(createInvoice.status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-bal-1/confirm", {}, admin(app))).status).toBe(200);
+
+    const res = await app.fetch(new Request("http://local/gl/balances-by-currency", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      baseCurrency: string;
+      receivableTotalBase: string;
+      payableTotalBase: string;
+      receivables: { currency: string; outstandingBase: string }[];
+      payables: { currency: string; outstandingBase: string }[];
+    };
+    expect(body.baseCurrency).toBe("EGP");
+    expect(body.receivableTotalBase).toBe("1000.000000");
+    expect(body.payableTotalBase).toBe("400.000000");
+    const egpReceivables = body.receivables.find((r) => r.currency === "EGP");
+    expect(egpReceivables?.outstandingBase).toBe("1000.000000");
+  });
+});
+
+describe("createBackend — seedDemoData wires a real session and seeds through the real API", () => {
+  it("seeds more than zero customers, reachable over the real HTTP surface", async () => {
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
+    handles.push(handle);
+    registries.set(handle.app, handle.sessions);
+    const res = await handle.app.fetch(new Request("http://local/customers", { headers: admin(handle.app) }));
+    expect(res.status).toBe(200);
+    const customersList = (await res.json()) as unknown[];
+    expect(customersList.length).toBeGreaterThan(0);
+  });
 });

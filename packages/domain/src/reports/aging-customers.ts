@@ -44,6 +44,17 @@ export interface AgingCustomersContext {
    * the order a collector would actually clear a customer's debt in.
    */
   readonly unappliedCreditsByCustomerId?: ReadonlyMap<string, Money>;
+  /**
+   * Balance of the AR CONTROL account in the GL as of `asOfDate` (D112).
+   *
+   * The ladder walks invoices; the control account holds what those invoices,
+   * their collections and their returns actually posted. They are two
+   * independent paths to one number, so a difference means one of them is
+   * wrong — and without this the first report an accountant opens agreed only
+   * with itself. Optional: omit it and the report still runs, it simply makes
+   * no claim to tie to the ledger.
+   */
+  readonly receivablesControlBalance?: (params: AgingCustomersParams) => number;
 }
 
 export interface AgingCustomersParams {
@@ -133,6 +144,12 @@ export function createAgingCustomersReport(
       { key: "over120", header: "أكثر من 120 يوم", format: "money", align: "end", total: true, value: (row) => row.over120 },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
     ],
+    reconciliation: {
+      labelAr: "إجمالي أعمار الديون مقابل حساب العملاء في دفتر الأستاذ",
+      computeReportTotal: (rows) => sumRows(rows, (row) => row.total),
+      computeReferenceTotal: (_rows, ctx, params) => ctx.receivablesControlBalance?.(params) ?? 0,
+      toleranceMoney: 0.01,
+    },
     chart: {
       labelColumn: "customerNameAr",
       valueColumn: "total",

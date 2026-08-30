@@ -305,7 +305,12 @@ export function ConfigurableProductsScreen() {
     try {
       await deactivateProduct.mutateAsync(id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("api.theProductCouldNotBe2"));
+      const message = err instanceof Error ? err.message : t("api.theProductCouldNotBe2");
+      setActionError(message);
+      // Re-thrown so the row menu's own success/failure toast — which awaits
+      // this promise — learns the deactivation actually failed, instead of
+      // reporting a refused deactivation as done.
+      throw err instanceof Error ? err : new Error(message);
     } finally {
       setPendingId(null);
     }
@@ -472,7 +477,10 @@ export function ConfigurableProductsScreen() {
           product={selected}
           itemName={itemName}
           onBack={() => setSelectedId(null)}
-          onDeactivate={() => void deactivate(selected.id)}
+          onDeactivate={() => {
+            // Surfaced already via `actionError`, rendered just above.
+            deactivate(selected.id).catch(() => {});
+          }}
           deactivating={pendingId === selected.id}
         />
       </>
@@ -534,7 +542,7 @@ export function ConfigurableProductsScreen() {
               label: t("configProducts.deactivate"),
               tone: "danger",
               disabled: pendingId === p.id,
-              onSelect: () => void deactivate(p.id),
+              onSelect: () => deactivate(p.id),
             });
           }
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: p.nameAr })} />;

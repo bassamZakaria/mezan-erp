@@ -1,3 +1,0 @@
-const x = () => ({ a: 1 });
-const y = [...x, 2];
-expect(z.toString()).toBe("1.0");

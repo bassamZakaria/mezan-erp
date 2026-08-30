@@ -6,7 +6,7 @@ import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { AccountDTO, CustomerDTO, ItemDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import { SalesInvoicesScreen } from "./SalesInvoicesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
-import type { JournalEntryDTO, SalesInvoiceDTO } from "../data/hooks";
+import type { JournalEntryDTO, SalesInvoiceDTO, SalesQuoteRecord } from "../data/hooks";
 import { NavigationProvider } from "../navigation";
 
 /**
@@ -92,6 +92,12 @@ const items: ItemDTO[] = [
   {
     id: "item-rice", code: "ITM-1", nameAr: "أرز أبيض مصري 5 كجم", nameEn: null, type: "stock", baseUnitCode: "PCS", alternateUnits: [], barcodes: [],
     categoryId: null, brandId: null, seasonId: null, description: null, defaultSupplierId: null, specifications: [], costingMethod: "WAC", salePrice: "185.00", costPrice: "150.00", taxRatePercent: 14, trackInventory: true,
+    trackBatches: false, trackExpiry: false, reorderPoint: null, imageAttachmentId: null, reorderQty: null, revenueAccountId: "4100-CUSTOM", cogsAccountId: "5100-CUSTOM", inventoryAccountId: "1200-CUSTOM",
+    etaCodeType: null, etaItemCode: null, gpcCode: null, status: "active",
+  },
+  {
+    id: "item-install", code: "SVC-1", nameAr: "خدمة تركيب", nameEn: null, type: "service", baseUnitCode: "PCS", alternateUnits: [], barcodes: [],
+    categoryId: null, brandId: null, seasonId: null, description: null, defaultSupplierId: null, specifications: [], costingMethod: "WAC", salePrice: "300.00", costPrice: "0", taxRatePercent: 14, trackInventory: false,
     trackBatches: false, trackExpiry: false, reorderPoint: null, imageAttachmentId: null, reorderQty: null, revenueAccountId: null, cogsAccountId: null, inventoryAccountId: null,
     etaCodeType: null, etaItemCode: null, gpcCode: null, status: "active",
   },
@@ -521,5 +527,73 @@ describe("SalesInvoicesScreen — row-scoped confirm from the list", () => {
 
     fireEvent.click(within(rowB!).getByRole("button", { name: /^إجراءات/ }));
     expect(screen.getByRole("menuitem", { name: "تأكيد الفاتورة" })).toBeEnabled();
+  });
+});
+
+function acceptedQuote(overrides: Partial<SalesQuoteRecord> = {}): SalesQuoteRecord {
+  return {
+    id: "quote-1",
+    docType: "SALES_QUOTE",
+    docNo: "SQ-000001",
+    status: "accepted",
+    date: "2026-08-18",
+    expiryDate: "2026-09-18",
+    customerId: "cust-amal",
+    customerNameAr: "شركة الأمل للتجارة",
+    branchId: "MAIN",
+    currency: "EGP",
+    customerTaxExempt: false,
+    notes: null,
+    internalNotes: null,
+    discount: { type: "amount", amount: "0" },
+    priceListId: null,
+    couponCode: null,
+    createdAt: "2026-08-18T09:00:00.000Z",
+    sentAt: "2026-08-18T09:05:00.000Z",
+    respondedAt: "2026-08-19T09:00:00.000Z",
+    convertedAt: null,
+    convertedInvoiceId: null,
+    lines: [
+      { lineId: "l1", itemId: "item-rice", itemNameAr: "أرز أبيض مصري 5 كجم", qty: "2.000000", unitPrice: "185.000000", discountPercent: 0, taxRatePercent: 14 },
+      { lineId: "l2", itemId: "item-install", itemNameAr: "خدمة تركيب", qty: "1.000000", unitPrice: "300.000000", discountPercent: 0, taxRatePercent: 14 },
+    ],
+    totals: { grossTotal: "670.00", lineDiscountTotal: "0", invoiceDiscountTotal: "0", subtotal: "670.00", taxableTotal: "670.00", taxTotal: "93.80", grandTotal: "763.80" },
+    ...overrides,
+  };
+}
+
+describe("SalesInvoicesScreen — convert an accepted quote", () => {
+  it("converting a quote resolves each line's GL accounts from its REAL item — the item's own accounts for a stock line, and the documented fallback only for a line with none, never mixed up", async () => {
+    let convertBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "GET /sales-quotes": () => ({ body: [acceptedQuote()] }),
+      "POST /sales-quotes/quote-1/convert-to-invoice": (init) => {
+        convertBody = JSON.parse((init?.body as string) ?? "{}");
+        return { body: { quote: { ...acceptedQuote(), status: "converted", convertedInvoiceId: "inv-5" }, invoiceId: "inv-5", invoiceDocNo: "INV-000005" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    fireEvent.click(screen.getByRole("button", { name: "تغيير طريقة الإنشاء" }));
+    fireEvent.click(screen.getByRole("button", { name: /^إنشاء من عرض سعر/ }));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+
+    await screen.findByRole("combobox", { name: "اختر عرض السعر المقبول" });
+    selectOption("اختر عرض السعر المقبول", "SQ-000001 — شركة الأمل للتجارة");
+    selectOption("المستودع", "مستودع الفرع الرئيسي");
+    fireEvent.click(screen.getByRole("button", { name: "تحويل إلى فاتورة" }));
+
+    await waitFor(() => expect(convertBody).toBeDefined());
+    const body = convertBody as Record<string, unknown>;
+    expect(body.arAccountId).toBe("1105");
+    expect(body.taxAccountId).toBe("2200");
+    expect(body.warehouseId).toBe("wh-1");
+    const lines = body.lines as Array<Record<string, unknown>>;
+    expect(lines).toEqual([
+      { lineId: "l1", isStock: true, revenueAccountId: "4100-CUSTOM", cogsAccountId: "5100-CUSTOM", inventoryAccountId: "1200-CUSTOM" },
+      { lineId: "l2", isStock: false, revenueAccountId: "4100", cogsAccountId: null, inventoryAccountId: null },
+    ]);
   });
 });

@@ -191,6 +191,42 @@ describe("EtaScreen — عام (general)", () => {
     });
   });
 
+  /**
+   * Same shape as D124. `onClick={save}` does not await `save()`, and `save()`
+   * awaited `update.mutateAsync` with no try/catch — so a rejected save
+   * escaped as an unhandled promise rejection, and `setSaved(true)` ran on a
+   * save that never happened. Both halves are asserted: no rejection, and the
+   * screen does not claim success.
+   */
+  it("reports a failed config save, claims no success, and leaks no unhandled rejection", async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      const { transport } = trackedTransport({
+        "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+        "GET /eta/submissions": () => ({ body: [] }),
+        "GET /eta/activity-codes": () => ({ body: [] as EtaActivityCodeDTO[] }),
+        "GET /eta/tax-subtypes": () => ({ body: [] as EtaTaxSubTypeRowDTO[] }),
+        "GET /eta/branch-codes": () => ({ body: [] as EtaBranchCodeRowDTO[] }),
+        "PUT /eta/config": () => ({ status: 422, body: { error: "INVALID_TRN", message: "رقم التسجيل الضريبي غير صالح." } }),
+      });
+      renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+      await screen.findByText("40%");
+      fireEvent.change(screen.getByLabelText(/^رقم التسجيل الضريبي/), { target: { value: "1" } });
+      fireEvent.click(screen.getAllByRole("button", { name: "حفظ" })[0]!);
+
+      await waitFor(() => expect(rejections).toEqual([]));
+      // The success line must NOT appear — the config was refused.
+      expect(screen.queryByText("حُفظت الإعدادات.")).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+  });
+
   it("saves a branch's authority code via PUT /eta/branch-codes/:branchId", async () => {
     let saved: unknown = null;
     const { transport } = trackedTransport({

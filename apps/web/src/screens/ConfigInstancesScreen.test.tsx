@@ -338,8 +338,9 @@ describe("ConfigInstancesScreen — cancel, list controls and preview states", (
     renderScreen([instance(), other]);
     await screen.findByText("CM-000001");
     fireEvent.change(screen.getByPlaceholderText("بحث برقم الأمر أو المنتج أو العميل…"), { target: { value: "شركة الأمل للتجارة" } });
-    expect(await screen.findByText("CM-000001")).toBeInTheDocument();
-    expect(screen.queryByText("CM-000002")).not.toBeInTheDocument();
+    // The search box is debounced (300ms) before it narrows the URL/query.
+    await waitFor(() => expect(screen.queryByText("CM-000002")).not.toBeInTheDocument());
+    expect(screen.getByText("CM-000001")).toBeInTheDocument();
   });
 
   it("shows the server's rejection inline and keeps the panel open when creating an order fails", async () => {
@@ -353,13 +354,20 @@ describe("ConfigInstancesScreen — cancel, list controls and preview states", (
       "POST /manufacturing/config-instances": () => ({ status: 422, body: { error: "VALIDATION", message: "الكمية يجب أن تكون أكبر من صفر" } }),
     });
     renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    // Wait for the empty state so every list-page query (including
+    // warehouses, which openCreate() reads synchronously to default the WIP
+    // warehouse) has settled before opening the panel.
     fireEvent.click(await screen.findByRole("button", { name: "أمر تصنيع مخصص جديد" }));
     const dialog = screen.getByRole("dialog", { name: "أمر تصنيع مخصص جديد" });
     pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
     fireEvent.change(inputNextToLabel(dialog, "العرض"), { target: { value: "150" } });
     await within(dialog).findByText("زجاج (م²)");
     pickFromCombobox(dialog, "مستودع الخامات *", "مستودع الخامات");
+    // The WIP warehouse defaults from the PRODUCTION-type warehouse only once
+    // that query has resolved — pick it explicitly so this test never races it.
+    pickFromCombobox(dialog, "مستودع التشغيل *", "مستودع التشغيل");
     pickFromCombobox(dialog, "مستودع المنتجات *", "مستودع المنتجات التامة");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "حفظ" })).toBeEnabled());
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("الكمية يجب أن تكون أكبر من صفر");
@@ -408,9 +416,9 @@ describe("ConfigInstancesScreen — cancel, list controls and preview states", (
     rejectPreview = false;
     // Nudging the spec re-fires the preview effect.
     fireEvent.change(inputNextToLabel(dialog, "العرض"), { target: { value: "151" } });
-    expect(await within(dialog).findByText("تكلفة الوحدة")).toBeInTheDocument();
+    const unitCostLabel = await within(dialog).findByText("تكلفة الوحدة");
     // materialCostPerUnit + laborCostPerUnit + overheadCostPerUnit = 133.88 + 0 + 0
-    expect(within(dialog).getByText("133.88")).toBeInTheDocument();
+    expect(unitCostLabel.closest("div")).toHaveTextContent("133.88");
   });
 
   it("shows a retry banner when the list fails, and retry re-fetches the same route", async () => {

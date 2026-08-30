@@ -314,6 +314,27 @@ describe("AppLayout — command palette", () => {
     expect(await screen.findByRole("dialog", { name: "اختصارات لوحة المفاتيح" })).toBeInTheDocument();
   });
 
+  it("the '?' keyboard shortcut ALSO opens the shortcuts overlay — a third, independent trigger from the global keymap", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, ["/dashboard"]);
+    await screen.findByTestId("location-probe");
+
+    fireEvent.keyDown(document, { key: "?" });
+    expect(await screen.findByRole("dialog", { name: "اختصارات لوحة المفاتيح" })).toBeInTheDocument();
+  });
+
+  it("the 'g' then 'd' module-jump chord routes to the dashboard through the top-nav item's own click handler", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, [pathForRoute("notifications")]);
+    await screen.findByTestId("location-probe");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute("notifications"));
+
+    fireEvent.keyDown(document, { key: "g" });
+    fireEvent.keyDown(document, { key: "d" });
+
+    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute("dashboard")));
+  });
+
   it("⌘N opens the DEFAULT create screen (sales invoices) with a create intent when the screen on display registered no create target of its own", async () => {
     const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
     renderLayout(transport, ["/dashboard"]);
@@ -402,5 +423,73 @@ describe("AppLayout — first-run wizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
     expect(await screen.findByRole("button", { name: "الإعداد الأولي" })).toBeInTheDocument();
+  });
+
+  it("walking every wizard step through to 'إنهاء والانتقال إلى النظام' calls onFinish, which lands the app on the real shell", async () => {
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+      "GET /tenant": () => ({ body: { name: "Cyag" } }),
+      "GET /bootstrap/status": () => ({ body: { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0 } }),
+      "POST /bootstrap/admin": () => ({ body: testAdminSession }),
+      "POST /bootstrap/seed": () => ({ body: { accounts: 5, taxRates: 2, branches: 1, warehouses: 1, fiscalPeriods: 1, users: 1 } }),
+    });
+    renderLayout(transport, ["/dashboard"], null);
+
+    fireEvent.click(await screen.findByRole("button", { name: "الإعداد الأولي" }));
+
+    // Step 1 — activate.
+    fireEvent.click(await screen.findByRole("button", { name: "تفعيل" }));
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+
+    // Step 2 — admin account.
+    fireEvent.change(await screen.findByLabelText("الاسم الكامل"), { target: { value: "مدير النظام" } });
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), { target: { value: "admin@cyag.example" } });
+    fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "123456" } });
+    fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+
+    // Step 3 — seed core data.
+    await screen.findByRole("button", { name: "تشغيل التهيئة" });
+    fireEvent.click(screen.getByRole("button", { name: "تشغيل التهيئة" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "التالي" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+
+    // Step 4 — import (skipped) — finish.
+    fireEvent.click(await screen.findByRole("button", { name: "إنهاء والانتقال إلى النظام" }));
+
+    // onFinish closed the wizard; the admin session from step 2 now shows the real shell.
+    expect(await screen.findByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" })).toBeInTheDocument();
+  });
+});
+
+describe("AppLayout — screen loading fallback", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  it("shows the ScreenLoading skeleton in the Outlet's own slot while a lazy screen module is still downloading — the rest of the shell (rail, wordmark) stays on screen", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          Component: AppLayout,
+          children: [{ path: "*", lazy: () => new Promise(() => {}) }],
+        },
+      ],
+      { initialEntries: ["/dashboard"] },
+    );
+    render(
+      <AppProviders transport={transport} initialSession={testAdminSession}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent("جارٍ التحميل…");
+    // The shell chrome around the Outlet rendered normally — only the routed
+    // content is suspended.
+    expect(screen.getByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" })).toBeInTheDocument();
   });
 });

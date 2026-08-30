@@ -276,9 +276,14 @@ describe("bank reconciliation routes — manual lines and finalize", () => {
     expect(((await (await app.fetch(req("/stmt-1"))).json()) as any).lines).toHaveLength(4);
   });
 
-  it("finalizes the statement and then locks every mutation with 409", async () => {
+  it("LIMITATION (D82): finalizes with lines still unmatched, then locks every mutation with 409", async () => {
     const { app } = await newApp();
     await app.fetch(importReq());
+    // Every imported line is still unmatched at this point — the route never
+    // checks, so the reconciliation closes over its own open differences.
+    const lines = ((await (await app.fetch(req("/stmt-1"))).json()) as any).lines as { status: string }[];
+    expect(lines.every((line) => line.status === "unmatched")).toBe(true);
+
     const res = await app.fetch(req("/stmt-1/finalize", { method: "POST" }));
     expect(res.status).toBe(200);
     expect((await res.json()) as any).toMatchObject({ status: "completed", finalizedAt: "2026-08-22T10:00:00.000Z" });

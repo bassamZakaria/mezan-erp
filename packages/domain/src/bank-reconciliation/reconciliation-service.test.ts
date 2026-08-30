@@ -145,12 +145,21 @@ describe("BankReconciliationService.addManualLine", () => {
 });
 
 describe("BankReconciliationService.finalize", () => {
-  it("locks the statement and stamps finalizedAt", async () => {
+  it("LIMITATION (D82): finalises with every line still unmatched, and locks the statement anyway", async () => {
     const { service } = buildService();
     await service.importStatement(importCmd());
+
+    // Nothing has been matched: the reconciliation is closed with all of its
+    // differences still open, and the lock then prevents anyone from matching
+    // them afterwards. When D82 is fixed this call should be refused while any
+    // line is unmatched — that is the expectation to rewrite.
+    const before = await service.listLines("stmt-1");
+    expect(before.every((line) => line.status === "unmatched")).toBe(true);
+
     const finalized = await service.finalize("stmt-1");
     expect(finalized.status).toBe("completed");
     expect(finalized.finalizedAt).toBe("2026-08-22T10:00:00.000Z");
+    expect((await service.listLines("stmt-1")).every((line) => line.status === "unmatched")).toBe(true);
   });
 
   it("rejects finalizing twice", async () => {

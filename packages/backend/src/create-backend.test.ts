@@ -1322,3 +1322,142 @@ describe("createBackend — financial statements over real posted GL (file-backe
     expect(body.grandTotals.debit).toBeCloseTo(405200, 2);
   });
 });
+
+describe("createBackend — the reconciliation tie at a NON-ZERO balance", () => {
+  type ReconRow = {
+    key: string;
+    controlAccountId: string;
+    subLedgerBalance: string;
+    glBalance: string;
+    matched: boolean;
+  };
+
+  async function reconciliation(app: Awaited<ReturnType<typeof newBackend>>) {
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    return (await res.json()) as { rows: ReconRow[]; allMatched: boolean };
+  }
+
+  const row = (body: { rows: ReconRow[] }, key: string) => body.rows.find((r) => r.key === key) as ReconRow;
+
+  it("inventory: the stock valuation equals GL 1200 after real stock has been received", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/items", { id: "item-recon", code: "ITEM-RECON", nameAr: "صنف التسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+    ).toBe(201);
+
+    // 40 units at 12.50 = 500.00 of inventory value, posted through the real
+    // document path — not written into a snapshot by hand.
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/stock-adjustments/draft",
+          {
+            id: "sa-recon",
+            date: "2026-08-22",
+            lines: [{ itemId: "item-recon", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "40", unitCost: "12.50" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/inventory/stock-adjustments/sa-recon/confirm", {}, admin(app))).status).toBe(200);
+
+    const body = await reconciliation(app);
+    const inventory = row(body, "inventory");
+
+    // The two numbers that must agree, both non-zero, and the figure derived
+    // by hand from what was posted.
+    expect(inventory.subLedgerBalance).toBe("500.000000");
+    expect(inventory.glBalance).toBe("500.000000");
+    expect(inventory.matched).toBe(true);
+    expect(body.allMatched).toBe(true);
+  });
+
+  it("inventory: issuing stock moves BOTH sides together, so they still agree", async () => {
+    const app = await newBackend();
+    await post(app, "/items", { id: "item-recon", code: "ITEM-RECON", nameAr: "صنف التسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app));
+    await post(
+      app,
+      "/inventory/stock-adjustments/draft",
+      {
+        id: "sa-in",
+        date: "2026-08-22",
+        lines: [{ itemId: "item-recon", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "40", unitCost: "12.50" }],
+      },
+      admin(app),
+    );
+    await post(app, "/inventory/stock-adjustments/sa-in/confirm", {}, admin(app));
+
+    // Ten units out at the 12.50 average = 125.00 leaving inventory.
+    await post(
+      app,
+      "/inventory/stock-adjustments/draft",
+      {
+        id: "sa-out",
+        date: "2026-08-23",
+        lines: [{ itemId: "item-recon", warehouseId: "WH-MAIN", reason: "DAMAGE", direction: "OUT", qty: "10" }],
+      },
+      admin(app),
+    );
+    expect((await post(app, "/inventory/stock-adjustments/sa-out/confirm", {}, admin(app))).status).toBe(200);
+
+    const inventory = row(await reconciliation(app), "inventory");
+    expect(inventory.subLedgerBalance).toBe("375.000000");
+    expect(inventory.glBalance).toBe("375.000000");
+    expect(inventory.matched).toBe(true);
+  });
+
+  it("reports a mismatch rather than hiding it, when only one side moves", async () => {
+    const app = await newBackend();
+    await post(app, "/items", { id: "item-recon", code: "ITEM-RECON", nameAr: "صنف التسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app));
+    await post(
+      app,
+      "/inventory/stock-adjustments/draft",
+      {
+        id: "sa-in",
+        date: "2026-08-22",
+        lines: [{ itemId: "item-recon", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "40", unitCost: "12.50" }],
+      },
+      admin(app),
+    );
+    await post(app, "/inventory/stock-adjustments/sa-in/confirm", {}, admin(app));
+
+    // A manual journal entry straight into the inventory control account, with
+    // nothing behind it in the stock ledger — exactly the drift the
+    // reconciliation screen exists to surface.
+    const je = await post(
+      app,
+      "/gl/journal-entries",
+      {
+        id: "je-drift",
+        date: "2026-08-24",
+        memo: "قيد يدوي على حساب المخزون",
+        lines: [
+          { accountId: "1200", debit: "100.00", credit: "0" },
+          { accountId: "5100", debit: "0", credit: "100.00" },
+        ],
+      },
+      admin(app),
+    );
+    expect(je.status).toBe(201);
+
+    const body = await reconciliation(app);
+    const inventory = row(body, "inventory");
+
+    expect(inventory.subLedgerBalance).toBe("500.000000");
+    expect(inventory.glBalance).toBe("600.000000");
+    expect(inventory.matched).toBe(false);
+    expect(body.allMatched).toBe(false);
+  });
+
+  it("names all three control accounts, in the tenant's own chart", async () => {
+    const app = await newBackend();
+    const body = await reconciliation(app);
+    expect(row(body, "inventory").controlAccountId).toBe("1200");
+    expect(row(body, "ar").controlAccountId).toBe("1105");
+    expect(row(body, "ap").controlAccountId).toBe("2100");
+    for (const r of body.rows) expect(/[؀-ۿ]/.test((r as { label?: string }).label ?? "")).toBe(true);
+  });
+});

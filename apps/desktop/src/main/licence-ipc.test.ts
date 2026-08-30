@@ -69,7 +69,8 @@ function lanHandle(overrides: Partial<LanHostHandle>): LanHostHandle {
     enabled: true,
     ready: Promise.resolve(null),
     address: () => ({ address: "192.168.1.7", family: "IPv4", port: 4173 }),
-    url: () => "http://192.168.1.7:4173",
+    url: () => "https://192.168.1.7:4173",
+    fingerprint: () => "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
     close: async () => {},
     ...overrides,
   };
@@ -114,7 +115,12 @@ describe("registerLicenceStatusOverIpc", () => {
     expect(result.messageAr).toBe("رسالة بالعربية");
     expect(result.expiresAt).toBe("2026-01-01T00:00:00.000Z");
     expect(result.seats).toBe(3);
-    expect(result.lan.url).toBe("http://192.168.1.7:4173");
+    expect(result.lan.url).toBe("https://192.168.1.7:4173");
+    // The value a till pins. It reaches the screen only through this channel —
+    // there is no route that reports it, and no second source to correct it.
+    expect(result.lan.fingerprintSha256).toBe(
+      "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+    );
   });
 
   // The whole point of the null: a screen told "unknown" says unknown, and a
@@ -122,7 +128,7 @@ describe("registerLicenceStatusOverIpc", () => {
   it("reports a null address — never a guess — while the socket is not yet bound", () => {
     registerLicenceStatusOverIpc({
       diagnosis: () => diagnosisOf("licensed", "LIC-OK"),
-      lanHost: () => lanHandle({ address: () => null, url: () => null }),
+      lanHost: () => lanHandle({ address: () => null, url: () => null, fingerprint: () => null }),
       sessions: fakeSessions(),
     });
 
@@ -131,12 +137,14 @@ describe("registerLicenceStatusOverIpc", () => {
     if (!result.ok) return;
     expect(result.lan.listening).toBe(false);
     expect(result.lan.url).toBeNull();
+    expect(result.lan.fingerprintSha256).toBeNull();
   });
 
   it("reports not-listening when LAN mode is off, and no address with it", () => {
     registerLicenceStatusOverIpc({
       diagnosis: () => diagnosisOf("missing", "LIC-MISSING"),
-      lanHost: () => lanHandle({ enabled: false, address: () => null, url: () => null }),
+      lanHost: () =>
+        lanHandle({ enabled: false, address: () => null, url: () => null, fingerprint: () => null }),
       sessions: fakeSessions(),
     });
 
@@ -158,7 +166,7 @@ describe("registerLicenceStatusOverIpc", () => {
     const result = call("good-token");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.lan).toEqual({ listening: false, url: null });
+    expect(result.lan).toEqual({ listening: false, url: null, fingerprintSha256: null });
   });
 
   it("answers UNAVAILABLE, in Arabic, rather than rejecting across the bridge", () => {

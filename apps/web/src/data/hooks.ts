@@ -6129,8 +6129,15 @@ export interface DesktopLicenceStatusDTO {
   readonly expiresAt: string | null;
   readonly lan: {
     readonly listening: boolean;
-    /** Null when the host has no address to give. Never a guess — say unknown. */
+    /** `https://…`; null when the host has no address to give. Never a guess — say unknown. */
     readonly url: string | null;
+    /**
+     * `AB:CD:…` SHA-256 of the certificate the LAN socket presents. It is
+     * self-signed and chain-validated by nothing, so a till pins THIS value;
+     * comparing it once, in the shop, is the whole defence against a laptop
+     * answering on the host's address. Null when unknown — never a filler.
+     */
+    readonly fingerprintSha256: string | null;
   };
 }
 

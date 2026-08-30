@@ -146,12 +146,29 @@ export interface LanAddressDTO {
   /** True only when the LAN socket is actually bound and listening. */
   readonly listening: boolean;
   /**
-   * `http://192.168.1.7:4173` — the address a till is pointed at — or null when
-   * there is none to give (not listening yet, or the host had no non-internal
-   * IPv4 interface and fell back to `0.0.0.0`, which no till can dial). NEVER a
-   * plausible-looking guess: the screen says the address is unknown instead.
+   * `https://192.168.1.7:4173` — the address a till is pointed at — or null
+   * when there is none to give (not listening yet, or the host had no
+   * non-internal IPv4 interface and fell back to `0.0.0.0`, which no till can
+   * dial). NEVER a plausible-looking guess: the screen says the address is
+   * unknown instead.
+   *
+   * `https`, not `http`: the socket serves TLS only (main/lan-tls.ts), because
+   * plain HTTP put every till's PIN and its 12-hour bearer token on the shop
+   * wifi in clear text.
    */
   readonly url: string | null;
+  /**
+   * `AB:CD:…` — the SHA-256 fingerprint of the certificate the LAN socket
+   * presents, which is what a till PINS. It is self-signed and validated
+   * against no chain, so this string is the only thing that distinguishes the
+   * real host from a laptop answering on the same address; a consultant reads
+   * it off the host's screen once, while standing in the shop.
+   *
+   * Null when it is not known (LAN off, or the identity could not be read).
+   * Never a placeholder — a fingerprint that matches nothing on the wire would
+   * teach the shop to click past the one warning that protects it.
+   */
+  readonly fingerprintSha256: string | null;
 }
 
 export interface LicenceStatusDTO {

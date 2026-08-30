@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   BrandMark,
   Button,
@@ -112,6 +113,19 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const [adminPin, setAdminPin] = useState("");
   const [adminPinConfirm, setAdminPinConfirm] = useState("");
   const [adminError, setAdminError] = useState<string | null>(null);
+  /**
+   * True when the server said this install already belongs to somebody.
+   *
+   * `POST /bootstrap/admin` answers a claimed tenant with a bare 409 — it used
+   * to hand back the EXISTING admin's session, which was an anonymous
+   * takeover. Correct, but the wizard then printed the refusal and STOPPED: the
+   * message tells the owner to sign in with their account and the screen gave
+   * them no way to. Anyone who got here after an interrupted first run, or by
+   * opening the wizard on a machine already set up, was stuck on step 2 with
+   * only «رجوع».
+   */
+  const [alreadyClaimed, setAlreadyClaimed] = useState(false);
+  const queryClient = useQueryClient();
   const [adminCreated, setAdminCreated] = useState(false);
 
 
@@ -148,7 +162,10 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
           setAdminCreated(true);
           goNext();
         },
-        onError: (err) => setAdminError(err.message),
+        onError: (err) => {
+          setAdminError(err.message);
+          if (err.status === 409) setAlreadyClaimed(true);
+        },
       },
     );
   }
@@ -252,6 +269,24 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
               <p role="alert" className="mt-[10px] text-[12px] font-semibold text-danger-ink">
                 {adminError}
               </p>
+            ) : null}
+            {alreadyClaimed ? (
+              <Button
+                type="button"
+                variant="primary"
+                className="mt-[10px]"
+                onClick={() => {
+                  // Re-read the claim before leaving: the login screen renders
+                  // only once `/bootstrap/status` reports the install claimed,
+                  // and this component is what the shell shows while it reports
+                  // otherwise. Without the refetch, leaving lands straight back
+                  // on this same wizard.
+                  void queryClient.invalidateQueries({ queryKey: ["bootstrap", "status"] });
+                  onCancel();
+                }}
+              >
+                {t("firstRun.signInInstead")}
+              </Button>
             ) : null}
             <p className="mt-[10px] text-[11.5px] text-ink-muted">
               {t("firstRun.thisReallyIsSavedAs")}

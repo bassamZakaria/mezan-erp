@@ -74,6 +74,11 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
           // address real, and `url()` is null until then — see lan-host.ts.
           listening: host?.address() !== null && host?.enabled === true,
           url: host?.url() ?? null,
+          // The pinning fact, reported independently of `listening`: it is
+          // read from the certificate on disk, so it is knowable a moment
+          // before the socket binds, and it is the one value a consultant
+          // cannot recover from anywhere else in the product.
+          fingerprintSha256: host?.fingerprint() ?? null,
         },
       };
     },

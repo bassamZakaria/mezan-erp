@@ -101,26 +101,8 @@ export function LicenceStatusNotice() {
   );
 }
 
-/**
- * THE ADDRESS A TILL IS POINTED AT.
- *
- * `startLanHost` logged `http://<host>:<port>` to a console the shop never
- * opens, so provisioning a till meant a consultant finding the host's IP by
- * hand — the file's own comment called this screen "a future 'show me the LAN
- * address' UI".
- *
- * Every branch below states only what it was told. The browser build cannot
- * know the host's address and says exactly that instead of printing a
- * plausible one; a bound socket with no dialable address (the `0.0.0.0`
- * fallback in lan-host.ts) reads as unknown, not as `http://0.0.0.0:4173`.
- */
-function LanAddress() {
-  const { t } = useAppTranslation();
-  const desktop = isDesktopHost();
-  const licence = useDesktopLicence();
-  const [copied, setCopied] = useState(false);
-
-  const line = (text: string, alert = false) => (
+function line(text: string, alert = false) {
+  return (
     <p
       {...(alert ? { role: "alert" } : {})}
       className={`text-[12.5px] ${alert ? "text-danger-ink" : "text-ink-muted"}`}
@@ -128,6 +110,83 @@ function LanAddress() {
       {text}
     </p>
   );
+}
+
+/**
+ * A verbatim value the operator has to READ OFF THE SCREEN and compare — an
+ * address, a certificate fingerprint. `dir="ltr"` and `select-all` because
+ * both are Latin/hex inside an RTL page, where an unmarked run reorders and a
+ * consultant then compares two strings that differ only in how they were laid
+ * out.
+ */
+function VerbatimFact({
+  value,
+  copyLabel,
+  copiedLabel,
+  copied,
+  onCopied,
+}: {
+  value: string;
+  copyLabel: string;
+  copiedLabel: string;
+  copied: boolean;
+  onCopied: (ok: boolean) => void;
+}) {
+  // Read at render, not inside the handler: a button that cannot copy must not
+  // be on screen at all. The value itself stays selectable either way.
+  const clipboard = navigator.clipboard as Clipboard | undefined;
+  return (
+    <div className="flex flex-wrap items-center gap-[10px]">
+      <code
+        dir="ltr"
+        className="mz-num select-all break-all rounded-[6px] bg-surface-2 px-[8px] py-[4px] text-[13px] font-semibold text-ink"
+      >
+        {value}
+      </code>
+      {clipboard ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            void clipboard
+              .writeText(value)
+              .then(() => onCopied(true))
+              .catch(() => onCopied(false));
+          }}
+        >
+          {copyLabel}
+        </Button>
+      ) : null}
+      {copied ? <span className="text-[12px] text-ink-muted">{copiedLabel}</span> : null}
+    </div>
+  );
+}
+
+/**
+ * THE ADDRESS A TILL IS POINTED AT, AND THE FINGERPRINT IT PINS.
+ *
+ * `startLanHost` logged the address to a console the shop never opens, so
+ * provisioning a till meant a consultant finding the host's IP by hand — the
+ * file's own comment called this screen "a future 'show me the LAN address'
+ * UI".
+ *
+ * The fingerprint is here for a harder reason. That socket now serves TLS, but
+ * with a self-signed certificate no chain validates (there is no CA a shop LAN
+ * can reach), so encryption alone still lets any laptop that answers first on
+ * `192.168.1.7:4173` present its own key and collect the PIN. What closes that
+ * is the till PINNING this exact SHA-256 — and the only place a human can read
+ * it is the host's own screen, which is this one.
+ *
+ * Every branch below states only what it was told. The browser build cannot
+ * know either fact and says exactly that instead of printing a plausible one;
+ * a bound socket with no dialable address (the `0.0.0.0` fallback in
+ * lan-host.ts) reads as unknown, not as `https://0.0.0.0:4173`.
+ */
+function LanAddress() {
+  const { t } = useAppTranslation();
+  const desktop = isDesktopHost();
+  const licence = useDesktopLicence();
+  const [copied, setCopied] = useState<"address" | "fingerprint" | null>(null);
 
   let body: ReactNode;
   if (!desktop) {
@@ -143,34 +202,38 @@ function LanAddress() {
   } else if (!licence.data.lan.url) {
     body = line(t("devices.lanAddressUnknown"));
   } else {
-    const url = licence.data.lan.url;
-    // Read at render, not inside the handler: a button that cannot copy must
-    // not be on screen at all. The address itself stays selectable either way.
-    const clipboard = navigator.clipboard as Clipboard | undefined;
     body = (
-      <div className="flex flex-wrap items-center gap-[10px]">
-        <code
-          dir="ltr"
-          className="mz-num select-all rounded-[6px] bg-surface-2 px-[8px] py-[4px] text-[13px] font-semibold text-ink"
-        >
-          {url}
-        </code>
-        {clipboard ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              void clipboard
-                .writeText(url)
-                .then(() => setCopied(true))
-                .catch(() => setCopied(false));
-            }}
-          >
-            {t("devices.copyAddress")}
-          </Button>
-        ) : null}
-        {copied ? <span className="text-[12px] text-ink-muted">{t("devices.addressCopied")}</span> : null}
-      </div>
+      <VerbatimFact
+        value={licence.data.lan.url}
+        copyLabel={t("devices.copyAddress")}
+        copiedLabel={t("devices.addressCopied")}
+        copied={copied === "address"}
+        onCopied={(ok) => setCopied(ok ? "address" : null)}
+      />
+    );
+  }
+
+  // Shown independently of `listening`: the fingerprint is read from the
+  // certificate on disk, so the host can name it in the moment between the
+  // identity being loaded and the socket binding. Suppressed entirely while
+  // the licence read is in flight or has failed — the alert above already says
+  // what went wrong, and a second "unknown" under it would read as a separate
+  // fault.
+  let fingerprintBody: ReactNode = null;
+  if (!desktop) {
+    fingerprintBody = line(t("devices.lanFingerprintDesktopOnly"));
+  } else if (licence.data?.ok) {
+    const fingerprint = licence.data.lan.fingerprintSha256;
+    fingerprintBody = fingerprint ? (
+      <VerbatimFact
+        value={fingerprint}
+        copyLabel={t("devices.copyFingerprint")}
+        copiedLabel={t("devices.fingerprintCopied")}
+        copied={copied === "fingerprint"}
+        onCopied={(ok) => setCopied(ok ? "fingerprint" : null)}
+      />
+    ) : (
+      line(t("devices.lanFingerprintUnknown"))
     );
   }
 
@@ -179,6 +242,13 @@ function LanAddress() {
       <div className="text-[12.5px] font-semibold text-ink">{t("devices.lanAddress")}</div>
       <p className="mb-[6px] mt-1 text-[12px] text-ink-muted">{t("devices.lanAddressHint")}</p>
       {body}
+      {fingerprintBody ? (
+        <div className="mt-[12px]">
+          <div className="text-[12.5px] font-semibold text-ink">{t("devices.lanFingerprint")}</div>
+          <p className="mb-[6px] mt-1 text-[12px] text-ink-muted">{t("devices.lanFingerprintHint")}</p>
+          {fingerprintBody}
+        </div>
+      ) : null}
     </div>
   );
 }

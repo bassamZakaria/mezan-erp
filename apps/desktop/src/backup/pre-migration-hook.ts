@@ -14,11 +14,14 @@ export async function runPreMigrationBackup(params: {
   sqlite: Database.Database;
   backupsDir: string;
   appVersion: string;
+  /** True when `sqlite` is keyed — keeps the archive encrypted (backup-service.ts). */
+  encrypted?: boolean;
 }): Promise<BackupResult> {
   return createBackup({
     sqlite: params.sqlite,
     backupsDir: params.backupsDir,
     appVersion: params.appVersion,
     reason: "pre-migration",
+    encrypted: params.encrypted,
   });
 }

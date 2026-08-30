@@ -16,6 +16,8 @@ export async function backupThenMigrate(params: {
   sqlite: Database.Database;
   backupsDir?: string;
   appVersion: string;
+  /** True when `sqlite` is keyed — keeps the archive encrypted (backup-service.ts). */
+  encrypted?: boolean;
   migrate?: () => Promise<void>;
 }): Promise<void> {
   const backupsDir = params.backupsDir ?? defaultBackupsDir();
@@ -23,6 +25,7 @@ export async function backupThenMigrate(params: {
     sqlite: params.sqlite,
     backupsDir,
     appVersion: params.appVersion,
+    encrypted: params.encrypted,
   });
 
   try {
@@ -51,10 +54,18 @@ export function scheduleBackups(params: {
   sqlite: Database.Database;
   backupsDir?: string;
   appVersion: string;
+  /** True when `sqlite` is keyed — keeps the archive encrypted (backup-service.ts). */
+  encrypted?: boolean;
 }): () => void {
   const backupsDir = params.backupsDir ?? defaultBackupsDir();
   const run = (reason: "scheduled" | "on-close") =>
-    createBackup({ sqlite: params.sqlite, backupsDir, appVersion: params.appVersion, reason }).catch(
+    createBackup({
+      sqlite: params.sqlite,
+      backupsDir,
+      appVersion: params.appVersion,
+      reason,
+      encrypted: params.encrypted,
+    }).catch(
       (err: unknown) => console.error(`[backup] ${reason} backup failed`, err),
     );
 

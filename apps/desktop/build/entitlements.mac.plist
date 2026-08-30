@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hardened-runtime entitlements for the Mezan main bundle (Developer ID
+  distribution, NOT the Mac App Store).
+
+  `apps/desktop/electron-builder.yml` names this file explicitly and sets
+  `mac.hardenedRuntime: true`. Hardened runtime is what Apple requires before
+  it will notarize anything, and notarization is what lets Gatekeeper say the
+  installer is provably ours — the whole point of the signing work. Under
+  hardened runtime the process loses several capabilities by default and gets
+  them back only by naming them here, so this file is a privilege grant and is
+  read as one.
+
+  WHAT IS GRANTED, AND WHY EXACTLY ONE THING IS:
+
+  com.apple.security.cs.allow-jit — V8 compiles JavaScript to machine code at
+  runtime and needs pages it may both write and execute. Without this the
+  renderer dies on launch. There is no version of this product that does not
+  need it.
+
+  WHAT IS DELIBERATELY NOT GRANTED, because @electron/osx-sign's own default
+  entitlements hand out several of these and a finance application should not
+  inherit a permissive default it never asked for:
+
+  - com.apple.security.cs.disable-library-validation — would let the process
+    load code signed by a DIFFERENT team. This build ships one native module
+    (better-sqlite3), electron-builder signs it with OUR identity along with
+    everything else in the bundle, so library validation passes on its own.
+    Disabling it would mean an attacker who can drop a .dylib beside the app
+    gets it loaded into the process that holds the shop's books.
+  - com.apple.security.cs.allow-unsigned-executable-memory — a strictly wider
+    grant than allow-jit, and Electron has not needed it since v20.
+  - com.apple.security.cs.allow-dyld-environment-variables — would let anyone
+    who can set DYLD_INSERT_LIBRARIES inject into a launch of this app.
+  - device.camera / device.audio-input / device.usb / device.bluetooth /
+    personal-information.location — osx-sign's default plist grants all five.
+    This is an accounting and inventory product. It uses none of them, and a
+    grant nobody uses is a grant nobody notices being abused.
+
+  NOTE ON THE APP SANDBOX: com.apple.security.app-sandbox and the
+  com.apple.security.network.* pair are absent on purpose. They are Mac App
+  Store requirements; Developer ID + hardened runtime does not use the sandbox,
+  and a sandboxed build could not bind the LAN multi-till socket
+  (apps/desktop/src/main/lan-host.ts) or write backups outside its container
+  (main/env.ts `defaultBackupsDir`). If this product is ever submitted to the
+  Mac App Store that is a separate `mas` target with its own plist, not an edit
+  to this one.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+  </dict>
+</plist>

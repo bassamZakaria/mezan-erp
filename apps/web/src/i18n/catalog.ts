@@ -5714,6 +5714,7 @@ const webAr = {
   "firstRun.theFullImportWizardPick": "معالج الاستيراد الكامل (اختيار نوع البيانات، رفع أو لصق CSV، مطابقة الأعمدة، معاينة الأخطاء، ثم التأكيد) متاح من \"الإعدادات ← نقل\n              البيانات\" — أنهِ هذا المعالج الآن وارجع إليه لاحقاً في أي وقت.",
   "firstRun.cancelAndGoBackTo": "إلغاء والعودة لتسجيل الدخول",
   "firstRun.next": "التالي",
+  "firstRun.signInInstead": "سجّل الدخول بحسابك",
   "firstRun.finishAndGoIntoThe": "إنهاء والانتقال إلى النظام",
 
   // firstRun
@@ -7120,6 +7121,13 @@ const webAr = {
   "devices.lanNotRunning": "خدمة الشبكة المحلية غير مشغّلة على هذا الجهاز.",
   "devices.copyAddress": "نسخ العنوان",
   "devices.addressCopied": "تم نسخ العنوان.",
+  "devices.lanFingerprint": "بصمة شهادة التأمين (SHA-256)",
+  "devices.lanFingerprintHint":
+    "الاتصال بأجهزة نقاط البيع مُشفَّر. عند ربط كل جهاز أول مرة، قارن هذه البصمة بما يظهر عليه ثم ثبّتها فيه. البصمة لا تتغير بعد ذلك — وظهور بصمة مختلفة يعني أن جهازاً آخر ينتحل صفة الجهاز المستضيف.",
+  "devices.lanFingerprintUnknown": "تعذّرت قراءة بصمة الشهادة على هذا الجهاز.",
+  "devices.lanFingerprintDesktopOnly": "لا تُعرف بصمة الشهادة إلا على الجهاز المستضيف نفسه.",
+  "devices.copyFingerprint": "نسخ البصمة",
+  "devices.fingerprintCopied": "تم نسخ البصمة.",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -12838,6 +12846,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "firstRun.theFullImportWizardPick": "The full import wizard (pick the data type, upload or paste CSV, map the columns, preview the errors, then confirm) lives at Settings → Data migration — finish this wizard now and come back to it whenever you like.",
   "firstRun.cancelAndGoBackTo": "Cancel and go back to sign-in",
   "firstRun.next": "Next",
+  "firstRun.signInInstead": "Sign in with your account",
   "firstRun.finishAndGoIntoThe": "Finish and go into the system",
 
   // firstRun
@@ -14244,6 +14253,13 @@ const webEn: Record<WebTranslationKey, string> = {
   "devices.lanNotRunning": "The local-network service is not running on this machine.",
   "devices.copyAddress": "Copy address",
   "devices.addressCopied": "Address copied.",
+  "devices.lanFingerprint": "Security certificate fingerprint (SHA-256)",
+  "devices.lanFingerprintHint":
+    "The connection to each till is encrypted. When you pair a till for the first time, compare this fingerprint with the one it shows, then pin it there. It never changes afterwards — a different fingerprint means something else is impersonating the host machine.",
+  "devices.lanFingerprintUnknown": "The certificate fingerprint could not be read on this machine.",
+  "devices.lanFingerprintDesktopOnly": "The certificate fingerprint is only knowable on the host machine itself.",
+  "devices.copyFingerprint": "Copy fingerprint",
+  "devices.fingerprintCopied": "Fingerprint copied.",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

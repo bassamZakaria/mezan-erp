@@ -1,0 +1,356 @@
+name: Release (signed desktop installers)
+
+# THE ONLY PATH THAT PRODUCES A SHIPPABLE INSTALLER, and it fails closed at
+# every step.
+#
+# Why this workflow exists separately from ci.yml: `desktop` in ci.yml packages
+# a Linux AppImage with `continue-on-error: true`, deliberately, because
+# electron-builder pulls installers and toolchains over the network and a bad
+# afternoon at a mirror must not close the pipeline. That tolerance is correct
+# for a CI artifact and catastrophic for a release. Nothing here is
+# `continue-on-error`.
+#
+# WHAT IT REFUSES TO DO:
+#   1. `preflight` fails if ANY signing secret or the feed URL is unset, so a
+#      run without credentials stops before it can build something that looks
+#      like a release. There is no "build it anyway, unsigned" branch.
+#   2. electron-builder itself fails on an unsigned macOS or Windows package —
+#      `forceCodeSigning: true` in apps/desktop/electron-builder.yml.
+#   3. `check-signed.mjs` re-asks the OPERATING SYSTEM whether it accepts the
+#      finished artifacts, because (2) cannot see notarization: `mac.notarize:
+#      true` skips SILENTLY when the Apple API-key variables are missing, and
+#      the build still succeeds with a DMG that Gatekeeper blocks on the
+#      customer's Mac.
+#   4. The release is created as a DRAFT. A human presses publish.
+#
+# Why the bar is this high on this product specifically: Mezan binds a LAN
+# socket (apps/desktop/src/main/lan-host.ts). An unsigned auto-update over a
+# network an attacker already sits on is remote code execution on every install
+# in the field at once — see the header of apps/desktop/src/main/updater.ts.
+#
+# Linux is NOT on this path. Neither AppImage nor .deb carries a
+# per-application signature that electron-updater or check-signed.mjs could
+# verify, so there is no honest gate to put in front of a Linux release and a
+# green one would be a lie. Linux stays a CI test artifact.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  preflight:
+    name: preflight · every signing secret must exist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Secrets are never printed, only tested for emptiness. The failure names
+      # every missing variable at once so a maintainer configuring this for the
+      # first time gets the whole list, not one per re-run.
+      - name: Refuse to start a release without credentials
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          MEZAN_UPDATE_FEED_URL: ${{ vars.MEZAN_UPDATE_FEED_URL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            MACOS_CERTIFICATE_P12 \
+            MACOS_CERTIFICATE_PASSWORD \
+            APPLE_API_KEY_P8 \
+            APPLE_API_KEY_ID \
+            APPLE_API_ISSUER \
+            WINDOWS_CERTIFICATE_PFX \
+            WINDOWS_CERTIFICATE_PASSWORD \
+            MEZAN_UPDATE_FEED_URL
+          do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::This repository is not configured to produce a shippable release."
+            echo ""
+            echo "Missing, and every one of them is required:"
+            for name in "${missing[@]}"; do echo "  - $name"; done
+            echo ""
+            echo "docs/INSTALL.md §8 says what each one is, where it comes from, and how to"
+            echo "create it. Until they exist, this workflow produces NOTHING — deliberately."
+            echo "There is no unsigned fallback: an unsigned installer on a product that also"
+            echo "binds a LAN socket is a remote-code-execution path, not a stopgap."
+            exit 1
+          fi
+
+          case "$MEZAN_UPDATE_FEED_URL" in
+            https://*) ;;
+            *)
+              echo "::error::MEZAN_UPDATE_FEED_URL must be https:// — a plain-HTTP update feed"
+              echo "hands the update channel to anyone on the path. Got: $MEZAN_UPDATE_FEED_URL"
+              exit 1
+              ;;
+          esac
+
+          echo "All signing secrets are present and the feed URL is HTTPS."
+
+  # ---------------------------------------------------------------------------
+  macos:
+    name: macOS · sign · notarize · verify
+    needs: preflight
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pnpm-workspace.yaml sets `allowBuilds.electron: false`, so electron's
+      # own postinstall never runs. electron-builder needs the real binary to
+      # package against, and `npmRebuild: true` needs it to know which ABI to
+      # rebuild better-sqlite3 for.
+      - name: Fetch the Electron binary
+        run: pnpm --filter desktop exec node ./node_modules/electron/install.js
+
+      # Explicit, even though electron-builder.yml sets `npmRebuild: true` and
+      # that rebuild covers every native module. It is here because pnpm's
+      # symlinked node_modules is exactly where @electron/rebuild can walk the
+      # tree and quietly find nothing to do, and the release runners are where
+      # nobody is watching the log. ci.yml's `desktop` job has run this step for
+      # the same reason since the Electron 33 → 39 bump.
+      - name: Rebuild native modules against Electron's ABI
+        run: |
+          set -euo pipefail
+          ELECTRON_VERSION=$(node -p "require('./apps/desktop/node_modules/electron/package.json').version")
+          npx --yes --package @electron/rebuild -- electron-rebuild -v "${ELECTRON_VERSION}" -m apps/desktop -f
+
+      # BLOCKS. apps/desktop now carries TWO native modules — `better-sqlite3`
+      # and `better-sqlite3-multiple-ciphers` — and both must match Electron's
+      # NODE_MODULE_VERSION or the packaged app throws at the `new Database(dbPath)`
+      # in main/index.ts, which runs BEFORE the pre-migration backup: the app does
+      # not start AND takes no backup on the way down. Nothing else on this
+      # workflow can see that. Signing a build that cannot open its own database
+      # produces a perfectly notarized installer that fails on first launch.
+      #
+      # The probe also asserts that the plain driver CANNOT open the encrypted
+      # database, so a release in which encryption at rest silently stopped
+      # working fails here rather than shipping.
+      - name: Native ABI check (Electron opens an encrypted database)
+        run: pnpm --filter desktop run check:abi
+
+      - name: Build the web bundle
+        run: pnpm --filter web build
+
+      - name: Build the main/preload bundles
+        run: pnpm --filter desktop run build:main
+
+      # @electron/notarize@2.5.0 reads APPLE_API_KEY as a FILE SYSTEM PATH to
+      # the .p8 private key — not its contents, and not base64. (The published
+      # docs site says base64 content; the installed package's own types say
+      # "File system path to the .p8 private key", and the package is what
+      # runs.) So the secret is decoded to a file on the runner and the path is
+      # what gets exported. The runner is destroyed after the job.
+      - name: Materialise the App Store Connect API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/apple"
+          chmod 700 "$RUNNER_TEMP/apple"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/apple/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/apple/AuthKey.p8"
+          test -s "$RUNNER_TEMP/apple/AuthKey.p8" || {
+            echo "::error::APPLE_API_KEY_P8 did not base64-decode to anything. Re-create the secret with: base64 -i AuthKey_XXXXXXXX.p8 | pbcopy"
+            exit 1
+          }
+
+      - name: Package (electron-builder signs and notarizes)
+        env:
+          # The Developer ID Application certificate. electron-builder accepts
+          # base64 directly here and imports it into a throwaway keychain.
+          # ABSENT: no identity resolves and `forceCodeSigning: true` fails the
+          # build rather than emitting an unsigned .app.
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          # Notarization credentials. ABSENT: the build SUCCEEDS, signed but not
+          # notarized, with only a warning in the log — which is why the next
+          # step exists.
+          APPLE_API_KEY: ${{ runner.temp }}/apple/AuthKey.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          pnpm --filter desktop exec electron-builder --mac \
+            --publish never \
+            --config.publish.url="${{ vars.MEZAN_UPDATE_FEED_URL }}"
+
+      # THE GATE. codesign --verify --deep --strict, a rejection of ad-hoc and
+      # non-Developer-ID signatures, spctl --assess (Gatekeeper's own verdict,
+      # which is the only thing that can tell notarized from merely signed),
+      # `stapler validate` for the offline ticket, and a check that the packaged
+      # app is not still pointed at the placeholder feed.
+      - name: Verify the artifacts are signed AND notarized
+        run: node apps/desktop/scripts/check-signed.mjs --release-dir apps/desktop/release
+
+      - name: Upload the verified macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/latest-mac.yml
+          retention-days: 14
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  windows:
+    name: Windows · sign · verify
+    needs: preflight
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch the Electron binary
+        run: pnpm --filter desktop exec node ./node_modules/electron/install.js
+
+      # See the macOS job for why this is explicit rather than left to
+      # electron-builder's own `npmRebuild`.
+      - name: Rebuild native modules against Electron's ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          ELECTRON_VERSION=$(node -p "require('./apps/desktop/node_modules/electron/package.json').version")
+          npx --yes --package @electron/rebuild -- electron-rebuild -v "${ELECTRON_VERSION}" -m apps/desktop -f
+
+      # BLOCKS, for the same reason as the macOS job: two native modules must
+      # match Electron's ABI, and the probe also proves the plain driver cannot
+      # open the encrypted database. A signed installer that cannot open its own
+      # books is still a failed release.
+      - name: Native ABI check (Electron opens an encrypted database)
+        run: pnpm --filter desktop run check:abi
+
+      - name: Build the web bundle
+        run: pnpm --filter web build
+
+      - name: Build the main/preload bundles
+        run: pnpm --filter desktop run build:main
+
+      - name: Package (electron-builder signs with signtool)
+        env:
+          # app-builder-lib reads WIN_CSC_LINK at windowsSignToolManager.js:75.
+          # It accepts a base64 .pfx directly. ABSENT: nothing signs and
+          # `forceCodeSigning: true` fails the build.
+          #
+          # An EV certificate held in an HSM has no .pfx to put here — for that,
+          # switch electron-builder.yml's `win.signtoolOptions` to
+          # `win.azureSignOptions` (Azure Trusted Signing) and supply
+          # AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET instead.
+          # app-builder-lib refuses to use both and silently prefers Azure.
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter desktop exec electron-builder --win \
+            --publish never \
+            --config.publish.url="${{ vars.MEZAN_UPDATE_FEED_URL }}"
+
+      # THE GATE. signtool verify /pa /tw — Authenticode policy, and `/tw`
+      # turns "not timestamped" into an error, because an untimestamped
+      # signature stops verifying the day the certificate expires, retroactively,
+      # on every installer already in the field. Falls back to PowerShell's
+      # Get-AuthenticodeSignature if the Windows SDK is not on the runner, and
+      # FAILS if neither is available rather than passing vacuously.
+      - name: Verify the artifacts are signed
+        shell: bash
+        run: node apps/desktop/scripts/check-signed.mjs --release-dir apps/desktop/release
+
+      - name: Upload the verified Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/latest.yml
+          retention-days: 14
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Only reachable when BOTH platforms packaged, signed and passed the gate.
+  # A partial release is not a release: an update feed carrying `latest.yml`
+  # but no matching `latest-mac.yml` leaves half the field pointed at a version
+  # they cannot download.
+  draft-release:
+    name: draft release · collect verified artifacts
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download the verified artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Manifest
+        run: |
+          set -euo pipefail
+          echo "Every file below was packaged by electron-builder with forceCodeSigning,"
+          echo "and passed apps/desktop/scripts/check-signed.mjs on its own OS."
+          echo ""
+          find artifacts -type f -print0 | xargs -0 sha256sum
+
+      # DRAFT on purpose. A human opens the draft, reads the manifest, and
+      # presses publish. `latest.yml` / `latest-mac.yml` are the files
+      # electron-updater actually polls, so attaching them is what makes the
+      # release a feed rather than a download page.
+      #
+      # Pointing MEZAN_UPDATE_FEED_URL at this release's asset base URL is one
+      # valid choice of channel; an S3 bucket or a self-hosted directory are
+      # others. Whichever it is, the URL must be the one the packaged app was
+      # built with, or the artifacts verified above will look for updates
+      # somewhere they are not.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --draft \
+            --title "Mezan ${GITHUB_REF_NAME}" \
+            --notes "Signed and notarized desktop installers. Verified by apps/desktop/scripts/check-signed.mjs on macOS and Windows before this draft was created. Before publishing: confirm the update feed in docs/INSTALL.md §8." \
+            $(find artifacts -type f | sort)

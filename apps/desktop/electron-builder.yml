@@ -1,32 +1,46 @@
-# electron-builder config — CONFIG ONLY for Phase 0 (see PR description).
+# electron-builder config.
 #
 # What's wired: package identity, win/mac/linux targets, the `web` bundle
-# copied in as extraResources (see main/env.ts `rendererEntry()`), and an
-# electron-updater `publish` feed shape (see main/updater.ts).
+# copied in as extraResources (see main/env.ts `rendererEntry()`), an
+# electron-updater `publish` feed shape (see main/updater.ts), and — as of the
+# signing pass — a complete code-signing and notarization configuration that
+# activates ENTIRELY from environment variables and holds NO credential of its
+# own. Every option below names the variable it reads and says what happens
+# when that variable is absent.
 #
-# What's deliberately NOT wired yet — left as documented TODOs, because wiring
-# them needs real certificates/Apple credentials, which is exactly the kind of
-# secret Phase 0 must not invent:
-#   - Code signing (win: `certificateFile`/`certificatePassword` or a signing
-#     service; mac: `identity` + a Developer ID cert).
-#   - macOS notarization (`afterSign` hook + `notarize: true`/apple credentials).
-#   - A real `publish` provider/URL (currently a placeholder `generic` feed).
+# Options and defaults here were read out of the JSON schema shipped inside the
+# installed `app-builder-lib@26.15.3` (`node_modules/**/app-builder-lib/scheme.json`),
+# not out of a blog post — the published docs site describes a `mac.sign:` block
+# that this version does not accept, and describes APPLE_API_KEY as base64 file
+# CONTENT when @electron/notarize@2.5.0 reads it as a FILE PATH. Getting either
+# wrong produces a build that silently skips notarization; see the note on
+# `notarize` below for why silence is the dangerous part.
 #
 # ---------------------------------------------------------------------------
-# THESE THREE STUBS ARE WHY THE AUTO-UPDATER IS OFF.
+# WHY THIS FILE IS A SECURITY FILE.
 #
 # electron-updater verifies a downloaded package against the PUBLISHER the app
-# was signed with. Nothing below signs anything, so there is no publisher, so
-# there is nothing to verify against: whatever answers the placeholder feed URL
-# would be a valid update. Combined with the `autoInstallOnAppQuit = true` this
-# module used to set unconditionally, that was a one-DNS-record path to running
-# a stranger's code inside the process that holds the shop's books — on every
+# was signed with. For as long as nothing here signed anything there was no
+# publisher, so there was nothing to verify against: whatever answered the feed
+# URL would have been a valid update. This product also binds a LAN socket, so
+# "whatever answers the feed URL" includes anyone already sitting on the shop
+# wifi. Combined with the `autoInstallOnAppQuit = true` that main/updater.ts
+# used to set unconditionally, that was a one-DNS-record path to running a
+# stranger's code inside the process that holds the shop's books — on every
 # install in the field at once, on the next quit, with no operator action.
 #
-# main/updater.ts therefore refuses to run unless MEZAN_AUTO_UPDATE=1 is set,
-# and refuses to download or install unless MEZAN_AUTO_UPDATE_INSTALL=1 is set
-# on top of it. Do not remove those gates to "make updates work" — fill in the
-# signing config below first. A dedicated release issue owns that.
+# Three things now stand between this build and that outcome, and all three
+# have to stay:
+#   1. `forceCodeSigning: true` below — electron-builder REFUSES to produce a
+#      macOS or Windows artifact it could not sign, rather than emitting an
+#      unsigned one with a warning nobody reads.
+#   2. apps/desktop/scripts/check-signed.mjs, run as a hard gate on the release
+#      path (.github/workflows/release.yml) — it re-verifies the finished
+#      artifacts with the OS's own tools, because `forceCodeSigning` cannot see
+#      notarization and `notarize: true` skips silently when the Apple
+#      credentials are missing.
+#   3. main/updater.ts — refuses to run at all on a build whose own signature
+#      it cannot confirm.
 # ---------------------------------------------------------------------------
 appId: com.mezan.desktop
 productName: Mezan
@@ -34,15 +48,53 @@ directories:
   output: release
   buildResources: build
 
+# Fail the package rather than emit an unsigned installer.
+#
+# app-builder-lib enforces this in the Windows and macOS packagers only
+# (winPackager.js, mac/MacTargetHelper.js, targets/pkg.js) — the Linux packager
+# never reads it — so the ordinary `desktop` CI job, which packages an AppImage
+# on ubuntu with no certificates anywhere, is unaffected. On mac/win with no
+# signing identity resolvable, `electron-builder` now throws
+# InvalidConfigurationError instead of producing a shippable-looking file.
+#
+# A developer who deliberately wants an unsigned local mac/win build passes
+# `--config.forceCodeSigning=false` on the command line. That is the point: it
+# has to be typed, once, by someone who meant it.
+forceCodeSigning: true
+
 # Explicit, not left to the default, because this is the setting that decides
-# whether the shipped app can open its own database. `better-sqlite3` is native
-# and scripts/build.mjs declares it `external`, so the packaged app loads a
-# `.node` binary that must match Electron's NODE_MODULE_VERSION (Electron 39 is
-# ABI 140; the Node 22 that runs the tests is 131). Without a rebuild, the
-# `new Database(dbPath)` in main/index.ts throws before the pre-migration backup
-# runs — the app does not start, and takes no backup on the way down. The repo
-# went 33 → 39 with nothing rebuilding it and no CI job that launched Electron;
-# .github/workflows/ci.yml's `desktop` job is the gate that now proves it.
+# whether the shipped app can open its own database.
+#
+# There are now TWO native modules, and both are production dependencies of
+# apps/desktop: `better-sqlite3`, and `better-sqlite3-multiple-ciphers`, which
+# main/encrypted-database.ts opens the encrypted tenant database with.
+# scripts/build.mjs declares them `external`, so the packaged app loads `.node`
+# binaries that must match Electron's NODE_MODULE_VERSION (Electron 39 is ABI
+# 140; the Node 22 that runs the tests is 131). If either is built for the wrong
+# ABI, the `new Database(dbPath)` in main/index.ts throws BEFORE the
+# pre-migration backup runs — the app does not start, and takes no backup on the
+# way down. The repo went 33 → 39 with nothing rebuilding it and no CI job that
+# launched Electron.
+#
+# VERIFIED, not assumed, against the installed app-builder-lib@26.15.3:
+#   - `npmRebuild: true` covers BOTH. util/yarn.js's `rebuild()` hands
+#     @electron/rebuild a `buildPath` and NO module allow-list, so it walks the
+#     whole production dependency tree. Adding a native module does not require
+#     an edit here.
+#   - The `files` allow-list below does NOT exclude them. node_modules is copied
+#     by a SEPARATE path (util/appFileCopier.js `computeNodeModuleFileSets`,
+#     driven by the resolved production dependency tree) — fileMatcher.js:137
+#     actually ADDS `!**/node_modules/**` to these patterns precisely because
+#     that directory is handled elsewhere. So listing only `dist/**` and
+#     `package.json` here packages the bundles AND both native modules.
+#
+# Neither of those facts is obvious from this file, both would fail silently,
+# and the failure surfaces on a customer's machine on first launch — so the ABI
+# probe (apps/desktop/scripts/check-native-abi.cjs) is a blocking step in
+# .github/workflows/ci.yml's `desktop` job AND in both release jobs. It loads
+# both drivers under the real Electron binary and asserts the plain driver
+# CANNOT open the encrypted database, so a release in which encryption at rest
+# silently stopped working fails there rather than shipping.
 npmRebuild: true
 files:
   - dist/main/**
@@ -53,21 +105,129 @@ extraResources:
     to: web
     filter: ["**/*"]
 
-# TODO(signing): win.certificateFile / win.certificatePassword (or CSC_LINK /
-# CSC_KEY_PASSWORD env vars) once a code-signing certificate exists.
+# ---------------------------------------------------------------------------
+# WINDOWS
+#
+# SECRETS THIS READS (none are stored here; all come from the environment):
+#   WIN_CSC_LINK          — the OV/EV code-signing certificate: either a path to
+#                           a .pfx or that .pfx base64-encoded. app-builder-lib
+#                           reads it at windowsSignToolManager.js:75 and throws
+#                           `Env WIN_CSC_LINK is not correct` if it will not
+#                           resolve. CSC_LINK also works but is shared with
+#                           macOS, so the WIN_-prefixed form is what the release
+#                           workflow sets.
+#   WIN_CSC_KEY_PASSWORD  — that certificate's password.
+#
+# ABSENT: no identity resolves, nothing is signed, and `forceCodeSigning: true`
+# turns that into a build failure. It does NOT quietly emit an unsigned .exe.
+#
+# `certificateFile` / `certificatePassword` / `certificateSubjectName` are
+# deliberately NOT written here. `certificateFile` would need a real .pfx path
+# committed or assumed, and `certificateSubjectName` is the certificate's own
+# "issued to" string — inventing a plausible-looking one is exactly the kind of
+# fake credential this repo must never carry. An EV certificate held in an HSM
+# has no .pfx at all; for that case use `azureSignOptions` (Azure Trusted
+# Signing: certificateProfileName / codeSigningAccountName / endpoint /
+# publisherName, authenticated by AZURE_TENANT_ID + AZURE_CLIENT_ID +
+# AZURE_CLIENT_SECRET) INSTEAD of signtoolOptions — app-builder-lib refuses to
+# use both, and silently prefers Azure if both are present.
 win:
   target:
     - target: nsis
       arch: [x64]
+  # Load-bearing for the updater, and the default — pinned so a future edit has
+  # to argue with a comment. electron-updater checks the downloaded package's
+  # Authenticode publisher against the running app's before it installs it.
+  # Setting this false is how an unsigned or foreign-signed package gets
+  # installed by a signed app, which is the whole attack this pass exists to
+  # close.
+  verifyUpdateCodeSignature: true
+  signtoolOptions:
+    # electron-builder's default is ['sha1', 'sha256'] — a dual signature for
+    # Windows 7, which has been out of support since 2020. SHA-1 is a broken
+    # hash and shipping a second signature over it buys nothing and gives an
+    # attacker a weaker one to attack.
+    signingHashAlgorithms:
+      - sha256
+    # A code-signing certificate expires; a timestamped signature stays valid
+    # past that expiry. Without a timestamp, every installer we ever shipped
+    # starts failing SmartScreen the day the certificate lapses. Same URL as
+    # electron-builder's own default, written out so it is visible.
+    rfc3161TimeStampServer: http://timestamp.digicert.com
+    # `publisherName` is intentionally unset: it defaults to the common name on
+    # whatever certificate WIN_CSC_LINK supplies, which is the only correct
+    # value and is not knowable here.
 
-# TODO(signing+notarize): mac.identity + notarize config once an Apple
-# Developer ID and notarization credentials exist.
+# ---------------------------------------------------------------------------
+# macOS
+#
+# SECRETS THIS READS (none are stored here):
+#   CSC_LINK              — the "Developer ID Application" certificate: a path
+#                           to a .p12, or that .p12 base64-encoded.
+#   CSC_KEY_PASSWORD      — that certificate's password.
+#   CSC_NAME              — optional. The signing identity's name, when the
+#                           keychain holds more than one certificate that
+#                           matches. This is the environment form of
+#                           `mac.identity`; see the note below.
+#   APPLE_API_KEY         — FILESYSTEM PATH to the App Store Connect .p8 private
+#                           key. Not the key's contents, and not base64:
+#                           @electron/notarize@2.5.0 documents this field as
+#                           "File system path to the .p8 private key". The
+#                           release workflow base64-decodes the secret to a file
+#                           on the runner and points this at that file.
+#   APPLE_API_KEY_ID      — the key's ID (App Store Connect → Users and Access
+#                           → Integrations → Keys).
+#   APPLE_API_ISSUER      — the issuer ID from the same page, a UUID.
+#   APPLE_TEAM_ID         — only needed for the APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD
+#                           credential form, which we do not use.
+#
+# ABSENT (no CSC_LINK, empty keychain): no identity is found,
+# `forceCodeSigning: true` fails the build.
+#
+# ABSENT (cert present, Apple API key missing): the app IS signed and
+# notarization is SKIPPED WITH A WARNING — MacTargetHelper.js:264 logs
+# "`notarize` options were unable to be generated" and returns. The build
+# succeeds and produces a signed-but-un-notarized DMG that Gatekeeper will
+# still block on a customer's Mac. Nothing in electron-builder fails on this,
+# which is precisely why scripts/check-signed.mjs runs `spctl --assess` and
+# `stapler validate` on the finished artifacts on the release path.
+#
+# `identity` is deliberately NOT written here. There is no macro expansion for
+# this field (app-builder-lib expands `${env.X}` in publish config and artifact
+# names only), so the only way to put a value here is to hard-code a literal
+# "Developer ID Application: … (TEAMID)" string — a fabricated credential this
+# repo must not carry, and one that would be wrong for whichever team actually
+# buys the certificate. The supported environment form is CSC_NAME, and with a
+# single Developer ID certificate in the keychain nothing needs to be set at
+# all. Setting `identity: null` here would mean "skip signing entirely" and is
+# the one value that must never appear.
 mac:
   target:
     - target: dmg
       arch: [x64, arm64]
   category: public.app-category.finance
+  # Distribution, not development: a "Mac Developer" identity signs an app that
+  # runs on the machine that built it and nowhere else, and Apple will not
+  # notarize one.
+  type: distribution
+  # Required before Apple will notarize anything. See build/entitlements.mac.plist
+  # for what the hardened runtime takes away and the single capability this app
+  # asks back.
   hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  # Verify the signed contents with @electron/osx-sign (its default; pinned).
+  strictVerify: true
+  # `gatekeeperAssess` stays at its default of false ON PURPOSE. It runs
+  # `spctl` during signing — BEFORE notarization has happened — where a correct
+  # build legitimately fails, so turning it on trains people to ignore it.
+  # scripts/check-signed.mjs runs spctl afterwards, when the answer means
+  # something.
+  #
+  # Enables the @electron/notarize integration. Read the "ABSENT" note above:
+  # true does NOT guarantee notarization ran, it only means it was not
+  # disabled. Treat the release gate, not this line, as the proof.
+  notarize: true
 
 linux:
   target:
@@ -76,12 +236,23 @@ linux:
     - target: deb
       arch: [x64]
   category: Office
+# Linux is packaged by CI for testing and is NOT on the signed release path:
+# neither AppImage nor deb carries a per-application signature that
+# electron-updater or scripts/check-signed.mjs could verify, so there is no
+# honest gate to put in front of a Linux release. `forceCodeSigning` above does
+# not apply to it (app-builder-lib's Linux packager never reads the flag), which
+# is why ci.yml's `desktop` job still packages an AppImage without credentials.
 
 # PLACEHOLDER FEED. `updates.mezan.example` is a reserved documentation domain
 # that resolves to nothing — deliberately, so a build that reached a customer
-# with the updater switched on could not find anything to install. Swap it for
-# the real distribution channel (S3 / GitHub Releases / self-hosted) only
-# together with the signing config above, never before it.
+# with the updater switched on could not find anything to install.
+#
+# It is NOT edited to point at the real channel. The release workflow overrides
+# it per-run with `--config.publish.url="$MEZAN_UPDATE_FEED_URL"`, so the real
+# URL lives in one place (a repository variable) and a developer build can
+# never accidentally inherit a production feed. scripts/check-signed.mjs reads
+# the `app-update.yml` electron-builder writes into the packaged app and FAILS
+# if this placeholder host survived into a release artifact.
 publish:
   provider: generic
   url: https://updates.mezan.example/desktop/

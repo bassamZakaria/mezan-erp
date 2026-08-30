@@ -6,7 +6,7 @@ export {
   BACKUP_FILE_EXTENSION,
   type BackupResult,
 } from "./backup-service.js";
-export { restoreBackup, type RestoreResult } from "./restore-service.js";
+export { restoreBackup, type RestoreResult, type RestoreCipher } from "./restore-service.js";
 export { runPreMigrationBackup } from "./pre-migration-hook.js";
 export {
   buildManifest,
@@ -40,4 +40,5 @@ export {
   ChecksumMismatchError,
   IntegrityCheckFailedError,
   ArchiveContentsError,
+  BackupKeyMismatchError,
 } from "./errors.js";

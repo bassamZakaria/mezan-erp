@@ -276,13 +276,24 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     return c.json({ ...(await currentCounts(deps.seedStores)), claimed: await tenantIsClaimed() });
   });
 
+  /**
+   * Seeds an EMPTY tenant, and reports the counts either way.
+   *
+   * NOT guarded on `tenantIsClaimed()`, and that is deliberate — guarding it
+   * there was a regression, caught by walking the wizard's own steps: the
+   * first-run wizard runs `activate → admin → seed → import`, so its seed step
+   * executes AFTER `/bootstrap/admin` has claimed the tenant. A claim-based
+   * guard 409s the wizard on its own next click, on a brand-new install, which
+   * is the one flow this route exists for.
+   *
+   * The real invariant is emptiness, and `seedIfEmpty` already enforces it: on
+   * a tenant that has any accounts this is a no-op that returns the current
+   * counts. So the worst an anonymous caller achieves is seeding a tenant that
+   * has nothing in it yet, or reading the same counts `/bootstrap/status`
+   * reports — and on the desktop edition neither is reachable from the LAN
+   * socket at all, because `/bootstrap/*` is off its path allow-list.
+   */
   app.post("/bootstrap/seed", async (c) => {
-    if (await tenantIsClaimed()) {
-      return c.json(
-        { error: "TENANT_ALREADY_PROVISIONED", message: "تم إعداد هذه المنشأة بالفعل." },
-        409,
-      );
-    }
     const result = await seedIfEmpty(deps.seedStores);
     return c.json(result);
   });

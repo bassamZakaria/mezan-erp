@@ -590,26 +590,100 @@ that's the known one".
 These stay listed so nobody re-files them as new findings. None is a defect with a
 right answer; they are in §6's territory.
 
-- **The SQLite file and the backups it produces are not encrypted at rest.** A stolen shop
-  laptop is the whole set of books, readable with any SQLite browser. Doing it properly
-  means SQLCipher (a native build per platform) or an OS-keychain-sealed key, plus a
-  recovery story for a shop that loses the machine AND the key — a feature, not a patch.
-- **The LAN multi-till socket is plain HTTP.** Session tokens and every figure travel the
-  shop wifi in clear — a sniffed bearer token is the whole ERP. Authentication is now
-  required (S8), the path is now allow-listed and the bind now defaults to the host's own
-  subnet instead of every interface (see `apps/desktop/src/main/lan-host.ts`), and none of
-  that touches confidentiality: a stranger on the same subnet who is also on the allow-list
-  boundary — or anyone between the till and the host — still reads the wire in clear.
-  Closing it needs TLS on the LAN socket with a certificate pinned at till PAIRING time
-  (a till's first connection trusts the host's cert and remembers its fingerprint; no
-  public CA will ever see one of these hostnames), not a certificate a browser would accept
-  — that is a feature, not a config flag.
-- **SQLite backups and the live database ship no code-signing story of their own, and
-  neither does the app that opens them.** Electron auto-updates are not yet code-signed or
-  notarized (macOS Gatekeeper and Windows SmartScreen both wave through today's build on
-  developer trust alone), so a consultant cannot yet tell a client "the installer you ran is
-  provably ours." Signing + notarization is a distribution-pipeline decision (certificates,
-  a signing identity per platform, CI secrets), not a code change here.
+**Entries struck through are closed. They are not deleted** — same rule the defect register
+runs on: a closed item is how you recognise its regression, and every one of the three closed
+on 2026-08-30 left residual risk behind it that a consultant still has to be able to say out
+loud. Read what a closed entry says it did **not** fix before promising a client anything.
+
+- **~~The SQLite file and the backups it produces are not encrypted at rest.~~ CLOSED
+  2026-08-30 — kept here because the residuals below are real and a consultant must know
+  them.** `apps/desktop/src/main/encrypted-database.ts` opens `mezan.db` with
+  `better-sqlite3-multiple-ciphers` under a 32-byte random key sealed to the OS user account
+  by Electron's `safeStorage` (Keychain / DPAPI / libsecret-kwallet); every backup archive is
+  encrypted with the same key; an existing plaintext install converts on first launch and
+  takes a full verified backup before a byte of the plaintext file is touched; a machine with
+  no keyring **refuses to start** rather than quietly running in plaintext, with
+  `--allow-unencrypted-database` as the operator's explicit, logged override. What did NOT
+  close:
+  - **It is encryption at rest. It is not a sandbox, and it is not access control.** Four
+    things it does nothing about, and every one of them is a likelier scenario in a small shop
+    than a stolen disk:
+    - **Anything while the app is running.** The key is in process memory and the database is
+      open. Malware or a person at the running machine reads the books through the app.
+    - **A compromised OS user account.** `safeStorage` unseals for that account by definition
+      — that is the entire mechanism. Whoever is that user is the key.
+    - **An already-unlocked machine the attacker is logged into.** The shop laptop left open
+      at the counter is the threat model this does not cover.
+    - **Anyone holding the key card.** It is a bearer secret in plain text.
+  - **The key is machine- and account-bound, so the backups are too.** That is the property
+    that makes a stolen disk useless, and it is the same property that loses the books if the
+    machine dies and nobody wrote the key down. Restoring an encrypted archive on hardware
+    that does not hold the key fails with `BackupKeyMismatchError` and is unrecoverable by
+    anyone. The mitigation is a piece of paper: a `database-key.txt` key card written beside
+    the database on first encryption, warned about on every launch while it is still there,
+    which a consultant must move off the machine and delete (`INSTALL.md` §4.1).
+    **If the owner never keeps that card, their backups are worthless on new hardware** —
+    which is precisely the disaster the backup system exists for.
+  - **The pre-conversion safety copy is unencrypted** and sits in the backups folder until a
+    human deletes it. The startup log names its path; nothing removes it automatically,
+    because deleting the only copy of a shop's books to tidy up is the worse failure.
+  - No key rotation, and no second factor on the key card.
+- **~~The LAN multi-till socket is plain HTTP.~~ CLOSED 2026-08-30 — kept here because what it
+  does NOT protect is a live risk a consultant has to state out loud.** The socket now serves
+  **HTTPS only**: `tls` is a required option on `startLanHost` and there is no plain-HTTP
+  branch to fall back to — on any TLS failure the socket stays closed and logs that it did.
+  The identity (`apps/desktop/src/main/lan-tls.ts`) is a self-signed certificate minted once
+  and kept for the life of the install, so it can be pinned, and it deliberately refuses to
+  re-mint over a damaged key pair because a new fingerprint is indistinguishable from an
+  impostor to a till that pinned the old one. The connected-devices screen shows the `https://`
+  URL and the SHA-256 fingerprint. Residual, and all of it still open:
+  - **Pinning is trust-on-first-use.** An attacker already impersonating the host at the
+    moment a till is paired gets pinned instead — silently, permanently, no later warning.
+    The only defence is a human comparing the two fingerprint strings character by character
+    while standing in the shop (`docs/INSTALL.md` §6.3). **A procedure, not a mechanism** —
+    which means it is only as good as the consultant's discipline, and it is worth saying
+    plainly rather than filing under "we have TLS now".
+  - **Nothing authenticates the client.** TLS here is one-way; there are no client
+    certificates. The subnet check and the path allow-list remain the only things narrowing
+    who and what can reach the socket.
+  - **A stolen session token is still the whole ERP.** Untouched: `session-auth.ts` binds a
+    session to no device, no address and no seat, and it lives 12 hours. TLS stops the token
+    being read off the air and does nothing about one taken off a till.
+  - **The private key is protected by filesystem permissions only** (`lan-tls-key.pem`,
+    `0600`, beside the database).
+  - **No revocation and no rotation path.** If the key leaks, recovery is deleting both PEM
+    files and re-pairing every till by hand.
+- **~~Electron auto-updates are not code-signed or notarized.~~ CONFIGURED 2026-08-30, and
+  still UNSIGNED IN FACT — the gap is now a purchase order, not a code change.** What landed:
+  `apps/desktop/electron-builder.yml` carries a real macOS (Developer ID, hardened runtime with
+  a minimal entitlements grant, notarization via the Apple API-key form) and Windows
+  (Authenticode, SHA-256 only, RFC-3161 timestamp) configuration that activates entirely from
+  environment variables and holds no credential of its own, with `forceCodeSigning: true` so a
+  mac/win package that could not be signed **fails** rather than shipping;
+  `.github/workflows/release.yml` refuses to start without the certificates and refuses to
+  publish an artifact that `apps/desktop/scripts/check-signed.mjs` cannot get the OS to vouch
+  for (`codesign` + a rejection of ad-hoc signatures + `spctl --assess` for the notarization
+  ticket + `stapler validate`; `signtool verify /pa /tw` or `Get-AuthenticodeSignature`; and a
+  refusal to ship an app still pointed at the placeholder feed); and
+  `apps/desktop/src/main/updater.ts` refuses to run at all on a build whose own signature it
+  cannot confirm. What remains **open, and cannot be closed here**:
+  - **Nobody has bought the certificates.** An Apple Developer ID, an Apple notarization key
+    and a Windows OV/EV certificate are business purchases with real lead times
+    (`docs/INSTALL.md` §8.1). Until they exist **no signed installer has ever been produced**,
+    every build is unsigned, and a consultant must not tell a client the installer is provably
+    ours (`INSTALL.md` §7).
+  - **The signing path has therefore never run end-to-end.** `check-signed.mjs` has been
+    exercised against deliberately unsigned and ad-hoc-signed bundles and correctly refuses
+    them — that is the half provable without a purchase. The half that needs a certificate is
+    unproven by definition.
+  - **Windows and Linux have no runtime signature check.** `updater.ts` answers `unknown` on
+    both and refuses, which is the safe answer, not a complete one: Electron exposes no
+    code-signature API, so macOS is answered by shelling out to `codesign` and the other two
+    are honestly unanswered. A real Windows check is possible via PowerShell and is deferred
+    until a signed Windows release exists to test it against.
+  - **The distribution channel is still unchosen.** `MEZAN_UPDATE_FEED_URL` is a repository
+    variable with no value; whether it points at GitHub release assets, S3 or a self-hosted
+    directory is a business decision nobody has made.
 - **The audit trail is append-only by a SQLite trigger (`BEFORE UPDATE/DELETE` on
   `audit_events`), not append-only against the person who holds the file.** That trigger
   stops the APPLICATION from ever issuing an `UPDATE`/`DELETE` against its own audit rows —

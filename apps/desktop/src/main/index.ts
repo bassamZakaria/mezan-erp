@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, safeStorage } from "electron";
 import Database from "better-sqlite3";
 import { createBackend, takeSeededAdminSecrets, type BackendHandle } from "@mezan/backend";
 import { SeatSessionRegistry } from "@mezan/domain";
@@ -12,12 +12,25 @@ import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./re
 import { diagnoseDesktopEntitlements } from "./entitlements.js";
 import { registerLicenceStatusOverIpc } from "./licence-ipc.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
+import { loadOrCreateLanTlsIdentity } from "./lan-tls.js";
 import {
   clearRecoveryPinIfClaimed,
   resetSeedAdminPin,
   wantsAdminReset,
   writeRecoveryPin,
 } from "./recovery.js";
+import {
+  electronSafeStorageKeyStore,
+  keyCardFilePath,
+  openEncryptedTenantDatabase,
+  openTenantConnection,
+  readDatabaseFileState,
+  wantsKeyExport,
+  wantsUnencryptedDatabase,
+  writeKeyCard,
+  type TenantCipher,
+} from "./encrypted-database.js";
+import { runPreMigrationBackup } from "../backup/index.js";
 
 /**
  * Electron main process entry point.
@@ -39,6 +52,7 @@ import {
 
 let backend: BackendHandle | undefined;
 let backupConn: Database.Database | undefined;
+let cipher: TenantCipher | undefined;
 let disposeBackupSchedule: (() => void) | undefined;
 let lanHost: LanHostHandle | undefined;
 
@@ -66,14 +80,93 @@ app.whenReady().then(async () => {
   process.env["MEZAN_PACKAGED"] = app.isPackaged ? "1" : "0";
 
   /**
+   * Encryption at rest, resolved BEFORE anything opens the database — the
+   * `--reset-admin` recovery flag included, because on an encrypted install
+   * opening the file by path with the plain driver only produces "file is not a
+   * database".
+   *
+   * On a machine whose OS has no keyring this throws rather than falling back
+   * to a plaintext key file (see encrypted-database.ts). The app does not start,
+   * and says why. `--allow-unencrypted-database` is the operator's explicit,
+   * logged way to run anyway; nothing takes that decision on their behalf.
+   */
+  if (!isDev()) {
+    if (wantsUnencryptedDatabase()) {
+      // The flag exists for a machine with no keyring, i.e. one that has never
+      // encrypted anything. It cannot decrypt a database that already is, and
+      // letting it try would surface as "file is not a database" — a corruption
+      // message for an intact file, which is how books get thrown away.
+      if ((await readDatabaseFileState(dbPath)) === "encrypted") {
+        console.error(
+          "[crypto] --allow-unencrypted-database was passed, but this database is already " +
+            "encrypted. It can only be opened with its key; remove the flag, or restore a backup " +
+            "taken before encryption was enabled.",
+        );
+        app.exit(1);
+        return;
+      }
+      console.warn(
+        "[crypto] --allow-unencrypted-database: the tenant database and every backup archive " +
+          "will be written in plaintext. Anyone who copies mezan.db or the backups folder reads " +
+          "your entire books.",
+      );
+    } else {
+      try {
+        const opened = await openEncryptedTenantDatabase({
+          dbPath,
+          keyStore: electronSafeStorageKeyStore(safeStorage),
+          // The one-time safety copy, taken from the plaintext database before
+          // a byte of it is touched, through the verified backup path.
+          backupFirst: async (sqlite) =>
+            (
+              await runPreMigrationBackup({
+                sqlite,
+                backupsDir: defaultBackupsDir(),
+                appVersion: app.getVersion(),
+              })
+            ).archivePath,
+          exportKeyCard: wantsKeyExport(),
+        });
+        cipher = opened.connection;
+        if (opened.converted) {
+          console.log(
+            "[crypto] converted the existing plaintext database to encrypted storage. " +
+              `Pre-conversion safety copy (UNENCRYPTED — delete it once you trust this build): ${opened.backupArchivePath}`,
+          );
+        }
+        if (opened.keyCardPath) {
+          console.log(`[crypto] database encryption key written to ${opened.keyCardPath}`);
+        }
+        if (opened.keyCardPresent) {
+          console.warn(
+            `[crypto] ${keyCardFilePath(dbPath)} still holds this database's key in plain text. ` +
+              "Copy it somewhere safe off this machine and delete the file — it is the only way to " +
+              "open a backup on replacement hardware, and the only plaintext copy of the key anywhere.",
+          );
+        }
+        if (wantsKeyExport()) {
+          app.exit(0);
+          return;
+        }
+      } catch (err) {
+        console.error(
+          "[crypto] the tenant database cannot be opened securely, so Mezan will not start.",
+          err,
+        );
+        app.exit(1);
+        return;
+      }
+    }
+  }
+
+  /**
    * `--reset-admin`, and it runs before anything else opens the database.
    *
-   * Authorised by filesystem access to the database directory, which is the
-   * honest bar: that directory holds an unencrypted SQLite file with every
-   * customer, price and salary in it, so somebody who can run this flag could
-   * already read everything it protects. What it buys is the install that would
-   * otherwise be lost — a random packaged PIN nobody wrote down, or a backup
-   * restored onto replacement hardware by somebody who never knew the old one.
+   * Authorised by filesystem access to the database directory PLUS this
+   * machine's sealed key, since the file itself is now encrypted. What it buys
+   * is the install that would otherwise be lost — a random packaged PIN nobody
+   * wrote down, or a backup restored onto replacement hardware by somebody who
+   * never knew the old one.
    */
   if (wantsAdminReset()) {
     if (isDev()) {
@@ -81,10 +174,15 @@ app.whenReady().then(async () => {
       app.exit(1);
       return;
     }
-    const reset = await resetSeedAdminPin(dbPath).catch((err: unknown) => {
+    // Through the keyed connection, not the path: `resetSeedAdminPin` would
+    // otherwise open the encrypted file with the plain driver and report "no
+    // seeded administrator account found" on an install that has one.
+    const resetConn = cipher ? openTenantConnection(dbPath, cipher) : undefined;
+    const reset = await resetSeedAdminPin(dbPath, resetConn ?? dbPath).catch((err: unknown) => {
       console.error("[recovery] --reset-admin failed", err);
       return null;
     });
+    resetConn?.close();
     if (!reset) {
       console.error(`[recovery] no seeded administrator account found in ${dbPath}.`);
       app.exit(1);
@@ -102,19 +200,30 @@ app.whenReady().then(async () => {
   if (shouldServeRenderer()) serveRenderer(rendererRoot());
 
   if (!isDev()) {
-    // A dedicated connection to the same on-disk file, used only for
-    // SQLite's online backup API. Kept separate from the UnitOfWork's
-    // connection (WAL mode supports concurrent readers + one writer just
-    // fine) rather than reaching into persistence internals, so the backup
-    // module only ever depends on a plain better-sqlite3 `Database`, never
-    // on @mezan/persistence's repository abstraction.
-    backupConn = new Database(dbPath);
+    // A dedicated connection to the same on-disk file, used only for the
+    // backup snapshot. Kept separate from the UnitOfWork's connection (WAL
+    // mode supports concurrent readers + one writer just fine) rather than
+    // reaching into persistence internals, so the backup module only ever
+    // depends on a plain better-sqlite3 `Database`, never on
+    // @mezan/persistence's repository abstraction.
+    //
+    // Keyed with the same driver and key `createBackend` gets below. A plain
+    // `new Database(dbPath)` here throws "file is not a database" on an
+    // encrypted install — and if it somehow did not, every archive it wrote
+    // would be a decrypted copy of the books, in the folder people carry out of
+    // the shop on a USB stick.
+    backupConn = cipher ? openTenantConnection(dbPath, cipher) : new Database(dbPath);
     backupConn.pragma("busy_timeout = 5000");
 
     // Pre-migration auto-backup (docs/archive/plan.md §2.3/§3.7). No real migration
     // runner exists yet, so `migrate` is a no-op today — see backup-hooks.ts.
-    await backupThenMigrate({ sqlite: backupConn, appVersion: app.getVersion() });
-    disposeBackupSchedule = scheduleBackups({ sqlite: backupConn, appVersion: app.getVersion() });
+    const encrypted = cipher !== undefined;
+    await backupThenMigrate({ sqlite: backupConn, appVersion: app.getVersion(), encrypted });
+    disposeBackupSchedule = scheduleBackups({
+      sqlite: backupConn,
+      appVersion: app.getVersion(),
+      encrypted,
+    });
   }
 
   // Same shared Hono app both mounts serve (docs/archive/plan.md §2.2): the IPC
@@ -138,6 +247,7 @@ app.whenReady().then(async () => {
   // any device on the shop wifi could send `x-permissions: *`.
   backend = await createBackend({
     dbPath,
+    connection: cipher,
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
   });
 
@@ -171,7 +281,7 @@ app.whenReady().then(async () => {
     } else {
       // Cheap, and it runs on every launch: the file is a live credential and
       // stops being needed the moment the owner has an account of their own.
-      await clearRecoveryPinIfClaimed(dbPath).catch((err: unknown) => {
+      await clearRecoveryPinIfClaimed(dbPath, backupConn ?? dbPath).catch((err: unknown) => {
         console.warn("[recovery] could not clear the recovery file", err);
         return false;
       });
@@ -188,6 +298,7 @@ app.whenReady().then(async () => {
     backupsDir: defaultBackupsDir(),
     appVersion: app.getVersion(),
     sqlite: () => backupConn,
+    cipher,
     closeLiveConnections: () => {
       disposeBackupSchedule?.();
       disposeBackupSchedule = undefined;
@@ -210,7 +321,14 @@ app.whenReady().then(async () => {
     lanHost: () => lanHost,
     sessions: backend.sessions,
   });
-  lanHost = startLanHost({ app: backend.app, entitlements });
+  // The identity is a thunk, and it lives BESIDE the database rather than in
+  // it: the socket must present the same certificate on every launch or no
+  // till can pin it, and lan-host.ts must keep importing no `electron`.
+  lanHost = startLanHost({
+    app: backend.app,
+    entitlements,
+    tls: () => loadOrCreateLanTlsIdentity(defaultDbPath()),
+  });
 
   createWindow();
   initAutoUpdater();

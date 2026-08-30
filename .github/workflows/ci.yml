@@ -173,6 +173,17 @@ jobs:
       - name: Build the main/preload bundles
         run: pnpm --filter desktop run build:main
 
+      # BLOCKS, and it is two seconds. The release gate
+      # (apps/desktop/scripts/check-signed.mjs) runs on exactly two occasions —
+      # a macOS runner and a Windows runner, both only on a `v*` tag — so a
+      # syntax error in it would sit undetected until the one moment it is
+      # supposed to be the thing standing between an unsigned build and a
+      # customer. Parsing it on every PR costs nothing and removes that window.
+      # It cannot be EXECUTED here: on Linux it correctly refuses, because
+      # AppImage and .deb carry no signature it could verify.
+      - name: The release signing gate still parses
+        run: node --check apps/desktop/scripts/check-signed.mjs
+
       # From here down, failures are reported and not fatal — see the note above.
       - name: Build the web bundle (electron-builder copies it as extraResources)
         continue-on-error: true
@@ -193,11 +204,20 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # Still missing, and deliberately so — a later, dedicated release issue owns it:
+  # Signing, notarization and the update feed are NO LONGER MISSING from this
+  # repository — they moved to .github/workflows/release.yml, which runs on a
+  # `v*` tag, refuses to start without the certificates, and refuses to publish
+  # an artifact the operating system will not vouch for. They are not in THIS
+  # workflow on purpose: every job here runs on ubuntu with no credentials, and
+  # a signing step that no-ops on a PR is the kind of green check that teaches
+  # people the gate is working when it is not.
+  #
+  # What a maintainer still has to do once, by hand, before a release can
+  # succeed: create the seven secrets and one variable listed in
+  # docs/INSTALL.md §8. Until then `release.yml`'s preflight job fails and
+  # produces nothing, which is the intended state — not a bug to work around.
+  #
+  # Still missing, and deliberately so — a later, dedicated issue owns it:
   #   - Playwright Electron E2E driving the real window on win/macOS/linux
-  #   - code-signing and macOS notarization of the installers
-  #     (apps/desktop/electron-builder.yml documents why the auto-updater stays
-  #     switched off until those exist)
-  #   - publishing electron-updater release artifacts to a real feed
   # See docs/archive/plan.md §2.7 (CI section).
   # ---------------------------------------------------------------------------

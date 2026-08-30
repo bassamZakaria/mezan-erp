@@ -68,6 +68,7 @@ import {
 } from "@mezan/domain";
 import {
   openSqliteConnection,
+  type SqliteOpenOptions,
   createSqliteUnitOfWork,
   createSqliteAccountRepository,
   createSqliteSettingsStore,
@@ -511,6 +512,16 @@ export interface CreateBackendOptions {
    * its caller from a header.
    */
   readonly lan?: NonNullable<CreateAppOptions["lan"]>;
+  /**
+   * Driver + encryption key for the ONE connection opened below.
+   *
+   * Supplied only by apps/desktop, which opens the tenant database with
+   * SQLite3MultipleCiphers and a key sealed to the OS user account (see
+   * apps/desktop/src/main/encrypted-database.ts). Omitted — apps/server, the
+   * scenario harness, the web dev plugin and every test — this is plain
+   * better-sqlite3 with no key, exactly as before.
+   */
+  readonly connection?: SqliteOpenOptions;
 }
 
 /**
@@ -539,7 +550,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // same writer — no cross-connection lock contention at all. `foreign_keys`
   // still needs setting per-store below since it's a per-connection pragma,
   // but harmless to set repeatedly on the same connection.
-  const { sqlite } = openSqliteConnection(dbPath);
+  const { sqlite } = openSqliteConnection(dbPath, options.connection);
 
   const sequenceConfig = createSqliteSequenceConfigStore(sqlite);
   const sequenceCounters = createSqliteSequenceStore(sqlite);

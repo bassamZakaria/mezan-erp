@@ -77,5 +77,62 @@ try {
   fs.rmSync(path.dirname(dbPath), { recursive: true, force: true });
 }
 
-console.log("[abi] OK — better-sqlite3 loads and opens a database under this Electron build.");
+// The SAME check for the driver that actually holds the books on desktop.
+// main/encrypted-database.ts opens mezan.db with better-sqlite3-multiple-ciphers,
+// so its `.node` binary has to load under this ABI too — and a build where the
+// key pragma silently did nothing would write the customer list, every price and
+// every salary to disk in plain text while reporting success.
+let Cipher;
+try {
+  Cipher = require("better-sqlite3-multiple-ciphers");
+} catch (err) {
+  die(
+    `better-sqlite3-multiple-ciphers will not load under Electron's ABI (NODE_MODULE_VERSION ${abi}). ` +
+      "Rebuild it for Electron — the packaged app cannot open its encrypted database until you do.",
+    err,
+  );
+}
+
+const encDir = fs.mkdtempSync(path.join(os.tmpdir(), "mezan-abi-enc-"));
+const encPath = path.join(encDir, "abi-check-encrypted.db");
+try {
+  const key = "0".repeat(64);
+  const db = new Cipher(encPath);
+  db.pragma(`key = "x'${key}'"`);
+  const cipher = db.pragma("cipher");
+  if (!Array.isArray(cipher) || cipher.length === 0) die("PRAGMA key was accepted but no cipher is active");
+  db.pragma("journal_mode = WAL");
+  db.exec("CREATE TABLE probe (id INTEGER PRIMARY KEY, memo TEXT NOT NULL)");
+  db.prepare("INSERT INTO probe (id, memo) VALUES (?, ?)").run(1, "قيد مشفّر");
+  db.close();
+
+  const header = Buffer.alloc(16);
+  const fd = fs.openSync(encPath, "r");
+  fs.readSync(fd, header, 0, 16, 0);
+  fs.closeSync(fd);
+  if (header.equals(Buffer.from("SQLite format 3\0", "latin1"))) {
+    die("the encrypted database was written as a readable SQLite file — encryption at rest is not active");
+  }
+
+  try {
+    new Database(encPath, { readonly: true }).pragma("integrity_check");
+    die("the plain driver opened the encrypted database — encryption at rest is not active");
+  } catch {
+    // Expected: "file is not a database".
+  }
+
+  const reopened = new Cipher(encPath, { readonly: true });
+  reopened.pragma(`key = "x'${key}'"`);
+  const row = reopened.prepare("SELECT memo FROM probe WHERE id = 1").get();
+  if (!row || row.memo !== "قيد مشفّر") die(`encrypted round-trip mismatch: ${JSON.stringify(row)}`);
+  reopened.close();
+} catch (err) {
+  die("opening an ENCRYPTED database under Electron failed", err);
+} finally {
+  fs.rmSync(encDir, { recursive: true, force: true });
+}
+
+console.log(
+  "[abi] OK — better-sqlite3 and better-sqlite3-multiple-ciphers load, and the encrypted database is unreadable without its key.",
+);
 process.exit(0);

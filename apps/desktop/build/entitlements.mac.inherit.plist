@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Child entitlements — inherited by the Electron helper bundles inside
+  Mezan.app (Renderer, GPU, Plugin) and by the frameworks under them.
+
+  `mac.entitlementsInherit` in apps/desktop/electron-builder.yml points here.
+  It only takes effect when `mac.entitlements` is also set, which it is.
+
+  The helpers get the JIT grant because the renderer is where V8 actually runs,
+  and NOTHING ELSE. The main bundle's plist explains at length why the wider
+  grants @electron/osx-sign hands out by default are refused; the reasoning
+  applies with more force here, since a renderer is the process that touches
+  content and is therefore the one an attacker reaches first.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+  </dict>
+</plist>

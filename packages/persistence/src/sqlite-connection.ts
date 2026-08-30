@@ -17,6 +17,63 @@ export interface OpenedSqliteConnection {
 }
 
 /**
+ * A `better-sqlite3`-compatible constructor. The only substitution this repo
+ * makes is `better-sqlite3-multiple-ciphers` (apps/desktop), a fork of the same
+ * major version that adds `PRAGMA key`; nothing else may be passed here,
+ * because every store in this package is written against better-sqlite3's exact
+ * synchronous API.
+ */
+export type SqliteDriver = typeof Database;
+
+/** A 32-byte encryption key, lowercase hex. */
+const RAW_KEY_RE = /^[0-9a-f]{64}$/;
+
+export interface SqliteOpenOptions {
+  /**
+   * Overrides the driver this call constructs the connection with. Defaults to
+   * `better-sqlite3` — the driver ~800 test files, apps/server, the scenario
+   * harness and the web dev build all run on. Swapping it globally would put a
+   * native-module load failure between every edition and its own books, so the
+   * substitution is per-composition and opt-in.
+   */
+  readonly driver?: SqliteDriver;
+  /**
+   * Encrypts the database at rest. 32 bytes of key material, lowercase hex —
+   * applied as `PRAGMA key` before any other statement, which is the only point
+   * at which SQLite3MultipleCiphers will accept it.
+   *
+   * Requires a `driver` that actually implements a cipher. Passing a key to
+   * plain better-sqlite3 would be a no-op PRAGMA — the database would stay
+   * readable by anyone holding the file while the caller believed it was
+   * encrypted — so that combination throws instead.
+   */
+  readonly key?: string;
+}
+
+/**
+ * Turns the key into the SQL literal SQLite3MultipleCiphers reads as RAW key
+ * material rather than as a passphrase to run through PBKDF2. The regex above
+ * is what makes the interpolation safe: the value can only ever be 64 hex
+ * characters, and better-sqlite3 has no parameter binding for PRAGMA values.
+ */
+function applyKey(sqlite: Database.Database, key: string): void {
+  if (!RAW_KEY_RE.test(key)) {
+    throw new Error("SQLite encryption key must be 32 bytes of lowercase hex.");
+  }
+  sqlite.pragma(`key = "x'${key}'"`);
+  // `PRAGMA cipher` is unknown to plain better-sqlite3 and returns nothing,
+  // where SQLite3MultipleCiphers answers with the active cipher. Without this
+  // check a wrong-driver composition degrades silently to a plaintext file.
+  const cipher = sqlite.pragma("cipher") as unknown[];
+  if (!Array.isArray(cipher) || cipher.length === 0) {
+    sqlite.close();
+    throw new Error(
+      "SQLite driver has no cipher support — an encryption key was supplied but the database would be written in plaintext.",
+    );
+  }
+}
+
+/**
  * Opens (or reuses) a better-sqlite3 connection for a persistence store.
  *
  * Every store in this package used to call `new Database(path)` on its own,
@@ -40,13 +97,23 @@ export interface OpenedSqliteConnection {
  * opens (and pragma-configures) a fresh, store-owned connection exactly as
  * before, so every existing `createSqliteXStore(":memory:")` / `(path)` call
  * site (tests, and any standalone usage) is unaffected.
+ *
+ * `options` is the encryption-at-rest seam. Omitted — which is every call site
+ * except the desktop composition — this opens plain `better-sqlite3` with no
+ * key, byte for byte what it did before the seam existed.
  */
-export function openSqliteConnection(input: SqliteConnectionInput): OpenedSqliteConnection {
+export function openSqliteConnection(
+  input: SqliteConnectionInput,
+  options: SqliteOpenOptions = {},
+): OpenedSqliteConnection {
   if (typeof input !== "string") {
     installSchemaSync(input);
     return { sqlite: input, owned: false };
   }
-  const sqlite = new Database(input);
+  const sqlite = new (options.driver ?? Database)(input);
+  // Before every other statement, WAL included: SQLite3MultipleCiphers only
+  // honours `PRAGMA key` while the database header is still unread.
+  if (options.key !== undefined) applyKey(sqlite, options.key);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("busy_timeout = 5000");
   installSchemaSync(sqlite);

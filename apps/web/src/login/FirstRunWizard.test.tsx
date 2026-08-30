@@ -132,4 +132,51 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     fireEvent.click(screen.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it("offers a way out when the install turns out to already be claimed", async () => {
+    // `POST /bootstrap/admin` answers a claimed tenant with a bare 409 — it
+    // used to hand back the EXISTING admin's session, which was an anonymous
+    // takeover. Correct, but the wizard then printed the refusal and STOPPED:
+    // the message tells the owner to sign in with their account and the screen
+    // gave them no way to. Anyone arriving here after an interrupted first run
+    // was stuck on step 2 with only «رجوع».
+    const onCancel = vi.fn();
+    renderWithProviders(<FirstRunWizard onFinish={() => {}} onCancel={onCancel} />, {
+      transport: stubTransport({
+        "GET /tenant": () => ({ body: { name: "Cyag" } }),
+        "GET /bootstrap/status": () => ({ body: { ...EMPTY_COUNTS, claimed: true } }),
+        "POST /bootstrap/admin": () => ({
+          status: 409,
+          body: { error: "TENANT_ALREADY_PROVISIONED", message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك." },
+        }),
+      }),
+    });
+
+    goToAdminStep();
+    fillAdminForm();
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("تم إعداد هذه المنشأة بالفعل");
+
+    const out = await screen.findByRole("button", { name: "سجّل الدخول بحسابك" });
+    fireEvent.click(out);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no way-out button for an ordinary failure, which is worth retrying", async () => {
+    renderWithProviders(<FirstRunWizard onFinish={() => {}} onCancel={() => {}} />, {
+      transport: stubTransport({
+        "GET /tenant": () => ({ body: { name: "Cyag" } }),
+        "GET /bootstrap/status": () => ({ body: EMPTY_COUNTS }),
+        "POST /bootstrap/admin": () => ({ status: 400, body: { error: "VALIDATION_ERROR", message: "بيانات غير صالحة." } }),
+      }),
+    });
+
+    goToAdminStep();
+    fillAdminForm();
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "سجّل الدخول بحسابك" })).not.toBeInTheDocument();
+  });
 });

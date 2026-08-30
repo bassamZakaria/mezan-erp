@@ -34,3 +34,24 @@ export class ArchiveContentsError extends Error {
     this.name = "ArchiveContentsError";
   }
 }
+
+/**
+ * Thrown when an archive holds an ENCRYPTED database this install cannot open.
+ *
+ * Distinct from `IntegrityCheckFailedError` on purpose: both surface as "the
+ * file will not open", but the causes are opposite and so are the remedies.
+ * A corrupt archive is gone; an archive from another machine is intact and
+ * needs that machine's key (the card `main/encrypted-database.ts` writes).
+ * Telling an owner their backup is corrupt when it is merely foreign is how a
+ * usable restore gets thrown away.
+ */
+export class BackupKeyMismatchError extends Error {
+  constructor(cause?: unknown) {
+    super(
+      "The backup archive is encrypted with a different key than this installation holds — " +
+        "it was taken on other hardware or under another OS user account.",
+      cause === undefined ? undefined : { cause },
+    );
+    this.name = "BackupKeyMismatchError";
+  }
+}

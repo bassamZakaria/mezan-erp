@@ -7,10 +7,16 @@ import path from "node:path";
 import type { SessionGrant, SessionRegistry } from "@mezan/api";
 import { createBackup } from "../backup/index.js";
 import {
+  cipherDriver,
+  openTenantConnection,
+  type TenantCipher,
+} from "./encrypted-database.js";
+import {
   MEZAN_BACKUP_CREATE_CHANNEL,
   MEZAN_BACKUP_LIST_CHANNEL,
   MEZAN_BACKUP_RESTORE_CHANNEL,
   type BackupCreateResult,
+  type BackupEntryDTO,
   type BackupFailure,
   type BackupListResult,
   type BackupRestoreResult,
@@ -69,7 +75,7 @@ let live: Database.Database;
 let closed: number;
 let relaunched: number;
 
-async function register(grant: SessionGrant | null): Promise<void> {
+async function register(grant: SessionGrant | null, cipher?: TenantCipher): Promise<void> {
   handlers.clear();
   const { registerRestoreOverIpc } = await import("./restore-ipc.js");
   registerRestoreOverIpc({
@@ -77,6 +83,7 @@ async function register(grant: SessionGrant | null): Promise<void> {
     backupsDir,
     appVersion: "9.9.9",
     sqlite: () => live,
+    cipher,
     closeLiveConnections: () => {
       closed += 1;
       live.close();
@@ -317,5 +324,91 @@ describe("the restore itself", () => {
       "anything.mezanbak",
     );
     expect(restored).toMatchObject({ ok: false, code: "UNAUTHORIZED" });
+  });
+});
+
+/**
+ * The channels are the only caller of `createBackup`/`restoreBackup` in the
+ * product, so they are the only place the encryption can be dropped on the
+ * floor: a manual backup taken through an unkeyed call, or a restore that
+ * integrity-checks an encrypted archive with the plain driver, would each undo
+ * the at-rest guarantee from a screen the owner thinks is routine.
+ */
+describe("an encrypted install", () => {
+  const KEY = "c".repeat(64);
+  const cipher: TenantCipher = { driver: cipherDriver, key: KEY };
+  const SQLITE_HEADER = Buffer.from("SQLite format 3\0", "latin1");
+
+  async function encryptedLive(): Promise<void> {
+    live.close();
+    rmSync(dbPath, { force: true });
+    live = openTenantConnection(dbPath, cipher);
+    live.exec("CREATE TABLE invoice (id TEXT PRIMARY KEY, memo TEXT NOT NULL)");
+    live.prepare("INSERT INTO invoice VALUES (?, ?)").run("INV-1", "فاتورة أولى");
+    await register(ADMIN, cipher);
+  }
+
+  it("writes an archive nobody can read off a USB stick", async () => {
+    await encryptedLive();
+    const created = await call<{ ok: true; entry: BackupEntryDTO }>(
+      MEZAN_BACKUP_CREATE_CHANNEL,
+      "good-token",
+    );
+    expect(created.ok).toBe(true);
+
+    const extractDir = path.join(dir, "peek");
+    const { extractArchive } = await import("../backup/archive.js");
+    const extracted = await extractArchive(
+      path.join(backupsDir, created.entry.fileName),
+      extractDir,
+    );
+    const head = (await readFile(extracted.dbFilePath)).subarray(0, SQLITE_HEADER.length);
+    expect(head.equals(SQLITE_HEADER)).toBe(false);
+    expect(created.entry.tables).toEqual({ invoice: 1 });
+  });
+
+  it("restores its own archive end to end", async () => {
+    await encryptedLive();
+    const created = await call<{ ok: true; entry: BackupEntryDTO }>(
+      MEZAN_BACKUP_CREATE_CHANNEL,
+      "good-token",
+    );
+    live.prepare("INSERT INTO invoice VALUES (?, ?)").run("INV-2", "بعد النسخة");
+
+    const restored = await call<BackupRestoreResult>(
+      MEZAN_BACKUP_RESTORE_CHANNEL,
+      "good-token",
+      created.entry.fileName,
+    );
+    expect(restored.ok).toBe(true);
+    expect(closed).toBe(1);
+    vi.runAllTimers();
+    expect(relaunched).toBe(1);
+
+    const reopened = openTenantConnection(dbPath, cipher);
+    expect(reopened.prepare("SELECT COUNT(*) AS n FROM invoice").get()).toEqual({ n: 1 });
+    reopened.close();
+  });
+
+  it("tells the owner an archive from other hardware needs that machine's key", async () => {
+    await encryptedLive();
+    const created = await call<{ ok: true; entry: BackupEntryDTO }>(
+      MEZAN_BACKUP_CREATE_CHANNEL,
+      "good-token",
+    );
+
+    // Same install, different key — what an archive carried over from the
+    // machine that died looks like from here.
+    await register(ADMIN, { driver: cipherDriver, key: "d".repeat(64) });
+    const failed = await call<BackupFailure>(
+      MEZAN_BACKUP_RESTORE_CHANNEL,
+      "good-token",
+      created.entry.fileName,
+    );
+    expect(failed.ok).toBe(false);
+    expect(failed.code).toBe("VERIFICATION_FAILED");
+    // Not "your backup is corrupt": it is intact and it needs a key.
+    expect(failed.message).toContain("مفتاح");
+    expect(failed.message).toContain("لم تتغيّر بياناتك");
   });
 });

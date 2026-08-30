@@ -18,6 +18,10 @@ function withDesktopBridge(result: DesktopLicenceResultDTO): void {
   (globalThis as BridgeHost).mezan = { licence: { status: () => Promise.resolve(result) } };
 }
 
+/** A real 32-byte SHA-256, in the `AB:CD:…` spelling a TLS client computes. */
+const FINGERPRINT =
+  "3D:9A:1F:04:B7:22:CE:65:80:11:AA:5E:F3:47:9C:D2:16:8B:70:E4:53:C1:0F:6A:29:BD:84:37:52:EE:C8:91";
+
 const LICENSED: DesktopLicenceResultDTO = {
   ok: true,
   code: "LIC-OK",
@@ -25,7 +29,11 @@ const LICENSED: DesktopLicenceResultDTO = {
   plan: "ENTERPRISE",
   seats: 2,
   expiresAt: null,
-  lan: { listening: true, url: "http://192.168.1.7:4173" },
+  lan: {
+    listening: true,
+    url: "https://192.168.1.7:4173",
+    fingerprintSha256: FINGERPRINT,
+  },
 };
 
 const LICENSED_STATUS = { licensed: true, seats: 2, connected: 0 };
@@ -146,7 +154,7 @@ describe("ConnectedDevicesPanel — the LAN address", () => {
     });
     renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
-    const address = await screen.findByText("http://192.168.1.7:4173");
+    const address = await screen.findByText("https://192.168.1.7:4173");
     expect(address).toBeInTheDocument();
     expect(address).toHaveAttribute("dir", "ltr");
   });
@@ -159,11 +167,14 @@ describe("ConnectedDevicesPanel — the LAN address", () => {
     renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText(/لا يُعرف هذا العنوان إلا على الجهاز المستضيف/)).toBeInTheDocument();
-    expect(screen.queryByText(/http:\/\//)).not.toBeInTheDocument();
+    expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument();
   });
 
   it("says the address is unknown when the host has none to give — never a plausible one", async () => {
-    withDesktopBridge({ ...LICENSED, lan: { listening: true, url: null } });
+    withDesktopBridge({
+      ...LICENSED,
+      lan: { listening: true, url: null, fingerprintSha256: FINGERPRINT },
+    });
     const transport = stubTransport({
       "GET /lan/status": () => ({ body: LICENSED_STATUS }),
       "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
@@ -171,11 +182,14 @@ describe("ConnectedDevicesPanel — the LAN address", () => {
     renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText(/تعذّر تحديد عنوان هذا الجهاز/)).toBeInTheDocument();
-    expect(screen.queryByText(/http:\/\//)).not.toBeInTheDocument();
+    expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument();
   });
 
   it("says the LAN service is not running rather than printing an address for a dead socket", async () => {
-    withDesktopBridge({ ...LICENSED, lan: { listening: false, url: null } });
+    withDesktopBridge({
+      ...LICENSED,
+      lan: { listening: false, url: null, fingerprintSha256: FINGERPRINT },
+    });
     const transport = stubTransport({
       "GET /lan/status": () => ({ body: LICENSED_STATUS }),
       "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
@@ -194,7 +208,95 @@ describe("ConnectedDevicesPanel — the LAN address", () => {
     renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText("سجّل الدخول لعرض حالة الترخيص.")).toBeInTheDocument();
-    expect(screen.queryByText(/http:\/\//)).not.toBeInTheDocument();
+    expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * THE FINGERPRINT A TILL PINS.
+ *
+ * The LAN socket now serves TLS, but with a self-signed certificate that no
+ * chain validates — there is no CA a shop LAN can reach. Encryption alone
+ * therefore still lets a laptop that answers first on the host's address
+ * present its own key and collect the PIN. What closes that is the till
+ * pinning this exact SHA-256, and the ONLY place a human can read it is the
+ * host's own screen.
+ */
+describe("ConnectedDevicesPanel — the certificate fingerprint", () => {
+  afterEach(() => {
+    delete (globalThis as BridgeHost).mezan;
+  });
+
+  it("shows the fingerprint, in LTR hex pairs a human can compare against the till", async () => {
+    withDesktopBridge(LICENSED);
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    const shown = await screen.findByText(FINGERPRINT);
+    // Hex inside an RTL page reorders without this, and the consultant would
+    // then be comparing two strings that differ only in how they were laid out.
+    expect(shown).toHaveAttribute("dir", "ltr");
+    expect(screen.getByText(/بصمة شهادة التأمين/)).toBeInTheDocument();
+  });
+
+  it("names it even while the address is unknown — it is the identity, not the address", async () => {
+    withDesktopBridge({
+      ...LICENSED,
+      lan: { listening: false, url: null, fingerprintSha256: FINGERPRINT },
+    });
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText(FINGERPRINT)).toBeInTheDocument();
+  });
+
+  it("says the fingerprint is unknown rather than printing a placeholder", async () => {
+    withDesktopBridge({
+      ...LICENSED,
+      lan: { listening: true, url: "https://192.168.1.7:4173", fingerprintSha256: null },
+    });
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    // A fingerprint that matches nothing on the wire would teach the shop to
+    // click past the one warning that protects it.
+    expect(await screen.findByText(/تعذّرت قراءة بصمة الشهادة/)).toBeInTheDocument();
+    expect(screen.queryByText(/^([0-9A-F]{2}:){4}/)).not.toBeInTheDocument();
+  });
+
+  it("says it is only knowable on the host, on the web build", async () => {
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText(/لا تُعرف بصمة الشهادة إلا على الجهاز المستضيف/)).toBeInTheDocument();
+    expect(screen.queryByText(/^([0-9A-F]{2}:){4}/)).not.toBeInTheDocument();
+  });
+
+  it("shows no fingerprint block at all when the licence read failed", async () => {
+    withDesktopBridge({ ok: false, code: "UNAUTHORIZED", message: "سجّل الدخول لعرض حالة الترخيص." });
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    await screen.findByText("سجّل الدخول لعرض حالة الترخيص.");
+    // One failure, one message: a second "could not read the fingerprint"
+    // underneath would read as a separate fault the operator has to diagnose.
+    expect(screen.queryByText(/بصمة شهادة التأمين/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/تعذّرت قراءة بصمة الشهادة/)).not.toBeInTheDocument();
   });
 });
 
@@ -233,7 +335,7 @@ describe("LicenceStatusNotice", () => {
 
     // The address proves the bridge answered, so the absent banner below is a
     // decision the component made rather than a reading that never arrived.
-    await screen.findByText("http://192.168.1.7:4173");
+    await screen.findByText("https://192.168.1.7:4173");
     expect(screen.queryByText("مشكلة في الترخيص")).not.toBeInTheDocument();
     expect(screen.queryByText("LIC-OK")).not.toBeInTheDocument();
   });
@@ -246,7 +348,7 @@ describe("LicenceStatusNotice", () => {
       plan: "ENTERPRISE",
       seats: 2,
       expiresAt: "2026-01-31T00:00:00.000Z",
-      lan: { listening: false, url: null },
+      lan: { listening: false, url: null, fingerprintSha256: null },
     });
     renderWithProviders(<LicenceStatusNotice />, {
       transport: stubTransport({}),
@@ -266,7 +368,7 @@ describe("LicenceStatusNotice", () => {
       plan: "UNLICENSED",
       seats: 0,
       expiresAt: null,
-      lan: { listening: false, url: null },
+      lan: { listening: false, url: null, fingerprintSha256: null },
     });
     renderWithProviders(<LicenceStatusNotice />, {
       transport: stubTransport({}),

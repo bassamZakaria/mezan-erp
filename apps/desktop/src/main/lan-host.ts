@@ -1,9 +1,11 @@
+import { createServer as createHttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import { networkInterfaces } from "node:os";
-import { serve } from "@hono/node-server";
+import { serve, type ServerType } from "@hono/node-server";
 import type { Http2Bindings, HttpBindings } from "@hono/node-server";
 import { hasFeature, LAN_MULTI_TILL_FEATURE, type Entitlements } from "@mezan/domain";
 import type { App } from "@mezan/api";
+import type { LanTlsIdentity } from "./lan-tls.js";
 
 const FALLBACK_LAN_HOST = "0.0.0.0";
 const DEFAULT_LAN_PORT = 4173;
@@ -12,6 +14,16 @@ export interface LanHostOptions {
   /** The SAME Hono app instance the IPC bridge already serves in-process. */
   readonly app: App;
   readonly entitlements: Entitlements;
+  /**
+   * The host's persistent TLS identity, resolved lazily so this module stays
+   * free of both `electron` and the database path.
+   *
+   * REQUIRED, and there is no HTTP branch to fall back to. Making it optional
+   * would put a plain-text mount one forgotten argument away, and a socket the
+   * shop believes is encrypted but is not is worse than no LAN feature at all
+   * — nobody looks for a leak they have been told cannot happen.
+   */
+  readonly tls: () => Promise<LanTlsIdentity>;
   /**
    * Bind address. Defaults to the first non-internal IPv4 interface — NOT
    * `0.0.0.0`; see `resolveBindAddress` below for what that default cost.
@@ -24,12 +36,16 @@ export interface LanHostOptions {
 export interface LanHostHandle {
   readonly enabled: boolean;
   readonly host?: string;
-  /** Resolves once the socket is actually bound (or immediately with null when !enabled). */
+  /**
+   * Resolves once the socket is actually bound — with null when !enabled, and
+   * ALSO with null when the TLS identity could not be obtained, because that
+   * leaves the socket closed rather than opening a plain-HTTP one.
+   */
   readonly ready: Promise<AddressInfo | null>;
   /** The real bound address once listening (null before then, or when !enabled). */
   address(): AddressInfo | null;
   /**
-   * `http://192.168.1.7:4173` — the URL a till is pointed at — or null when
+   * `https://192.168.1.7:4173` — the URL a till is pointed at — or null when
    * there is none to hand out.
    *
    * This is the "future 'show me the LAN address' UI" the comment below has
@@ -42,6 +58,15 @@ export interface LanHostHandle {
    * number on screen that no till can reach.
    */
   url(): string | null;
+  /**
+   * The SHA-256 fingerprint of the certificate this socket presents, in the
+   * `AB:CD:…` spelling a TLS client computes for it — the value a till pins,
+   * and the value the connected-devices screen shows so a human can compare
+   * the two. Null until the identity has been read, and null when it could not
+   * be: a screen must say "unknown" rather than print a fingerprint that
+   * matches nothing on the wire.
+   */
+  fingerprint(): string | null;
   close(): Promise<void>;
 }
 
@@ -50,6 +75,7 @@ const NOOP_HANDLE: LanHostHandle = {
   ready: Promise.resolve(null),
   address: () => null,
   url: () => null,
+  fingerprint: () => null,
   close: async () => {},
 };
 
@@ -206,10 +232,22 @@ function resolveBindAddress(): string {
 
 /**
  * Binds the SAME shared Hono app (docs/archive/plan.md §2.2's "one HTTP app, two
- * mount points") to a LAN-visible HTTP socket, ALONGSIDE — never instead of
+ * mount points") to a LAN-visible HTTPS socket, ALONGSIDE — never instead of
  * — the host's own no-port IPC mount (main/ipc.ts). Tills/tablets on the shop
  * LAN then reach the exact app the host itself uses in-process, including
- * `/lan/sessions` seat enforcement, over plain http+SSE (§2.6, §6.3.3).
+ * `/lan/sessions` seat enforcement (§2.6, §6.3.3).
+ *
+ * THE SOCKET IS TLS-ONLY. It served plain HTTP, which put the PIN in every
+ * `POST /auth/login` body and the bearer token in every response on a WPA2-PSK
+ * network the whole neighbourhood is associated to; sessions are bound to no
+ * device and no address and last twelve hours (api/session-auth.ts), so one
+ * capture is an admin for the rest of the day. The certificate is self-signed
+ * and PINNED by fingerprint (lan-tls.ts) — there is no CA a shop LAN can
+ * reach and no DNS name to certify.
+ *
+ * If the identity cannot be obtained the socket STAYS CLOSED and says so.
+ * There is deliberately no HTTP fallback: a shop told its tills are encrypted
+ * will not go looking for plaintext on the air.
  *
  * Gated by the `lan.multi_till` license flag: when the resolved entitlements
  * don't carry it, this is a pure no-op — no socket is ever opened, so an
@@ -269,26 +307,69 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
     return options.app.fetch(request, env);
   };
 
-  let resolveReady!: (info: AddressInfo) => void;
+  let resolveReady!: (info: AddressInfo | null) => void;
   const ready = new Promise<AddressInfo | null>((resolve) => {
     resolveReady = resolve;
   });
 
-  // Node's `server.listen(port, host, cb)` only binds synchronously when no
-  // hostname is given (or one that skips DNS lookup entirely); passing an
-  // explicit hostname — which this always does — defers the actual bind, so
-  // callers that need the resolved address (tests; the connected-devices
-  // screen, via `url()`) must await `ready` rather than read it right away.
-  const server = serve({ fetch: handle, hostname, port }, (info: AddressInfo) => {
-    console.log(
-      `[lan] multi-till host listening on http://${hostname}:${info.port} ` +
-        `(seats=${options.entitlements.seats}, ` +
-        `routes=${LAN_ALLOWED_ROUTES.map((r) => r.path).join(" ")})`,
-    );
-    resolveReady(info);
-  });
+  let server: ServerType | undefined;
+  let identity: LanTlsIdentity | undefined;
 
-  const boundAddress = (): AddressInfo | null => (server.address() as AddressInfo | null) ?? null;
+  // Reading the certificate is I/O and minting one is key generation, so the
+  // bind is asynchronous even before Node's own deferral below. Nothing
+  // rejects out of here: a caller awaiting `ready` is told null, and the
+  // reason is on the console rather than in an unhandled rejection.
+  const started = options
+    .tls()
+    .then((tls) => {
+      identity = tls;
+      // Node's `server.listen(port, host, cb)` only binds synchronously when no
+      // hostname is given (or one that skips DNS lookup entirely); passing an
+      // explicit hostname — which this always does — defers the actual bind, so
+      // callers that need the resolved address (tests; the connected-devices
+      // screen, via `url()`) must await `ready` rather than read it right away.
+      server = serve(
+        {
+          fetch: handle,
+          hostname,
+          port,
+          createServer: createHttpsServer,
+          serverOptions: { key: tls.key, cert: tls.cert },
+        },
+        (info: AddressInfo) => {
+          console.log(
+            `[lan] multi-till host listening on https://${hostname}:${info.port} ` +
+              `(seats=${options.entitlements.seats}, ` +
+              `sha256=${tls.fingerprintSha256}, ` +
+              `routes=${LAN_ALLOWED_ROUTES.map((r) => r.path).join(" ")})`,
+          );
+          resolveReady(info);
+        },
+      );
+      server.on("error", (err: unknown) => {
+        console.error(
+          `[lan] the multi-till socket could not bind ${hostname}:${port} — it is CLOSED, and ` +
+            `no plain-HTTP socket was opened in its place.`,
+          err,
+        );
+        resolveReady(null);
+      });
+    })
+    .catch((err: unknown) => {
+      // The loud half of "HTTPS is not optional". Every till stays offline,
+      // which is visible within minutes; the alternative — quietly serving the
+      // same routes in clear text — is invisible for the life of the install.
+      console.error(
+        "[lan] multi-till is LICENSED but STAYED CLOSED: the host's TLS identity could not be " +
+          "read or created, and this socket has no plain-HTTP fallback by design (PINs and " +
+          "12-hour bearer tokens would cross the shop wifi in clear text).",
+        err,
+      );
+      resolveReady(null);
+    });
+
+  const boundAddress = (): AddressInfo | null =>
+    (server?.address() as AddressInfo | null | undefined) ?? null;
 
   return {
     enabled: true,
@@ -302,11 +383,19 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
       // An IPv6 literal is only a legal URL host inside brackets; a caller may
       // pass one via `options.host` even though `resolveBindAddress` never does.
       const authority = hostname.includes(":") ? `[${hostname}]` : hostname;
-      return `http://${authority}:${info.port}`;
+      return `https://${authority}:${info.port}`;
     },
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      }),
+    fingerprint: () => identity?.fingerprintSha256 ?? null,
+    close: async () => {
+      // Awaited, not raced: closing while the bind is still in flight used to
+      // leave a listening socket behind a handle its owner had already
+      // discarded — a LAN mount surviving `will-quit`.
+      await started;
+      const live = server;
+      if (!live) return;
+      await new Promise<void>((resolve) => {
+        live.close(() => resolve());
+      });
+    },
   };
 }

@@ -6,6 +6,8 @@ export {
   openSqliteConnection,
   type SqliteConnectionInput,
   type OpenedSqliteConnection,
+  type SqliteDriver,
+  type SqliteOpenOptions,
 } from "./sqlite-connection.js";
 export {
   schema,

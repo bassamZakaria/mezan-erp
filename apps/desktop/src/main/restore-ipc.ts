@@ -10,9 +10,11 @@ import {
   listBackups,
   parseManifest,
   restoreBackup,
+  BackupKeyMismatchError,
   BACKUP_FILE_EXTENSION,
   MANIFEST_ENTRY_NAME,
   type BackupManifest,
+  type RestoreCipher,
 } from "../backup/index.js";
 import {
   MEZAN_BACKUP_CREATE_CHANNEL,
@@ -65,6 +67,16 @@ export interface RestoreIpcDeps {
    * because it is undefined in dev (`:memory:`, nothing on disk to copy).
    */
   readonly sqlite: () => Database.Database | undefined;
+  /**
+   * The driver + key this install's database is encrypted with
+   * (main/encrypted-database.ts). Undefined in dev (`:memory:`) and on an
+   * install running with `--allow-unencrypted-database`.
+   *
+   * Both channels below need it, for opposite reasons: a backup TAKEN from a
+   * keyed connection has to stay encrypted in the archive, and an archive that
+   * IS encrypted cannot be integrity-checked before mounting without it.
+   */
+  readonly cipher?: RestoreCipher;
   /**
    * Closes EVERY connection to `dbPath`. Must close the backend's own
    * connection too, not just the backup one: on Windows the atomic rename in
@@ -222,6 +234,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
           backupsDir: deps.backupsDir,
           appVersion: deps.appVersion,
           reason: "manual",
+          encrypted: deps.cipher !== undefined,
         });
         return { ok: true, entry: await describeArchive(result.archivePath, new Date()) };
       } catch (err) {
@@ -258,6 +271,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
             backupsDir: deps.backupsDir,
             appVersion: deps.appVersion,
             reason: "manual",
+            encrypted: deps.cipher !== undefined,
           });
           safetyBackupFileName = path.basename(safety.archivePath);
         } catch (err) {
@@ -277,6 +291,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
           archivePath,
           targetDbPath: deps.dbPath,
           workDir: path.dirname(deps.dbPath),
+          cipher: deps.cipher,
         });
         console.log(
           `[backup] restored ${path.basename(archivePath)} ` +
@@ -294,6 +309,15 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
         // this process can no longer serve anything. Relaunching brings the app
         // back on exactly the data it had a moment ago.
         setTimeout(deps.relaunch, RELAUNCH_DELAY_MS);
+        // A foreign key is not a damaged file, and saying so would send an
+        // owner to delete a backup that is intact and restorable — it just
+        // needs the key card from the machine that wrote it.
+        if (err instanceof BackupKeyMismatchError) {
+          return failure(
+            "VERIFICATION_FAILED",
+            "هذه النسخة الاحتياطية مشفّرة بمفتاح جهاز آخر، ولا يمكن فتحها هنا. استخدم مفتاح التشفير الخاص بالجهاز الذي أخذها. لم تتغيّر بياناتك.",
+          );
+        }
         return failure(
           "VERIFICATION_FAILED",
           "فشل التحقق من ملف النسخة الاحتياطية، ولم تتغيّر بياناتك. سيُعاد تشغيل البرنامج الآن.",

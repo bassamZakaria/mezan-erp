@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, open as fsOpen, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { buildManifest, countRows, serializeManifest, type BackupReason } from "./manifest.js";
 import { sha256File } from "./checksum.js";
@@ -43,6 +43,38 @@ export function parseCreatedAtFromFileName(fileName: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** Doubles single quotes — SQLite has no parameter binding for a `VACUUM INTO` file name. */
+function sqlStringLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+const SQLITE_HEADER = Buffer.from("SQLite format 3\0", "latin1");
+
+/**
+ * Proves the snapshot is not a readable copy of the books before it is sealed
+ * into an archive.
+ *
+ * The backups directory is exactly what gets copied to a USB stick and carried
+ * out of the shop, so an archive holding a decrypted database would make the
+ * encryption decorative — the file on disk would be unreadable and the copy
+ * beside it would not be. This is checked at runtime, on every backup, rather
+ * than trusted to hold because a flag was passed.
+ */
+async function assertSnapshotEncrypted(filePath: string): Promise<void> {
+  const handle = await fsOpen(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(SQLITE_HEADER.length);
+    const { bytesRead } = await handle.read(buffer, 0, SQLITE_HEADER.length, 0);
+    if (bytesRead === SQLITE_HEADER.length && buffer.equals(SQLITE_HEADER)) {
+      throw new Error(
+        "Backup snapshot of an encrypted database came out readable — refusing to write a plaintext archive.",
+      );
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
  * Creates one backup: SQLite's online backup API (`better-sqlite3`'s
  * `.backup()`, which wraps SQLite's Online Backup API) copies a
@@ -51,12 +83,21 @@ export function parseCreatedAtFromFileName(fileName: string): Date | null {
  * §3.7). That snapshot + a manifest (schema version, app version, row
  * counts, checksum) are packaged into one archive, then GFS retention prunes
  * `backupsDir` down to the configured policy.
+ *
+ * `encrypted` switches the snapshot to `VACUUM INTO`, which is the only route
+ * that keeps an encrypted database encrypted on the way out: the Online Backup
+ * API opens its target unkeyed, so SQLite3MultipleCiphers refuses the transfer
+ * outright ("incompatible source and target databases") rather than writing a
+ * plaintext copy. `VACUUM INTO` inherits the source connection's cipher and
+ * key, and is just as transactionally consistent against a live WAL database.
  */
 export async function createBackup(params: {
   sqlite: Database.Database;
   backupsDir: string;
   appVersion: string;
   reason: BackupReason;
+  /** True when `sqlite` is a keyed connection — see the note above. */
+  encrypted?: boolean;
   schemaVersion?: number;
   extraFiles?: readonly ArchiveExtraFile[];
   retentionPolicy?: RetentionPolicy;
@@ -67,6 +108,7 @@ export async function createBackup(params: {
     backupsDir,
     appVersion,
     reason,
+    encrypted = false,
     schemaVersion,
     extraFiles,
     retentionPolicy = DEFAULT_RETENTION_POLICY,
@@ -80,7 +122,14 @@ export async function createBackup(params: {
   const tmpDbPath = path.join(tmpDir, `snapshot-${now.getTime()}-${process.pid}.sqlite`);
 
   try {
-    await sqlite.backup(tmpDbPath);
+    if (encrypted) {
+      // `VACUUM INTO` refuses an existing target; a crashed run can leave one.
+      await rm(tmpDbPath, { force: true });
+      sqlite.exec(`VACUUM INTO ${sqlStringLiteral(tmpDbPath)}`);
+      await assertSnapshotEncrypted(tmpDbPath);
+    } else {
+      await sqlite.backup(tmpDbPath);
+    }
 
     const checksum = await sha256File(tmpDbPath);
     const tables = countRows(sqlite);

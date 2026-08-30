@@ -4,12 +4,23 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
-  # electron: skeleton only — never launched in Phase 0; skip the binary download.
+  # electron: the binary download is skipped for every job EXCEPT the `desktop`
+  # job in .github/workflows/ci.yml, which overrides
+  # ELECTRON_SKIP_BINARY_DOWNLOAD and fetches it explicitly so the native-ABI
+  # probe can launch the real runtime. (This comment used to say Electron is
+  # "never launched in Phase 0"; that stopped being true when the ABI gate
+  # landed — Electron 33 → 39 crossed a NODE_MODULE_VERSION boundary with
+  # nothing in CI that would have noticed.)
   electron: false
   # electron-winstaller: only needed by `electron-builder`'s Windows target at
   # package time (apps/desktop/electron-builder.yml), which CI never runs —
   # packaging/signing is deferred (see PR description). Skip its build script.
   electron-winstaller: false
+  # The SQLCipher-capable fork of better-sqlite3, used ONLY by the desktop
+  # edition to open the tenant database with a key (apps/desktop/src/main/
+  # encrypted-database.ts). It is a native module like better-sqlite3 itself,
+  # so it has to build — and the desktop CI job's ABI probe now covers both.
+  better-sqlite3-multiple-ciphers: true
 minimumReleaseAgeExclude:
   - react-router@7.18.3
 overrides:

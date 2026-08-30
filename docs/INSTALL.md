@@ -61,7 +61,11 @@ has four steps (`apps/web/src/login/FirstRunWizard.tsx`):
    and, optionally, English), a real email, and a PIN **they** choose. This call also
    idempotently seeds the empty database (chart of accounts, VAT, the main branch and
    warehouse, fiscal periods) if nothing has run `POST /bootstrap/seed` yet.
-3. **Core data** — confirms/re-runs the same idempotent seed and shows what exists.
+3. **Core data** — confirms/re-runs the same idempotent seed and shows what exists. This step
+   runs `POST /bootstrap/seed` **after** step 2 has already claimed the tenant, so that route
+   is deliberately **not** gated on claimed-ness. The invariant it actually enforces is
+   emptiness, inside `seedIfEmpty` — a claimed-tenant guard here was tried and reverted,
+   because it 409'd the wizard on its own next click on a brand-new install.
 4. **Import** — hands off into the data migration wizard, §3 below.
 
 After step 2, the seeded fallback account (`USER-ADMIN`) still exists in the database, PIN
@@ -260,7 +264,58 @@ being stolen, flooded or dying. Getting a copy of "Mezan Backups" off-machine �
 taken home, a network share, anything — is the client's job, and this build does not do it
 for them.
 
+> ### ⚠️ THE KEY CARD: DO THIS ON INSTALL DAY OR THE BACKUPS ARE WORTHLESS
+>
+> **Every backup archive is now encrypted, with a key that does not travel inside it.** The
+> key is sealed by Electron's `safeStorage` to **this OS user account on this machine**. That
+> is what makes a stolen laptop useless to a thief — and it is exactly what makes an archive
+> useless to *you* on replacement hardware, which is the entire scenario §4.2 exists for.
+>
+> Restoring an encrypted archive on a machine that does not hold the key fails with
+> `BackupKeyMismatchError`: *"The backup archive is encrypted with a different key than this
+> installation holds — it was taken on other hardware or under another OS user account."*
+> There is no recovery from that. Not by support, not by us. The books are gone.
+>
+> **The one thing standing between the client and that outcome is a text file.** On first
+> encryption the app writes `database-key.txt` beside the database — owner-only (`0600`),
+> bilingual Arabic/English, containing the key and an explanation. Every launch warns while
+> it is still sitting there.
+>
+> **On install day, in front of the owner:**
+> 1. Open `database-key.txt`.
+> 2. Copy the key into the client's safe, their password manager, or a notebook that lives
+>    somewhere other than this building.
+> 3. **Delete the file.**
+> 4. Tell them, in these words: *anyone holding this key and one backup archive can read your
+>    entire books — customers, prices, salaries.* It is a bearer secret. It does not go over
+>    WhatsApp and it does not go in an email.
+>
+> If the owner lost it, `<mezan-binary> --export-database-key` writes it again and exits.
+> If the owner never kept it and the machine is already dead, there is nothing to run it on.
+
+**The pre-conversion safety archive is PLAINTEXT.** When an existing unencrypted install is
+converted (see below), the safety backup taken beforehand was made from a plaintext database
+and is therefore itself plaintext. The startup log names its path and says
+`UNENCRYPTED — delete it once you trust this build`. Nothing deletes it automatically, on
+purpose: silently destroying the only pre-conversion copy of a shop's books to tidy up is the
+worse failure. Delete it yourself once the converted install has been used for real work.
+
 ### 4.2 Restoring onto replacement hardware
+
+**Read the key-card box in §4.1 first. On replacement hardware it is the whole ballgame:** an
+encrypted archive restored onto a machine that does not hold its key fails at the integrity
+check with `BackupKeyMismatchError` and cannot be opened by anyone, ever. Bring the key with
+you to the new machine, or do not bother bringing the archive.
+
+Two cases behave differently, and it is worth knowing which one you are in:
+
+- **An archive taken from an ENCRYPTED install** carries no key inside it. The restoring
+  machine must already hold that key — meaning you entered it from the key card during
+  setup, or you are restoring onto the same machine and OS user account it came from.
+- **A legacy archive taken before encryption existed** is plaintext, and still restores
+  normally onto an encrypted install. The restored file lands as plaintext and **the next
+  launch converts it** to encrypted storage under this machine's own key. Nothing special to
+  do; just expect the conversion message on the following start.
 
 The restore machinery is real, wired end to end, and exposed to the renderer — though not yet
 driven by a settings screen a consultant can click through (see below).
@@ -339,6 +394,37 @@ Still worth doing anyway: capture a working admin credential (or set `MEZAN_SEED
 install time and keep a record of it somewhere safe) as a standing part of every rollout, so
 `--reset-admin` is a convenience you don't need rather than the only door left.
 
+
+### 4.3 Encryption at rest, and the flags for a machine that is in trouble
+
+**What is encrypted, and when it happened.** The desktop tenant database is stored encrypted
+(SQLCipher-style, through `better-sqlite3-multiple-ciphers`), and so is every backup archive
+written from it. This is desktop-only: `packages/persistence` still opens plain
+`better-sqlite3`, and only the desktop shell injects the cipher driver, so `apps/server`, the
+scenarios and the test suite are untouched by it.
+
+**An existing plaintext install converts itself on first launch, safely.** The sequence is:
+take a full verified backup **first** (that archive is plaintext — see §4.1) → `VACUUM INTO` a
+staging file → `PRAGMA rekey` → verify the result (no `SQLite format 3` header, `integrity_check`
+passes, row counts match the source) → atomically rename into place. It is interruptible at
+every point without loss: **before** the rename the original database is untouched, and
+**after** it the next launch simply sees an encrypted header and does nothing. If the machine
+loses power halfway through, start it again.
+
+**A machine with no OS keyring does not start.** `safeStorage` has nothing to seal the key
+with on, in practice, a bare Linux desktop without gnome-keyring or kwallet. The app refuses
+to launch and says why, rather than quietly writing the books in plaintext — the two honest
+answers are "do not start" and "start unencrypted, loudly", and it must never pick a third.
+
+| Flag | What it does | When you actually need it |
+|---|---|---|
+| `--allow-unencrypted-database` | Runs the old plaintext path, with a loud warning on every launch: the database **and every backup** are written in the clear | A machine with no OS keyring, where the alternative is not running at all. **Never the right answer on a customer machine.** It is **refused** on a database that is already encrypted — it cannot decrypt one, and letting it try would report "file is not a database", a corruption message for an intact file, which is how books get thrown away |
+| `--export-database-key` | Re-writes `database-key.txt` beside the database and exits | The owner lost the key card and the machine still runs. Do it, hand it over, delete the file again |
+| `--reset-admin` | Mints a fresh random PIN for the seeded admin, prints it, and exits (§1.4) | Nobody has a working login on this install |
+
+All three are authorised by filesystem access to the database directory and nothing else.
+None is reachable over the LAN socket, over IPC, or from the renderer.
+
 ---
 
 ## 5. Login lockout on training day
@@ -414,10 +500,22 @@ default.
 
 ### 6.1 What actually opens on the network
 
-When the license carries `lan.multi_till`, the desktop shell binds a second, LAN-visible HTTP
-socket alongside its normal no-port IPC bridge (`apps/desktop/src/main/lan-host.ts`). Two
-things gate what a device on the shop wifi can reach through it, in addition to whatever
+When the license carries `lan.multi_till`, the desktop shell binds a second, LAN-visible
+**HTTPS** socket alongside its normal no-port IPC bridge (`apps/desktop/src/main/lan-host.ts`).
+Three things gate what a device on the shop wifi can reach through it, in addition to whatever
 session/permission gate the route itself carries:
+
+- **TLS, with no plain-HTTP fallback anywhere.** The socket serves HTTPS only, using a
+  self-signed identity the host mints once and keeps for the life of the install
+  (`apps/desktop/src/main/lan-tls.ts`; `lan-tls-key.pem` at `0600` and `lan-tls-cert.pem`,
+  beside the database). `tls` is a **required** option on `startLanHost` — there is no
+  argument that produces an unencrypted socket. If the identity cannot be obtained the socket
+  **stays closed** and the log says so (`[lan] multi-till is LICENSED but STAYED CLOSED …
+  no plain-HTTP fallback by design`). A shop that believes its wire is encrypted when it is
+  not is worse off than one that knows it is not, because nobody looks for a leak they have
+  been told cannot happen. The certificate is **never re-minted** over a present-but-damaged
+  key pair: a new fingerprint is, from a paired till's side, indistinguishable from an
+  impostor. §6.3 is the human half of that, and without it the whole defence is decorative.
 
 - **A bind-address default that is not "every interface."** The socket now binds the first
   non-internal IPv4 interface it finds, not `0.0.0.0` — a machine with a 4G dongle, a bridged
@@ -439,19 +537,27 @@ session/permission gate the route itself carries:
   hotspot doesn't keep trusting whoever it trusted at boot.
 
 None of this is a substitute for the session/permission gates inside the app — see §7 for what
-it does not do (encrypt the wire).
+it still does not do.
 
-**`الأجهزة المتصلة` now shows the address to point a till at.** Before this, finding the LAN
-socket's bind address meant reading the desktop process's own console line
-(`[lan] multi-till host listening on http://<address>:<port> …`) or asking whoever set the
-machine up — there was nowhere in `apps/web` that showed it. `ConnectedDevicesPanel.tsx`'s
-`LanAddress` component now reads it from `mezan:licence:status` (a session-gated IPC channel,
-`apps/desktop/src/main/licence-ipc.ts`, exposed as `window.mezan.licence.status`) and renders
-one of: the copyable `http://<address>:<port>` URL, "not running" when the socket never
-started, or "address unknown" specifically for the `0.0.0.0` fallback case (§6.1) — a bound
-socket with no single dialable address reads as unknown rather than printing a URL nobody
-could actually reach. The browser build (no Electron host) says plainly that it cannot know
-the host's address, rather than guessing.
+**`الأجهزة المتصلة` shows the address to point a till at, and the fingerprint to compare it
+against.** Before this, finding the LAN socket's bind address meant reading the desktop
+process's own console line or asking whoever set the machine up — there was nowhere in
+`apps/web` that showed it. That log line now reads:
+
+```
+[lan] multi-till host listening on https://<address>:<port> (seats=<n>, sha256=<AB:CD:…>, routes=/auth/login /auth/logout /tenant /health /lan)
+```
+
+`ConnectedDevicesPanel.tsx`'s `LanAddress` component reads both values from
+`mezan:licence:status` (a session-gated IPC channel, `apps/desktop/src/main/licence-ipc.ts`,
+exposed as `window.mezan.licence.status`) and renders the copyable `https://<address>:<port>`
+URL **and** the certificate's SHA-256 fingerprint in `AB:CD:…` pairs — both forced LTR and
+selectable, each with its own copy button, because they are compared character by character
+by a human and an RTL run would reorder the groups on screen. It renders "not running" when
+the socket never started, and "address unknown" specifically for the `0.0.0.0` fallback case —
+a bound socket with no single dialable address reads as unknown rather than printing a URL
+nobody could reach. The browser build (no Electron host) says plainly that it cannot know the
+host's address, rather than guessing.
 
 ### 6.2 Seats, connecting, and freeing a stuck one
 
@@ -493,29 +599,115 @@ takes effect without a restart.
   connect or list. If a seat looks stuck on the panel, give it under a minute before manually
   disconnecting it — it may already be on its way out on its own.
 
+### 6.3 Pairing a till: compare the fingerprint, in the shop, by eye
+
+**Do this once per till, at the counter, before you type a PIN into it. If you skip it, the
+TLS in §6.1 protects the shop against a passive listener and against nobody else.**
+
+The host's certificate is self-signed. No public certificate authority will ever certify
+`192.168.1.7`, and most of these installs have no internet at all, so there is no chain for a
+till to validate. What the till trusts instead is **this** certificate's fingerprint, which it
+remembers from the first connection — and the only thing that makes that first connection
+trustworthy is a person comparing two strings.
+
+1. On the **host** machine, open `الإعدادات ← الأجهزة المتصلة` (Settings → Connected Devices).
+   Read the two values in §6.1: the `https://<address>:<port>` URL and the `sha256=AB:CD:…`
+   fingerprint.
+2. On the **till**, enter that URL.
+3. The till will refuse the certificate — correctly, it is self-signed — and show you the
+   fingerprint of whatever answered.
+4. **Compare the two strings, character by character, standing in the shop with both screens
+   in front of you.** Not "it starts with AB and ends with 9F". The whole string. Both screens
+   are LTR and copyable precisely so this comparison is possible.
+5. **Match → pin it.** From then on that till trusts only this certificate.
+6. **Mismatch → STOP.** Do not pin, do not type a PIN, do not "try again". A different
+   certificate on that address means something other than the host answered you. Disconnect
+   the till from the network and find out what, before any credential goes near it.
+
+**What this buys and what it does not.** Pinning is trust-on-first-use: it makes every
+connection after the first one safe against an impostor, and it makes the first one safe only
+because a human checked. An attacker who is already impersonating the host **at the moment
+you pair** gets pinned instead — silently, permanently, with no later warning of any kind.
+Step 4 is the only thing standing there. It is a procedure, not a mechanism, and it is why
+this section exists rather than a sentence saying "the LAN is encrypted now."
+
+**If the key ever leaks, or you must replace it:** there is no revocation and no rotation
+path. Recovery is deleting `lan-tls-key.pem` and `lan-tls-cert.pem` from beside the database,
+restarting the host so it mints a fresh identity, and then **re-pairing every till by hand**,
+repeating steps 1–6 at each one. Budget for that before you promise a client a same-day fix.
+
 ---
 
 ## 7. What is NOT secure yet — tell the client the truth
 
 A consultant who cannot say this plainly is setting the client up to find out the hard way.
 
-- **LAN traffic is cleartext HTTP.** Every PIN and every bearer session token crosses the shop
-  wifi unencrypted. §6's path allow-list and subnet check narrow WHO can even address the
-  socket; neither one encrypts a single byte on the wire. Anyone who can see the shop wifi's
-  traffic — a compromised access point, another device on the same network doing a passive
-  capture — reads a token in the clear, and a sniffed bearer token is the whole ERP for as
-  long as that session stays valid (`session-auth.ts`'s 12-hour idle timeout is the outer
-  bound). This is tracked as open by decision, not by patch, in `ROADMAP.md` §5.2 — closing it
-  needs TLS with a certificate pinned at each till's first pairing, not a certificate a browser
-  would recognise, since none of these hostnames will ever see a public CA.
-- **The SQLite file is unencrypted at rest.** `mezan.db`, and every backup made from it, is
-  readable with any SQLite browser by anyone who can get at the file — a stolen laptop is the
-  whole set of books. `ROADMAP.md` §5.2 has the detail on what closing this actually requires
-  (SQLCipher or an OS-keychain-sealed key, plus a recovery story for losing the machine and
-  the key together).
-- **Updates are not code-signed or notarized.** Today's build runs on developer trust alone —
-  neither macOS Gatekeeper nor Windows SmartScreen can vouch for it. Do not tell a client "this
-  installer is provably from us" until that changes.
+- **LAN traffic is encrypted now, but the trust decision is a human one.** The socket is HTTPS
+  only, with no plain-HTTP fallback anywhere in `lan-host.ts` (§6.1). What that does NOT do:
+  - **Pairing is trust-on-first-use.** An attacker already impersonating the host at the
+    moment a till is paired gets pinned instead — silently and permanently, with no later
+    warning. §6.3's character-by-character fingerprint comparison is the only defence, and it
+    is a procedure a person performs, not something the software enforces. If you paired a
+    till without doing it, you do not know what that till trusts.
+  - **Nothing authenticates the client.** TLS here is one-way — no client certificates. Any
+    device that can reach the socket can attempt to log in; the subnet check and the path
+    allow-list remain the only things narrowing who and what.
+  - **A stolen session token is still the whole ERP.** Untouched by this work:
+    `packages/api/src/session-auth.ts` binds a session to no device, no address and no seat,
+    and it lives 12 hours. TLS stops the token being read off the air; it does nothing about a
+    token taken from a till someone walked up to.
+  - **The private key is protected by filesystem permissions only** (`lan-tls-key.pem`, `0600`,
+    beside the database). Anyone with the file is the host.
+  - **No revocation, no rotation path.** If the key leaks, recovery is deleting both PEM files
+    and re-pairing every till by hand — see §6.3.
+- **The SQLite file and its backups are encrypted at rest now.** `mezan.db` is opened with
+  `better-sqlite3-multiple-ciphers` under a 32-byte random key sealed to this OS user account
+  by Electron's `safeStorage` (macOS Keychain, Windows DPAPI, libsecret/kwallet on Linux) —
+  `apps/desktop/src/main/encrypted-database.ts`. Every backup archive is encrypted with the
+  same key. An existing plaintext install is converted on first launch, and takes a full
+  verified backup **before** a byte of the plaintext file is touched. What you must still tell
+  the client:
+  - **The key is bound to this machine and this OS account, and so every backup is.** That is
+    the point — a stolen disk is useless — and it is also why losing the machine loses the
+    backups unless the key was written down. On first encryption the app writes
+    `database-key.txt` beside the database (owner-only) containing the key in Arabic and
+    English, and warns on **every** launch while that file is still there. **Copy it into the
+    client's safe or password manager and delete the file, in front of them, on install day.**
+    `--export-database-key` writes it again for an owner who lost it.
+  - **Anyone holding that card and one backup archive reads the entire books** — customers,
+    prices, salaries. It is a bearer secret. It must not travel by WhatsApp or email.
+  - **The pre-conversion safety copy is UNENCRYPTED.** The startup log names its path. Delete
+    it once you trust the converted install; until you do, it is a full plaintext set of books
+    sitting in the backups folder.
+  - **A machine with no OS keyring does not start**, rather than quietly running in plaintext.
+    That is mostly a bare Linux desktop with no gnome-keyring/kwallet.
+    `--allow-unencrypted-database` is the operator's explicit, logged way to run anyway — it
+    means the database **and every backup** are written in the clear, and it is never the right
+    answer on a customer machine.
+- **Updates are still not code-signed in any build you can hand a client today — but the
+  product is now ready to sign, and cannot ship unsigned by accident.** What exists:
+  `apps/desktop/electron-builder.yml` carries a complete macOS (Developer ID + hardened
+  runtime + notarization) and Windows (Authenticode + RFC-3161 timestamp) configuration driven
+  entirely from CI secrets, with `forceCodeSigning: true` so a mac/win package that could not
+  be signed **fails** instead of shipping; `.github/workflows/release.yml` refuses to start
+  without the certificates and refuses to publish an artifact `apps/desktop/scripts/check-signed.mjs`
+  cannot get the operating system to vouch for; and the auto-updater refuses to run at all on a
+  build whose own signature it cannot confirm (see below). What does **not** exist: **the
+  certificates**. Nobody has bought an Apple Developer ID, an Apple notarization key or a
+  Windows OV/EV certificate yet, so no signed installer has ever been produced. Until they are
+  bought and §8's secrets are set, **do not tell a client "this installer is provably from
+  us"** — it is not, and saying so is the one sentence in this section that would actually
+  cost them money.
+- **The auto-updater is off, and now refuses rather than trusts.** It needs
+  `MEZAN_AUTO_UPDATE=1` to run at all and a separate `MEZAN_AUTO_UPDATE_INSTALL=1` before it
+  will write anything. On top of that it now checks, at launch, whether the app it is running
+  inside is itself signed by a Developer ID certificate, and **refuses** if the answer is no or
+  merely unknown — including on Windows and Linux, where there is nothing to check. The
+  reasoning is in `apps/desktop/src/main/updater.ts`: an unsigned app has no publisher, so
+  electron-updater has nothing to verify a download against, and this product also binds a LAN
+  socket — anyone on the shop wifi could answer for the update feed. There is an override,
+  `MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED=1`, spelled that way on purpose. **Never set it on a
+  customer install.**
 - **License verification is a stub — but a licence problem now says so, on screen, instead of
   disappearing.** `MEZAN_ENTITLEMENTS_JSON` is still trusted with a schema check and no
   signature — an env var unlocks LAN mode and every module, and the real Ed25519 verifier in
@@ -543,3 +735,149 @@ A consultant who cannot say this plainly is setting the client up to find out th
   filesystem access to `mezan.db` — in practice, the company admin — from opening the file with
   another tool and editing past the trigger, or from restoring an older backup that never had
   the entry in question.
+
+---
+
+## 8. Release runbook — signing a build so a client can trust it
+
+**For the maintainer who cuts releases, not the consultant at the counter.** Everything in this
+section is a one-time setup plus a short per-release checklist. Until step 8.1 is done, the
+release workflow produces **nothing at all** — deliberately. There is no unsigned fallback,
+because an unsigned installer on a product that also binds a LAN socket is a remote-code-execution
+path, not a stopgap.
+
+### 8.1 The certificates somebody has to buy
+
+None of this can be generated, borrowed or faked. Three things must be purchased and held by
+the business, and each takes real calendar time to obtain:
+
+| What | Where it comes from | Realistic lead time |
+|---|---|---|
+| **Apple Developer ID Application certificate** | Apple Developer Program membership (~$99/year). Create the certificate in the Apple Developer portal → Certificates → "Developer ID Application", then export it from Keychain Access as a `.p12` **with a password** | Days — Apple verifies the organisation, and a company enrolment needs a D-U-N-S number |
+| **Apple App Store Connect API key** (for notarization) | App Store Connect → Users and Access → Integrations → Keys → generate. Downloads once as `AuthKey_XXXXXXXX.p8` and can never be downloaded again. Note the **Key ID** and the **Issuer ID** shown on that page | Minutes, once the membership exists |
+| **Windows OV or EV code-signing certificate** | A commercial CA (DigiCert, Sectigo, SSL.com, GlobalSign). OV comes as a `.p12`/`.pfx`. **EV is held in an HSM and has no exportable file** | Days to weeks — the CA does its own business verification |
+
+Two notes that decide how §8.2 is configured:
+
+- **OV vs EV changes the wiring.** An OV certificate exports to a `.pfx` and works with the
+  `WINDOWS_CERTIFICATE_PFX` secret below. An **EV** certificate cannot be exported at all;
+  switch `win.signtoolOptions` in `apps/desktop/electron-builder.yml` to `win.azureSignOptions`
+  (Azure Trusted Signing) and supply `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` /
+  `AZURE_CLIENT_SECRET` instead. electron-builder refuses to use both and silently prefers
+  Azure if both are present.
+- **SmartScreen reputation is earned, not bought, on an OV certificate.** The first few hundred
+  downloads of a freshly-OV-signed installer still show a SmartScreen warning. EV skips that.
+  Budget for it either way — do not promise a client a warning-free first install.
+
+### 8.2 The secrets and variables a maintainer must create
+
+All of these live in the GitHub repository's **Settings → Secrets and variables → Actions**.
+`.github/workflows/release.yml`'s `preflight` job checks every one of them for emptiness and
+fails the whole run, naming all the missing ones at once, before anything is built.
+
+**Secrets** (Settings → Secrets and variables → Actions → *Secrets* tab):
+
+| Secret | What it is | How to produce its value |
+|---|---|---|
+| `MACOS_CERTIFICATE_P12` | The Developer ID Application certificate | `base64 -i DeveloperID.p12 \| pbcopy` — electron-builder reads it as `CSC_LINK` and accepts base64 directly |
+| `MACOS_CERTIFICATE_PASSWORD` | The password set when exporting that `.p12` | Type it. Read as `CSC_KEY_PASSWORD` |
+| `APPLE_API_KEY_P8` | The App Store Connect private key | `base64 -i AuthKey_XXXXXXXX.p8 \| pbcopy`. The workflow decodes it to a `0600` file on the runner and points `APPLE_API_KEY` at that **path** — `@electron/notarize@2.5.0` reads that variable as a file path, not as contents, whatever the electron-builder docs site says |
+| `APPLE_API_KEY_ID` | The Key ID from the same App Store Connect page | Copy it. Read as `APPLE_API_KEY_ID` |
+| `APPLE_API_ISSUER` | The Issuer ID from that page (a UUID) | Copy it. Read as `APPLE_API_ISSUER` |
+| `WINDOWS_CERTIFICATE_PFX` | The Windows code-signing certificate (OV) | `base64 -w0 cert.pfx`. Read as `WIN_CSC_LINK` |
+| `WINDOWS_CERTIFICATE_PASSWORD` | That certificate's password | Type it. Read as `WIN_CSC_KEY_PASSWORD` |
+
+**Variables** (the *Variables* tab — not a secret, and it should be readable in logs):
+
+| Variable | What it is |
+|---|---|
+| `MEZAN_UPDATE_FEED_URL` | The HTTPS base URL electron-updater will poll, e.g. the base URL of the release assets or an S3/self-hosted directory. `preflight` rejects anything that is not `https://`. It is passed to electron-builder as `--config.publish.url`, so the placeholder feed in `electron-builder.yml` is **overridden per release** rather than edited — a developer build can never inherit the production feed |
+
+Nothing above is ever committed. `electron-builder.yml` holds no credential, no team ID and no
+certificate path; every signing option in it activates from one of these variables and is inert
+without it.
+
+### 8.3 Cutting a release
+
+1. Push a `v*` tag (or run the workflow manually — the draft-release step is tag-only).
+2. `preflight` verifies every secret above exists and that the feed URL is HTTPS. **If anything
+   is missing the run stops here and produces no artifact.** That is the intended behaviour, not
+   a bug to work around.
+3. The `macos` job packages, signs with the Developer ID certificate, and notarizes.
+4. The `windows` job packages and signs with Authenticode plus an RFC-3161 timestamp.
+5. **Each job then runs `apps/desktop/scripts/check-signed.mjs` against its own artifacts, on
+   its own OS.** This is the gate — see §8.4.
+6. Only if both pass does `draft-release` collect the artifacts, print a SHA-256 manifest, and
+   open a **draft** GitHub release. A human reads the manifest and presses publish.
+
+Linux is not on this path. AppImage and `.deb` carry no per-application signature that
+electron-updater or the gate could verify, so a green Linux release would be a claim nobody
+checked. Linux stays a CI test artifact.
+
+### 8.4 What the gate actually checks, and why each check is there
+
+`apps/desktop/scripts/check-signed.mjs` asks the operating system's own tools the same question
+a customer's machine will ask. **Every path that cannot answer exits non-zero** — a missing
+`codesign`, a missing `signtool` *and* PowerShell, an empty release directory, an unexpected
+platform. "I could not tell" must never read as "it is fine".
+
+On **macOS**:
+- `codesign --verify --deep --strict` — the signature is intact.
+- The signature is **not ad-hoc**, and its authority **is** a `Developer ID Application`
+  certificate. `codesign --verify` passes on an ad-hoc signature, which carries no publisher at
+  all — precisely the state in which electron-updater has nothing to verify a download against.
+- `spctl --assess --type execute` reports `source=Notarized Developer ID`. This is the only
+  check that can tell **notarized** from merely **signed**, and it is the reason the script
+  exists: `mac.notarize: true` does not force notarization, it only means the integration was
+  not switched off. With the Apple key variables missing, electron-builder logs "notarize
+  options were unable to be generated", **succeeds**, and emits a signed DMG that Gatekeeper
+  blocks on the customer's Mac.
+- `xcrun stapler validate` on the DMG — the notarization ticket is stapled, so Gatekeeper can
+  approve it on a machine with no internet. Most of these shops have a bad line.
+
+On **Windows**:
+- `signtool verify /pa /tw` (Authenticode policy; `/tw` makes "not timestamped" an error), or
+  PowerShell `Get-AuthenticodeSignature` requiring `Status = Valid` **and** a timestamp
+  certificate, when the Windows SDK is absent. An untimestamped signature stops verifying the
+  day the certificate expires — retroactively, on every installer already in the field.
+
+On **both**:
+- The `app-update.yml` inside the packaged app points at a real HTTPS host, not the reserved
+  `.example` placeholder. A release shipped pointed at nothing teaches the field that "updates
+  don't work here", which is how the whole mechanism dies.
+
+### 8.5 Verifying a signed build by hand before it goes out
+
+The gate already ran in CI. Do this anyway for the first release from a new certificate, on a
+machine that is not the build machine:
+
+```sh
+# macOS — download the DMG, then:
+codesign --verify --deep --strict --verbose=2 /Volumes/Mezan/Mezan.app
+codesign --display --verbose=4 /Volumes/Mezan/Mezan.app   # Authority= must say Developer ID Application
+spctl --assess --type execute --verbose=4 /Volumes/Mezan/Mezan.app   # must say: source=Notarized Developer ID
+xcrun stapler validate ~/Downloads/Mezan-x.y.z.dmg
+```
+
+```powershell
+# Windows — download the .exe, then:
+Get-AuthenticodeSignature .\Mezan-Setup-x.y.z.exe | Format-List Status, SignerCertificate, TimeStamperCertificate
+# Status must be Valid, and TimeStamperCertificate must not be empty.
+```
+
+Then do the thing no command can do for you: **double-click the installer on a clean machine
+that has never seen this product**, and confirm neither Gatekeeper nor SmartScreen shows a
+warning that would make a shop owner cancel. That is the actual acceptance criterion — the
+whole point of §8 is a client who is not asked to click past a security warning to install
+their accounting system.
+
+### 8.6 What is still impossible without real certificates
+
+To be plain about the boundary of this work: everything above is configuration and verification.
+**No signed Mezan installer has ever been produced**, because no certificate exists. Nothing in
+this repository can be tested end-to-end against a real signature until the business buys one —
+`check-signed.mjs` has been exercised against deliberately-unsigned and ad-hoc-signed bundles and
+correctly refuses them, which is the half that can be proven without a purchase. Until then:
+- Every build is unsigned, and §7's warning stands.
+- The auto-updater refuses to run, by design, on every platform.
+- `release.yml` fails at `preflight` and emits nothing.

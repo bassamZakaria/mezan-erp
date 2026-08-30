@@ -288,8 +288,17 @@ export async function run(ctx: Ctx): Promise<void> {
     check("an emptied tenant is STILL claimed", retake.status === 409, `got ${retake.status}`);
     check("and hands back no session", !retake.body?.token, JSON.stringify(retake.body).slice(0, 120));
 
+    // `/bootstrap/seed` is NOT closed by the claim, and must not be: the
+    // first-run wizard's seed step runs after its admin step, so a claim-based
+    // guard 409s the wizard on its own next click. The invariant that protects
+    // a provisioned tenant is EMPTINESS, enforced inside `seedIfEmpty` — so on
+    // a tenant with accounts this is a no-op that reports the counts.
+    const usersBefore = ctx.rows((await req("GET", "/users")).body).length;
     const reseed = await req("POST", "/bootstrap/seed", {}, ANONYMOUS);
-    check("and /bootstrap/seed is closed too", reseed.status === 409, `got ${reseed.status}`);
+    check("/bootstrap/seed on a provisioned tenant is a no-op, not a refusal", reseed.status === 200, `got ${reseed.status}`);
+    check("and it hands back no session", !reseed.body?.token, JSON.stringify(reseed.body).slice(0, 120));
+    const usersAfter = ctx.rows((await req("GET", "/users")).body).length;
+    check("and creates nothing", usersAfter === usersBefore, `${usersBefore} -> ${usersAfter}`);
 
     for (const id of deactivated) await req("POST", `/users/${id}/activate`);
     const restored = await req("GET", "/users");
@@ -655,5 +664,47 @@ export async function run(ctx: Ctx): Promise<void> {
       !!cashier && !(cashier.permissions as string[]).includes("admin.users.edit"),
       cashier ? (cashier.permissions as string[]).filter((p: string) => p.startsWith("admin.")).join(",") : "role missing",
     );
+  });
+
+  await ctx.scenario("security — the first-run wizard walks its own four steps", async () => {
+    // WALK THE SEQUENCE THE SCREEN ACTUALLY PERFORMS, not the routes in
+    // isolation. `FirstRunWizard`'s steps are activate → admin → seed →
+    // import, so its SEED step runs after `/bootstrap/admin` has claimed the
+    // tenant. Guarding `/bootstrap/seed` on "is this tenant claimed" therefore
+    // 409s the wizard on its own next click, on a brand-new install — which is
+    // the one flow the route exists for. That guard was written, shipped past
+    // a green suite, and caught only by replaying these four steps in order.
+    const fresh = await createBackend({ dbPath: ":memory:" });
+    try {
+      const post = (path: string, body: unknown) =>
+        fresh.app.fetch(
+          new Request(`http://wizard${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }),
+        );
+
+      const status = await fresh.app.fetch(new Request("http://wizard/bootstrap/status"));
+      const before = (await status.json()) as { claimed?: boolean };
+      check("an untouched install reports itself unclaimed", before.claimed === false, JSON.stringify(before));
+
+      const admin = await post("/bootstrap/admin", {
+        nameAr: "المالك", nameEn: "Owner", email: "wizard-owner@fresh.example", pin: "357913",
+      });
+      check("step 2 creates the owner's admin", admin.status === 201, `got ${admin.status}`);
+
+      const seed = await post("/bootstrap/seed", {});
+      check("step 3 SEEDS, rather than 409-ing on the tenant it just claimed", seed.status === 200, `got ${seed.status}`);
+      const counts = (await seed.json()) as { accounts: number; users: number };
+      check("and reports what the tenant holds", counts.accounts > 0 && counts.users > 0, JSON.stringify(counts));
+
+      const again = await post("/bootstrap/admin", {
+        nameAr: "دخيل", nameEn: "Intruder", email: "intruder@fresh.example", pin: "111111",
+      });
+      check("while claiming it a second time is still refused", again.status === 409, `got ${again.status}`);
+    } finally {
+      fresh.close();
+    }
   });
 }

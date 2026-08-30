@@ -2,7 +2,12 @@ import { randomInt } from "node:crypto";
 import { chmod, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SEED_ADMIN_EMAIL, SEED_ADMIN_USER_ID } from "@mezan/backend";
-import { createScryptHasher, createSqliteSettingsStore, createSqliteUnitOfWork } from "@mezan/persistence";
+import {
+  createScryptHasher,
+  createSqliteSettingsStore,
+  createSqliteUnitOfWork,
+  type SqliteConnectionInput,
+} from "@mezan/persistence";
 
 /**
  * The one way back into an install nobody can sign into.
@@ -18,10 +23,13 @@ import { createScryptHasher, createSqliteSettingsStore, createSqliteUnitOfWork }
  * usable by someone who still knows a PIN from the machine that died.
  *
  * Both doors below are authorised by FILESYSTEM ACCESS to the database
- * directory, and that is deliberate. Somebody who can read that directory
- * already holds the whole customer list, every purchase price and every
- * salary — the SQLite file is not encrypted. Refusing them a way back in
- * protects nothing they could not already take, and costs the entire install.
+ * directory. That was once an argument from futility — the SQLite file was not
+ * encrypted, so anybody who could read the directory already held the customer
+ * list, every purchase price and every salary. It is not any more
+ * (main/encrypted-database.ts), so the bar is now genuinely "can open this
+ * machine's database": both entry points below take an ALREADY-OPEN keyed
+ * connection from the caller rather than a path, because opening the path
+ * themselves would mean opening it unkeyed and failing on every real install.
  * The threat this does NOT open is a remote one: nothing here is reachable over
  * the LAN socket, over IPC, or from the renderer.
  *
@@ -119,8 +127,11 @@ export async function writeRecoveryPin(
  *
  * Returns true when a file was actually removed.
  */
-export async function clearRecoveryPinIfClaimed(dbPath: string): Promise<boolean> {
-  const settings = createSqliteSettingsStore(dbPath);
+export async function clearRecoveryPinIfClaimed(
+  dbPath: string,
+  connection: SqliteConnectionInput = dbPath,
+): Promise<boolean> {
+  const settings = createSqliteSettingsStore(connection);
   try {
     const current = await settings.get();
     if (!current?.tenantClaimedAt) return false;
@@ -155,8 +166,11 @@ export interface SeedAdminPinReset {
  * Returns null when there is no seeded admin to reset (an empty or
  * not-yet-created database), so the caller can say so rather than claim success.
  */
-export async function resetSeedAdminPin(dbPath: string): Promise<SeedAdminPinReset | null> {
-  const uow = createSqliteUnitOfWork(dbPath);
+export async function resetSeedAdminPin(
+  dbPath: string,
+  connection: SqliteConnectionInput = dbPath,
+): Promise<SeedAdminPinReset | null> {
+  const uow = createSqliteUnitOfWork(connection);
   let pin: string;
   let reactivated: boolean;
   try {

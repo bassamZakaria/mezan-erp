@@ -13,6 +13,21 @@ describe("openSqliteConnection", () => {
     }
   });
 
+  it("refuses a key on a driver with no cipher, instead of writing plaintext and reporting success", () => {
+    // The whole point of the seam: a composition that supplies a key but
+    // forgets the driver must fail, not silently produce a readable database
+    // that everything downstream believes is encrypted.
+    expect(() => openSqliteConnection(":memory:", { key: "a".repeat(64) })).toThrow(
+      /no cipher support/,
+    );
+  });
+
+  it("rejects a key that is not 32 bytes of hex — it is interpolated into a PRAGMA", () => {
+    expect(() => openSqliteConnection(":memory:", { key: "'; DROP TABLE t; --" })).toThrow(
+      /32 bytes of lowercase hex/,
+    );
+  });
+
   it("reuses an existing connection without owning it", () => {
     const shared = new Database(":memory:");
     try {

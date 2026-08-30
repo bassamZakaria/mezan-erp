@@ -22,7 +22,9 @@ const appDir = path.join(root, "..");
 
 // Native modules stay external — they ship prebuilt/rebuilt `.node`
 // binaries per Electron ABI and must not be bundled as source.
-const external = ["electron", "better-sqlite3"];
+// `better-sqlite3-multiple-ciphers` is the same native module with SQLCipher
+// support — main/encrypted-database.ts opens the tenant database with it.
+const external = ["electron", "better-sqlite3", "better-sqlite3-multiple-ciphers"];
 
 await build({
   entryPoints: [path.join(appDir, "src/main/index.ts")],

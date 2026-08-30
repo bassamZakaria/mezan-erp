@@ -45,16 +45,20 @@ async function seed(periodStatus: "open" | "closed" | "locked" = "open") {
   await accounts.create(account("4000", { type: "revenue", naturalBalance: "credit" }));
   await accounts.create(account("4900", { type: "revenue", naturalBalance: "credit" })); // FX gain
   await accounts.create(account("5900", { type: "expense", naturalBalance: "debit" })); // FX loss
-  await periods.create({ id: "fp-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: periodStatus });
+  await periods.create({ id: "fp-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
   await periods.create({ id: "fp-09", year: 2026, periodNumber: 9, startDate: "2026-09-01", endDate: "2026-09-30", status: "open" });
   await exchangeRates.create({ id: "usd", currency: "USD", rate: "55", effectiveDate: "2026-08-01", rateType: "standard", source: "manual", status: "approved" });
 
   const postingDeps: JournalPostingDeps = { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-31T10:00:00.000Z" };
-  // AR sale in USD, booked at rate 50 → 5000 base for 100 USD.
+  // AR sale in USD, booked at rate 50 → 5000 base for 100 USD, while fp-08 is still open.
   await postJournalEntry({ id: "je1", date: "2026-08-10", memo: "sale", source: "system", lines: [
     { accountId: "1100", debit: Money.fromMajor("5000"), credit: Money.zero(), currency: "USD", fxRate: "50" },
     { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("5000") },
   ] }, postingDeps);
+
+  if (periodStatus !== "open") {
+    await periods.update({ id: "fp-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: periodStatus });
+  }
 
   return { ledger, accounts, periods, exchangeRates };
 }

@@ -268,3 +268,94 @@ apart silently.
 - **False pass:** the item's on-screen valuation looks internally consistent
   even though the underlying rows were never actually protected — the SQL
   trigger check in step 2 is what proves the guarantee, not the screen.
+
+### MTP-CA-12 — The year-end close entry is an ordinary, reversible journal entry — not a privileged one
+- **Persona / permission:** `tarek.mansour` (`accounting.period.close`).
+- **Preconditions:** a fiscal year with posted revenue/expense activity, not
+  yet closed.
+- **Steps:**
+  1. On `journals` (or wherever year-end close is triggered —
+     `GET /gl/year-end-close/:year/preview` then `POST /gl/year-end-close`),
+     preview the close for the seeded year, then post it.
+  2. Locate the resulting entry (id `YEAR-CLOSE:<year>`) on `journals`.
+  3. Confirm it shows «مرحل» like any other entry, and click «عكس القيد» on it.
+  4. Attempt to close the SAME year again.
+- **Expected:** the close entry is dated the last day of the year
+  (`YYYY-12-31`), passes the same fiscal-period gate as any posting (a locked
+  December refuses it — see MTP-CA-32), and is reversible exactly like any
+  other entry (step 3 succeeds and produces a mirror entry). Re-closing the
+  same year is refused with `YearAlreadyClosedError` — `packages/domain/src/
+  gl/year-end-close.ts`'s `planYearEndClose` checks for an existing entry at
+  the deterministic id before building a new plan.
+- **False pass:** the close entry renders with no «عكس القيد» button (treating
+  it as special/protected) — the domain's own doc comment is explicit that
+  this must NOT be true: "it is corrected by reversal like any other
+  posting." A close that cannot be reversed if it turns out to be wrong (wrong
+  retained-earnings account chosen, wrong year) is a trap, not a control.
+
+---
+
+## Part 3 — Completeness and sequence (the 25 defined sequences)
+
+### MTP-CA-13 — Document numbers are gap-free under ordinary confirmation
+- **Persona / permission:** `karim.fouad` (`sales.invoice.create/confirm`
+  is actually `sales.invoice.view_own`+`.create` — confirmation needs
+  `omar.hilal`).
+- **Preconditions:** note the next sales-invoice number shown on a fresh
+  draft.
+- **Steps:**
+  1. Create and confirm three sales invoices back to back, noting each
+     confirmed number.
+  2. Open `settings-sequences`, find `SALES_INVOICE`, compare its "next"
+     preview to the last confirmed number + 1.
+- **Expected:** the three numbers are strictly consecutive
+  (`formatSequenceNumber` zero-pads to the sequence's `padLength`, prefix
+  `INV-`), and the sequence's admin preview matches. `NextNumberService`
+  allocates via an atomic counter (`SELECT`/`BEGIN IMMEDIATE` per
+  `next-number.ts`'s doc comment) inside the same transaction as the document
+  insert — a value handed out is never reused and never skipped.
+- **False pass:** the numbers "look" sequential because only one tester was
+  active — this scenario alone does not prove gap-freedom under concurrency;
+  see MTP-CA-15 for that.
+
+### MTP-CA-14 — A cancelled draft consumes no number; a reversed posted document leaves its number visibly reversed, not deleted
+- **Persona / permission:** `karim.fouad` for the draft; `tarek.mansour` for
+  the posted entry.
+- **Preconditions:** none beyond the seed.
+- **Steps:**
+  1. Create a draft sales invoice, note whether it already carries a number
+     (check the draft's own detail — sales-invoice numbers are allocated at
+     confirm, per the `confirm` route calling into numbering, not at draft
+     creation).
+  2. Cancel the draft (`sales.invoice.delete_draft`).
+  3. Create and confirm a NEW sales invoice; note its number.
+  4. Separately, post and then reverse a journal entry (MTP-CA-09); note its
+     number stays visible in the list under status «معكوس», not removed.
+- **Expected:** the cancelled draft either never had a number, or — if it did
+  — the next confirmed invoice's number is unaffected by the cancellation
+  (no gap was created because no number was consumed by a draft). The
+  reversed journal entry's own number remains permanently visible in the
+  list with status «معكوس»: a correction leaves a VISIBLE marker at its own
+  number, never a silent hole.
+- **False pass:** cancelling a draft is found to consume a sequence number
+  anyway — record this as a finding (a visible gap the tenant did not choose
+  to create), distinct from the expected, controlled gap a void/reversal
+  produces.
+
+### MTP-CA-15 — Two concurrent confirmations cannot allocate the same document number
+- **Persona / permission:** `karim.fouad` and `omar.hilal` (or any two
+  sessions holding `sales.invoice.confirm`/`.create`).
+- **Preconditions:** two draft sales invoices ready to confirm.
+- **Steps:**
+  1. Open two draft invoices in two tabs/sessions.
+  2. Click «تأكيد الفاتورة» on both as close together as the UI allows (or
+     fire two `POST /:id/confirm` calls back to back from a script).
+  3. Compare the two resulting invoice numbers.
+- **Expected:** the two numbers differ and are consecutive — `SequenceStore.
+  increment` (`packages/domain/src/numbering/next-number.ts`) is documented
+  to take a write lock per counter row (`BEGIN IMMEDIATE` on SQLite), so two
+  callers can never read the same value. No duplicate number, no gap.
+- **False pass:** both confirmations "succeed" with visually different
+  numbers but a background job later shows two documents sharing one number —
+  re-check by querying `GET /sales-invoices` for any duplicate `number` field
+  across the whole tenant, not just the two just created.

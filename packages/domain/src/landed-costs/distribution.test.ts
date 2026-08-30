@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
-import { distributeLandedCost, totalLandedCost } from "./distribution.js";
+import { distributeLandedCost, totalLandedCost, landedCostTotalsByType } from "./distribution.js";
 import { EmptyLandedCostTargetsError, ZeroLandedCostWeightError } from "./errors.js";
 import type { LandedCostAllocationTarget, LandedCostItemEntry } from "./distribution.js";
 
@@ -83,5 +83,63 @@ describe("distributeLandedCost — errors", () => {
   it("throws ZeroLandedCostWeightError when every target has a zero weight", () => {
     const targets = [target({ qty: Qty.zero() })];
     expect(() => distributeLandedCost(COST_ITEMS, "BY_QUANTITY", targets)).toThrow(ZeroLandedCostWeightError);
+  });
+
+  it("throws ZeroLandedCostWeightError for BY_WEIGHT when every target's shipped weight is zero", () => {
+    const targets = [target({ weight: Qty.zero() }), target({ itemId: "B", weight: Qty.zero() })];
+    expect(() => distributeLandedCost(COST_ITEMS, "BY_WEIGHT", targets)).toThrow(ZeroLandedCostWeightError);
+  });
+});
+
+describe("distributeLandedCost — BY_WEIGHT", () => {
+  it("splits the total cost proportionally to shipped weight, ignoring qty and value", () => {
+    const targets = [
+      target({ itemId: "A", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("1"), weight: Qty.fromMajor("75") }),
+      target({ itemId: "B", qty: Qty.fromMajor("1000"), unitCost: Money.fromMajor("1000"), weight: Qty.fromMajor("25") }),
+    ];
+    const result = distributeLandedCost(COST_ITEMS, "BY_WEIGHT", targets);
+    expect(result[0]?.allocatedAmount.toString()).toBe("750.000000");
+    expect(result[1]?.allocatedAmount.toString()).toBe("250.000000");
+  });
+
+  it("a zero-weight line among non-zero ones gets nothing allocated to it", () => {
+    const targets = [
+      target({ itemId: "A", weight: Qty.fromMajor("10") }),
+      target({ itemId: "B", weight: Qty.zero() }),
+    ];
+    const result = distributeLandedCost(COST_ITEMS, "BY_WEIGHT", targets);
+    expect(result.find((r) => r.itemId === "B")?.allocatedAmount.toString()).toBe("0.000000");
+    expect(result.find((r) => r.itemId === "A")?.allocatedAmount.toString()).toBe("1000.000000");
+  });
+});
+
+describe("newUnitCost", () => {
+  it("leaves unitCost unchanged (rather than dividing by zero) when the target's own qty is zero", () => {
+    const targets = [target({ itemId: "A", qty: Qty.zero(), unitCost: Money.fromMajor("50"), weight: Qty.fromMajor("10") })];
+    const result = distributeLandedCost(COST_ITEMS, "BY_WEIGHT", targets);
+    expect(result[0]?.newUnitCost.toString()).toBe("50.000000");
+    expect(result[0]?.allocatedAmount.toString()).toBe("1000.000000");
+  });
+});
+
+describe("landedCostTotalsByType", () => {
+  it("sums entered costs by نوع التكلفة, in the fixed catalog order, omitting types with nothing entered", () => {
+    const items = [
+      { costType: "OTHER" as const, description: "متفرقات", amount: Money.fromMajor("50") },
+      { costType: "SHIPPING" as const, description: "شحن 1", amount: Money.fromMajor("300") },
+      { costType: "SHIPPING" as const, description: "شحن 2", amount: Money.fromMajor("300") },
+      { costType: "CUSTOMS" as const, description: "جمارك", amount: Money.fromMajor("400") },
+    ];
+    const byType = landedCostTotalsByType(items);
+    // SHIPPING, CUSTOMS, INSURANCE, CLEARANCE, OTHER is the declared catalog order;
+    // INSURANCE/CLEARANCE have nothing entered and must be omitted entirely.
+    expect(byType.map((b) => b.costType)).toEqual(["SHIPPING", "CUSTOMS", "OTHER"]);
+    expect(byType.find((b) => b.costType === "SHIPPING")?.amount.toString()).toBe("600.000000");
+    const sum = Money.sum(byType.map((b) => b.amount));
+    expect(sum.toString()).toBe(totalLandedCost(items).toString());
+  });
+
+  it("returns an empty array for no cost items", () => {
+    expect(landedCostTotalsByType([])).toEqual([]);
   });
 });

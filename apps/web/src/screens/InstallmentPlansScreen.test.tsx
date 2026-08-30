@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { InstallmentPlanDocumentDTO } from "@mezan/contracts";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { InstallmentPlansScreen } from "./InstallmentPlansScreen";
@@ -134,10 +134,12 @@ describe("InstallmentPlansScreen", () => {
 
   it("cancels a confirmed plan", async () => {
     let current: InstallmentPlanDocumentDTO[] = [installmentPlan()];
+    let cancels = 0;
     const transport = stubTransport({
       ...baseHandlers(current),
       "GET /installments/plans": () => ({ body: current }),
       "POST /installments/plans/plan-1/cancel": () => {
+        cancels += 1;
         current = current.map((d) => (d.id === "plan-1" ? { ...d, status: "cancelled" as const } : d));
         return { body: current[0] };
       },
@@ -146,6 +148,14 @@ describe("InstallmentPlansScreen", () => {
     fireEvent.click(await screen.findByText("IP-000001"));
     const dialog = screen.getByRole("dialog", { name: "IP-000001" });
     fireEvent.click(within(dialog).getByRole("button", { name: "إلغاء الخطة" }));
+
     await within(dialog).findByText("ملغي");
+    expect(cancels).toBe(1);
+    // Cancelling must not stay a dialog-local flourish: the list behind it
+    // has to reflect the new status too, or the user closes the panel and
+    // sees a plan that still looks live.
+    await waitFor(() => expect(within(screen.getByRole("table")).getByText("ملغي")).toBeInTheDocument());
+    // And an already-cancelled plan cannot be cancelled again.
+    expect(within(dialog).queryByRole("button", { name: "إلغاء الخطة" })).toBeNull();
   });
 });

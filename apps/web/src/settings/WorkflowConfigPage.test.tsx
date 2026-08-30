@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { RoleDTO, WorkflowConfigDTO } from "@mezan/contracts";
 import { WorkflowConfigPage } from "./WorkflowConfigPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -124,11 +124,26 @@ describe("WorkflowConfigPage", () => {
     expect(await screen.findByText("2")).toBeInTheDocument();
   });
 
-  it("deletes a workflow config", async () => {
-    renderScreen();
+  it("deletes only the row whose delete button was pressed", async () => {
+    // With a single row on screen, "the list is now empty" is satisfied by a
+    // delete that wipes everything, or one that ignores its id and removes
+    // the first row it finds. A second, untouched config is what makes this
+    // test able to tell those apart from a correct delete.
+    const other: WorkflowConfigDTO = {
+      id: "cfg-2",
+      actionType: "PURCHASE_INVOICE_CONFIRM",
+      steps: [{ role: "FINANCE_MANAGER", description: "مراجعة المالية" }],
+      createdAt: "2026-08-08T00:00:00.000Z",
+      updatedAt: "2026-08-08T00:00:00.000Z",
+    };
+    renderScreen([sampleConfig, other]);
+
     const table = await screen.findByRole("table");
     const row = (await within(table).findByText("تأكيد فاتورة المبيعات")).closest("tr") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "حذف" }));
-    await screen.findByText("لا توجد إعدادات موافقات");
+
+    await waitFor(() => expect(within(table).queryByText("تأكيد فاتورة المبيعات")).toBeNull());
+    expect(within(table).getByText("تأكيد فاتورة المشتريات")).toBeInTheDocument();
+    expect(screen.queryByText("لا توجد إعدادات موافقات")).toBeNull();
   });
 });

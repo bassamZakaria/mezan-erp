@@ -70,6 +70,7 @@ const alexCostCenter = costCenter({
 
 function renderScreen(costCenters: CostCenterDTO[] = [costCenter(), salesCostCenter, alexCostCenter]) {
   let current = [...costCenters];
+  const patches: Record<string, unknown>[] = [];
   const transport = stubTransport({
     "GET /cost-centers": () => ({ body: current }),
     "GET /branches": () => ({
@@ -100,12 +101,13 @@ function renderScreen(costCenters: CostCenterDTO[] = [costCenter(), salesCostCen
     },
     "PATCH /cost-centers/cc-admin": (init) => {
       const patch = JSON.parse((init?.body as string) ?? "{}");
+      patches.push(patch);
       const updated: CostCenterDTO = { ...current[0]!, ...patch };
       current = [updated, ...current.slice(1)];
       return { body: updated };
     },
   });
-  return renderWithProviders(<CostCentersScreen />, { transport, initialSession: testAdminSession });
+  return { ...renderWithProviders(<CostCentersScreen />, { transport, initialSession: testAdminSession }), patches };
 }
 
 describe("CostCentersScreen", () => {
@@ -167,7 +169,7 @@ describe("CostCentersScreen", () => {
   });
 
   it("edits an existing cost center from the detail panel", async () => {
-    renderScreen();
+    const { patches } = renderScreen();
     fireEvent.click(await screen.findByText("الإدارة العامة"));
     const panel = screen.getByRole("dialog", { name: /الإدارة العامة/ });
     fireEvent.click(within(panel).getByRole("button", { name: "تعديل" }));
@@ -176,7 +178,28 @@ describe("CostCentersScreen", () => {
     fireEvent.change(textFieldInput(dialog, "ملاحظات"), { target: { value: "ملاحظة جديدة" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
-    await screen.findByText("الإدارة العامة");
+    // The edit has to reach the server as a PATCH carrying the new note AND
+    // still carrying the fields the user did not touch: a form that rebuilt
+    // its payload from blank state would send nameAr as "" and silently
+    // rename the cost centre, and a screen that merely closed the dialog
+    // would look identical to a working one.
+    await waitFor(() => expect(patches).toHaveLength(1));
+    expect(patches[0]).toEqual({
+      nameAr: "الإدارة العامة",
+      nameEn: "General Administration",
+      type: "general",
+      parentId: null,
+      notes: "ملاحظة جديدة",
+      status: "active",
+    });
+    // The code is immutable once assigned — the field is disabled in edit
+    // mode and must not travel in the patch, or a rename here would break
+    // every document already numbered against it.
+    expect(patches[0]).not.toHaveProperty("code");
+
+    // And the list reflects it rather than showing the stale row.
+    fireEvent.click(await screen.findByText("الإدارة العامة"));
+    expect(await screen.findByText("ملاحظة جديدة")).toBeInTheDocument();
   });
 
   it("associates the parent-picker label with its combobox input", async () => {

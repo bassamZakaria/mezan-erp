@@ -99,6 +99,47 @@ excluded by an explicit path in the config with a reason, not by a lowered thres
   defect is fixed, the assertion is rewritten to what now holds, never deleted.
 - Pass a limit, price or cost the server should compute. A test that supplies `availableQty`
   proves nothing; that is the exact shape of the worst defect this product has had.
+- Write the boundary the code enforces into its own fixture. A "returns more than was
+  invoiced" test that returns exactly the invoiced quantity never crosses the boundary and
+  passes whether or not the guard exists.
+- Compare money with `toBeCloseTo`. Money is a `bigint` at scale 1e-6; compare `.toString()`
+  or `.scaled` exactly, or the test tolerates the rounding bug it was written to catch.
+- Start from a zero balance. Zero to zero survives a dropped posting, a swapped sign and a
+  transposed debit and credit. Open at a non-zero figure and assert before and after.
+- Stand on `toBeDefined()`, `toBeTruthy()`, `not.toThrow()` or a bare `toHaveBeenCalled()` as
+  its only assertion. Each of those is satisfied by almost every bug the test could meet.
+- Assert that a document exists after an operation instead of asserting the numbers on it.
+
+## 1.6 Coverage is evidence, not the goal
+
+A covered line is a line that ran, which is not the same as a line whose behaviour is pinned.
+The suite has twice reached a high percentage while containing tests that would have passed
+through a real defect, so the percentage alone is not accepted as the answer.
+
+**Before a test is considered done, name the bug that would make it fail.** If no such bug
+can be named, the assertion is decoration and comes out.
+
+**Mutation testing is how that claim is checked.** Introduce a plausible defect in the source
+— an off-by-one, a flipped comparison, a dropped branch, a recomputed value where a recorded
+one was meant — run the suite, and confirm it goes red. Then revert the source exactly. A
+mutation that survives is a hole in the suite, and the fix is the test, never the report.
+
+Two rounds of this on the domain packages have already found two survivors, both of them
+false coverage in tests written during this pass:
+
+- **Numbering.** No shipped sequence sets `annualReset`, so the annual-reset branch was never
+  reached; deleting the reset entirely changed no test. It is now driven through the same
+  override surface the settings screen writes to, and a seeded counter row proves the period
+  key stays stable across an upgrade rather than merely agreeing with itself.
+- **Weighted-average costing.** Every generated OUT movement recorded a zero unit cost, so
+  the branch that leaves an issue at its **recorded** cost was dead, and both mutations of it
+  passed. The generator now records real issue costs, and a backdated receipt inserted behind
+  an existing issue must not restate what that issue already cost.
+
+The same discipline applies to a test that guards known-broken behaviour: title it
+`LIMITATION (Dxx): <what it does today>` and pin the wrong behaviour explicitly. A defect
+dressed up as a happy path is worse than no test, because it makes the fix look like the
+regression.
 
 ---
 

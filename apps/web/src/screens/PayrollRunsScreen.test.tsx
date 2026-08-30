@@ -256,6 +256,26 @@ describe("PayrollRunsScreen", () => {
     const confirmDialog = screen.getByRole("dialog");
     fireEvent.click(within(confirmDialog).getByRole("button", { name: "إلغاء الدورة" }));
     await within(row).findByText("ملغى");
+    // Cancelling twice would reverse the payroll twice. Once the run is
+    // cancelled the menu must not offer it again.
+    fireEvent.click(within(row).getByRole("button", { name: /^إجراءات/ }));
+    expect(within(row).queryByRole("menuitem", { name: "إلغاء الدورة" })).toBeNull();
+  });
+
+  it("does NOT offer cancel once a run is approved or disbursed — the entry is already in the books", async () => {
+    // The test above promises this half in its title and never checked it. A
+    // cancel offered on a disbursed run reverses money that has already left
+    // the treasury.
+    for (const status of ["approved", "disbursed"] as const) {
+      const view = renderScreen([run({ status })]);
+      const row = (await screen.findByText("PR-000001")).closest("tr") as HTMLElement;
+      fireEvent.click(within(row).getByRole("button", { name: /^إجراءات/ }));
+      // Prove the menu actually opened before reading absence from it —
+      // otherwise a menu that failed to open would satisfy this test.
+      expect(within(row).getAllByRole("menuitem").length).toBeGreaterThan(0);
+      expect(within(row).queryByRole("menuitem", { name: "إلغاء الدورة" })).toBeNull();
+      view.unmount();
+    }
   });
 
   it("disburse requires a picked treasury account and branch, both real ids in the request body", async () => {

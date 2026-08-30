@@ -150,20 +150,165 @@ describe("weighted-average costing — fuzz", () => {
     );
   });
 
-  it("fuzz: an empty position holds no value — value with no units behind it is corruption, not drift", () => {
+  it("fuzz: a drained position keeps no more than the rounding residue of its own drain", () => {
     fc.assert(
       fc.property(ledgerArb, (movements) => {
         const position = replay(ITEM, WAREHOUSE, movements);
         if (!position.onHand.isZero()) return;
         // The average is zero by definition once the quantity is, so it hides
         // this: only the VALUE says whether anything was orphaned onto an
-        // empty position. Drained positions keep at most the rounding residue
-        // the drain itself leaves.
+        // empty position.
+        //
+        // A landed cost booked AFTER the stock is gone is excluded here and
+        // pinned separately below (D135) — it is not rounding, it is a whole
+        // freight invoice landing on nothing, and folding it into this
+        // tolerance would hide it behind a bigger number.
+        const revaluedAfterDrain = movements.some((m) => m.sourceDocType === "LANDED_COST");
+        if (revaluedAfterDrain) return;
+
         const residue = position.totalValue.scaled < 0n ? -position.totalValue.scaled : position.totalValue.scaled;
         expect(residue <= BigInt(movements.length + 1)).toBe(true);
       }),
       { numRuns: 400 },
     );
+  });
+
+  describe("a landed cost that arrives after the stock has all been sold (D135)", () => {
+    /**
+     * The freight invoice almost never arrives with the goods. By the time it
+     * is booked, a fast-moving item may already be sold out — and this is what
+     * happens then. Found by the fuzz property above, at 7 micro-units; stated
+     * here at the scale a real shop would see it.
+     */
+    const DRAINED_THEN_REVALUED: StockMovement[] = [
+        {
+          id: "IN-1",
+          itemId: ITEM,
+          warehouseId: WAREHOUSE,
+          direction: "IN",
+          qty: Qty.fromMajor("100"),
+          unitCost: Money.fromMajor("10"),
+          sourceDocType: "PURCHASE_RECEIPT",
+          sourceDocId: "PR-1",
+          sourceDocNumber: null,
+          reason: null,
+          occurredAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "OUT-1",
+          itemId: ITEM,
+          warehouseId: WAREHOUSE,
+          direction: "OUT",
+          qty: Qty.fromMajor("100"),
+          unitCost: Money.zero(),
+          sourceDocType: "SALES_INVOICE",
+          sourceDocId: "SI-1",
+          sourceDocNumber: null,
+          reason: null,
+          occurredAt: "2026-01-02T00:00:00.000Z",
+        },
+        {
+          id: "LC-1",
+          itemId: ITEM,
+          warehouseId: WAREHOUSE,
+          direction: "IN",
+          qty: Qty.zero(),
+          unitCost: Money.zero(),
+          sourceDocType: "LANDED_COST",
+          sourceDocId: "LC-1",
+          sourceDocNumber: null,
+          reason: null,
+          occurredAt: "2026-01-03T00:00:00.000Z",
+          valueDelta: Money.fromMajor("250"),
+          revaluesSourceDocId: "PR-1",
+        } as StockMovement,
+    ];
+
+    const drainedThenRevalued = () => replay(ITEM, WAREHOUSE, DRAINED_THEN_REVALUED);
+
+    it("LIMITATION (D135): the whole freight invoice is left on a position holding nothing", () => {
+      const position = drainedThenRevalued();
+
+      expect(position.onHand.toString()).toBe("0.000000");
+      // 250.00 of value, backed by zero units. It should have gone to COGS —
+      // the goods it belongs to have already been sold.
+      expect(position.totalValue.toString()).toBe("250.000000");
+    });
+
+    it("LIMITATION (D135): the average reads 0.000000, so no screen shows the orphaned value", () => {
+      // This is why it survives: `unitCostOf(value, 0)` is 0, so the item card,
+      // the stock list and the costing screen all look perfectly normal. Only
+      // the valuation total is wrong, and only against the GL.
+      const position = drainedThenRevalued();
+      expect(position.averageCost.toString()).toBe("0.000000");
+    });
+
+    it("LIMITATION (D135): it never washes out — the next receipt inherits it as margin error", () => {
+      // With nothing on hand to absorb it the 250 simply waits. Buying 10 more
+      // at 10.00 should give a position worth 100.00 at 10.00 each; instead the
+      // orphaned freight rides along, so every one of those 10 units carries
+      // 35.00 of cost — and that overstatement goes straight to cost of sales
+      // on goods that never bore the freight.
+      const position = replay(ITEM, WAREHOUSE, [
+        ...DRAINED_THEN_REVALUED,
+        {
+          id: "IN-2",
+          itemId: ITEM,
+          warehouseId: WAREHOUSE,
+          direction: "IN",
+          qty: Qty.fromMajor("10"),
+          unitCost: Money.fromMajor("10"),
+          sourceDocType: "PURCHASE_RECEIPT",
+          sourceDocId: "PR-2",
+          sourceDocNumber: null,
+          reason: null,
+          occurredAt: "2026-01-04T00:00:00.000Z",
+        },
+      ]);
+
+      expect(position.onHand.toString()).toBe("10.000000");
+      expect(position.totalValue.toString()).toBe("350.000000");
+      expect(position.averageCost.toString()).toBe("35.000000");
+    });
+
+    it("still applies the landed cost correctly while the stock IS on hand (the negative control)", () => {
+      // The mechanism is right; only the drained case is wrong. A guard that
+      // refused every landed cost would break the feature instead of fixing it.
+      const position = replay(ITEM, WAREHOUSE, [
+        {
+          id: "IN-1",
+          itemId: ITEM,
+          warehouseId: WAREHOUSE,
+          direction: "IN",
+          qty: Qty.fromMajor("100"),
+          unitCost: Money.fromMajor("10"),
+          sourceDocType: "PURCHASE_RECEIPT",
+          sourceDocId: "PR-1",
+          sourceDocNumber: null,
+          reason: null,
+          occurredAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "LC-1",
+          itemId: ITEM,
+          warehouseId: WAREHOUSE,
+          direction: "IN",
+          qty: Qty.zero(),
+          unitCost: Money.zero(),
+          sourceDocType: "LANDED_COST",
+          sourceDocId: "LC-1",
+          sourceDocNumber: null,
+          reason: null,
+          occurredAt: "2026-01-02T00:00:00.000Z",
+          valueDelta: Money.fromMajor("250"),
+          revaluesSourceDocId: "PR-1",
+        } as StockMovement,
+      ]);
+
+      expect(position.onHand.toString()).toBe("100.000000");
+      expect(position.totalValue.toString()).toBe("1250.000000");
+      expect(position.averageCost.toString()).toBe("12.500000");
+    });
   });
 
   it("fuzz: the average always re-multiplies back to the position's value", () => {

@@ -60,13 +60,30 @@ function roleErrorResponse(c: Context, err: unknown) {
  * `resolveEntitlements` has no repo-wide default (yet) — module licensing
  * varies per tenant, so the mounting app must supply it.
  */
+export interface RolesRoutesOptions {
+  /** Who granted which permissions to whom. Without it, self-elevation leaves no trace. */
+  readonly audit?: AuditSink;
+  /**
+   * The action types whose approval chain names this role CODE, if any.
+   *
+   * A role a workflow config depends on may not be deleted and may not be
+   * renamed. `RoleInUseError` only ever asked whether a USER holds the role, so
+   * an approver role with no current holder — the ordinary case in a shop where
+   * the owner approves as a company admin — was deletable by anyone with
+   * `admin.roles.manage`, which freed its code for an attacker to re-create
+   * with an empty permission list and assign to themselves. That is the whole
+   * create-and-approve chain, and this is the link that breaks it.
+   */
+  readonly workflowUsage?: (roleCode: string) => Promise<readonly string[]>;
+}
+
 export function createRolesRoutes(
   uow: UnitOfWork,
   resolveEntitlements: EntitlementsResolver,
   resolveAuthContext: AuthContextResolver,
-  /** Who granted which permissions to whom. Without it, self-elevation leaves no trace. */
-  audit?: AuditSink,
+  options: RolesRoutesOptions = {},
 ) {
+  const { audit, workflowUsage } = options;
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
 
@@ -149,6 +166,19 @@ export function createRolesRoutes(
     }
   });
 
+  /** The refusal for a role an approval chain depends on. */
+  function refuseWorkflowDependency(c: Context, code: string, actionTypes: readonly string[]) {
+    return c.json(
+      {
+        error: "ROLE_USED_BY_WORKFLOW",
+        code,
+        actionTypes: [...actionTypes],
+        message: `الدور "${code}" مستخدم في سلسلة موافقات (${actionTypes.join("، ")}) ولا يمكن حذفه أو تغيير رمزه.`,
+      },
+      409,
+    );
+  }
+
   app.put("/:id", gate("admin.roles.manage"), async (c) => {
     const parsed = updateRoleSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -167,6 +197,12 @@ export function createRolesRoutes(
     if (before) {
       const outranks = refuseUngrantable(c, before.permissions);
       if (outranks) return outranks;
+      // Renaming the code frees the old one, which is the same hole as
+      // deleting the role — the approval chain matches on the code.
+      if (workflowUsage && parsed.data.code !== before.code) {
+        const usedBy = await workflowUsage(before.code);
+        if (usedBy.length > 0) return refuseWorkflowDependency(c, before.code, usedBy);
+      }
     }
     try {
       const role = await saveRole(
@@ -183,6 +219,19 @@ export function createRolesRoutes(
 
   app.delete("/:id", gate("admin.roles.manage"), async (c) => {
     const before = await uow.roles.findById(c.req.param("id"));
+    // A missing role was a silent 204 that deleted nothing and audited a row
+    // about an entity that never existed.
+    if (!before) return c.json({ error: "ROLE_NOT_FOUND", message: "الدور غير موجود." }, 404);
+    // The same guard `PUT` runs, and for the same reason: a role's EXISTING
+    // permissions are authority, so removing the role is a privilege change on
+    // anything that referenced it. `POST` and `PUT` both checked; `DELETE`
+    // checked neither.
+    const outranks = refuseUngrantable(c, before.permissions);
+    if (outranks) return outranks;
+    if (workflowUsage) {
+      const usedBy = await workflowUsage(before.code);
+      if (usedBy.length > 0) return refuseWorkflowDependency(c, before.code, usedBy);
+    }
     try {
       await deleteRole(c.req.param("id"), uow);
       await recordAdminEvent(audit, c, {

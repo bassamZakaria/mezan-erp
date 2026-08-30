@@ -50,6 +50,38 @@ export class InvalidStepRoleError extends Error {
   }
 }
 
+/**
+ * A step names an approver role that does not exist.
+ *
+ * WHY THIS EXISTS. `gate.ts` authorizes an approval by ROLE CODE
+ * (`actorRoles.includes(step.role)`), and this module used to require only
+ * that the code be a non-empty STRING — so there was no referential integrity
+ * at all between a workflow step and the roles table. That was a
+ * single-person create-and-approve path on treasury payments, reachable with
+ * two permissions no owner thinks of as dangerous:
+ *
+ *   1. delete the approver role, if it happens to have no holder — the common
+ *      SMB case, where the owner approves as a company admin with a null
+ *      roleId, and `RoleInUseError` does not consider an unassigned role "in
+ *      use";
+ *   2. create a new role with the SAME code and an empty permission list,
+ *      which passes the ungrantable check trivially;
+ *   3. assign it to yourself, which passes the escalation check because an
+ *      empty list contains nothing you lack;
+ *   4. sign in again and approve your own payment voucher.
+ *
+ * Requiring the role to resolve closes step 2's target: the code can never
+ * become free, because the roles routes refuse to delete or rename a role a
+ * config names.
+ */
+export class UnknownStepRoleError extends Error {
+  readonly code = "UNKNOWN_STEP_ROLE" as const;
+  constructor(readonly index: number, readonly role: string) {
+    super(`Step ${index + 1} names an approver role that does not exist: "${role}".`);
+    this.name = "UnknownStepRoleError";
+  }
+}
+
 export class DuplicateWorkflowConfigError extends Error {
   readonly code = "DUPLICATE_WORKFLOW_CONFIG" as const;
   constructor(readonly actionType: string) {
@@ -81,6 +113,15 @@ function assertValidSteps(steps: readonly GateStep[]): void {
 }
 
 /**
+ * Resolves an approver role code to something real.
+ *
+ * A callback rather than the `RoleRepository` port, because the workflow module
+ * has never depended on roles and should not start: it needs one yes/no answer,
+ * not a repository.
+ */
+export type ApproverRoleResolver = (code: string) => Promise<boolean>;
+
+/**
  * Creates or updates the ONE workflow config for an action type. Rejects an
  * action type outside the 26-entry catalog, a config with no steps, a step
  * missing its approver role, and — on create — a second config for an action
@@ -89,9 +130,16 @@ function assertValidSteps(steps: readonly GateStep[]): void {
 export async function saveWorkflowConfig(
   cmd: SaveWorkflowConfigCommand,
   repo: WorkflowConfigRepository,
+  /** Omit and step roles are not checked against the roles table (existing callers/tests). */
+  roleExists?: ApproverRoleResolver,
 ): Promise<WorkflowConfigRecord> {
   if (!isGateableActionType(cmd.actionType)) throw new UnknownActionTypeError(cmd.actionType);
   assertValidSteps(cmd.steps);
+  if (roleExists) {
+    for (const [index, step] of cmd.steps.entries()) {
+      if (!(await roleExists(step.role))) throw new UnknownStepRoleError(index, step.role);
+    }
+  }
 
   const existingForAction = await repo.findByActionType(cmd.actionType);
   if (existingForAction && existingForAction.id !== cmd.id) {

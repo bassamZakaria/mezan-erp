@@ -10,10 +10,13 @@ import {
   UnknownActionTypeError,
   EmptyStepsError,
   InvalidStepRoleError,
+  UnknownStepRoleError,
   DuplicateWorkflowConfigError,
   WorkflowConfigNotFoundError,
   ApprovalRequestNotFoundError,
   WorkflowError,
+  type ApproverRoleResolver,
+  type AuditSink,
   type ApprovalRequestRecord,
   type ApprovalRequestRepository,
   type WorkflowConfigRecord,
@@ -21,6 +24,7 @@ import {
 } from "@mezan/domain";
 import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 
 /**
  * Acts on the DOCUMENT behind an approval request once a decision is recorded.
@@ -46,6 +50,20 @@ export interface WorkflowRoutesDeps {
   readonly requests: ApprovalRequestRepository;
   /** Resolves the held document for a decided request, by action type. Omit and a decision only moves the request. */
   readonly heldDocuments?: (record: ApprovalRequestRecord) => HeldDocumentActions | null;
+  /**
+   * Who rewrote the approval chain.
+   *
+   * إعدادات الموافقات is the product's ONLY segregation-of-duties control, and
+   * its CRUD was mounted with no audit sink at all — so a holder of
+   * `workflow.config.manage` could delete the config for
+   * `PAYMENT_VOUCHER_CONFIRM`, let an unapproved payment out, and re-create the
+   * config, with `GET /audit` showing nothing for any of it. The control that
+   * requires a second signature could be switched off and back on inside a
+   * minute, invisibly.
+   */
+  readonly audit?: AuditSink;
+  /** Whether an approver role code resolves to a real role. See `saveWorkflowConfig`. */
+  readonly roleExists?: ApproverRoleResolver;
 }
 
 /**
@@ -82,6 +100,9 @@ function serializeRequest(request: ApprovalRequestRecord) {
 }
 
 function configErrorResponse(c: Context, err: unknown) {
+  if (err instanceof UnknownStepRoleError) {
+    return c.json({ error: err.code, message: `الخطوة ${err.index + 1}: الدور "${err.role}" غير موجود.` }, 400);
+  }
   if (err instanceof UnknownActionTypeError || err instanceof EmptyStepsError || err instanceof InvalidStepRoleError) {
     return c.json({ error: err.code, message: err.message }, 400);
   }
@@ -119,6 +140,32 @@ export function createWorkflowRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
 
+  /**
+   * The STEP LIST travels, both ends of it. "Approval config changed" is not
+   * evidence; "PAYMENT_VOUCHER_CONFIRM stopped requiring the finance manager"
+   * is, and it is the only thing that answers whether somebody switched off the
+   * control that was in their way.
+   */
+  function auditConfig(
+    c: Context,
+    action: "CREATE" | "UPDATE" | "DELETE",
+    config: { id: string; actionType: string; steps: readonly unknown[] },
+    before?: WorkflowConfigRecord | null,
+  ) {
+    return recordAdminEvent(deps.audit, c, {
+      module: "workflow",
+      entityType: "WORKFLOW_CONFIG",
+      entityId: config.id,
+      action,
+      severity: "CRITICAL",
+      details: {
+        actionType: config.actionType,
+        steps: config.steps,
+        ...(before ? { previousSteps: before.steps } : {}),
+      },
+    });
+  }
+
   app.get("/configs", gate("workflow.config.view"), async (c) => {
     const configs = await deps.configs.list();
     return c.json(configs.map(serializeConfig));
@@ -137,7 +184,9 @@ export function createWorkflowRoutes(
       const config = await saveWorkflowConfig(
         { id: randomUUID(), actionType: parsed.data.actionType, steps: parsed.data.steps, createdAt: new Date().toISOString() },
         deps.configs,
+        deps.roleExists,
       );
+      await auditConfig(c, "CREATE", config);
       return c.json(serializeConfig(config), 201);
     } catch (err) {
       return configErrorResponse(c, err);
@@ -154,7 +203,9 @@ export function createWorkflowRoutes(
       const config = await saveWorkflowConfig(
         { id, actionType: existing.actionType, steps: parsed.data.steps, createdAt: existing.createdAt },
         deps.configs,
+        deps.roleExists,
       );
+      await auditConfig(c, "UPDATE", config, existing);
       return c.json(serializeConfig(config));
     } catch (err) {
       return configErrorResponse(c, err);
@@ -162,8 +213,18 @@ export function createWorkflowRoutes(
   });
 
   app.delete("/configs/:id", gate("workflow.config.manage"), async (c) => {
+    const id = c.req.param("id");
+    // Read before the delete: a DELETE row with no steps on it cannot answer
+    // "which signature stopped being required", which is the entire question.
+    const before = await deps.configs.findById(id);
     try {
-      await deleteWorkflowConfig(c.req.param("id"), deps.configs);
+      await deleteWorkflowConfig(id, deps.configs);
+      await auditConfig(
+        c,
+        "DELETE",
+        { id, actionType: before?.actionType ?? "", steps: before?.steps ?? [] },
+        before,
+      );
       return c.body(null, 204);
     } catch (err) {
       return configErrorResponse(c, err);

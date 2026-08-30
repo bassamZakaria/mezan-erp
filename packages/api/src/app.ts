@@ -1433,7 +1433,24 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     return c.json(entitlements);
   });
 
-  app.route("/roles", createRolesRoutes(uow, resolveEntitlements, resolveAuth, options.auditSink));
+  /**
+   * Which approval chains name a role code. Supplied only when the workflow
+   * module is mounted — an app with no approval chains has nothing to protect
+   * the role against.
+   */
+  const workflowUsage = options.workflow
+    ? async (roleCode: string): Promise<readonly string[]> => {
+        const configs = await options.workflow!.configs.list();
+        return configs
+          .filter((config) => config.steps.some((step) => step.role === roleCode))
+          .map((config) => config.actionType);
+      }
+    : undefined;
+
+  app.route(
+    "/roles",
+    createRolesRoutes(uow, resolveEntitlements, resolveAuth, { audit: options.auditSink, workflowUsage }),
+  );
   app.route(
     "/users",
     createUsersRoutes(uow, hasher, resolveAuth, {
@@ -1546,7 +1563,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/workflow",
       createWorkflowRoutes(
-        { ...options.workflow, heldDocuments: options.workflow.heldDocuments ?? buildHeldDocumentResolver(options) },
+        {
+          ...options.workflow,
+          heldDocuments: options.workflow.heldDocuments ?? buildHeldDocumentResolver(options),
+          audit: options.workflow.audit ?? options.auditSink,
+          // An approval step may only name a role that exists, so the code an
+          // approval is matched on can never be freed and re-taken.
+          roleExists: options.workflow.roleExists ?? (async (code) => (await uow.roles.list()).some((r) => r.code === code)),
+        },
         resolveAuth,
       ),
     );

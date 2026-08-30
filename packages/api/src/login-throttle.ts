@@ -9,8 +9,26 @@
  * LAN mount puts that attacker on the shop wifi. scrypt makes each guess cost
  * something; only a lockout makes the SEQUENCE cost something.
  *
- * Counted per account, not per connection: the attacker chooses their source
- * address and the desktop/in-process mount does not have one to count.
+ * WHAT CHANGED, AND WHY IT IS NOT SIMPLY "PER ACCOUNT" ANY MORE. Counting
+ * purely per account is the right brute-force answer and the wrong shop
+ * answer: the owner's email is printed on every invoice, so anyone on the shop
+ * wifi could hold that account at the fifteen-minute ceiling indefinitely with
+ * one request per quarter hour — a till outage bought for four requests an
+ * hour, with no credential and no admin unlock. So a REMOTE caller is counted
+ * per (account, source) and the HOST-LOCAL console is counted per account.
+ *
+ * The asymmetry is deliberate and safe in both directions:
+ *   - the person standing at the machine can always still get in, because a
+ *     remote attacker's failures never land on the host-local counter;
+ *   - a remote attacker gains nothing, because rotating source addresses to
+ *     dodge the lockout means rotating away from the one they can reach the
+ *     shop from, and the per-account HOST counter still catches anyone with
+ *     physical access, who has the SQLite file anyway.
+ *
+ * `POST /users/:id/unlock` clears a key. The map is bounded: it is keyed by a
+ * string the caller supplies, records are created BEFORE any account lookup so
+ * nonexistent emails accumulate, and `read()` only ever evicted the one key it
+ * was asked about — an unauthenticated caller could grow it without limit.
  */
 
 /** Consecutive failures tolerated before the account starts locking. */
@@ -21,6 +39,16 @@ const BASE_LOCK_MS = 60_000;
 const MAX_LOCK_MS = 15 * 60_000;
 /** A quiet period this long forgets the streak — yesterday's typos are not an attack. */
 const DECAY_MS = 60 * 60_000;
+/**
+ * How many attempt records are kept.
+ *
+ * The key is caller-supplied and a record is written before any account
+ * lookup, so this is an unauthenticated write into a process-lifetime map.
+ * Ten thousand is far more than a real shop's account list and small enough
+ * that a flood cannot exhaust memory; the least-recently-failed entries go
+ * first, which is also the order in which they were about to decay anyway.
+ */
+const MAX_RECORDS = 10_000;
 
 interface AttemptRecord {
   failures: number;
@@ -33,8 +61,10 @@ export interface LoginThrottle {
   retryAfter(key: string): number;
   /** Records a failure and returns the seconds the account is now locked for. */
   fail(key: string): number;
-  /** Clears the streak after a verified credential. */
+  /** Clears the streak after a verified credential — and what an admin unlock calls. */
   succeed(key: string): void;
+  /** How many records are held. For the exception report and for tests. */
+  size(): number;
 }
 
 function lockDuration(failures: number): number {
@@ -43,8 +73,31 @@ function lockDuration(failures: number): number {
   return Math.min(BASE_LOCK_MS * 2 ** doublings, MAX_LOCK_MS);
 }
 
+/**
+ * The key a failed attempt is counted against.
+ *
+ * `source` is the REMOTE ADDRESS the request arrived from, and it is null for
+ * the host's own in-process mount — which is what makes the console at the
+ * counter immune to a lockout somebody else triggered over the wifi. It is
+ * never read from a header: see `requestOrigin` in ./request-origin.ts.
+ */
+export function throttleKey(account: string, source: string | null): string {
+  const needle = account.trim().toLowerCase();
+  return source ? `${needle}@${source}` : needle;
+}
+
 export function createLoginThrottle(now: () => number = Date.now): LoginThrottle {
   const records = new Map<string, AttemptRecord>();
+
+  /** Drops decayed records, then the oldest, until the map is within its cap. */
+  function evict(at: number) {
+    for (const [key, record] of records) {
+      if (at - record.lastFailureAt > DECAY_MS) records.delete(key);
+    }
+    if (records.size <= MAX_RECORDS) return;
+    const oldestFirst = [...records.entries()].sort((a, b) => a[1].lastFailureAt - b[1].lastFailureAt);
+    for (const [key] of oldestFirst.slice(0, records.size - MAX_RECORDS)) records.delete(key);
+  }
 
   function read(key: string, at: number): AttemptRecord | undefined {
     const record = records.get(key);
@@ -60,8 +113,19 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
     retryAfter(key) {
       const at = now();
       const record = read(key, at);
-      if (!record || record.lockedUntil <= at) return 0;
-      return Math.ceil((record.lockedUntil - at) / 1000);
+      if (!record) return 0;
+      if (record.lockedUntil > at) return Math.ceil((record.lockedUntil - at) / 1000);
+      if (record.lockedUntil !== 0) {
+        // A SERVED LOCK IS SPENT. Leaving the streak at its high-water mark
+        // meant the state after a fifteen-minute wait was "one more typo buys
+        // another fifteen minutes", for the next full hour — so the person who
+        // had just been let back in was one slip from being locked out again,
+        // and the doubling ratchet never came down. Serving the lock returns
+        // the account to a full set of free attempts.
+        record.failures = 0;
+        record.lockedUntil = 0;
+      }
+      return 0;
     },
     fail(key) {
       const at = now();
@@ -71,10 +135,22 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
       const lock = lockDuration(record.failures);
       record.lockedUntil = lock > 0 ? at + lock : 0;
       records.set(key, record);
+      evict(at);
       return Math.ceil(lock / 1000);
     },
     succeed(key) {
       records.delete(key);
+      // An unlock clears the account everywhere it was counted, not only on the
+      // one source that happened to lock it: an admin pressing «فكّ القفل» means
+      // "this person can sign in now", and leaving four other keys locked would
+      // make the button a lie.
+      const prefix = `${key}@`;
+      for (const held of [...records.keys()]) {
+        if (held.startsWith(prefix)) records.delete(held);
+      }
+    },
+    size() {
+      return records.size;
     },
   };
 }

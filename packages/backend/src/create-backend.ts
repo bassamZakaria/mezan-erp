@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   createApp,
+  createLoginThrottle,
   createSessionAuthContextResolver,
   createSessionRegistry,
   type App,
@@ -1174,9 +1175,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    */
   const sessions = createSessionRegistry();
   const resolveAuthContext = createSessionAuthContextResolver(sessions);
+  /**
+   * ONE throttle for the whole backend. `/auth/login` counts against it and
+   * `POST /users/:id/unlock` clears it, and those only agree if it is the same
+   * object: a per-router throttle would let an admin "unlock" an account that
+   * stays locked at the login route.
+   */
+  const loginThrottle = createLoginThrottle();
 
   const app = createApp(uow, {
     resolveAuthContext,
+    security: { sessions, loginThrottle },
     ...(options.lan ? { lan: options.lan } : {}),
     settingsStore: settings,
     branchStore: branches,
@@ -1900,7 +1909,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions }));
+  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink }));
   app.route(
     "/",
     createDashboardRoutes({

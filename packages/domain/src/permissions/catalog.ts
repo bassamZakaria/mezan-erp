@@ -60,7 +60,7 @@ export const MODULES: readonly ModuleDef[] = [
   { id: "cheques", labelAr: "الأوراق المالية", count: 5 },
   { id: "manufacturing", labelAr: "التصنيع", count: 5 },
   { id: "assets", labelAr: "الأصول", count: 7 },
-  { id: "admin", labelAr: "الإدارة", count: 22 },
+  { id: "admin", labelAr: "الإدارة", count: 25 },
   { id: "notifications", labelAr: "الإشعارات", count: 2 },
   { id: "audit", labelAr: "المراجعة", count: 1 },
   { id: "transactions", labelAr: "المعاملات", count: 2 },
@@ -362,11 +362,16 @@ const ROWS: readonly Row[] = [
   ["assets.depreciation.run", "assets.depreciation.view"],
   ["assets.depreciation.void", "assets.depreciation.run"],
 
-  // 16. admin — 22
+  // 16. admin — 25
   ["admin.users.view"],
   ["admin.users.create", "admin.users.view"],
   ["admin.users.edit", "admin.users.view"],
   ["admin.users.deactivate", "admin.users.view"],
+  // Clears a failed-login lockout. Its own code, not folded into `.edit`:
+  // the person who should be able to unlock the till at 6pm is the branch
+  // manager standing next to it, and giving them `.edit` to do it would also
+  // give them every colleague's PIN.
+  ["admin.users.unlock", "admin.users.view"],
   ["admin.roles.view"],
   ["admin.roles.manage", "admin.roles.view"],
   ["admin.settings.view"],
@@ -385,6 +390,11 @@ const ROWS: readonly Row[] = [
   ["admin.sequences.reset", "admin.sequences.edit"],
   ["admin.modules.view"],
   ["admin.modules.manage", "admin.modules.view", "p"],
+  // Connected tills on the LAN. Separate from `admin.settings.*` because
+  // freeing a stuck seat is a shop-floor act, and gating it on the settings
+  // permission meant only the owner could unblock the counter.
+  ["admin.devices.view"],
+  ["admin.devices.manage", "admin.devices.view"],
 
   // 17. notifications — 2
   ["notifications.rule.view"],

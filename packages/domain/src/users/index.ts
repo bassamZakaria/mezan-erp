@@ -7,6 +7,7 @@ export {
 export {
   saveUser,
   setUserStatus,
+  recordSuccessfulLogin,
   normalizeEmail,
   normalizeEmailDomain,
   emailDomain,

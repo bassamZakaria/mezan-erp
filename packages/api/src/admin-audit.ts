@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { recordSensitiveEvent, type AuditSeverity, type AuditSink } from "@mezan/domain";
+import { recordSecurityEvent, recordSensitiveEvent, type AuditSeverity, type AuditSink } from "@mezan/domain";
 import { getAuthContext } from "./permission-gate.js";
 
 /**
@@ -41,6 +41,33 @@ export async function recordAdminEvent(
     // it is meant to incriminate.
     actor: getAuthContext(c)?.userId ?? "system",
     severity: entry.severity ?? "WARNING",
+    details: entry.details ?? null,
+  });
+}
+
+/**
+ * The same, on the SECURITY stream (أحداث الأمان).
+ *
+ * The two streams are not decoration. `sensitive` answers "who changed this
+ * record"; `security` answers "who tried to take authority they do not have,
+ * and who reset whose credential" — the questions an auditor asks first and the
+ * ones the أحداث الأمان tab shows. Before this, `recordSecurityEvent` had
+ * exactly two call sites in the whole product, both self-service, so that tab
+ * read empty on a live tenant — which an owner reads as "nothing is happening".
+ */
+export async function recordSecurityAdminEvent(
+  audit: AuditSink | undefined,
+  c: Context,
+  entry: AdminAuditEntry,
+): Promise<void> {
+  if (!audit) return;
+  await recordSecurityEvent(audit, {
+    module: entry.module,
+    entityType: entry.entityType,
+    entityId: entry.entityId,
+    action: entry.action,
+    actor: getAuthContext(c)?.userId ?? "anonymous",
+    severity: entry.severity ?? "CRITICAL",
     details: entry.details ?? null,
   });
 }

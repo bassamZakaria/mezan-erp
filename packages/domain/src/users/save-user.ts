@@ -204,6 +204,29 @@ export async function saveUser(
   return user;
 }
 
+/**
+ * Stamps the moment an account last signed in successfully.
+ *
+ * `lastLoginAt` was declared on the entity, stored in the schema, serialized by
+ * the users route and RENDERED in the users list — and assigned by nothing, so
+ * the column read «أبداً» for every account forever. That is worse than a blank
+ * column: a dormant account and a fake one both look exactly like a real one
+ * that has never signed in, so "an account that has posted documents but never
+ * logged in" was not a question anyone could ask.
+ *
+ * Deliberately a targeted write rather than a `saveUser` round trip: nothing
+ * about a login is allowed to revalidate, rehash or renumber the account.
+ */
+export async function recordSuccessfulLogin(
+  userId: string,
+  at: string,
+  uow: UnitOfWork,
+): Promise<void> {
+  const user = await uow.users.findById(userId);
+  if (!user) return;
+  await uow.users.save({ ...user, lastLoginAt: at });
+}
+
 /** Sets a user's active/inactive status (the "deactivate" / reactivate action). */
 export async function setUserStatus(
   userId: string,

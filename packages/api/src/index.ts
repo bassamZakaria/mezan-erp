@@ -62,4 +62,5 @@ export {
   type SessionGrant,
   type SessionRegistry,
 } from "./session-auth.js";
-export { createLoginThrottle, type LoginThrottle } from "./login-throttle.js";
+export { createLoginThrottle, throttleKey, type LoginThrottle } from "./login-throttle.js";
+export { requestOrigin } from "./request-origin.js";

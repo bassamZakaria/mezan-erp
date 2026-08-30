@@ -108,6 +108,8 @@ import {
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
+import type { SessionRegistry } from "./session-auth.js";
+import type { LoginThrottle } from "./login-throttle.js";
 import type { EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
 import { insecureHeaderAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
@@ -320,6 +322,20 @@ export interface CreateAppOptions {
   readonly barcodeConfigStore?: BarcodeConfigRepository;
   /** Shared audit sink for profile security events and API-key/webhook writes. */
   readonly auditSink?: AuditSink;
+  /**
+   * The live session registry and the login throttle, so administrative acts
+   * can reach them.
+   *
+   * Both are owned by `createBackend` (it is the composition that mounts
+   * `/auth`), and both have to be the SAME instances those routes use:
+   * revoking a deactivated user's sessions against a different registry
+   * revokes nothing, and clearing a lockout on a second throttle leaves the
+   * account locked.
+   */
+  readonly security?: {
+    readonly sessions?: SessionRegistry;
+    readonly loginThrottle?: LoginThrottle;
+  };
   /** Mounts `/api-keys` when present. */
   readonly apiKeys?: { readonly repo: ApiKeyRepository; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/webhooks` when present. */
@@ -1420,13 +1436,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, resolveAuth, options.auditSink));
   app.route(
     "/users",
-    createUsersRoutes(
-      uow,
-      hasher,
-      resolveAuth,
-      async () => (await options.settingsStore?.get())?.allowedEmailDomains ?? [],
-      options.auditSink,
-    ),
+    createUsersRoutes(uow, hasher, resolveAuth, {
+      readAllowedEmailDomains: async () => (await options.settingsStore?.get())?.allowedEmailDomains ?? [],
+      audit: options.auditSink,
+      sessions: options.security?.sessions,
+      loginThrottle: options.security?.loginThrottle,
+    }),
   );
   app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink));
   if (options.apiKeys) {

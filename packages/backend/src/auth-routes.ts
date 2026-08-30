@@ -1,17 +1,27 @@
 import { Hono, type Context } from "hono";
 import {
   saveUser,
+  recordSuccessfulLogin,
   ALL_SCOPE,
   InvalidUserError,
   DuplicateUserEmailError,
+  recordSecurityEvent,
+  type AuditSink,
   type UnitOfWork,
   type SecretHasher,
   type SettingsRepository,
   type User,
 } from "@mezan/domain";
 import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from "@mezan/contracts";
-import { createLoginThrottle, readSessionToken, type LoginThrottle, type SessionRegistry } from "@mezan/api";
-import { SEED_ADMIN_EMAIL, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
+import {
+  createLoginThrottle,
+  readSessionToken,
+  requestOrigin,
+  throttleKey,
+  type LoginThrottle,
+  type SessionRegistry,
+} from "@mezan/api";
+import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
 export interface AuthRoutesDeps {
   readonly uow: UnitOfWork;
@@ -22,6 +32,16 @@ export interface AuthRoutesDeps {
   readonly sessions: SessionRegistry;
   /** Failed-attempt lockout. Defaults to a fresh in-memory throttle per app. */
   readonly loginThrottle?: LoginThrottle;
+  /**
+   * The forensic trail for the credential boundary.
+   *
+   * Without it the product could not answer "who tried to sign in as the owner
+   * last night" at all: failures wrote nothing, lockouts — which this codebase's
+   * own severity taxonomy names as the canonical CRITICAL event — wrote nothing,
+   * and there was no success event either, so the audit trail could not even
+   * establish that a session had existed, only what it went on to do.
+   */
+  readonly audit?: AuditSink;
 }
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
@@ -68,6 +88,19 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
 }
 
 /**
+ * "900 ثانية" is not a wait a person can act on. Past two minutes the honest
+ * unit is minutes; the exact second count still travels as `retryAfterSeconds`
+ * so the client can run a countdown against it.
+ */
+function waitPhrase(seconds: number): string {
+  if (seconds < 120) return `${seconds} ثانية`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes === 2) return "دقيقتين";
+  if (minutes <= 10) return `${minutes} دقائق`;
+  return `${minutes} دقيقة`;
+}
+
+/**
  * Real auth + first-run bootstrap routes (docs/archive/plan.md — desktop username+PIN):
  *   POST /auth/login          verify user + PIN, return the resolved session
  *   POST /bootstrap/seed      idempotently seed an empty DB (wizard seed step)
@@ -75,8 +108,12 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
  *
  * These are intentionally UNGATED: login has no session yet, and the bootstrap
  * routes run before any user could authenticate (local desktop first-run).
- * "Ungated" is not "unguarded": login throttles per account, and
- * `/bootstrap/admin` refuses once the tenant has an account of its own.
+ * "Ungated" is not "unguarded": login throttles, and `/bootstrap/admin` refuses
+ * once this tenant has RECORDED that somebody claimed it.
+ *
+ * On the desktop edition the LAN host does not expose `/bootstrap/*` at all
+ * (apps/desktop/src/main/lan-host.ts's allow-list) — this guard is the second
+ * of two, not the only one.
  */
 export function createAuthRoutes(deps: AuthRoutesDeps) {
   const app = new Hono();
@@ -90,28 +127,54 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
   let decoy: Promise<string> | null = null;
   const decoyHash = () => (decoy ??= deps.hasher.hash("mezan-login-timing-decoy"));
 
+  function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {
+    if (!deps.audit) return Promise.resolve();
+    return recordSecurityEvent(deps.audit, {
+      module: "auth",
+      entityType: "AUTH_USER",
+      entityId: typeof details["userId"] === "string" ? (details["userId"] as string) : null,
+      action,
+      actor: typeof details["userId"] === "string" ? (details["userId"] as string) : "anonymous",
+      severity,
+      details: { ...details, origin: requestOrigin(c) ?? "host" },
+    }).catch(() => undefined);
+  }
+
   function lockedOut(c: Context, seconds: number) {
     c.header("retry-after", String(seconds));
     return c.json(
       {
         error: "TOO_MANY_ATTEMPTS",
         retryAfterSeconds: seconds,
-        message: `محاولات دخول كثيرة. حاول بعد ${seconds} ثانية.`,
+        message: `محاولات دخول كثيرة. حاول بعد ${waitPhrase(seconds)}.`,
       },
       429,
     );
   }
 
   /**
-   * True once this tenant belongs to somebody: any active account other than
-   * the seeded default admin. While false the install is a fresh, unclaimed
-   * first run and `/bootstrap/admin` is how the owner claims it.
+   * True once somebody has claimed this tenant.
+   *
+   * Read from a RECORDED FACT (`settings.tenantClaimedAt`), with one fallback:
+   * an install provisioned before that field existed has no timestamp, so the
+   * presence of any user other than the seeded fallback admin — matched by its
+   * FIXED ID, never by an editable email or an editable status — still counts.
+   * Both halves of the old predicate were master data an admin could edit, so a
+   * fully provisioned shop could be walked back to "unclaimed" and re-taken
+   * with one anonymous POST.
    */
   async function tenantIsClaimed(): Promise<boolean> {
+    const settings = await deps.settings.get();
+    if (settings?.tenantClaimedAt) return true;
     const users = await deps.uow.users.list();
-    return users.some(
-      (u) => u.status === "active" && u.email.trim().toLowerCase() !== SEED_ADMIN_EMAIL.toLowerCase(),
-    );
+    return users.some((u) => u.id !== SEED_ADMIN_USER_ID);
+  }
+
+  /** Writes the claim once. Never cleared, and unreachable from `PUT /settings`. */
+  async function recordTenantClaim(at: string): Promise<void> {
+    const settings = await deps.settings.get();
+    if (!settings || settings.tenantClaimedAt) return;
+    await deps.settings.save({ ...settings, tenantClaimedAt: at });
   }
 
   app.post("/auth/login", async (c) => {
@@ -121,9 +184,16 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     }
     const { username, pin } = parsed.data;
     const needle = username.trim().toLowerCase();
+    // Remote callers are counted per (account, source); the host's own console
+    // is counted per account. See login-throttle.ts — this is what stops one
+    // phone on the shop wifi from taking the counter out of service.
+    const key = throttleKey(needle, requestOrigin(c));
 
-    const waitSeconds = throttle.retryAfter(needle);
-    if (waitSeconds > 0) return lockedOut(c, waitSeconds);
+    const waitSeconds = throttle.retryAfter(key);
+    if (waitSeconds > 0) {
+      await security(c, "LOGIN_BLOCKED", "WARNING", { username: needle, retryAfterSeconds: waitSeconds });
+      return lockedOut(c, waitSeconds);
+    }
 
     // The email, and only the email. Matching the FULL NAME, as this did, made
     // "who can log in" a property of a field any admin may edit, and two people
@@ -137,11 +207,20 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
         ? await deps.hasher.verify(pin, user.pinHash)
         : (await deps.hasher.verify(pin, await decoyHash()), false);
     if (!user || !ok) {
-      const lockedFor = throttle.fail(needle);
-      if (lockedFor > 0) return lockedOut(c, lockedFor);
+      const lockedFor = throttle.fail(key);
+      if (lockedFor > 0) {
+        // The taxonomy in audit/audit-event.ts names account lockout as the
+        // canonical CRITICAL event. It wrote nothing until now.
+        await security(c, "ACCOUNT_LOCKED", "CRITICAL", { username: needle, lockedForSeconds: lockedFor });
+        return lockedOut(c, lockedFor);
+      }
+      await security(c, "LOGIN_FAILED", "WARNING", { username: needle });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
-    throttle.succeed(needle);
+    throttle.succeed(key);
+    const at = new Date().toISOString();
+    await recordSuccessfulLogin(user.id, at, deps.uow);
+    await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: user.id, username: needle });
     return c.json(await toSession(user, deps));
   });
 
@@ -157,12 +236,27 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     return c.json({ name: await tenantName(deps.settings) });
   });
 
-  /** What base data already exists — the same counts `/bootstrap/seed` returns, without seeding. */
+  /**
+   * What base data already exists, and — the part the login screen needs —
+   * whether anybody has claimed this install yet.
+   *
+   * A fresh packaged install landed on a login screen with an empty account
+   * list, a blank email box and nothing saying the machine had never been set
+   * up; the only account that existed had a PIN nobody knows. The owner typed
+   * their own name, failed five times, and was locked out of a brand-new
+   * install inside ninety seconds. The client can now open the wizard instead.
+   */
   app.get("/bootstrap/status", async (c) => {
-    return c.json(await currentCounts(deps.seedStores));
+    return c.json({ ...(await currentCounts(deps.seedStores)), claimed: await tenantIsClaimed() });
   });
 
   app.post("/bootstrap/seed", async (c) => {
+    if (await tenantIsClaimed()) {
+      return c.json(
+        { error: "TENANT_ALREADY_PROVISIONED", message: "تم إعداد هذه المنشأة بالفعل." },
+        409,
+      );
+    }
     const result = await seedIfEmpty(deps.seedStores);
     return c.json(result);
   });
@@ -170,7 +264,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
   /**
    * Claims a FRESH install. Ungated by necessity — there is nobody to
    * authenticate as yet — so the guard has to be that there is nothing to take:
-   * the moment this tenant has an account of its own, this route is closed.
+   * the moment this tenant records a claim, this route is closed forever.
    *
    * It used to have no such guard, and the consequence was measured on a fully
    * provisioned tenant: an anonymous POST returned a live company-admin session
@@ -184,6 +278,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     if (await tenantIsClaimed()) {
+      await security(c, "BOOTSTRAP_REFUSED", "CRITICAL", { email: parsed.data.email });
       return c.json(
         {
           error: "TENANT_ALREADY_PROVISIONED",
@@ -214,10 +309,13 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
         deps.uow,
         deps.hasher,
       );
+      await recordTenantClaim(new Date().toISOString());
+      // The single highest-authority write in the product, and it recorded
+      // nothing at all — so a company admin appearing from nowhere was
+      // indistinguishable, afterwards, from one that had always been there.
+      await security(c, "TENANT_CLAIMED", "CRITICAL", { userId: user.id, email: user.email });
       return c.json(await toSession(user, deps), 201);
     } catch (err) {
-      // First-run idempotency: re-running the wizard with the same admin email
-      // returns that admin's session (so wizard retries don't dead-end on 409).
       // This used to hand back the EXISTING admin's session for wizard
       // idempotency — an anonymous caller who guessed a known admin address got
       // that admin's token. A duplicate is now just a duplicate; a retrying

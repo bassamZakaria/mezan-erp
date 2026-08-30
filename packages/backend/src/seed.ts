@@ -40,6 +40,16 @@ export const SEED_ADMIN_NAME = "محمد الشهابي";
 export const SEED_ADMIN_NAME_EN = "Mohamed El Shehaby";
 export const SEED_ADMIN_EMAIL = "admin@cyag.example";
 /**
+ * The fallback admin's FIXED id.
+ *
+ * Exported because "is this the seeded account or a real one" is a security
+ * question — `/bootstrap/admin` asks it — and the id is the only answer that is
+ * not editable master data. The email is editable, and the status is editable,
+ * and answering with either let a provisioned tenant be walked back to
+ * "unclaimed".
+ */
+export const SEED_ADMIN_USER_ID = "USER-ADMIN";
+/**
  * The DEVELOPMENT default PIN — the one docs/TESTING.md, `pnpm smoke`,
  * `pnpm check:seed` and `pnpm scenarios` all sign in with.
  *
@@ -53,20 +63,45 @@ const SEED_ADMIN_PASSWORD = "change-me-on-first-login";
 export interface SeedAdminSecrets {
   readonly pin: string;
   readonly password: string;
-  /** True when the secrets were generated, i.e. nobody knows them. */
+  /** True when the secrets were generated, i.e. nobody knows them yet. */
   readonly generated: boolean;
+}
+
+/**
+ * The secrets the most recent seed minted, or null when this process has not
+ * seeded a tenant.
+ *
+ * Module state, deliberately: the composition root (`createBackend`) has to be
+ * able to hand a generated PIN to the desktop shell so it can be written
+ * somewhere a human can read it once, and threading a return value out of
+ * `seedIfEmpty` through every caller — smoke, scenarios, apps/server — to reach
+ * one of them would change five signatures for one consumer.
+ */
+let lastSeededAdminSecrets: SeedAdminSecrets | null = null;
+
+/** Reads and CLEARS the generated seed secrets — a one-shot handover, not a store. */
+export function takeSeededAdminSecrets(): SeedAdminSecrets | null {
+  const held = lastSeededAdminSecrets;
+  lastSeededAdminSecrets = null;
+  return held;
 }
 
 /**
  * What the fallback admin account is created with.
  *
- * A packaged install gets a random PIN and password that are never printed
- * anywhere. That is deliberate, not an oversight: on a real machine this
- * account exists only so the tenant is never account-less, and the owner
- * claims the install through the first-run wizard (`POST /bootstrap/admin`),
- * which creates THEIR admin. Leaving it on the published `123456` meant every
- * Mezan install in the country shared one working company-admin login —
- * verified against a seeded tenant, which returned `permissions: ["*"]`.
+ * A packaged install gets a random PIN and password rather than the published
+ * `123456`, which meant every Mezan install in the country shared one working
+ * company-admin login — verified against a seeded tenant, which returned
+ * `permissions: ["*"]`.
+ *
+ * The generated PIN IS handed back to the caller, and the desktop shell writes
+ * it to a one-time recovery file beside the database. Generating a secret and
+ * printing it nowhere closed the only field-recovery door this product had
+ * without opening another: a forgotten PIN then bricked the install outright —
+ * no reset route, no recovery flag, no admin unlock, and a restored backup on
+ * replacement hardware usable only by someone who still knew a PIN from the
+ * machine that died. The remaining moves were hand-editing a scrypt hash into
+ * the SQLite file or losing the books.
  *
  * `MEZAN_SEED_ADMIN_PIN` overrides it for a deliberate packaged-build test.
  */
@@ -77,7 +112,11 @@ export function resolveSeedAdminSecrets(
   if (override && /^\d{6}$/.test(override)) {
     return { pin: override, password: SEED_ADMIN_PASSWORD, generated: false };
   }
-  const packaged = env["MEZAN_PACKAGED"] === "1" || env["NODE_ENV"] === "production";
+  // `NODE_ENV=production` is NOT a packaged desktop build. Treating it as one
+  // meant any headless deployment of this backend — apps/server, a container,
+  // a demo box — silently seeded an admin nobody could ever log in as, with
+  // none of the first-run wizard that makes that survivable on the desktop.
+  const packaged = env["MEZAN_PACKAGED"] === "1";
   if (!packaged) return { pin: SEED_ADMIN_PIN, password: SEED_ADMIN_PASSWORD, generated: false };
   return {
     pin: String(randomInt(0, 1_000_000)).padStart(6, "0"),
@@ -244,9 +283,10 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
   await stores.uow.roles.save(adminRole);
 
   const adminSecrets = resolveSeedAdminSecrets();
+  lastSeededAdminSecrets = adminSecrets;
   await saveUser(
     {
-      id: "USER-ADMIN",
+      id: SEED_ADMIN_USER_ID,
       nameAr: SEED_ADMIN_NAME,
       nameEn: SEED_ADMIN_NAME_EN,
       email: SEED_ADMIN_EMAIL,

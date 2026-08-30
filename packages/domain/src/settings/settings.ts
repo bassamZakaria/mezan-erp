@@ -34,6 +34,25 @@ export interface TenantSettings {
   readonly fxRateMissingPolicy: FxRateMissingPolicy;
   readonly multiCurrencyEnabled: boolean;
 
+  /**
+   * When this tenant was CLAIMED — the ISO timestamp `POST /bootstrap/admin`
+   * wrote the first time it succeeded, or null on an install nobody has set up.
+   *
+   * A FACT, not a derivation. Claimed-ness used to be inferred as "some active
+   * account exists whose email is not the seed admin's", and both halves of
+   * that predicate are editable master data: deactivate the last non-seed
+   * account (which a company admin may do to another company admin — they do
+   * not outrank each other) or rename an email, and a fully provisioned tenant
+   * reads as unclaimed again. An anonymous POST then returned a live
+   * `permissions: ["*"]` session over the LAN socket, against real books. A
+   * seasonal shop that deactivates every staff account over a closure reached
+   * the same state without anybody meaning to.
+   *
+   * Written once and never cleared. Deliberately absent from the settings wire
+   * contract, so no `PUT /settings` can reach it.
+   */
+  readonly tenantClaimedAt: string | null;
+
   // --- بيانات المنشأة (Company info) ---
   readonly weekStartDay: number;
   readonly companyName: string;
@@ -147,6 +166,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   fxRateMissingPolicy: "STRICT",
   multiCurrencyEnabled: false,
 
+  tenantClaimedAt: null,
   weekStartDay: 6,
   companyName: "",
   taxRegistrationNumber: "",

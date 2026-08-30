@@ -22,6 +22,18 @@ function newAppWithStore(permissions: string[] = ["*"]) {
   return { app: createApp(uow, { resolveAuthContext: () => ctx }), users: uow.users, roles: uow.roles };
 }
 
+/** The same store, but the CALLER is confined to one branch and one warehouse. */
+function newAppScoped(
+  permissions: string[],
+  branchScope: readonly string[] | typeof ALL_SCOPE,
+  warehouseScope: readonly string[] | typeof ALL_SCOPE,
+) {
+  const uow = createSqliteUnitOfWork(":memory:");
+  handles.push(uow);
+  const ctx = createAuthContext({ userId: "u1", permissions, branchScope, warehouseScope });
+  return { app: createApp(uow, { resolveAuthContext: () => ctx }), users: uow.users, roles: uow.roles };
+}
+
 async function json(res: Response) {
   return res.json();
 }
@@ -87,6 +99,15 @@ describe("users routes", () => {
 
   it("deactivates then reactivates a user", async () => {
     const app = newApp();
+    // Two admins on purpose: deactivating the LAST active company admin is
+    // refused (D117), and this test is about the status transition itself.
+    await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...newUserBody, email: "keeper@cyag.test" }),
+      }),
+    );
     const createRes = await app.fetch(
       new Request("http://x/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(newUserBody) }),
     );
@@ -382,8 +403,7 @@ describe("scope self-widening and the last admin (D118, D117)", () => {
     } as never);
   }
 
-  it("LIMITATION (D118): a caller scoped to one branch can widen their own scope to every branch", async () => {
-    const { app, users, roles } = newAppWithStore(["admin.users.view", "admin.users.edit"]);
+  async function clerkRole(roles: ReturnType<typeof newAppWithStore>["roles"]) {
     await roles.save({
       id: "role-clerk",
       code: "CLERK",
@@ -393,6 +413,11 @@ describe("scope self-widening and the last admin (D118, D117)", () => {
       isSystem: false,
       createdAt: "2026-01-01T00:00:00.000Z",
     } as never);
+  }
+
+  it("D118: a caller confined to one branch cannot widen a scope to every branch", async () => {
+    const { app, users, roles } = newAppScoped(["admin.users.view", "admin.users.edit"], ["BR-CAIRO"], ["WH-MAIN"]);
+    await clerkRole(roles);
     await seedUser(users, { roleId: "role-clerk" });
     expect((await users.findById("u-scoped"))?.branchScope).toEqual(["BR-CAIRO"]);
 
@@ -404,34 +429,134 @@ describe("scope self-widening and the last admin (D118, D117)", () => {
       }),
     );
 
-    expect(widened.status).toBe(200);
+    expect(widened.status).toBe(403);
+    expect((await widened.json()) as { error: string }).toMatchObject({ error: "PRIVILEGE_ESCALATION_DENIED" });
+
+    // Every scope-narrowing control proven elsewhere reads THIS field, so a 403
+    // that still wrote it would defeat all of them at once.
+    const after = await users.findById("u-scoped");
+    expect(after?.branchScope).toEqual(["BR-CAIRO"]);
+    expect(after?.warehouseScope).toEqual(["WH-MAIN"]);
+  });
+
+  it("D118: naming a branch the caller does not hold is refused just as an explicit list", async () => {
+    const { app, users, roles } = newAppScoped(["admin.users.view", "admin.users.edit"], ["BR-CAIRO"], ["WH-MAIN"]);
+    await clerkRole(roles);
+    await seedUser(users, { roleId: "role-clerk" });
+
+    const res = await app.fetch(
+      new Request("http://x/users/u-scoped", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...scoped,
+          roleId: "role-clerk",
+          branchScope: ["BR-CAIRO", "BR-ALEX"],
+          warehouseScope: ["WH-MAIN"],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { scopes: string[] }).toMatchObject({ scopes: ["branch:BR-ALEX"] });
+    expect((await users.findById("u-scoped"))?.branchScope).toEqual(["BR-CAIRO"]);
+  });
+
+  it("D118: the warehouse dimension is guarded too, not just the branch", async () => {
+    const { app, users, roles } = newAppScoped(["admin.users.view", "admin.users.edit"], ["BR-CAIRO"], ["WH-MAIN"]);
+    await clerkRole(roles);
+    await seedUser(users, { roleId: "role-clerk" });
+
+    const res = await app.fetch(
+      new Request("http://x/users/u-scoped", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...scoped, roleId: "role-clerk", branchScope: ["BR-CAIRO"], warehouseScope: "*" }),
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    expect((await users.findById("u-scoped"))?.warehouseScope).toEqual(["WH-MAIN"]);
+  });
+
+  it("D118 negative control: a caller with `*` scope may still set another user's scope to `*`", async () => {
+    const { app, users, roles } = newAppScoped(["admin.users.view", "admin.users.edit"], ALL_SCOPE, ALL_SCOPE);
+    await clerkRole(roles);
+    await seedUser(users, { roleId: "role-clerk" });
+
+    const res = await app.fetch(
+      new Request("http://x/users/u-scoped", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...scoped, roleId: "role-clerk", branchScope: "*", warehouseScope: "*" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
     const after = await users.findById("u-scoped");
     expect(after?.branchScope).toBe("*");
     expect(after?.warehouseScope).toBe("*");
-
-    // Every scope-narrowing control proven elsewhere reads THIS field, so
-    // widening it here defeats all of them at once. When D118 is closed the
-    // edit should be refused unless the caller already holds the wider scope.
   });
 
-  it("LIMITATION (D117): the only company admin can be demoted, leaving the tenant with none", async () => {
+  it("D118 negative control: a scoped caller may still edit within the scope they hold", async () => {
+    const { app, users, roles } = newAppScoped(["admin.users.view", "admin.users.edit"], ["BR-CAIRO", "BR-ALEX"], ["WH-MAIN"]);
+    await clerkRole(roles);
+    await seedUser(users, { roleId: "role-clerk" });
+
+    const res = await app.fetch(
+      new Request("http://x/users/u-scoped", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...scoped,
+          roleId: "role-clerk",
+          nameAr: "منى عبد الله المصري",
+          branchScope: ["BR-ALEX"],
+          warehouseScope: ["WH-MAIN"],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const after = await users.findById("u-scoped");
+    expect(after?.branchScope).toEqual(["BR-ALEX"]);
+    expect(after?.nameAr).toBe("منى عبد الله المصري");
+  });
+
+  it("D118: the same guard holds on CREATE — a scoped caller cannot mint a `*`-scoped account", async () => {
+    const { app, users, roles } = newAppScoped(
+      ["admin.users.view", "admin.users.create"],
+      ["BR-CAIRO"],
+      ["WH-MAIN"],
+    );
+    await clerkRole(roles);
+
+    const res = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...scoped,
+          id: "u-new",
+          email: "new@cyag.test",
+          password: "TempPass123",
+          roleId: "role-clerk",
+          branchScope: "*",
+          warehouseScope: "*",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await users.findByEmail("new@cyag.test")).toBeNull();
+  });
+
+  it("D117: demoting the ONLY company admin is refused, and the admin flag survives", async () => {
     const { app, users, roles } = newAppWithStore();
     await seedUser(users, { id: "u-admin", isCompanyAdmin: true, email: "admin@cyag.test", branchScope: "*", warehouseScope: "*" });
+    await clerkRole(roles);
 
-    const admins = (await users.list()).filter((u) => u.isCompanyAdmin);
-    expect(admins).toHaveLength(1);
-
-    // Demoting the last one needs a role to move to, since a user must hold
-    // exactly one authority — but nothing checks that an admin remains.
-    await roles.save({
-      id: "role-clerk",
-      code: "CLERK",
-      name: "كاتب",
-      description: "",
-      permissions: ["admin.users.view"],
-      isSystem: false,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    } as never);
+    expect((await users.list()).filter((u) => u.isCompanyAdmin)).toHaveLength(1);
 
     const demoted = await app.fetch(
       new Request("http://x/users/u-admin", {
@@ -448,20 +573,122 @@ describe("scope self-widening and the last admin (D118, D117)", () => {
       }),
     );
 
-    expect(demoted.status).toBe(200);
-    expect((await users.list()).filter((u) => u.isCompanyAdmin)).toHaveLength(0);
+    expect(demoted.status).toBe(409);
+    expect((await demoted.json()) as { error: string }).toMatchObject({ error: "LAST_COMPANY_ADMIN" });
 
-    // The tenant now has no company admin and no way back through the product.
+    // A 409 that still wrote the demotion would lock the shop out just the same.
+    const after = await users.findById("u-admin");
+    expect(after?.isCompanyAdmin).toBe(true);
+    expect(after?.roleId).toBeNull();
+    expect((await users.list()).filter((u) => u.isCompanyAdmin)).toHaveLength(1);
   });
 
-  it("LIMITATION (D117): the only company admin can be deactivated just as easily", async () => {
+  it("D117: deactivating the ONLY company admin is refused, and they stay active", async () => {
     const { app, users } = newAppWithStore();
     await seedUser(users, { id: "u-admin", isCompanyAdmin: true, email: "admin@cyag.test", branchScope: "*", warehouseScope: "*" });
 
     const res = await app.fetch(new Request("http://x/users/u-admin/deactivate", { method: "POST" }));
-    expect(res.status).toBe(200);
 
-    const remaining = (await users.list()).filter((u) => u.isCompanyAdmin && u.status === "active");
-    expect(remaining).toHaveLength(0);
+    expect(res.status).toBe(409);
+    expect((await res.json()) as { error: string }).toMatchObject({ error: "LAST_COMPANY_ADMIN" });
+    expect((await users.findById("u-admin"))?.status).toBe("active");
+    expect((await users.list()).filter((u) => u.isCompanyAdmin && u.status === "active")).toHaveLength(1);
+  });
+
+  it("D117: setting the last admin's status to inactive through PUT is refused as well", async () => {
+    const { app, users } = newAppWithStore();
+    await seedUser(users, { id: "u-admin", isCompanyAdmin: true, email: "admin@cyag.test", branchScope: "*", warehouseScope: "*" });
+
+    const res = await app.fetch(
+      new Request("http://x/users/u-admin", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...scoped,
+          email: "admin@cyag.test",
+          roleId: null,
+          isCompanyAdmin: true,
+          status: "inactive",
+          branchScope: "*",
+          warehouseScope: "*",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect((await users.findById("u-admin"))?.status).toBe("active");
+  });
+
+  it("D117 negative control: a NON-last admin can still be deactivated and demoted", async () => {
+    const { app, users, roles } = newAppWithStore();
+    await clerkRole(roles);
+    await seedUser(users, { id: "u-admin", isCompanyAdmin: true, email: "admin@cyag.test", branchScope: "*", warehouseScope: "*" });
+    await seedUser(users, { id: "u-admin-2", isCompanyAdmin: true, email: "admin2@cyag.test", branchScope: "*", warehouseScope: "*" });
+
+    const deactivated = await app.fetch(new Request("http://x/users/u-admin-2/deactivate", { method: "POST" }));
+    expect(deactivated.status).toBe(200);
+    expect((await users.findById("u-admin-2"))?.status).toBe("inactive");
+
+    // u-admin is now the only ACTIVE admin, so demoting it must be refused —
+    // an inactive admin is not a way back into the books.
+    const demoted = await app.fetch(
+      new Request("http://x/users/u-admin", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...scoped,
+          email: "admin@cyag.test",
+          roleId: "role-clerk",
+          isCompanyAdmin: false,
+          branchScope: "*",
+          warehouseScope: "*",
+        }),
+      }),
+    );
+    expect(demoted.status).toBe(409);
+    expect((await users.findById("u-admin"))?.isCompanyAdmin).toBe(true);
+  });
+
+  it("D117 negative control: deactivating a plain user is untouched by the guard", async () => {
+    const { app, users } = newAppWithStore();
+    await seedUser(users, { id: "u-admin", isCompanyAdmin: true, email: "admin@cyag.test", branchScope: "*", warehouseScope: "*" });
+    await seedUser(users);
+
+    const res = await app.fetch(new Request("http://x/users/u-scoped/deactivate", { method: "POST" }));
+    expect(res.status).toBe(200);
+    expect((await users.findById("u-scoped"))?.status).toBe("inactive");
+  });
+
+  it("D117: an admin who is ALREADY inactive can be demoted — the guard counts active admins only", async () => {
+    const { app, users, roles } = newAppWithStore();
+    await clerkRole(roles);
+    await seedUser(users, { id: "u-admin", isCompanyAdmin: true, email: "admin@cyag.test", branchScope: "*", warehouseScope: "*" });
+    await seedUser(users, {
+      id: "u-old-admin",
+      isCompanyAdmin: true,
+      status: "inactive",
+      email: "old@cyag.test",
+      branchScope: "*",
+      warehouseScope: "*",
+    });
+
+    const res = await app.fetch(
+      new Request("http://x/users/u-old-admin", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...scoped,
+          email: "old@cyag.test",
+          roleId: "role-clerk",
+          isCompanyAdmin: false,
+          status: "inactive",
+          branchScope: "*",
+          warehouseScope: "*",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect((await users.findById("u-old-admin"))?.isCompanyAdmin).toBe(false);
   });
 });

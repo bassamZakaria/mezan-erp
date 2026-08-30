@@ -10,11 +10,10 @@ import { brokenLabelField } from "./support/broken-label";
  * via the real create flow first, isolated by a unique name, the same
  * pattern sales-invoices.spec.ts and purchase-chain.spec.ts use.
  *
- * The name/phone/email/credit-limit fields go through the broken
- * `../settings/form-controls` `TextField`/`NumberField` (see
- * e2e/support/broken-label.ts) — filled here via `brokenLabelField` since
- * these tests are about the customer flow, not that specific defect (already
- * documented once, in journals.spec.ts).
+ * The name/phone/email/credit-limit fields are filled through
+ * `brokenLabelField`, a positional locator (see e2e/support/broken-label.ts):
+ * these tests are about the customer flow, and the field labelling they were
+ * written around is now guaranteed in journals.spec.ts instead.
  */
 
 function row(page: Page, nameAr: string) {

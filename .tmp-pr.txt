@@ -1,0 +1,23 @@
+      const removed = stock ? stock.valueMoved.negate() : costValue;
+      const inventoryCredit = removed.scaled > 0n ? removed : costValue;
+      // Supplier credit minus what actually left stock. Positive = the goods
+      // were carrying less than the supplier refunds, so the difference is a
+      // gain and the variance account is credited.
+      const variance = Money.fromScaled(costValue.scaled - inventoryCredit.scaled);
+      // Both the inventory relief and the variance are split across the rates
+      // the source invoice lines carried, so `inventory + variance` per rate is
+      // exactly the supplier credit at that rate — the input base the VAT
+      // return needs. One untagged pair when no line carries a rate, which is
+      // the entry this type always posted (D28, D76).
+      const byRate = new Map<number | null, { base: Money; tax: Money }>();
+      for (const l of doc.lines) {
+        const rate = l.taxRatePercent ?? null;
+        const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
+        byRate.set(rate, { base: slot.base.add(extend(l.qty, l.unitCost)), tax: slot.tax.add(l.taxAmount) });
+      }
+      const rates = [...byRate.keys()];
+      const weights = rates.map((r) => (byRate.get(r) as { base: Money }).base.scaled);
+      const splitByRate = (amount: Money): Money[] =>
+        weights.some((w) => w > 0n) ? allocate(amount, weights) : rates.map(() => amount);
+      const inventoryShares = splitByRate(inventoryCredit);
+      const varianceShares = splitByRate(variance);

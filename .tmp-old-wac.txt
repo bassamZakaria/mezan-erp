@@ -1,0 +1,22 @@
+    if (isRevaluation(m)) {
+      // Value in, no quantity: raise the position's basis, and raise the unit
+      // cost of the specific layers the named receipt created, in proportion to
+      // their original quantity — the same arithmetic the live engine applies.
+      const delta = m.valueDelta as Money;
+      const signed = m.direction === "IN" ? delta : Money.fromScaled(-delta.scaled);
+      totalValue = totalValue.add(signed);
+      const targets = layers.filter((l) => l.sourceDocId === m.revaluesSourceDocId);
+      const weights = targets.map((l) => l.originalQty.scaled);
+      if (targets.length > 0 && weights.some((wgt) => wgt !== 0n)) {
+        const shares = allocate(signed, weights);
+        const bumped = new Map(
+          targets.map((l, i) => {
+            const share = shares[i] as Money;
+            if (l.originalQty.isZero() || share.scaled === 0n) return [l.id, l] as const;
+            return [l.id, { ...l, unitCost: l.unitCost.add(unitCostOf(share, l.originalQty)) }] as const;
+          }),
+        );
+        layers = layers.map((l) => bumped.get(l.id) ?? l);
+      }
+      continue;
+    }

@@ -8,8 +8,7 @@ import { brokenLabelField } from "./support/broken-label";
  * CustomersScreen.tsx. The e2e backend starts as a genuinely empty tenant —
  * no suppliers seeded — so every test creates its own via the real create
  * flow, isolated by a unique name (see customers.spec.ts for the same
- * pattern, and e2e/support/broken-label.ts for why some fields are filled
- * through `brokenLabelField` rather than `getByLabel`).
+ * pattern, and e2e/support/broken-label.ts for what `brokenLabelField` is).
  */
 
 function row(page: Page, nameAr: string) {

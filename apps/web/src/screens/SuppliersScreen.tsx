@@ -819,6 +819,7 @@ export function SuppliersScreen() {
         </Card>
       ) : null}
       <DocumentList<SupplierDTO>
+        loadFailed={query.isError}
         title={t("suppliers.title")}
         description={t("suppliers.description")}
         actions={

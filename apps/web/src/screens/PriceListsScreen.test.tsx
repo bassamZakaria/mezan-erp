@@ -66,16 +66,8 @@ function itemFixture(overrides: Partial<ItemDTO> = {}): ItemDTO {
   };
 }
 
-/**
- * `Field` renders its `<label>` as a sibling of the control, not wrapping it,
- * and never wires `htmlFor`/`id` — so `getByLabelText` cannot resolve it.
- * Locate the control by walking from the visible label text instead.
- */
 function fieldInput(container: HTMLElement, label: string): HTMLElement {
-  const labelEl = within(container).getByText(label);
-  const control = labelEl.parentElement?.querySelector("input, textarea, select, button[role='switch']");
-  if (!control) throw new Error(`no control found for label "${label}"`);
-  return control as HTMLElement;
+  return within(container).getByLabelText(label);
 }
 
 function priceList(overrides: Partial<PriceListDTO> = {}): PriceListDTO {
@@ -137,6 +129,45 @@ describe("PriceListsScreen", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "قائمة أسعار جديدة" })).not.toBeInTheDocument());
     expect(await screen.findByText("قائمة عملاء الجملة")).toBeInTheDocument();
+  });
+
+  /**
+   * D124: `submit()` awaited `create.mutateAsync` with no try/catch, and the
+   * click handler does not await `submit()` — so a rejected create escaped as
+   * an unhandled promise rejection. In production that is an uncaught error
+   * event on `window`; here it is caught and asserted directly.
+   */
+  it("reports a failed create in the panel and does NOT leak an unhandled promise rejection", async () => {
+    const user = userEvent.setup();
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      renderWithProviders(<PriceListsScreen />, {
+        initialSession: testAdminSession,
+        transport: stubTransport({
+          "GET /price-lists": () => ({ body: [priceList()] }),
+          "POST /price-lists": () => ({ status: 409, body: { error: "DUPLICATE_CODE", message: "الكود مستخدم بالفعل" } }),
+        }),
+      });
+
+      await screen.findByText("قائمة الأسعار الأساسية");
+      await user.click(screen.getByRole("button", { name: "قائمة أسعار جديدة" }));
+      const dialog = screen.getByRole("dialog", { name: "قائمة أسعار جديدة" });
+      await user.type(fieldInput(dialog, "الاسم *"), "قائمة مكررة");
+      await user.type(fieldInput(dialog, "الكود *"), "PL-001");
+      await user.click(within(dialog).getByRole("button", { name: "حفظ" }));
+
+      // The failure is reported where the person is looking, and the panel
+      // stays open with their draft intact so they can fix the code.
+      expect(await within(dialog).findByText(/الكود مستخدم بالفعل/)).toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: "قائمة أسعار جديدة" })).toBeInTheDocument();
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
   });
 
   it("adds a tier bound to a real item id and sends that id — not its Arabic name — in the PATCH body", async () => {
@@ -235,7 +266,7 @@ describe("PriceListsScreen", () => {
     await waitFor(() => expect(patchBodies).toEqual([{ active: false }]));
   });
 
-  it("LIMITATION: a failed list load also shows the empty-list message below the error banner", async () => {
+  it("does NOT show the empty-list message when the load failed — the banner is the only story (D123)", async () => {
     renderWithProviders(<PriceListsScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
@@ -245,14 +276,6 @@ describe("PriceListsScreen", () => {
     });
 
     expect(await screen.findByText("تعذّر تحميل قوائم الأسعار.")).toBeInTheDocument();
-    // PriceListsScreen.tsx renders the error banner ABOVE the DocumentList, but
-    // `query.data` is undefined on a failed fetch, so `priceLists` falls back to
-    // `[]` and — because `query.isLoading` is also false by then — DocumentList's
-    // `emptyState` renders its ordinary "no price lists" copy underneath the
-    // error banner. A user cannot tell "the load failed" from "there are no
-    // price lists" from this screen alone. When PriceListsScreen.tsx suppresses
-    // (or replaces) `emptyState` while `query.isError`, this assertion flips to
-    // `.not.toBeInTheDocument()`.
-    expect(screen.getByText("لا توجد قوائم أسعار — أنشئ قائمة جديدة")).toBeInTheDocument();
+    expect(screen.queryByText("لا توجد قوائم أسعار — أنشئ قائمة جديدة")).not.toBeInTheDocument();
   });
 });

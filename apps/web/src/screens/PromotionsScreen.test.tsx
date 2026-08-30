@@ -59,16 +59,8 @@ function itemFixture(overrides: Partial<ItemDTO> = {}): ItemDTO {
   };
 }
 
-/**
- * `Field` renders its `<label>` as a sibling of the control, not wrapping it,
- * and never wires `htmlFor`/`id` — so `getByLabelText` cannot resolve a
- * `TextField`. Locate the control by walking from the visible label text.
- */
 function fieldInput(container: HTMLElement, label: string): HTMLElement {
-  const labelEl = within(container).getByText(label);
-  const control = labelEl.parentElement?.querySelector("input, textarea, select");
-  if (!control) throw new Error(`no control found for label "${label}"`);
-  return control as HTMLElement;
+  return within(container).getByLabelText(label);
 }
 
 function promotion(overrides: Partial<PromotionDTO> = {}): PromotionDTO {
@@ -241,7 +233,7 @@ describe("PromotionsScreen", () => {
     expect(screen.getByRole("dialog", { name: "إضافة عرض" })).toBeInTheDocument();
   });
 
-  it("LIMITATION: a failed list load also shows the empty-list message below the error banner", async () => {
+  it("does NOT show the empty-list message when the load failed — the banner is the only story (D123)", async () => {
     renderWithProviders(<PromotionsScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
@@ -251,13 +243,6 @@ describe("PromotionsScreen", () => {
     });
 
     expect(await screen.findByText("تعذّر تحميل العروض.")).toBeInTheDocument();
-    // Same shape as ItemsScreen/PriceListsScreen: the error banner renders ABOVE
-    // the DocumentList, but `promotions` falls back to `[]` on a failed fetch and
-    // `query.isLoading` is false by then, so `emptyState` renders its ordinary
-    // "no promotions" copy underneath. A user cannot distinguish "load failed"
-    // from "there are no promotions" here. Flip this assertion to
-    // `.not.toBeInTheDocument()` once PromotionsScreen.tsx suppresses
-    // `emptyState` while `query.isError`.
-    expect(screen.getByText("لا توجد عروض")).toBeInTheDocument();
+    expect(screen.queryByText("لا توجد عروض")).not.toBeInTheDocument();
   });
 });

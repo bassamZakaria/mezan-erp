@@ -40,6 +40,7 @@ export function buildPurchaseReturnLinesFromInvoice(
       qty,
       unitCost: invLine.unitCost,
       taxAmount: taxShare,
+      taxRatePercent: invLine.taxRatePercent ?? null,
     });
   }
   return lines;

@@ -62,6 +62,11 @@ describe("AccountTree", () => {
     expect(screen.getByText("لا توجد حسابات")).toBeInTheDocument();
   });
 
+  it("suppresses the empty state when the load FAILED, so 'no accounts' never stands in for 'could not load' (D123)", () => {
+    render(<AccountTree rows={[]} onToggle={vi.fn()} emptyState={<div>لا توجد حسابات</div>} loadFailed />);
+    expect(screen.queryByText("لا توجد حسابات")).not.toBeInTheDocument();
+  });
+
   it("renders row actions when provided", () => {
     render(<AccountTree rows={rows} onToggle={vi.fn()} rowActions={(row) => <span>menu-{row.id}</span>} />);
     expect(screen.getByText("menu-1000")).toBeInTheDocument();

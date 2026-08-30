@@ -46,6 +46,12 @@ export interface AccountTreeProps {
   onRowClick?: (id: string) => void;
   rowActions?: (row: AccountTreeRow) => ReactNode;
   emptyState?: ReactNode;
+  /**
+   * The query that feeds `rows` failed. A failed load and a genuinely empty
+   * chart both arrive as `rows: []`, and the empty state then contradicts the
+   * error banner above it (D123).
+   */
+  loadFailed?: boolean;
   className?: string;
 }
 
@@ -70,7 +76,16 @@ function TreeToggle({ hasChildren, expanded, onClick }: { hasChildren: boolean; 
   );
 }
 
-export function AccountTree({ rows, columnLabels, onToggle, onRowClick, rowActions, emptyState, className }: AccountTreeProps) {
+export function AccountTree({
+  rows,
+  columnLabels,
+  onToggle,
+  onRowClick,
+  rowActions,
+  emptyState,
+  loadFailed = false,
+  className,
+}: AccountTreeProps) {
   const { t } = useUiTranslation();
   return (
     <Card className={cn("overflow-hidden", className)}>
@@ -126,7 +141,7 @@ export function AccountTree({ rows, columnLabels, onToggle, onRowClick, rowActio
             ))}
           </tbody>
         </table>
-        {rows.length === 0 && emptyState ? <div className="p-[16px]">{emptyState}</div> : null}
+        {!loadFailed && rows.length === 0 && emptyState ? <div className="p-[16px]">{emptyState}</div> : null}
       </div>
     </Card>
   );

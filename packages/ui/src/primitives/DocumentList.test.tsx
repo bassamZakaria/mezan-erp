@@ -94,4 +94,37 @@ describe("DocumentList", () => {
     renderList({ rows: [], emptyState: <div>لا توجد فواتير</div> });
     expect(screen.getByText("لا توجد فواتير")).toBeInTheDocument();
   });
+
+  /**
+   * D123: a failed load and an empty list both arrive as `rows: []`. Showing
+   * «لا توجد فواتير» over a failure tells the operator the opposite of the
+   * truth — that the records are gone — and hides the retry above it.
+   */
+  it("suppresses the empty state when the load FAILED, so an empty list never speaks for a broken one", () => {
+    renderList({ rows: [], emptyState: <div>لا توجد فواتير</div>, loadFailed: true });
+    expect(screen.queryByText("لا توجد فواتير")).not.toBeInTheDocument();
+  });
+
+  it("still shows the empty state once a retry succeeds with nothing to show", () => {
+    const { rerender } = renderList({ rows: [], emptyState: <div>لا توجد فواتير</div>, loadFailed: true });
+    expect(screen.queryByText("لا توجد فواتير")).not.toBeInTheDocument();
+    rerender(
+      <DocumentList<Row>
+        title="الفواتير"
+        columns={columns}
+        rows={[]}
+        rowKey={(r) => r.id}
+        page={1}
+        pageCount={1}
+        emptyState={<div>لا توجد فواتير</div>}
+        loadFailed={false}
+      />,
+    );
+    expect(screen.getByText("لا توجد فواتير")).toBeInTheDocument();
+  });
+
+  it("keeps showing the rows it already has when a REFETCH fails, rather than blanking the table", () => {
+    renderList({ loadFailed: true, emptyState: <div>لا توجد فواتير</div> });
+    expect(screen.getByText("INV-000123")).toBeInTheDocument();
+  });
 });

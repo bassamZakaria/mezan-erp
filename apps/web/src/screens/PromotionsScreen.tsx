@@ -413,6 +413,7 @@ export function PromotionsScreen() {
         </Card>
       ) : null}
       <DocumentList<PromotionDTO>
+        loadFailed={query.isError}
         title={t("promotions.title")}
         description={t("promotions.description")}
         actions={

@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
 import { useTheme, type ThemePreference } from "../hooks/useTheme";
 import { LOCALE_SHORT_LABEL, useUiTranslation, type Locale } from "../i18n";
-import { POPUP_Z_CLASS, usePopupPosition } from "./popup-position";
-import type { NavGroup, NavItem } from "./types";
 
 /**
  * The chrome's own controls — help, language and appearance.

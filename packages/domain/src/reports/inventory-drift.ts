@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Money } from "../money/index.js";
 import { checkDrift } from "../inventory/wac.js";
 import type { WacSnapshot } from "../inventory/ports.js";
 import type { StockMovement } from "../inventory/movement.js";
@@ -112,7 +113,7 @@ export function createInventoryDriftReport(): ReportDefinition<
         // safe stand-in for the cheap cached snapshot (no separate cached-layer
         // store exists; the layer comparison below reconciles against the
         // REPLAYED layers, which `checkDrift` computes internally).
-        const report = checkDrift({ ...snapshot, layers: [] }, positionMovements);
+        const report = checkDrift({ ...snapshot, layers: [], unabsorbedRevaluation: Money.zero() }, positionMovements);
         const qtyDiffers = report.onHand.compare(snapshot.onHand) !== 0;
         const valueDiffers = !report.withinTolerance;
         if (!qtyDiffers && !valueDiffers) continue;

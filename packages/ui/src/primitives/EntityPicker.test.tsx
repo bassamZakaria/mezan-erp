@@ -140,21 +140,46 @@ describe("EntityPicker — the keyboard path", () => {
 });
 
 describe("EntityPicker — Arabic search (D114)", () => {
-  it("LIMITATION (D114): a hamza variant finds nothing, because the filter is a plain substring match", () => {
+  it("finds a hamza-spelled entity from an unhamzated query, the way the list screens do", () => {
     render(<EntityPicker value={null} onChange={() => {}} options={options} label="العميل" />);
     const input = screen.getByRole("combobox");
     fireEvent.focus(input);
 
     // «الأمل» typed without the hamza — the way an operator in a hurry types it,
     // and the way the customer list itself matches, because that list runs the
-    // app's own normaliser. This picker does not.
+    // app's own normaliser.
     fireEvent.change(input, { target: { value: "الامل" } });
-    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option")).toHaveTextContent("شركة الأمل للتجارة");
 
-    // Spelled exactly, it matches — so the entity is findable only by someone
-    // who reproduces the stored spelling character for character.
+    // Spelled exactly, it still matches: forgiving the variant must not cost
+    // the correct spelling.
     fireEvent.change(input, { target: { value: "الأمل" } });
     expect(screen.getAllByRole("option")).toHaveLength(1);
+  });
+
+  it("folds ة/ه, ى/ي and Arabic-Indic digits, and still refuses a word that is not there", () => {
+    const arabicOptions: EntityPickerOption[] = [
+      { id: "1", label: "مؤسسة فاطمة الزهراء", sublabel: "CUST-010" },
+      { id: "2", label: "شركة ليلى للتوريدات", sublabel: "CUST-011" },
+      { id: "3", label: "فرع ٢٠٢٦ التجاري", sublabel: "CUST-012" },
+    ];
+    render(<EntityPicker value={null} onChange={() => {}} options={arabicOptions} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+
+    fireEvent.change(input, { target: { value: "فاطمه" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+
+    fireEvent.change(input, { target: { value: "ليلي" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+
+    fireEvent.change(input, { target: { value: "2026" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+
+    // Negative control: the normaliser folds spelling variance, never meaning.
+    fireEvent.change(input, { target: { value: "الاسكندرية" } });
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
   });
 
   it("matches on the sublabel too, so a code finds its entity", () => {

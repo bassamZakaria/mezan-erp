@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { errorMessage } from "../../lib/error-message";
 import {
   Button,
+  Card,
   DocumentList,
   EmptyState,
   EntityPicker,
@@ -210,12 +211,21 @@ export function SalesQuotesScreen() {
 
   return (
     <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">{t("quotes.loadFailed")}</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            {t("common.retry")}
+          </Button>
+        </Card>
+      ) : null}
       {rowError ? (
         <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
           {rowError}
         </div>
       ) : null}
       <DocumentList<SalesQuoteRecord>
+        loadFailed={query.isError}
         title={t("quotes.title")}
         description={t("quotes.description")}
         actions={

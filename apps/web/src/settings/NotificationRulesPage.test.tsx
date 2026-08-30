@@ -8,10 +8,7 @@ import { NotificationRulesPage } from "./NotificationRulesPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
 function textboxByLabel(container: HTMLElement, label: string): HTMLInputElement {
-  const labelNode = within(container).getByText(label);
-  const input = labelNode.parentElement?.querySelector("input, textarea");
-  if (!input) throw new Error(`no text input associated with label "${label}"`);
-  return input as HTMLInputElement;
+  return within(container).getByLabelText(label) as HTMLInputElement;
 }
 
 function chooseSelectOption(triggerLabel: string, optionMatch: string | RegExp) {
@@ -201,7 +198,7 @@ describe("NotificationRulesPage", () => {
     expect(screen.queryByRole("button", { name: "غير نشط" })).not.toBeInTheDocument();
   });
 
-  it("cancelling the panel does not create a rule, and LIMITATION (D134): the draft survives the cancel", async () => {
+  it("cancelling the panel creates nothing and throws the draft away, by either exit (D134)", async () => {
     const user = userEvent.setup();
     let createCalls = 0;
     renderWithProviders(<NotificationRulesPage />, {
@@ -226,19 +223,20 @@ describe("NotificationRulesPage", () => {
 
     await user.click(screen.getByRole("button", { name: "إضافة قاعدة" }));
     dialog = screen.getByRole("dialog", { name: "إضافة قاعدة" });
-    // D134. `resetForm()` runs only after a SUCCESSFUL create — not on
-    // «إلغاء», and not on the panel's own close control — so reopening the
-    // panel puts the person back inside the draft they just abandoned, with
-    // «حفظ» live. The next thing they save is the rule they meant to throw
-    // away. It should be "" here; it is not.
-    expect(textboxByLabel(dialog, "اسم القاعدة *")).toHaveValue("قاعدة لن تُحفظ");
+    // An abandoned draft must not come back: the next thing saved from this
+    // panel would otherwise be the rule they meant to throw away, with «حفظ»
+    // already live (D134).
+    expect(textboxByLabel(dialog, "اسم القاعدة *")).toHaveValue("");
 
-    await user.clear(textboxByLabel(dialog, "اسم القاعدة *"));
     await user.type(textboxByLabel(dialog, "اسم القاعدة *"), "قاعدة أخرى لن تُحفظ");
     await user.click(within(dialog).getByRole("button", { name: "إغلاق اللوحة" }));
     expect(screen.queryByRole("dialog", { name: "إضافة قاعدة" })).not.toBeInTheDocument();
-    // Whatever the draft does, neither exit may ever CREATE the rule. That is
-    // the half that matters, and it holds.
+
+    // The panel's own close control is the other exit, and it must clear too.
+    await user.click(screen.getByRole("button", { name: "إضافة قاعدة" }));
+    dialog = screen.getByRole("dialog", { name: "إضافة قاعدة" });
+    expect(textboxByLabel(dialog, "اسم القاعدة *")).toHaveValue("");
+    // Neither exit may ever CREATE the rule — the half that matters most.
     expect(createCalls).toBe(0);
   });
 

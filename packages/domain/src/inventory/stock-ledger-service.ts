@@ -51,6 +51,18 @@ import type {
   InventoryGlPosting,
 } from "./ports.js";
 
+/**
+ * How much of one landed-cost line the position could actually absorb.
+ *
+ * `absorbed` raised the cost basis of stock still on hand; `unabsorbed`
+ * belongs to units already issued and is a PERIOD cost the caller must post
+ * (D84, D135). The two always sum to the line amount.
+ */
+export interface LandedCostAbsorption {
+  readonly absorbed: Money;
+  readonly unabsorbed: Money;
+}
+
 export interface StockLedgerPolicy {
   /** docs/archive/catalog/09 §"سياسة المخزون" → `allowNegativeStock`: any OUT may drive a position below zero. */
   readonly allowNegativeStock: boolean;
@@ -873,11 +885,15 @@ export class StockLedgerService {
    * the sub-ledger permanently out of step with GL 1200.
    *
    * Which layers absorb it is scoped by `revaluesSourceDocId` — the receipt
-   * document whose layers the cost belongs to — and the replay applies the same
-   * largest-remainder allocation across their original quantities that this
-   * method used to apply by hand. A layer already fully consumed simply is not
-   * there to raise; the position-level value still lands, so system-wide
-   * valuation stays exact.
+   * document whose layers the cost belongs to — and the replay allocates it
+   * across their remaining quantities by largest remainder.
+   *
+   * Only the share those goods STILL represent is capitalised. Whatever
+   * belongs to units already issued comes back as `unabsorbed`, and the
+   * CALLER must post it to cost of sales (or a purchase price variance
+   * account) — the landed-cost document debits inventory for the whole amount,
+   * so an unabsorbed remainder left unposted is exactly the gap between GL
+   * 1200 and the stock valuation report (D84, D135).
    */
   async applyLandedCostRevaluation(line: {
     readonly itemId: string;
@@ -891,14 +907,18 @@ export class StockLedgerService {
     readonly landedCostDocNumber?: string | null;
     /** Document date of the landed cost; never dated before the position's last movement. */
     readonly occurredAt?: string;
-  }): Promise<void> {
+  }): Promise<LandedCostAbsorption> {
     if (line.valueDelta.scaled <= 0n) {
       throw new InvalidStockMovementError([
         `قيمة التكلفة الإضافية للصنف "${line.itemId}" يجب أن تكون موجبة`,
       ]);
     }
-    await this.runInTransaction(async () => {
+    return this.runInTransaction(async () => {
       const movements = await this.deps.ledger.listByPosition(line.itemId, line.warehouseId);
+      const before =
+        movements.length === 0
+          ? emptyPosition(line.itemId, line.warehouseId)
+          : replay(line.itemId, line.warehouseId, movements);
       const last = movements[movements.length - 1]?.occurredAt;
       const wanted = line.occurredAt ?? new Date().toISOString();
       const occurredAt = last && last > wanted ? last : wanted;
@@ -919,7 +939,14 @@ export class StockLedgerService {
         revaluesSourceDocId: line.sourceDocId,
       });
 
-      await this.rebuildWithin(line.itemId, line.warehouseId);
+      const after = await this.rebuildWithin(line.itemId, line.warehouseId);
+      const unabsorbed = Money.fromScaled(
+        after.unabsorbedRevaluation.scaled - before.unabsorbedRevaluation.scaled,
+      );
+      return {
+        absorbed: Money.fromScaled(line.valueDelta.scaled - unabsorbed.scaled),
+        unabsorbed,
+      };
     });
   }
 
@@ -1092,6 +1119,7 @@ export class StockLedgerService {
       totalValue: snap.totalValue,
       averageCost: snap.averageCost,
       layers: await this.deps.layers.listByPosition(itemId, warehouseId),
+      unabsorbedRevaluation: Money.zero(),
     };
     const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);
     return checkDrift(cached, movements, tolerance);

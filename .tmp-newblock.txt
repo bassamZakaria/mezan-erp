@@ -1,0 +1,9 @@
+      direction: "IN",
+      qty: Qty.fromMajor(qty),
+      unitCost: Money.fromMajor(unitCost),
+      sourceDocType: "PURCHASE_RECEIPT",
+      sourceDocId: docId,
+      sourceDocNumber: null,
+      reason: null,
+      occurredAt: at,
+    });

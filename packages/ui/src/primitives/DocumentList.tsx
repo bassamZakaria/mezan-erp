@@ -139,6 +139,14 @@ export interface DocumentListProps<Row> {
    */
   loading?: boolean;
   /**
+   * The query that feeds `rows` failed. An empty list and a failed load both
+   * arrive here as `rows: []`, and the empty state then tells the operator
+   * the opposite of the truth — that the records are not there — under the
+   * screen's own error banner (D123). Pass the query's error flag and the
+   * empty state stays out of the way until there is an answer to show.
+   */
+  loadFailed?: boolean;
+  /**
    * Renders `stats` behind a collapse toggle (R1.11) — a report with 30 rows
    * of KPI cards above it is a report you scroll past, not one you read.
    * Requires `listKey` to remember the reader's choice across a reload;
@@ -247,6 +255,7 @@ export function DocumentList<Row>({
   pageSizeOptions = DEFAULT_PAGE_SIZES,
   emptyState,
   loading = false,
+  loadFailed = false,
   statsCollapsible = false,
   filterBarCollapsible = false,
   activeFilterCount,
@@ -583,7 +592,7 @@ export function DocumentList<Row>({
             </div>
           ) : null}
 
-          {!loading && rows.length === 0 && emptyState ? <div className="p-[16px]">{emptyState}</div> : null}
+          {!loading && !loadFailed && rows.length === 0 && emptyState ? <div className="p-[16px]">{emptyState}</div> : null}
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-[10px] border-t border-border px-[16px] py-[13px] text-xs text-ink-muted">

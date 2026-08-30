@@ -180,16 +180,12 @@ describe("ChartOfAccountsScreen", () => {
     expect(patchRequests[0]!.patch.parentId).toBe("2000");
   });
 
-  it("LIMITATION: a failed list load also shows the empty-tree message below the error banner", async () => {
+  it("does NOT show the empty-tree message when the load failed — the banner is the only story (D123)", async () => {
     renderScreen(sampleAccounts, { onGetAccounts: () => ({ status: 500, body: { error: "INTERNAL" } }) });
 
     expect(await screen.findByText("تعذّر تحميل دليل الحسابات.")).toBeInTheDocument();
-    // Same shape as the other list screens: the error banner renders ABOVE the
-    // account tree, but `accounts` falls back to `[]` on a failed fetch, so the
-    // tree's own `emptyState` ("no matching accounts") renders underneath it —
-    // indistinguishable from an honestly-empty chart of accounts. Flip this
-    // assertion to `.not.toBeInTheDocument()` once ChartOfAccountsScreen.tsx
-    // suppresses `emptyState` while `query.isError`.
-    expect(screen.getByText("لا توجد حسابات مطابقة")).toBeInTheDocument();
+    // An empty chart of accounts and an unreachable one are opposite facts:
+    // one invites "add an account", the other must invite "retry".
+    expect(screen.queryByText("لا توجد حسابات مطابقة")).not.toBeInTheDocument();
   });
 });

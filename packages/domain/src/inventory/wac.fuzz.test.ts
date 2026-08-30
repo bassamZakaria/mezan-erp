@@ -159,13 +159,11 @@ describe("weighted-average costing — fuzz", () => {
         // this: only the VALUE says whether anything was orphaned onto an
         // empty position.
         //
-        // A landed cost booked AFTER the stock is gone is excluded here and
-        // pinned separately below (D135) — it is not rounding, it is a whole
-        // freight invoice landing on nothing, and folding it into this
-        // tolerance would hide it behind a bigger number.
-        const revaluedAfterDrain = movements.some((m) => m.sourceDocType === "LANDED_COST");
-        if (revaluedAfterDrain) return;
-
+        // A landed cost booked AFTER the stock is gone used to be excluded
+        // here (D135): a whole freight invoice landed on nothing and the
+        // exclusion hid it. Its unabsorbable share is now split off into
+        // `unabsorbedRevaluation`, so a drained position holds nothing but
+        // the rounding residue of its own drain, whatever the ledger held.
         const residue = position.totalValue.scaled < 0n ? -position.totalValue.scaled : position.totalValue.scaled;
         expect(residue <= BigInt(movements.length + 1)).toBe(true);
       }),
@@ -173,141 +171,183 @@ describe("weighted-average costing — fuzz", () => {
     );
   });
 
-  describe("a landed cost that arrives after the stock has all been sold (D135)", () => {
+  describe("a landed cost that arrives after the stock has been sold (D135)", () => {
     /**
      * The freight invoice almost never arrives with the goods. By the time it
-     * is booked, a fast-moving item may already be sold out — and this is what
-     * happens then. Found by the fuzz property above, at 7 micro-units; stated
-     * here at the scale a real shop would see it.
+     * is booked, a fast-moving item may already be sold out. The cost then
+     * belongs to the units that BORE it — which have left — so only the share
+     * still represented by on-hand quantity may be capitalised; the rest is a
+     * period cost the caller must post (see `WacPosition.unabsorbedRevaluation`).
      */
+    const receipt = (id: string, docId: string, qty: string, unitCost: string, at: string): StockMovement => ({
+      id,
+      itemId: ITEM,
+      warehouseId: WAREHOUSE,
+      direction: "IN",
+      qty: Qty.fromMajor(qty),
+      unitCost: Money.fromMajor(unitCost),
+      sourceDocType: "PURCHASE_RECEIPT",
+      sourceDocId: docId,
+      sourceDocNumber: null,
+      reason: null,
+      occurredAt: at,
+    });
+
+    const issue = (id: string, qty: string, at: string): StockMovement => ({
+      id,
+      itemId: ITEM,
+      warehouseId: WAREHOUSE,
+      direction: "OUT",
+      qty: Qty.fromMajor(qty),
+      unitCost: Money.zero(),
+      sourceDocType: "SALES_INVOICE",
+      sourceDocId: id,
+      sourceDocNumber: null,
+      reason: null,
+      occurredAt: at,
+    });
+
+    const freight = (id: string, revalues: string, amount: string, at: string): StockMovement => ({
+      id,
+      itemId: ITEM,
+      warehouseId: WAREHOUSE,
+      direction: "IN",
+      qty: Qty.zero(),
+      unitCost: Money.zero(),
+      sourceDocType: "LANDED_COST",
+      sourceDocId: id,
+      sourceDocNumber: null,
+      reason: null,
+      occurredAt: at,
+      valueDelta: Money.fromMajor(amount),
+      revaluesSourceDocId: revalues,
+    });
+
     const DRAINED_THEN_REVALUED: StockMovement[] = [
-        {
-          id: "IN-1",
-          itemId: ITEM,
-          warehouseId: WAREHOUSE,
-          direction: "IN",
-          qty: Qty.fromMajor("100"),
-          unitCost: Money.fromMajor("10"),
-          sourceDocType: "PURCHASE_RECEIPT",
-          sourceDocId: "PR-1",
-          sourceDocNumber: null,
-          reason: null,
-          occurredAt: "2026-01-01T00:00:00.000Z",
-        },
-        {
-          id: "OUT-1",
-          itemId: ITEM,
-          warehouseId: WAREHOUSE,
-          direction: "OUT",
-          qty: Qty.fromMajor("100"),
-          unitCost: Money.zero(),
-          sourceDocType: "SALES_INVOICE",
-          sourceDocId: "SI-1",
-          sourceDocNumber: null,
-          reason: null,
-          occurredAt: "2026-01-02T00:00:00.000Z",
-        },
-        {
-          id: "LC-1",
-          itemId: ITEM,
-          warehouseId: WAREHOUSE,
-          direction: "IN",
-          qty: Qty.zero(),
-          unitCost: Money.zero(),
-          sourceDocType: "LANDED_COST",
-          sourceDocId: "LC-1",
-          sourceDocNumber: null,
-          reason: null,
-          occurredAt: "2026-01-03T00:00:00.000Z",
-          valueDelta: Money.fromMajor("250"),
-          revaluesSourceDocId: "PR-1",
-        } as StockMovement,
+      receipt("IN-1", "PR-1", "100", "10", "2026-01-01T00:00:00.000Z"),
+      issue("OUT-1", "100", "2026-01-02T00:00:00.000Z"),
+      freight("LC-1", "PR-1", "250", "2026-01-03T00:00:00.000Z"),
     ];
 
     const drainedThenRevalued = () => replay(ITEM, WAREHOUSE, DRAINED_THEN_REVALUED);
 
-    it("LIMITATION (D135): the whole freight invoice is left on a position holding nothing", () => {
+    it("GUARANTEE (D135): nothing is capitalised onto a position holding nothing", () => {
       const position = drainedThenRevalued();
 
       expect(position.onHand.toString()).toBe("0.000000");
-      // 250.00 of value, backed by zero units. It should have gone to COGS —
-      // the goods it belongs to have already been sold.
-      expect(position.totalValue.toString()).toBe("250.000000");
+      // Zero units can carry zero cost. The 250.00 of freight belongs to the
+      // 100 units that already shipped.
+      expect(position.totalValue.toString()).toBe("0.000000");
     });
 
-    it("LIMITATION (D135): the average reads 0.000000, so no screen shows the orphaned value", () => {
-      // This is why it survives: `unitCostOf(value, 0)` is 0, so the item card,
-      // the stock list and the costing screen all look perfectly normal. Only
-      // the valuation total is wrong, and only against the GL.
+    it("GUARANTEE (D135): the whole 250.00 is reported as unabsorbed, not swallowed", () => {
+      // Dropping it from inventory without reporting it would just move the
+      // silence. This is the figure the landed-cost posting must send to cost
+      // of sales instead of inventory.
       const position = drainedThenRevalued();
-      expect(position.averageCost.toString()).toBe("0.000000");
+      expect(position.unabsorbedRevaluation.toString()).toBe("250.000000");
     });
 
-    it("LIMITATION (D135): it never washes out — the next receipt inherits it as margin error", () => {
-      // With nothing on hand to absorb it the 250 simply waits. Buying 10 more
-      // at 10.00 should give a position worth 100.00 at 10.00 each; instead the
-      // orphaned freight rides along, so every one of those 10 units carries
-      // 35.00 of cost — and that overstatement goes straight to cost of sales
-      // on goods that never bore the freight.
+    it("GUARANTEE (D135): the next receipt costs at what it actually cost", () => {
+      // Buying 10 more at 10.00 gives a position worth 100.00 at 10.00 each.
+      // Before the fix the orphaned freight rode along and every one of those
+      // 10 units carried 35.00 — a 250% overstatement of cost of sales on
+      // goods that never bore the freight.
       const position = replay(ITEM, WAREHOUSE, [
         ...DRAINED_THEN_REVALUED,
-        {
-          id: "IN-2",
-          itemId: ITEM,
-          warehouseId: WAREHOUSE,
-          direction: "IN",
-          qty: Qty.fromMajor("10"),
-          unitCost: Money.fromMajor("10"),
-          sourceDocType: "PURCHASE_RECEIPT",
-          sourceDocId: "PR-2",
-          sourceDocNumber: null,
-          reason: null,
-          occurredAt: "2026-01-04T00:00:00.000Z",
-        },
+        receipt("IN-2", "PR-2", "10", "10", "2026-01-04T00:00:00.000Z"),
       ]);
 
       expect(position.onHand.toString()).toBe("10.000000");
-      expect(position.totalValue.toString()).toBe("350.000000");
-      expect(position.averageCost.toString()).toBe("35.000000");
+      expect(position.totalValue.toString()).toBe("100.000000");
+      expect(position.averageCost.toString()).toBe("10.000000");
+      expect(position.unabsorbedRevaluation.toString()).toBe("250.000000");
     });
 
-    it("still applies the landed cost correctly while the stock IS on hand (the negative control)", () => {
-      // The mechanism is right; only the drained case is wrong. A guard that
+    it("GUARANTEE (D135): a partly-sold receipt absorbs only the on-hand share", () => {
+      // 100 received at 10.00, 60 sold, then 250.00 of freight on that receipt.
+      // 40 units remain, so 40/100 of 250.00 = 100.00 stays in inventory and
+      // 150.00 belongs to the 60 units already in cost of sales. The unit cost
+      // of what remains is still 12.50 — the same landed cost per unit the
+      // whole shipment bore.
+      const position = replay(ITEM, WAREHOUSE, [
+        receipt("IN-1", "PR-1", "100", "10", "2026-01-01T00:00:00.000Z"),
+        issue("OUT-1", "60", "2026-01-02T00:00:00.000Z"),
+        freight("LC-1", "PR-1", "250", "2026-01-03T00:00:00.000Z"),
+      ]);
+
+      expect(position.onHand.toString()).toBe("40.000000");
+      expect(position.totalValue.toString()).toBe("500.000000");
+      expect(position.averageCost.toString()).toBe("12.500000");
+      expect(position.unabsorbedRevaluation.toString()).toBe("150.000000");
+      // The layers must agree with the position, or the valuation report and
+      // the cost-layer screen show two different inventories.
+      expect(Money.sum(position.layers.map((l) => extend(l.remainingQty, l.unitCost))).toString()).toBe(
+        "500.000000",
+      );
+    });
+
+    it("GUARANTEE (D135): freight on a receipt already consumed never lands on a LATER one", () => {
+      // PR-1 is sold out; PR-2 is untouched. The freight belongs to PR-1s
+      // goods, so PR-2 units must still cost exactly 10.00 each.
+      const position = replay(ITEM, WAREHOUSE, [
+        receipt("IN-1", "PR-1", "100", "10", "2026-01-01T00:00:00.000Z"),
+        issue("OUT-1", "100", "2026-01-02T00:00:00.000Z"),
+        receipt("IN-2", "PR-2", "50", "10", "2026-01-03T00:00:00.000Z"),
+        freight("LC-1", "PR-1", "250", "2026-01-04T00:00:00.000Z"),
+      ]);
+
+      expect(position.onHand.toString()).toBe("50.000000");
+      expect(position.totalValue.toString()).toBe("500.000000");
+      expect(position.averageCost.toString()).toBe("10.000000");
+      expect(position.unabsorbedRevaluation.toString()).toBe("250.000000");
+    });
+
+    it("still applies the landed cost in full while the stock IS on hand (the negative control)", () => {
+      // The mechanism is right; only the drained case was wrong. A guard that
       // refused every landed cost would break the feature instead of fixing it.
       const position = replay(ITEM, WAREHOUSE, [
-        {
-          id: "IN-1",
-          itemId: ITEM,
-          warehouseId: WAREHOUSE,
-          direction: "IN",
-          qty: Qty.fromMajor("100"),
-          unitCost: Money.fromMajor("10"),
-          sourceDocType: "PURCHASE_RECEIPT",
-          sourceDocId: "PR-1",
-          sourceDocNumber: null,
-          reason: null,
-          occurredAt: "2026-01-01T00:00:00.000Z",
-        },
-        {
-          id: "LC-1",
-          itemId: ITEM,
-          warehouseId: WAREHOUSE,
-          direction: "IN",
-          qty: Qty.zero(),
-          unitCost: Money.zero(),
-          sourceDocType: "LANDED_COST",
-          sourceDocId: "LC-1",
-          sourceDocNumber: null,
-          reason: null,
-          occurredAt: "2026-01-02T00:00:00.000Z",
-          valueDelta: Money.fromMajor("250"),
-          revaluesSourceDocId: "PR-1",
-        } as StockMovement,
+        receipt("IN-1", "PR-1", "100", "10", "2026-01-01T00:00:00.000Z"),
+        freight("LC-1", "PR-1", "250", "2026-01-02T00:00:00.000Z"),
       ]);
 
       expect(position.onHand.toString()).toBe("100.000000");
       expect(position.totalValue.toString()).toBe("1250.000000");
       expect(position.averageCost.toString()).toBe("12.500000");
+      expect(position.unabsorbedRevaluation.toString()).toBe("0.000000");
+    });
+
+    it("GUARANTEE (D135): a landed cost naming a document the ledger never received under still capitalises onto stock on hand", () => {
+      // The ordinary purchase flow names the purchase INVOICE while the layer
+      // carries the goods RECEIPT (D136), so no layer matches. There is then
+      // nothing to apportion against and the position itself is the basis:
+      // 100 units on hand carry the whole 500, exactly as before. Classing an
+      // unmatched revaluation as unabsorbed instead left the stock sub-ledger
+      // 500 short of GL 1200 on the COMMON path.
+      const position = replay(ITEM, WAREHOUSE, [
+        receipt("IN-1", "GRN-1", "100", "10", "2026-01-01T00:00:00.000Z"),
+        freight("LC-1", "PI-1", "500", "2026-01-02T00:00:00.000Z"),
+      ]);
+
+      expect(position.onHand.toString()).toBe("100.000000");
+      expect(position.totalValue.toString()).toBe("1500.000000");
+      expect(position.averageCost.toString()).toBe("15.000000");
+      expect(position.unabsorbedRevaluation.toString()).toBe("0.000000");
+    });
+
+    it("GUARANTEE (D135): the same unmatched landed cost is expensed when the position is empty", () => {
+      // The negative control for the fallback above: with no layer to point at
+      // AND nothing on hand, the only honest answer is that the cost belongs
+      // to goods already sold. Capitalising it here is the original defect.
+      const position = replay(ITEM, WAREHOUSE, [
+        receipt("IN-1", "GRN-1", "100", "10", "2026-01-01T00:00:00.000Z"),
+        issue("OUT-1", "100", "2026-01-02T00:00:00.000Z"),
+        freight("LC-1", "PI-1", "500", "2026-01-03T00:00:00.000Z"),
+      ]);
+
+      expect(position.onHand.toString()).toBe("0.000000");
+      expect(position.totalValue.toString()).toBe("0.000000");
+      expect(position.unabsorbedRevaluation.toString()).toBe("500.000000");
     });
   });
 
@@ -404,7 +444,7 @@ describe("weighted-average costing — fuzz", () => {
     );
   });
 
-  it("fuzz: a revaluation adds its whole value and moves no quantity", () => {
+  it("fuzz: a revaluation is conserved between inventory and the unabsorbed bucket", () => {
     fc.assert(
       fc.property(ledgerArb, fc.bigInt({ min: 1n, max: 100_000_000n }), (movements, valueMicro) => {
         const receipt = movements.find((m) => m.direction === "IN" && m.qty.scaled > 0n);
@@ -431,7 +471,17 @@ describe("weighted-average costing — fuzz", () => {
         ]);
 
         expect(after.onHand.scaled).toBe(before.onHand.scaled);
-        expect(after.totalValue.scaled).toBe(before.totalValue.scaled + valueMicro);
+        // A landed cost is CONSERVED, not unconditionally capitalised: the
+        // share the remaining goods can still carry raises inventory value,
+        // and the share belonging to goods already issued is reported as
+        // unabsorbed for the caller to expense (D135). Nothing is invented
+        // and nothing is lost between the two.
+        expect(after.totalValue.scaled + after.unabsorbedRevaluation.scaled).toBe(
+          before.totalValue.scaled + before.unabsorbedRevaluation.scaled + valueMicro,
+        );
+        // It can never raise inventory by MORE than it was worth, nor lower it.
+        expect(after.totalValue.scaled <= before.totalValue.scaled + valueMicro).toBe(true);
+        expect(after.totalValue.scaled >= before.totalValue.scaled).toBe(true);
       }),
       { numRuns: 300 },
     );
@@ -591,7 +641,7 @@ describe("a revaluation that names a receipt whose layers are gone (D84)", () =>
     revaluesSourceDocId: "DOC-PI-1",
   };
 
-  it("KNOWN LIMITATION (D84): the value lands on a position with nothing in it, and no layer is bumped", () => {
+  it("GUARANTEE (D84): the value does NOT land on a position with nothing in it", () => {
     const position = replay(ITEM, WAREHOUSE, [receipt, drain, landedCost]);
 
     // Everything was sold before the freight invoice arrived, so the layer the
@@ -599,13 +649,13 @@ describe("a revaluation that names a receipt whose layers are gone (D84)", () =>
     expect(position.onHand.scaled).toBe(0n);
     expect(position.layers).toHaveLength(0);
 
-    // The value is added anyway: 100.00 of inventory value with no units behind
-    // it. Nothing refuses it and nothing reports it — the drift report reads
-    // this as the documented layer-versus-WAC divergence rather than as the
-    // orphan it is. When D84 is fixed, this expectation is the one to rewrite:
-    // the cost belongs on the sold goods (COGS), not on an empty position.
-    expect(position.totalValue.toString()).toBe("100.000000");
+    // The cost belongs to the sold goods, so inventory carries none of it and
+    // the whole 100.00 is reported for the caller to post to cost of sales.
+    // Capitalising it left 100.00 of inventory value with no units behind it,
+    // invisible because the average of zero units is zero.
+    expect(position.totalValue.toString()).toBe("0.000000");
     expect(position.averageCost.scaled).toBe(0n);
+    expect(position.unabsorbedRevaluation.toString()).toBe("100.000000");
   });
 
   it("bumps the layer correctly when the goods are still there, which is the path that works", () => {
@@ -618,18 +668,20 @@ describe("a revaluation that names a receipt whose layers are gone (D84)", () =>
     expect(position.layers[0]?.unitCost.toString()).toBe("15.000000");
   });
 
-  it("KNOWN LIMITATION (D84): a partial drain leaves the whole freight on the units that remain", () => {
+  it("GUARANTEE (D84): a partial drain splits the freight over sold and unsold units", () => {
     const halfDrain: StockMovement = { ...drain, id: "MOV-OUT-HALF", qty: Qty.fromMajor("6") };
     const position = replay(ITEM, WAREHOUSE, [receipt, halfDrain, landedCost]);
 
-    // Four units are left and they carry all 100.00 of freight, so their unit
-    // cost jumps to 30.00 while the six already sold left at 5.00 — the cost of
-    // the sold portion is understated by exactly the freight it should have
-    // carried.
+    // Four of the ten units remain, so they carry 4/10 of the 100.00 — their
+    // unit cost rises from 5.00 to 15.00, the same landed cost per unit the
+    // whole shipment bore. The 60.00 belonging to the six already sold is
+    // reported for the caller to expense. Loading all 100.00 onto the four
+    // survivors put their cost at 30.00, double what they actually cost.
     expect(position.onHand.toString()).toBe("4.000000");
     expect(position.layers[0]?.unitCost.toString()).toBe("15.000000");
-    expect(position.totalValue.toString()).toBe("120.000000");
-    expect(position.averageCost.toString()).toBe("30.000000");
+    expect(position.totalValue.toString()).toBe("60.000000");
+    expect(position.averageCost.toString()).toBe("15.000000");
+    expect(position.unabsorbedRevaluation.toString()).toBe("60.000000");
   });
 });
 
@@ -728,10 +780,14 @@ describe("an issue leaves at the cost the LEDGER recorded, not a freshly recompu
       },
     ]);
 
-    // 50.00 − 20.00 + 60.00 = 90.00 over the 6 units still held.
+    // 50.00 − 20.00 = 30.00 over the 6 units still held. The freight is
+    // 60.00 on a receipt of 10 units of which 6 remain, so 36.00 attaches to
+    // them (30.00 + 36.00 = 66.00, an average of 11.00) and the 24.00 that
+    // belongs to the 4 already sold is reported, not capitalised (D135).
     expect(position.onHand.toString()).toBe("6.000000");
-    expect(position.totalValue.toString()).toBe("90.000000");
-    expect(position.averageCost.toString()).toBe("15.000000");
+    expect(position.totalValue.toString()).toBe("66.000000");
+    expect(position.averageCost.toString()).toBe("11.000000");
+    expect(position.unabsorbedRevaluation.toString()).toBe("24.000000");
   });
 
   it("still recomputes when the movement records no cost of its own", () => {

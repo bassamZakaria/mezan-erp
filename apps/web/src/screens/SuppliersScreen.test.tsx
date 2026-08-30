@@ -37,14 +37,8 @@ const inactiveSupplier = supplier({
   active: false,
 });
 
-/** `TextField` renders a plain `<label>` with no `for`/`aria-labelledby`, so
- * `getByLabelText` cannot find its `<input>` — locate it by DOM adjacency
- * instead, matching the `Field` primitive's label-then-control layout. */
 function textboxByLabel(container: HTMLElement, label: string): HTMLInputElement {
-  const labelNode = within(container).getByText(label);
-  const input = labelNode.parentElement?.querySelector("input, textarea");
-  if (!input) throw new Error(`no text input associated with label "${label}"`);
-  return input as HTMLInputElement;
+  return within(container).getByLabelText(label) as HTMLInputElement;
 }
 
 function renderScreen(suppliers: SupplierDTO[] = [supplier(), inactiveSupplier]) {
@@ -186,7 +180,7 @@ describe("SuppliersScreen", () => {
     });
   });
 
-  it("LIMITATION (D123): a failed supplier list load renders the error banner over the ordinary empty-list message too", async () => {
+  it("tells a failed supplier list load apart from an empty one: the banner shows and the empty state does NOT (D123)", async () => {
     const transport = stubTransport({
       "GET /suppliers": () => ({ status: 500, body: { error: "INTERNAL" } }),
       "GET /suppliers/counts": () => ({ body: {} }),
@@ -198,9 +192,24 @@ describe("SuppliersScreen", () => {
     renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText("تعذّر تحميل الموردين.")).toBeInTheDocument();
-    // A user cannot tell "the load failed" from "there are no suppliers" from this alone —
-    // the same D123 shape already filed for items, price lists, promotions and the chart of accounts.
-    expect(screen.getByText("لا يوجد موردون مطابقون")).toBeInTheDocument();
+    // "The load failed" and "there are no suppliers" are different facts, and
+    // the screen must not assert the second one while the first is true.
+    expect(screen.queryByText("لا يوجد موردون مطابقون")).not.toBeInTheDocument();
+  });
+
+  it("shows the ordinary empty state — and no error banner — when the list genuinely comes back empty", async () => {
+    const transport = stubTransport({
+      "GET /suppliers": () => ({ body: [] }),
+      "GET /suppliers/counts": () => ({ body: {} }),
+      "GET /purchases/invoices": () => ({ body: [] }),
+      "GET /vouchers": () => ({ body: [] }),
+      "GET /open-invoices": () => ({ body: [] }),
+      "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
+    });
+    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText("لا يوجد موردون مطابقون")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل الموردين.")).not.toBeInTheDocument();
   });
 
   it("computes the statement's closing payable from a real opening balance and a confirmed purchase invoice", async () => {

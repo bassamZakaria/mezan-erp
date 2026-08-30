@@ -16,7 +16,7 @@
  * tenant admin, because only they hold `"*"` to give.
  */
 
-import { isTenantAdmin, type AuthContext } from "./auth-context.js";
+import { ALL_SCOPE, isTenantAdmin, type AuthContext, type ScopeSelection } from "./auth-context.js";
 import { resolvePermissions } from "./resolve.js";
 
 /**
@@ -55,4 +55,36 @@ export function targetOutranksCaller(ctx: AuthContext, target: AccountAuthority)
   if (isTenantAdmin(ctx)) return false;
   if (target.isCompanyAdmin) return true;
   return ungrantablePermissions(ctx, target.permissions).length > 0;
+}
+
+/**
+ * The scope ids in `requested` this caller may NOT hand out, tagged with the
+ * dimension they came from (`"branch:BR-ALEX"`, `"warehouse:*"`).
+ *
+ * WHERE is authority just as much as WHAT. Every read-narrowing in the app
+ * consults `branchScope`/`warehouseScope`, so a caller who can write a wider
+ * scope onto an account — their own most of all — defeats all of them at once
+ * without ever touching a permission code. A caller already holding `"*"` on a
+ * dimension can grant anything on it; anyone else may grant only ids they hold,
+ * and may never grant `"*"`.
+ */
+export function ungrantableScopes(
+  ctx: AuthContext,
+  requested: { readonly branchScope?: ScopeSelection; readonly warehouseScope?: ScopeSelection },
+): string[] {
+  return [
+    ...ungrantableScope("branch", ctx.branchScope, requested.branchScope),
+    ...ungrantableScope("warehouse", ctx.warehouseScope, requested.warehouseScope),
+  ];
+}
+
+function ungrantableScope(
+  dimension: string,
+  held: ScopeSelection,
+  requested: ScopeSelection | undefined,
+): string[] {
+  if (requested === undefined || held === ALL_SCOPE) return [];
+  if (requested === ALL_SCOPE) return [`${dimension}:${ALL_SCOPE}`];
+  const mine = new Set(held);
+  return requested.filter((id) => !mine.has(id)).map((id) => `${dimension}:${id}`);
 }

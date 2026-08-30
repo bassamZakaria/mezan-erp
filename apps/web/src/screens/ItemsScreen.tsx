@@ -1562,6 +1562,7 @@ export function ItemsScreen() {
         </Card>
       ) : null}
       <DocumentList<ItemDTO>
+        loadFailed={query.isError}
         title={t("items.items")}
         description={t("items.theMasterCatalogueOfProducts")}
         actions={

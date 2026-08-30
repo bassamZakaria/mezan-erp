@@ -9,7 +9,19 @@ import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
 import { screen, within, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ItemCategoryDTO, ItemDTO, PriceListDTO } from "@mezan/contracts";
+import type {
+  AccountDTO,
+  AuditEventDTO,
+  ItemBrandDTO,
+  ItemCategoryDTO,
+  ItemDTO,
+  ItemSeasonDTO,
+  ItemSpecificationDTO,
+  PriceListDTO,
+  SupplierDTO,
+  WarehouseDTO,
+} from "@mezan/contracts";
+import type { ItemCostLayerRecord, ItemStockPositionRecord, StockMovementRowDTO } from "../data/hooks";
 import { ItemsScreen } from "./ItemsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import { NavigationProvider } from "../navigation";
@@ -90,6 +102,122 @@ const sampleItems: ItemDTO[] = [
   item({ id: "itm-3", code: "ITM-000003", nameAr: "ورق طباعة A4 (رزمة 500 ورقة)", nameEn: null }),
 ];
 
+function warehouse(overrides: Partial<WarehouseDTO> = {}): WarehouseDTO {
+  return { id: "wh-1", code: "MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true, ...overrides };
+}
+
+function account(overrides: Partial<AccountDTO> = {}): AccountDTO {
+  return {
+    id: "acc-1",
+    code: "4101",
+    nameAr: "إيرادات المبيعات",
+    nameEn: null,
+    type: "revenue",
+    naturalBalance: "credit",
+    parentId: null,
+    isHeader: false,
+    status: "active",
+    ...overrides,
+  };
+}
+
+function supplier(overrides: Partial<SupplierDTO> = {}): SupplierDTO {
+  return {
+    id: "sup-1",
+    code: "SUP-001",
+    nameAr: "مورد الأرز المصري",
+    nameEn: null,
+    phone: null,
+    email: null,
+    contactPerson: null,
+    taxNumber: null,
+    category: null,
+    notes: null,
+    paymentTermsDays: 30,
+    currency: "EGP",
+    openingBalance: "0.00",
+    active: true,
+    addressCity: null,
+    addressDistrict: null,
+    addressStreet: null,
+    ...overrides,
+  };
+}
+
+function brand(overrides: Partial<ItemBrandDTO> = {}): ItemBrandDTO {
+  return { id: "brand-1", code: "BR-01", nameAr: "الأهرام", nameEn: null, status: "active", ...overrides };
+}
+
+function season(overrides: Partial<ItemSeasonDTO> = {}): ItemSeasonDTO {
+  return { id: "season-1", code: "SUM", nameAr: "الصيف", nameEn: null, startDate: null, endDate: null, status: "active", ...overrides };
+}
+
+function specDefinition(overrides: Partial<ItemSpecificationDTO> = {}): ItemSpecificationDTO {
+  return {
+    code: "WEIGHT",
+    nameAr: "الوزن",
+    nameEn: null,
+    type: "text",
+    values: [],
+    unit: "كجم",
+    filterable: true,
+    status: "active",
+    usageCount: 0,
+    ...overrides,
+  };
+}
+
+function auditEvent(overrides: Partial<AuditEventDTO> = {}): AuditEventDTO {
+  return {
+    stream: "sensitive",
+    module: "items",
+    entityType: "ITEM",
+    entityId: "itm-1",
+    action: "UPDATE_ITEM",
+    actor: "محمد الشهابي",
+    branchId: null,
+    timestamp: "2026-08-15T10:00:00.000Z",
+    severity: "INFO",
+    details: null,
+    ...overrides,
+  };
+}
+
+function stockPosition(overrides: Partial<ItemStockPositionRecord> = {}): ItemStockPositionRecord {
+  return { warehouseId: "wh-1", onHand: "40.000000", reserved: "5.000000", available: "35.000000", totalValue: "6000.000000", averageCost: "150.000000", ...overrides };
+}
+
+function costLayer(overrides: Partial<ItemCostLayerRecord> = {}): ItemCostLayerRecord {
+  return {
+    id: "layer-1",
+    warehouseId: "wh-1",
+    unitCost: "150.000000",
+    originalQty: "50.000000",
+    remainingQty: "40.000000",
+    sourceDocType: "GOODS_RECEIPT",
+    sourceDocNumber: "GR-000001",
+    createdAt: "2026-07-01T09:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function movement(overrides: Partial<StockMovementRowDTO> = {}): StockMovementRowDTO {
+  return {
+    id: "mv-1",
+    itemId: "itm-1",
+    warehouseId: "wh-1",
+    direction: "IN",
+    qty: "50.000000",
+    unitCost: "150.000000",
+    sourceDocType: "GOODS_RECEIPT",
+    sourceDocId: "gr-1",
+    sourceDocNumber: "GR-000001",
+    reason: null,
+    occurredAt: "2026-07-01T09:00:00.000Z",
+    ...overrides,
+  };
+}
+
 function renderScreen(
   items: ItemDTO[] = sampleItems,
   opts: {
@@ -97,6 +225,16 @@ function renderScreen(
     itemsRequests?: string[];
     onItemsGet?: (path: string) => { status?: number; body: unknown } | undefined;
     onCreateItem?: (body: Record<string, unknown>) => { status?: number; body: unknown } | undefined;
+    accounts?: AccountDTO[];
+    suppliers?: SupplierDTO[];
+    brands?: ItemBrandDTO[];
+    seasons?: ItemSeasonDTO[];
+    warehouses?: WarehouseDTO[];
+    specifications?: ItemSpecificationDTO[];
+    stockByItem?: Record<string, { positions: ItemStockPositionRecord[]; layers: ItemCostLayerRecord[] }>;
+    movementsByItem?: Record<string, StockMovementRowDTO[]>;
+    auditEventsByItem?: Record<string, AuditEventDTO[]>;
+    onOpenScreenAt?: (screen: ScreenKey, segments: readonly string[]) => void;
   } = {},
 ) {
   let current = [...items];
@@ -106,17 +244,41 @@ function renderScreen(
       itemsRequests.push(path);
       const overridden = opts.onItemsGet?.(path);
       if (overridden) return overridden;
-      const search = new URL(path, "http://x").searchParams.get("search");
-      const rows = search
-        ? current.filter((i) => [i.nameAr, i.nameEn, i.code].some((v) => v?.toLowerCase().includes(search.toLowerCase())))
-        : current;
+      const params = new URL(path, "http://x").searchParams;
+      const search = params.get("search");
+      const categoryId = params.get("categoryId");
+      const brandId = params.get("brandId");
+      const seasonId = params.get("seasonId");
+      const unitCode = params.get("unitCode");
+      let rows = current;
+      if (search) rows = rows.filter((i) => [i.nameAr, i.nameEn, i.code].some((v) => v?.toLowerCase().includes(search.toLowerCase())));
+      if (categoryId) rows = rows.filter((i) => i.categoryId === categoryId);
+      if (brandId) rows = rows.filter((i) => i.brandId === brandId);
+      if (seasonId) rows = rows.filter((i) => i.seasonId === seasonId);
+      if (unitCode) rows = rows.filter((i) => i.baseUnitCode === unitCode);
       return { body: rows };
     },
-    "GET /accounts": () => ({ body: [] }),
+    "GET /accounts": () => ({ body: opts.accounts ?? [] }),
     "GET /item-categories": () => ({ body: opts.categories ?? [] }),
-    "GET /item-brands": () => ({ body: [] }),
-    "GET /item-seasons": () => ({ body: [] }),
+    "GET /item-brands": () => ({ body: opts.brands ?? [] }),
+    "GET /item-seasons": () => ({ body: opts.seasons ?? [] }),
     "GET /item-units": () => ({ body: [] }),
+    "GET /suppliers": () => ({ body: opts.suppliers ?? [] }),
+    "GET /warehouses": () => ({ body: opts.warehouses ?? [] }),
+    "GET /item-specifications": () => ({ body: opts.specifications ?? [] }),
+    "GET /inventory/items/*/stock": (_init, path) => {
+      const itemId = path.split("/")[3]!.split("?")[0]!;
+      return { body: opts.stockByItem?.[itemId] ?? { positions: [], layers: [] } };
+    },
+    "GET /inventory/movements": (_init, path) => {
+      const params = new URL(path, "http://x").searchParams;
+      const itemId = params.get("itemId") ?? "";
+      return { body: opts.movementsByItem?.[itemId] ?? [] };
+    },
+    "GET /audit": (_init, path) => {
+      const entityId = new URL(path, "http://x").searchParams.get("entityId") ?? "";
+      return { body: opts.auditEventsByItem?.[entityId] ?? [] };
+    },
     "POST /items": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       const overridden = opts.onCreateItem?.(body);
@@ -133,7 +295,7 @@ function renderScreen(
     },
   });
   return renderWithProviders(
-    <TestNavigation>
+    <TestNavigation onOpenScreenAt={opts.onOpenScreenAt}>
       <ItemsScreen />
     </TestNavigation>,
     { transport, initialSession: testAdminSession },
@@ -259,20 +421,16 @@ describe("ItemsScreen", () => {
     expect(screen.queryByText("تعذّر تحميل الأصناف.")).not.toBeInTheDocument();
   });
 
-  it("LIMITATION: a failed list load also shows the empty-list message below the error banner", async () => {
+  it("does NOT show the empty-list message when the load failed — the banner is the only story (D123)", async () => {
     renderScreen(sampleItems, {
       onItemsGet: () => ({ status: 500, body: { error: "INTERNAL" } }),
     });
 
     expect(await screen.findByText("تعذّر تحميل الأصناف.")).toBeInTheDocument();
-    // ItemsScreen.tsx renders the error banner ABOVE the DocumentList, but never
-    // suppresses the list's own `emptyState` — `query.data` is undefined on a
-    // failed fetch, so `items`/`filtered` fall back to `[]` and DocumentList
-    // reads that as "no rows yet". A user cannot tell "the load failed" from
-    // "there are no items" from this message alone. When ItemsScreen.tsx hides
-    // `emptyState` (or passes a loading/error-aware one) while `query.isError`,
-    // this assertion flips to `.not.toBeInTheDocument()`.
-    expect(screen.getByText("لا توجد أصناف مطابقة")).toBeInTheDocument();
+    // "The load failed" and "there are no items" are opposite facts. Saying
+    // the second while the first is true tells the operator their catalogue
+    // is gone.
+    expect(screen.queryByText("لا توجد أصناف مطابقة")).not.toBeInTheDocument();
   });
 
   it("sends the picked category's real id in the /items request when the category filter is applied", async () => {

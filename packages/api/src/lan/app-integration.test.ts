@@ -56,7 +56,7 @@ describe("createApp({ lan }) — same shared app, /lan mounted alongside /journa
     const journalRes = await app.fetch(
       new Request("http://local/journal-entries", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
         body: JSON.stringify(entry),
       }),
     );

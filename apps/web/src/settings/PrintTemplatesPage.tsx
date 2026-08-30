@@ -88,7 +88,7 @@ function TriStateField({
 function signatureLabelList(count: number, labels: readonly string[]): string[] {
   const list = [...labels];
   while (list.length < count) list.push("");
-  return list.slice(0, Math.max(count, list.length));
+  return list.slice(0, count);
 }
 
 export function PrintTemplatesPage() {

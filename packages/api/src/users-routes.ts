@@ -5,15 +5,18 @@ import {
   isTenantAdmin,
   targetOutranksCaller,
   ungrantablePermissions,
+  ungrantableScopes,
   type AccountAuthority,
   InvalidUserError,
   DuplicateUserEmailError,
   EmailDomainNotAllowedError,
   UnknownRoleError,
   UserNotFoundError,
+  LastCompanyAdminError,
   type AuditSink,
   type User,
   type UnitOfWork,
+  type ScopeSelection,
   type SecretHasher,
 } from "@mezan/domain";
 import { createUserSchema, updateUserSchema } from "@mezan/contracts";
@@ -60,6 +63,11 @@ function userErrorResponse(c: Context, err: unknown) {
   }
   if (err instanceof UserNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
+  }
+  // 409, not 400: the request is well formed and the caller is allowed to
+  // deactivate users — it is the tenant's state that forbids this one (D117).
+  if (err instanceof LastCompanyAdminError) {
+    return c.json({ error: err.code, message: err.message }, 409);
   }
   throw err;
 }
@@ -126,6 +134,17 @@ export function createUsersRoutes(
     return { isCompanyAdmin: account.isCompanyAdmin, permissions: role ? [...role.permissions] : [] };
   }
 
+  function refuseScope(c: Context, scopes: readonly string[]) {
+    return c.json(
+      {
+        error: "PRIVILEGE_ESCALATION_DENIED",
+        scopes: [...scopes],
+        message: "لا يمكنك منح نطاق أوسع من نطاقك.",
+      },
+      403,
+    );
+  }
+
   function refuseGrant(c: Context, permissions: readonly string[]) {
     return c.json(
       {
@@ -152,9 +171,16 @@ export function createUsersRoutes(
    * says the caller may edit users, this says WHICH authority they may hand
    * out. Returns a refusal response, or null when the grant is within reach.
    */
-  async function refuseIfEscalating(c: Context, granted: { roleId: string | null; isCompanyAdmin: boolean }) {
+  async function refuseIfEscalating(
+    c: Context,
+    granted: { roleId: string | null; isCompanyAdmin: boolean; branchScope?: ScopeSelection; warehouseScope?: ScopeSelection },
+  ) {
     const ctx = getAuthContext(c);
     if (!ctx) return refuseOutranked(c);
+    // WHERE is authority too: a caller who can write a wider branch/warehouse
+    // scope than they hold defeats every read-narrowing at once (D118).
+    const scopes = ungrantableScopes(ctx, granted);
+    if (scopes.length > 0) return refuseScope(c, scopes);
     const authority = await authorityOf(granted);
     if (authority.isCompanyAdmin && !isTenantAdmin(ctx)) return refuseGrant(c, ["*"]);
     const ungrantable = ungrantablePermissions(ctx, authority.permissions);

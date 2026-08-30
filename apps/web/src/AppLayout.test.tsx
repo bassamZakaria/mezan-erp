@@ -16,12 +16,12 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import type { EntitlementsDTO, RoleDTO, UserDTO } from "@mezan/contracts";
 import { AppLayout } from "./AppLayout";
 import { AppProviders } from "./data/AppProviders";
-import { persistSession } from "./data/session";
+import { persistSession, type Session } from "./data/session";
 import { stubTransport, testAdminSession } from "./data/test-support";
 import type { Transport } from "./data/transport";
 import { useNavigation } from "./navigation";
@@ -29,16 +29,22 @@ import { pathForRoute } from "./routing";
 
 function IntentProbe() {
   const nav = useNavigation();
-  return <div data-testid="intent-probe">{JSON.stringify(nav.intent)}</div>;
+  const location = useLocation();
+  return (
+    <>
+      <div data-testid="intent-probe">{JSON.stringify(nav.intent)}</div>
+      <div data-testid="location-probe">{location.pathname}</div>
+    </>
+  );
 }
 
-function renderLayout(transport: Transport, initialEntries: string[] = ["/dashboard"]) {
+function renderLayout(transport: Transport, initialEntries: string[] = ["/dashboard"], session: Session | null = testAdminSession) {
   const router = createMemoryRouter(
     [{ path: "/", Component: AppLayout, children: [{ path: "*", element: <IntentProbe /> }] }],
     { initialEntries },
   );
   return render(
-    <AppProviders transport={transport} initialSession={testAdminSession}>
+    <AppProviders transport={transport} initialSession={session}>
       <RouterProvider router={router} />
     </AppProviders>,
   );
@@ -105,7 +111,7 @@ describe("AppLayout — users", () => {
 
     await screen.findByRole("button", { name: "إضافة مستخدم" });
     expect(seenBody).not.toBeNull();
-    expect((seenBody as { branchScope: unknown }).branchScope).toBe("*");
+    expect(seenBody!.branchScope).toBe("*");
 
     fireEvent.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
     fireEvent.change(screen.getByLabelText("الاسم بالعربية"), { target: { value: "مستخدم آخر" } });
@@ -114,7 +120,7 @@ describe("AppLayout — users", () => {
     fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
 
     await screen.findByRole("button", { name: "إضافة مستخدم" });
-    expect((seenBody as { branchScope: unknown }).branchScope).toEqual(["MAIN"]);
+    expect(seenBody!.branchScope).toEqual(["MAIN"]);
   });
 
   it("handleToggleUserStatus posts to the clicked row's own id and the new (inverted) status, not a stale one", async () => {
@@ -263,5 +269,138 @@ describe("AppLayout — command palette", () => {
     const probe = await screen.findByTestId("intent-probe");
     const intent = JSON.parse(probe.textContent ?? "null") as { prefill?: { voucherType: string } } | null;
     expect(intent?.prefill?.voucherType).toBe("supplier_payment");
+  });
+
+  it("every remaining quick action navigates to its OWN screen with a create intent — the route actually changes, not just a handler firing", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, ["/dashboard"]);
+
+    const cases: [label: string, screen: Parameters<typeof pathForRoute>[0]][] = [
+      ["فاتورة مبيعات جديدة", "sales-invoices"],
+      ["سند نقدي جديد", "treasury-vouchers"],
+      ["استلام بضاعة", "goods-receipts"],
+      ["فاتورة مشتريات جديدة", "purchase-invoices"],
+      ["عرض سعر جديد", "quotes"],
+      ["صنف جديد", "items"],
+      ["تسوية مخزون جديدة", "stock-adjustments"],
+    ];
+    for (const [label, target] of cases) {
+      fireEvent.click(await screen.findByRole("button", { name: /بحث وأوامر/ }));
+      fireEvent.click(await screen.findByText(label));
+      await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute(target)));
+      const probe = screen.getByTestId("intent-probe");
+      const intent = JSON.parse(probe.textContent ?? "null") as { kind: string } | null;
+      expect(intent?.kind).toBe("create");
+    }
+  });
+
+  it("'اختصارات لوحة المفاتيح' from the command palette opens the shortcuts overlay, and its own close button dismisses it", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, ["/dashboard"]);
+
+    fireEvent.click(await screen.findByRole("button", { name: /بحث وأوامر/ }));
+    fireEvent.click(await screen.findByText("اختصارات لوحة المفاتيح"));
+
+    expect(await screen.findByRole("dialog", { name: "اختصارات لوحة المفاتيح" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إغلاق قائمة الاختصارات" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "اختصارات لوحة المفاتيح" })).not.toBeInTheDocument());
+  });
+
+  it("the rail's own help button (not the command palette) also opens the shortcuts overlay", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, ["/dashboard"]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "اختصارات لوحة المفاتيح" }));
+    expect(await screen.findByRole("dialog", { name: "اختصارات لوحة المفاتيح" })).toBeInTheDocument();
+  });
+
+  it("⌘N opens the DEFAULT create screen (sales invoices) with a create intent when the screen on display registered no create target of its own", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, ["/dashboard"]);
+    await screen.findByTestId("location-probe");
+
+    fireEvent.keyDown(document, { key: "n", metaKey: true });
+
+    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute("sales-invoices")));
+    const intent = JSON.parse(screen.getByTestId("intent-probe").textContent ?? "null") as { kind: string } | null;
+    expect(intent?.kind).toBe("create");
+  });
+
+  it("clicking the pinned «صندوق الوارد» rail icon navigates the URL to the notifications screen", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, ["/dashboard"]);
+    await screen.findByTestId("location-probe");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute("dashboard"));
+
+    fireEvent.click(screen.getByRole("button", { name: "صندوق الوارد" }));
+    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute("notifications")));
+  });
+
+  it("clicking the dashboard icon in the direct-nav row (distinct from the wordmark) routes home", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, [pathForRoute("notifications")]);
+    await screen.findByTestId("location-probe");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute("notifications"));
+
+    fireEvent.click(screen.getByRole("button", { name: "لوحة التحكم" }));
+    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute("dashboard")));
+  });
+
+  it("the wordmark's onNavigateHome routes to the dashboard from any screen", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, [pathForRoute("notifications")]);
+    await screen.findByTestId("location-probe");
+
+    fireEvent.click(screen.getByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" }));
+    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute("dashboard")));
+  });
+
+  it("a 'go to' command-palette entry (built from the nav tree, not a quick action) navigates to that exact screen with no create intent", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, ["/dashboard"]);
+
+    fireEvent.click(await screen.findByRole("button", { name: /بحث وأوامر/ }));
+    fireEvent.click(await screen.findByText("صندوق الوارد"));
+
+    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent(pathForRoute("notifications")));
+    expect(screen.getByTestId("intent-probe")).toHaveTextContent("null");
+  });
+});
+
+describe("AppLayout — role editor cancel", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  it("cancelling the role editor returns to the roles list without saving anything", async () => {
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /roles": () => ({ body: [role] }),
+      "GET /users": () => ({ body: [] }),
+    });
+    renderLayout(transport, [pathForRoute("roles")]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "دور جديد" }));
+    expect(await screen.findByLabelText("اسم الدور *")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
+
+    expect(await screen.findByRole("button", { name: "دور جديد" })).toBeInTheDocument();
+  });
+});
+
+describe("AppLayout — first-run wizard", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  it("'الإعداد الأولي' on the login screen opens the first-run wizard, and its own cancel returns to sign-in", async () => {
+    const transport = stubTransport({});
+    renderLayout(transport, ["/dashboard"], null);
+
+    fireEvent.click(await screen.findByRole("button", { name: "الإعداد الأولي" }));
+    expect(await screen.findByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
+    expect(await screen.findByRole("button", { name: "الإعداد الأولي" })).toBeInTheDocument();
   });
 });

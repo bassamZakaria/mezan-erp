@@ -182,14 +182,15 @@ describe("SalesQuotesScreen", () => {
   });
 
   it(
-    "DEFECT: a load failure on GET /sales-quotes has no visible error state — the screen " +
-      "renders the same empty-state copy as a genuinely empty list, unlike every sibling " +
-      "screen in this codebase (which all show an Arabic error banner with a retry button).",
+    "shows an error banner with a working retry on a failed GET /sales-quotes, and NOT the " +
+      "empty-list copy — the two are different facts (D105/D123)",
     async () => {
+      const user = userEvent.setup();
+      let fail = true;
       const transport = stubTransport({
         "GET /branches": () => ({ body: branches }),
         "GET /customers": () => ({ body: customers }),
-        "GET /sales-quotes": () => ({ status: 500, body: { error: "SERVER_ERROR" } }),
+        "GET /sales-quotes": () => (fail ? { status: 500, body: { error: "SERVER_ERROR" } } : { body: [quote()] }),
         "GET /sales-quotes/counts": () => ({ body: { all: 0 } }),
         "GET /sales-quotes/stats": () => ({ body: {} }),
       });
@@ -199,9 +200,15 @@ describe("SalesQuotesScreen", () => {
         </TestNavigation>,
         { transport, initialSession: testAdminSession },
       );
-      expect(await screen.findByText("لا توجد عروض أسعار — أنشئ عرضاً جديداً")).toBeInTheDocument();
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(screen.queryByText(/تعذّر/)).not.toBeInTheDocument();
+
+      expect(await screen.findByText("تعذّر تحميل عروض الأسعار.")).toBeInTheDocument();
+      expect(screen.queryByText("لا توجد عروض أسعار — أنشئ عرضاً جديداً")).not.toBeInTheDocument();
+
+      fail = false;
+      await user.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+
+      expect(await screen.findByText("SQ-000001")).toBeInTheDocument();
+      expect(screen.queryByText("تعذّر تحميل عروض الأسعار.")).not.toBeInTheDocument();
     },
   );
 

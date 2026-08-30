@@ -31,7 +31,10 @@ CREATE TABLE IF NOT EXISTS bank_statement (
   closing_balance     INTEGER NOT NULL,
   status              TEXT NOT NULL,
   imported_at         TEXT NOT NULL,
-  finalized_at        TEXT
+  finalized_at        TEXT,
+  unmatched_at_finalize      INTEGER,
+  finalize_override_reason   TEXT,
+  finalized_by               TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_bank_statement_account ON bank_statement(treasury_account_id);
 CREATE INDEX IF NOT EXISTS idx_bank_statement_status ON bank_statement(status);
@@ -74,6 +77,9 @@ interface StatementRow {
   status: string;
   imported_at: string;
   finalized_at: string | null;
+  unmatched_at_finalize: bigint | number | null;
+  finalize_override_reason: string | null;
+  finalized_by: string | null;
 }
 
 function toStatement(row: StatementRow): BankStatement {
@@ -89,6 +95,9 @@ function toStatement(row: StatementRow): BankStatement {
     status: row.status as BankStatementStatus,
     importedAt: row.imported_at,
     finalizedAt: row.finalized_at,
+    unmatchedAtFinalize: row.unmatched_at_finalize === null ? null : Number(row.unmatched_at_finalize),
+    finalizeOverrideReason: row.finalize_override_reason,
+    finalizedBy: row.finalized_by,
   };
 }
 
@@ -105,6 +114,9 @@ function statementParams(s: BankStatement) {
     status: s.status,
     imported_at: s.importedAt,
     finalized_at: s.finalizedAt,
+    unmatched_at_finalize: s.unmatchedAtFinalize ?? null,
+    finalize_override_reason: s.finalizeOverrideReason ?? null,
+    finalized_by: s.finalizedBy ?? null,
   };
 }
 
@@ -161,14 +173,20 @@ class SqliteBankStatementRepository implements BankStatementRepository {
     this.insertStatement = sqlite.prepare(`
       INSERT INTO bank_statement (
         id, treasury_account_id, source, statement_number, period_start, period_end,
-        opening_balance, closing_balance, status, imported_at, finalized_at
+        opening_balance, closing_balance, status, imported_at, finalized_at,
+        unmatched_at_finalize, finalize_override_reason, finalized_by
       ) VALUES (
         @id, @treasury_account_id, @source, @statement_number, @period_start, @period_end,
-        @opening_balance, @closing_balance, @status, @imported_at, @finalized_at
+        @opening_balance, @closing_balance, @status, @imported_at, @finalized_at,
+        @unmatched_at_finalize, @finalize_override_reason, @finalized_by
       )
     `);
     this.updateStatement = sqlite.prepare(`
-      UPDATE bank_statement SET status = @status, finalized_at = @finalized_at WHERE id = @id
+      UPDATE bank_statement SET status = @status, finalized_at = @finalized_at,
+        unmatched_at_finalize = @unmatched_at_finalize,
+        finalize_override_reason = @finalize_override_reason,
+        finalized_by = @finalized_by
+      WHERE id = @id
     `);
     this.selectStatementById = sqlite.prepare(`SELECT * FROM bank_statement WHERE id = ?`).safeIntegers();
 
@@ -334,6 +352,16 @@ export function createSqliteBankReconciliationStore(path: SqliteConnectionInput 
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  const statementColumns = new Set(
+    (sqlite.prepare(`PRAGMA table_info(bank_statement)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, type] of [
+    ["unmatched_at_finalize", "INTEGER"],
+    ["finalize_override_reason", "TEXT"],
+    ["finalized_by", "TEXT"],
+  ] as const) {
+    if (!statementColumns.has(name)) sqlite.exec(`ALTER TABLE bank_statement ADD COLUMN ${name} ${type}`);
+  }
   return {
     statements: new SqliteBankStatementRepository(sqlite),
     mappings: new SqliteColumnMappingRepository(sqlite),

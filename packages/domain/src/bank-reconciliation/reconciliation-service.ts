@@ -26,9 +26,21 @@ import {
   BankStatementNotFoundError,
   LineAlreadyMatchedError,
   LineNotMatchedError,
+  FinalizeOverrideReasonRequiredError,
   StatementAlreadyFinalizedError,
+  StatementHasUnmatchedLinesError,
   StatementLineNotFoundError,
 } from "./errors.js";
+
+/**
+ * Finalising over unmatched lines is a deliberate, recorded act — never a
+ * default. `reason` is mandatory whenever `force` is set.
+ */
+export interface FinalizeOptions {
+  readonly force?: boolean;
+  readonly reason?: string;
+  readonly actor?: string | null;
+}
 
 export interface ImportStatementCommand {
   readonly id: string;
@@ -202,14 +214,40 @@ export class BankReconciliationService {
     return line;
   }
 
-  /** Lock the statement: قيد التسوية/مستورد → منتهية. Idempotency-guarded — cannot finalize twice. */
-  async finalize(statementId: string): Promise<BankStatement> {
+  /**
+   * Lock the statement: قيد التسوية/مستورد → منتهية. Idempotency-guarded —
+   * cannot finalize twice.
+   *
+   * REFUSED while any line is still unmatched, unless the caller passes an
+   * explicit `force` WITH a reason. An unmatched line is an open difference,
+   * and a reconciliation closed over one is how that difference stops being
+   * visible (D82). The override exists because some lines are legitimately
+   * unmatchable — a bank fee the shop books next month, a duplicated import
+   * row — but it is recorded on the statement (`unmatchedAtFinalize`,
+   * `finalizeOverrideReason`, `finalizedBy`) so the next person can see the
+   * reconciliation was closed over N open lines and why.
+   */
+  async finalize(statementId: string, opts: FinalizeOptions = {}): Promise<BankStatement> {
     const statement = await this.require(statementId);
     this.assertNotFinalized(statement);
-    const updated: BankStatement = { ...statement, status: "completed", finalizedAt: this.now() };
+    const lines = await this.deps.statements.listLines(statementId);
+    const unmatched = lines.filter((l) => l.status !== "matched").length;
+    if (unmatched > 0) {
+      if (!opts.force) throw new StatementHasUnmatchedLinesError(statementId, unmatched);
+      if (!opts.reason || opts.reason.trim() === "") throw new FinalizeOverrideReasonRequiredError(statementId);
+    }
+    const updated: BankStatement = {
+      ...statement,
+      status: "completed",
+      finalizedAt: this.now(),
+      unmatchedAtFinalize: unmatched,
+      finalizeOverrideReason: unmatched > 0 ? (opts.reason as string).trim() : null,
+      finalizedBy: opts.actor ?? null,
+    };
     await this.deps.statements.update(updated);
     return updated;
   }
+
 
   async matchSummary(statementId: string): Promise<MatchSummary> {
     const lines = await this.deps.statements.listLines(statementId);

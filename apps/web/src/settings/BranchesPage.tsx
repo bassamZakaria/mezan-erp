@@ -13,12 +13,13 @@ import {
   usePurchaseInvoices,
   useSalesInvoices,
   useTreasuryAccounts,
+  useUpdateBranch,
   useVouchers,
   useWarehouses,
 } from "../data/hooks";
 import { moneyToNumber, parseMoney, sumMoney, useBranchStockBalance } from "../data/partner-detail-hooks";
 import { branchName } from "./branch-name";
-import { TextField, ToggleField, SectionCard } from "./form-controls";
+import { TextField, ToggleField, SectionCard, SelectField } from "./form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
 import { useUrlSearch } from "../lib/url-state";
@@ -527,20 +528,89 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
   );
 }
 
-function BranchDetail({ branch, onBack }: { branch: BranchDTO; onBack: () => void }) {
+function branchToEditForm(branch: BranchDTO) {
+  return {
+    name: branch.name,
+    code: branch.code,
+    phone: branch.phone ?? "",
+    email: branch.email ?? "",
+    address: branch.address ?? "",
+    isMain: branch.isMain,
+    parentBranchId: branch.parentBranchId ?? "",
+  };
+}
+
+function BranchDetail({ branch, branches, onBack }: { branch: BranchDTO; branches: readonly BranchDTO[]; onBack: () => void }) {
   const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
   const treasuryQuery = useTreasuryAccounts();
+  const updateBranchMutation = useUpdateBranch();
   const warehouseCount = (warehousesQuery.data ?? []).filter((w) => w.branchId === branch.id).length;
   const treasuryAccounts = (treasuryQuery.data ?? []).filter((a) => a.branchId === branch.id);
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState(() => branchToEditForm(branch));
+  const [editError, setEditError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+
+  const parentOptions = [
+    { value: "", label: t("common.none") },
+    ...branches.filter((b) => b.id !== branch.id).map((b) => ({ value: b.id, label: b.name })),
+  ];
+
+  function openEdit() {
+    setEditForm(branchToEditForm(branch));
+    setEditError(null);
+    setEditOpen(true);
+  }
+
+  async function submitEdit() {
+    setEditError(null);
+    try {
+      await updateBranchMutation.mutateAsync({
+        id: branch.id,
+        patch: {
+          name: editForm.name,
+          code: editForm.code.toUpperCase(),
+          phone: editForm.phone || null,
+          email: editForm.email || null,
+          address: editForm.address || null,
+          isMain: editForm.isMain,
+          parentBranchId: editForm.isMain ? null : editForm.parentBranchId || null,
+        },
+      });
+      setEditOpen(false);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : t("branches.couldNotUpdateTheBranch"));
+    }
+  }
+
+  async function toggleActive() {
+    setStatusError(null);
+    try {
+      await updateBranchMutation.mutateAsync({ id: branch.id, patch: { active: !branch.active } });
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : t("branches.couldNotChangeTheBranchStatus"));
+    }
+  }
+
   return (
+    <>
     <DocumentDetail
       title={`${branch.name} · ${branch.code}`}
       statusLabel={branch.active ? t("common.active") : t("common.inactive")}
       statusTone={branch.active ? "success" : "neutral"}
       subtitle={branch.isMain ? t("branches.headBranch") : t("branches.subBranch")}
-      actions={<Button onClick={onBack}>{t("branches.backToTheBranchList")}</Button>}
+      actions={
+        <>
+          {statusError ? <StatusPill label={statusError} tone="danger" /> : null}
+          <Button onClick={toggleActive} disabled={updateBranchMutation.isPending}>
+            {branch.active ? t("branches.deactivate") : t("branches.activate")}
+          </Button>
+          <Button onClick={openEdit}>{t("common.edit")}</Button>
+          <Button onClick={onBack}>{t("branches.backToTheBranchList")}</Button>
+        </>
+      }
       summary={[
         { label: t("branches.branchCode"), value: branch.code },
         { label: t("common.phone"), value: branch.phone ?? t("common.none") },
@@ -596,6 +666,33 @@ function BranchDetail({ branch, onBack }: { branch: BranchDTO; onBack: () => voi
         { key: "activity", label: t("branches.activity"), content: <BranchActivityTab branch={branch} /> },
       ]}
     />
+
+    <SidePanel open={editOpen} onClose={() => setEditOpen(false)} title={t("branches.editBranch")} description={t("branches.editBranchDetails")}>
+      <div className="flex flex-col gap-[14px]">
+        {editError ? <StatusPill label={editError} tone="danger" /> : null}
+        <TextField label={t("branches.branchName")} value={editForm.name} onChange={(v) => setEditForm((f) => ({ ...f, name: v }))} />
+        <TextField label={t("branches.branchCode2")} value={editForm.code} onChange={(v) => setEditForm((f) => ({ ...f, code: v }))} />
+        <TextField label={t("common.phone")} type="tel" value={editForm.phone} onChange={(v) => setEditForm((f) => ({ ...f, phone: v }))} />
+        <TextField label={t("common.email")} type="email" value={editForm.email} onChange={(v) => setEditForm((f) => ({ ...f, email: v }))} />
+        <TextField label={t("branches.address")} value={editForm.address} onChange={(v) => setEditForm((f) => ({ ...f, address: v }))} />
+        <ToggleField label={t("branches.headBranch2")} checked={editForm.isMain} onChange={(v) => setEditForm((f) => ({ ...f, isMain: v }))} />
+        {!editForm.isMain ? (
+          <SelectField
+            label={t("branches.parentBranch")}
+            value={editForm.parentBranchId}
+            onChange={(v) => setEditForm((f) => ({ ...f, parentBranchId: v }))}
+            options={parentOptions}
+          />
+        ) : null}
+        <div className="flex justify-end gap-[9px]">
+          <Button onClick={() => setEditOpen(false)}>{t("common.cancel")}</Button>
+          <Button variant="primary" onClick={submitEdit} disabled={updateBranchMutation.isPending}>
+            {t("branches.saveChanges")}
+          </Button>
+        </div>
+      </div>
+    </SidePanel>
+    </>
   );
 }
 
@@ -608,9 +705,10 @@ export function BranchesPage() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [searchText, setSearchText, search] = useUrlSearch();
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ code: "", name: "", phone: "", email: "", address: "", isMain: false });
+  const [form, setForm] = useState({ code: "", name: "", phone: "", email: "", address: "", isMain: false, parentBranchId: "" });
 
   const selected = branches.find((b) => b.id === selectedId) ?? null;
+  const parentOptions = [{ value: "", label: t("common.none") }, ...branches.map((b) => ({ value: b.id, label: b.name }))];
 
   const filtered = useMemo(() => {
     if (search.trim() === "") return branches;
@@ -637,13 +735,14 @@ export function BranchesPage() {
         id: crypto.randomUUID(),
         code: form.code.toUpperCase(),
         name: form.name,
+        parentBranchId: form.isMain ? null : form.parentBranchId || null,
         phone: form.phone || null,
         email: form.email || null,
         address: form.address || null,
         isMain: form.isMain,
       });
       setPanelOpen(false);
-      setForm({ code: "", name: "", phone: "", email: "", address: "", isMain: false });
+      setForm({ code: "", name: "", phone: "", email: "", address: "", isMain: false, parentBranchId: "" });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("branches.couldNotCreateTheBranch"));
     }
@@ -661,7 +760,7 @@ export function BranchesPage() {
   }
 
   if (selected) {
-    return <BranchDetail branch={selected} onBack={() => setSelectedId(null)} />;
+    return <BranchDetail branch={selected} branches={branches} onBack={() => setSelectedId(null)} />;
   }
 
   return (
@@ -705,6 +804,14 @@ export function BranchesPage() {
           <TextField label={t("common.email")} type="email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} />
           <TextField label={t("branches.address")} value={form.address} onChange={(v) => setForm((f) => ({ ...f, address: v }))} />
           <ToggleField label={t("branches.headBranch2")} checked={form.isMain} onChange={(v) => setForm((f) => ({ ...f, isMain: v }))} />
+          {!form.isMain ? (
+            <SelectField
+              label={t("branches.parentBranch")}
+              value={form.parentBranchId}
+              onChange={(v) => setForm((f) => ({ ...f, parentBranchId: v }))}
+              options={parentOptions}
+            />
+          ) : null}
           <div className="flex justify-end gap-[9px]">
             <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
             <Button variant="primary" onClick={submitNewBranch}>

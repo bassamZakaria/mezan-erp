@@ -110,7 +110,7 @@ import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import type { EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
-import { headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
@@ -1446,7 +1446,20 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
 
-  app.post("/journal-entries", async (c) => {
+  /**
+   * DEPRECATED — the spike's original poster; `POST /gl/journal-entries`
+   * supersedes it and is the route the product uses.
+   *
+   * Gated as of D99: it was mounted with no permission check at all, so anyone
+   * who could reach the API could post into the books. The gate closes WHO may
+   * post. It does NOT give this route the fiscal-period check, the account
+   * validation, the numbering, the audit event or the cost-centre / currency /
+   * rate line fields the gl route has — the remaining fix is to delete it once
+   * its last two callers are moved onto a gl-mounted composition.
+   */
+  const legacyJournalGate = createPermissionGate(resolveAuth);
+
+  app.post("/journal-entries", legacyJournalGate("accounting.journal.post"), async (c) => {
     const parsed = createJournalEntrySchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json(
@@ -1489,7 +1502,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     }
   });
 
-  app.get("/journal-entries/:id", async (c) => {
+  app.get("/journal-entries/:id", legacyJournalGate("accounting.journal.view"), async (c) => {
     const entry = await uow.journal.findById(c.req.param("id"));
     if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(entry));

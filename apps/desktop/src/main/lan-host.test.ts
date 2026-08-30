@@ -65,10 +65,13 @@ describe("startLanHost", () => {
  * What the LAN socket exposes, over the exact composition
  * `apps/desktop/src/main/index.ts` ships: `createApp(uow, { lan })` with no
  * `resolveAuthContext`, so the default header resolver governs — and the
- * legacy `POST /journal-entries` route, which is mounted unconditionally and
- * has no permission gate at all (D99), is reachable across it.
+ * legacy `POST /journal-entries` route, which is mounted unconditionally.
+ *
+ * That route now carries a permission gate (D99), so the socket no longer
+ * hands the books to a stranger on the shop wifi. These tests hold both halves:
+ * the refusal, and the fact that nothing was written behind it.
  */
-describe("what the LAN socket exposes to a stranger (D109)", () => {
+describe("what the LAN socket exposes to a stranger (D109, D99)", () => {
   const multiTill = () =>
     createEntitlements({
       plan: "ENTERPRISE",
@@ -98,7 +101,7 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     ],
   };
 
-  it("LIMITATION (D109 + D99): an unauthenticated device on the shop wifi can post a journal entry into the books", async () => {
+  it("D99: an unauthenticated device on the shop wifi is refused, and nothing reaches the books", async () => {
     const { uow, handle, port } = await openSocket();
 
     // No credential, no session, no permission header — just a POST to the
@@ -109,16 +112,13 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
       body: JSON.stringify(entry),
     });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(403);
 
-    // And it is really in the books, not merely echoed back.
-    const stored = await uow.journal.findById("JE-FROM-THE-WIFI");
-    expect(stored).not.toBeNull();
-    expect(stored?.lines).toHaveLength(2);
+    // The status code is the smaller half; the books are the point.
+    expect(await uow.journal.findById("JE-FROM-THE-WIFI")).toBeNull();
 
-    // Readable back over the same socket, by the same stranger.
     const read = await fetch(`http://127.0.0.1:${port}/journal-entries/JE-FROM-THE-WIFI`);
-    expect(read.status).toBe(200);
+    expect(read.status).toBe(403);
 
     await handle.close();
     uow.close();
@@ -140,7 +140,7 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     uow.close();
   });
 
-  it("the same entry is refused when the app is built with a real session resolver", async () => {
+  it("the same entry is refused with a 401 when the app is built with a real session resolver", async () => {
     const entitlements = multiTill();
     const uow = createSqliteUnitOfWork(":memory:");
     const sessions = createSessionRegistry();
@@ -159,11 +159,11 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
       body: JSON.stringify({ ...entry, id: "JE-STILL-OPEN" }),
     });
 
-    // The legacy route is ungated regardless of the resolver, which is what
-    // makes D99 the more serious half of this pair: swapping the resolver on
-    // the desktop app would NOT close it.
-    expect(res.status).toBe(201);
-    expect(await uow.journal.findById("JE-STILL-OPEN")).not.toBeNull();
+    // With a real session resolver the stranger has no session at all, so the
+    // gate D99 added answers 401 rather than 403 — and either way nothing is
+    // written.
+    expect(res.status).toBe(401);
+    expect(await uow.journal.findById("JE-STILL-OPEN")).toBeNull();
 
     await handle.close();
     uow.close();

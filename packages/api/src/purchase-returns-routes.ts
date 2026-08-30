@@ -24,6 +24,7 @@ function serializeLine(l: PurchaseReturnLine) {
     qty: l.qty.toString(),
     unitCost: l.unitCost.toString(),
     taxAmount: l.taxAmount.toString(),
+    taxRatePercent: l.taxRatePercent ?? null,
   };
 }
 
@@ -195,6 +196,7 @@ export function createPurchaseReturnsRoutes(
           qty: Qty.fromMajor(l.qty),
           unitCost: Money.fromMajor(l.unitCost),
           taxAmount: Money.fromMajor(l.taxAmount),
+          taxRatePercent: l.taxRatePercent ?? null,
         }))),
       });
       return c.json(serialize(doc), 201);

@@ -70,14 +70,16 @@ describe("dual-mount journal posting", () => {
     const postRes = await app.fetch(
       new Request("http://local/journal-entries", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
         body: JSON.stringify(balancedEntry),
       }),
     );
     expect(postRes.status).toBe(201);
 
     const getRes = await app.fetch(
-      new Request(`http://local/journal-entries/${balancedEntry.id}`),
+      new Request(`http://local/journal-entries/${balancedEntry.id}`, {
+        headers: { "x-permissions": "accounting.journal.view" },
+      }),
     );
     expect(getRes.status).toBe(200);
     const fetched = (await getRes.json()) as {
@@ -102,7 +104,7 @@ describe("dual-mount journal posting", () => {
 
     const requestInit: RequestInit = {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
       body: JSON.stringify(balancedEntry),
     };
 
@@ -129,7 +131,7 @@ describe("dual-mount journal posting", () => {
 
     const requestInit: RequestInit = {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
       body: JSON.stringify(unbalancedEntry),
     };
 

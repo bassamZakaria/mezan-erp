@@ -90,6 +90,7 @@ export {
   type IssueLine,
   type PostIssueCommand,
   type IssueLineCost,
+  type LandedCostAbsorption,
   type PostIssueResult,
   type ReverseReceiptPosition,
   type ReverseReceiptCommand,

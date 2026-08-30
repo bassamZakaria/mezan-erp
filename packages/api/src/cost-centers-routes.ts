@@ -112,14 +112,23 @@ export function createCostCentersRoutes(
     return c.json(costCenters.map(serialize));
   });
 
+  /**
+   * Narrowed BEFORE the tree is built, not after: a cost centre whose parent
+   * falls outside the scope re-roots rather than disappearing with it, so a
+   * scoped caller still sees every centre that is theirs (D131).
+   */
   app.get("/tree", gate("accounting.coa.view"), async (c) => {
-    const costCenters = await repo.list();
-    return c.json(buildCostCenterTree(costCenters));
+    const costCenters = withinScope(await repo.list(), branchScopeOf(c), (cc) => cc.branchId);
+    return c.json(buildCostCenterTree([...costCenters]));
   });
 
   app.get("/:id", gate("accounting.coa.view"), async (c) => {
     const costCenter = await repo.findById(c.req.param("id"));
-    if (!costCenter) return c.json({ error: "NOT_FOUND" }, 404);
+    // Out of scope reads as absent, matching the list: the caller may not learn
+    // that another branch's cost centre exists by guessing its id (D131).
+    if (!costCenter || withinScope([costCenter], branchScopeOf(c), (cc) => cc.branchId).length === 0) {
+      return c.json({ error: "NOT_FOUND" }, 404);
+    }
     return c.json(serialize(costCenter));
   });
 

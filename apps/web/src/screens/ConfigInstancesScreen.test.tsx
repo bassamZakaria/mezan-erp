@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { CustomerDTO, ItemDTO, WarehouseDTO } from "@mezan/contracts";
 import { ConfigInstancesScreen } from "./ConfigInstancesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -242,5 +242,212 @@ describe("ConfigInstancesScreen", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByText("CM-000002")).toBeInTheDocument();
+  });
+});
+
+describe("ConfigInstancesScreen — a failed row-menu action is reported as failed, not as a false success", () => {
+  it("shows a failure toast, not a false success, when closing a configured order is refused by the server", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => ({ body: [instance()] }),
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+      "POST /manufacturing/config-instances/ci-1/close": () => ({ status: 409, body: { error: "NO_LINKED_WORK_ORDER", message: "لا يوجد أمر تصنيع مرتبط لإغلاقه" } }),
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    await screen.findByText("CM-000001");
+
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات CM-000001" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "إغلاق الأمر" }));
+
+    const toast = await screen.findByRole("alert");
+    expect(toast).toHaveTextContent("تعذّر تنفيذ");
+    expect(screen.queryByRole("status", { name: /تم تنفيذ/ })).not.toBeInTheDocument();
+    // The row must still read configured — the close never actually landed.
+    const row = screen.getByText("CM-000001").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText("مهيأة")).toBeInTheDocument();
+  });
+
+  it("shows the server's error inline when closing fails from the detail view", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => ({ body: [instance()] }),
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+      "POST /manufacturing/config-instances/ci-1/close": () => ({ status: 409, body: { error: "NO_LINKED_WORK_ORDER", message: "لا يوجد أمر تصنيع مرتبط لإغلاقه" } }),
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("CM-000001"));
+    fireEvent.click(screen.getByRole("button", { name: "إغلاق الأمر" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("لا يوجد أمر تصنيع مرتبط لإغلاقه");
+  });
+});
+
+describe("ConfigInstancesScreen — cancel, list controls and preview states", () => {
+  it("cancels a configured order from the detail view and posts to the cancel route", async () => {
+    let cancelCalls = 0;
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => ({ body: [instance()] }),
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+      "POST /manufacturing/config-instances/ci-1/cancel": () => {
+        cancelCalls += 1;
+        return { body: { ...instance(), status: "cancelled" } };
+      },
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("CM-000001"));
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
+    await waitFor(() => expect(cancelCalls).toBe(1));
+  });
+
+  it("cancels a configured order from the row menu without disturbing a second untouched row", async () => {
+    let cancelCalls = 0;
+    const other = instance({ id: "ci-2", number: "CM-000002", status: "in_progress" });
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => ({ body: [instance(), other] }),
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+      "POST /manufacturing/config-instances/ci-1/cancel": () => {
+        cancelCalls += 1;
+        return { body: { ...instance(), status: "cancelled" } };
+      },
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    await screen.findByText("CM-000001");
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات CM-000001" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "إلغاء" }));
+    // «إلغاء» is destructive (tone: danger), so RowMenu asks for confirmation first.
+    const confirmDialog = screen.getByRole("dialog", { name: /تأكيد/ });
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "إلغاء" }));
+    await waitFor(() => expect(cancelCalls).toBe(1));
+    const otherRow = screen.getByText("CM-000002").closest("tr");
+    expect(within(otherRow!).getByText("في التنفيذ")).toBeInTheDocument();
+  });
+
+  it("filters by product name and customer name, not only the order number", async () => {
+    const other = instance({ id: "ci-2", number: "CM-000002", customerId: null, spec: {} });
+    renderScreen([instance(), other]);
+    await screen.findByText("CM-000001");
+    fireEvent.change(screen.getByPlaceholderText("بحث برقم الأمر أو المنتج أو العميل…"), { target: { value: "شركة الأمل للتجارة" } });
+    expect(await screen.findByText("CM-000001")).toBeInTheDocument();
+    expect(screen.queryByText("CM-000002")).not.toBeInTheDocument();
+  });
+
+  it("shows the server's rejection inline and keeps the panel open when creating an order fails", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => ({ body: [] }),
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+      "POST /manufacturing/config-instances/preview": () => ({ body: previewResult }),
+      "POST /manufacturing/config-instances": () => ({ status: 422, body: { error: "VALIDATION", message: "الكمية يجب أن تكون أكبر من صفر" } }),
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("button", { name: "أمر تصنيع مخصص جديد" }));
+    const dialog = screen.getByRole("dialog", { name: "أمر تصنيع مخصص جديد" });
+    pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
+    fireEvent.change(inputNextToLabel(dialog, "العرض"), { target: { value: "150" } });
+    await within(dialog).findByText("زجاج (م²)");
+    pickFromCombobox(dialog, "مستودع الخامات *", "مستودع الخامات");
+    pickFromCombobox(dialog, "مستودع المنتجات *", "مستودع المنتجات التامة");
+    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("الكمية يجب أن تكون أكبر من صفر");
+    expect(within(dialog).getByRole("button", { name: "حفظ" })).toBeInTheDocument();
+  });
+
+  it("cancels the create panel without posting anything to the API", async () => {
+    let createCalls = 0;
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => ({ body: [] }),
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+      "POST /manufacturing/config-instances": () => {
+        createCalls += 1;
+        return { status: 201, body: instance() };
+      },
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("button", { name: "أمر تصنيع مخصص جديد" }));
+    const dialog = screen.getByRole("dialog", { name: "أمر تصنيع مخصص جديد" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "إلغاء" }));
+    expect(createCalls).toBe(0);
+  });
+
+  it("shows the preview's calculating and error states, then the resolved unit cost once it settles", async () => {
+    let rejectPreview = true;
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => ({ body: [] }),
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+      "POST /manufacturing/config-instances/preview": () =>
+        rejectPreview ? { status: 500, body: { error: "INTERNAL", message: "تعذّر حساب المعاينة" } } : { body: previewResult },
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("button", { name: "أمر تصنيع مخصص جديد" }));
+    const dialog = screen.getByRole("dialog", { name: "أمر تصنيع مخصص جديد" });
+    pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
+    fireEvent.change(inputNextToLabel(dialog, "العرض"), { target: { value: "150" } });
+
+    expect(await within(dialog).findByText("تعذّر حساب المعاينة")).toBeInTheDocument();
+
+    rejectPreview = false;
+    // Nudging the spec re-fires the preview effect.
+    fireEvent.change(inputNextToLabel(dialog, "العرض"), { target: { value: "151" } });
+    expect(await within(dialog).findByText("تكلفة الوحدة")).toBeInTheDocument();
+    // materialCostPerUnit + laborCostPerUnit + overheadCostPerUnit = 133.88 + 0 + 0
+    expect(within(dialog).getByText("133.88")).toBeInTheDocument();
+  });
+
+  it("shows a retry banner when the list fails, and retry re-fetches the same route", async () => {
+    let getCalls = 0;
+    let fail = true;
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => {
+        getCalls += 1;
+        return fail ? { status: 500, body: { error: "INTERNAL" } } : { body: [instance()] };
+      },
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل أوامر التصنيع المخصص.")).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    await waitFor(() => expect(getCalls).toBe(2));
+    expect(await screen.findByText("CM-000001")).toBeInTheDocument();
+  });
+
+  it("narrows to closed orders via the status chip, and rows-per-page is wired through", async () => {
+    const closed = instance({ id: "ci-2", number: "CM-000002", status: "closed" });
+    renderScreen([instance(), closed]);
+    await screen.findByText("CM-000001");
+
+    fireEvent.click(screen.getByRole("tab", { name: /مغلقة/ }));
+    expect(await screen.findByText("CM-000002")).toBeInTheDocument();
+    expect(screen.queryByText("CM-000001")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /الكل/ }));
+    await screen.findByText("CM-000001");
+
+    fireEvent.click(screen.getByRole("combobox", { name: "صفوف لكل صفحة" }));
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "50" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "صفوف لكل صفحة" })).toHaveTextContent("50"));
   });
 });

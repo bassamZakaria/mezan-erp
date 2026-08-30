@@ -13,6 +13,8 @@ export interface SourcePurchaseInvoiceLine {
   readonly alreadyReturnedQty: Qty;
   readonly unitCost: Money;
   readonly taxAmount: Money;
+  /** The VAT rate this line was charged at, carried onto the return line (D76). */
+  readonly taxRatePercent?: number | null;
 }
 
 export interface SourcePurchaseInvoice {

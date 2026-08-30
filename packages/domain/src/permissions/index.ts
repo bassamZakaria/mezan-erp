@@ -20,6 +20,7 @@ export { resolvePermissions, dependenciesOf } from "./resolve.js";
 
 export {
   ungrantablePermissions,
+  ungrantableScopes,
   targetOutranksCaller,
   type AccountAuthority,
 } from "./escalation.js";

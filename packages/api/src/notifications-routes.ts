@@ -7,7 +7,7 @@ import {
   type NotificationRepository,
 } from "@mezan/domain";
 import { notificationListQuerySchema } from "@mezan/contracts";
-import { headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createAuthenticatedGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 function serialize(n: Notification) {
   return {
@@ -27,6 +27,14 @@ function serialize(n: Notification) {
   };
 }
 
+function authContextOf(c: Context) {
+  const ctx = getAuthContext(c);
+  // The gate runs before every handler here, so this is unreachable; throwing
+  // beats silently falling back to a caller id nobody authenticated.
+  if (!ctx) throw new Error("notifications: no auth context on the request");
+  return ctx;
+}
+
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof NotificationNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
@@ -39,15 +47,22 @@ function handleDomainError(c: Context, err: unknown) {
  * every route scopes to the CALLING user's own notifications — there is no
  * "view anyone's notifications" mode, so unlike `/notification-rules` these
  * routes are not permission-gated beyond "you are someone."
+ *
+ * "You are someone" is still a check. Taking the user id as the whole
+ * authorization served a caller the server could not identify as the literal
+ * user "anonymous" — a 200 where the client needed a 401 to send the person
+ * back to sign in, and a write path that marked that pseudo-user inbox read
+ * (D132).
  */
 export function createNotificationsRoutes(
   repo: NotificationRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
 ) {
   const app = new Hono();
+  app.use("*", createAuthenticatedGate(resolveAuthContext));
 
   app.get("/", async (c) => {
-    const ctx = await resolveAuthContext(c);
+    const ctx = authContextOf(c);
     const parsed = notificationListQuerySchema.safeParse({
       status: c.req.query("status") ?? undefined,
       limit: c.req.query("limit") ?? undefined,
@@ -60,13 +75,13 @@ export function createNotificationsRoutes(
   });
 
   app.get("/unread-count", async (c) => {
-    const ctx = await resolveAuthContext(c);
+    const ctx = authContextOf(c);
     const count = await repo.countUnread(ctx.userId);
     return c.json({ count });
   });
 
   app.post("/:id/read", async (c) => {
-    const ctx = await resolveAuthContext(c);
+    const ctx = authContextOf(c);
     try {
       const notification = await markNotificationRead(c.req.param("id"), ctx.userId, repo);
       return c.json(serialize(notification));
@@ -76,7 +91,7 @@ export function createNotificationsRoutes(
   });
 
   app.post("/read-all", async (c) => {
-    const ctx = await resolveAuthContext(c);
+    const ctx = authContextOf(c);
     await markAllNotificationsRead(ctx.userId, repo);
     return c.body(null, 204);
   });

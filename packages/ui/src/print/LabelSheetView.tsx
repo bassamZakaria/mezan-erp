@@ -65,7 +65,12 @@ const PAGE_MM: Record<"A4" | "A5", { width: number; height: number }> = {
 
 /** Trims an exact decimal string to two fraction digits without ever parsing it as a number. */
 export function trimMoneyString(value: string, fractionDigits = 2): string {
-  const [intPart = "0", fracPart = ""] = value.split(".");
+  const [rawInt = "", fracPart = ""] = value.split(".");
+  // `"".split(".")` is `[""]`, not `[undefined]`, so a destructuring default
+  // never fires for an empty value and this returned ".00" — which reached the
+  // physical-count variance display, where an empty figure is exactly what a
+  // count with no variance sends.
+  const intPart = rawInt === "" || rawInt === "-" ? `${rawInt}0` : rawInt;
   if (fractionDigits === 0) return intPart;
   return `${intPart}.${(fracPart + "000000").slice(0, fractionDigits)}`;
 }

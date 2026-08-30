@@ -446,7 +446,7 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**Nineteen filed 2026-08-30 by the test-coverage pass** (D66–D84). They were found by
+**Twenty-nine filed 2026-08-30 by the test-coverage pass** (D66–D94). They were found by
 writing tests and manual scenarios against the real code, so each carries a file reference
 rather than a feeling. The ones marked **guarded** already have a passing test that pins the
 current behaviour and will go red the day it changes; the ones marked **reported** still
@@ -473,6 +473,16 @@ need a measured reading in the running app before anyone fixes them.
 | D82 | Finalising a bank statement never checks for unmatched lines, so a reconciliation can be closed with differences still open | `packages/api/src/bank-reconciliation-routes.ts` | reported |
 | D83 | When an approval gate holds a voucher, the create wizard never surfaces the `held` flag — the user sees a success and no explanation | `apps/web/src/screens/TreasuryVouchersScreen.tsx` | reported |
 | D84 | A landed cost naming a receipt whose layers are gone (fully consumed, or a mis-named `sourceDocId`) adds its value to the position but bumps no layer, so layer-level unit costs understate the basis with no signal | `packages/domain/src/inventory/wac.ts` | reported |
+| D85 | `saveRole` exempts the `"*"` wildcard from the licence check and never consults `isPlatformAdminOnly`, so a tenant licensed for no modules can still mint a role holding full admin — and the use-case never sees who is asking, so "you may not grant more than you hold" is enforced nowhere | `packages/domain/src/roles/save-role.ts` | guarded (`save-role.abuse.test.ts`) |
+| D86 | `saveUser` accepts `isCompanyAdmin: true` without checking the caller's own privilege; the only gate is `admin.users.edit`, so anyone holding it can promote themselves | `packages/domain/src/users/save-user.ts`, `packages/api/src/users-routes.ts` | reported |
+| D87 | The discount ceiling checks only `discountType: "percent"`, so an `amount`-type discount bypasses `sales.price.override` / `pos.discount.approve` entirely | sales invoice discount validation | reported |
+| D88 | A purchase invoice takes `unitCost` verbatim from the request with no cross-check against the PO or the receipt it names | `packages/api/src/purchases-routes.ts` | reported |
+| D89 | A sales return's `customerId` is never validated against its source invoice's customer, so a confirmed return's refund can be directed at any customer id the requester names | `packages/api/src/sales-returns-routes.ts` | reported |
+| D90 | A stock transfer posts both legs in one step with no receiving-side confirmation, so goods can never be recorded as in transit or short on arrival | `packages/domain/src/inventory/stock-transfer-document.ts` | reported |
+| D91 | There is no exception reporting anywhere — no report lists backdated documents, deleted drafts, discounts above a threshold, adjustments by reason, or after-hours postings | `packages/api/src/reports-routes.ts` | reported |
+| D92 | The RFQ detail screen passes the document NUMBER where the quotes and comparison routes resolve only by database id, so the quotes list comes back empty and the comparison 404s | `apps/web/src/screens/RfqsScreen.tsx` | reported |
+| D93 | «تحصيل دفعة» on a sales invoice starts with no treasury account selected and no default, so the collection is refused on submit with no cue beforehand — the refund flow on returns does default it | `apps/web/src/screens/SalesInvoicesScreen.tsx` | reported |
+| D94 | Item cost price is served to any holder of the item-list permission regardless of `sales.invoice.view_cost` | `packages/api/src/items-routes.ts` | reported |
 
 D1–D65 are closed; the register is `archive/defect-register.md`.
 

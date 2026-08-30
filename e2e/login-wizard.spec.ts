@@ -7,6 +7,13 @@ import { test, expect, type Page } from "@playwright/test";
  * so — unlike every other spec — they do NOT use support/auth.ts's
  * loginAsDemoUser and start each test with a plain `page.goto("/")`.
  *
+ * The PIN is now SIX digits everywhere (login and the wizard's admin step —
+ * `PIN_LENGTH = 6` in LoginScreen.tsx, `/^\d{6}$/` in FirstRunWizard.tsx), not
+ * four. A brand-new browser context (Playwright's default, no localStorage)
+ * has no remembered device users, so the login screen renders straight into
+ * "typing" mode with the seed admin's email pre-filled — the same state
+ * support/auth.ts relies on — rather than the «مَن يعمل الآن؟» face picker.
+ *
  * The wizard's step-indicator (<ol> of step labels) and the "تفعيل
  * الترخيص" step's own <section aria-label> render identical text for that
  * one step, so step content is scoped via `getByRole("region", {name})`
@@ -15,8 +22,9 @@ import { test, expect, type Page } from "@playwright/test";
  */
 
 async function fillPin(page: Page, digits: string): Promise<void> {
-  await page.getByLabel("رمز PIN رقم 1").click();
-  await page.keyboard.type(digits);
+  for (const [index, digit] of [...digits].entries()) {
+    await page.getByLabel(`رمز PIN رقم ${index + 1}`).fill(digit);
+  }
 }
 
 function wizardStep(page: Page, ariaLabel: string) {
@@ -28,23 +36,24 @@ test.describe("Login screen", () => {
     await page.goto("/");
   });
 
-  test("دخول is disabled until all 4 PIN digits are entered, then logs in with the correct demo PIN", async ({
+  test("دخول is disabled until all 6 PIN digits are entered, then logs in with the correct demo PIN", async ({
     page,
   }) => {
     const loginButton = page.getByRole("button", { name: "دخول" });
     await expect(loginButton).toBeDisabled();
 
-    await fillPin(page, "1234");
-    await expect(loginButton).toBeEnabled();
-    await loginButton.click();
+    await fillPin(page, "123456");
+    // The 6th digit auto-submits (LoginScreen.tsx) — the button flips straight
+    // from disabled (incomplete PIN) to disabled-while-pending, so "enabled" is
+    // never a stable intermediate state to assert; the real proof it accepted
+    // the PIN is landing on the app shell.
 
     // Lands on the app shell (default screen is the Dashboard).
     await expect(page.getByRole("heading", { name: /مرحباً، محمد/ })).toBeVisible();
   });
 
   test("shows a validation error for an incorrect PIN and stays on the login screen", async ({ page }) => {
-    await fillPin(page, "0000");
-    await page.getByRole("button", { name: "دخول" }).click();
+    await fillPin(page, "000000");
 
     await expect(page.getByRole("alert")).toHaveText("اسم المستخدم أو رمز PIN غير صحيح.");
     await expect(page.getByRole("heading", { name: "تسجيل الدخول" })).toBeVisible();
@@ -55,7 +64,7 @@ test.describe("Login screen", () => {
 test.describe("First-run wizard", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "أول مرة على ميزان؟ ابدأ معالج الإعداد الأولي" }).click();
+    await page.getByRole("button", { name: "الإعداد الأولي" }).click();
     await expect(page.getByRole("heading", { name: "معالج الإعداد الأولي" })).toBeVisible();
   });
 
@@ -73,7 +82,7 @@ test.describe("First-run wizard", () => {
     const adminStep = wizardStep(page, "إنشاء حساب المسؤول");
     await expect(adminStep).toBeVisible();
     await adminStep.getByLabel("الاسم الكامل").fill("سارة إبراهيم");
-    await adminStep.getByLabel("البريد الإلكتروني").fill("sara@example.com");
+    await adminStep.getByLabel("البريد الإلكتروني").fill("sara-back-nav@example.com");
 
     await page.getByRole("button", { name: "رجوع" }).click();
     await expect(activateStep).toBeVisible();
@@ -83,7 +92,7 @@ test.describe("First-run wizard", () => {
     await page.getByRole("button", { name: "التالي" }).click();
     await expect(adminStep).toBeVisible();
     await expect(adminStep.getByLabel("الاسم الكامل")).toHaveValue("سارة إبراهيم");
-    await expect(adminStep.getByLabel("البريد الإلكتروني")).toHaveValue("sara@example.com");
+    await expect(adminStep.getByLabel("البريد الإلكتروني")).toHaveValue("sara-back-nav@example.com");
   });
 
   test("validates the admin-account step, then advances through seed and import to finish in the app", async ({
@@ -104,34 +113,35 @@ test.describe("First-run wizard", () => {
     await expect(adminStep.getByRole("alert")).toHaveText("الاسم الكامل والبريد الإلكتروني مطلوبان.");
 
     await adminStep.getByLabel("الاسم الكامل").fill("سارة إبراهيم");
-    await adminStep.getByLabel("البريد الإلكتروني").fill("sara@example.com");
+    await adminStep.getByLabel("البريد الإلكتروني").fill("sara-finish-flow@example.com");
 
-    // PIN not 4 digits yet.
+    // PIN not 6 digits yet.
     await page.getByRole("button", { name: "التالي" }).click();
-    await expect(adminStep.getByRole("alert")).toHaveText("رمز PIN يجب أن يكون 4 أرقام.");
+    await expect(adminStep.getByRole("alert")).toHaveText("الرمز السرّي يجب أن يكون ٦ أرقام.");
 
-    await adminStep.getByLabel("رمز PIN (4 أرقام)").fill("1234");
-    await adminStep.getByLabel("تأكيد رمز PIN").fill("4321");
+    await adminStep.getByLabel("الرمز السرّي (٦ أرقام)").fill("123456");
+    await adminStep.getByLabel("تأكيد رمز PIN").fill("654321");
 
     // PIN / confirmation mismatch.
     await page.getByRole("button", { name: "التالي" }).click();
     await expect(adminStep.getByRole("alert")).toHaveText("رمز PIN وتأكيده غير متطابقين.");
 
-    await adminStep.getByLabel("تأكيد رمز PIN").fill("1234");
+    await adminStep.getByLabel("تأكيد رمز PIN").fill("123456");
     await page.getByRole("button", { name: "التالي" }).click();
 
     const seedStep = wizardStep(page, "تهيئة البيانات الأساسية");
     await expect(seedStep).toBeVisible();
     const seedNext = page.getByRole("button", { name: "التالي" });
-    await expect(seedNext).toBeDisabled();
-    await seedStep.getByRole("button", { name: "تشغيل الكل" }).click();
+    // The seed backend is idempotent and already ran when the shared e2e
+    // server booted, so the rows may already read «جاهز» — only assert that
+    // running it again gets every row to «جاهز» and unlocks "التالي".
+    await seedStep.getByRole("button", { name: "تشغيل التهيئة" }).click();
     await expect(seedStep.getByText("جاهز")).toHaveCount(5);
     await expect(seedNext).toBeEnabled();
     await seedNext.click();
 
     const importStep = wizardStep(page, "استيراد البيانات");
     await expect(importStep).toBeVisible();
-    await expect(importStep.getByRole("button", { name: "استيراد الآن" })).toBeDisabled();
 
     await page.getByRole("button", { name: "إنهاء والانتقال إلى النظام" }).click();
     // The wizard persisted a real admin (سارة إبراهيم) and established their

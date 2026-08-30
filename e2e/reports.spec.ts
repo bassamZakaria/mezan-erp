@@ -26,8 +26,9 @@ test.describe("Sales by Period", () => {
 
   test("auto-runs with default month-to-date params and shows a genuine empty result", async ({ page }) => {
     await expect(page.getByLabel("الفترة — من")).toHaveValue("2026-08-01");
-    await expect(page.getByLabel("الفترة — إلى")).toHaveValue("2026-08-22");
-    await expect(page.getByLabel("التجميع")).toHaveValue("day");
+    await expect(page.getByLabel("الفترة — إلى")).toHaveValue("2026-08-30");
+    // "التجميع" is the portaled `Select` combobox now, not a native <select>.
+    await expect(page.getByRole("combobox", { name: "التجميع" })).toContainText("يومي");
 
     await expect(page.getByText("التاريخ", { exact: true })).toBeVisible(); // column header rendered
     await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible();
@@ -59,7 +60,7 @@ test.describe("Purchases by Supplier", () => {
 
   test("auto-runs and its export buttons stay disabled against zero rows", async ({ page }) => {
     await expect(page.getByLabel("الفترة — من")).toHaveValue("2026-08-01");
-    await expect(page.getByLabel("الفترة — إلى")).toHaveValue("2026-08-22");
+    await expect(page.getByLabel("الفترة — إلى")).toHaveValue("2026-08-30");
     await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible();
     await expect(page.getByRole("button", { name: "تصدير CSV" })).toBeDisabled();
   });
@@ -73,13 +74,17 @@ test.describe("Inventory Valuation", () => {
   });
 
   test("has free-text search/warehouse params (no dates) and renders empty against the seeded catalog", async ({ page }) => {
-    await expect(page.getByLabel("بحث")).toHaveValue("");
-    await expect(page.getByLabel("المستودع")).toHaveValue("");
+    // "بحث" is ambiguous with the column's own "بحث وأوامر (CtrlK)" trigger —
+    // scope to the textbox role.
+    const search = page.getByRole("textbox", { name: "بحث" });
+    await expect(search).toHaveValue("");
+    // Also ambiguous, with the shell's own "المستودع الحالي" scope switcher.
+    await expect(page.getByRole("textbox", { name: "المستودع" })).toHaveValue("");
 
     await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible();
 
     const refetch = page.waitForResponse((r) => r.url().includes("/inventory/valuation"));
-    await page.getByLabel("بحث").fill("لا يوجد صنف بهذا الاسم");
+    await search.fill("لا يوجد صنف بهذا الاسم");
     await refetch;
     await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible(); // still empty, still no crash
   });
@@ -93,7 +98,7 @@ test.describe("Aging — Customers", () => {
   });
 
   test("has a single as-of-date param, defaulting to today, and renders empty with no customer debt", async ({ page }) => {
-    await expect(page.getByLabel("حتى تاريخ")).toHaveValue("2026-08-22");
+    await expect(page.getByLabel("حتى تاريخ")).toHaveValue("2026-08-30");
     await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible();
     await expect(page.getByRole("button", { name: "تصدير Excel" })).toBeDisabled();
   });

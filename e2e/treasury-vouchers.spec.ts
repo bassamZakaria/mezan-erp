@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
+import { brokenLabelField } from "./support/broken-label";
 
 /**
  * Treasury Vouchers (السندات النقدية) — real API-backed screen
@@ -25,10 +26,10 @@ function unique(prefix: string): string {
 async function createTreasuryAccount(page: Page, name: string, code: string): Promise<void> {
   await clickSidebarItem(page, "حسابات الخزينة");
   await expect(page.getByRole("heading", { name: "حسابات الخزينة" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة حساب" }).click();
+  await page.getByRole("button", { name: "إضافة حساب" }).first().click();
   const form = page.getByRole("dialog", { name: "إضافة حساب" });
-  await form.getByLabel("اسم الحساب *").fill(name);
-  await form.getByLabel("الكود *").fill(code);
+  await brokenLabelField(form, "اسم الحساب *").fill(name);
+  await brokenLabelField(form, "الكود *").fill(code);
   // BUG: despite the field's own hint claiming the system auto-picks a GL
   // account by type ("لا تحتاج إلى تعبئة هذا الحقل غالباً..."), leaving it
   // blank actually persists glAccountId: null server-side — and every
@@ -38,7 +39,7 @@ async function createTreasuryAccount(page: Page, name: string, code: string): Pr
   // إنشاء السند." toast. Filling the standard COA's main cash-box leaf here
   // works around it (seedStandardChartOfAccounts's 1300-1 "صندوق نقدي الفرع
   // الرئيسي", the cash leaf under 1300 "النقدية").
-  await form.getByLabel("حساب دفتر الأستاذ").fill("1300-1");
+  await brokenLabelField(form, "حساب دفتر الأستاذ").fill("1300-1");
   await form.getByRole("button", { name: "إضافة", exact: true }).click();
   await expect(form).toBeHidden();
 }
@@ -46,9 +47,9 @@ async function createTreasuryAccount(page: Page, name: string, code: string): Pr
 async function createCustomer(page: Page, name: string): Promise<void> {
   await clickSidebarItem(page, "العملاء");
   await expect(page.getByRole("heading", { name: "العملاء" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة عميل" }).click();
+  await page.getByRole("button", { name: "إضافة عميل" }).first().click();
   const form = page.getByRole("dialog", { name: "إضافة عميل" });
-  await form.getByLabel("اسم العميل *").fill(name);
+  await brokenLabelField(form, "اسم العميل *").fill(name);
   await form.getByRole("button", { name: "إضافة عميل", exact: true }).click();
   await expect(form).toBeHidden();
 }
@@ -56,9 +57,9 @@ async function createCustomer(page: Page, name: string): Promise<void> {
 async function createSupplier(page: Page, name: string): Promise<void> {
   await clickSidebarItem(page, "الموردون");
   await expect(page.getByRole("heading", { name: "الموردون" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة مورد" }).click();
+  await page.getByRole("button", { name: "إضافة مورد" }).first().click();
   const form = page.getByRole("dialog", { name: "إضافة مورد" });
-  await form.getByLabel("اسم المورد *").fill(name);
+  await brokenLabelField(form, "اسم المورد *").fill(name);
   await form.getByRole("button", { name: "إضافة مورد", exact: true }).click();
   await expect(form).toBeHidden();
 }
@@ -66,21 +67,25 @@ async function createSupplier(page: Page, name: string): Promise<void> {
 async function createItem(page: Page, name: string, salePrice: string): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة صنف" }).click();
-  const form = page.getByRole("dialog", { name: "إضافة صنف" });
+  await page.getByRole("button", { name: "إضافة صنف" }).first().click();
+  // Items' add/edit is a full sub-PAGE, not a dialog, and its "نوع الصنف"
+  // field is a portaled `Select` combobox, chosen by clicking it then its
+  // option, not `.selectOption()`.
+  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
   // A freshly-created stock item has zero on-hand qty, and the real
   // sales-invoice confirm path refuses to drive stock negative — service
   // items skip inventory tracking entirely, so they stay sellable right away.
-  await form.getByLabel("نوع الصنف *").selectOption({ label: "خدمة" });
-  await form.getByLabel("اسم الصنف *").fill(name);
-  const price = form.getByLabel("سعر البيع");
+  await page.getByRole("combobox", { name: "نوع الصنف" }).click();
+  await page.getByRole("option", { name: "خدمة" }).click();
+  await page.getByLabel("اسم الصنف *").fill(name);
+  const price = page.getByLabel("سعر البيع");
   await price.fill(salePrice);
   await price.press("Tab");
-  await form.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(form).toBeHidden();
+  await page.getByRole("button", { name: "إضافة", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
 }
 
-async function pickEntity(scope: Locator, label: string, query: string): Promise<void> {
+async function pickEntity(scope: Page | Locator, label: string, query: string): Promise<void> {
   const input = scope.getByLabel(label);
   await input.click();
   await input.fill(query);
@@ -98,12 +103,15 @@ async function pickParty(page: Page, placeholder: string, query: string): Promis
 async function createConfirmedSalesInvoice(page: Page, customerName: string, itemName: string): Promise<void> {
   await clickSidebarItem(page, "فواتير المبيعات");
   await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
-  await page.getByRole("button", { name: "فاتورة جديدة" }).click();
-  const dialog = page.getByRole("dialog", { name: "فاتورة مبيعات جديدة" });
-  await pickEntity(dialog, "العميل *", customerName);
-  await pickEntity(dialog, "الصنف — سطر 1", itemName);
-  await dialog.getByRole("button", { name: "تأكيد الفاتورة" }).click();
-  await expect(dialog).toBeHidden();
+  await page.getByRole("button", { name: "فاتورة جديدة" }).first().click();
+  // Create is a full sub-PAGE with a "طريقة الإنشاء" step, not a dialog —
+  // see sales-invoices.spec.ts.
+  await expect(page.getByRole("heading", { name: "فاتورة مبيعات جديدة", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "متابعة" }).click();
+  await pickEntity(page, "العميل *", customerName);
+  await pickEntity(page, "الصنف — سطر 1", itemName);
+  await page.getByRole("button", { name: "تأكيد الفاتورة" }).click();
+  await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
 }
 
 function uniqueRow(page: Page, text: string): Locator {
@@ -119,7 +127,7 @@ test.describe("Treasury Vouchers", () => {
     await clickSidebarItem(page, "السندات النقدية");
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
 
-    await page.getByRole("button", { name: "سند جديد" }).click();
+    await page.getByRole("button", { name: "سند جديد" }).first().click();
     await expect(page.getByRole("heading", { name: "اختر نوع السند" })).toBeVisible();
     await expect(page.getByText("تحصيل من عميل", { exact: true })).toBeVisible();
     await expect(page.getByText("دفع لمورد", { exact: true })).toBeVisible();
@@ -145,7 +153,7 @@ test.describe("Treasury Vouchers", () => {
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
 
     // Receipt: تحصيل من عميل — deposits 1000 into the cash account's GL leaf.
-    await page.getByRole("button", { name: "سند جديد" }).click();
+    await page.getByRole("button", { name: "سند جديد" }).first().click();
     await page.getByText("تحصيل من عميل", { exact: true }).click();
     await page.getByLabel("المبلغ").fill("1000");
     await pickParty(page, "ابحث عن عميل…", customerName);
@@ -160,7 +168,7 @@ test.describe("Treasury Vouchers", () => {
 
     // Payment: دفع لمورد — the cash guard now allows it (balance 1000 ≥ 500).
     await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill("");
-    await page.getByRole("button", { name: "سند جديد" }).click();
+    await page.getByRole("button", { name: "سند جديد" }).first().click();
     await page.getByText("دفع لمورد", { exact: true }).click();
     await page.getByLabel("المبلغ").fill("500");
     await pickParty(page, "ابحث عن مورّد…", supplierName);
@@ -174,20 +182,16 @@ test.describe("Treasury Vouchers", () => {
     await expect(paymentRow.getByText("مؤكد", { exact: true })).toBeVisible();
   });
 
-  // BUG (verified against the API directly — GET /open-invoices returns []
-  // for a party with a real, confirmed, unpaid sales invoice): the
-  // allocation UI's "open invoices" list is backed by a standalone
-  // `open_invoice` SQLite table (packages/persistence/src/voucher-store.ts's
-  // SqliteInvoiceRepository) that only a row's own `.save()` call can
-  // populate — and nothing in packages/backend/src ever calls it when a
-  // real sales/purchase invoice is confirmed. So "allocate on an open
-  // invoice" can never find a real invoice in the current build, no matter
-  // how it was created — this test documents that actual, current behavior.
-  test("BUG: a confirmed sales invoice never appears as an open invoice to allocate a voucher against", async ({ page }) => {
+  // Previously documented as a defect (open_invoice's SqliteInvoiceRepository
+  // populated by nothing) — now fixed: apps/web packages/backend/src/
+  // create-backend.ts wires `allocatable: vouchers.invoices` into the sales-
+  // and purchase-invoice services, so a confirm now really does save the
+  // invoice as an open, allocatable one.
+  test("a confirmed sales invoice appears as an open invoice, and allocating a voucher against it fully settles it", async ({ page }) => {
     const treasuryName = unique("صندوق تخصيص");
     const treasuryCode = `CASH-${Date.now() % 100000}`;
-    const customerName = unique("عميل بلا تخصيص");
-    const itemName = unique("صنف بلا تخصيص");
+    const customerName = unique("عميل تخصيص فاتورة");
+    const itemName = unique("صنف تخصيص فاتورة");
 
     await createTreasuryAccount(page, treasuryName, treasuryCode);
     await createCustomer(page, customerName);
@@ -196,7 +200,7 @@ test.describe("Treasury Vouchers", () => {
 
     await clickSidebarItem(page, "السندات النقدية");
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
-    await page.getByRole("button", { name: "سند جديد" }).click();
+    await page.getByRole("button", { name: "سند جديد" }).first().click();
     await page.getByText("تحصيل من عميل", { exact: true }).click();
     await page.getByLabel("المبلغ").fill("100");
     await pickParty(page, "ابحث عن عميل…", customerName);
@@ -211,9 +215,19 @@ test.describe("Treasury Vouchers", () => {
     await expect(page.getByText("تأثيرات هذا السند")).toBeVisible();
     await page.getByRole("tab", { name: /تخصيص على الفواتير/ }).click();
     await expect(page.getByText("بحاجة لتخصيص", { exact: true }).first()).toBeVisible();
+
     // The confirmed invoice created above has a 100 EGP outstanding balance
-    // for this exact customer — it should be selectable here, but isn't.
-    await expect(page.getByText("لا توجد فواتير مفتوحة لهذا الطرف.")).toBeVisible();
-    await expect(page.getByLabel("الفاتورة")).toHaveCount(0);
+    // for this exact customer, and is now selectable.
+    await page.getByRole("combobox", { name: "الفاتورة" }).click();
+    await page.getByRole("option", { name: /INV-\d+/ }).click();
+    // MoneyInput (packages/ui/src/primitives/MoneyInput.tsx) only commits its
+    // draft to state onBlur — the allocate button's disabled state reads that
+    // committed value, so a Tab is needed before it enables.
+    const allocAmount = page.getByLabel("مبلغ التخصيص");
+    await allocAmount.fill("100");
+    await allocAmount.press("Tab");
+    await page.getByRole("button", { name: "تخصيص", exact: true }).click();
+
+    await expect(page.getByText("مخصّص بالكامل").first()).toBeVisible();
   });
 });

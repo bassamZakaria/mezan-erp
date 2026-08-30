@@ -10,13 +10,13 @@ test.describe("Theme toggle", () => {
     await loginAsDemoUser(page);
   });
 
-  test("defaults to the light palette with no explicit [data-theme]", async ({ page }) => {
-    // useTheme() defaults to "system" (no localStorage entry) which removes
-    // the attribute entirely; Chromium's default color-scheme is light, so
-    // the light `:root` tokens apply (packages/ui/src/tokens/tokens.css).
-    await expect(page.locator("html")).not.toHaveAttribute("data-theme", /light|dark/);
+  test("defaults to the light palette with an explicit [data-theme=light]", async ({ page }) => {
+    // useTheme() (packages/ui/src/hooks/useTheme.ts) now defaults to the
+    // explicit "light" preference with nothing stored — "system" (no
+    // attribute) is only reached by toggling twice from dark back past light.
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(bg).toBe("rgb(242, 239, 233)"); // --bg light token (#f2efe9)
+    expect(bg).toBe("rgb(236, 230, 218)"); // --bg light token (#ece6da)
 
     // Not fullPage: on this Chromium build, full-page capture reliably
     // repaints with stale (pre-toggle) CSS custom-property values even
@@ -48,13 +48,12 @@ test.describe("Theme toggle", () => {
     await page.getByRole("button", { name: "تبديل المظهر" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
-    // useTheme() only mounts inside AppShell, and a reload drops App.tsx's
-    // in-memory login state — so the login screen briefly shows with no
-    // [data-theme] attribute (it isn't part of AppShell). The stored
-    // "mezan:theme" preference reapplies once logged back in.
+    // The session now persists across a reload too (apps/web/src/data/session.ts
+    // restores it from localStorage), so the reload lands straight back in the
+    // app shell — no re-login — and the stored "mezan:theme" preference is
+    // still what applies.
     await page.reload();
-    await expect(page.locator("html")).not.toHaveAttribute("data-theme", "dark");
-    await loginAsDemoUser(page);
+    await expect(page.getByRole("button", { name: "تبديل المظهر" })).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   });
 });

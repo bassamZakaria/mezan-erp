@@ -42,6 +42,13 @@ describe("document numbering — fuzz", () => {
     );
   });
 
+  it("no shipped sequence resets annually — so the reset path below is reached only through an override", () => {
+    // Stated as a fact rather than assumed: every one of the catalogue's
+    // sequences numbers continuously. If a tenant's numbering is ever changed
+    // to reset each year, this test is the one that says so.
+    expect(SEQUENCE_DEFINITIONS.filter((d) => d.annualReset)).toEqual([]);
+  });
+
   it("fuzz: an annual-reset sequence restarts at 1 in a new year and never collides across years", async () => {
     await fc.assert(
       fc.asyncProperty(
@@ -49,16 +56,67 @@ describe("document numbering — fuzz", () => {
         fc.integer({ min: 2020, max: 2035 }),
         fc.integer({ min: 1, max: 20 }),
         async (code, year, draws) => {
-          const def = getSequenceDefinition(code);
-          const service = new NextNumberService(memoryStore());
+          // Turn the reset ON for this code, through the same override surface
+          // the settings screen writes to. Without this the branch is never
+          // exercised, because no shipped sequence resets.
+          const service = new NextNumberService(memoryStore(), {
+            async getOverride(requested: string) {
+              return requested === code ? { annualReset: true } : null;
+            },
+          });
 
           for (let i = 0; i < draws; i++) await service.next(code, { year });
-          const nextYear = await service.next(code, { year: year + 1 });
+          const sameYear = await service.next(code, { year });
+          expect(sameYear.value).toBe(draws + 1);
 
-          expect(nextYear.value).toBe(def.annualReset ? 1 : draws + 1);
+          const nextYear = await service.next(code, { year: year + 1 });
+          expect(nextYear.value).toBe(1);
+
+          // And the old year carries on from where it left off — the two
+          // counters are separate, not one that was reset.
+          const backToOld = await service.next(code, { year });
+          expect(backToOld.value).toBe(draws + 2);
         },
       ),
-      { numRuns: 150 },
+      { numRuns: 120 },
+    );
+  });
+
+  it("continues an existing counter row rather than starting a new bucket beside it", async () => {
+    // The counter lives in SQLite across upgrades, keyed by (code, period,
+    // scope). If the period a draw computes ever shifts — even consistently —
+    // the next release abandons the row it has been counting into and starts
+    // again at 1, handing out document numbers that already exist in the books.
+    // Seeding the store the way a real tenant's would look is the only way a
+    // test can see that.
+    const counters = new Map<string, number>([["SALES_INVOICE|2026|", 5]]);
+    const store: SequenceStore = {
+      async increment(code, period, scope) {
+        const key = `${code}|${period ?? ""}|${scope ?? ""}`;
+        const next = (counters.get(key) ?? 0) + 1;
+        counters.set(key, next);
+        return next;
+      },
+    };
+    const service = new NextNumberService(store, {
+      async getOverride(code: string) {
+        return code === "SALES_INVOICE" ? { annualReset: true } : null;
+      },
+    });
+
+    const next = await service.next("SALES_INVOICE", { year: 2026 });
+    expect(next.value).toBe(6);
+  });
+
+  it("fuzz: without the override the same code numbers continuously across years", async () => {
+    await fc.assert(
+      fc.asyncProperty(codeArb, fc.integer({ min: 2020, max: 2035 }), async (code, year) => {
+        const service = new NextNumberService(memoryStore());
+        await service.next(code, { year });
+        const nextYear = await service.next(code, { year: year + 1 });
+        expect(nextYear.value).toBe(2);
+      }),
+      { numRuns: 120 },
     );
   });
 

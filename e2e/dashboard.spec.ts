@@ -45,12 +45,15 @@ test.describe("Dashboard", () => {
     await expect(page.getByText(/لا يوجد نشاط بعد/)).toBeVisible();
   });
 
-  test("changing the period range re-queries and keeps the pressed state", async ({ page }) => {
-    const rangeGroup = page.getByRole("group", { name: "نطاق الفترة" });
-    await expect(rangeGroup.getByRole("button", { name: "هذا الشهر" })).toHaveAttribute("aria-pressed", "true");
+  test("changing the period range re-queries and keeps the checked state", async ({ page }) => {
+    // The range chips are a mutually-exclusive radio group (Chip's default
+    // ARIA — packages/ui/src/primitives/atoms.tsx), not plain toggle buttons.
+    const rangeGroup = page.getByRole("radiogroup", { name: "نطاق الفترة" });
+    await expect(rangeGroup.getByRole("radio", { name: "هذا الشهر" })).toHaveAttribute("aria-checked", "true");
 
-    await rangeGroup.getByRole("button", { name: "كل الفترات" }).click();
-    await expect(rangeGroup.getByRole("button", { name: "كل الفترات" })).toHaveAttribute("aria-pressed", "true");
+    await rangeGroup.getByRole("radio", { name: "كل الفترات" }).click();
+    await expect(rangeGroup.getByRole("radio", { name: "كل الفترات" })).toHaveAttribute("aria-checked", "true");
+    await expect(rangeGroup.getByRole("radio", { name: "هذا الشهر" })).toHaveAttribute("aria-checked", "false");
     // Still zero — no posted entries in any range for a fresh tenant.
     await expect(kpiTile(page, "إجمالي الإيرادات")).toContainText("0.00");
   });

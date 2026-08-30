@@ -1,15 +1,22 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 
 /**
  * Chart of Accounts screen (apps/web/src/screens/ChartOfAccountsScreen.tsx).
- * 23 demo accounts (the seeded chart of accounts); every header
- * account starts expanded, so the tree renders fully open on first load.
+ * The seeded chart of accounts has grown to 66 accounts under 5 root headers
+ * (الأصول 1000 / الالتزامات 2000 / حقوق الملكية 3000 / الإيرادات 4000 /
+ * المصروفات 5000) — every header account starts expanded, so the tree renders
+ * fully open on first load. There is no posted opening-balance journal entry
+ * in the seed any more, so every account's balance panel reads zero.
  */
 
 function treeRow(page: Page, nameAr: string) {
   return page.locator("table tbody tr").filter({ has: page.getByText(nameAr, { exact: true }) });
+}
+
+function balanceValue(scope: Locator, label: string) {
+  return scope.getByText(label, { exact: true }).locator("xpath=following-sibling::div[1]");
 }
 
 test.describe("Chart of Accounts", () => {
@@ -20,11 +27,11 @@ test.describe("Chart of Accounts", () => {
   });
 
   test("tree starts fully expanded, then collapses and re-expands one branch", async ({ page }) => {
-    await expect(page.getByText("عرض 23 من 23 حساب")).toBeVisible();
+    await expect(page.getByText("عرض 66 من 66 حساب")).toBeVisible();
     await expect(treeRow(page, "ذمم مدينة")).toBeVisible();
 
     await page.getByRole("button", { name: "طي الكل" }).click();
-    await expect(page.getByText("عرض 5 من 23 حساب")).toBeVisible();
+    await expect(page.getByText("عرض 5 من 66 حساب")).toBeVisible();
     await expect(treeRow(page, "ذمم مدينة")).toBeHidden();
     await expect(treeRow(page, "الأصول")).toBeVisible();
 
@@ -41,9 +48,11 @@ test.describe("Chart of Accounts", () => {
 
     const panel = page.getByRole("dialog", { name: /1300-1/ });
     await expect(panel).toBeVisible();
-    await expect(panel.getByText("238.00")).toBeVisible(); // رصيد أول المدة
-    await expect(panel.getByText("100.00")).toBeVisible(); // حركة الفترة
-    await expect(panel.getByText("338.00")).toBeVisible(); // رصيد نهاية المدة
+    // No opening-balance journal entry in the seed any more — every fresh
+    // account's balance panel reads zero, honestly, rather than fabricated.
+    await expect(balanceValue(panel, "رصيد أول المدة")).toContainText("0.00");
+    await expect(balanceValue(panel, "حركة الفترة")).toContainText("0.00");
+    await expect(balanceValue(panel, "رصيد نهاية المدة")).toContainText("0.00");
 
     await expect(panel.getByRole("tab", { name: "حركات الحساب" })).toHaveAttribute("aria-selected", "true");
     await panel.getByRole("tab", { name: "سجل التدقيق" }).click();
@@ -71,7 +80,7 @@ test.describe("Chart of Accounts", () => {
 
     await expect(form).toBeHidden();
     await expect(treeRow(page, "حساب اختبار جديد")).toBeVisible();
-    await expect(page.getByText("عرض 24 من 24 حساب")).toBeVisible();
+    await expect(page.getByText("عرض 67 من 67 حساب")).toBeVisible();
   });
 
   test("editing an account via the row action updates its name in the tree", async ({ page }) => {

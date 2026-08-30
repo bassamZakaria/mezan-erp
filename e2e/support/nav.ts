@@ -46,3 +46,12 @@ export async function clickSidebarItem(page: Page, label: string): Promise<void>
   const results = dialog.locator(`nav[aria-label="${FILTER_NAV_LABEL}"] + div`);
   await results.getByRole("button", { name: label, exact: true }).click();
 }
+
+/**
+ * The dashboard is NOT a screen inside «كل الشاشات» — it is the icon beside
+ * the wordmark in row one (`AppShell`'s `directNavItems`, always first), so it
+ * needs its own path rather than going through `clickSidebarItem`.
+ */
+export async function goHome(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "لوحة التحكم", exact: true }).click();
+}

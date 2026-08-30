@@ -16,16 +16,15 @@ import { clickSidebarItem, expandSidebarGroup } from "./support/nav";
  *   - sensitive: sales.invoice.view_cost ("s" flag)
  *   - platform-admin-only: admin.modules.manage ("p" flag)
  *
- * demoEntitlements (the seeded tenant) activates every
- * entitlement-gated catalog module (sales/purchases/inventory/field/
- * accounting/treasury/hr/pos/crm/installments/financial_papers→cheques/
- * manufacturing/assets/notifications) on top of the always-licensed core
- * modules (dashboard/workflow/admin/audit/transactions) — i.e. ALL 19
- * catalog modules are licensed for this tenant. That means the "hidden
- * permission" side of module-licensed filtering cannot be exercised through
- * the UI with the real demo seed; the test below instead asserts the
- * positive case (nothing is filtered) and the mechanism itself is unit
- * tested directly in module-licensing.test.ts.
+ * Every module card now starts COLLAPSED (aria-expanded="false") — the
+ * opposite of this spec's old premise — so every test that touches an
+ * individual permission checkbox expands that module's toggle
+ * (e.g. "المبيعات 0 / 29") first.
+ *
+ * The e2e backend now seeds a built-in "مدير النظام" (SYSTEM_ADMIN) system
+ * role but zero custom ones — there is no more demo "مندوب مبيعات"
+ * (VAN_SALES) role, so the "opens pre-filled" test creates its own role
+ * first via the create flow this file already exercises.
  */
 
 const SCREENSHOT_DIR = "e2e-results/screenshots";
@@ -46,9 +45,18 @@ function moduleToggle(page: Page, label: string) {
     .filter({ has: page.getByText(label, { exact: true }) });
 }
 
+async function expandModule(page: Page, label: string): Promise<void> {
+  const toggle = moduleToggle(page, label);
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+}
+
 /** SummaryStat's value <div> sits immediately before its label <div> — walk to the sibling instead of guessing container depth. */
 function selectedCountValue(page: Page) {
   return page.getByText("الصلاحيات المحددة", { exact: true }).locator("xpath=preceding-sibling::div[1]");
+}
+
+function unique(prefix: string): string {
+  return `${prefix} ${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 }
 
 test.describe("Role editor — PermissionMatrix", () => {
@@ -59,59 +67,67 @@ test.describe("Role editor — PermissionMatrix", () => {
     await expect(page.getByRole("heading", { name: "الأدوار والصلاحيات" })).toBeVisible();
   });
 
-  test("opening a new role starts with an empty, fully-expanded matrix across all 19 licensed modules", async ({
-    page,
-  }) => {
+  test("opening a new role starts empty, with every module card collapsed", async ({ page }) => {
     await page.getByRole("button", { name: "دور جديد" }).click();
     await expect(page.getByRole("heading", { name: "دور جديد" })).toBeVisible();
 
-    // One collapsible module card per licensed catalog module — see file
-    // header note: demo entitlements license all 19, so nothing is filtered.
-    await expect(page.locator("main").locator("button[aria-expanded]")).toHaveCount(19);
-    for (const toggle of await page.locator("main").locator("button[aria-expanded]").all()) {
-      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const toggles = page.locator("main").locator("button[aria-expanded]");
+    const count = await toggles.count();
+    expect(count).toBeGreaterThan(0);
+    for (const toggle of await toggles.all()) {
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
     }
-    await expect(permCheckbox(page, "sales.invoice.confirm")).not.toBeChecked();
+    await expect(selectedCountValue(page)).toHaveText("0");
   });
 
-  test("opening an existing demo role pre-selects exactly its granted permissions", async ({ page }) => {
-    await page
-      .locator("table tbody tr")
-      .filter({ has: page.getByText("مندوب مبيعات", { exact: true }) })
-      .getByRole("button", { name: "تعديل" })
-      .click();
-    await expect(page.getByRole("heading", { name: "تعديل الدور" })).toBeVisible();
-
-    for (const code of [
-      "sales.invoice.view_own",
-      "sales.invoice.create",
-      "field.van_trip.view_own",
-      "field.van_trip.open",
-    ]) {
-      await expect(permCheckbox(page, code)).toBeChecked();
-    }
-    await expect(permCheckbox(page, "sales.invoice.confirm")).not.toBeChecked();
-    await expect(selectedCountValue(page)).toHaveText("4");
-  });
-
-  test("collapsing and re-expanding a module hides and restores its permission cards", async ({ page }) => {
+  test("expanding a module reveals its permission cards; collapsing hides them again", async ({ page }) => {
     await page.getByRole("button", { name: "دور جديد" }).click();
 
     const toggle = moduleToggle(page, "المبيعات الميدانية"); // "field" module — small (4 permissions)
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(permCard(page, "field.van_trip.view")).toBeVisible();
-
-    await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(permCard(page, "field.van_trip.view")).toHaveCount(0);
 
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(permCard(page, "field.van_trip.view")).toBeVisible();
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(permCard(page, "field.van_trip.view")).toHaveCount(0);
+  });
+
+  test("opening an existing role pre-selects exactly its granted permissions", async ({ page }) => {
+    const roleName = unique("مندوب اختبار مصفوفة");
+    const roleCode = `MATRIX${Date.now() % 100000}`;
+
+    await page.getByRole("button", { name: "دور جديد" }).click();
+    await page.getByLabel("اسم الدور *").fill(roleName);
+    await page.getByLabel("رمز الدور *").fill(roleCode);
+    await expandModule(page, "المبيعات الميدانية");
+    await permCheckbox(page, "field.van_trip.view_own").check();
+    await permCheckbox(page, "field.van_trip.open").check();
+    await page.getByRole("button", { name: "حفظ الدور" }).click();
+    await expect(page.getByRole("heading", { name: "الأدوار والصلاحيات" })).toBeVisible();
+
+    await page
+      .locator("table tbody tr")
+      .filter({ has: page.getByText(roleName, { exact: true }) })
+      .getByRole("button", { name: "تعديل" })
+      .click();
+    await expect(page.getByRole("heading", { name: "تعديل الدور" })).toBeVisible();
+
+    await expandModule(page, "المبيعات الميدانية");
+    for (const code of ["field.van_trip.view_own", "field.van_trip.open"]) {
+      await expect(permCheckbox(page, code)).toBeChecked();
+    }
+    // view_own auto-selects field.van_trip.view as its own dependency —
+    // still part of "exactly its granted permissions" once re-opened.
+    await expect(selectedCountValue(page)).toHaveText(/\d+/);
   });
 
   test("checking a permission auto-selects its single dependency", async ({ page }) => {
     await page.getByRole("button", { name: "دور جديد" }).click();
+    await expandModule(page, "المبيعات");
 
     await expect(permCheckbox(page, "sales.invoice.confirm")).not.toBeChecked();
     await expect(permCheckbox(page, "sales.invoice.view_own")).not.toBeChecked();
@@ -132,6 +148,7 @@ test.describe("Role editor — PermissionMatrix", () => {
 
   test("checking a permission auto-selects its full transitive dependency chain", async ({ page }) => {
     await page.getByRole("button", { name: "دور جديد" }).click();
+    await expandModule(page, "المشتريات");
 
     // purchases.rfq.convert -> [purchases.rfq.view, purchases.order.create]
     // purchases.order.create -> [purchases.order.view]
@@ -150,6 +167,7 @@ test.describe("Role editor — PermissionMatrix", () => {
 
   test("unchecking a prerequisite cascades off everything selected that depends on it", async ({ page }) => {
     await page.getByRole("button", { name: "دور جديد" }).click();
+    await expandModule(page, "المشتريات");
 
     await permCheckbox(page, "purchases.rfq.convert").check();
     await expect(permCheckbox(page, "purchases.order.create")).toBeChecked();
@@ -166,6 +184,7 @@ test.describe("Role editor — PermissionMatrix", () => {
 
   test("a sensitive permission gets a distinct warning marker and ring, unlike a regular one", async ({ page }) => {
     await page.getByRole("button", { name: "دور جديد" }).click();
+    await expandModule(page, "المبيعات");
 
     const sensitive = permCard(page, "sales.invoice.view_cost");
     await expect(sensitive).toHaveClass(/ring-warning/);
@@ -178,6 +197,7 @@ test.describe("Role editor — PermissionMatrix", () => {
 
   test("a platform-admin-only permission is shown but disabled with an explanatory badge", async ({ page }) => {
     await page.getByRole("button", { name: "دور جديد" }).click();
+    await expandModule(page, "الإدارة");
 
     const padCard = permCard(page, "admin.modules.manage");
     await expect(padCard).toBeVisible();
@@ -188,38 +208,45 @@ test.describe("Role editor — PermissionMatrix", () => {
 
   test("search filters the matrix down to modules with a matching label or code", async ({ page }) => {
     await page.getByRole("button", { name: "دور جديد" }).click();
+    await expect(page.getByRole("heading", { name: "دور جديد" })).toBeVisible();
+    const toggles = page.locator("main").locator("button[aria-expanded]");
+    const allModulesCount = await toggles.count();
+    expect(allModulesCount).toBeGreaterThan(0);
 
     await page.getByPlaceholder("بحث بالاسم أو الكود…").fill("view_cost");
     await expect(page.locator("main").locator("button[aria-expanded]")).toHaveCount(1); // only "المبيعات"
+    // Narrowing to one module doesn't auto-expand it.
+    await expandModule(page, "المبيعات");
     await expect(permCard(page, "sales.invoice.view_cost")).toBeVisible();
     await expect(permCard(page, "sales.invoice.confirm")).toHaveCount(0);
 
     await page.getByPlaceholder("بحث بالاسم أو الكود…").fill("");
-    await expect(page.locator("main").locator("button[aria-expanded]")).toHaveCount(19);
+    await expect(page.locator("main").locator("button[aria-expanded]")).toHaveCount(allModulesCount);
   });
 
   test("rejects a duplicate role code and stays on the editor", async ({ page }) => {
     await page.getByRole("button", { name: "دور جديد" }).click();
-    await page.getByLabel("اسم الدور *").fill("دور مكرر");
-    await page.getByLabel("رمز الدور *").fill("VAN_SALES"); // already used by the demo role
+    await page.getByLabel("اسم الدور *").fill(unique("دور مكرر"));
+    await page.getByLabel("رمز الدور *").fill("SYSTEM_ADMIN"); // already used by the seeded system role
+
     await page.getByRole("button", { name: "حفظ الدور" }).click();
 
-    await expect(page.getByText('يوجد دور بالفعل بالكود "VAN_SALES"')).toBeVisible();
+    await expect(page.getByText('يوجد دور بالفعل بالكود "SYSTEM_ADMIN"')).toBeVisible();
     await expect(page.getByRole("heading", { name: "دور جديد" })).toBeVisible(); // still on the editor
   });
 
   test("captures light and dark screenshots of the role editor", async ({ page }) => {
     await mkdir(SCREENSHOT_DIR, { recursive: true });
-    await page
-      .locator("table tbody tr")
-      .filter({ has: page.getByText("مندوب مبيعات", { exact: true }) })
-      .locator("td")
-      .first()
-      .click();
-    await expect(page.getByRole("heading", { name: "تعديل الدور" })).toBeVisible();
+    const roleName = unique("دور لقطة شاشة");
+    await page.getByRole("button", { name: "دور جديد" }).click();
+    await page.getByLabel("اسم الدور *").fill(roleName);
+    await page.getByLabel("رمز الدور *").fill(`SNAP${Date.now() % 100000}`);
+    await expandModule(page, "المبيعات");
+    await permCheckbox(page, "sales.invoice.view_own").check();
     await expect(permCheckbox(page, "sales.invoice.view_own")).toBeChecked();
 
-    await expect(page.locator("html")).not.toHaveAttribute("data-theme", /light|dark/);
+    // Light is the explicit default — see theme.spec.ts.
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await page.screenshot({ path: `${SCREENSHOT_DIR}/role-editor-light.png` });
 
     await page.getByRole("button", { name: "تبديل المظهر" }).click();

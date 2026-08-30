@@ -28,7 +28,19 @@ test.describe("Print view — قوالب الطباعة", () => {
     await expect(page.getByText("ألف ومائة وتسعة وخمسون جنيه مصري وخمسة وتسعون قرش فقط لا غير")).toBeVisible();
   });
 
-  test("shows the on-screen طباعة toolbar action", async ({ page }) => {
-    await expect(page.getByRole("button", { name: "طباعة", exact: true })).toBeVisible();
+  // There is no on-screen طباعة action on this config editor — printing
+  // happens from a real document (e.g. a confirmed sales invoice), not from
+  // its template's preview. The toolbar's own undo/save actions are what
+  // this screen genuinely offers, disabled until a field is edited.
+  test("the toolbar starts with تراجع/حفظ القالب disabled, and editing a field enables them", async ({ page }) => {
+    const undoButton = page.getByRole("button", { name: "تراجع" });
+    const saveButton = page.getByRole("button", { name: "حفظ القالب" });
+    await expect(undoButton).toBeDisabled();
+    await expect(saveButton).toBeDisabled();
+
+    await page.getByRole("textbox", { name: "https://…/logo.png" }).fill("https://example.com/logo.png");
+
+    await expect(undoButton).toBeEnabled();
+    await expect(saveButton).toBeEnabled();
   });
 });

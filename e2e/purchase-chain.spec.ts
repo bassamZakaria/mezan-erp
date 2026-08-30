@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
+import { brokenLabelField } from "./support/broken-label";
 
 /**
  * Purchase chain — Purchase Order → Goods Receipt → Purchase Invoice
@@ -12,6 +13,12 @@ import { clickSidebarItem } from "./support/nav";
  * created "from" the confirmed PO, and the Purchase Invoice is created
  * "from" the confirmed GRN — exercising the same server-side auto-fill
  * (outstanding qty → receipt lines → invoice lines) the UI previews.
+ *
+ * Create is a full sub-PAGE for all three documents (an `h1` heading, no
+ * `role="dialog"`), and المورد/الصنف/أمر الشراء/إيصال الاستلام are all the
+ * portaled `Select` combobox (packages/ui/src/primitives/Select.tsx), chosen
+ * by clicking the combobox then its `role="option"` — not the free-text
+ * EntityPicker this spec used to drive.
  *
  * Doc numbers aren't predictable across parallel spec files sharing the
  * same backend, so each step is isolated by searching for our unique
@@ -25,9 +32,9 @@ function unique(prefix: string): string {
 async function createSupplier(page: Page, name: string): Promise<void> {
   await clickSidebarItem(page, "الموردون");
   await expect(page.getByRole("heading", { name: "الموردون" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة مورد" }).click();
+  await page.getByRole("button", { name: "إضافة مورد" }).first().click();
   const form = page.getByRole("dialog", { name: "إضافة مورد" });
-  await form.getByLabel("اسم المورد *").fill(name);
+  await brokenLabelField(form, "اسم المورد *").fill(name);
   await form.getByRole("button", { name: "إضافة مورد", exact: true }).click();
   await expect(form).toBeHidden();
 }
@@ -35,21 +42,20 @@ async function createSupplier(page: Page, name: string): Promise<void> {
 async function createItem(page: Page, name: string, salePrice: string): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة صنف" }).click();
-  const form = page.getByRole("dialog", { name: "إضافة صنف" });
-  await form.getByLabel("اسم الصنف *").fill(name);
-  const price = form.getByLabel("سعر البيع");
+  await page.getByRole("button", { name: "إضافة صنف" }).first().click();
+  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
+  await page.getByLabel("اسم الصنف *").fill(name);
+  const price = page.getByLabel("سعر البيع");
   await price.fill(salePrice);
   await price.press("Tab");
-  await form.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(form).toBeHidden();
+  await page.getByRole("button", { name: "إضافة", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
 }
 
-async function pickEntity(scope: Locator, label: string, query: string): Promise<void> {
-  const input = scope.getByLabel(label);
-  await input.click();
-  await input.fill(query);
-  await scope.getByRole("button", { name: new RegExp(query) }).first().click();
+/** Clicks a `Select` primitive's combobox trigger, then the matching portaled option. */
+async function chooseCombo(page: Page, comboLabel: string, optionName: string | RegExp): Promise<void> {
+  await page.getByRole("combobox", { name: comboLabel }).click();
+  await page.getByRole("option", { name: optionName }).click();
 }
 
 /** Returns the single row containing `text`, asserting it's unique. */
@@ -72,15 +78,17 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     // --- Purchase Order: create + confirm (draft → sent) ---
     await clickSidebarItem(page, "أوامر الشراء");
     await expect(page.getByRole("heading", { name: "أوامر الشراء" })).toBeVisible();
-    await page.getByRole("button", { name: "أمر شراء جديد" }).click();
-    let dialog = page.getByRole("dialog", { name: "أمر شراء جديد" });
+    await page.getByRole("button", { name: "أمر شراء جديد" }).first().click();
+    await expect(page.getByRole("heading", { name: "أمر شراء جديد", level: 1 })).toBeVisible();
 
-    await pickEntity(dialog, "المورد *", supplierName);
-    await pickEntity(dialog, "الصنف", itemName);
-    await dialog.getByLabel("الكمية").fill("10");
-    await dialog.getByLabel("سعر الوحدة").fill("40");
-    await dialog.getByRole("button", { name: "حفظ مسودة" }).click();
-    await expect(dialog).toBeHidden();
+    await chooseCombo(page, "المورد *", supplierName);
+    await chooseCombo(page, "الصنف", itemName);
+    // "الكمية"/"سعر الوحدة" go through the same broken NumberField as the
+    // customer/supplier name fields (e2e/support/broken-label.ts).
+    await brokenLabelField(page, "الكمية").fill("10");
+    await brokenLabelField(page, "سعر الوحدة").fill("40");
+    await page.getByRole("button", { name: "حفظ مسودة" }).click();
+    await expect(page.getByRole("heading", { name: "أوامر الشراء" })).toBeVisible();
 
     await page.getByPlaceholder("بحث برقم الأمر أو اسم المورد…").fill(supplierName);
     let row = uniqueRow(page, supplierName);
@@ -94,19 +102,21 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     await page.getByRole("button", { name: "تأكيد وإرسال" }).click();
     await expect(page.getByText("مرسل").first()).toBeVisible();
     await expect(page.getByRole("button", { name: "تأكيد وإرسال" })).toHaveCount(0);
-    await page.getByRole("button", { name: "رجوع لأوامر الشراء" }).click();
+    await page.getByRole("button", { name: "رجوع إلى أوامر الشراء" }).click();
 
     // --- Goods Receipt: created "from" the confirmed PO, auto-filled lines ---
     await clickSidebarItem(page, "استلام البضائع");
     await expect(page.getByRole("heading", { name: "إيصالات الاستلام" })).toBeVisible();
-    await page.getByRole("button", { name: "إيصال استلام جديد" }).click();
-    dialog = page.getByRole("dialog", { name: "إيصال استلام جديد" });
-    await expect(dialog.getByText(/الاستلام يبدأ دائماً من أمر شراء/)).toBeVisible();
+    await page.getByRole("button", { name: "إيصال استلام جديد" }).first().click();
+    await expect(page.getByRole("heading", { name: "إيصال استلام جديد", level: 1 })).toBeVisible();
+    await expect(page.getByText(/الاستلام يبدأ دائماً من أمر شراء/)).toBeVisible();
+    // "من أمر شراء" is the default (already pressed) creation-method choice.
+    await page.getByRole("button", { name: "متابعة" }).click();
 
-    await pickEntity(dialog, "أمر الشراء *", poNumber);
-    await expect(dialog.getByText("البنود (معبأة تلقائياً من أمر الشراء)")).toBeVisible();
-    await dialog.getByRole("button", { name: "حفظ مسودة" }).click();
-    await expect(dialog).toBeHidden();
+    await chooseCombo(page, "أمر الشراء *", new RegExp(poNumber));
+    await expect(page.getByText("البنود (معبأة تلقائياً من أمر الشراء)")).toBeVisible();
+    await page.getByRole("button", { name: "حفظ مسودة" }).click();
+    await expect(page.getByRole("heading", { name: "إيصالات الاستلام" })).toBeVisible();
 
     await page.getByPlaceholder("بحث برقم الإيصال أو المورد…").fill(supplierName);
     row = uniqueRow(page, supplierName);
@@ -118,19 +128,24 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     await expect(page.getByRole("heading", { name: new RegExp(`إيصال استلام ${grNumber}`) })).toBeVisible();
     await page.getByRole("button", { name: "تأكيد الاستلام" }).click();
     await expect(page.getByText(/تمت زيادة كمية المخزون/)).toBeVisible();
-    await page.getByRole("button", { name: "رجوع لإيصالات الاستلام" }).click();
+    // The breadcrumb "رجوع إلى X" uses the nav item's label (استلام البضائع),
+    // not the screen's own h1 heading (إيصالات الاستلام).
+    await page.getByRole("button", { name: "رجوع إلى استلام البضائع" }).click();
 
     // --- Purchase Invoice: created "from" the confirmed GRN, auto-filled lines ---
     await clickSidebarItem(page, "فواتير المشتريات");
     await expect(page.getByRole("heading", { name: "فواتير المشتريات" })).toBeVisible();
-    await page.getByRole("button", { name: "فاتورة مشتريات جديدة" }).click();
-    dialog = page.getByRole("dialog", { name: "فاتورة مشتريات جديدة" });
+    await page.getByRole("button", { name: "فاتورة مشتريات جديدة" }).first().click();
+    await expect(page.getByRole("heading", { name: "فاتورة مشتريات جديدة", level: 1 })).toBeVisible();
+    // "إنشاء فاتورة جديدة" (manual) is the default-pressed method here, not
+    // "من إيصال استلام" — pick it explicitly before continuing.
+    await page.getByRole("button", { name: /^من إيصال استلام/ }).click();
+    await page.getByRole("button", { name: "متابعة" }).click();
 
-    await dialog.getByRole("button", { name: "من إيصال استلام" }).click();
-    await pickEntity(dialog, "إيصال الاستلام *", grNumber);
-    await expect(dialog.getByText("البنود (معبأة تلقائياً من الإيصال)")).toBeVisible();
-    await dialog.getByRole("button", { name: "حفظ مسودة" }).click();
-    await expect(dialog).toBeHidden();
+    await chooseCombo(page, "إيصال الاستلام *", new RegExp(grNumber));
+    await expect(page.getByText("البنود (معبأة تلقائياً من الإيصال)")).toBeVisible();
+    await page.getByRole("button", { name: "حفظ مسودة" }).click();
+    await expect(page.getByRole("heading", { name: "فواتير المشتريات" })).toBeVisible();
 
     await page.getByPlaceholder("بحث برقم الفاتورة أو اسم المورد…").fill(supplierName);
     row = uniqueRow(page, supplierName);

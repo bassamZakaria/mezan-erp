@@ -1,75 +1,136 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 
 /**
- * Journal Entries (القيود المحاسبية) — the document framework's first real
- * module (apps/web/src/screens/JournalsScreen.tsx, PR #21). 3 seeded posted
- * entries (the seeded journal entries): JE-000001..000003; new entries continue
- * from JE-000004. Covers the DocumentList/DocumentDetail/DocumentStatusStepper
- * primitives plus the create form's live balance gating.
+ * Journal Entries (القيود المحاسبية) — apps/web/src/screens/JournalsScreen.tsx.
+ * The e2e backend now starts as a genuinely empty tenant (packages/backend/src/
+ * seed.ts seeds only the chart of accounts, VAT, one branch/warehouse and the
+ * admin user — no journal entries), so every test creates its own entries
+ * first via the real create flow, then isolates its own rows by a unique memo
+ * — the same pattern sales-invoices.spec.ts and purchase-chain.spec.ts use,
+ * since the backend is shared with other e2e spec files.
+ *
+ * KNOWN PRODUCT DEFECT (see the dedicated test below): the create form's
+ * "الوصف *" / "تاريخ القيد *" fields (apps/web/src/settings/form-controls.tsx's
+ * `Field`/`TextField`) render a `<label>` with no `htmlFor`, and the `<input>`
+ * it sits beside carries no matching `id` — so the label is never
+ * programmatically associated with its control (`getByLabel` cannot find it;
+ * a screen reader announces nothing; clicking the label text does not focus
+ * the field). Every OTHER field in this suite is fine — the memo/date fields
+ * are the only ones built through that specific wrapper here. Fixture setup
+ * below works around it via the field's placeholder, which is a real,
+ * present-but-unlabeled control a sighted mouse user could still find.
  */
 
 const SCREENSHOT_DIR = "e2e-results/screenshots";
+
+function unique(prefix: string): string {
+  return `${prefix} ${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
 
 function docNumbers(page: Page) {
   return page.locator("table tbody tr td:first-child .mz-num");
 }
 
+function uniqueRow(page: Page, text: string): Locator {
+  return page.locator("table tbody tr").filter({ hasText: text });
+}
+
+/** Clicks a `Select` primitive's combobox trigger, then the matching portaled option — it is not a native `<select>` (packages/ui/src/primitives/Select.tsx). */
+async function chooseCombo(page: Page, comboLabel: string, optionPattern: RegExp): Promise<void> {
+  await page.getByRole("combobox", { name: comboLabel }).click();
+  await page.getByRole("option", { name: optionPattern }).click();
+}
+
+/** Opens قيد جديد, fills a balanced 2-line entry (1300-1 debit / 4100 credit) with the given memo, and posts it. */
+async function createPostedJournalEntry(page: Page, memo: string, amount = "100"): Promise<string> {
+  await clickSidebarItem(page, "القيود المحاسبية");
+  await expect(page.getByRole("heading", { name: "القيود المحاسبية" })).toBeVisible();
+  // The header's "قيد جديد" is always in the DOM; the empty-state region
+  // (JournalsScreen.tsx's `emptyState` prop) renders a second button with the
+  // exact same label whenever the list briefly reads zero rows — .first() is
+  // the header's, which is always present regardless of row count.
+  await page.getByRole("button", { name: "قيد جديد" }).first().click();
+  await expect(page.getByRole("heading", { name: "إنشاء قيد يومي" })).toBeVisible();
+
+  // Workaround for the broken "الوصف *" label — see file header.
+  await page.getByPlaceholder("وصف القيد...").fill(memo);
+  await chooseCombo(page, "الحساب للسطر 1", /^1300-1 —/);
+  await page.getByLabel("مدين للسطر 1").fill(amount);
+  await chooseCombo(page, "الحساب للسطر 2", /^4100 —/);
+  await page.getByLabel("دائن للسطر 2").fill(amount);
+
+  await page.getByRole("button", { name: "ترحيل القيد" }).click();
+  await expect(page.getByRole("heading", { name: "القيود المحاسبية" })).toBeVisible();
+
+  await page.getByPlaceholder("بحث برقم القيد...").fill(memo);
+  const row = uniqueRow(page, memo);
+  await expect(row).toHaveCount(1);
+  const entryNo = (await row.locator("td").first().locator(".mz-num").first().innerText()).trim();
+  await page.getByPlaceholder("بحث برقم القيد...").fill("");
+  return entryNo;
+}
+
 test.describe("Journal Entries — list", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
-    await clickSidebarItem(page, "القيود المحاسبية");
-    await expect(page.getByRole("heading", { name: "القيود المحاسبية" })).toBeVisible();
   });
 
-  test("lists the seeded posted entries", async ({ page }) => {
-    await expect(docNumbers(page)).toHaveCount(3);
-    await expect(page.getByText("JE-000001")).toBeVisible();
-    await expect(page.getByText("JE-000003")).toBeVisible();
-    await expect(page.getByText("عرض 3 من 3 قيد")).toBeVisible();
-  });
+  test("a posted entry appears in the list, findable by its own number and memo", async ({ page }) => {
+    const memo = unique("قيد اختبار قائمة");
+    const entryNo = await createPostedJournalEntry(page, memo);
+    expect(entryNo).toMatch(/^JE-\d+$/);
 
-  test("status chips filter to posted entries, and to an empty draft set", async ({ page }) => {
-    const tablist = page.getByRole("tablist", { name: "تصفية حسب الحالة" });
-
-    await tablist.getByRole("tab", { name: /^مرحل\s+\d/ }).click();
-    await expect(docNumbers(page)).toHaveCount(3);
-
-    await tablist.getByRole("tab", { name: /^مسودة\s+\d/ }).click();
-    await expect(page.getByText("لا توجد قيود مطابقة")).toBeVisible();
-
-    await tablist.getByRole("tab", { name: /^الكل\s+\d/ }).click();
-    await expect(docNumbers(page)).toHaveCount(3);
-  });
-
-  test("search filters by journal number and by memo text", async ({ page }) => {
     const search = page.getByPlaceholder("بحث برقم القيد...");
-
-    await search.fill("000002");
-    await expect(docNumbers(page)).toHaveText(["JE-000002"]);
+    await search.fill(entryNo);
+    await expect(docNumbers(page)).toHaveText([entryNo]);
 
     await search.fill("");
-    await search.fill("رأس المال");
-    await expect(docNumbers(page)).toHaveText(["JE-000001"]);
+    await search.fill(memo);
+    await expect(docNumbers(page)).toHaveText([entryNo]);
 
-    await search.fill("لا يوجد شيء بهذا الاسم");
+    await search.fill(unique("لا يوجد شيء بهذا الاسم"));
     await expect(page.getByText("لا توجد قيود مطابقة")).toBeVisible();
+  });
+
+  test("the مرحل status chip filters to a freshly-posted entry; a zero-count chip like مسودة is not offered", async ({ page }) => {
+    const memo = unique("قيد اختبار تصفية");
+    const entryNo = await createPostedJournalEntry(page, memo);
+
+    await clickSidebarItem(page, "القيود المحاسبية");
+    await page.getByPlaceholder("بحث برقم القيد...").fill(memo);
+
+    const tablist = page.getByRole("tablist", { name: "تصفية حسب الحالة" });
+    await tablist.getByRole("tab", { name: /^مرحل\s+\d/ }).click();
+    await expect(docNumbers(page)).toHaveText([entryNo]);
+
+    // A view with count === 0 is not rendered at all (packages/ui/src/primitives/
+    // ListViews.tsx) — "a zero-count option teaches nothing" — so مسودة/معكوس
+    // are simply absent, not present-but-empty, while this search is scoped
+    // to our one posted entry.
+    await expect(tablist.getByRole("tab", { name: /^مسودة/ })).toHaveCount(0);
+    await expect(tablist.getByRole("tab", { name: /^معكوس/ })).toHaveCount(0);
+
+    await tablist.getByRole("tab", { name: /^الكل\s+\d/ }).click();
+    await expect(docNumbers(page)).toHaveText([entryNo]);
   });
 });
 
 test.describe("Journal Entries — detail", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
-    await clickSidebarItem(page, "القيود المحاسبية");
-    await expect(page.getByRole("heading", { name: "القيود المحاسبية" })).toBeVisible();
   });
 
   test("opening a posted entry shows the balance badge, the lifecycle stepper on مرحل, and a reverse action", async ({ page }) => {
-    await page.getByText("JE-000001", { exact: true }).click();
+    const memo = unique("قيد اختبار تفاصيل");
+    const entryNo = await createPostedJournalEntry(page, memo);
+    await clickSidebarItem(page, "القيود المحاسبية");
+    await page.getByPlaceholder("بحث برقم القيد...").fill(memo);
+    await uniqueRow(page, memo).click();
 
-    await expect(page.getByRole("heading", { name: "JE-000001" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: entryNo })).toBeVisible();
     await expect(page.getByText("متوازن ✓").first()).toBeVisible();
 
     const stepper = page.getByLabel("حالة المستند");
@@ -80,8 +141,12 @@ test.describe("Journal Entries — detail", () => {
   });
 
   test("رجوع returns to the list", async ({ page }) => {
-    await page.getByText("JE-000002", { exact: true }).click();
-    await expect(page.getByRole("heading", { name: "JE-000002" })).toBeVisible();
+    const memo = unique("قيد اختبار رجوع");
+    const entryNo = await createPostedJournalEntry(page, memo);
+    await clickSidebarItem(page, "القيود المحاسبية");
+    await page.getByPlaceholder("بحث برقم القيد...").fill(memo);
+    await uniqueRow(page, memo).click();
+    await expect(page.getByRole("heading", { name: entryNo })).toBeVisible();
 
     await page.getByRole("button", { name: "رجوع" }).click();
     await expect(page.getByRole("heading", { name: "القيود المحاسبية" })).toBeVisible();
@@ -94,22 +159,39 @@ test.describe("Journal Entries — create: live balance gating", () => {
     await loginAsDemoUser(page);
     await clickSidebarItem(page, "القيود المحاسبية");
     await expect(page.getByRole("heading", { name: "القيود المحاسبية" })).toBeVisible();
-    await page.getByRole("button", { name: "قيد جديد" }).click();
+    await page.getByRole("button", { name: "قيد جديد" }).first().click();
     await expect(page.getByRole("heading", { name: "إنشاء قيد يومي" })).toBeVisible();
+  });
+
+  // BUG: apps/web/src/settings/form-controls.tsx's `Field`/`TextField` render
+  // a <label> with no `htmlFor`, and the <input> beside it has no matching
+  // `id` — so this screen's own memo field (bound through that exact wrapper,
+  // see JournalsScreen.tsx's `t("journals.description2")` field) is never
+  // programmatically associated with its label. A screen reader announces the
+  // field only by its placeholder, not "الوصف *", and clicking the label text
+  // does not focus the input. Every other field in this create form (the line
+  // account/memo/debit/credit cells) sets `aria-label` directly and is fine —
+  // only the header's memo and date fields go through the broken wrapper.
+  test("BUG: the memo field's «الوصف *» label is not associated with its input", async ({ page }) => {
+    test.fail();
+    // A short explicit timeout — the label truly never resolves, so failing
+    // fast (via a locator-level timeout, which test.fail() recognizes) keeps
+    // this from stalling on the whole-test 30s budget (which it would not).
+    await page.getByLabel("الوصف *").fill("قيد اختبار", { timeout: 3000 });
   });
 
   test("typing an unbalanced entry disables ترحيل القيد; balancing it enables the button", async ({ page }) => {
     const postButton = page.getByRole("button", { name: "ترحيل القيد" });
     await expect(postButton).toBeDisabled();
 
-    await page.getByLabel("الوصف *").fill("قيد اختبار");
-    await page.getByLabel("الحساب للسطر 1").selectOption("1300-1");
+    await page.getByPlaceholder("وصف القيد...").fill(unique("قيد اختبار"));
+    await chooseCombo(page, "الحساب للسطر 1", /^1300-1 —/);
     await page.getByLabel("مدين للسطر 1").fill("100");
 
     await expect(postButton).toBeDisabled();
     await expect(page.getByText("غير متوازن", { exact: true })).toBeVisible();
 
-    await page.getByLabel("الحساب للسطر 2").selectOption("4100");
+    await chooseCombo(page, "الحساب للسطر 2", /^4100 —/);
     await page.getByLabel("دائن للسطر 2").fill("100");
 
     await expect(postButton).toBeEnabled();
@@ -117,28 +199,31 @@ test.describe("Journal Entries — create: live balance gating", () => {
   });
 
   test("posting a balanced entry returns to the list with the new journal number", async ({ page }) => {
-    await page.getByLabel("الوصف *").fill("قيد اختبار");
-    await page.getByLabel("الحساب للسطر 1").selectOption("1300-1");
+    const memo = unique("قيد اختبار ترحيل");
+    await page.getByPlaceholder("وصف القيد...").fill(memo);
+    await chooseCombo(page, "الحساب للسطر 1", /^1300-1 —/);
     await page.getByLabel("مدين للسطر 1").fill("100");
-    await page.getByLabel("الحساب للسطر 2").selectOption("4100");
+    await chooseCombo(page, "الحساب للسطر 2", /^4100 —/);
     await page.getByLabel("دائن للسطر 2").fill("100");
 
     await page.getByRole("button", { name: "ترحيل القيد" }).click();
 
     await expect(page.getByRole("heading", { name: "القيود المحاسبية" })).toBeVisible();
-    await expect(page.getByText("JE-000004")).toBeVisible();
-    await expect(page.getByText("عرض 4 من 4 قيد")).toBeVisible();
+    await page.getByPlaceholder("بحث برقم القيد...").fill(memo);
+    const row = uniqueRow(page, memo);
+    await expect(row).toHaveCount(1);
+    await expect(row.getByText(/^JE-\d+$/)).toBeVisible();
   });
 
   test("light and dark screenshots of the create screen", async ({ page }) => {
-    await page.getByLabel("الوصف *").fill("قيد اختبار");
-    await page.getByLabel("الحساب للسطر 1").selectOption("1300-1");
+    await page.getByPlaceholder("وصف القيد...").fill(unique("قيد اختبار"));
+    await chooseCombo(page, "الحساب للسطر 1", /^1300-1 —/);
     await page.getByLabel("مدين للسطر 1").fill("100");
-    await page.getByLabel("الحساب للسطر 2").selectOption("4100");
+    await chooseCombo(page, "الحساب للسطر 2", /^4100 —/);
     await page.getByLabel("دائن للسطر 2").fill("100");
     await expect(page.getByText("متوازن ✓")).toBeVisible();
 
-    // Light is the default (no explicit [data-theme]) — see theme.spec.ts.
+    // Light is the explicit default — see theme.spec.ts.
     await page.screenshot({ path: `${SCREENSHOT_DIR}/journal-create-light.png` });
 
     await page.getByRole("button", { name: "تبديل المظهر" }).click();

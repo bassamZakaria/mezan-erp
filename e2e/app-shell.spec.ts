@@ -1,6 +1,16 @@
 import { test, expect } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 
+/**
+ * Rebuilt against the workspace-column shell (packages/ui/src/shell/AppShell.tsx
+ * + RailFooter.tsx). Row one and its full-width `<header>` are gone: every
+ * chrome control — brand, workspaces, search, scope, appearance, language,
+ * the user, sign-out — now lives in the single `<nav>` column
+ * (`aria-label="التنقل بين مساحات العمل"`), which is what
+ * `packages/ui/src/shell/AppShell.test.tsx` asserts directly against the
+ * component. There is no `<aside>` and no `<header>` anywhere in the shell.
+ */
+
 test.describe("App shell", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
@@ -13,35 +23,43 @@ test.describe("App shell", () => {
     await expect(page).toHaveTitle(/ميزان|Mezan/);
   });
 
-  test("sidebar shows the brand mark and every module group in Arabic", async ({ page }) => {
-    const sidebar = page.locator("aside");
-    await expect(sidebar.getByText("ميزان", { exact: true })).toBeVisible();
-    await expect(sidebar.getByText("Mezan ERP")).toBeVisible();
+  test("the workspace column shows the brand mark and the real workspaces in Arabic", async ({ page }) => {
+    const rail = page.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    await expect(rail.getByText("ميزان", { exact: true })).toBeVisible();
 
-    for (const group of ["المبيعات", "المشتريات", "المحاسبة", "الإعدادات"]) {
-      await expect(sidebar.getByRole("button", { name: group, exact: true })).toBeVisible();
+    for (const workspace of ["البيع والتحصيل", "الشراء والتوريد", "المالية والإقفال", "الإعداد والصلاحيات"]) {
+      await expect(rail.getByRole("button", { name: workspace, exact: true })).toBeVisible();
     }
 
-    // Sales group is expanded by default — its items are visible without interaction.
-    await expect(sidebar.getByText("فواتير المبيعات")).toBeVisible();
-    // Settings starts collapsed (nav-config.ts's defaultCollapsed: true).
-    await expect(sidebar.getByRole("button", { name: "الإعدادات", exact: true })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    await expect(sidebar.getByText("عام", { exact: true })).toBeHidden();
+    // Every workspace is a flat one-click tab now — there is no
+    // collapsed/expanded group state left in the column to assert.
+    await expect(rail.getByRole("button", { name: /كل الشاشات/ })).toBeVisible();
   });
 
-  test("sidebar footer and topbar both show the signed-in user", async ({ page }) => {
-    // The signed-in user's real name + role (from the session), sidebar footer + topbar chip.
-    await expect(page.getByText("محمد الشهابي")).toHaveCount(2);
-    await expect(page.getByText("مدير الشركة")).toHaveCount(2);
+  test("the column's foot shows the signed-in user once, with a link to their profile", async ({ page }) => {
+    const rail = page.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    // NAME ONLY in the chip (RailFooter.tsx) — the role line was dropped in
+    // favour of showing it on الملف الشخصي, so it must not be duplicated here.
+    await expect(rail.getByText("محمد الشهابي")).toHaveCount(1);
+
+    await rail.getByRole("button", { name: /محمد الشهابي/ }).click();
+    await expect(page).toHaveURL(/\/setup\/settings-profile$/);
+    await expect(page.getByRole("heading", { name: "محمد الشهابي", level: 1 })).toBeVisible();
+    await expect(page.getByText("مدير الشركة")).toBeVisible();
   });
 
-  test("topbar shows the branch scope chip and notification badge", async ({ page }) => {
-    const topbar = page.locator("header");
-    await expect(topbar.getByText("الفرع الرئيسي")).toBeVisible();
-    await expect(topbar.getByRole("button", { name: /الإشعارات/ })).toBeVisible();
+  test("the column's foot shows the single-branch scope as a label and the warehouse scope as a switcher", async ({ page }) => {
+    const rail = page.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    // Seed data has exactly one branch — a single option renders as a static
+    // label (ScopeSwitcher.tsx), not a dropdown offering a choice of one.
+    await expect(rail.getByTitle("الفرع الحالي: الفرع الرئيسي")).toBeVisible();
+    await expect(rail.getByRole("combobox", { name: "المستودع الحالي" })).toHaveText("كل المستودعات");
+  });
+
+  test("صندوق الوارد opens the notifications inbox from row one", async ({ page }) => {
+    await page.getByRole("button", { name: "صندوق الوارد", exact: true }).click();
+    await expect(page).toHaveURL(/\/notifications$/);
+    await expect(page.getByRole("heading", { name: "الإشعارات" })).toBeVisible();
   });
 
   test("Ctrl+K opens the command palette, filters, and Escape closes it", async ({ page }) => {
@@ -53,7 +71,7 @@ test.describe("App shell", () => {
     await expect(dialog.getByText("دليل الحسابات")).toBeVisible();
     await expect(dialog.getByText("فاتورة مبيعات جديدة")).toBeVisible();
 
-    await dialog.getByPlaceholder("اكتب أمراً أو ابحث…").fill("القيود");
+    await dialog.getByRole("combobox", { name: "لوحة الأوامر" }).fill("القيود");
     await expect(dialog.getByText("القيود المحاسبية")).toBeVisible();
     await expect(dialog.getByText("فاتورة مبيعات جديدة")).toBeHidden();
 
@@ -61,8 +79,14 @@ test.describe("App shell", () => {
     await expect(dialog).toBeHidden();
   });
 
-  test("clicking the topbar search launcher also opens the command palette", async ({ page }) => {
-    await page.getByRole("button", { name: /بحث عن صفحة/ }).click();
-    await expect(page.getByRole("dialog", { name: "لوحة الأوامر" })).toBeVisible();
+  test("clicking the column's search trigger also opens the command palette and runs a command", async ({ page }) => {
+    await page.getByRole("button", { name: "بحث وأوامر (CtrlK)" }).click();
+    const dialog = page.getByRole("dialog", { name: "لوحة الأوامر" });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole("combobox", { name: "لوحة الأوامر" }).fill("دليل الحسابات");
+    await dialog.getByText("دليل الحسابات").click();
+    await expect(dialog).toBeHidden();
+    await expect(page).toHaveURL(/\/money\/coa$/);
   });
 });

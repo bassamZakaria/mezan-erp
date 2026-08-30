@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
+import { brokenLabelField } from "./support/broken-label";
 
 /**
  * Sales Invoices (فواتير المبيعات) — real API-backed screen
@@ -25,32 +26,60 @@ function unique(prefix: string): string {
 async function createCustomer(page: Page, name: string): Promise<void> {
   await clickSidebarItem(page, "العملاء");
   await expect(page.getByRole("heading", { name: "العملاء" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة عميل" }).click();
+  // The header's "إضافة عميل" is always in the DOM; the empty-state region
+  // renders a second button with the exact same label whenever the list
+  // reads zero rows (the e2e tenant starts with none) — .first() is the
+  // header's, always present.
+  await page.getByRole("button", { name: "إضافة عميل" }).first().click();
   const form = page.getByRole("dialog", { name: "إضافة عميل" });
-  await form.getByLabel("اسم العميل *").fill(name);
+  // The name field is built through the broken `../settings/form-controls`
+  // TextField (see e2e/support/broken-label.ts) — its `<label>` has no
+  // `htmlFor`.
+  await brokenLabelField(form, "اسم العميل *").fill(name);
   await form.getByRole("button", { name: "إضافة عميل", exact: true }).click();
+  await expect(form).toBeHidden();
+}
+
+async function createTreasuryAccount(page: Page, name: string, code: string): Promise<void> {
+  await clickSidebarItem(page, "حسابات الخزينة");
+  await expect(page.getByRole("heading", { name: "حسابات الخزينة" })).toBeVisible();
+  await page.getByRole("button", { name: "إضافة حساب" }).first().click();
+  const form = page.getByRole("dialog", { name: "إضافة حساب" });
+  await brokenLabelField(form, "اسم الحساب *").fill(name);
+  await brokenLabelField(form, "الكود *").fill(code);
+  // The GL-account field auto-picks by type when left blank per its own
+  // hint — filled explicitly here with the seeded main cash leaf rather than
+  // relying on that (see treasury-vouchers.spec.ts for the documented defect
+  // when it's left blank).
+  await brokenLabelField(form, "حساب دفتر الأستاذ").fill("1300-1");
+  await form.getByRole("button", { name: "إضافة", exact: true }).click();
   await expect(form).toBeHidden();
 }
 
 async function createItem(page: Page, name: string, salePrice: string): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة صنف" }).click();
-  const form = page.getByRole("dialog", { name: "إضافة صنف" });
+  await page.getByRole("button", { name: "إضافة صنف" }).first().click();
+  // Items' add/edit is a full sub-PAGE, not a dialog — and its "نوع الصنف"
+  // field is a custom portaled `Select` (packages/ui/src/primitives/Select.tsx),
+  // not a native `<select>`, so it is chosen by clicking the combobox then
+  // its option, not `.selectOption()`.
+  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
   // A freshly-created stock item has zero on-hand qty, and the real
   // sales-invoice confirm path refuses to drive stock negative — service
   // items skip inventory tracking entirely, so they stay sellable right away.
-  await form.getByLabel("نوع الصنف *").selectOption({ label: "خدمة" });
-  await form.getByLabel("اسم الصنف *").fill(name);
-  const price = form.getByLabel("سعر البيع");
+  await page.getByRole("combobox", { name: "نوع الصنف" }).click();
+  await page.getByRole("option", { name: "خدمة" }).click();
+  await page.getByLabel("اسم الصنف *").fill(name);
+  const price = page.getByLabel("سعر البيع");
   await price.fill(salePrice);
   await price.press("Tab");
-  await form.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(form).toBeHidden();
+  await page.getByRole("button", { name: "إضافة", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
 }
 
 /** Types into an EntityPicker combobox and clicks the matching option button. */
-async function pickEntity(scope: Locator, label: string, query: string): Promise<void> {
+async function pickEntity(scope: Page | Locator, label: string, query: string): Promise<void> {
   const input = scope.getByLabel(label);
   await input.click();
   await input.fill(query);
@@ -66,34 +95,41 @@ test.describe("Sales Invoices", () => {
     await clickSidebarItem(page, "فواتير المبيعات");
     await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
 
-    await page.getByRole("button", { name: "فاتورة جديدة" }).click();
-    const dialog = page.getByRole("dialog", { name: "فاتورة مبيعات جديدة" });
-    await expect(dialog).toBeVisible();
+    await page.getByRole("button", { name: "فاتورة جديدة" }).first().click();
+    // Create is a full sub-PAGE (h1 "فاتورة مبيعات جديدة"), not a dialog, and
+    // opens on a creation-method step ("إدخال بنود يدوياً" is the default,
+    // already pressed) before "متابعة" reveals the actual line-item form.
+    await expect(page.getByRole("heading", { name: "فاتورة مبيعات جديدة", level: 1 })).toBeVisible();
+    await page.getByRole("button", { name: "متابعة" }).click();
 
-    await expect(dialog.getByRole("button", { name: "تأكيد الفاتورة" })).toBeDisabled();
-    await expect(dialog.getByRole("button", { name: "حفظ كمسودة" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "تأكيد الفاتورة" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "حفظ كمسودة" })).toBeDisabled();
   });
 
   test("creates and confirms an invoice, shows the effects panel + GL/payments tabs, and records a partial payment", async ({ page }) => {
     const customerName = unique("عميل فاتورة");
     const itemName = unique("صنف فاتورة");
+    const treasuryName = unique("صندوق تحصيل فاتورة");
+    const treasuryCode = `CASH-${Date.now() % 100000}`;
 
     await createCustomer(page, customerName);
     await createItem(page, itemName, "100");
+    await createTreasuryAccount(page, treasuryName, treasuryCode);
 
     await clickSidebarItem(page, "فواتير المبيعات");
     await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
 
-    await page.getByRole("button", { name: "فاتورة جديدة" }).click();
-    const dialog = page.getByRole("dialog", { name: "فاتورة مبيعات جديدة" });
+    await page.getByRole("button", { name: "فاتورة جديدة" }).first().click();
+    await expect(page.getByRole("heading", { name: "فاتورة مبيعات جديدة", level: 1 })).toBeVisible();
+    await page.getByRole("button", { name: "متابعة" }).click();
 
-    await pickEntity(dialog, "العميل *", customerName);
-    await pickEntity(dialog, "الصنف — سطر 1", itemName);
+    await pickEntity(page, "العميل *", customerName);
+    await pickEntity(page, "الصنف — سطر 1", itemName);
 
-    const confirmButton = dialog.getByRole("button", { name: "تأكيد الفاتورة" });
+    const confirmButton = page.getByRole("button", { name: "تأكيد الفاتورة" });
     await expect(confirmButton).toBeEnabled();
     await confirmButton.click();
-    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
 
     // Isolate our invoice via the search box — the backend is shared with
     // other parallel specs, so total counts / exact next numbers aren't safe.
@@ -112,6 +148,10 @@ test.describe("Sales Invoices", () => {
 
     await page.getByRole("tab", { name: "المدفوعات" }).click();
     await page.getByLabel("قيمة الدفعة").fill("40");
+    // "الخزينة المستلمة" is the portaled `Select` combobox, not an
+    // EntityPicker — chosen by clicking it then its option.
+    await page.getByRole("combobox", { name: "الخزينة المستلمة" }).click();
+    await page.getByRole("option", { name: treasuryName }).click();
     await page.getByRole("button", { name: "تحصيل دفعة" }).click();
 
     await expect(page.getByText("مدفوع جزئياً").first()).toBeVisible();

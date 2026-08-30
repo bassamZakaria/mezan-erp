@@ -6,19 +6,59 @@ import { clickSidebarItem } from "./support/nav";
 const SCREENSHOT_DIR = "e2e-results/screenshots";
 
 /**
- * Items screen (apps/web/src/screens/ItemsScreen.tsx) — الأصناف. 8 demo items
- * (the seeded item catalog), page size 5 (2 pages). List
- * (DocumentList: status chips, search, category/unit selects, sortable
- * table, pager) → detail (DocumentDetail with 5 tabs) → add/edit form
- * (SidePanel) with repeatable alternate-unit and barcode editors.
+ * Items screen (apps/web/src/screens/ItemsScreen.tsx) — الأصناف. The e2e
+ * backend starts as a genuinely empty tenant (packages/backend/src/seed.ts)
+ * — no items seeded — so every test creates its own via the real create
+ * flow, isolated by a unique name prefix.
+ *
+ * Add/edit is a full sub-PAGE (FormPage/FormColumns in
+ * apps/web/src/settings/form-controls.tsx), not a modal — there is no
+ * `role="dialog"` here, just an `h1` heading "إضافة صنف" / "تعديل صنف" and a
+ * "رجوع" back action, unlike Customers/Suppliers/Journals which are dialogs.
+ * The plain text fields go through apps/web/src/screens/item-form-controls.tsx
+ * (label nested INSIDE the `<label>` element), which correctly associates
+ * with `getByLabel` — no broken-label workaround needed here.
+ *
+ * `Select` (packages/ui/src/primitives/Select.tsx) is a portaled custom
+ * listbox, not a native `<select>` — every field built on it (نوع الصنف،
+ * الوحدة الأساسية) is chosen by clicking its combobox trigger then its
+ * `role="option"`, not `.selectOption()`.
+ *
+ * Generic list mechanics (sort/pager column headers) get one compact test
+ * here since document-list.spec.ts already covers that surface exhaustively
+ * via Sales Invoices; the tests below focus on what's specific to items —
+ * the repeatable unit/barcode editors, the service-type field toggle, detail
+ * tabs, and validation.
  */
+
+function unique(prefix: string): string {
+  return `${prefix} ${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
 
 function listRow(page: Page, nameAr: string) {
   return page.locator("table tbody tr").filter({ has: page.getByText(nameAr, { exact: true }) });
 }
 
-function itemCodes(page: Page) {
-  return page.locator("table tbody tr td:first-child .mz-num");
+async function chooseCombo(page: Page, comboLabel: string, optionName: string | RegExp): Promise<void> {
+  await page.getByRole("combobox", { name: comboLabel }).click();
+  await page.getByRole("option", { name: optionName }).click();
+}
+
+async function openItemForm(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "إضافة صنف" }).first().click();
+  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
+}
+
+/** Fills the minimum required fields (name + a sale price) and submits. */
+async function createItem(page: Page, name: string, salePrice: string, options?: { service?: boolean }): Promise<void> {
+  await openItemForm(page);
+  if (options?.service) await chooseCombo(page, "نوع الصنف", "خدمة");
+  await page.getByLabel("اسم الصنف *").fill(name);
+  const price = page.getByLabel("سعر البيع");
+  await price.fill(salePrice);
+  await price.press("Tab");
+  await page.getByRole("button", { name: "إضافة", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
 }
 
 test.describe("Items", () => {
@@ -28,77 +68,77 @@ test.describe("Items", () => {
     await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
   });
 
-  test.describe("list", () => {
-    test("lists the demo catalog across two pages", async ({ page }) => {
-      await expect(page.getByText("عرض 1–5 من 8 صنف")).toBeVisible();
-      await expect(page.locator("table tbody tr")).toHaveCount(5);
+  test("adding an item appears in the list with a generated code, and search finds it by name and code", async ({ page }) => {
+    const name = unique("صنف تجريبي جديد");
+    await createItem(page, name, "42.50");
 
-      await page.getByRole("navigation", { name: "ترقيم الصفحات" }).getByRole("button", { name: "2", exact: true }).click();
+    const row = listRow(page, name);
+    await expect(row).toBeVisible();
+    const code = (await row.locator("td").first().locator(".mz-num").innerText()).trim();
+    expect(code).toMatch(/^ITM-\d+$/);
 
-      await expect(page.getByText("عرض 6–8 من 8 صنف")).toBeVisible();
-      await expect(itemCodes(page)).toHaveText(["ITM-000006", "ITM-000007", "ITM-000008"]);
-    });
+    const search = page.getByPlaceholder("بحث بالاسم أو الكود...");
+    await search.fill(name);
+    await expect(page.locator("table tbody tr")).toHaveCount(1);
+    await search.fill("");
+    await search.fill(code);
+    await expect(listRow(page, name)).toBeVisible();
+  });
 
-    test("category filter narrows the list to matching items", async ({ page }) => {
-      await page.getByLabel("تصفية حسب التصنيف").selectOption({ label: "مواد غذائية" });
+  test("sorting by sale price toggles ascending then descending across a known set of prices", async ({ page }) => {
+    const prefix = unique("صنف ترتيب");
+    const names = ["أ", "ب", "ج"].map((s) => `${prefix} ${s}`);
+    await createItem(page, names[0]!, "300");
+    await createItem(page, names[1]!, "100");
+    await createItem(page, names[2]!, "200");
 
-      await expect(page.getByText("عرض 1–3 من 3 صنف")).toBeVisible();
-      await expect(itemCodes(page)).toHaveText(["ITM-000001", "ITM-000002", "ITM-000008"]);
-    });
+    await page.getByPlaceholder("بحث بالاسم أو الكود...").fill(prefix);
+    await expect(page.locator("table tbody tr")).toHaveCount(3);
 
-    test("unit filter narrows the list to items on that base unit", async ({ page }) => {
-      await page.getByLabel("تصفية حسب الوحدة").selectOption({ label: "قطعة" });
+    const priceHeader = page.getByRole("columnheader", { name: /سعر البيع/ });
+    await priceHeader.click();
+    await expect(priceHeader).toHaveAttribute("aria-sort", "ascending");
+    await expect(page.locator("table tbody tr")).toHaveText([
+      new RegExp(names[1]!),
+      new RegExp(names[2]!),
+      new RegExp(names[0]!),
+    ]);
 
-      await expect(page.getByText("عرض 1–4 من 4 صنف")).toBeVisible();
-      await expect(itemCodes(page)).toHaveText(["ITM-000001", "ITM-000002", "ITM-000003", "ITM-000004"]);
-    });
+    await priceHeader.click();
+    await expect(priceHeader).toHaveAttribute("aria-sort", "descending");
+    await expect(page.locator("table tbody tr")).toHaveText([
+      new RegExp(names[0]!),
+      new RegExp(names[2]!),
+      new RegExp(names[1]!),
+    ]);
+  });
 
-    test("search narrows the list by Arabic name", async ({ page }) => {
-      await page.getByPlaceholder("بحث بالاسم أو الكود...").fill("زيت");
+  test("status chip filters to service items only, scoped by search", async ({ page }) => {
+    const prefix = unique("صنف حالة");
+    await createItem(page, `${prefix} مخزون`, "10");
+    await createItem(page, `${prefix} خدمة`, "20", { service: true });
 
-      await expect(page.getByText("عرض 1–1 من 1 صنف")).toBeVisible();
-      await expect(itemCodes(page)).toHaveText(["ITM-000002"]);
-    });
+    await page.getByPlaceholder("بحث بالاسم أو الكود...").fill(prefix);
+    await expect(page.locator("table tbody tr")).toHaveCount(2);
 
-    test("status chip filters to the service items only", async ({ page }) => {
-      await page.getByRole("tablist", { name: "تصفية حسب الحالة" }).getByRole("tab", { name: /^خدمة\s+\d/ }).click();
-
-      await expect(page.locator("table tbody tr")).toHaveCount(2);
-      await expect(listRow(page, "خدمة صيانة معدات")).toBeVisible();
-      await expect(listRow(page, "خدمة تركيب وتوصيل")).toBeVisible();
-
-      await page.getByRole("tablist", { name: "تصفية حسب الحالة" }).getByRole("tab", { name: /^الكل\s+\d/ }).click();
-      await expect(page.locator("table tbody tr")).toHaveCount(5);
-    });
-
-    test("sorting by sale price toggles ascending then descending", async ({ page }) => {
-      const priceHeader = page.getByRole("columnheader", { name: /سعر البيع/ });
-      await priceHeader.click();
-      await expect(priceHeader).toHaveAttribute("aria-sort", "ascending");
-      await expect(itemCodes(page)).toHaveText(["ITM-000008", "ITM-000002", "ITM-000003", "ITM-000007", "ITM-000001"]);
-
-      await priceHeader.click();
-      await expect(priceHeader).toHaveAttribute("aria-sort", "descending");
-      await expect(itemCodes(page)).toHaveText(["ITM-000005", "ITM-000006", "ITM-000004", "ITM-000001", "ITM-000007"]);
-    });
+    await page.getByRole("tablist", { name: "تصفية حسب الحالة" }).getByRole("tab", { name: /^خدمة\s+\d/ }).click();
+    await expect(page.locator("table tbody tr")).toHaveCount(1);
+    await expect(listRow(page, `${prefix} خدمة`)).toBeVisible();
   });
 
   test.describe("add item", () => {
     test("fills alternate units and barcodes via the repeatable editors, then the new item appears in the list", async ({ page }) => {
-      await page.getByRole("button", { name: "إضافة صنف" }).click();
-      const form = page.getByRole("dialog", { name: "إضافة صنف" });
-      await expect(form).toBeVisible();
+      const name = unique("منتج اختبار الوحدات والباركود");
+      await openItemForm(page);
+      await page.getByLabel("اسم الصنف *").fill(name);
 
-      await form.getByLabel("اسم الصنف *").fill("منتج اختبار الوحدات والباركود");
+      await page.getByRole("button", { name: "+ إضافة وحدة" }).click();
+      await page.getByRole("button", { name: "+ إضافة وحدة" }).click();
+      await expect(page.getByLabel("كود الوحدة", { exact: true })).toHaveCount(2);
 
-      // Alternate units: add two rows and fill each one.
-      await form.getByRole("button", { name: "+ إضافة وحدة" }).click();
-      await form.getByRole("button", { name: "+ إضافة وحدة" }).click();
-      await expect(form.getByLabel("كود الوحدة", { exact: true })).toHaveCount(2);
-
-      const unitCodeInputs = form.getByLabel("كود الوحدة", { exact: true });
-      const unitNameInputs = form.getByLabel("اسم الوحدة", { exact: true });
-      const unitFactorInputs = form.getByLabel("عامل التحويل", { exact: true });
+      const unitCodeInputs = page.getByLabel("كود الوحدة", { exact: true });
+      const unitNameInputs = page.getByLabel("اسم الوحدة", { exact: true });
+      const unitFactorInputs = page.getByLabel("عامل التحويل", { exact: true });
       await unitCodeInputs.nth(0).fill("CTN");
       await unitNameInputs.nth(0).fill("كرتونة");
       await unitFactorInputs.nth(0).fill("12");
@@ -106,107 +146,102 @@ test.describe("Items", () => {
       await unitNameInputs.nth(1).fill("صندوق");
       await unitFactorInputs.nth(1).fill("24");
 
-      // Remove the first alternate-unit row and confirm only the second (BOX) remains.
-      await form.getByRole("button", { name: "حذف الوحدة" }).first().click();
-      await expect(form.getByLabel("كود الوحدة", { exact: true })).toHaveCount(1);
+      await page.getByRole("button", { name: "حذف الوحدة" }).first().click();
+      await expect(page.getByLabel("كود الوحدة", { exact: true })).toHaveCount(1);
       await expect(unitCodeInputs.nth(0)).toHaveValue("BOX");
 
-      // Barcodes: add three rows, fill them, then remove one and confirm the count drops.
-      // getByLabel is exact here — otherwise it also picks up the "حذف
-      // الباركود" remove buttons, whose accessible name contains "الباركود"
-      // as a substring.
-      await form.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
-      await form.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
-      await form.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
-      await expect(form.getByLabel("الباركود", { exact: true })).toHaveCount(3);
+      await page.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
+      await page.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
+      await page.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
+      await expect(page.getByLabel("الباركود", { exact: true })).toHaveCount(3);
 
-      const barcodeInputs = form.getByLabel("الباركود", { exact: true });
+      const barcodeInputs = page.getByLabel("الباركود", { exact: true });
       await barcodeInputs.nth(0).fill("1112223334441");
       await barcodeInputs.nth(1).fill("1112223334442");
       await barcodeInputs.nth(2).fill("1112223334443");
 
-      await form.getByRole("button", { name: "حذف الباركود" }).first().click();
-      await expect(form.getByLabel("الباركود", { exact: true })).toHaveCount(2);
-      await expect(form.getByLabel("الباركود", { exact: true }).nth(0)).toHaveValue("1112223334442");
+      await page.getByRole("button", { name: "حذف الباركود" }).first().click();
+      await expect(page.getByLabel("الباركود", { exact: true })).toHaveCount(2);
+      await expect(page.getByLabel("الباركود", { exact: true }).nth(0)).toHaveValue("1112223334442");
 
-      await form.getByRole("button", { name: "إضافة", exact: true }).click();
-      await expect(form).toBeHidden();
+      await page.getByRole("button", { name: "إضافة", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
 
-      await expect(page.getByText("عرض 1–5 من 9 صنف")).toBeVisible();
-      await page.getByPlaceholder("بحث بالاسم أو الكود...").fill("منتج اختبار الوحدات والباركود");
-      await expect(listRow(page, "منتج اختبار الوحدات والباركود")).toBeVisible();
+      await page.getByPlaceholder("بحث بالاسم أو الكود...").fill(name);
+      await expect(listRow(page, name)).toBeVisible();
     });
 
     test("switching item type to service hides the inventory-policy fields", async ({ page }) => {
-      await page.getByRole("button", { name: "إضافة صنف" }).click();
-      const form = page.getByRole("dialog", { name: "إضافة صنف" });
+      await openItemForm(page);
 
-      await expect(form.getByText("تتبع المخزون")).toBeVisible();
-      await form.getByLabel("نوع الصنف *").selectOption("service");
-      await expect(form.getByText("تتبع المخزون")).toBeHidden();
+      await expect(page.getByText("تتبع المخزون")).toBeVisible();
+      await chooseCombo(page, "نوع الصنف", "خدمة");
+      await expect(page.getByText("تتبع المخزون")).toBeHidden();
     });
 
     test("rejects a duplicate barcode and keeps the form open with an error", async ({ page }) => {
-      await page.getByRole("button", { name: "إضافة صنف" }).click();
-      const form = page.getByRole("dialog", { name: "إضافة صنف" });
+      await openItemForm(page);
 
-      await form.getByLabel("اسم الصنف *").fill("صنف باركود مكرر");
-      await form.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
-      await form.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
-      const barcodeInputs = form.getByLabel("الباركود", { exact: true });
-      await barcodeInputs.nth(0).fill("1112223334445");
-      await barcodeInputs.nth(1).fill("1112223334445");
+      await page.getByLabel("اسم الصنف *").fill(unique("صنف باركود مكرر"));
+      await page.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
+      await page.getByRole("button", { name: "+ إضافة باركود آخر" }).click();
+      const barcodeInputs = page.getByLabel("الباركود", { exact: true });
+      const barcode = `111222333${Date.now() % 10000}`;
+      await barcodeInputs.nth(0).fill(barcode);
+      await barcodeInputs.nth(1).fill(barcode);
 
-      await form.getByRole("button", { name: "إضافة", exact: true }).click();
+      await page.getByRole("button", { name: "إضافة", exact: true }).click();
 
-      await expect(form.getByRole("alert")).toContainText("مكرر");
-      await expect(form).toBeVisible();
+      await expect(page.getByRole("alert")).toContainText("مكرر");
+      await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
     });
   });
 
   test("editing an item via the row edit action updates its name in the list", async ({ page }) => {
-    await page.getByRole("button", { name: "تعديل زيت عباد الشمس 1 لتر" }).click();
-    const form = page.getByRole("dialog", { name: "تعديل صنف" });
-    await expect(form).toBeVisible();
+    const name = unique("زيت عباد الشمس 1 لتر");
+    await createItem(page, name, "55");
+    await page.getByPlaceholder("بحث بالاسم أو الكود...").fill(name);
 
-    const codeInput = form.getByLabel("كود الصنف", { exact: true });
+    // Two controls share this accessible name: a RowMenu trigger
+    // (aria-haspopup="menu", for a narrower layout) and the direct edit icon
+    // button used at this width — .last() is the direct one.
+    await page.getByRole("button", { name: `تعديل ${name}` }).last().click();
+    await expect(page.getByRole("heading", { name: "تعديل صنف", level: 1 })).toBeVisible();
+
+    const codeInput = page.getByLabel("كود الصنف", { exact: true });
     await expect(codeInput).toBeDisabled();
-    await expect(codeInput).toHaveValue("ITM-000002");
-    await expect(form.getByLabel("اسم الصنف *")).toHaveValue("زيت عباد الشمس 1 لتر");
-    await expect(form.getByLabel("الماركة")).toHaveValue("الملكة");
+    await expect(page.getByLabel("اسم الصنف *")).toHaveValue(name);
 
-    await form.getByLabel("اسم الصنف *").fill("زيت عباد الشمس 1 لتر مطور");
-    await form.getByRole("button", { name: "حفظ", exact: true }).click();
+    const updatedName = `${name} مطور`;
+    await page.getByLabel("اسم الصنف *").fill(updatedName);
+    await page.getByRole("button", { name: "حفظ", exact: true }).click();
 
-    await expect(form).toBeHidden();
-    await expect(listRow(page, "زيت عباد الشمس 1 لتر مطور")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+    // The search box resets on this navigation back to the list.
+    await page.getByPlaceholder("بحث بالاسم أو الكود...").fill(updatedName);
+    await expect(listRow(page, updatedName)).toBeVisible();
   });
 
   test("opening an item shows its detail tabs, and switching between them changes the content", async ({ page }) => {
-    await listRow(page, "أرز أبيض مصري 5 كجم").click();
+    const name = unique("أرز أبيض مصري 5 كجم");
+    await createItem(page, name, "180");
+    await page.getByPlaceholder("بحث بالاسم أو الكود...").fill(name);
 
-    await expect(page.getByRole("heading", { name: "ITM-000001 — أرز أبيض مصري 5 كجم" })).toBeVisible();
-    // "الوحدة الأساسية" (exact) is the units-tab card label — distinct from
-    // the closed add/edit form's "الوحدة الأساسية *" select label, which
-    // stays mounted (hidden) behind the detail view.
+    await listRow(page, name).click();
+    await expect(page.getByRole("heading", { name: new RegExp(`— ${name}$`) })).toBeVisible();
     await expect(page.getByText("الوحدة الأساسية", { exact: true })).toBeHidden();
 
     await page.getByRole("tab", { name: "الوحدات والباركود" }).click();
     await expect(page.getByText("الوحدة الأساسية", { exact: true })).toBeVisible();
-    await expect(page.getByText("1 CTN = 12 PCS")).toBeVisible();
-    await expect(page.getByText("6221031200015")).toBeVisible();
 
     await page.getByRole("tab", { name: "التسعير" }).click();
-    // Unique to the pricing tab's cost-price hint — the stock tab has its own
-    // "(المرحلة الثانية)" note, but only this one mentions "دفتر التكاليف".
-    await expect(page.getByText(/دفتر التكاليف/)).toBeVisible();
+    await expect(page.getByRole("tabpanel").getByText("سعر التكلفة", { exact: true })).toBeVisible();
 
     await page.getByRole("tab", { name: "الحسابات" }).click();
-    await expect(page.getByText("1200 — المخزون")).toBeVisible();
-    await expect(page.getByText("10000051")).toBeVisible();
+    await expect(page.getByRole("tabpanel").getByText("حساب المخزون", { exact: true })).toBeVisible();
 
     await page.getByRole("tab", { name: "المخزون" }).click();
-    await expect(page.getByText(/المرحلة الثانية/)).toBeVisible();
+    await expect(page.getByRole("tabpanel").getByText("لا يوجد مخزون من هذا الصنف في أي مستودع.")).toBeVisible();
 
     await page.getByRole("button", { name: "رجوع للقائمة" }).click();
     await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();

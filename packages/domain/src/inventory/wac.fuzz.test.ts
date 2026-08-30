@@ -487,3 +487,119 @@ describe("a revaluation that names a receipt whose layers are gone (D84)", () =>
     expect(position.averageCost.toString()).toBe("30.000000");
   });
 });
+
+describe("an issue leaves at the cost the LEDGER recorded, not a freshly recomputed one", () => {
+  /**
+   * `wac.ts` says this in its own comment: recomputing instead made replay
+   * disagree with the live engine for any document entered out of date order —
+   * a backdated sale, or a landed cost dated after a sale that had already
+   * consumed the revalued stock. Nothing tested it, so a change back to
+   * recomputation went unnoticed until a mutation run found it.
+   *
+   * Every OUT below carries a NON-ZERO unitCost, which is what makes the two
+   * behaviours distinguishable: a movement with a zero cost falls through to
+   * the recompute path by design.
+   */
+  const receipt = (id: string, qty: string, unitCost: string, at: string): StockMovement => ({
+    id,
+    itemId: ITEM,
+    warehouseId: WAREHOUSE,
+    direction: "IN",
+    qty: Qty.fromMajor(qty),
+    unitCost: Money.fromMajor(unitCost),
+    sourceDocType: "PURCHASE_RECEIPT",
+    sourceDocId: `DOC-${id}`,
+    sourceDocNumber: null,
+    reason: null,
+    occurredAt: at,
+  });
+
+  const issue = (id: string, qty: string, recordedCost: string, at: string): StockMovement => ({
+    id,
+    itemId: ITEM,
+    warehouseId: WAREHOUSE,
+    direction: "OUT",
+    qty: Qty.fromMajor(qty),
+    unitCost: Money.fromMajor(recordedCost),
+    sourceDocType: "SALES_INVOICE",
+    sourceDocId: `DOC-${id}`,
+    sourceDocNumber: null,
+    reason: null,
+    occurredAt: at,
+  });
+
+  it("values the issue at its recorded cost even when the running average differs", () => {
+    // 10 @ 5.00 = 50.00 on hand. The issue was posted when the average was
+    // 5.00, and it says so — but a later, earlier-dated receipt has since
+    // changed what a recomputation would produce.
+    const position = replay(ITEM, WAREHOUSE, [
+      receipt("IN1", "10", "5", "2026-01-01T00:00:00.000Z"),
+      issue("OUT1", "4", "5", "2026-01-05T00:00:00.000Z"),
+    ]);
+
+    // 50.00 in, 4 × 5.00 = 20.00 out, 30.00 left over 6 units = 5.00.
+    expect(position.onHand.toString()).toBe("6.000000");
+    expect(position.totalValue.toString()).toBe("30.000000");
+  });
+
+  it("a backdated receipt does not restate what an already-posted issue cost", () => {
+    // The sale left at 5.00 and the books recorded that. A cheaper purchase is
+    // then entered with an EARLIER date — the kind of correction a supplier
+    // invoice arriving late produces.
+    const withBackdate = replay(ITEM, WAREHOUSE, [
+      receipt("IN-EARLY", "10", "1", "2026-01-01T00:00:00.000Z"),
+      receipt("IN1", "10", "5", "2026-01-02T00:00:00.000Z"),
+      issue("OUT1", "4", "5", "2026-01-05T00:00:00.000Z"),
+    ]);
+
+    // 10.00 + 50.00 = 60.00 in; the issue still leaves at the 5.00 it recorded,
+    // so 20.00 leaves and 40.00 remains over 16 units.
+    expect(withBackdate.onHand.toString()).toBe("16.000000");
+    expect(withBackdate.totalValue.toString()).toBe("40.000000");
+
+    // A recomputation would have valued that issue at the blended 3.00 average
+    // and left 48.00 — the figure the ledger does NOT hold.
+    expect(withBackdate.totalValue.toString()).not.toBe("48.000000");
+  });
+
+  it("a landed cost dated after the sale it did not fund does not change what the sale cost", () => {
+    const position = replay(ITEM, WAREHOUSE, [
+      receipt("IN1", "10", "5", "2026-01-01T00:00:00.000Z"),
+      issue("OUT1", "4", "5", "2026-01-05T00:00:00.000Z"),
+      {
+        id: "LC1",
+        itemId: ITEM,
+        warehouseId: WAREHOUSE,
+        direction: "IN",
+        qty: Qty.zero(),
+        unitCost: Money.zero(),
+        sourceDocType: "LANDED_COST",
+        sourceDocId: "DOC-LC1",
+        sourceDocNumber: null,
+        reason: null,
+        occurredAt: "2026-01-10T00:00:00.000Z",
+        valueDelta: Money.fromMajor("60"),
+        revaluesSourceDocId: "DOC-IN1",
+      },
+    ]);
+
+    // 50.00 − 20.00 + 60.00 = 90.00 over the 6 units still held.
+    expect(position.onHand.toString()).toBe("6.000000");
+    expect(position.totalValue.toString()).toBe("90.000000");
+    expect(position.averageCost.toString()).toBe("15.000000");
+  });
+
+  it("still recomputes when the movement records no cost of its own", () => {
+    // The other half of the rule: a zero cost means "value me at the average",
+    // and that path must keep working.
+    const position = replay(ITEM, WAREHOUSE, [
+      receipt("IN1", "10", "5", "2026-01-01T00:00:00.000Z"),
+      receipt("IN2", "10", "15", "2026-01-02T00:00:00.000Z"),
+      issue("OUT1", "4", "0", "2026-01-05T00:00:00.000Z"),
+    ]);
+
+    // 50.00 + 150.00 = 200.00 over 20 units = 10.00 average; 4 out at 10.00.
+    expect(position.totalValue.toString()).toBe("160.000000");
+    expect(position.averageCost.toString()).toBe("10.000000");
+  });
+});

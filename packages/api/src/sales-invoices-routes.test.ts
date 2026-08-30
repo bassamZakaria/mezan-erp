@@ -48,7 +48,7 @@ class MemStockLedger { rows: any[] = []; async append(m: any) { this.rows.push(m
 class MemLayers { rows = new Map<string, any>(); async add(l: any) { this.rows.set(l.id, l); } async listByPosition(i: string, w: string) { return [...this.rows.values()].filter((l) => l.itemId === i && l.warehouseId === w); } async updateRemaining(id: string, q: any) { const l = this.rows.get(id); if (l) this.rows.set(id, { ...l, remainingQty: q }); } async remove(id: string) { this.rows.delete(id); } }
 class MemSnaps { rows = new Map<string, any>(); key(i: string, w: string) { return `${i}:${w}`; } async get(i: string, w: string) { return this.rows.get(this.key(i, w)) ?? null; } async save(s: any) { this.rows.set(this.key(s.itemId, s.warehouseId), s); } async list() { return [...this.rows.values()]; } }
 
-async function harness() {
+async function harness(opts: { maxLineDiscountPercent?: number } = {}) {
   const accounts = {
     map: new Map<string, Account>([
       [AR, account(AR)],
@@ -95,6 +95,9 @@ async function harness() {
   const collectionNumbering = new NextNumberService(new MemSeq());
   const deps: SalesInvoiceRoutesDeps = {
     repo,
+    ...(opts.maxLineDiscountPercent === undefined
+      ? {}
+      : { discountPolicy: async () => ({ maxLineDiscountPercent: opts.maxLineDiscountPercent as number }) }),
     numbering: { next: () => new NextNumberService(new MemSeq()).next("SALES_INVOICE") },
     gl: glHook,
     stock: createSalesInvoiceStockHook(stockService),
@@ -246,5 +249,160 @@ describe("sales-invoices routes", () => {
     const { app } = await harness();
     const res = await app.fetch(req("/", { method: "POST", body: JSON.stringify({ ...draftBody, lines: [] }), permissions: "sales.invoice.create" }));
     expect(res.status).toBe(400);
+  });
+});
+
+describe("the discount ceiling and the giveaway gate", () => {
+  /** The same harness, with a tenant ceiling of 20% on a line discount. */
+  const harnessWithCeiling = (maxLineDiscountPercent = 20) => harness({ maxLineDiscountPercent });
+
+  const line = (overrides: Record<string, unknown>) => ({
+    ...draftBody,
+    lines: [{ ...draftBody.lines[0], ...overrides }],
+  });
+
+  it("refuses a zero-priced line without sales.price.override", async () => {
+    const { app } = await harnessWithCeiling();
+    const res = await app.fetch(
+      req("/", { method: "POST", permissions: "sales.invoice.create", body: JSON.stringify(line({ unitPrice: "0" })) }),
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ permission: "sales.price.override" });
+  });
+
+  it("allows a zero-priced line to someone who holds the override", async () => {
+    const { app } = await harnessWithCeiling();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create,sales.price.override",
+        body: JSON.stringify(line({ unitPrice: "0" })),
+      }),
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("refuses a 100% line discount without the override, and allows it with", async () => {
+    const body = line({ discountType: "percent", discountPercent: 100 });
+    const { app } = await harnessWithCeiling();
+
+    const refused = await app.fetch(
+      req("/", { method: "POST", permissions: "sales.invoice.create", body: JSON.stringify(body) }),
+    );
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ permission: "sales.price.override" });
+
+    // A 100% discount is also over the 20% ceiling, so it needs BOTH: the
+    // override for the giveaway, and the approval for the ceiling.
+    const overrideOnly = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create,sales.price.override",
+        body: JSON.stringify(body),
+      }),
+    );
+    expect(overrideOnly.status).toBe(403);
+    expect(await overrideOnly.json()).toMatchObject({ permission: "pos.discount.approve" });
+
+    const allowed = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create,sales.price.override,pos.discount.approve",
+        body: JSON.stringify(body),
+      }),
+    );
+    expect(allowed.status).toBe(201);
+  });
+
+  it("refuses an amount discount that swallows the whole line, the same as a 100% one", async () => {
+    // 10 × 25.00 = 250.00; a 250.00 discount is a giveaway however it is typed.
+    const { app } = await harnessWithCeiling();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create",
+        body: JSON.stringify(line({ discountType: "amount", discountAmount: "250" })),
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ permission: "sales.price.override" });
+  });
+
+  it("allows a discount at the tenant's ceiling and refuses one above it", async () => {
+    const { app } = await harnessWithCeiling(20);
+
+    const atCeiling = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create",
+        body: JSON.stringify(line({ discountType: "percent", discountPercent: 20 })),
+      }),
+    );
+    expect(atCeiling.status).toBe(201);
+
+    const overCeiling = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create",
+        body: JSON.stringify(line({ discountType: "percent", discountPercent: 21 })),
+      }),
+    );
+    expect(overCeiling.status).toBe(403);
+    expect(await overCeiling.json()).toMatchObject({ permission: "pos.discount.approve" });
+  });
+
+  it("lets an approver exceed the ceiling", async () => {
+    const { app } = await harnessWithCeiling(20);
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create,pos.discount.approve",
+        body: JSON.stringify(line({ discountType: "percent", discountPercent: 45 })),
+      }),
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("applies the ceiling to a header discount as well as a line one", async () => {
+    const { app } = await harnessWithCeiling(20);
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create",
+        body: JSON.stringify({ ...draftBody, discount: { type: "percent", percent: 30 } }),
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ permission: "pos.discount.approve" });
+  });
+
+  it("LIMITATION (D87): the ceiling checks percent discounts only, so an amount discount walks past it", async () => {
+    // 10 × 25.00 = 250.00. A 240.00 discount is 96% of the line — far above the
+    // 20% ceiling — but it is typed as an amount, and `overCeiling` only looks
+    // at percent lines. It is under the giveaway rule's threshold (which fires
+    // at the whole line), so nothing refuses it.
+    const { app } = await harnessWithCeiling(20);
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create",
+        body: JSON.stringify(line({ discountType: "amount", discountAmount: "240" })),
+      }),
+    );
+    expect(res.status).toBe(201);
+
+    // When D87 is closed, this must be a 403 naming pos.discount.approve.
+  });
+
+  it("has no ceiling at all when the tenant configures none", async () => {
+    const { app } = await harness();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create",
+        body: JSON.stringify(line({ discountType: "percent", discountPercent: 99 })),
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 });

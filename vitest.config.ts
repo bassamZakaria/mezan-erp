@@ -29,7 +29,18 @@ export default defineConfig({
         "**/*.d.ts",
         "**/test-support.{ts,tsx}",
         "**/src/test/**",
+        "**/test-helpers/**",
+        // Fixture data, not product logic: the demo seed is verified by
+        // `pnpm check:seed` and `pnpm smoke`, which run it against the real
+        // backend. Unit-testing a fixture only asserts the fixture.
         "packages/backend/src/demo-seed.ts",
+        "packages/backend/src/demo-seed/**",
+        // Electron main/preload: they need a real Electron runtime, and the
+        // logic worth guarding (backup, entitlements, LAN host, paths) is
+        // already extracted into modules that ARE covered.
+        "apps/desktop/src/main/index.ts",
+        "apps/desktop/src/main/window.ts",
+        "apps/desktop/src/preload/**",
       ],
       thresholds: {
         lines: 80,

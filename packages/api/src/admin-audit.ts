@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { recordSecurityEvent, recordSensitiveEvent, type AuditSeverity, type AuditSink } from "@mezan/domain";
 import { getAuthContext } from "./permission-gate.js";
+import { requestOrigin } from "./request-origin.js";
 
 /**
  * The forensic trail for administrative acts.
@@ -41,8 +42,30 @@ export async function recordAdminEvent(
     // it is meant to incriminate.
     actor: getAuthContext(c)?.userId ?? "system",
     severity: entry.severity ?? "WARNING",
-    details: entry.details ?? null,
+    details: withOrigin(c, entry.details),
   });
+}
+
+/**
+ * WHERE the act came from, stamped onto every administrative record.
+ *
+ * The session grant carries a user id, permissions, a role code and two scopes
+ * — and no origin. The audit row carries an actor, a branch and a timestamp —
+ * and no origin. So after a cash shortfall at till 3 there was no way to
+ * establish that the adjustment came from till 3 rather than the back office,
+ * at any layer. Since the desktop edition now serves the same app over a LAN
+ * socket as well as in-process, that went from a small gap to the general case.
+ *
+ * `requestOrigin` reads the socket, never a header (see request-origin.ts), so
+ * this is one field on a forensic record that the party it may incriminate
+ * cannot write. "host" means the request came from inside the process — the
+ * machine's own console — which is a fact, not a missing value.
+ */
+function withOrigin(
+  c: Context,
+  details: Readonly<Record<string, unknown>> | null | undefined,
+): Readonly<Record<string, unknown>> {
+  return { ...(details ?? {}), origin: requestOrigin(c) ?? "host" };
 }
 
 /**
@@ -68,7 +91,7 @@ export async function recordSecurityAdminEvent(
     action: entry.action,
     actor: getAuthContext(c)?.userId ?? "anonymous",
     severity: entry.severity ?? "CRITICAL",
-    details: entry.details ?? null,
+    details: withOrigin(c, entry.details),
   });
 }
 

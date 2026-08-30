@@ -177,6 +177,32 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     await deps.settings.save({ ...settings, tenantClaimedAt: at });
   }
 
+  /**
+   * Retires the seeded fallback admin the moment a real one exists.
+   *
+   * `USER-ADMIN` is created so a fresh tenant is never account-less, and on a
+   * packaged build its PIN is generated. It was then left ACTIVE forever, with
+   * `isCompanyAdmin: true` — a permanent, unattributable `["*"]` account on
+   * every install, which is the classic "generic admin account" audit finding
+   * arrived at through the front door. Three things followed from it: the
+   * tenant admin could quietly claim it by setting a PIN of their own choosing
+   * and share it; an auditor asking "whose account is this" got no answer; and
+   * whoever installed the software — typically the vendor's technician, not the
+   * owner — could set `MEZAN_SEED_ADMIN_PIN` before first run and leave with a
+   * permanent key.
+   *
+   * Claiming the tenant is exactly the moment it stops being needed, so that is
+   * when it is deactivated. It is not deleted: `--reset-admin` reactivates it
+   * from the machine's own filesystem, which is the recovery door for an owner
+   * who has lost their PIN, and deleting the row would take the audit history
+   * that points at it with it.
+   */
+  async function retireSeedAdmin(): Promise<void> {
+    const seed = await deps.uow.users.findById(SEED_ADMIN_USER_ID);
+    if (!seed || seed.status !== "active") return;
+    await deps.uow.users.save({ ...seed, status: "inactive" });
+  }
+
   app.post("/auth/login", async (c) => {
     const parsed = loginRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
@@ -310,10 +336,15 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
         deps.hasher,
       );
       await recordTenantClaim(new Date().toISOString());
+      await retireSeedAdmin();
       // The single highest-authority write in the product, and it recorded
       // nothing at all — so a company admin appearing from nowhere was
       // indistinguishable, afterwards, from one that had always been there.
-      await security(c, "TENANT_CLAIMED", "CRITICAL", { userId: user.id, email: user.email });
+      await security(c, "TENANT_CLAIMED", "CRITICAL", {
+        userId: user.id,
+        email: user.email,
+        seedAdminRetired: true,
+      });
       return c.json(await toSession(user, deps), 201);
     } catch (err) {
       // This used to hand back the EXISTING admin's session for wizard

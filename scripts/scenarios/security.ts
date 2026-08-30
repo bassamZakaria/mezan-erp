@@ -560,4 +560,100 @@ export async function run(ctx: Ctx): Promise<void> {
     const denied = await req("GET", "/security-reports/exceptions", undefined, clerk);
     check("and the reports are gated", denied.status === 403, `got ${denied.status}`);
   });
+
+  await ctx.scenario("security — claiming a tenant retires the seeded fallback admin", async () => {
+    // A FRESH tenant, not the shared demo one: this is about what the very
+    // first `POST /bootstrap/admin` does, and the demo tenant is already
+    // claimed by construction.
+    const fresh = await createBackend({ dbPath: ":memory:" });
+    try {
+      const call = (path: string, init: RequestInit = {}) =>
+        fresh.app.fetch(new Request(`http://fresh${path}`, init));
+      const post = (path: string, body: unknown) =>
+        call(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+      const before = await post("/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN });
+      check("the seeded fallback admin can sign in on an unclaimed tenant", before.status === 200, `got ${before.status}`);
+
+      const claim = await post("/bootstrap/admin", {
+        nameAr: "المالك", nameEn: "Owner", email: "owner@fresh.example", pin: "246813",
+      });
+      check("the owner claims the install", claim.status === 201, `got ${claim.status}`);
+
+      // The classic "generic admin account" finding, closed at the moment it
+      // stops being needed. It was left ACTIVE with `["*"]` on every install —
+      // unattributable, claimable by anyone who could set its PIN, and a
+      // permanent key for whoever installed the software.
+      const after = await post("/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN });
+      check("and the seeded admin can no longer sign in", after.status === 401, `got ${after.status}`);
+
+      const owner = await post("/auth/login", { username: "owner@fresh.example", pin: "246813" });
+      check("while the real owner can", owner.status === 200, `got ${owner.status}`);
+
+      const retaken = await post("/bootstrap/admin", {
+        nameAr: "دخيل", nameEn: "Second", email: "second@fresh.example", pin: "135791",
+      });
+      check("and the install cannot be claimed twice", retaken.status === 409, `got ${retaken.status}`);
+    } finally {
+      fresh.close();
+    }
+  });
+
+  await ctx.scenario("security — an administrative act records where it came from", async () => {
+    // The session grant carried a user id and no origin; the audit row carried
+    // an actor and no origin. So "which till posted this adjustment" was not
+    // answerable at any layer — and the desktop edition now serves the same app
+    // over a LAN socket as well as in-process.
+    const role = await req("POST", "/roles", {
+      code: "SCN_SEC_ORIGIN", name: "دور المصدر",
+      permissions: ["sales.invoice.view"], isSystem: false, status: "active",
+    });
+    check("a role write to hang the assertion on", role.status === 201, JSON.stringify(role.body).slice(0, 140));
+
+    const audit = await req("GET", "/audit?entityType=ROLE&limit=10");
+    const events = ctx.rows(audit.body).length ? ctx.rows(audit.body) : (audit.body?.events ?? []);
+    const created = events.find((e: any) => e.action === "CREATE");
+    check("the write is recorded", !!created, JSON.stringify(audit.body).slice(0, 160));
+    // "host" is a FACT — the request came from inside the process — not a
+    // missing value dressed up as one.
+    check("and carries an origin", typeof created?.details?.origin === "string", JSON.stringify(created?.details).slice(0, 160));
+    check("which is the in-process mount here", created?.details?.origin === "host", String(created?.details?.origin));
+  });
+
+  await ctx.scenario("security — the operational permissions are held by an operational role", async () => {
+    // A PERMISSION GRANTED TO NOBODY IS A ROUTE NOBODY CAN CALL. Both
+    // `admin.devices.manage` and `admin.users.unlock` were written to end the
+    // same outage — the till is stuck or locked at 6pm and only the owner's own
+    // `isCompanyAdmin` account can do anything about it — and `admin.devices.*`
+    // shipped in exactly that state: gated on `admin.settings.edit`, which no
+    // seeded role holds. Asserting the ROUTE exists would not have caught it;
+    // asserting a real role can reach it does.
+    const roles = await req("GET", "/roles");
+    const rows = ctx.rows(roles.body);
+    check("the seeded roles are readable", rows.length > 0, String(rows.length));
+
+    for (const [code, permission] of [
+      ["BRANCH_MANAGER", "admin.devices.manage"],
+      ["BRANCH_MANAGER", "admin.users.unlock"],
+      ["SUPERVISOR", "admin.devices.manage"],
+      ["SUPERVISOR", "admin.users.unlock"],
+      ["TREASURY_CASHIER", "admin.devices.view"],
+    ] as const) {
+      const role = rows.find((r: any) => r.code === code);
+      check(
+        `${code} can ${permission}`,
+        !!role && (role.permissions as string[]).includes(permission),
+        role ? (role.permissions as string[]).filter((p: string) => p.startsWith("admin.")).join(",") : "role missing",
+      );
+    }
+
+    // And the one that must NOT be handed out with them: unlocking a colleague
+    // is a supervisory act, resetting their PIN is not the same thing.
+    const cashier = rows.find((r: any) => r.code === "TREASURY_CASHIER");
+    check(
+      "a cashier who can see the tills still cannot edit accounts",
+      !!cashier && !(cashier.permissions as string[]).includes("admin.users.edit"),
+      cashier ? (cashier.permissions as string[]).filter((p: string) => p.startsWith("admin.")).join(",") : "role missing",
+    );
+  });
 }

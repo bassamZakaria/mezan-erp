@@ -7109,6 +7109,17 @@ const webAr = {
   "pipelineStages.emptyBody": "المرحلة تحدد خطوات خط البيع من الفرصة الأولى حتى الإغلاق.",
   "rfqs.emptyBody": "طلب عرض السعر يُرسل لعدة موردين لمقارنة أسعارهم قبل إصدار أمر الشراء.",
   "eta.emptyBody": "لا توجد عناصر مطابقة — الربط مع منظومة الفاتورة الإلكترونية يحتاج أكواداً مسجّلة لكل صنف ووحدة.",
+  "licence.problem": "مشكلة في الترخيص",
+  "licence.expiryDate": "تاريخ انتهاء الصلاحية:",
+  "licence.supportCode": "الرمز عند الاتصال بالدعم:",
+  "licence.couldNotBeRead": "تعذّرت قراءة حالة الترخيص على هذا الجهاز.",
+  "devices.lanAddress": "عنوان الجهاز المستضيف على الشبكة المحلية",
+  "devices.lanAddressHint": "وجّه كل جهاز نقطة بيع إلى هذا العنوان.",
+  "devices.lanAddressDesktopOnly": "لا يُعرف هذا العنوان إلا على الجهاز المستضيف نفسه. افتح هذه الشاشة من نسخة سطح المكتب على ذلك الجهاز.",
+  "devices.lanAddressUnknown": "تعذّر تحديد عنوان هذا الجهاز على الشبكة المحلية. تأكد من توصيله بشبكة المنشأة.",
+  "devices.lanNotRunning": "خدمة الشبكة المحلية غير مشغّلة على هذا الجهاز.",
+  "devices.copyAddress": "نسخ العنوان",
+  "devices.addressCopied": "تم نسخ العنوان.",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -14222,6 +14233,17 @@ const webEn: Record<WebTranslationKey, string> = {
   "pipelineStages.emptyBody": "A stage defines the steps of the sales pipeline, from the first opportunity through to close.",
   "rfqs.emptyBody": "A request for quotation goes out to several suppliers so their prices can be compared before a purchase order is raised.",
   "eta.emptyBody": "Nothing matches — the e-invoicing link needs a registered code for every item and every unit.",
+  "licence.problem": "Licence problem",
+  "licence.expiryDate": "Expiry date:",
+  "licence.supportCode": "Quote this code to support:",
+  "licence.couldNotBeRead": "The licence status could not be read on this machine.",
+  "devices.lanAddress": "The host machine's address on the local network",
+  "devices.lanAddressHint": "Point each till at this address.",
+  "devices.lanAddressDesktopOnly": "This address is only knowable on the host machine itself. Open this screen from the desktop app there.",
+  "devices.lanAddressUnknown": "This machine's local-network address could not be determined. Check that it is connected to the company network.",
+  "devices.lanNotRunning": "The local-network service is not running on this machine.",
+  "devices.copyAddress": "Copy address",
+  "devices.addressCopied": "Address copied.",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

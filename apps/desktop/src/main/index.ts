@@ -9,7 +9,8 @@ import { initAutoUpdater } from "./updater.js";
 import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
 import { defaultBackupsDir, defaultDbPath, isDev, rendererEntry, rendererRoot } from "./env.js";
 import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./renderer-protocol.js";
-import { resolveDesktopEntitlements } from "./entitlements.js";
+import { diagnoseDesktopEntitlements } from "./entitlements.js";
+import { registerLicenceStatusOverIpc } from "./licence-ipc.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
 import {
   clearRecoveryPinIfClaimed,
@@ -121,7 +122,14 @@ app.whenReady().then(async () => {
   // `lan.multi_till`, a LAN-visible socket for other tills/tablets in the
   // shop (§6.3.3). `/lan/sessions` seat enforcement lives on this one app
   // instance in both cases — see @mezan/api's lan/routes.ts.
-  const entitlements = resolveDesktopEntitlements();
+  // Resolved ONCE, diagnosis and all: `mezan:licence:status` must report the
+  // same reading every gate below was built from, not re-read the environment
+  // and answer a different question than the one the app is running on.
+  const licence = diagnoseDesktopEntitlements();
+  const entitlements = licence.entitlements;
+  if (licence.status !== "licensed") {
+    console.warn(`[licence] ${licence.code} — ${licence.detailAr}`);
+  }
   const seatRegistry = new SeatSessionRegistry(entitlements.seats);
   // `createBackend`, NOT `createApp`. This is the composition that carries the
   // session resolver, the seeded tenant and the real `/auth` routes; building
@@ -192,6 +200,14 @@ app.whenReady().then(async () => {
       app.relaunch();
       app.exit(0);
     },
+    sessions: backend.sessions,
+  });
+  // Registered before the socket is opened, and reading `lanHost` through a
+  // getter: the bind is asynchronous (lan-host.ts), so the address is null
+  // until it completes and the screen must be told null rather than a guess.
+  registerLicenceStatusOverIpc({
+    diagnosis: () => licence,
+    lanHost: () => lanHost,
     sessions: backend.sessions,
   });
   lanHost = startLanHost({ app: backend.app, entitlements });

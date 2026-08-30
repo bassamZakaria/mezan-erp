@@ -10,6 +10,7 @@ import { displayName } from "./display-name";
 import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
+import { LicenceStatusNotice } from "./lan/ConnectedDevicesPanel";
 import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, PINNED_NAV_ITEM_KEYS } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
@@ -524,6 +525,16 @@ export function AppLayout() {
       onSelectBranch={setBranch}
       onSelectWarehouse={setWarehouse}
     >
+      {/*
+        A licence problem is the whole app's problem, not the connected-devices
+        screen's. It used to be neither: an unlicensed or expired install fell
+        silently to zero seats and no modules, and the window simply opened with
+        things ABSENT — no message, and no code the owner could read down the
+        phone to support. The notice renders nothing when the licence is healthy,
+        while it is still being read, or on the browser build, so it costs a
+        healthy shop nothing.
+      */}
+      <LicenceStatusNotice />
       <Breadcrumbs screen={activeScreen} />
       {/*
         The matched screen renders here.

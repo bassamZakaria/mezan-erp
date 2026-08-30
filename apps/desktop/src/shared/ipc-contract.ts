@@ -114,6 +114,68 @@ export type BackupRestoreResult =
   | BackupFailure;
 
 /**
+ * LICENCE HEALTH AND THE LAN ADDRESS, over IPC.
+ *
+ * Neither fact is the Hono app's to give. The licence diagnosis is produced by
+ * main/entitlements.ts before the backend is even composed, and `GET
+ * /entitlements` reports the API's own default capability set rather than the
+ * desktop licence at all; the LAN bind address exists only on the
+ * `LanHostHandle` main/index.ts holds. So the renderer had no way to reach
+ * either, and shipped without them: an unlicensed or expired install said
+ * nothing and merely lacked features, and the address a till must be pointed at
+ * went to a console in a shop that never opens one — main/lan-host.ts still
+ * called the screen that would show it "a future 'show me the LAN address' UI".
+ *
+ * The call takes the caller's SESSION TOKEN for the same reason `GET
+ * /lan/status` requires a session: seat counts and the host's address are facts
+ * about the shop, not public ones, and an IPC channel carries no headers.
+ */
+export const MEZAN_LICENCE_STATUS_CHANNEL = "mezan:licence:status";
+
+/**
+ * The code an owner reads down the phone to support. Stable, short, and always
+ * rendered ALONGSIDE Arabic prose — never on its own in front of a user.
+ *
+ * There is no code here for "wrong machine": nothing in this build reads a
+ * machine fingerprint (main/entitlements.ts), and a code for a state the
+ * product cannot detect would be a claim it has not been told.
+ */
+export type LicenceCode = "LIC-OK" | "LIC-MISSING" | "LIC-MALFORMED" | "LIC-INVALID" | "LIC-EXPIRED";
+
+export interface LanAddressDTO {
+  /** True only when the LAN socket is actually bound and listening. */
+  readonly listening: boolean;
+  /**
+   * `http://192.168.1.7:4173` — the address a till is pointed at — or null when
+   * there is none to give (not listening yet, or the host had no non-internal
+   * IPv4 interface and fell back to `0.0.0.0`, which no till can dial). NEVER a
+   * plausible-looking guess: the screen says the address is unknown instead.
+   */
+  readonly url: string | null;
+}
+
+export interface LicenceStatusDTO {
+  readonly ok: true;
+  readonly code: LicenceCode;
+  /** Arabic, ready to render as-is. */
+  readonly messageAr: string;
+  readonly plan: string;
+  readonly seats: number;
+  /** ISO, or null for a perpetual grant. */
+  readonly expiresAt: string | null;
+  readonly lan: LanAddressDTO;
+}
+
+export interface LicenceStatusFailure {
+  readonly ok: false;
+  readonly code: "UNAUTHORIZED" | "UNAVAILABLE";
+  /** Arabic, ready to render. Never show `code` to a user on its own. */
+  readonly message: string;
+}
+
+export type LicenceStatusResult = LicenceStatusDTO | LicenceStatusFailure;
+
+/**
  * The shape exposed on `window.mezan` by the preload bridge. Kept minimal —
  * one `fetch`-shaped call, print-to-PDF, and the backup trio — so the
  * renderer's HTTP client abstraction only has to swap the `fetch`
@@ -139,5 +201,8 @@ export interface MezanBridge {
     list(sessionToken: string): Promise<BackupListResult | BackupFailure>;
     create(sessionToken: string): Promise<BackupCreateResult>;
     restore(sessionToken: string, fileName: string): Promise<BackupRestoreResult>;
+  };
+  readonly licence: {
+    status(sessionToken: string): Promise<LicenceStatusResult>;
   };
 }

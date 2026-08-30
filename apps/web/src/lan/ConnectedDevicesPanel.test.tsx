@@ -1,12 +1,41 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ConnectedDevicesPanel } from "./ConnectedDevicesPanel";
+import { ConnectedDevicesPanel, LicenceStatusNotice } from "./ConnectedDevicesPanel";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import type { DesktopLicenceResultDTO } from "../data/hooks";
+
+/**
+ * The desktop bridge, which is the only source of the licence diagnosis and
+ * the LAN address — neither is reachable over the API. Installing it here is
+ * how a test says "this is running on the host machine".
+ */
+type BridgeHost = { mezan?: { licence?: { status(token: string): Promise<DesktopLicenceResultDTO> } } };
+
+function withDesktopBridge(result: DesktopLicenceResultDTO): void {
+  (globalThis as BridgeHost).mezan = { licence: { status: () => Promise.resolve(result) } };
+}
+
+const LICENSED: DesktopLicenceResultDTO = {
+  ok: true,
+  code: "LIC-OK",
+  messageAr: "الترخيص سارٍ.",
+  plan: "ENTERPRISE",
+  seats: 2,
+  expiresAt: null,
+  lan: { listening: true, url: "http://192.168.1.7:4173" },
+};
+
+const LICENSED_STATUS = { licensed: true, seats: 2, connected: 0 };
+const NO_SESSIONS = { seats: 2, connected: 0, sessions: [] };
 
 describe("ConnectedDevicesPanel", () => {
+  afterEach(() => {
+    delete (globalThis as BridgeHost).mezan;
+  });
+
   it("shows an unlicensed message and no table when LAN mode is not licensed", async () => {
     const transport = stubTransport({
       "GET /lan/status": () => ({ body: { licensed: false, seats: 0, connected: 0 } }),
@@ -96,5 +125,156 @@ describe("ConnectedDevicesPanel", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.queryByText("جارٍ التحميل…")).not.toBeInTheDocument();
     expect(screen.getByText("تعذّر قراءة عدد المقاعد.")).toBeInTheDocument();
+  });
+});
+
+/**
+ * FINDING #11 — the LAN address existed only in a console the shop never
+ * opens, so a consultant provisioning a till had to find the host's IP by
+ * hand. Every branch here is about saying only what the screen was told.
+ */
+describe("ConnectedDevicesPanel — the LAN address", () => {
+  afterEach(() => {
+    delete (globalThis as BridgeHost).mezan;
+  });
+
+  it("shows the address a till is pointed at, in Latin digits and selectable", async () => {
+    withDesktopBridge(LICENSED);
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    const address = await screen.findByText("http://192.168.1.7:4173");
+    expect(address).toBeInTheDocument();
+    expect(address).toHaveAttribute("dir", "ltr");
+  });
+
+  it("says the address is only knowable on the host, rather than guessing one, on the web build", async () => {
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText(/لا يُعرف هذا العنوان إلا على الجهاز المستضيف/)).toBeInTheDocument();
+    expect(screen.queryByText(/http:\/\//)).not.toBeInTheDocument();
+  });
+
+  it("says the address is unknown when the host has none to give — never a plausible one", async () => {
+    withDesktopBridge({ ...LICENSED, lan: { listening: true, url: null } });
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText(/تعذّر تحديد عنوان هذا الجهاز/)).toBeInTheDocument();
+    expect(screen.queryByText(/http:\/\//)).not.toBeInTheDocument();
+  });
+
+  it("says the LAN service is not running rather than printing an address for a dead socket", async () => {
+    withDesktopBridge({ ...LICENSED, lan: { listening: false, url: null } });
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText(/خدمة الشبكة المحلية غير مشغّلة/)).toBeInTheDocument();
+  });
+
+  it("renders a refused licence read as an error, not as an address", async () => {
+    withDesktopBridge({ ok: false, code: "UNAUTHORIZED", message: "سجّل الدخول لعرض حالة الترخيص." });
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText("سجّل الدخول لعرض حالة الترخيص.")).toBeInTheDocument();
+    expect(screen.queryByText(/http:\/\//)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * FINDING #8 — a missing, malformed, invalid or expired licence produced a
+ * `console.warn` and an app that quietly did less. There was no message, no
+ * date, and no code to read down the phone to support.
+ */
+describe("LicenceStatusNotice", () => {
+  afterEach(() => {
+    delete (globalThis as BridgeHost).mezan;
+  });
+
+  it("says nothing on the browser build, which holds no licence file", async () => {
+    renderWithProviders(<LicenceStatusNotice />, {
+      transport: stubTransport({}),
+      initialSession: testAdminSession,
+    });
+    await waitFor(() => expect(screen.queryByText("مشكلة في الترخيص")).not.toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says nothing when the licence is current — a healthy install gets no banner", async () => {
+    withDesktopBridge(LICENSED);
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: LICENSED_STATUS }),
+      "GET /lan/sessions": () => ({ body: NO_SESSIONS }),
+    });
+    renderWithProviders(
+      <>
+        <LicenceStatusNotice />
+        <ConnectedDevicesPanel />
+      </>,
+      { transport, initialSession: testAdminSession },
+    );
+
+    // The address proves the bridge answered, so the absent banner below is a
+    // decision the component made rather than a reading that never arrived.
+    await screen.findByText("http://192.168.1.7:4173");
+    expect(screen.queryByText("مشكلة في الترخيص")).not.toBeInTheDocument();
+    expect(screen.queryByText("LIC-OK")).not.toBeInTheDocument();
+  });
+
+  it("names an expired licence in Arabic, with its date and the LIC-EXPIRED support code", async () => {
+    withDesktopBridge({
+      ok: true,
+      code: "LIC-EXPIRED",
+      messageAr: "انتهت صلاحية الترخيص. جدّد الاشتراك لدى الدعم.",
+      plan: "ENTERPRISE",
+      seats: 2,
+      expiresAt: "2026-01-31T00:00:00.000Z",
+      lan: { listening: false, url: null },
+    });
+    renderWithProviders(<LicenceStatusNotice />, {
+      transport: stubTransport({}),
+      initialSession: testAdminSession,
+    });
+
+    expect(await screen.findByText("انتهت صلاحية الترخيص. جدّد الاشتراك لدى الدعم.")).toBeInTheDocument();
+    expect(screen.getByText("LIC-EXPIRED")).toBeInTheDocument();
+    expect(screen.getByText("31/01/2026")).toBeInTheDocument();
+  });
+
+  it("names a missing licence with the LIC-MISSING code, and no expiry it does not have", async () => {
+    withDesktopBridge({
+      ok: true,
+      code: "LIC-MISSING",
+      messageAr: "لا يوجد ترخيص على هذا الجهاز.",
+      plan: "UNLICENSED",
+      seats: 0,
+      expiresAt: null,
+      lan: { listening: false, url: null },
+    });
+    renderWithProviders(<LicenceStatusNotice />, {
+      transport: stubTransport({}),
+      initialSession: testAdminSession,
+    });
+
+    expect(await screen.findByText("لا يوجد ترخيص على هذا الجهاز.")).toBeInTheDocument();
+    expect(screen.getByText("LIC-MISSING")).toBeInTheDocument();
+    expect(screen.queryByText(/تاريخ انتهاء الصلاحية/)).not.toBeInTheDocument();
   });
 });

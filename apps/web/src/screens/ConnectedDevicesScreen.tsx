@@ -1,4 +1,4 @@
-import { ConnectedDevicesPanel } from "../lan/ConnectedDevicesPanel";
+import { ConnectedDevicesPanel, LicenceStatusNotice } from "../lan/ConnectedDevicesPanel";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -10,6 +10,11 @@ import { useAppTranslation } from "../i18n";
  * on until somebody does — had no control surface in the shipped product at
  * all, and the API route that does it was permission-gated against a screen
  * that did not exist.
+ *
+ * The licence notice sits ABOVE the panel because it explains the panel: an
+ * install with no licence, or one past its expiry, is why the seat count reads
+ * zero and why no till can connect — and until it was rendered anywhere, that
+ * was a state the product entered without ever saying so.
  */
 export function ConnectedDevicesScreen() {
   const { t } = useAppTranslation();
@@ -17,6 +22,7 @@ export function ConnectedDevicesScreen() {
     <div className="p-[20px]">
       <h1 className="mb-[4px] font-display text-[18px] font-bold text-ink">{t("nav.item.devices")}</h1>
       <p className="mb-[16px] text-[12.5px] text-ink-muted">{t("devices.screenHint")}</p>
+      <LicenceStatusNotice />
       <ConnectedDevicesPanel />
     </div>
   );

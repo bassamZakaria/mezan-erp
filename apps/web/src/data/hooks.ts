@@ -6098,6 +6098,91 @@ export function useDisconnectLanSession() {
 }
 
 /**
+ * LICENCE HEALTH AND THE LAN ADDRESS — desktop only, over the IPC bridge.
+ *
+ * Neither is reachable over `request()`: the licence diagnosis is made in the
+ * Electron main process before the backend exists (and `GET /entitlements`
+ * reports the API's own default capability set, not the desktop licence), and
+ * the LAN socket's bound address lives on the handle the main process holds.
+ * So both were invisible to every screen — an unlicensed or expired install
+ * said nothing at all, and the address a till must be pointed at went only to a
+ * console.
+ *
+ * The shapes are declared HERE rather than imported from apps/desktop, the same
+ * way `transport.ts` and `settings/BackupRestorePage.tsx` declare theirs: the
+ * web build must compile with no desktop package present.
+ */
+export type DesktopLicenceCode =
+  | "LIC-OK"
+  | "LIC-MISSING"
+  | "LIC-MALFORMED"
+  | "LIC-INVALID"
+  | "LIC-EXPIRED";
+
+export interface DesktopLicenceStatusDTO {
+  readonly ok: true;
+  readonly code: DesktopLicenceCode;
+  /** Arabic, ready to render. */
+  readonly messageAr: string;
+  readonly plan: string;
+  readonly seats: number;
+  readonly expiresAt: string | null;
+  readonly lan: {
+    readonly listening: boolean;
+    /** Null when the host has no address to give. Never a guess — say unknown. */
+    readonly url: string | null;
+  };
+}
+
+export interface DesktopLicenceFailureDTO {
+  readonly ok: false;
+  readonly code: string;
+  readonly message: string;
+}
+
+export type DesktopLicenceResultDTO = DesktopLicenceStatusDTO | DesktopLicenceFailureDTO;
+
+interface DesktopLicenceBridge {
+  status(sessionToken: string): Promise<DesktopLicenceResultDTO>;
+}
+
+function desktopLicenceBridge(): DesktopLicenceBridge | undefined {
+  return (globalThis as { mezan?: { licence?: DesktopLicenceBridge } }).mezan?.licence;
+}
+
+/**
+ * True on the desktop edition, which is the only one that holds a licence file
+ * or binds a LAN socket. A screen must branch on this BEFORE it says anything
+ * about either: on the browser build the honest answer is "only the host
+ * machine knows", not a rendering of an absent fact.
+ */
+export function isDesktopHost(): boolean {
+  return desktopLicenceBridge() !== undefined;
+}
+
+export function useDesktopLicence(): UseQueryResult<DesktopLicenceResultDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { session } = useApi();
+  const token = session?.token ?? null;
+  return useQuery<DesktopLicenceResultDTO, ApiError>({
+    queryKey: ["licence", "status"],
+    enabled: token !== null && isDesktopHost(),
+    // The LAN bind is asynchronous (main/lan-host.ts), so a screen opened
+    // during startup is legitimately told "no address yet". Without a refetch
+    // that honest answer would stay on screen after the socket came up.
+    refetchInterval: 15_000,
+    queryFn: async () => {
+      const bridge = desktopLicenceBridge();
+      // Unreachable while `enabled` holds; a thrown ApiError renders as the
+      // error it is rather than resolving to a shape the screen would read as
+      // an answer.
+      if (!bridge || !token) throw new ApiError(0, t("licence.couldNotBeRead"));
+      return bridge.status(token);
+    },
+  });
+}
+
+/**
  * Clears a failed-login lockout.
  *
  * The lockout had no way out inside the product: an account was locked for up

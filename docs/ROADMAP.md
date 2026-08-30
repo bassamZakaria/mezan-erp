@@ -129,7 +129,7 @@ caught several "works until you look again" bugs.
   chips, % contribution bars, GL-reconciliation tiles, drill-down panels and CSV/Excel export.
 - **Platform administration** — approvals inbox and workflow config, notification rules,
   numbering sequences, audit viewer, data migration, barcode config, profile, users, roles
-  and the ~268-permission matrix, print templates, eight settings policy tabs whose toggles
+  and the ~286-permission matrix (20 modules), print templates, eight settings policy tabs whose toggles
   actually change document behaviour.
 - **Shell** — domain workspaces, production dashboard, command palette, notification centre,
   system-status pill, working branch/warehouse selectors that narrow scope without ever
@@ -620,11 +620,15 @@ right answer; they are in §6's territory.
   place. A sink the application itself cannot write to — signed export on a schedule,
   syslog to an external collector, a hash-chained rows-since-last-export digest — is still
   open; the trigger only ever promised to stop the app's own code from cutting a corner.
-- **License verification is a stub.** `resolveDesktopEntitlements` reads
-  `MEZAN_ENTITLEMENTS_JSON` from the environment with no signature check, so an env var
-  unlocks LAN mode and every module. The real Ed25519 verifier
-  (`packages/domain/src/licensing/license.ts`) is written and unwired — Phase 8, and
-  already documented as out of scope in that file.
+- **License verification is a stub.** `MEZAN_ENTITLEMENTS_JSON` is read from the environment
+  with no signature check, so an env var unlocks LAN mode and every module. The real Ed25519
+  verifier (`packages/domain/src/licensing/license.ts`) is written and unwired — Phase 8, and
+  already documented as out of scope in that file. This decision is unchanged; what closed
+  was a separate defect sitting on top of it — a missing/malformed/invalid/expired licence
+  used to fail silently (`console.warn`, an install that just looked absent). `entitlements.ts`
+  now exposes `diagnoseDesktopEntitlements()` with a status, a support-readable code and an
+  Arabic message, surfaced on `الأجهزة المتصلة` — see `docs/INSTALL.md` §7. It still trusts
+  the same unsigned env var; it just no longer hides that it is doing so.
 - **A fresh, never-configured install can still be claimed by whoever reaches it first.**
   `POST /bootstrap/admin` has to be open before there is anyone to authenticate as; it now
   closes the moment the tenant has an account of its own (S1, hardened by S17 so that fact

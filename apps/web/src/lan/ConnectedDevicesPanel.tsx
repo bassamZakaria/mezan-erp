@@ -1,6 +1,12 @@
-import { useCallback, useState } from "react";
-import { Button, Card, StatusPill, formatTime, type Locale } from "@mezan/ui";
-import { useDisconnectLanSession, useLanSessions, useLanStatus } from "../data/hooks";
+import { useCallback, useState, type ReactNode } from "react";
+import { Button, Card, StatusPill, formatDate, formatTime, type Locale } from "@mezan/ui";
+import {
+  isDesktopHost,
+  useDesktopLicence,
+  useDisconnectLanSession,
+  useLanSessions,
+  useLanStatus,
+} from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -28,6 +34,153 @@ export interface ConnectedDevicesPanelProps {
 
 function clockTime(epochMs: number, locale: Locale): string {
   return formatTime(epochMs, { locale });
+}
+
+/**
+ * WHAT THE OWNER SEES WHEN THE LICENCE IS WRONG — which, until now, was
+ * nothing at all.
+ *
+ * `resolveDesktopEntitlements` answered a missing, malformed, invalid or (once
+ * it started checking) expired licence with a `console.warn` and a silent fall
+ * to zero seats and no modules. The window opened and the product was simply
+ * ABSENT: no message, no date, and no code the owner could read down the phone
+ * to support, so "what does a user see on an expired licence?" had the honest
+ * answer "an app that quietly does less".
+ *
+ * Exported so the shell can mount it once too — a licence problem is not a
+ * connected-devices problem — which needs one line in AppLayout.tsx.
+ *
+ * It renders NOTHING while the reading is still in flight, and nothing on the
+ * browser build, which holds no licence file: a screen that has not been told
+ * the licence is fine must not say so, and must not say the opposite either.
+ */
+export function LicenceStatusNotice() {
+  const { t, locale } = useAppTranslation();
+  const desktop = isDesktopHost();
+  const licence = useDesktopLicence();
+
+  if (!desktop) return null;
+
+  const failureMessage = licence.error
+    ? licence.error.message
+    : licence.data && !licence.data.ok
+      ? licence.data.message
+      : null;
+  if (failureMessage) {
+    return (
+      <Card className="mb-[14px] border-danger p-[14px]">
+        <p role="alert" className="text-[12.5px] text-danger-ink">
+          {failureMessage}
+        </p>
+      </Card>
+    );
+  }
+
+  const data = licence.data;
+  if (!data || !data.ok || data.code === "LIC-OK") return null;
+
+  return (
+    <Card className="mb-[14px] border-warning bg-warning-soft p-[14px]">
+      <div className="text-[13px] font-semibold text-ink">{t("licence.problem")}</div>
+      <p className="mt-1 text-[12.5px] text-ink">{data.messageAr}</p>
+      {data.expiresAt ? (
+        <p className="mt-1 text-[12px] text-ink-muted">
+          {t("licence.expiryDate")}{" "}
+          <span className="mz-num" dir="ltr">
+            {formatDate(data.expiresAt, { locale })}
+          </span>
+        </p>
+      ) : null}
+      <p className="mt-[6px] text-[12px] text-ink-muted">
+        {t("licence.supportCode")}{" "}
+        <span className="mz-num font-semibold text-ink" dir="ltr">
+          {data.code}
+        </span>
+      </p>
+    </Card>
+  );
+}
+
+/**
+ * THE ADDRESS A TILL IS POINTED AT.
+ *
+ * `startLanHost` logged `http://<host>:<port>` to a console the shop never
+ * opens, so provisioning a till meant a consultant finding the host's IP by
+ * hand — the file's own comment called this screen "a future 'show me the LAN
+ * address' UI".
+ *
+ * Every branch below states only what it was told. The browser build cannot
+ * know the host's address and says exactly that instead of printing a
+ * plausible one; a bound socket with no dialable address (the `0.0.0.0`
+ * fallback in lan-host.ts) reads as unknown, not as `http://0.0.0.0:4173`.
+ */
+function LanAddress() {
+  const { t } = useAppTranslation();
+  const desktop = isDesktopHost();
+  const licence = useDesktopLicence();
+  const [copied, setCopied] = useState(false);
+
+  const line = (text: string, alert = false) => (
+    <p
+      {...(alert ? { role: "alert" } : {})}
+      className={`text-[12.5px] ${alert ? "text-danger-ink" : "text-ink-muted"}`}
+    >
+      {text}
+    </p>
+  );
+
+  let body: ReactNode;
+  if (!desktop) {
+    body = line(t("devices.lanAddressDesktopOnly"));
+  } else if (licence.error) {
+    body = line(licence.error.message, true);
+  } else if (!licence.data) {
+    body = line(t("common.loading"));
+  } else if (!licence.data.ok) {
+    body = line(licence.data.message, true);
+  } else if (!licence.data.lan.listening) {
+    body = line(t("devices.lanNotRunning"));
+  } else if (!licence.data.lan.url) {
+    body = line(t("devices.lanAddressUnknown"));
+  } else {
+    const url = licence.data.lan.url;
+    // Read at render, not inside the handler: a button that cannot copy must
+    // not be on screen at all. The address itself stays selectable either way.
+    const clipboard = navigator.clipboard as Clipboard | undefined;
+    body = (
+      <div className="flex flex-wrap items-center gap-[10px]">
+        <code
+          dir="ltr"
+          className="mz-num select-all rounded-[6px] bg-surface-2 px-[8px] py-[4px] text-[13px] font-semibold text-ink"
+        >
+          {url}
+        </code>
+        {clipboard ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              void clipboard
+                .writeText(url)
+                .then(() => setCopied(true))
+                .catch(() => setCopied(false));
+            }}
+          >
+            {t("devices.copyAddress")}
+          </Button>
+        ) : null}
+        {copied ? <span className="text-[12px] text-ink-muted">{t("devices.addressCopied")}</span> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-[14px] border-t border-border pt-[12px]">
+      <div className="text-[12.5px] font-semibold text-ink">{t("devices.lanAddress")}</div>
+      <p className="mb-[6px] mt-1 text-[12px] text-ink-muted">{t("devices.lanAddressHint")}</p>
+      {body}
+    </div>
+  );
 }
 
 export function ConnectedDevicesPanel(_props: ConnectedDevicesPanelProps = {}) {
@@ -112,6 +265,8 @@ export function ConnectedDevicesPanel(_props: ConnectedDevicesPanelProps = {}) {
           {actionError}
         </p>
       ) : null}
+
+      <LanAddress />
 
       {loaded ? (
       <div className="mt-[14px] overflow-x-auto">

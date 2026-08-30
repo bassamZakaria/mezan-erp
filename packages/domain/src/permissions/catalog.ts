@@ -1,7 +1,7 @@
 /**
  * Mezan permission catalog — a versioned TS data manifest.
  *
- * Single source of truth for the ~268 permissions across 19 modules captured in
+ * Single source of truth for the 286 permissions across 20 modules captured in
  * `docs/archive/catalog/09-settings-dashboard-ux.md` §permission matrix and mandated as
  * "data (a versioned TS manifest)" by `docs/archive/plan.md` §5.2. The role editor, the
  * API guards, and the docs are all meant to read this one manifest.
@@ -13,7 +13,12 @@
  *
  * FIDELITY NOTE: all 268 permissions from the matrix are transcribed here
  * verbatim (codes, dependencies, sensitive/platform flags). None were
- * summarized. The per-module totals are asserted at load time by
+ * summarized. The 18 codes added since are later phases and later defects —
+ * promotions, projects, inventory counts, labels/templates/write-down, and the
+ * five `admin.*` codes that gave the operational acts (unlocking an account,
+ * freeing a till seat, reading and restoring a backup) permissions of their
+ * own instead of leaving them gated on `admin.settings.edit`, which no seeded
+ * role holds. The per-module totals are asserted at load time by
  * `assertCatalogIntegrity()` against the counts the catalog documents.
  */
 

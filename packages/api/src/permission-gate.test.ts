@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { createAuthContext, ALL_SCOPE } from "@mezan/domain";
-import { createPermissionGate, insecureHeaderAuthContextResolver, getAuthContext } from "./permission-gate.js";
+import { createPermissionGate, insecureHeaderAuthContextResolver, getAuthContext, isProductionRuntime } from "./permission-gate.js";
 
 function appWithContext(permissions: string[]) {
   const ctx = createAuthContext({ userId: "u1", permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
@@ -57,3 +57,39 @@ describe("insecureHeaderAuthContextResolver", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("isProductionRuntime — the switch two fail-closed guards hang on", () => {
+  const saved = { packaged: process.env["MEZAN_PACKAGED"], node: process.env["NODE_ENV"] };
+  afterEach(() => {
+    if (saved.packaged === undefined) delete process.env["MEZAN_PACKAGED"];
+    else process.env["MEZAN_PACKAGED"] = saved.packaged;
+    if (saved.node === undefined) delete process.env["NODE_ENV"];
+    else process.env["NODE_ENV"] = saved.node;
+  });
+
+  it("is false in a dev or test process, so the header resolver still works there", () => {
+    delete process.env["MEZAN_PACKAGED"];
+    process.env["NODE_ENV"] = "test";
+    expect(isProductionRuntime()).toBe(false);
+    expect(() => insecureHeaderAuthContextResolver(fakeContext())).not.toThrow();
+  });
+
+  it("is true on a packaged desktop build, and the header resolver refuses to run", () => {
+    // Read per call, not captured at import: the desktop main process sets
+    // MEZAN_PACKAGED after this module is loaded, so a snapshot taken at import
+    // time would be the wrong value on exactly the edition this guards.
+    process.env["MEZAN_PACKAGED"] = "1";
+    expect(isProductionRuntime()).toBe(true);
+    expect(() => insecureHeaderAuthContextResolver(fakeContext())).toThrow(/production\/packaged/);
+  });
+
+  it("is true on a headless production build too", () => {
+    delete process.env["MEZAN_PACKAGED"];
+    process.env["NODE_ENV"] = "production";
+    expect(isProductionRuntime()).toBe(true);
+  });
+});
+
+function fakeContext() {
+  return { req: { header: () => "*" } } as unknown as Parameters<typeof insecureHeaderAuthContextResolver>[0];
+}

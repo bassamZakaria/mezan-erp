@@ -23,7 +23,18 @@ account's email — see §2.
 
 **On a packaged build, that account's PIN is random and printed nowhere** —
 `resolveSeedAdminSecrets()` in `seed.ts` generates it with the same CSPRNG the session
-tokens use, and does not hand it to you. This is deliberate, and it is the fix for a real
+tokens use, and does not hand it to you. "Packaged" here means `MEZAN_PACKAGED=1` (set by
+`apps/desktop/src/main/index.ts` from Electron's own `app.isPackaged`) **or**
+`NODE_ENV=production` — the desktop build and a headless server deployment both get the
+random path. That second condition was narrowed away once, on the reasoning that only the
+desktop edition has a first-run wizard to recover through, and put back deliberately: the
+alternative is a container or `apps/server` box silently seeding an admin nobody can ever log
+in as, which is worse than a server build sharing the published `123456`. `apps/server/src/
+index.ts` prints a freshly generated PIN once, to the console, on the run that seeded it —
+the desktop shell's `recovery-pin.txt` and `--reset-admin` (§1.4) are both desktop-only and do
+not exist on this surface, so watch the console on that first run or set
+`MEZAN_SEED_ADMIN_PIN` (§1.3) before it. This is
+deliberate, and it is the fix for a real
 defect (S7): before it, every Mezan install in the country shipped with the same seeded PIN
 (`123456`, the one every dev script and this doc's own test-plan section signs in with —
 see `TESTING.md` §2.2), so an anonymous caller who knew that PIN held the company admin of
@@ -276,19 +287,40 @@ recovery needs:
 - **Authorization is the live session, not the renderer's word for anything.** All three
   channels (`mezan:backup:list`, `:create`, `:restore` — exposed to the renderer as
   `window.mezan.backup.{list,create,restore}` via the preload bridge) take the caller's
-  session token and check it against the SAME session registry every HTTP route checks against,
-  requiring `admin.tenant.settings.edit` (or `*`). The archive to restore is named by a bare
-  filename validated against path traversal, never an absolute path the renderer could pick.
+  session token and check it against the SAME session registry every HTTP route checks
+  against, requiring `admin.backup.restore` (or `*`) — its own permission pair rather than
+  riding on `admin.tenant.settings.edit`, so the person who holds the recovery runbook does
+  not also have to be handed every setting in the product. **All three channels check the
+  same `admin.backup.restore` today, including list and create** — `admin.backup.view` exists
+  in the permission catalog as a separate, weaker grant, but nothing in `restore-ipc.ts`
+  currently checks it, so granting only `admin.backup.view` to someone does not let them even
+  list the backups. Treat the two permissions as one until that is wired. The archive to
+  restore is named by a bare filename validated against path traversal, never an absolute
+  path the renderer could pick.
 
-**There is no settings screen wired to any of this yet.** `window.mezan.backup` has exactly one
-caller in `apps/web` today (`data/transport.ts`, and its own test) — no "Backup & Restore" tab
-exists for an owner or consultant to click through. The IPC layer, the safety-backup-first
-sequencing, and the permission check are all real and covered by tests; the control surface a
-non-technical user would need to reach them is the piece still missing. **Until that screen
-ships, a field restore is still a manual file operation**: with the app fully closed, extract
-the chosen `.mezanbak` and copy its database over `<userData>/mezan.db` — or, if you can drive
-`window.mezan.backup.restore(token, fileName)` yourself (e.g. from a debug build), that is the
-same path the eventual screen will use and gets you the safety-backup-first behaviour for free.
+**`الإعدادات ← النسخ الاحتياطي والاستعادة` is a real screen now**
+(`apps/web/src/settings/BackupRestorePage.tsx`, routed as `settings-backup`, listed in the
+settings nav group) — this was the piece missing before: the IPC layer, the safety-backup-
+first sequencing, and the permission check were all real and covered by tests, but
+`window.mezan.backup` had no caller in `apps/web` and no tab a non-technical user could click
+through. The screen lists every archive with its date, reason, app version and size; "إنشاء
+نسخة الآن" takes a manual backup on demand; a damaged archive (failed its own checksum/
+integrity re-check on read) shows a status pill instead of a restore button. **Restoring is
+deliberately the one place in this product where friction is the feature**: choosing "استعادة"
+opens a confirmation naming the exact loss ("everything entered since this date is gone") and
+requires TYPING the archive's own date before the restore button enables — a single misclick
+cannot replace the live database. A successful restore's last message is "the app is
+relaunching," because it then does exactly that. On the web build (no Electron host, nothing
+to hold the database file), the screen says so and renders nothing else rather than a dead
+table. For a debug build, driving `window.mezan.backup.restore(token, fileName)` directly still works
+and gets the same safety-backup-first behaviour — the screen and the direct call are the same
+path underneath. If the app cannot even launch — the machine it was on is gone and this is a
+fresh install on replacement hardware, with nothing yet to sign into — there is no screen to
+reach: install fresh, then use the screen on the new install once it is up. Only if the app
+installs but will not start at all is a manual file operation the last resort: with the app
+fully closed, extract the chosen `.mezanbak` and copy its database over `<userData>/mezan.db`
+by hand — you lose the safety-backup-first behaviour and the checksum/integrity re-check the
+screen gives you for free, so prefer the screen whenever the app runs at all.
 
 **What a restored database means for credentials — this is the part that catches people out.**
 A backup taken from a working install is, by definition, from a tenant that has already been
@@ -313,10 +345,20 @@ install time and keep a record of it somewhere safe) as a standing part of every
 
 `packages/api/src/login-throttle.ts` — five consecutive wrong PINs against one account start
 a lockout: 60 seconds, then doubling with each further failure (120s, 240s, …) to a ceiling of
-**15 minutes**. A quiet hour (no failures for 60 minutes) forgets the streak entirely. A
-**served** lock also resets the streak — the account gets a full five free attempts again once
-the wait is over, not "one more slip and you're locked again for another fifteen minutes,"
-which is what it used to do.
+**15 minutes**. A quiet hour (no failures for 60 minutes) forgets the streak entirely.
+
+**A served lock steps the ladder down ONE RUNG — it does not reset the streak to zero.** That
+reset-to-zero behaviour was this file's first fix and did not survive contact with its own
+suite: giving a served lock a full five free attempts again means 7,200 guesses a day are
+available for free, which walks a six-digit PIN's keyspace in about **four months** instead of
+the ~28 years the doubling ceiling is supposed to buy. Stepping down one rung instead keeps
+that ceiling (one guess per fifteen minutes at the top) while still fixing the real complaint
+that drove the original change — that a served lock used to leave the streak at its
+high-water mark, so one more typo after waiting out fifteen minutes bought **thirty**, not
+another fifteen. The person who is genuinely locked out and cannot wait still has the same
+answer: `POST /users/:id/unlock`, which — unlike a served lock — clears the streak to zero,
+because an admin pressing «فكّ القفل» means "this person can sign in now," not "one rung
+closer to sign in."
 
 **The counting key is not the same for everyone, and this is the answer to "why is the till
 locked and mine isn't."**
@@ -352,11 +394,13 @@ whichever address they can actually reach the shop from.
    also holding every colleague's PIN). Clears the lock **and resets the streak** on every key
    it was counted under for that account — an unlock means "this person can sign in now," not
    "this person can sign in now and is one typo from being locked again."
-3. **There is no button for step 2 on the Users screen yet** — the permission and the route
-   are both real and audited (`ACCOUNT_UNLOCKED` at WARNING severity in the security audit
-   stream), but `UsersPage.tsx` has no unlock action wired to it. Today, clearing a lockout
-   for someone who cannot wait means calling the API directly. Flag this to whoever owns the
-   Users screen; it is the obvious next piece of UI work here.
+3. **`الإعدادات ← المستخدمون` has a "فكّ القفل" row action now.** It shows only on an active
+   account (`apps/web/src/pages/UsersPage.tsx`), scopes its pending state to the one row being
+   unlocked rather than freezing the whole list, and is a no-op on a second click while one is
+   in flight — the standard per-row-action shape this codebase requires. The action is both
+   real and audited (`ACCOUNT_UNLOCKED` at WARNING severity in the security audit stream).
+   Calling `POST /users/:id/unlock` directly is still fine for a scripted rollout; it is no
+   longer the only way in for a consultant working from the screen.
 
 ---
 
@@ -396,6 +440,18 @@ session/permission gate the route itself carries:
 
 None of this is a substitute for the session/permission gates inside the app — see §7 for what
 it does not do (encrypt the wire).
+
+**`الأجهزة المتصلة` now shows the address to point a till at.** Before this, finding the LAN
+socket's bind address meant reading the desktop process's own console line
+(`[lan] multi-till host listening on http://<address>:<port> …`) or asking whoever set the
+machine up — there was nowhere in `apps/web` that showed it. `ConnectedDevicesPanel.tsx`'s
+`LanAddress` component now reads it from `mezan:licence:status` (a session-gated IPC channel,
+`apps/desktop/src/main/licence-ipc.ts`, exposed as `window.mezan.licence.status`) and renders
+one of: the copyable `http://<address>:<port>` URL, "not running" when the socket never
+started, or "address unknown" specifically for the `0.0.0.0` fallback case (§6.1) — a bound
+socket with no single dialable address reads as unknown rather than printing a URL nobody
+could actually reach. The browser build (no Electron host) says plainly that it cannot know
+the host's address, rather than guessing.
 
 ### 6.2 Seats, connecting, and freeing a stuck one
 
@@ -460,10 +516,25 @@ A consultant who cannot say this plainly is setting the client up to find out th
 - **Updates are not code-signed or notarized.** Today's build runs on developer trust alone —
   neither macOS Gatekeeper nor Windows SmartScreen can vouch for it. Do not tell a client "this
   installer is provably from us" until that changes.
-- **License verification is a stub.** `resolveDesktopEntitlements()` trusts an environment
-  variable with a schema check and no signature — an env var unlocks LAN mode and every
-  module. The real Ed25519 verifier exists in `packages/domain/src/licensing/license.ts` and
-  is not wired up yet.
+- **License verification is a stub — but a licence problem now says so, on screen, instead of
+  disappearing.** `MEZAN_ENTITLEMENTS_JSON` is still trusted with a schema check and no
+  signature — an env var unlocks LAN mode and every module, and the real Ed25519 verifier in
+  `packages/domain/src/licensing/license.ts` is not wired up yet. What closed
+  (`apps/desktop/src/main/entitlements.ts`'s `diagnoseDesktopEntitlements()`, resolved once at
+  startup in `main/index.ts` and read by every gate from that one call): a missing, malformed
+  or schema-invalid `MEZAN_ENTITLEMENTS_JSON` used to fall to `console.warn` and an install
+  that simply looked absent — no LAN mode, no modules, no message anywhere a shop owner or a
+  consultant could see. It now resolves to a status (`licensed`/`missing`/`malformed`/
+  `invalid`/`expired`), a short stable code (`LIC-OK`/`LIC-MISSING`/`LIC-MALFORMED`/
+  `LIC-INVALID`/`LIC-EXPIRED` — safe to read down the phone to support) and an Arabic message,
+  read over a session-gated IPC channel (`mezan:licence:status`, no permission beyond being
+  signed in — a licence problem is the owner's to see) and rendered on `الإعدادات ←
+  الأجهزة المتصلة` by `LicenceStatusNotice` above the seat panel it explains: an install with
+  no licence, or one past expiry, is why the seat count reads zero and no till can connect.
+  **Past `expiresAt`, the capability set is deliberately left exactly as granted rather than
+  dropped to unlicensed** — a licensing lapse never withholds a shop's own data — with the
+  status still reporting `expired` so the client is told, while the real cutover
+  (active → grace → read-only) is left to `verifyLicense()` once it lands.
 - **The audit trail stops the app's own code from editing its history, not a person with the
   file.** A SQLite trigger refuses `UPDATE`/`DELETE` against audit rows from anything the
   application itself does — which is real, and is what closed several audit gaps this rollout

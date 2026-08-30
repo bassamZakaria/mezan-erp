@@ -41,6 +41,12 @@ import {
  * the product.
  */
 const RESTORE_PERMISSION = "admin.backup.restore";
+/**
+ * Reading the archive list is a weaker act than replacing the books with one,
+ * so it takes the weaker grant. Taking a backup keeps the stronger one: it
+ * writes a file into the backups directory that a later restore can be pointed
+ * at, which is a step on the same path.
+ */
 const VIEW_PERMISSION = "admin.backup.view";
 
 /**
@@ -93,11 +99,22 @@ const UNAUTHORIZED = failure(
  * three channels would otherwise be the one write surface in the product that
  * asks nobody anything.
  */
-function authorize(deps: RestoreIpcDeps, token: unknown): BackupFailure | null {
+/**
+ * Checks the caller against the permission the ACTION needs, not against the
+ * strongest one this module knows about.
+ *
+ * `admin.backup.view` was declared here and then never consulted — every
+ * channel, listing included, checked `admin.backup.restore` — so the weaker
+ * grant was dead code and reading the archive list required the permission that
+ * REPLACES the books. That is the wrong way round: an owner should be able to
+ * let somebody confirm a backup ran last night without also letting them
+ * overwrite the company's data.
+ */
+function authorize(deps: RestoreIpcDeps, token: unknown, permission: string): BackupFailure | null {
   if (typeof token !== "string" || token === "") return UNAUTHORIZED;
   const grant = deps.sessions.find(token);
   if (!grant) return UNAUTHORIZED;
-  if (!grant.permissions.includes("*") && !grant.permissions.includes(RESTORE_PERMISSION)) {
+  if (!grant.permissions.includes("*") && !grant.permissions.includes(permission)) {
     return UNAUTHORIZED;
   }
   return null;
@@ -175,7 +192,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
   ipcMain.handle(
     MEZAN_BACKUP_LIST_CHANNEL,
     async (_event, sessionToken: unknown): Promise<BackupListResult | BackupFailure> => {
-      const denied = authorize(deps, sessionToken);
+      const denied = authorize(deps, sessionToken, VIEW_PERMISSION);
       if (denied) return denied;
 
       const found = await listBackups(deps.backupsDir);
@@ -188,7 +205,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
   ipcMain.handle(
     MEZAN_BACKUP_CREATE_CHANNEL,
     async (_event, sessionToken: unknown): Promise<BackupCreateResult> => {
-      const denied = authorize(deps, sessionToken);
+      const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
       if (denied) return denied;
 
       const sqlite = deps.sqlite();
@@ -217,7 +234,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
   ipcMain.handle(
     MEZAN_BACKUP_RESTORE_CHANNEL,
     async (_event, sessionToken: unknown, fileName: unknown): Promise<BackupRestoreResult> => {
-      const denied = authorize(deps, sessionToken);
+      const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
       if (denied) return denied;
 
       const archivePath = resolveArchivePath(deps.backupsDir, fileName);

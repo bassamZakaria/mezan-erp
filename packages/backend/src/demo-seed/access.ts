@@ -116,6 +116,13 @@ const ROLES = [
       // seat without paging the owner (PR #54 review finding #4).
       "admin.devices.view",
       "admin.devices.manage",
+      // And the same person clears a lockout. `admin.users.unlock` shipped
+      // with the route and was granted to NOBODY, which reproduced the exact
+      // outage it was written to end: the till is locked at 6pm and only the
+      // owner's own account can do anything about it. Its own permission, not
+      // `admin.users.edit`, so this does not also hand over every colleague's
+      // PIN.
+      "admin.users.unlock",
     ],
   },
   {
@@ -318,6 +325,13 @@ const ROLES = [
       // owner personally was reached (PR #54 review finding #4).
       "admin.devices.view",
       "admin.devices.manage",
+      // And the same person clears a lockout. `admin.users.unlock` shipped
+      // with the route and was granted to NOBODY, which reproduced the exact
+      // outage it was written to end: the till is locked at 6pm and only the
+      // owner's own account can do anything about it. Its own permission, not
+      // `admin.users.edit`, so this does not also hand over every colleague's
+      // PIN.
+      "admin.users.unlock",
     ],
   },
   {

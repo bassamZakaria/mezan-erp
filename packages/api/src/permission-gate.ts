@@ -11,7 +11,7 @@ export type AuthContextResolver = (c: Context) => AuthContext | Promise<AuthCont
  * sets `MEZAN_PACKAGED` after import (main/index.ts), so a value snapshotted at
  * import time would be the wrong one on exactly the edition this guards.
  */
-function isProductionRuntime(): boolean {
+export function isProductionRuntime(): boolean {
   return process.env["MEZAN_PACKAGED"] === "1" || process.env["NODE_ENV"] === "production";
 }
 

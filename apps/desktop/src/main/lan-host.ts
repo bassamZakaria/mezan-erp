@@ -28,6 +28,20 @@ export interface LanHostHandle {
   readonly ready: Promise<AddressInfo | null>;
   /** The real bound address once listening (null before then, or when !enabled). */
   address(): AddressInfo | null;
+  /**
+   * `http://192.168.1.7:4173` — the URL a till is pointed at — or null when
+   * there is none to hand out.
+   *
+   * This is the "future 'show me the LAN address' UI" the comment below has
+   * been promising: the address was logged to a console the shop never opens,
+   * so provisioning a till meant a consultant finding the host's IP by hand.
+   *
+   * NULL IS A REAL ANSWER AND MUST STAY ONE. Before the socket is bound there
+   * is no port to name, and when `resolveBindAddress` fell back to `0.0.0.0`
+   * there is no dialable address at all — printing either as a URL would put a
+   * number on screen that no till can reach.
+   */
+  url(): string | null;
   close(): Promise<void>;
 }
 
@@ -35,6 +49,7 @@ const NOOP_HANDLE: LanHostHandle = {
   enabled: false,
   ready: Promise.resolve(null),
   address: () => null,
+  url: () => null,
   close: async () => {},
 };
 
@@ -262,8 +277,8 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
   // Node's `server.listen(port, host, cb)` only binds synchronously when no
   // hostname is given (or one that skips DNS lookup entirely); passing an
   // explicit hostname — which this always does — defers the actual bind, so
-  // callers that need the resolved address (tests; a future "show me the LAN
-  // address" UI) must await `ready` rather than call `address()` right away.
+  // callers that need the resolved address (tests; the connected-devices
+  // screen, via `url()`) must await `ready` rather than read it right away.
   const server = serve({ fetch: handle, hostname, port }, (info: AddressInfo) => {
     console.log(
       `[lan] multi-till host listening on http://${hostname}:${info.port} ` +
@@ -273,11 +288,22 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
     resolveReady(info);
   });
 
+  const boundAddress = (): AddressInfo | null => (server.address() as AddressInfo | null) ?? null;
+
   return {
     enabled: true,
     host: hostname,
     ready,
-    address: () => (server.address() as AddressInfo | null) ?? null,
+    address: boundAddress,
+    url: () => {
+      const info = boundAddress();
+      if (!info) return null;
+      if (hostname === FALLBACK_LAN_HOST) return null;
+      // An IPv6 literal is only a legal URL host inside brackets; a caller may
+      // pass one via `options.host` even though `resolveBindAddress` never does.
+      const authority = hostname.includes(":") ? `[${hostname}]` : hostname;
+      return `http://${authority}:${info.port}`;
+    },
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());

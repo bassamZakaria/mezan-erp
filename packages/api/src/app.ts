@@ -190,7 +190,7 @@ import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
-import { permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
+import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
 import { createApiKeysRoutes } from "./api-keys-routes.js";
@@ -849,6 +849,22 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   const hasher = options.hasher ?? createScryptHasher();
 
   const app = new Hono();
+
+  // AN APP WITH NO SINK RECORDS NOTHING, AND SAYS SO AT BOOT.
+  //
+  // `recordAdminEvent` returns early when the sink is absent, deliberately: a
+  // forensic write must never turn a legitimate admin action into a 500. The
+  // cost of that is a composition which omits the sink and writes no trail at
+  // all, quietly and forever — the same failure shape as the header resolver
+  // that defaulted to trusting the client. Dev and tests may mount without one;
+  // a real build may not, and finds out at construction rather than during the
+  // incident the trail was for.
+  if (!options.auditSink && isProductionRuntime()) {
+    throw new Error(
+      "createApp was given no auditSink on a production/packaged build. " +
+        "Administrative acts would be unrecorded.",
+    );
+  }
 
   // Bound per app, not per process: two backends in one process must not share
   // — or silently steal — each other's forensic trail. Registered before every

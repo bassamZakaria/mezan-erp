@@ -294,4 +294,28 @@ describe("the restore itself", () => {
     vi.runAllTimers();
     expect(relaunched).toBe(1);
   });
+
+  it("lets the weaker grant read the list, and only the stronger one replace the books", async () => {
+    // `admin.backup.view` was declared and never consulted — every channel,
+    // listing included, checked `admin.backup.restore` — so the weaker grant
+    // was dead, and seeing whether last night's backup ran required the
+    // permission that OVERWRITES the company's data.
+    await register({
+      userId: "USER-VIEWER",
+      permissions: ["admin.backup.view"],
+      roleCode: "VIEWER",
+      branchScope: "*",
+      warehouseScope: "*",
+    });
+
+    const listed = await call<{ ok?: false }>(MEZAN_BACKUP_LIST_CHANNEL, "good-token");
+    expect(listed.ok).not.toBe(false);
+
+    const restored = await call<{ ok: boolean; code?: string }>(
+      MEZAN_BACKUP_RESTORE_CHANNEL,
+      "good-token",
+      "anything.mezanbak",
+    );
+    expect(restored).toMatchObject({ ok: false, code: "UNAUTHORIZED" });
+  });
 });

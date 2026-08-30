@@ -104,6 +104,68 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     ],
   };
 
+  /**
+   * The address went to a console the shop never opens, and provisioning a
+   * till meant a consultant finding the host's IP by hand.
+   */
+  it("hands out the dialable URL a till is pointed at, once the socket is bound", async () => {
+    const entitlements = createEntitlements({
+      plan: "ENTERPRISE",
+      activeModules: ["sales"],
+      features: { "lan.multi_till": true },
+      seats: 2,
+      expiresAt: null,
+    });
+    const { app, close } = buildHonoApp(entitlements);
+
+    const handle = startLanHost({ app, entitlements, host: "127.0.0.1", port: 0 });
+    // Before the bind completes there is no port to name, so there is no URL
+    // either — null, never a plausible-looking default.
+    expect(handle.url()).toBeNull();
+
+    const address = await handle.ready;
+    expect(handle.url()).toBe(`http://127.0.0.1:${address!.port}`);
+
+    await handle.close();
+    close();
+  });
+
+  it("gives no URL at all when LAN mode is unlicensed", () => {
+    const entitlements = createEntitlements({
+      plan: "STANDARD",
+      activeModules: ["sales"],
+      features: {},
+      seats: 3,
+      expiresAt: null,
+    });
+    const { app, close } = buildHonoApp(entitlements);
+
+    const handle = startLanHost({ app, entitlements, port: 0 });
+    expect(handle.url()).toBeNull();
+    close();
+  });
+
+  // `0.0.0.0` is EVERY interface, not an address; printing it as a URL would
+  // put a number on screen that no till can reach.
+  it("refuses to spell the 0.0.0.0 fallback as a URL", async () => {
+    const entitlements = createEntitlements({
+      plan: "ENTERPRISE",
+      activeModules: ["sales"],
+      features: { "lan.multi_till": true },
+      seats: 2,
+      expiresAt: null,
+    });
+    const { app, close } = buildHonoApp(entitlements);
+
+    const handle = startLanHost({ app, entitlements, host: "0.0.0.0", port: 0 });
+    await handle.ready;
+    expect(handle.address()).not.toBeNull();
+    expect(handle.url()).toBeNull();
+
+    await handle.close();
+    close();
+  });
+
   it("refuses the ungated legacy journal-entry route, and writes nothing", async () => {
     const { uow, handle, port } = await openSocket();
 

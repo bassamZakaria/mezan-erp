@@ -4,6 +4,7 @@ import {
   MEZAN_BACKUP_LIST_CHANNEL,
   MEZAN_BACKUP_RESTORE_CHANNEL,
   MEZAN_FETCH_CHANNEL,
+  MEZAN_LICENCE_STATUS_CHANNEL,
   MEZAN_PRINT_TO_PDF_CHANNEL,
   type BackupCreateResult,
   type BackupFailure,
@@ -11,6 +12,7 @@ import {
   type BackupRestoreResult,
   type IpcFetchRequest,
   type IpcFetchResponse,
+  type LicenceStatusResult,
   type MezanBridge,
   type PrintToPdfOptions,
 } from "../shared/ipc-contract.js";
@@ -76,6 +78,17 @@ const mezanBridge: MezanBridge = {
     },
     restore(sessionToken: string, fileName: string): Promise<BackupRestoreResult> {
       return ipcRenderer.invoke(MEZAN_BACKUP_RESTORE_CHANNEL, sessionToken, fileName);
+    },
+  },
+  /**
+   * Licence health plus the LAN address, both of which live in the main
+   * process and neither of which the Hono app can answer — see the channel's
+   * own doc in shared/ipc-contract.ts. Takes the session token for the same
+   * reason `backup` does: an IPC channel carries no headers.
+   */
+  licence: {
+    status(sessionToken: string): Promise<LicenceStatusResult> {
+      return ipcRenderer.invoke(MEZAN_LICENCE_STATUS_CHANNEL, sessionToken);
     },
   },
 };

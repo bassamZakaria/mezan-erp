@@ -373,3 +373,104 @@ describe("the session token", () => {
     expect([401, 403]).toContain(res.status);
   });
 });
+
+describe("the seeded fallback admin is retired when the tenant is claimed (S35)", () => {
+  it("stops being able to sign in the moment a real admin exists", async () => {
+    const app = await newBackend();
+
+    // Before the claim it is the only account there is, and it must work —
+    // that is the whole reason it exists.
+    expect((await post(app, "/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN })).status).toBe(200);
+
+    const claim = await post(app, "/bootstrap/admin", {
+      nameAr: "المالك",
+      nameEn: "Owner",
+      email: "owner@claimed.example",
+      pin: "246813",
+    });
+    expect(claim.status).toBe(201);
+
+    // It used to stay ACTIVE with `isCompanyAdmin: true` forever: a permanent,
+    // unattributable `["*"]` account on every install. A tenant admin could
+    // claim it by setting a PIN of their own and share it; an auditor asking
+    // "whose account is this" got no answer; and whoever installed the software
+    // could set MEZAN_SEED_ADMIN_PIN beforehand and leave with a standing key.
+    expect((await post(app, "/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN })).status).toBe(401);
+    expect((await post(app, "/auth/login", { username: "owner@claimed.example", pin: "246813" })).status).toBe(200);
+  });
+
+  it("is deactivated, not deleted, so the recovery door and its history survive", async () => {
+    const app = await newBackend();
+    await post(app, "/bootstrap/admin", {
+      nameAr: "المالك",
+      nameEn: "Owner",
+      email: "owner2@claimed.example",
+      pin: "246814",
+    });
+
+    const owner = await post(app, "/auth/login", { username: "owner2@claimed.example", pin: "246814" });
+    const session = (await owner.json()) as SessionDTO & { token: string };
+    const users = (await (await get(app, "/users", { authorization: `Bearer ${session.token}` })).json()) as {
+      id: string;
+      status: string;
+      isCompanyAdmin: boolean;
+    }[];
+
+    const seed = users.find((u) => u.id === "USER-ADMIN");
+    // Deleting the row would take the audit history that points at it, and
+    // `--reset-admin` reactivates this account from the machine's own
+    // filesystem — which is the way back in for an owner who lost their PIN.
+    expect(seed).toBeDefined();
+    expect(seed?.status).toBe("inactive");
+  });
+
+  it("records the retirement on the event that caused it", async () => {
+    const app = await newBackend();
+    await post(app, "/bootstrap/admin", {
+      nameAr: "المالك",
+      nameEn: "Owner",
+      email: "owner3@claimed.example",
+      pin: "246815",
+    });
+
+    const owner = await post(app, "/auth/login", { username: "owner3@claimed.example", pin: "246815" });
+    const session = (await owner.json()) as SessionDTO & { token: string };
+    const audit = (await (
+      await get(app, "/audit?stream=security&action=TENANT_CLAIMED&limit=5", {
+        authorization: `Bearer ${session.token}`,
+      })
+    ).json()) as { events: { severity: string; details: Record<string, unknown> }[] };
+
+    // The single highest-authority write in the product, which used to record
+    // nothing at all — so a company admin appearing from nowhere was, after the
+    // fact, indistinguishable from one that had always been there.
+    expect(audit.events.length).toBeGreaterThan(0);
+    expect(audit.events[0]?.severity).toBe("CRITICAL");
+    expect(audit.events[0]?.details["seedAdminRetired"]).toBe(true);
+  });
+});
+
+describe("administrative records carry where the act came from (S36)", () => {
+  it("stamps an origin on every admin audit row", async () => {
+    const app = await newBackend();
+    const headers = await adminHeaders(app);
+
+    await post(
+      app,
+      "/roles",
+      { code: "ORIGIN_PROBE", name: "دور", permissions: ["sales.invoice.view"], isSystem: false, status: "active" },
+      headers,
+    );
+
+    const audit = (await (await get(app, "/audit?entityType=ROLE&limit=5", headers)).json()) as {
+      events: { action: string; details: Record<string, unknown> }[];
+    };
+    const created = audit.events.find((e) => e.action === "CREATE");
+
+    // The session grant carried a user id and no origin, and the audit row
+    // carried an actor and no origin — so "which till posted this" was not
+    // answerable at any layer, on the one edition that serves the same app over
+    // a LAN socket as well as in-process. "host" is a fact, not a blank.
+    expect(created?.details["origin"]).toBe("host");
+  });
+});

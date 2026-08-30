@@ -446,7 +446,7 @@ Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated h
 
 ## 5.0 Open
 
-**Twenty-nine filed 2026-08-30 by the test-coverage pass** (D66–D94). They were found by
+**Thirty-two filed 2026-08-30 by the test-coverage pass** (D66–D97). They were found by
 writing tests and manual scenarios against the real code, so each carries a file reference
 rather than a feeling. The ones marked **guarded** already have a passing test that pins the
 current behaviour and will go red the day it changes; the ones marked **reported** still
@@ -483,6 +483,9 @@ need a measured reading in the running app before anyone fixes them.
 | D92 | The RFQ detail screen passes the document NUMBER where the quotes and comparison routes resolve only by database id, so the quotes list comes back empty and the comparison 404s | `apps/web/src/screens/RfqsScreen.tsx` | reported |
 | D93 | «تحصيل دفعة» on a sales invoice starts with no treasury account selected and no default, so the collection is refused on submit with no cue beforehand — the refund flow on returns does default it | `apps/web/src/screens/SalesInvoicesScreen.tsx` | reported |
 | D94 | Item cost price is served to any holder of the item-list permission regardless of `sales.invoice.view_cost` | `packages/api/src/items-routes.ts` | reported |
+| D95 | `projectSchema` requires `costCenterId`, and neither `createProjectSchema` nor `updateProjectSchema` carries the field — so a project's cost centre can never be set or corrected through the API; the key is stripped on both paths | `packages/contracts/src/project.ts` | guarded (`project.test.ts`) |
+| D96 | `journalLineSchema` — the line shape `createJournalEntrySchema` uses, and the one `app.ts` posts manual entries through — carries only `accountId`, `debit` and `credit`. The cost centre, the currency and its rate, and the tax rate are all stripped, though `gl.ts`'s newer `glJournalLineSchema` carries every one of them. A manual journal entry therefore loses every dimension a later report needs | `packages/contracts/src/journal.ts` vs `packages/contracts/src/gl.ts` | guarded (`journal.test.ts`) |
+| D97 | `createSalesInvoiceLineSchema` has no `costCenterId`, so a revenue line cannot be attributed to a cost centre at creation and the Cost Centre P&L cannot see it | `packages/contracts/src/sales-invoice.ts` | guarded (`sales-invoice.test.ts`) |
 
 D1–D65 are closed; the register is `archive/defect-register.md`.
 

@@ -70,6 +70,11 @@ export function ConnectedDevicesPanel(_props: ConnectedDevicesPanelProps = {}) {
 
   const loadError = status.error ?? sessions.error ?? null;
   const rows = sessions.data?.sessions ?? [];
+  // An error is not a reading. While the seat count could not be fetched, the
+  // panel must not print "Loading…" forever, and must not render an empty table
+  // whose "no devices are connected" line states a fact it does not have —
+  // that is the same mistake as the unlicensed card, one step quieter.
+  const loaded = status.data !== undefined;
 
   return (
     <Card className="p-[18px]">
@@ -83,6 +88,8 @@ export function ConnectedDevicesPanel(_props: ConnectedDevicesPanelProps = {}) {
                 {" / "}
                 <span className="mz-num">{status.data.seats}</span> {t("devices.seatInUse")}
               </>
+            ) : loadError ? (
+              t("devices.seatUsageUnknown")
             ) : (
               t("common.loading")
             )}
@@ -106,6 +113,7 @@ export function ConnectedDevicesPanel(_props: ConnectedDevicesPanelProps = {}) {
         </p>
       ) : null}
 
+      {loaded ? (
       <div className="mt-[14px] overflow-x-auto">
         <table className="w-full border-collapse text-[12.5px]">
           <thead>
@@ -145,6 +153,7 @@ export function ConnectedDevicesPanel(_props: ConnectedDevicesPanelProps = {}) {
           </tbody>
         </table>
       </div>
+      ) : null}
     </Card>
   );
 }

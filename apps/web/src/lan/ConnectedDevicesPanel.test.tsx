@@ -77,4 +77,24 @@ describe("ConnectedDevicesPanel", () => {
     await waitFor(() => expect(screen.queryByText("Front till")).not.toBeInTheDocument());
     expect(screen.getByText("Back office")).toBeInTheDocument();
   });
+
+  it("reports a failure as a failure — not as 'not licensed', and not as an empty list", async () => {
+    // Found by opening the screen. With no `/lan` routes mounted the status
+    // call fails, and the panel used to parse the ERROR BODY as a status DTO,
+    // read `licensed` as undefined, and render the unlicensed card — telling a
+    // licensed shop its licence was missing. After that was fixed it still
+    // printed "Loading…" under the error forever and rendered an empty table
+    // whose "no devices are connected" line states a fact it does not have,
+    // which is the same mistake one step quieter.
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ status: 404, body: { error: "NOT_FOUND" } }),
+    });
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByText(/غير مفعّل/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText("جارٍ التحميل…")).not.toBeInTheDocument();
+    expect(screen.getByText("تعذّر قراءة عدد المقاعد.")).toBeInTheDocument();
+  });
 });

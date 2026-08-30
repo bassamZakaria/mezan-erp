@@ -67,3 +67,109 @@ describe("EntityPicker", () => {
     document.documentElement.removeAttribute("data-theme");
   });
 });
+
+describe("EntityPicker — the keyboard path", () => {
+  function open() {
+    const onChange = vi.fn();
+    render(<EntityPicker value={null} onChange={onChange} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    return { input, onChange };
+  }
+
+  it("moves the highlight down with ArrowDown and selects it with Enter", () => {
+    const { input, onChange } = open();
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(options[1]);
+  });
+
+  it("selects the first option with Enter alone, without arrowing", () => {
+    const { input, onChange } = open();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(options[0]);
+  });
+
+  it("moves back up with ArrowUp and stops at the first option", () => {
+    const { input, onChange } = open();
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(options[0]);
+  });
+
+  it("stops at the last option rather than wrapping past the end", () => {
+    const { input, onChange } = open();
+    for (let i = 0; i < 10; i++) fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(options[2]);
+  });
+
+  it("closes on Escape without selecting anything", () => {
+    const { input, onChange } = open();
+    expect(screen.getAllByRole("option")).toHaveLength(3);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("opens on ArrowDown from a closed picker, so the list is reachable without the mouse", () => {
+    const onChange = vi.fn();
+    render(<EntityPicker value={null} onChange={onChange} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+  });
+
+  it("selects within the FILTERED list, not the original one", () => {
+    const { input, onChange } = open();
+    fireEvent.change(input, { target: { value: "سياج" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(options[2]);
+  });
+
+  it("selects nothing when the filter matches nothing", () => {
+    const { input, onChange } = open();
+    fireEvent.change(input, { target: { value: "لا يوجد" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("EntityPicker — Arabic search (D114)", () => {
+  it("LIMITATION (D114): a hamza variant finds nothing, because the filter is a plain substring match", () => {
+    render(<EntityPicker value={null} onChange={() => {}} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+
+    // «الأمل» typed without the hamza — the way an operator in a hurry types it,
+    // and the way the customer list itself matches, because that list runs the
+    // app's own normaliser. This picker does not.
+    fireEvent.change(input, { target: { value: "الامل" } });
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+
+    // Spelled exactly, it matches — so the entity is findable only by someone
+    // who reproduces the stored spelling character for character.
+    fireEvent.change(input, { target: { value: "الأمل" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+  });
+
+  it("matches on the sublabel too, so a code finds its entity", () => {
+    render(<EntityPicker value={null} onChange={() => {}} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "CUST-002" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+  });
+
+  it("ignores case and surrounding space in a Latin query", () => {
+    render(<EntityPicker value={null} onChange={() => {}} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "  cust-003  " } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+  });
+});

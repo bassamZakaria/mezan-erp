@@ -53,3 +53,30 @@ describe("buildReportExport", () => {
     expect(text.trim().split("\n")).toHaveLength(1); // header only
   });
 });
+
+describe("the CSV export's byte order mark", () => {
+  it("starts with the UTF-8 BOM, which is what stops Excel rendering Arabic as mojibake", async () => {
+    const file = await buildReportExport(columns, rows, { format: "csv", baseFilename: "trial-balance" });
+    const bytes = new Uint8Array(file.data);
+
+    // The decoded string contains the Arabic header either way — only the first
+    // three bytes decide whether Excel reads the file as UTF-8 or as the
+    // system codepage.
+    expect(bytes[0]).toBe(0xef);
+    expect(bytes[1]).toBe(0xbb);
+    expect(bytes[2]).toBe(0xbf);
+  });
+
+  it("carries the BOM even when there are no rows to export", async () => {
+    const file = await buildReportExport(columns, [], { format: "csv", baseFilename: "empty" });
+    const bytes = new Uint8Array(file.data);
+    expect([bytes[0], bytes[1], bytes[2]]).toEqual([0xef, 0xbb, 0xbf]);
+  });
+
+  it("writes the Arabic headers after the mark, in order", async () => {
+    const file = await buildReportExport(columns, rows, { format: "csv", baseFilename: "trial-balance" });
+    const text = new TextDecoder("utf-8").decode(new Uint8Array(file.data).slice(3));
+    expect(text.split("\n")[0]).toContain("رقم الحساب");
+    expect(text.split("\n")[0]).toContain("الرصيد");
+  });
+});

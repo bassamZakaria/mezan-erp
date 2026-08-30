@@ -42,6 +42,18 @@ describe("TextField", () => {
     renderWithProviders(<TextField label="الاسم" value="" onChange={vi.fn()} disabled />);
     expect(screen.getByRole("textbox")).toBeDisabled();
   });
+
+  it("LIMITATION (D67): the label is not associated with the input, so no screen reader announces it", () => {
+    renderWithProviders(<TextField label="الاسم" value="" onChange={vi.fn()} />);
+
+    // The label is on screen…
+    expect(screen.getByText("الاسم")).toBeInTheDocument();
+    // …and reaches nothing: no htmlFor, no matching id, so clicking it does not
+    // focus the field and a screen reader announces an unnamed text box. Every
+    // screen built on this wrapper is affected. When D67 is fixed, this
+    // expectation flips to `toBe(screen.getByRole("textbox"))`.
+    expect(screen.queryByLabelText("الاسم")).not.toBeInTheDocument();
+  });
 });
 
 describe("NumberField", () => {

@@ -57,6 +57,34 @@ export function registerRendererScheme(): void {
  * from env.ts, which imports RENDERER_ENTRY_URL from here — taking it as an
  * argument keeps the two modules acyclic.
  */
+/**
+ * Content Security Policy for the packaged renderer.
+ *
+ * The window's `webPreferences` decide what the renderer MAY DO; this decides
+ * what it may LOAD. Without it a single injected string — an item name, a
+ * customer note, anything that reaches `dangerouslySetInnerHTML` — could pull
+ * a script off the internet inside the origin that holds the books.
+ *
+ * `default-src 'none'` and add back only what the built SPA needs: its own
+ * bundles, its own styles (Tailwind emits a stylesheet, but component
+ * libraries still set inline `style` attributes), data/blob images for
+ * generated barcodes and previews, and connections to itself. The renderer
+ * reaches the backend over the IPC bridge, not over the network, so
+ * `connect-src` never needs a remote host.
+ */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+].join("; ");
+
 export function serveRenderer(root: string): void {
   protocol.handle(RENDERER_SCHEME, async (request) => {
     const url = new URL(request.url);
@@ -67,7 +95,15 @@ export function serveRenderer(root: string): void {
 
     // `net.fetch` over a file URL keeps streaming and correct MIME sniffing,
     // rather than reading whole bundles into memory to hand back a Response.
-    return net.fetch(pathToFileURL(file).toString());
+    const response = await net.fetch(pathToFileURL(file).toString());
+    const headers = new Headers(response.headers);
+    headers.set("content-security-policy", CONTENT_SECURITY_POLICY);
+    headers.set("x-content-type-options", "nosniff");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   });
 }
 

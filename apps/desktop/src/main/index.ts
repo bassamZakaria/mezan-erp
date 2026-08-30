@@ -1,8 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import Database from "better-sqlite3";
-import { createApp } from "@mezan/api";
+import { createBackend, type BackendHandle } from "@mezan/backend";
 import { SeatSessionRegistry } from "@mezan/domain";
-import { createSqliteUnitOfWork, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
 import { registerHonoOverIpc, registerPrintToPdfOverIpc } from "./ipc.js";
 import { createWindow } from "./window.js";
 import { initAutoUpdater } from "./updater.js";
@@ -30,7 +29,7 @@ import { startLanHost, type LanHostHandle } from "./lan-host.js";
  * headlessly instead.
  */
 
-let uow: SqliteUnitOfWorkHandle | undefined;
+let backend: BackendHandle | undefined;
 let backupConn: Database.Database | undefined;
 let disposeBackupSchedule: (() => void) | undefined;
 let lanHost: LanHostHandle | undefined;
@@ -44,7 +43,9 @@ app.whenReady().then(async () => {
   if (shouldServeRenderer()) serveRenderer(rendererRoot());
 
   const dbPath = isDev() ? ":memory:" : defaultDbPath();
-  uow = createSqliteUnitOfWork(dbPath);
+  // Tells the seed whether this is a real install: a packaged build must not
+  // create its fallback admin with the published demo PIN (see seed.ts).
+  process.env["MEZAN_PACKAGED"] = app.isPackaged ? "1" : "0";
 
   if (!isDev()) {
     // A dedicated connection to the same on-disk file, used only for
@@ -69,12 +70,18 @@ app.whenReady().then(async () => {
   // instance in both cases — see @mezan/api's lan/routes.ts.
   const entitlements = resolveDesktopEntitlements();
   const seatRegistry = new SeatSessionRegistry(entitlements.seats);
-  const honoApp = createApp(uow, {
+  // `createBackend`, NOT `createApp`. This is the composition that carries the
+  // session resolver, the seeded tenant and the real `/auth` routes; building
+  // the app directly left every route resolving its caller from the
+  // `x-permissions` header — on the one edition that binds a LAN socket, so
+  // any device on the shop wifi could send `x-permissions: *`.
+  backend = await createBackend({
+    dbPath,
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
   });
-  registerHonoOverIpc(honoApp);
+  registerHonoOverIpc(backend.app);
   registerPrintToPdfOverIpc();
-  lanHost = startLanHost({ app: honoApp, entitlements });
+  lanHost = startLanHost({ app: backend.app, entitlements });
 
   createWindow();
   initAutoUpdater();
@@ -92,5 +99,5 @@ app.on("will-quit", () => {
   void lanHost?.close();
   disposeBackupSchedule?.();
   backupConn?.close();
-  uow?.close();
+  backend?.close();
 });

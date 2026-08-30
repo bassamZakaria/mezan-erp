@@ -7,6 +7,7 @@ export { createLanGate } from "./lan/gate.js";
 export { createLanRoutes, type LanRoutesOptions } from "./lan/routes.js";
 export { createAccountsRouter } from "./accounts.js";
 export {
+  createAuthenticatedGate,
   createPermissionGate,
   headerAuthContextResolver,
   getAuthContext,
@@ -61,3 +62,4 @@ export {
   type SessionGrant,
   type SessionRegistry,
 } from "./session-auth.js";
+export { createLoginThrottle, type LoginThrottle } from "./login-throttle.js";

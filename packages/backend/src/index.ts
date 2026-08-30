@@ -6,7 +6,9 @@ export {
   SEED_ADMIN_NAME,
   SEED_ADMIN_EMAIL,
   SEED_ADMIN_PIN,
+  resolveSeedAdminSecrets,
   type SeedStores,
+  type SeedAdminSecrets,
 } from "./seed.js";
 export { createAuthRoutes, type AuthRoutesDeps } from "./auth-routes.js";
 export { createDashboardRoutes, type DashboardDeps } from "./dashboard-routes.js";

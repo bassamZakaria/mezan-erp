@@ -12,3 +12,9 @@ allowBuilds:
   electron-winstaller: false
 minimumReleaseAgeExclude:
   - react-router@7.18.3
+overrides:
+  # GHSA — uuid <11.1.1 misses a buffer bounds check when `buf` is supplied.
+  # Reached only through exceljs's internal id generation, which passes no
+  # buffer, but a transitive advisory nobody can see the reasoning for is a
+  # standing question at every release. Pinned rather than argued about.
+  uuid@<11.1.1: ^11.1.1

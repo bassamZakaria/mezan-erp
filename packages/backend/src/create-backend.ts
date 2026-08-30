@@ -4,6 +4,7 @@ import {
   createSessionAuthContextResolver,
   createSessionRegistry,
   type App,
+  type CreateAppOptions,
   type SessionRegistry,
 } from "@mezan/api";
 import {
@@ -497,6 +498,16 @@ export interface CreateBackendOptions {
    * 2s, 10s per-attempt timeout). Tests shorten it; nothing else should.
    */
   readonly webhookRetry?: Partial<WebhookRetryPolicy>;
+  /**
+   * Mounts the LAN multi-till routes (`/lan/*`).
+   *
+   * Supplied by apps/desktop, which is the only edition that binds a LAN
+   * socket. Routing it through here rather than through a second `createApp`
+   * call is the point: the app built here is the one that carries the session
+   * resolver, and `/lan` is precisely the surface that must not be resolving
+   * its caller from a header.
+   */
+  readonly lan?: NonNullable<CreateAppOptions["lan"]>;
 }
 
 /**
@@ -1166,6 +1177,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const app = createApp(uow, {
     resolveAuthContext,
+    ...(options.lan ? { lan: options.lan } : {}),
     settingsStore: settings,
     branchStore: branches,
     warehouseStore: warehouses,

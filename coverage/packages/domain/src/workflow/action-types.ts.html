@@ -1,0 +1,349 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for packages/domain/src/workflow/action-types.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../../../prettify.css" />
+    <link rel="stylesheet" href="../../../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../../../../index.html">All files</a> / <a href="index.html">packages/domain/src/workflow</a> action-types.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>34/34</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>2/2</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>1/1</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>34/34</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line high'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">56x</span>
+<span class="cline-any cline-yes">56x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/**
+ * The 26 workflow-gateable action types (docs/archive/catalog/09 §workflow), as data.
+ *
+ * Each is a business action that a tenant MAY put behind a multi-step, sequential,
+ * role-based approval chain via `/settings/workflow`. The list is authoritative:
+ * the config UI's action-type combobox is exactly these 26 entries.
+ */
+&nbsp;
+export interface GateableActionTypeDef {
+  /** Stable machine code. */
+  readonly code: string;
+  /** Arabic label as shown in the config combobox. */
+  readonly labelAr: string;
+  /** English label — without it the approvals screens leak Arabic into the en UI. */
+  readonly labelEn: string;
+  /** Grouping used by the config screen. */
+  readonly category:
+    | "sales"
+    | "purchases"
+    | "treasury"
+    | "inventory"
+    | "accounting"
+    | "hr_payroll"
+    | "hr_leave"
+    | "manufacturing";
+  /**
+   * False while the code path this gates does not consult the workflow engine.
+   * The config screen must say so: a tenant who configures an approval chain
+   * for an unenforced action believes spend is held when it is not, which is a
+   * worse control than none at all.
+   */
+  readonly enforced?: boolean;
+}
+&nbsp;
+export const GATEABLE_ACTION_TYPES = [
+  // Sales (3)
+  { code: "SALES_INVOICE_CONFIRM", labelAr: "تأكيد فاتورة المبيعات", labelEn: "Confirm sales invoice", category: "sales" },
+  { code: "SALES_RETURN_CONFIRM", labelAr: "تأكيد مردودات المبيعات", labelEn: "Confirm sales return", category: "sales" },
+  { code: "SALES_QUOTE_SEND", labelAr: "إرسال عرض سعر", labelEn: "Send quotation", category: "sales" },
+&nbsp;
+  // Purchases (5)
+  { code: "PURCHASE_ORDER_CONFIRM", labelAr: "تأكيد أمر الشراء", labelEn: "Confirm purchase order", category: "purchases", enforced: false },
+  { code: "PURCHASE_INVOICE_CONFIRM", labelAr: "تأكيد فاتورة المشتريات", labelEn: "Confirm purchase invoice", category: "purchases", enforced: false },
+  { code: "PURCHASE_RECEIPT_CONFIRM", labelAr: "تأكيد سند استلام البضاعة", labelEn: "Confirm goods receipt", category: "purchases", enforced: false },
+  { code: "PURCHASE_RETURN_CONFIRM", labelAr: "تأكيد مردودات المشتريات", labelEn: "Confirm purchase return", category: "purchases" },
+  { code: "PURCHASE_LANDED_COST_CONFIRM", labelAr: "تأكيد سند التكاليف الإضافية", labelEn: "Confirm landed-cost voucher", category: "purchases" },
+&nbsp;
+  // Treasury (3)
+  { code: "TREASURY_VOUCHER_CONFIRM", labelAr: "تأكيد سند صرف/قبض", labelEn: "Confirm cash voucher", category: "treasury" },
+  { code: "TREASURY_CAPITAL_WITHDRAWAL_CONFIRM", labelAr: "تأكيد سحب من رأس المال", labelEn: "Confirm capital withdrawal", category: "treasury" },
+  { code: "TREASURY_TAX_PAYMENT_CONFIRM", labelAr: "تأكيد سداد ضريبي", labelEn: "Confirm tax payment", category: "treasury" },
+&nbsp;
+  // Inventory (2)
+  { code: "INVENTORY_TRANSFER_CONFIRM", labelAr: "تأكيد تحويل مخزون", labelEn: "Confirm stock transfer", category: "inventory" },
+  { code: "INVENTORY_ADJUSTMENT_CONFIRM", labelAr: "تأكيد تعديل مخزون", labelEn: "Confirm stock adjustment", category: "inventory" },
+&nbsp;
+  // Accounting (2)
+  { code: "ACCOUNTING_JOURNAL_POST", labelAr: "ترحيل قيد يومية", labelEn: "Post journal entry", category: "accounting" },
+  { code: "ACCOUNTING_JOURNAL_VOID", labelAr: "إلغاء قيد يومية", labelEn: "Void journal entry", category: "accounting" },
+&nbsp;
+  // HR / Payroll (1)
+  { code: "HR_PAYROLL_APPROVE", labelAr: "اعتماد مسير الرواتب", labelEn: "Approve payroll run", category: "hr_payroll" },
+&nbsp;
+  // HR / Leave (9 granular leave-type gates)
+  { code: "HR_LEAVE_APPROVE_ALL", labelAr: "الموافقة على طلب الإجازة (كل الأنواع)", labelEn: "Approve leave request (all types)", category: "hr_leave" },
+  { code: "HR_LEAVE_APPROVE_ANNUAL", labelAr: "الموافقة على إجازة سنوية", labelEn: "Approve annual leave", category: "hr_leave" },
+  { code: "HR_LEAVE_APPROVE_SICK", labelAr: "الموافقة على إجازة مرضية", labelEn: "Approve sick leave", category: "hr_leave" },
+  { code: "HR_LEAVE_APPROVE_PERSONAL", labelAr: "الموافقة على إجازة شخصية", labelEn: "Approve personal leave", category: "hr_leave" },
+  { code: "HR_LEAVE_APPROVE_CASUAL", labelAr: "الموافقة على إجازة عارضة", labelEn: "Approve casual leave", category: "hr_leave" },
+  { code: "HR_LEAVE_APPROVE_MATERNITY", labelAr: "الموافقة على إجازة أمومة", labelEn: "Approve maternity leave", category: "hr_leave" },
+  { code: "HR_LEAVE_APPROVE_PATERNITY", labelAr: "الموافقة على إجازة أبوة", labelEn: "Approve paternity leave", category: "hr_leave" },
+  { code: "HR_LEAVE_APPROVE_UNPAID", labelAr: "الموافقة على إجازة بدون أجر", labelEn: "Approve unpaid leave", category: "hr_leave" },
+  { code: "HR_LEAVE_APPROVE_EMERGENCY", labelAr: "الموافقة على إجازة طارئة", labelEn: "Approve emergency leave", category: "hr_leave" },
+&nbsp;
+  // Manufacturing (1)
+  { code: "MANUFACTURING_WORK_ORDER_START", labelAr: "بدء أمر التصنيع", labelEn: "Start work order", category: "manufacturing" },
+] as const satisfies readonly GateableActionTypeDef[];
+&nbsp;
+/** Union of the 26 gateable action-type codes. */
+export type GateableActionType = (typeof GATEABLE_ACTION_TYPES)[number]["code"];
+&nbsp;
+const ACTION_CODES: ReadonlySet&lt;string&gt; = new Set(
+  GATEABLE_ACTION_TYPES.map((a) =&gt; a.code),
+);
+&nbsp;
+export function isGateableActionType(code: string): code is GateableActionType {
+  return ACTION_CODES.has(code);
+}
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-08-30T14:46:59.739Z
+            </div>
+        <script src="../../../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../../../sorter.js"></script>
+        <script src="../../../../block-navigation.js"></script>
+    </body>
+</html>
+    

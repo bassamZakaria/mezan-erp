@@ -195,7 +195,7 @@ describe("a licence is not a credential (S8)", () => {
     // A session alone is not enough for the routes that act on OTHER people's
     // devices. A cashier must not be able to disconnect the counter.
     const { app, registry } = buildApp({ seats: 2, licensed: true });
-    registry.connect({ sessionId: "s1", deviceName: "till-1", connectedAt: "2026-01-01T00:00:00.000Z" });
+    registry.connect({ sessionId: "s1", deviceId: "till-1", deviceLabel: "كاشير ١" });
     const cashier = { "x-permissions": "sales.invoice.view" };
 
     const list = await app.fetch(new Request("http://local/sessions", { headers: cashier }));
@@ -212,7 +212,7 @@ describe("a licence is not a credential (S8)", () => {
 
   it("still lets an admin list and disconnect (the negative control)", async () => {
     const { app, registry } = buildApp({ seats: 2, licensed: true });
-    registry.connect({ sessionId: "s1", deviceName: "till-1", connectedAt: "2026-01-01T00:00:00.000Z" });
+    registry.connect({ sessionId: "s1", deviceId: "till-1", deviceLabel: "كاشير ١" });
 
     const list = await app.fetch(new Request("http://local/sessions", { headers: ADMIN }));
     expect(list.status).toBe(200);

@@ -406,3 +406,137 @@ describe("purchases-routes — cancel endpoints (require `layers`)", () => {
     expect(((await res.json()) as { error: string }).error).toBe("PURCHASE_ITEMS_ALREADY_CONSUMED");
   });
 });
+
+describe("purchases-routes — the list surfaces the screens actually read", () => {
+  async function seededChain() {
+    const harness = await newApp();
+    const { app } = harness;
+    await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(orderBody) }));
+    await app.fetch(req("/purchases/orders/po-1/confirm", { method: "POST", permissions: ADMIN }));
+    await app.fetch(
+      req("/purchases/receipts", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }),
+      }),
+    );
+    await app.fetch(req("/purchases/receipts/gr-1/confirm", { method: "POST", permissions: ADMIN }));
+    return harness;
+  }
+
+  async function invoiceFromReceipt(app: Awaited<ReturnType<typeof newApp>>["app"]) {
+    await app.fetch(
+      req("/purchases/invoices", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({
+          id: "pi-1",
+          supplierId: "sup-1",
+          date: "2026-08-22",
+          branchId: "MAIN",
+          warehouseId: "MAIN-WH",
+          receiptId: "gr-1",
+        }),
+      }),
+    );
+  }
+
+  it("lists orders, and narrows them by status", async () => {
+    const { app } = await seededChain();
+
+    const all = await app.fetch(req("/purchases/orders", { permissions: ADMIN }));
+    expect(((await all.json()) as unknown[]).length).toBe(1);
+
+    const received = await app.fetch(req("/purchases/orders?status=fully_received", { permissions: ADMIN }));
+    expect(((await received.json()) as unknown[]).length).toBe(1);
+
+    const draft = await app.fetch(req("/purchases/orders?status=draft", { permissions: ADMIN }));
+    expect((await draft.json()) as unknown[]).toEqual([]);
+  });
+
+  it("counts every chip from the same filtered set, ignoring only the status axis", async () => {
+    const { app } = await seededChain();
+    const res = await app.fetch(req("/purchases/orders/counts?status=draft", { permissions: ADMIN }));
+    const counts = (await res.json()) as Record<string, number>;
+    expect(counts.all).toBe(1);
+    expect(counts.fully_received).toBe(1);
+    expect(counts.draft).toBe(0);
+  });
+
+  it("sums the order book in Money, and leaves a cancelled order out of the value", async () => {
+    const { app } = await newApp();
+    await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(orderBody) }));
+
+    const before = await app.fetch(req("/purchases/orders/stats", { permissions: ADMIN }));
+    expect((await before.json()) as { count: number; value: string }).toMatchObject({
+      count: 1,
+      value: "310.000000",
+    });
+
+    await app.fetch(req("/purchases/orders/po-1/cancel", { method: "POST", permissions: ADMIN }));
+    const after = await app.fetch(req("/purchases/orders/stats", { permissions: ADMIN }));
+    expect((await after.json()) as { count: number; value: string }).toMatchObject({
+      count: 1,
+      value: "0.000000",
+    });
+  });
+
+  it("lists receipts and reports them as uninvoiced until an invoice names them", async () => {
+    const { app } = await seededChain();
+
+    const listed = await app.fetch(req("/purchases/receipts", { permissions: ADMIN }));
+    expect(((await listed.json()) as unknown[]).length).toBe(1);
+
+    const counts = await app.fetch(req("/purchases/receipts/counts", { permissions: ADMIN }));
+    expect((await counts.json()) as Record<string, number>).toMatchObject({
+      all: 1,
+      confirmed: 1,
+      uninvoiced: 1,
+      invoiced: 0,
+    });
+
+    await invoiceFromReceipt(app);
+    await app.fetch(req("/purchases/invoices/pi-1/confirm", { method: "POST", permissions: ADMIN }));
+
+    const after = await app.fetch(req("/purchases/receipts/counts", { permissions: ADMIN }));
+    expect((await after.json()) as Record<string, number>).toMatchObject({ invoiced: 1, uninvoiced: 0 });
+  });
+
+  it("reports the invoice chips and the payable they add up to", async () => {
+    const { app } = await seededChain();
+    await invoiceFromReceipt(app);
+    await app.fetch(req("/purchases/invoices/pi-1/confirm", { method: "POST", permissions: ADMIN }));
+
+    const counts = await app.fetch(req("/purchases/invoices/counts", { permissions: ADMIN }));
+    expect((await counts.json()) as Record<string, number>).toMatchObject({ all: 1, confirmed: 1 });
+
+    const stats = await app.fetch(req("/purchases/invoices/stats", { permissions: ADMIN }));
+    expect(JSON.stringify(await stats.json())).toContain("353.400000");
+  });
+
+  it("returns an empty list for a filter that matches nothing, not the whole table", async () => {
+    const { app } = await seededChain();
+    for (const path of [
+      "/purchases/orders?supplierId=sup-nobody",
+      "/purchases/receipts?supplierId=sup-nobody",
+      "/purchases/invoices?supplierId=sup-nobody",
+    ]) {
+      const res = await app.fetch(req(path, { permissions: ADMIN }));
+      expect((await res.json()) as unknown[], path).toEqual([]);
+    }
+  });
+
+  it("404s an order, a receipt and an invoice that are not there", async () => {
+    const { app } = await newApp();
+    for (const path of ["/purchases/orders/nope", "/purchases/receipts/nope", "/purchases/invoices/nope"]) {
+      expect((await app.fetch(req(path, { permissions: ADMIN }))).status, path).toBe(404);
+    }
+  });
+
+  it("reports what an invoice still owes against what was received", async () => {
+    const { app } = await seededChain();
+    await invoiceFromReceipt(app);
+    const res = await app.fetch(req("/purchases/invoices/pi-1/fulfilment", { permissions: ADMIN }));
+    expect(res.status).toBe(200);
+  });
+});

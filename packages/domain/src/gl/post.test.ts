@@ -23,6 +23,7 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
 } from "../fiscal-periods/errors.js";
+import { VatPeriodAlreadyFiledError } from "../tax/vat-filing.js";
 import {
   InactiveAccountError,
   DuplicateJournalEntryError,
@@ -338,5 +339,84 @@ describe("createJournalEntry / postDraftJournalEntry — draft lifecycle", () =>
     await expect(postDraftJournalEntry("je-1", deps)).rejects.toBeInstanceOf(
       JournalEntryNotDraftError,
     );
+  });
+});
+
+describe("the VAT-filing lock (D29)", () => {
+  /** A filings port that reports one filed return covering August 2026. */
+  function filings(status: "filed" | "amended" | "draft") {
+    return {
+      async findCovering(date: string) {
+        return date >= "2026-08-01" && date <= "2026-08-31" ? [{ id: "vat-2026-08", status }] : [];
+      },
+    };
+  }
+
+  it("refuses a posting dated inside a period whose VAT return has been filed", async () => {
+    const { deps, ledger } = await harness();
+    await expect(
+      postJournalEntry(cashSale, { ...deps, vatFilings: filings("filed") }),
+    ).rejects.toBeInstanceOf(VatPeriodAlreadyFiledError);
+
+    // Nothing is written: a refused posting must leave the ledger untouched,
+    // or the return the authority already has stops matching the books.
+    expect(await ledger.findById("je-1")).toBeNull();
+  });
+
+  it("names the filing and the date it refused, so the screen can say which return is closed", async () => {
+    const { deps } = await harness();
+    try {
+      await postJournalEntry(cashSale, { ...deps, vatFilings: filings("filed") });
+      throw new Error("expected the posting to be refused");
+    } catch (error) {
+      expect(error).toBeInstanceOf(VatPeriodAlreadyFiledError);
+      expect((error as Error).message).toContain("2026-08-22");
+    }
+  });
+
+  it("allows a posting dated outside the filed window", async () => {
+    const { deps, periods } = await harness();
+    await periods.create({
+      id: "fp-2026-09",
+      year: 2026,
+      periodNumber: 9,
+      startDate: "2026-09-01",
+      endDate: "2026-09-30",
+      status: "open",
+    });
+    const entry = await postJournalEntry(
+      { ...cashSale, id: "je-sept", date: "2026-09-15" },
+      { ...deps, vatFilings: filings("filed") },
+    );
+    expect(entry.status).toBe("posted");
+  });
+
+  it("allows a posting once the filing is amended rather than filed", async () => {
+    const { deps } = await harness();
+    const entry = await postJournalEntry(cashSale, { ...deps, vatFilings: filings("amended") });
+    expect(entry.status).toBe("posted");
+  });
+
+  it("allows a posting when the return is still a draft", async () => {
+    const { deps } = await harness();
+    const entry = await postJournalEntry(cashSale, { ...deps, vatFilings: filings("draft") });
+    expect(entry.status).toBe("posted");
+  });
+
+  it("posts normally when no filings port is wired at all", async () => {
+    const { deps } = await harness();
+    const entry = await postJournalEntry(cashSale, { ...deps, vatFilings: undefined });
+    expect(entry.status).toBe("posted");
+  });
+
+  it("checks the lock BEFORE writing, not after — a refused entry consumes no JE number", async () => {
+    const { deps, ledger } = await harness();
+    await expect(
+      postJournalEntry(cashSale, { ...deps, vatFilings: filings("filed") }),
+    ).rejects.toBeInstanceOf(VatPeriodAlreadyFiledError);
+
+    const next = await postJournalEntry({ ...cashSale, id: "je-2" }, deps);
+    expect(next.entryNo).toBe("JE-000001");
+    expect((await ledger.list()).length).toBe(1);
   });
 });

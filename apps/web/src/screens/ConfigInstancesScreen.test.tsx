@@ -307,6 +307,30 @@ describe("ConfigInstancesScreen — cancel, list controls and preview states", (
     await waitFor(() => expect(cancelCalls).toBe(1));
   });
 
+  it("reports failure — not a false success — when cancelling from the row menu is refused by the server", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/config-instances": () => ({ body: [instance()] }),
+      "GET /manufacturing/configurable-products": () => ({ body: products }),
+      "GET /items": () => ({ body: items }),
+      "GET /customers": () => ({ body: customers }),
+      "GET /warehouses": () => ({ body: warehouses }),
+      "POST /manufacturing/config-instances/ci-1/cancel": () => ({ status: 409, body: { error: "ALREADY_PRODUCED", message: "لا يمكن إلغاء أمر تم إنتاجه بالفعل" } }),
+    });
+    renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
+    await screen.findByText("CM-000001");
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات CM-000001" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "إلغاء" }));
+    const confirmDialog = screen.getByRole("dialog", { name: /تأكيد/ });
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "إلغاء" }));
+
+    const toast = await screen.findByRole("alert");
+    expect(toast).toHaveTextContent("تعذّر تنفيذ");
+    expect(screen.queryByRole("status", { name: /تم تنفيذ/ })).not.toBeInTheDocument();
+    const row = screen.getByText("CM-000001").closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText("مهيأة")).toBeInTheDocument();
+  });
+
   it("cancels a configured order from the row menu without disturbing a second untouched row", async () => {
     let cancelCalls = 0;
     const other = instance({ id: "ci-2", number: "CM-000002", status: "in_progress" });

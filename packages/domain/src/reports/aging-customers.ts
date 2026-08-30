@@ -148,6 +148,7 @@ export function createAgingCustomersReport(
       labelAr: "إجمالي أعمار الديون مقابل حساب العملاء في دفتر الأستاذ",
       computeReportTotal: (rows) => sumRows(rows, (row) => row.total),
       computeReferenceTotal: (_rows, ctx, params) => ctx.receivablesControlBalance?.(params) ?? 0,
+      available: (ctx) => ctx.receivablesControlBalance !== undefined,
       toleranceMoney: 0.01,
     },
     chart: {

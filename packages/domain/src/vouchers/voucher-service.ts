@@ -261,14 +261,20 @@ export class VoucherService {
   }
 
   /**
-   * Reverse a confirmed voucher: reverse all its ACTIVE allocations first (so
-   * invoice outstandings are restored), then reverse the document — which posts
-   * the mirror-image GL entry via the GL hook.
+   * Reverse a confirmed voucher: reverse the DOCUMENT first — which posts the
+   * mirror-image GL entry via the GL hook — and only then unwind its ACTIVE
+   * allocations so the invoice outstandings come back.
+   *
+   * The order is load-bearing. Reversing the allocations first meant that a
+   * refused document reversal (a closed period, an illegal transition) had
+   * already freed every invoice this voucher had settled, while the voucher
+   * stayed confirmed with its cash still in the safe.
    */
   async reverseVoucher(
     id: string,
     opts: { reversalId: string; date?: string; memo?: string },
   ): Promise<{ original: VoucherDocument; reversal: VoucherDocument }> {
+    const result = await this.service.reverse(id, opts);
     const active = (await this.deps.allocations.listByVoucher(id)).filter((a) => a.status === "active");
     for (const alloc of active) {
       const undone = await reverseAllocationFn(alloc.id, this.now(), {
@@ -277,7 +283,7 @@ export class VoucherService {
       });
       await this.projectSettlement(undone.invoice);
     }
-    return this.service.reverse(id, opts);
+    return result;
   }
 
   async allocate(

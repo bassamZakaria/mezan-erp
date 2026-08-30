@@ -75,6 +75,7 @@ export function createSalesByItemReport(
       labelAr: "إيرادات التقرير مقابل المرحَّل في دفتر الأستاذ",
       computeReportTotal: (rows) => sumRows(rows, (row) => row.revenue),
       computeReferenceTotal: (_rows, ctx, params) => ctx.postedRevenue?.(params) ?? 0,
+      available: (ctx) => ctx.postedRevenue !== undefined,
       toleranceMoney: 0.01,
     },
     chart: {

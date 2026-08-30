@@ -919,7 +919,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
 
   if (options.accounts) {
-    app.route("/accounts", createAccountsRouter(options.accounts.repo, (options.accounts.resolveAuthContext ?? resolveAuth)));
+    app.route(
+      "/accounts",
+      createAccountsRouter(options.accounts.repo, options.accounts.resolveAuthContext ?? resolveAuth, options.gl?.ledger),
+    );
   }
   if (options.taxRateRepo) {
     app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth));

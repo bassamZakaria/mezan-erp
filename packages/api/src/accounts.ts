@@ -8,8 +8,10 @@ import {
   InvalidParentAccountError,
   CircularParentAccountError,
   HeaderAccountHasChildrenError,
+  AccountHasPostingsError,
   type Account,
   type AccountRepository,
+  type PostedAccountLookup,
 } from "@mezan/domain";
 import { createAccountSchema, updateAccountSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
@@ -39,7 +41,8 @@ function handleDomainError(c: Context, err: unknown) {
   if (
     err instanceof InvalidParentAccountError ||
     err instanceof CircularParentAccountError ||
-    err instanceof HeaderAccountHasChildrenError
+    err instanceof HeaderAccountHasChildrenError ||
+    err instanceof AccountHasPostingsError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
@@ -55,6 +58,11 @@ function handleDomainError(c: Context, err: unknown) {
 export function createAccountsRouter(
   repo: AccountRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /**
+   * The GL ledger, so an edit that would strand a posted balance is refused.
+   * Omit it and the chart is editable with no regard for what has been posted.
+   */
+  ledger?: PostedAccountLookup,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -102,7 +110,7 @@ export function createAccountsRouter(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const account = await updateAccount(c.req.param("id"), parsed.data, repo);
+      const account = await updateAccount(c.req.param("id"), parsed.data, repo, ledger);
       return c.json(serialize(account));
     } catch (err) {
       return handleDomainError(c, err);

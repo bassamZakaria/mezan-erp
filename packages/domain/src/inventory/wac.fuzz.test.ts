@@ -319,7 +319,7 @@ describe("weighted-average costing — fuzz", () => {
 
     it("GUARANTEE (D135): a landed cost naming a document the ledger never received under still capitalises onto stock on hand", () => {
       // The ordinary purchase flow names the purchase INVOICE while the layer
-      // carries the goods RECEIPT (D136), so no layer matches. There is then
+      // carries the goods RECEIPT, so no layer matches. There is then
       // nothing to apportion against and the position itself is the basis:
       // 100 units on hand carry the whole 500, exactly as before. Classing an
       // unmatched revaluation as unabsorbed instead left the stock sub-ledger

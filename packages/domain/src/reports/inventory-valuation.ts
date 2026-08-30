@@ -72,6 +72,7 @@ export function createInventoryValuationReport(): ReportDefinition<
       labelAr: "قيمة المخزون مقابل حساب المخزون في دفتر الأستاذ",
       computeReportTotal: (rows) => sumRows(rows, (row) => row.totalValue),
       computeReferenceTotal: (_rows, ctx) => ctx.inventoryControlBalance?.() ?? 0,
+      available: (ctx) => ctx.inventoryControlBalance !== undefined,
       toleranceMoney: 0.01,
     },
     chart: {

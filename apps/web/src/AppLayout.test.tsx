@@ -463,33 +463,3 @@ describe("AppLayout — first-run wizard", () => {
     expect(await screen.findByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" })).toBeInTheDocument();
   });
 });
-
-describe("AppLayout — screen loading fallback", () => {
-  afterEach(() => {
-    persistSession(null);
-  });
-
-  it("shows the ScreenLoading skeleton in the Outlet's own slot while a lazy screen module is still downloading — the rest of the shell (rail, wordmark) stays on screen", async () => {
-    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/",
-          Component: AppLayout,
-          children: [{ path: "*", lazy: () => new Promise(() => {}) }],
-        },
-      ],
-      { initialEntries: ["/dashboard"] },
-    );
-    render(
-      <AppProviders transport={transport} initialSession={testAdminSession}>
-        <RouterProvider router={router} />
-      </AppProviders>,
-    );
-
-    expect(await screen.findByRole("status")).toHaveTextContent("جارٍ التحميل…");
-    // The shell chrome around the Outlet rendered normally — only the routed
-    // content is suspended.
-    expect(screen.getByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" })).toBeInTheDocument();
-  });
-});

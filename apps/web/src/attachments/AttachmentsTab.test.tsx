@@ -34,7 +34,7 @@ function renderTab(
     session?: Session;
     onUpload?: (body: Record<string, unknown>) => { status?: number; body: unknown } | undefined;
     uploadRequests?: Record<string, unknown>[];
-    onDelete?: (id: string) => { status?: number; body?: unknown } | undefined;
+    onDelete?: (id: string) => { status?: number; body: unknown } | undefined;
     deleteRequests?: string[];
     onDownload?: (id: string) => { status?: number; body: unknown };
   } = {},

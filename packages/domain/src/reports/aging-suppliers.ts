@@ -101,6 +101,7 @@ export function createAgingSuppliersReport(
       labelAr: "إجمالي أعمار الديون مقابل حساب الموردين في دفتر الأستاذ",
       computeReportTotal: (rows) => sumRows(rows, (row) => row.total),
       computeReferenceTotal: (_rows, ctx, params) => ctx.payablesControlBalance?.(params) ?? 0,
+      available: (ctx) => ctx.payablesControlBalance !== undefined,
       toleranceMoney: 0.01,
     },
     chart: {

@@ -221,4 +221,83 @@ describe("PurchaseOrdersScreen (filters, stats, entity ids, save-guard)", () => 
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
     expect(await screen.findByText("لا يمكن إنشاء أمر شراء بدون بنود")).toBeInTheDocument();
   });
+
+  it("a partially-received line's outstanding qty and line total are computed exactly, not copied from a stale field", async () => {
+    const order = purchaseOrder({
+      lines: [{ itemId: "item-cement", description: null, qty: "200.000000", unitPrice: "85.000000", receivedQty: "60.000000" }],
+    });
+    renderScreen([order]);
+    fireEvent.click(await screen.findByText("PO-000003"));
+    await screen.findByRole("heading", { name: /PO-000003/ });
+    // outstanding = 200 - 60 = 140; line total = 200 * 85 = 17,000.00.
+    expect(await screen.findByText((_, el) => el?.textContent === "140")).toBeInTheDocument();
+    expect(screen.getAllByText((_, el) => el?.textContent === "17,000.00").length).toBeGreaterThan(0);
+  });
+
+  it("adding a second line with its own qty/price posts both lines with their real, distinct values — not the first line's copied over", async () => {
+    const item2 = { ...items[0]!, id: "item-brick", code: "ITM-2", nameAr: "طوب أحمر", costPrice: "35.00" };
+    const { getCreateBody } = renderScreen([], {
+      "GET /items": () => ({ body: [items[0]!, item2] }),
+    });
+    fireEvent.click((await screen.findAllByRole("button", { name: "أمر شراء جديد" }))[0]!);
+    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    fireEvent.change(fieldInput(document.body, "الكمية"), { target: { value: "10" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة صنف" }));
+    const itemLabels = screen.getAllByText("الصنف");
+    const secondItemInput = itemLabels[1]!.parentElement!.querySelector("input")!;
+    fireEvent.focus(secondItemInput);
+    fireEvent.change(secondItemInput, { target: { value: "طوب أحمر" } });
+    fireEvent.mouseDown(screen.getByRole("button", { name: (n) => n.startsWith("طوب أحمر") }));
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const lines = (getCreateBody() as Record<string, unknown>).lines as Array<Record<string, unknown>>;
+    expect(lines).toEqual([
+      { itemId: "item-cement", qty: "10", unitPrice: "85" },
+      { itemId: "item-brick", qty: "1", unitPrice: "35" },
+    ]);
+  });
+
+  it("the row action menu offers 'confirm and send' only on a draft order, and 'receive' only on a sent/partly-received one — never both, never on a fully-received or cancelled order", async () => {
+    const draft = purchaseOrder({ id: "po-draft", number: "PO-000010", status: "draft" });
+    const sent = purchaseOrder({ id: "po-sent", number: "PO-000011", status: "sent" });
+    const fully = purchaseOrder({ id: "po-fully", number: "PO-000012", status: "fully_received" });
+    renderScreen([draft, sent, fully]);
+    await screen.findByText("PO-000012");
+
+    // Sorted by number descending: PO-000012, PO-000011, PO-000010.
+    const rows = screen.getAllByRole("row").slice(1);
+    const [rowFully, rowSent, rowDraft] = rows;
+
+    fireEvent.click(within(rowDraft!).getByRole("button", { name: /^إجراءات/ }));
+    expect(await screen.findByRole("menuitem", { name: "تأكيد وإرسال" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "إذن استلام من هذا الأمر" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    fireEvent.click(within(rowSent!).getByRole("button", { name: /^إجراءات/ }));
+    expect(await screen.findByRole("menuitem", { name: "إذن استلام من هذا الأمر" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "تأكيد وإرسال" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    fireEvent.click(within(rowFully!).getByRole("button", { name: /^إجراءات/ }));
+    expect(await screen.findByRole("menuitem", { name: "عرض" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "تأكيد وإرسال" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "إذن استلام من هذا الأمر" })).not.toBeInTheDocument();
+  });
+
+  it("KNOWN DEFECT: a rejected confirm-and-send leaves the order a draft but shows the user no error at all — confirmSelected swallows the failure silently", async () => {
+    const draft = purchaseOrder({ id: "po-draft", number: "PO-000010", status: "draft" });
+    renderScreen([draft], {
+      "POST /purchases/orders/po-draft/confirm": () => ({ status: 409, body: { message: "لا يمكن الإرسال بدون بيانات المورد." } }),
+    });
+    await screen.findByText("PO-000010");
+    fireEvent.click(within(screen.getAllByRole("row")[1]!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد وإرسال" }));
+
+    await waitFor(() => expect(screen.getAllByText("مسودة").length).toBeGreaterThan(0));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("لا يمكن الإرسال بدون بيانات المورد.")).not.toBeInTheDocument();
+  });
 });

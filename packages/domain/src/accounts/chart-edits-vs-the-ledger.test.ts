@@ -213,63 +213,82 @@ describe("the trial balance foots over the real posting engine, at non-zero bala
   });
 });
 
-describe("LIMITATION — a chart edit can strand a posted balance and un-foot the trial balance", () => {
+
+/**
+ * The guard these three used to document as a LIMITATION. `updateAccount` now
+ * takes the GL ledger and refuses the two edits that rewrite the meaning of
+ * postings already made — the fix that closed the finding this file opened.
+ */
+describe("an account that has been posted to is protected from the edits that would strand its balance", () => {
   let h: Harness;
   beforeEach(async () => {
     h = await harness();
     await bookTheMonth(h.deps);
   });
 
-  it("accepts flipping a POSTED-TO detail account into a header, and the trial balance then misses exactly that balance", async () => {
-    expect((await trialBalance(h)).reconciliation?.diff).toBe(0);
+  it("refuses to flip a POSTED-TO detail account into a header, writes nothing, and leaves the trial balance footing", async () => {
+    await expect(updateAccount("1300-1", { isHeader: true }, h.accounts, h.ledger)).rejects.toMatchObject({
+      code: "ACCOUNT_HAS_POSTINGS",
+      accountId: "1300-1",
+    });
 
-    // Two clicks in the chart of accounts: the "main account" toggle turned on
-    // for the cash box that is currently holding 6,200.25.
-    const updated = await updateAccount("1300-1", { isHeader: true }, h.accounts);
-    expect(updated.isHeader).toBe(true);
-
+    // A refusal that still wrote the row would be the same hole with a 422 on it.
+    expect((await h.accounts.findById("1300-1"))?.isHeader).toBe(false);
     const after = await trialBalance(h);
-    expect(after.rows.find((r) => r.accountId === "1300-1")).toBeUndefined();
-    expect(after.grandTotals.debit).toBe(3970.25);
-    expect(after.grandTotals.credit).toBe(10170.5);
-    expect(after.reconciliation?.diff).toBe(-6200.25);
-    expect(after.reconciliation?.withinTolerance).toBe(false);
-
-    // And the money is still in the ledger, so nothing warns and nothing can be
-    // reconciled: the books and the report now disagree, permanently.
-    expect((await h.ledger.accountBalance("1300-1")).balance.toString()).toBe("6200.250000");
-  });
-
-  it("negative control: flipping an account with NO postings into a header leaves the trial balance footing", async () => {
-    await updateAccount("1360", { isHeader: true }, h.accounts);
-    const after = await trialBalance(h);
+    expect(after.rows.find((r) => r.accountId === "1300-1")).toMatchObject({ debit: 6200.25, credit: 0 });
     expect(after.grandTotals.debit).toBe(10170.5);
     expect(after.grandTotals.credit).toBe(10170.5);
     expect(after.reconciliation?.diff).toBe(0);
   });
 
-  it("negative control: DEACTIVATING a posted-to account keeps its balance on the report — the guard that exists stops the next posting, it does not hide the last one", async () => {
-    await updateAccount("1300-1", { status: "inactive" }, h.accounts);
-    const after = await trialBalance(h);
-    expect(after.rows.find((r) => r.accountId === "1300-1")).toMatchObject({ debit: 6200.25, credit: 0 });
-    expect(after.reconciliation?.diff).toBe(0);
-  });
-
-  it("accepts re-TYPING a posted-to revenue account as an asset, and the year-end close silently stops closing it", async () => {
+  it("refuses to re-TYPE a posted-to revenue account, so the year-end close still carries the real result", async () => {
     const closeDeps = { ...h.deps, accounts: h.accounts };
     const before = await planYearEndClose({ year: 2026, retainedEarningsAccountId: "3900" }, closeDeps);
     expect(before.revenueClosed.toString()).toBe("8420.500000");
     expect(before.expensesClosed.toString()).toBe("1750.000000");
     expect(before.netResult.toString()).toBe("6670.500000");
 
-    await updateAccount("4100", { type: "asset", naturalBalance: "debit" }, h.accounts);
+    await expect(
+      updateAccount("4100", { type: "asset", naturalBalance: "debit" }, h.accounts, h.ledger),
+    ).rejects.toMatchObject({ code: "ACCOUNT_HAS_POSTINGS", accountId: "4100" });
 
+    expect((await h.accounts.findById("4100"))?.type).toBe("revenue");
     const after = await planYearEndClose({ year: 2026, retainedEarningsAccountId: "3900" }, closeDeps);
-    // 8,420.50 of real revenue is now a balance-sheet account. It is no longer
-    // carried to retained earnings, so the year reads as a 1,750 LOSS instead of
-    // a 6,670.50 profit and the difference surfaces nowhere.
-    expect(after.lines.map((l) => l.accountId)).toEqual(["5100"]);
-    expect(after.revenueClosed.toString()).toBe("0.000000");
-    expect(after.netResult.toString()).toBe("-1750.000000");
+    expect(after.lines.map((l) => l.accountId).sort()).toEqual(["4100", "5100"]);
+    expect(after.netResult.toString()).toBe("6670.500000");
+  });
+
+  it("negative control: an account with NO postings can still be made a header and re-typed", async () => {
+    const header = await updateAccount("1360", { isHeader: true }, h.accounts, h.ledger);
+    expect(header.isHeader).toBe(true);
+    const retyped = await updateAccount("1360", { type: "expense" }, h.accounts, h.ledger);
+    expect(retyped.type).toBe("expense");
+
+    const after = await trialBalance(h);
+    expect(after.grandTotals.debit).toBe(10170.5);
+    expect(after.reconciliation?.diff).toBe(0);
+  });
+
+  it("negative control: the edits that do NOT change what a posted line means are still allowed on a posted-to account", async () => {
+    const renamed = await updateAccount("1300-1", { nameAr: "صندوق الفرع الرئيسي" }, h.accounts, h.ledger);
+    expect(renamed.nameAr).toBe("صندوق الفرع الرئيسي");
+    const deactivated = await updateAccount("1300-1", { status: "inactive" }, h.accounts, h.ledger);
+    expect(deactivated.status).toBe("inactive");
+    const reparented = await updateAccount("1105", { parentId: null }, h.accounts, h.ledger);
+    expect(reparented.parentId).toBeNull();
+
+    const after = await trialBalance(h);
+    expect(after.rows.find((r) => r.accountId === "1300-1")).toMatchObject({ debit: 6200.25, credit: 0 });
+    expect(after.reconciliation?.diff).toBe(0);
+  });
+
+  it("without a ledger port the guard cannot fire — so the port must stay wired, and this pins the difference", async () => {
+    // Documented on purpose: `updateAccount(id, cmd, repo)` with no ledger is the
+    // old, unguarded call. Every production caller passes one (app.ts hands the
+    // accounts router `options.gl?.ledger`); a future caller that forgets will
+    // silently lose the protection, which is exactly what this asserts.
+    const flipped = await updateAccount("1300-1", { isHeader: true }, h.accounts);
+    expect(flipped.isHeader).toBe(true);
+    expect((await trialBalance(h)).reconciliation?.diff).toBe(-6200.25);
   });
 });

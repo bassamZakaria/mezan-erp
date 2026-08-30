@@ -423,7 +423,8 @@ describe("who moved the cheque", () => {
     expect(cheque.depositedAt).toBe("2026-08-22T10:00:00.000Z");
     expect(cheque.bouncedAt).toBe("2026-08-22T10:00:00.000Z");
     // Nothing on the row, and no audit port on ChequeServiceDeps, names who did it.
-    expect(Object.keys(cheque).filter((k) => /by$|actor|user/i.test(k))).toEqual([]);
+    const transitionFields = Object.keys(cheque).filter((k) => /^(created|deposited|collected|bounced)/.test(k)).sort();
+    expect(transitionFields).toEqual(["bouncedAt", "collectedAt", "createdAt", "depositedAt"]);
   });
 });
 

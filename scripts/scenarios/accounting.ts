@@ -23,6 +23,11 @@ export async function run(ctx: Ctx): Promise<void> {
   await taxGroupsKeepTheirMembersSeparate_R64(ctx);
   await costCentresCarryTheirOwnColumnsAndImportDepartments_R67(ctx);
   await byItemReportsTieToTheLedger_A7(ctx);
+  await theTrialBalanceMovesByExactlyOnePosting(ctx);
+  await aPostedToAccountResistsTheEditsThatWouldStrandIt(ctx);
+  await aPostedEntryCannotBeEditedOrDeletedThroughAnyRoute(ctx);
+  await closingAMonthStrandsTheDraftsDatedIntoIt(ctx);
+  await aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
     const res = await ctx.req("GET", "/reconciliation");
     const rows = ctx.rows(res.body);
@@ -942,5 +947,308 @@ export async function byItemReportsTieToTheLedger_A7(ctx: Ctx): Promise<void> {
       (narrow.body?.reconciliation as { reportTotal: number }).reportTotal,
       narrowRef,
     );
+  });
+}
+
+/**
+ * The trial balance is the report the month closes on. Two claims, not one:
+ * it foots at a real NON-ZERO set of balances, and one posting moves it by
+ * exactly that posting and by nothing else. A check that only ever asserts
+ * "debit = credit" is satisfied by a ledger that dropped the entry entirely.
+ */
+export async function theTrialBalanceMovesByExactlyOnePosting(ctx: Ctx): Promise<void> {
+  await ctx.scenario("trial balance — foots at a non-zero balance, and one posting moves it by exactly that amount", async () => {
+    const read = async () => {
+      const res = await ctx.req("GET", `/financial-reports/trial-balance?${qs({ asOfDate: today() })}`);
+      const rows = (res.body?.rows ?? []) as Array<{ accountId: string; debit: number; credit: number }>;
+      return {
+        debit: ctx.n(res.body?.grandTotals?.debit),
+        credit: ctx.n(res.body?.grandTotals?.credit),
+        byId: new Map(rows.map((r) => [r.accountId, r])),
+      };
+    };
+
+    const before = await read();
+    ctx.check(
+      "the trial balance opens at a NON-ZERO total — a zero-to-zero check survives a dropped posting, a flipped sign and a transposed debit/credit",
+      before.debit > 0,
+      `${before.debit}`,
+    );
+    ctx.checkEq("and it foots before the probe posts", before.debit, before.credit);
+
+    const post = await ctx.req("POST", "/gl/journal-entries", {
+      id: "SCN-JE-TBMOVE-1",
+      date: today(),
+      memo: "SCN trial-balance movement probe",
+      lines: [
+        { accountId: "1300-1", debit: "777.77", credit: "0.00" },
+        { accountId: "4900", debit: "0.00", credit: "777.77" },
+      ],
+    });
+    ctx.check("the probe entry posts", post.status === 201, `status ${post.status} body ${JSON.stringify(post.body).slice(0, 160)}`);
+
+    const after = await read();
+    ctx.checkEq("the trial balance still foots after it", after.debit, after.credit);
+    ctx.checkEq("total debit moved by exactly 777.77", after.debit - before.debit, 777.77);
+    ctx.checkEq(
+      "1300-1 moved by exactly the debit it was given",
+      ctx.n(after.byId.get("1300-1")?.debit) - ctx.n(before.byId.get("1300-1")?.debit),
+      777.77,
+    );
+    ctx.checkEq(
+      "4900 moved by exactly the credit it was given",
+      ctx.n(after.byId.get("4900")?.credit) - ctx.n(before.byId.get("4900")?.credit),
+      777.77,
+    );
+
+    // Footing is not enough on its own: an entry that also touched a third
+    // account would leave the report balanced and the books wrong.
+    const moved = [...after.byId.keys()].filter((id) => {
+      const b = before.byId.get(id);
+      const a = after.byId.get(id)!;
+      return !b || Math.abs(ctx.n(a.debit) - ctx.n(b.debit)) > 0.005 || Math.abs(ctx.n(a.credit) - ctx.n(b.credit)) > 0.005;
+    });
+    ctx.check(
+      "exactly the two accounts the entry named moved, and no third one",
+      moved.length === 2 && moved.includes("1300-1") && moved.includes("4900"),
+      `moved=${moved.join(",")}`,
+    );
+  });
+}
+
+/**
+ * The chart of accounts is edited from a settings screen and the ledger is not
+ * in the room. Turning a posted-to account into a header removes it from every
+ * report that walks the chart while leaving its balance in the ledger, so the
+ * trial balance silently stops footing; re-typing one moves last year to a
+ * different statement and changes what the year-end close carries to retained
+ * earnings. Both are refused now, and this drives the REAL route to prove the
+ * guard is wired rather than merely written.
+ */
+export async function aPostedToAccountResistsTheEditsThatWouldStrandIt(ctx: Ctx): Promise<void> {
+  await ctx.scenario("chart of accounts — an account with posted movements refuses the edits that would strand its balance", async () => {
+    const ledger = await ctx.req("GET", "/gl/accounts/1300-1/ledger");
+    const balance = ctx.n(ledger.body?.balance?.balance);
+    ctx.check("1300-1 carries a NON-ZERO posted balance to protect", Math.abs(balance) > 0, `${balance}`);
+
+    const asHeader = await ctx.req("PATCH", "/accounts/1300-1", { isHeader: true });
+    ctx.check(
+      "turning a posted-to detail account into a header is refused with ACCOUNT_HAS_POSTINGS",
+      asHeader.status === 422 && asHeader.body?.error === "ACCOUNT_HAS_POSTINGS",
+      `status ${asHeader.status} body ${JSON.stringify(asHeader.body)}`,
+    );
+    ctx.check(
+      "and the refusal is in Arabic, because it surfaces on an Arabic screen",
+      typeof asHeader.body?.message === "string" && /[\u0600-\u06FF]/.test(asHeader.body.message),
+      String(asHeader.body?.message),
+    );
+    const stillDetail = await ctx.req("GET", "/accounts/1300-1");
+    ctx.check("a 422 that still wrote the row would be the same hole in a nicer status code", stillDetail.body?.isHeader === false, JSON.stringify(stillDetail.body));
+
+    const retyped = await ctx.req("PATCH", "/accounts/4900", { type: "asset" });
+    ctx.check(
+      "re-typing a posted-to revenue account as an asset is refused too — it would drop the balance out of the year-end close",
+      retyped.status === 422 && retyped.body?.error === "ACCOUNT_HAS_POSTINGS",
+      `status ${retyped.status} body ${JSON.stringify(retyped.body)}`,
+    );
+    const stillRevenue = await ctx.req("GET", "/accounts/4900");
+    ctx.check("and 4900 is still a revenue account", stillRevenue.body?.type === "revenue", JSON.stringify(stillRevenue.body));
+
+    // The negative control: the edits that do NOT change what a posted line
+    // means must still work, or the guard has simply frozen the chart.
+    const renamed = await ctx.req("PATCH", "/accounts/1300-1", { nameAr: "صندوق نقدي — الفرع الرئيسي" });
+    ctx.check("renaming a posted-to account still works", renamed.status === 200 && renamed.body?.nameAr === "صندوق نقدي — الفرع الرئيسي", `status ${renamed.status}`);
+    const restored = await ctx.req("PATCH", "/accounts/1300-1", { nameAr: stillDetail.body?.nameAr });
+    ctx.check("scenario restored the account name", restored.status === 200 && restored.body?.nameAr === stillDetail.body?.nameAr, JSON.stringify(restored.body));
+  });
+}
+
+/**
+ * What makes the books evidence rather than a spreadsheet: once an entry is
+ * posted it is corrected by a reversal and by nothing else. This probes every
+ * verb a client could reach for and then re-reads the entry, because a route
+ * that answered 404 while still having written is the only failure that would
+ * matter.
+ */
+export async function aPostedEntryCannotBeEditedOrDeletedThroughAnyRoute(ctx: Ctx): Promise<void> {
+  await ctx.scenario("journal entry — a posted entry cannot be edited or deleted through any route", async () => {
+    const id = "SCN-JE-IMMUTABLE-1";
+    const create = await ctx.req("POST", "/gl/journal-entries", {
+      id,
+      date: today(),
+      memo: "SCN immutability probe",
+      lines: [
+        { accountId: "1300-1", debit: "420.69", credit: "0.00" },
+        { accountId: "4900", debit: "0.00", credit: "420.69" },
+      ],
+    });
+    ctx.check("the entry posts", create.status === 201 && create.body?.status === "posted", `status ${create.status}`);
+    const original = JSON.stringify(create.body);
+
+    for (const method of ["PUT", "PATCH", "DELETE"] as const) {
+      const res = await ctx.req(method, `/gl/journal-entries/${id}`, {
+        memo: "tampered",
+        lines: [
+          { accountId: "1300-1", debit: "1.00", credit: "0.00" },
+          { accountId: "4900", debit: "0.00", credit: "1.00" },
+        ],
+      });
+      ctx.check(`${method} on a posted entry is not a route at all`, res.status === 404 || res.status === 405, `status ${res.status}`);
+    }
+
+    const reread = await ctx.req("GET", `/gl/journal-entries/${id}`);
+    ctx.check("and the entry is byte-for-byte what it was posted as", JSON.stringify(reread.body) === original, JSON.stringify(reread.body).slice(0, 200));
+
+    // The one legitimate correction, and the proof that the guard above is not
+    // simply refusing everything.
+    const reverse = await ctx.req("POST", `/gl/journal-entries/${id}/reverse`, {});
+    ctx.check("the only correction there is — a reversal — still works", reverse.status === 201, `status ${reverse.status} body ${JSON.stringify(reverse.body).slice(0, 200)}`);
+    const mirror = reverse.body?.reversal;
+    const mirrorCash = (mirror?.lines ?? []).find((l: any) => l.accountId === "1300-1");
+    ctx.checkEq("the mirror credits the cash line by exactly the original debit", ctx.n(mirrorCash?.credit), 420.69);
+    ctx.checkEq("and carries no debit on it", ctx.n(mirrorCash?.debit), 0);
+    const afterReversal = await ctx.req("GET", `/gl/journal-entries/${id}`);
+    ctx.check("the original entry LINES are still untouched — only its status and its forward link changed", JSON.stringify(afterReversal.body?.lines) === JSON.stringify(create.body?.lines), JSON.stringify(afterReversal.body?.lines).slice(0, 200));
+    ctx.check("the original is marked reversed, never deleted", afterReversal.body?.status === "reversed", String(afterReversal.body?.status));
+  });
+}
+
+/**
+ * The close, from the accountant side. Two halves: a closed month must refuse
+ * every posting and write nothing, AND the close itself must be safe to press
+ * — which is where the finding is. Nothing checks whether unposted work is
+ * dated into the month being closed, so pressing إغلاق strands every draft in
+ * it: the draft survives, but no route can ever post it again without someone
+ * noticing the period has to be reopened.
+ */
+/**
+ * An opening balance is how every migration starts: the shop's existing
+ * debtors are typed in on day one. If that figure never reaches the AR control
+ * account, the sub-ledger and the GL disagree from the very first day and no
+ * amount of correct posting afterwards will close the gap.
+ */
+export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: Ctx): Promise<void> {
+  await ctx.scenario("opening balances — a customer's opening balance against GL 1105", async () => {
+    const id = "SCN-CUST-OPENING";
+    const opening = 4250;
+
+    const arBefore = await accountBalance(ctx, "1105");
+
+    const created = await ctx.req("POST", "/customers", {
+      id,
+      code: "SCN-OPEN-1",
+      nameAr: "عميل برصيد افتتاحي",
+      openingBalance: `${opening}.00`,
+    });
+    ctx.check(
+      "a customer can be created carrying an opening balance",
+      created.status === 201 && ctx.n(created.body?.openingBalance) === opening,
+      `status ${created.status} body ${JSON.stringify(created.body).slice(0, 200)}`,
+    );
+    if (created.status !== 201) return;
+
+    // The sub-ledger DOES count it: the customer's outstanding figure adds the
+    // opening balance to the unsettled documents.
+    const listed = ctx.rows((await ctx.req("GET", "/customers")).body).find((c: any) => c.id === id);
+    ctx.check(
+      "the customer's own balance includes the opening figure",
+      listed !== undefined && ctx.n(listed.balance ?? listed.outstanding ?? listed.openingBalance) === opening,
+      JSON.stringify(listed).slice(0, 220),
+    );
+
+    const arAfter = await accountBalance(ctx, "1105");
+    ctx.check(
+      "FINDING: GL 1105 did not move — the opening balance is held on the customer record only, so the AR sub-ledger " +
+        "exceeds its control account by exactly the opening balances typed in at go-live, and nothing in the product " +
+        "ever closes that gap",
+      arAfter === arBefore,
+      `1105 before ${arBefore} after ${arAfter} (opening ${opening})`,
+    );
+
+    // Put it back, or every reconciliation scenario after this one inherits
+    // the gap this one just demonstrated.
+    const cleared = await ctx.req("PATCH", `/customers/${id}`, { openingBalance: "0.00" });
+    ctx.check(
+      "the opening balance is cleared again so later scenarios start level",
+      cleared.status === 200 && ctx.n(cleared.body?.openingBalance) === 0,
+      `status ${cleared.status} body ${JSON.stringify(cleared.body).slice(0, 200)}`,
+    );
+    ctx.checkEq("and GL 1105 is exactly where it started", await accountBalance(ctx, "1105"), arBefore);
+  });
+}
+
+export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promise<void> {
+  await ctx.scenario("fiscal periods — closing a month with an unposted draft dated into it, and what the draft can do afterwards", async () => {
+    const year = new Date().getFullYear();
+    const periods = ctx.rows((await ctx.req("GET", `/fiscal-periods?${qs({ year: String(year) })}`)).body);
+    const march = periods.find((p: any) => p.periodNumber === 3);
+    ctx.check("March exists and is the period this scenario borrows", Boolean(march), `periods=${periods.length}`);
+    if (!march) return;
+    ctx.check("March starts open, as the earlier fiscal-period scenario left it", march.status === "open", String(march.status));
+
+    const draftId = "SCN-JE-STRANDED-DRAFT";
+    const draft = await ctx.req("POST", "/gl/journal-entries/draft", {
+      id: draftId,
+      date: `${year}-03-20`,
+      memo: "SCN مصروف مستحق لم يُرحَّل بعد",
+      lines: [
+        { accountId: "5900", debit: "640.00", credit: "0.00" },
+        { accountId: "1300-1", debit: "0.00", credit: "640.00" },
+      ],
+    });
+    ctx.check("a draft dated into March saves without touching the ledger", draft.status === 201 && draft.body?.status === "draft", `status ${draft.status} body ${JSON.stringify(draft.body).slice(0, 160)}`);
+    ctx.check("and carries no entry number, because it has not been posted", draft.body?.entryNo === null, String(draft.body?.entryNo));
+
+    const close = await ctx.req("POST", `/fiscal-periods/${march.id}/close`, {});
+    ctx.check(
+      "FINDING: the close is accepted with unposted work dated into the month, and says nothing about it — no count of stranded drafts, no refusal, no warning",
+      close.status === 200 && close.body?.status === "closed",
+      `status ${close.status} body ${JSON.stringify(close.body)}`,
+    );
+
+    const postStranded = await ctx.req("POST", `/gl/journal-entries/${draftId}/post`, {});
+    ctx.check(
+      "posting the stranded draft is refused with the period-specific error",
+      postStranded.status === 422 && postStranded.body?.error === "PERIOD_NOT_OPEN_FOR_POSTING",
+      `status ${postStranded.status} body ${JSON.stringify(postStranded.body)}`,
+    );
+
+    const stillDraft = await ctx.req("GET", `/gl/journal-entries/${draftId}`);
+    ctx.check("the refused post left the draft exactly as it was", stillDraft.body?.status === "draft" && stillDraft.body?.entryNo === null, JSON.stringify(stillDraft.body).slice(0, 160));
+    ctx.check("and consumed no JE number — the refusal happens before the sequence is touched", stillDraft.body?.postedAt == null, String(stillDraft.body?.postedAt));
+
+    const freshIntoClosed = await ctx.req("POST", "/gl/journal-entries", {
+      id: "SCN-JE-LATE-INVOICE",
+      date: `${year}-03-25`,
+      memo: "SCN فاتورة متأخرة مؤرخة داخل شهر مغلق",
+      lines: [
+        { accountId: "1300-1", debit: "99.99", credit: "0.00" },
+        { accountId: "4900", debit: "0.00", credit: "99.99" },
+      ],
+    });
+    ctx.check("a late document dated into the closed month is refused too", freshIntoClosed.status === 422 && freshIntoClosed.body?.error === "PERIOD_NOT_OPEN_FOR_POSTING", `status ${freshIntoClosed.status}`);
+    ctx.check("and nothing at all was written for it", (await ctx.req("GET", "/gl/journal-entries/SCN-JE-LATE-INVOICE")).status === 404);
+
+    const reopen = await ctx.req("POST", `/fiscal-periods/${march.id}/reopen`, {});
+    ctx.check("reopening the month restores it to open", reopen.status === 200 && reopen.body?.status === "open", `status ${reopen.status}`);
+
+    const posted = await ctx.req("POST", `/gl/journal-entries/${draftId}/post`, {});
+    ctx.check("the SAME draft now posts, back-dated into the reopened month", posted.status === 200 && posted.body?.status === "posted", `status ${posted.status} body ${JSON.stringify(posted.body).slice(0, 160)}`);
+    ctx.check("it keeps its original date rather than sliding to today", posted.body?.date === `${year}-03-20`, String(posted.body?.date));
+    ctx.check("and only now does it take a JE number", typeof posted.body?.entryNo === "string" && posted.body.entryNo.length > 0, String(posted.body?.entryNo));
+
+    const audit = ctx.rows((await ctx.req("GET", `/audit?entityType=FISCAL_PERIOD&entityId=${march.id}`)).body);
+    const reopenEvent = audit.find((e: any) => e.entityId === march.id && e.action === "REOPEN");
+    ctx.check(
+      "reopening a closed month is on the audit trail — it is the move that lets a closed month be changed after the fact",
+      Boolean(reopenEvent),
+      JSON.stringify(audit.slice(0, 3)),
+    );
+    ctx.check("and the trail records what it was reopened FROM", reopenEvent?.details?.previousStatus === "closed", JSON.stringify(reopenEvent?.details));
+
+    // Left as found: the earlier fiscal-period scenario and every later module
+    // expect March open.
+    const finalState = await ctx.req("GET", `/fiscal-periods/${march.id}`);
+    ctx.check("scenario leaves March open, as it found it", finalState.body?.status === "open", String(finalState.body?.status));
   });
 }

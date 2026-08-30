@@ -149,7 +149,7 @@ export function replay(
       //
       // When the named document is one this ledger never received stock under
       // — the ordinary purchase flow names the purchase INVOICE while the
-      // layer carries the goods RECEIPT (D136) — there is nothing to
+      // layer carries the goods RECEIPT, so nothing matches — there is nothing to
       // apportion against, so the position itself is the only basis: stock on
       // hand can carry the cost, an empty position cannot.
       const delta = m.valueDelta as Money;

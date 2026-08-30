@@ -70,6 +70,7 @@ export function createPurchasesByItemReport(
       labelAr: "تكلفة التقرير مقابل المرحَّل للمخزون في دفتر الأستاذ",
       computeReportTotal: (rows) => sumRows(rows, (row) => row.cost),
       computeReferenceTotal: (_rows, ctx, params) => ctx.postedInventory?.(params) ?? 0,
+      available: (ctx) => ctx.postedInventory !== undefined,
       toleranceMoney: 0.01,
     },
     chart: {

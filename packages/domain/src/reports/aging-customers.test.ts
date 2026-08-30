@@ -142,3 +142,17 @@ describe("createAgingCustomersReport — the tie to the AR control account (D112
     expect(seen).toEqual(["2026-10-23"]);
   });
 });
+
+describe("a reconciliation whose reference is not wired shows no banner (D112)", () => {
+  it("returns null rather than comparing a real total against a defaulted zero", () => {
+    // The aging ladder is where this bites: a banner that reads
+    // "4,650.50 vs 0.00 — mismatch" on every single run trains everyone to
+    // ignore it, which is worse than having none.
+    const definition = createAgingCustomersReport("2026-08-22");
+    const outcome = runReport(definition, { asOfDate: "2026-08-22" }, { invoices: [invoice()] });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows[0]?.total).toBe(200);
+    expect(outcome.reconciliation).toBeNull();
+  });
+});

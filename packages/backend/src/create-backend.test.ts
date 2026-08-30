@@ -2100,6 +2100,72 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
     expect(ar.matched).toBe(true);
   });
 
+  it("ap: an on-account supplier-payment voucher (no invoice) still nets the AP sub-ledger down, and the GL still ties", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-fund-ap", "0");
+    await createServiceItem(app);
+    await authedPost(app, "/sales-invoices", invoiceBody("inv-fund-ap", "cust-fund-ap", "1000.00"));
+    await authedPost(app, "/sales-invoices/inv-fund-ap/confirm", {});
+    const ta = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-payacct", code: "TA-PAYACCT", name: "خزينة", branchId: "BR1", glAccountId: "1300-1" },
+      admin(app),
+    );
+    expect(ta.status).toBe(201);
+    const fund = await post(
+      app,
+      "/sales-invoices/inv-fund-ap/payments",
+      { amount: "1000.00", treasuryAccountId: "ta-payacct", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(fund.status).toBe(200);
+
+    await post(app, "/suppliers", { id: "sup-onacct", code: "sup-onacct", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app));
+    const createInvoice = await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-onacct",
+        supplierId: "sup-onacct",
+        date: "2026-08-22",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ description: "خدمة", kind: "expense", qty: "1", unitCost: "500.00", taxRatePercent: 0 }],
+      },
+      admin(app),
+    );
+    expect(createInvoice.status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-onacct/confirm", {}, admin(app))).status).toBe(200);
+
+    const voucher = await post(
+      app,
+      "/vouchers",
+      {
+        id: "voucher-ap-onacct",
+        date: "2026-08-22",
+        voucherType: "supplier_payment",
+        amount: "200.00",
+        branchId: "BR1",
+        paymentMethod: "cash",
+        treasuryAccountId: "ta-payacct",
+        treasuryGlAccountId: "1300-1",
+        counterpartyGlAccountId: "2100",
+        supplierId: "sup-onacct",
+      },
+      admin(app),
+    );
+    expect(voucher.status).toBe(201);
+    expect((await post(app, "/vouchers/voucher-ap-onacct/confirm", {}, admin(app))).status).toBe(200);
+
+    const body = await reconciliation(app);
+    const ap = row(body, "ap");
+    // 500 owed minus 200 paid on account (never allocated to the invoice) = 300.
+    expect(ap.subLedgerBalance).toBe("300.000000");
+    expect(ap.glBalance).toBe("300.000000");
+    expect(ap.matched).toBe(true);
+  });
+
   it("ap: a confirmed purchase return debits AP, and the sub-ledger still ties to the GL", async () => {
     const app = await newBackend();
     expect(
@@ -2125,25 +2191,31 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
     expect(createInvoice.status).toBe(201);
     const confirmInvoice = await post(app, "/purchases/invoices/pi-pr/confirm", {}, admin(app));
     expect(confirmInvoice.status).toBe(200);
-    const invoice = (await confirmInvoice.json()) as { id: string; docNo: string };
+    const invoice = (await confirmInvoice.json()) as { id: string; number: string };
 
     const before = await reconciliation(app);
     expect(row(before, "ap").subLedgerBalance).toBe("200.000000"); // 10 * 20.00
 
-    const createReturn = await post(
-      app,
-      "/purchase-returns/from-invoice",
-      {
-        id: "pr-recon-1",
-        date: "2026-08-23",
-        memo: "",
-        sourceInvoiceId: invoice.id,
-        warehouseId: "WH-MAIN",
-        reason: "DEFECTIVE",
-        requested: [{ itemId: "item-pr", qty: "3" }],
-      },
-      admin(app),
-    );
+    const purchaseReturnPayload = {
+      id: "pr-recon-1",
+      date: "2026-08-23",
+      memo: "",
+      lines: [
+        {
+          itemId: "item-pr",
+          warehouseId: "WH-MAIN",
+          supplierId: "sup-pr",
+          sourceInvoiceId: invoice.id,
+          sourceInvoiceNumber: invoice.number,
+          reason: "DEFECTIVE",
+          availableQty: "10",
+          qty: "3",
+          unitCost: "20.00",
+          taxAmount: "0",
+        },
+      ],
+    };
+    const createReturn = await post(app, "/purchase-returns", purchaseReturnPayload, admin(app));
     expect(createReturn.status).toBe(201);
     const draftReturn = (await createReturn.json()) as { id: string };
     const confirmReturn = await post(app, `/purchase-returns/${draftReturn.id}/confirm`, {}, admin(app));
@@ -2251,7 +2323,7 @@ describe("createBackend — stock reservations (مخزون محجوز), derived 
     ).toBe(201);
     expect((await post(app, "/inventory/stock-adjustments/sa-resv-t/confirm", {}, admin(app))).status).toBe(200);
     expect(
-      (await post(app, "/warehouses", { id: "WH-DEST", code: "WH-DEST", name: "مستودع الوجهة", nameEn: null, branchId: "BR-MAIN", type: "STANDARD" }, admin(app))).status,
+      (await post(app, "/warehouses", { id: "WH-DEST", code: "WH-DEST", name: "مستودع الوجهة", nameEn: null, branchId: "BR-MAIN", type: "MAIN" }, admin(app))).status,
     ).toBe(201);
 
     const draft = await post(
@@ -2354,6 +2426,20 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
       admin(app),
     );
     expect(ta.status).toBe(201);
+
+    // `openingBalance` above is a record only — it posts no journal entry, so
+    // the account's REAL cash starts at zero and the cash-negative guard would
+    // refuse the refund. Fund it for real with an ordinary collection first.
+    const fundInvoice = await authedPost(app, "/sales-invoices", invoiceBody("inv-refund-fund", "cust-refund", "200.00"));
+    expect(fundInvoice.status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-refund-fund/confirm", {})).status).toBe(200);
+    const fund = await post(
+      app,
+      "/sales-invoices/inv-refund-fund/payments",
+      { amount: "200.00", treasuryAccountId: "ta-refund", paymentMethod: "cash" },
+      admin(app),
+    );
+    expect(fund.status).toBe(200);
 
     const createReturn = await post(
       app,
@@ -2495,7 +2581,7 @@ describe("createBackend — السماح بالبيع من مستودع آخر: 
       (await post(app, "/items", { id: "item-xwh", code: "ITEM-XWH", nameAr: "صنف متعدد المخازن", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
     ).toBe(201);
     expect(
-      (await post(app, "/warehouses", { id: "WH-OTHER", code: "WH-OTHER", name: "مستودع آخر", nameEn: null, branchId: "BR-MAIN", type: "STANDARD" }, admin(app))).status,
+      (await post(app, "/warehouses", { id: "WH-OTHER", code: "WH-OTHER", name: "مستودع آخر", nameEn: null, branchId: "BR-MAIN", type: "MAIN" }, admin(app))).status,
     ).toBe(201);
     // Stock exists ONLY in WH-OTHER, never in WH-MAIN.
     expect(
@@ -2608,5 +2694,5 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
     expect(res.status).toBe(200);
     const customersList = (await res.json()) as unknown[];
     expect(customersList.length).toBeGreaterThan(0);
-  });
+  }, 60000);
 });

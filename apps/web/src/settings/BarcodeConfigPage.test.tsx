@@ -127,6 +127,56 @@ describe("BarcodeConfigPage", () => {
     expect(screen.getByText("جارِ التحميل…")).toBeInTheDocument();
   });
 
+  it("a load failure shows a retry control that re-issues the request", async () => {
+    let calls = 0;
+    let fail = true;
+    const transport = stubTransport({
+      "GET /barcode-config": () => {
+        calls += 1;
+        if (fail) return { status: 500, body: { error: "INTERNAL" } };
+        return { body: baseConfig };
+      },
+    });
+    renderWithProviders(<BarcodeConfigPage />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل إعدادات الباركود.")).toBeInTheDocument();
+    const callsBeforeRetry = calls;
+
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    await screen.findByRole("heading", { name: "إعدادات الباركود" });
+    expect(calls).toBeGreaterThan(callsBeforeRetry);
+  });
+
+  it("client-side validation blocks the save when a rule's own numbers are inconsistent (value overruns the total length) — the mutation is never called", async () => {
+    let putCalls = 0;
+    const config: BarcodeConfigDTO = {
+      ...baseConfig,
+      embeddedRules: [
+        { id: "R-A", nameAr: "قاعدة السعر", prefix: "2", totalLength: 13, itemCodeStart: 1, itemCodeLength: 5, valueStart: 7, valueLength: 5, valueType: "PRICE", valueDecimals: 2, active: true },
+      ],
+    };
+    const transport = stubTransport({
+      "GET /barcode-config": () => ({ body: config }),
+      "PUT /barcode-config": () => {
+        putCalls += 1;
+        return { body: config };
+      },
+    });
+    renderWithProviders(<BarcodeConfigPage />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("heading", { name: "إعدادات الباركود" });
+    fireEvent.click(screen.getByRole("tab", { name: "قواعد الباركود المدمج" }));
+
+    // Shrink the total length under the value's own end (valueStart 7 + valueLength 5 = 12 > new total 5).
+    const totalLengthInput = screen.getAllByRole("spinbutton")[0]!;
+    fireEvent.change(totalLengthInput, { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+
+    expect(await screen.findByText(/القيمة تتجاوز الطول الكلي للباركود/)).toBeInTheDocument();
+    expect(putCalls).toBe(0);
+    // The save button stays enabled (still dirty) — nothing was silently accepted.
+    expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeEnabled();
+  });
+
   const twoRuleConfig: BarcodeConfigDTO = {
     ...baseConfig,
     embeddedRules: [

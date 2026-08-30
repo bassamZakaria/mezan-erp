@@ -57,3 +57,27 @@ export class HeaderAccountHasChildrenError extends Error {
     this.name = "HeaderAccountHasChildrenError";
   }
 }
+
+/**
+ * Raised when an edit to an account would change the meaning of postings that
+ * have ALREADY been made against it — turning a posted-to detail account into a
+ * header (the trial balance walks the chart and skips headers, so the balance
+ * silently leaves the report while staying in the ledger), or re-typing it
+ * (revenue moved to asset stops being carried to retained earnings by the
+ * year-end close, so the year reports the wrong result).
+ *
+ * Correct such an account by reversing its entries onto the right account, not
+ * by editing the account underneath them.
+ */
+export class AccountHasPostingsError extends Error {
+  readonly code = "ACCOUNT_HAS_POSTINGS";
+  constructor(
+    readonly accountId: string,
+    readonly attemptedChange: string,
+  ) {
+    super(
+      `الحساب "${accountId}" عليه حركات مرحّلة، ولا يمكن ${attemptedChange}. صحّح بقيد عكسي بدلاً من تعديل الحساب.`,
+    );
+    this.name = "AccountHasPostingsError";
+  }
+}

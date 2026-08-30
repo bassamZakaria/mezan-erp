@@ -6,6 +6,7 @@ import {
   stockAdjustmentDocumentType,
   stockTransferDocumentType,
   createInventoryOpsStockHook,
+  createDocumentWorkflowGate,
   StockLedgerService,
   PhysicalCountService,
   type StockAdjustmentDocLine,
@@ -39,6 +40,7 @@ function harness() {
   const adjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: ops.stockAdjustments,
     numbering: { next: async () => ({ value: ++adjCounter, formatted: `ADJ-${String(adjCounter).padStart(6, "0")}` }) },
+    workflow: createDocumentWorkflowGate(() => null),
     stock: createInventoryOpsStockHook(stockLedger),
   });
 
@@ -46,6 +48,7 @@ function harness() {
   const transfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
     repo: ops.stockTransfers,
     numbering: { next: async () => ({ value: ++trfCounter, formatted: `TRF-${String(trfCounter).padStart(6, "0")}` }) },
+    workflow: createDocumentWorkflowGate(() => null),
     stock: createInventoryOpsStockHook(stockLedger),
   });
 

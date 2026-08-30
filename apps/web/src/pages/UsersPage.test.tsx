@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import type { RoleDTO, UserDTO } from "@mezan/contracts";
 import { UsersPage } from "./UsersPage";
 import { AppI18nProvider } from "../i18n";
 
-const render = (ui: React.ReactElement) => rtlRender(<AppI18nProvider>{ui}</AppI18nProvider>);
+/** UsersPage keeps its status filter in the URL (useUrlParam), so it needs a router. */
+const render = (ui: React.ReactElement) =>
+  rtlRender(
+    <AppI18nProvider>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </AppI18nProvider>,
+  );
 
 const role: RoleDTO = {
   id: "role-1",
@@ -66,8 +73,8 @@ describe("UsersPage", () => {
     renderPage({ onSave });
 
     fireEvent.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
-    fireEvent.change(screen.getByLabelText("الاسم الكامل *"), { target: { value: "مستخدم جديد" } });
-    fireEvent.change(screen.getByLabelText("البريد الإلكتروني *"), { target: { value: "new@cyag.test" } });
+    fireEvent.change(screen.getByLabelText("الاسم بالعربية"), { target: { value: "مستخدم جديد" } });
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني *", { exact: false }), { target: { value: "new@cyag.test" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
 
     expect(await screen.findByText("At least one branch is required.")).toBeInTheDocument();
@@ -84,7 +91,7 @@ describe("UsersPage", () => {
     expect(await screen.findByText("الاسم الكامل مطلوب.")).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText("الاسم الكامل *"), { target: { value: "مستخدم جديد" } });
+    fireEvent.change(screen.getByLabelText("الاسم بالعربية"), { target: { value: "مستخدم جديد" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
 
     expect(await screen.findByText("البريد الإلكتروني مطلوب.")).toBeInTheDocument();

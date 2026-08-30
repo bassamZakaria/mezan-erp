@@ -120,6 +120,23 @@ function baseHandlers(cheques: ChequeDTO[]): Record<string, () => StubResult> {
   };
 }
 
+/** Mimics the real `/cheques` list endpoint's server-side direction/status/search filtering (R1.1). */
+function chequesListHandler(cheques: ChequeDTO[]) {
+  return (_init: RequestInit | undefined, path: string): StubResult => {
+    const query = new URLSearchParams(path.split("?")[1] ?? "");
+    const direction = query.get("direction");
+    const status = query.get("status");
+    const search = query.get("search");
+    const rows = cheques.filter((c) => {
+      if (direction && c.direction !== direction) return false;
+      if (status && c.effectiveStatus !== status) return false;
+      if (search && !c.chequeNumber.includes(search)) return false;
+      return true;
+    });
+    return { body: rows };
+  };
+}
+
 describe("ChequesScreen — list", () => {
   it("renders the real register off GET /cheques with the party resolved from real customers", async () => {
     renderWithProviders(<ChequesScreen />, {
@@ -144,21 +161,33 @@ describe("ChequesScreen — list", () => {
     const user = userEvent.setup();
     renderWithProviders(<ChequesScreen />, {
       initialSession: testAdminSession,
-      transport: stubTransport(
-        baseHandlers([
+      transport: stubTransport({
+        ...baseHandlers([]),
+        "GET /cheques": chequesListHandler([
           cheque(),
           cheque({ id: "chq-2", chequeNumber: "CHQ-5002", status: "deposited", effectiveStatus: "deposited" }),
           cheque({ id: "chq-3", chequeNumber: "CHQ-5003", effectiveStatus: "due_today" }),
         ]),
-      ),
+      }),
     });
     await screen.findByText("CHQ-5001");
 
-    for (const label of ["الكل", "قيد الانتظار", "تحت التحصيل", "المستحقة اليوم", "مودع", "محصل", "مرتد", "مستبدل"]) {
+    // "تحت التحصيل"/"المستحقة اليوم" were renamed to "يقترب موعد الاستحقاق"/"استحق ولم يُودع" (D55) —
+    // they describe the maturity window, not a bank action the row's button already offers.
+    for (const label of [
+      "الكل",
+      "قيد الانتظار",
+      "يقترب موعد الاستحقاق",
+      "استحق ولم يُودع",
+      "تحت التحصيل بالبنك",
+      "محصل",
+      "مرتد",
+      "مستبدل",
+    ]) {
       expect(screen.getByRole("tab", { name: new RegExp(label) })).toBeInTheDocument();
     }
 
-    await user.click(screen.getByRole("tab", { name: /^مودع/ }));
+    await user.click(screen.getByRole("tab", { name: /^تحت التحصيل بالبنك/ }));
     await waitFor(() => expect(screen.queryByText("CHQ-5001")).not.toBeInTheDocument());
     expect(screen.getByText("CHQ-5002")).toBeInTheDocument();
   });
@@ -167,7 +196,10 @@ describe("ChequesScreen — list", () => {
     const user = userEvent.setup();
     renderWithProviders(<ChequesScreen />, {
       initialSession: testAdminSession,
-      transport: stubTransport(baseHandlers([cheque(), cheque({ id: "chq-2", chequeNumber: "CHQ-9999" })])),
+      transport: stubTransport({
+        ...baseHandlers([]),
+        "GET /cheques": chequesListHandler([cheque(), cheque({ id: "chq-2", chequeNumber: "CHQ-9999" })]),
+      }),
     });
     await screen.findByText("CHQ-5001");
     await user.type(screen.getByPlaceholderText("بحث برقم الشيك..."), "9999");
@@ -196,7 +228,8 @@ describe("ChequesScreen — list", () => {
       },
     });
     await screen.findByText("CHQ-5001");
-    await user.selectOptions(screen.getByLabelText("الاتجاه"), "outgoing");
+    await user.click(screen.getByLabelText("الاتجاه"));
+    await user.click(await screen.findByRole("option", { name: "صادرة" }));
     await waitFor(() => expect(paths.some((p) => p.includes("direction=outgoing"))).toBe(true));
   });
 
@@ -215,7 +248,8 @@ describe("ChequesScreen — list", () => {
       }),
     });
     await screen.findByText("CHQ-5001");
-    await user.click(screen.getByRole("button", { name: "إجراءات" }));
+    await user.click(screen.getByRole("button", { name: "إجراءات CHQ-5001" }));
+    await user.click(screen.getByRole("menuitem", { name: "عرض" }));
 
     const panel = await screen.findByRole("dialog", { name: /CHQ-5001/ });
     expect(within(panel).getByRole("button", { name: "إيداع في البنك" })).toBeInTheDocument();
@@ -226,7 +260,8 @@ describe("ChequesScreen — list", () => {
     await user.click(within(panel).getByRole("button", { name: "إيداع في البنك" }));
     await waitFor(() => expect(deposited).toBe(true));
     // the refetched row is now deposited, so its legal actions become collect/bounce
-    await user.click(await screen.findByRole("button", { name: "إجراءات" }));
+    await user.click(await screen.findByRole("button", { name: "إجراءات CHQ-5001" }));
+    await user.click(screen.getByRole("menuitem", { name: "عرض" }));
     const reopened = await screen.findByRole("dialog", { name: /CHQ-5001/ });
     expect(await within(reopened).findByRole("button", { name: "تأكيد التحصيل" })).toBeInTheDocument();
     expect(within(reopened).getByRole("button", { name: "تسجيل ارتداد" })).toBeInTheDocument();
@@ -245,7 +280,8 @@ describe("ChequesScreen — list", () => {
       }),
     });
     await screen.findByText("CHQ-5001");
-    await user.click(screen.getByRole("button", { name: "إجراءات" }));
+    await user.click(screen.getByRole("button", { name: "إجراءات CHQ-5001" }));
+    await user.click(screen.getByRole("menuitem", { name: "عرض" }));
     const panel = await screen.findByRole("dialog", { name: /CHQ-5001/ });
     await user.click(within(panel).getByRole("button", { name: "تأكيد التحصيل" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("الفترة المالية مغلقة.");
@@ -268,7 +304,8 @@ describe("ChequesScreen — create form", () => {
       }),
     });
     await screen.findByText("لا توجد شيكات");
-    await user.click(screen.getByRole("button", { name: "شيك جديد" }));
+    // the header action and the empty state's own action share the same label
+    await user.click(screen.getAllByRole("button", { name: "شيك جديد" })[0]);
 
     expect(screen.getByRole("heading", { name: "بيانات الشيك" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "القيمة والتواريخ" })).toBeInTheDocument();
@@ -314,7 +351,7 @@ describe("ChequesScreen — create form", () => {
       transport: stubTransport(baseHandlers([])),
     });
     await screen.findByText("لا توجد شيكات");
-    await user.click(screen.getByRole("button", { name: "شيك جديد" }));
+    await user.click(screen.getAllByRole("button", { name: "شيك جديد" })[0]);
     expect(screen.getByRole("button", { name: "حفظ الشيك" })).toBeDisabled();
   });
 });

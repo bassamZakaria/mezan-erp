@@ -34,6 +34,21 @@ const wht1 = taxRate({
   status: "inactive",
 });
 
+/** `TextField` renders a plain `<label>` with no `for`/`aria-labelledby`, so
+ * `getByLabelText` cannot find its `<input>` — locate it by DOM adjacency
+ * instead, matching the `Field` primitive's label-then-control layout. */
+function textboxByLabel(container: HTMLElement, label: string): HTMLInputElement {
+  const labelNode = within(container).getByText(label);
+  const input = labelNode.parentElement?.querySelector("input, textarea");
+  if (!input) throw new Error(`no text input associated with label "${label}"`);
+  return input as HTMLInputElement;
+}
+
+function openRowMenu(row: HTMLElement, itemLabel: string) {
+  fireEvent.click(within(row).getByRole("button", { name: /^إجراءات/ }));
+  fireEvent.click(within(row).getByRole("menuitem", { name: itemLabel }));
+}
+
 function renderScreen(taxes: TaxRateDTO[] = [taxRate(), wht1]) {
   let current = [...taxes];
   const transport = stubTransport({
@@ -58,9 +73,10 @@ function renderScreen(taxes: TaxRateDTO[] = [taxRate(), wht1]) {
       current = created.isDefault ? [...current.map((t) => ({ ...t, isDefault: false })), created] : [...current, created];
       return { status: 201, body: created };
     },
-    "PATCH /tax-rates/tax-wht1": (init) => {
+    "PATCH /tax-rates/*": (init, path) => {
+      const id = path.split("/").pop()!;
       const patch = JSON.parse((init?.body as string) ?? "{}");
-      const target = current.find((t) => t.id === "tax-wht1")!;
+      const target = current.find((t) => t.id === id)!;
       const updated: TaxRateDTO = { ...target, ...patch };
       current = patch.isDefault
         ? current.map((t) => (t.id === updated.id ? updated : { ...t, isDefault: false }))
@@ -91,9 +107,9 @@ describe("TaxesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة ضريبة" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة ضريبة" });
-    fireEvent.change(within(dialog).getByLabelText("اسم الضريبة *"), { target: { value: "ضريبة تجريبية" } });
-    fireEvent.change(within(dialog).getByLabelText("رمز الضريبة *"), { target: { value: "TEST5" } });
-    fireEvent.change(within(dialog).getByLabelText("نسبة الضريبة (%) *"), { target: { value: "5" } });
+    fireEvent.change(textboxByLabel(dialog, "اسم الضريبة *"), { target: { value: "ضريبة تجريبية" } });
+    fireEvent.change(textboxByLabel(dialog, "رمز الضريبة *"), { target: { value: "TEST5" } });
+    fireEvent.change(textboxByLabel(dialog, "نسبة الضريبة (%) *"), { target: { value: "5" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByText("ضريبة تجريبية")).toBeInTheDocument();
@@ -104,8 +120,8 @@ describe("TaxesScreen", () => {
     await screen.findByText("ضريبة القيمة المضافة 14%");
     fireEvent.click(screen.getByRole("button", { name: "إضافة ضريبة" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة ضريبة" });
-    fireEvent.change(within(dialog).getByLabelText("اسم الضريبة *"), { target: { value: "نسخة" } });
-    fireEvent.change(within(dialog).getByLabelText("رمز الضريبة *"), { target: { value: "VAT14" } });
+    fireEvent.change(textboxByLabel(dialog, "اسم الضريبة *"), { target: { value: "نسخة" } });
+    fireEvent.change(textboxByLabel(dialog, "رمز الضريبة *"), { target: { value: "VAT14" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(within(dialog).getByRole("alert")).toHaveTextContent("مستخدم بالفعل");
@@ -115,7 +131,7 @@ describe("TaxesScreen", () => {
     renderScreen();
     const row = (await screen.findByText("ضريبة خصم وإضافة 1%")).closest("tr");
     expect(row).not.toBeNull();
-    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "تعديل" }));
+    openRowMenu(row as HTMLElement, "تعديل");
 
     const dialog = screen.getByRole("dialog", { name: "تعديل ضريبة" });
     fireEvent.click(within(dialog).getByRole("switch", { name: "ضريبة افتراضية" }));
@@ -124,5 +140,16 @@ describe("TaxesScreen", () => {
     // Only one "الافتراضي" badge should remain, now on the edited row.
     await screen.findByText("ضريبة خصم وإضافة 1%");
     expect(await screen.findAllByText("الافتراضي")).toHaveLength(1);
+  });
+
+  it("deactivates an active tax rate from the row menu", async () => {
+    renderScreen();
+    const row = (await screen.findByText("ضريبة القيمة المضافة 14%")).closest("tr");
+    expect(row).not.toBeNull();
+    openRowMenu(row as HTMLElement, "تعطيل النسبة");
+    const confirmDialog = await screen.findByRole("dialog", { name: "تأكيد: تعطيل النسبة" });
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "تعطيل النسبة" }));
+
+    expect(await within(row as HTMLElement).findByText("غير نشط")).toBeInTheDocument();
   });
 });

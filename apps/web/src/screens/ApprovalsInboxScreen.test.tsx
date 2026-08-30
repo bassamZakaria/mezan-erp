@@ -65,7 +65,8 @@ describe("ApprovalsInboxScreen", () => {
     const { decisions } = renderScreen([{ ...pendingRequest, currentStep: 1 }]);
     const table = await screen.findByRole("table");
     const row = (await within(table).findByText("تأكيد فاتورة المبيعات")).closest("tr") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "موافقة" }));
+    fireEvent.click(within(row).getByRole("button", { name: "إجراءات فاتورة INV-000123" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "موافقة" }));
 
     await screen.findByText("لا توجد موافقات معلّقة");
     expect(decisions).toEqual([{ decision: "approve", comment: undefined }]);
@@ -76,6 +77,8 @@ describe("ApprovalsInboxScreen", () => {
     const table = await screen.findByRole("table");
     const row = (await within(table).findByText("تأكيد فاتورة المبيعات")).closest("tr") as HTMLElement;
     fireEvent.change(within(row).getByPlaceholderText("ملاحظة (اختياري)"), { target: { value: "بيانات ناقصة" } });
+    fireEvent.click(within(row).getByRole("button", { name: "إجراءات فاتورة INV-000123" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "رفض" }));
     fireEvent.click(within(row).getByRole("button", { name: "رفض" }));
 
     await screen.findByText("لا توجد موافقات معلّقة");
@@ -86,7 +89,8 @@ describe("ApprovalsInboxScreen", () => {
     const { decisions } = renderScreen();
     const table = await screen.findByRole("table");
     const row = (await within(table).findByText("تأكيد فاتورة المبيعات")).closest("tr") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "طلب تعديل" }));
+    fireEvent.click(within(row).getByRole("button", { name: "إجراءات فاتورة INV-000123" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "طلب تعديل" }));
 
     await screen.findByText("لا توجد موافقات معلّقة");
     expect(decisions).toEqual([{ decision: "request_modification", comment: undefined }]);
@@ -101,7 +105,8 @@ describe("ApprovalsInboxScreen", () => {
     renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
     const table = await screen.findByRole("table");
     const row = (await within(table).findByText("تأكيد فاتورة المبيعات")).closest("tr") as HTMLElement;
-    fireEvent.click(within(row).getByRole("button", { name: "موافقة" }));
+    fireEvent.click(within(row).getByRole("button", { name: "إجراءات فاتورة INV-000123" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "موافقة" }));
 
     expect(await screen.findByText("الطلب لم يعد بانتظار الموافقة")).toBeInTheDocument();
     // The row survives the failed decision — still in the list.

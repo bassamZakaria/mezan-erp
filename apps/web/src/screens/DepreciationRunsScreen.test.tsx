@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { BranchDTO, DepreciationRunDTO } from "@mezan/contracts";
 import { DepreciationRunsScreen } from "./DepreciationRunsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -85,8 +85,8 @@ describe("DepreciationRunsScreen", () => {
     renderScreen();
     await screen.findByText("2026-06");
     fireEvent.click(screen.getByRole("tab", { name: /^مرحل/ }));
+    await waitFor(() => expect(screen.queryByText("2026-06")).not.toBeInTheDocument());
     expect(screen.getByText("2026-05")).toBeInTheDocument();
-    expect(screen.queryByText("2026-06")).not.toBeInTheDocument();
   });
 
   it("creates a new depreciation run through the side panel", async () => {
@@ -95,8 +95,9 @@ describe("DepreciationRunsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تشغيل إهلاك جديد" }));
 
     const dialog = screen.getByRole("dialog", { name: "تشغيل إهلاك جديد" });
-    fireEvent.change(within(dialog).getByLabelText("السنة *"), { target: { value: "2026" } });
-    fireEvent.change(within(dialog).getByLabelText("الشهر *"), { target: { value: "7" } });
+    const [yearField, monthField] = within(dialog).getAllByRole("spinbutton");
+    fireEvent.change(yearField!, { target: { value: "2026" } });
+    fireEvent.change(monthField!, { target: { value: "7" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "تشغيل" }));
 
     expect(await screen.findByText("2026-07")).toBeInTheDocument();
@@ -105,9 +106,22 @@ describe("DepreciationRunsScreen", () => {
   it("posts a draft run from its row action", async () => {
     renderScreen();
     await screen.findByText("2026-06");
-    fireEvent.click(screen.getByRole("button", { name: "ترحيل" }));
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات 2026-06" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "ترحيل" }));
 
-    expect(await screen.findByText("je-901")).toBeInTheDocument();
+    fireEvent.click(await screen.findByText("2026-06"));
+    const detail = screen.getByRole("dialog", { name: /عملية إهلاك —/ });
+    expect(within(detail).getByText(/je-901/)).toBeInTheDocument();
+  });
+
+  it("shows an error banner with a retry action when runs fail to load", async () => {
+    const transport = stubTransport({
+      "GET /assets/depreciation/runs": () => ({ status: 500, body: { error: "INTERNAL" } }),
+      "GET /branches": () => ({ body: sampleBranches }),
+    });
+    renderWithProviders(<DepreciationRunsScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("تعذّر تحميل عمليات الإهلاك.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 
   it("opens the run detail panel listing its lines on row click", async () => {

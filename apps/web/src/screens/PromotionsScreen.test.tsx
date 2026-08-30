@@ -7,6 +7,18 @@ import type { PromotionDTO } from "@mezan/contracts";
 import { PromotionsScreen } from "./PromotionsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
+/**
+ * `Field` renders its `<label>` as a sibling of the control, not wrapping it,
+ * and never wires `htmlFor`/`id` — so `getByLabelText` cannot resolve a
+ * `TextField`. Locate the control by walking from the visible label text.
+ */
+function fieldInput(container: HTMLElement, label: string): HTMLElement {
+  const labelEl = within(container).getByText(label);
+  const control = labelEl.parentElement?.querySelector("input, textarea, select");
+  if (!control) throw new Error(`no control found for label "${label}"`);
+  return control as HTMLElement;
+}
+
 function promotion(overrides: Partial<PromotionDTO> = {}): PromotionDTO {
   return {
     id: "promo-1",
@@ -73,8 +85,8 @@ describe("PromotionsScreen", () => {
     await user.click(screen.getByRole("button", { name: "إضافة عرض" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة عرض" });
-    await user.type(within(dialog).getByLabelText("الرمز *"), "WINTER10");
-    await user.type(within(dialog).getByLabelText("الاسم *"), "خصم الشتاء");
+    await user.type(fieldInput(dialog, "الرمز *"), "WINTER10");
+    await user.type(fieldInput(dialog, "الاسم *"), "خصم الشتاء");
     await user.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "إضافة عرض" })).not.toBeInTheDocument());

@@ -35,8 +35,8 @@ function goToAdminStep() {
 function fillAdminForm() {
   fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "سارة حسن" } });
   fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "sara@cyag.example" } });
-  fireEvent.change(screen.getByLabelText("رمز PIN (4 أرقام)"), { target: { value: "4321" } });
-  fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "4321" } });
+  fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "432198" } });
+  fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "432198" } });
 }
 
 describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) => {

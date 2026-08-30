@@ -6,7 +6,8 @@ import type { DashboardSummaryDTO } from "@mezan/contracts";
 import { App } from "./App";
 import { AppProviders } from "./data/AppProviders";
 import { persistSession } from "./data/session";
-import { renderWithProviders, stubTransport, testAdminSession } from "./data/test-support";
+import { stubTransport, testAdminSession } from "./data/test-support";
+import type { Transport } from "./data/transport";
 
 const emptySummary: DashboardSummaryDTO = {
   generatedAt: "2026-08-22T00:00:00.000Z",
@@ -44,11 +45,27 @@ function login() {
  * navigated to — the same isolation problem the old `window.location.hash = ""`
  * cleanup existed to solve, minus the cleanup.
  */
-const renderApp = () => renderWithProviders(<App initialEntries={["/"]} />, { transport: appTransport() });
+/**
+ * `App` builds its own memory/browser router internally (see App.tsx), so it
+ * must not be nested inside `renderWithProviders`'s `MemoryRouter` — that
+ * throws "You cannot render a <Router> inside another <Router>". Only the
+ * data/session providers are needed around it here.
+ */
+function renderApp(transport: Transport = appTransport()) {
+  return render(
+    <AppProviders transport={transport}>
+      <App initialEntries={["/"]} />
+    </AppProviders>,
+  );
+}
 
 describe("App", () => {
   afterEach(() => {
     persistSession(null);
+    // A successful sign-in remembers the device user (see device-users.ts),
+    // which would otherwise make the next test's login screen open straight
+    // to the "من يعمل الآن؟" face row instead of the plain sign-in heading.
+    localStorage.clear();
   });
 
   it("shows the login screen first, and لوحة التحكم is the landing screen after a real sign-in", async () => {
@@ -85,7 +102,7 @@ describe("App", () => {
 
   it("reaches the first-run wizard from the login screen and can cancel back to it", () => {
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: "أول مرة على ميزان؟ ابدأ معالج الإعداد الأولي" }));
+    fireEvent.click(screen.getByRole("button", { name: "الإعداد الأولي" }));
     expect(screen.getByRole("heading", { name: "معالج الإعداد الأولي" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
@@ -111,7 +128,7 @@ describe("App", () => {
       "GET /workflow/requests/pending-count": () => ({ body: { count: 2 } }),
       "GET /workflow/requests/pending": () => ({ body: [] }),
     });
-    renderWithProviders(<App initialEntries={["/"]} />, { transport });
+    renderApp(transport);
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
@@ -141,7 +158,7 @@ describe("App", () => {
       "GET /dashboard/summary": () => ({ body: emptySummary }),
       "GET /workflow/configs": () => ({ body: [] }),
     });
-    renderWithProviders(<App initialEntries={["/"]} />, { transport });
+    renderApp(transport);
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 

@@ -80,8 +80,8 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
     // also appears in the balance-beam hero, so more than one match is expected.
     expect((await screen.findAllByText("1,000.00")).length).toBeGreaterThan(0);
 
-    const rangeGroup = screen.getByRole("group", { name: "نطاق الفترة" });
-    fireEvent.click(within(rangeGroup).getByRole("button", { name: "كل الفترات" }));
+    const rangeGroup = screen.getByRole("radiogroup", { name: "نطاق الفترة" });
+    fireEvent.click(within(rangeGroup).getByRole("radio", { name: "كل الفترات" }));
     // "كل الفترات" sends no dates → all-time figure from the backend.
     expect((await screen.findAllByText("9,999.00")).length).toBeGreaterThan(0);
   });

@@ -6,6 +6,18 @@ import type { CustomerDTO, OpportunityDTO, PipelineStageDTO } from "@mezan/contr
 import { PipelineScreen } from "./PipelineScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
+/**
+ * `Field` renders its `<label>` as a sibling of the control, not wrapping it,
+ * and never wires `htmlFor`/`id` — so `getByLabelText` cannot resolve a
+ * `TextField`. Locate the control by walking from the visible label text.
+ */
+function fieldInput(container: HTMLElement, label: string): HTMLElement {
+  const labelEl = within(container).getByText(label);
+  const control = labelEl.parentElement?.querySelector("input, textarea, select");
+  if (!control) throw new Error(`no control found for label "${label}"`);
+  return control as HTMLElement;
+}
+
 const sampleCustomers: CustomerDTO[] = [
   {
     id: "cust-1",
@@ -137,7 +149,7 @@ describe("PipelineScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة فرصة" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة فرصة" });
-    fireEvent.change(within(dialog).getByLabelText("العنوان *"), { target: { value: "فرصة جديدة من اللوحة" } });
+    fireEvent.change(fieldInput(dialog, "العنوان *"), { target: { value: "فرصة جديدة من اللوحة" } });
     fireEvent.focus(within(dialog).getByPlaceholderText("اختر العميل..."));
     fireEvent.mouseDown(within(dialog).getByText("شركة النور"));
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));

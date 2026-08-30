@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi } from "../data/ApiContext";
+import { rememberDeviceUser } from "./device-users";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
 function SessionProbe() {
@@ -38,30 +39,47 @@ const denyTransport = () =>
   });
 
 describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
+  beforeEach(() => {
+    // The face row reads `mezan.deviceUsers` from localStorage on mount, so a
+    // user remembered by one test (e.g. a successful sign-in below) would
+    // otherwise leak into the next test's render.
+    localStorage.clear();
+  });
+
   afterEach(() => {
     document.documentElement.removeAttribute("data-theme");
   });
 
-  it("renders the login heading and prefilled username", () => {
+  it("renders the plain sign-in heading and email field when the device remembers nobody", () => {
     document.documentElement.setAttribute("data-theme", theme);
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
     expect(screen.getByRole("heading", { name: "تسجيل الدخول" })).toBeInTheDocument();
-    expect(screen.getByLabelText("اسم المستخدم")).toHaveValue("محمد الشهابي");
+    expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("admin@cyag.example");
   });
 
-  it("keeps دخول disabled until username and all 4 PIN digits are filled", () => {
+  it("prefills the remembered device user's identity and preselects their face", () => {
+    rememberDeviceUser(testAdminSession);
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByRole("heading", { name: "مَن يعمل الآن؟" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "اختر محمد الشهابي" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("الرمز السرّي لـ محمد الشهابي")).toBeInTheDocument();
+  });
+
+  it("keeps دخول disabled until all 6 PIN digits are filled, then submits automatically", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
     expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
     fillPin("123");
     expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
     fillPin("123456");
-    expect(screen.getByRole("button", { name: "دخول" })).toBeEnabled();
+    // The 6th digit auto-submits (see LoginScreen's `submitRef` effect), so the
+    // button goes straight from disabled-while-incomplete to disabled-while-pending
+    // before re-enabling once the sign-in call resolves.
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: "دخول" })).toBeEnabled());
   });
 
   it("shows an inline error when the backend rejects the credentials", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: denyTransport() });
-    fillPin("0000");
-    fireEvent.click(screen.getByRole("button", { name: "دخول" }));
+    fillPin("000000");
     expect(await screen.findByRole("alert")).toHaveTextContent("اسم المستخدم أو رمز PIN غير صحيح.");
   });
 
@@ -84,7 +102,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
   it("calls onStartWizard from the first-run link", () => {
     const onStartWizard = vi.fn();
     renderWithProviders(<LoginScreen onStartWizard={onStartWizard} />, { transport: okTransport() });
-    fireEvent.click(screen.getByRole("button", { name: "أول مرة على ميزان؟ ابدأ معالج الإعداد الأولي" }));
+    fireEvent.click(screen.getByRole("button", { name: "الإعداد الأولي" }));
     expect(onStartWizard).toHaveBeenCalledTimes(1);
   });
 });

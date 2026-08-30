@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import type { RoleDTO as Role } from "@mezan/contracts";
 import { RolesPage } from "./RolesPage";
 import { AppI18nProvider } from "../i18n";
 
-const render = (ui: React.ReactElement) => rtlRender(<AppI18nProvider>{ui}</AppI18nProvider>);
+/** RolesPage keeps its kind filter in the URL (useUrlParam), so it needs a router. */
+const render = (ui: React.ReactElement) =>
+  rtlRender(
+    <AppI18nProvider>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </AppI18nProvider>,
+  );
 
 const role: Role = {
   id: "role-1",

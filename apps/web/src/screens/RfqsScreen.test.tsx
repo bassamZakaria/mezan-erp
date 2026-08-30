@@ -1,11 +1,37 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
+import { useState, type ReactNode } from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ItemDTO, PurchaseRfqDTO, RfqQuoteDTO, SupplierDTO } from "@mezan/contracts";
 import { RfqsScreen } from "./RfqsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
+
+/**
+ * RfqsScreen's detail and create views are sub-pages addressed via the shell's
+ * `useSubPage` (navigation.tsx), which no-ops outside a real `NavigationProvider`.
+ * This stands in for the shell's URL-driven one with in-memory segments — enough
+ * for the screen under test to open, close and read its own sub-page.
+ */
+function TestNavigation({ children }: { children: ReactNode }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: setSegments,
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
   return {
@@ -95,7 +121,7 @@ function quote(overrides: Partial<RfqQuoteDTO> = {}): RfqQuoteDTO {
 
 describe("RfqsScreen", () => {
   it("lists the real RFQs from GET /rfqs", async () => {
-    renderWithProviders(<RfqsScreen />, {
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /rfqs": () => ({
@@ -116,7 +142,7 @@ describe("RfqsScreen", () => {
   });
 
   it("shows the real empty state when there are no RFQs", async () => {
-    renderWithProviders(<RfqsScreen />, {
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /rfqs": () => ({ body: [] }),
@@ -131,7 +157,7 @@ describe("RfqsScreen", () => {
 
   it("opens an RFQ detail with the effects panel and a lines tab", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<RfqsScreen />, {
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /rfqs": () => ({ body: [rfq({ number: "RFQ-000003", status: "sent" })] }),
@@ -152,7 +178,7 @@ describe("RfqsScreen", () => {
   it("sends a draft RFQ (draft → مرسل) through POST /rfqs/:id/send", async () => {
     const user = userEvent.setup();
     let current = rfq({ status: "draft" });
-    renderWithProviders(<RfqsScreen />, {
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /rfqs": () => ({ body: [current] }),
@@ -177,7 +203,7 @@ describe("RfqsScreen", () => {
   it("cancels a draft RFQ through POST /rfqs/:id/cancel", async () => {
     const user = userEvent.setup();
     let current = rfq({ status: "draft" });
-    renderWithProviders(<RfqsScreen />, {
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /rfqs": () => ({ body: [current] }),
@@ -200,7 +226,7 @@ describe("RfqsScreen", () => {
 
   it("opens the new-RFQ side panel", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<RfqsScreen />, {
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /rfqs": () => ({ body: [] }),
@@ -216,7 +242,7 @@ describe("RfqsScreen", () => {
   it("shows the quote comparison grid from GET /rfqs/:id/comparison with the cheapest price highlighted, and converts the chosen supplier's quote into a real PO", async () => {
     const user = userEvent.setup();
     let current = rfq({ status: "sent" });
-    renderWithProviders(<RfqsScreen />, {
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /rfqs": () => ({ body: [current] }),
@@ -260,7 +286,7 @@ describe("RfqsScreen", () => {
 
   it("records a new supplier quote against a sent RFQ through POST /rfqs/:id/quotes", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<RfqsScreen />, {
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /rfqs": () => ({ body: [rfq({ status: "sent" })] }),

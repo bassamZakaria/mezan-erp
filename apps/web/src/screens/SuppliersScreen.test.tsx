@@ -40,7 +40,18 @@ const inactiveSupplier = supplier({
 function renderScreen(suppliers: SupplierDTO[] = [supplier(), inactiveSupplier]) {
   let current = [...suppliers];
   const transport = stubTransport({
-    "GET /suppliers": () => ({ body: current }),
+    "GET /suppliers": (_init, path) => {
+      const status = new URL(path, "http://x").searchParams.get("status");
+      const rows = status ? current.filter((s) => (status === "active" ? s.active : !s.active)) : current;
+      return { body: rows };
+    },
+    "GET /suppliers/counts": () => ({
+      body: {
+        all: current.length,
+        active: current.filter((s) => s.active).length,
+        inactive: current.filter((s) => !s.active).length,
+      },
+    }),
     "POST /suppliers": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       const created: SupplierDTO = { ...supplier(), ...body, id: body.id, code: body.code };

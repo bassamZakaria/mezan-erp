@@ -14,6 +14,14 @@ function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: strin
   fireEvent.mouseDown(option);
 }
 
+/** `TextField`/`NumberField` render a `<label>` with no `htmlFor`/`id`, so it has no accessible name to query by. */
+function fieldInput(container: HTMLElement, labelText: string): HTMLElement {
+  const label = within(container).getByText(labelText);
+  const input = label.parentElement?.querySelector("input");
+  if (!input) throw new Error(`no input found next to label "${labelText}"`);
+  return input;
+}
+
 const sampleBranches: BranchDTO[] = [
   { id: "MAIN", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
 ];
@@ -92,10 +100,10 @@ describe("EmployeesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة موظف" }));
 
     const dialog = screen.getByRole("dialog", { name: "موظف جديد" });
-    fireEvent.change(within(dialog).getByLabelText("الاسم الأول *"), { target: { value: "Sara" } });
-    fireEvent.change(within(dialog).getByLabelText("اسم العائلة *"), { target: { value: "Aly" } });
+    fireEvent.change(fieldInput(dialog, "الاسم الأول *"), { target: { value: "Sara" } });
+    fireEvent.change(fieldInput(dialog, "اسم العائلة *"), { target: { value: "Aly" } });
     pickFromCombobox(dialog, "الفرع *", "الفرع الرئيسي");
-    fireEvent.change(within(dialog).getByLabelText("تاريخ التعيين *"), { target: { value: "2026-08-21" } });
+    fireEvent.change(fieldInput(dialog, "تاريخ التعيين *"), { target: { value: "2026-08-21" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByText("Sara Aly")).toBeInTheDocument();
@@ -104,9 +112,9 @@ describe("EmployeesScreen", () => {
   it("opens the detail panel and transitions the employee to on_leave", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("أحمد محمود"));
-    const dialog = screen.getByRole("dialog", { name: "أحمد محمود" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "في إجازة" }));
+    expect(screen.getByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "في إجازة" }));
 
-    expect(await within(dialog).findByRole("button", { name: "نشط" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "نشط" })).toBeInTheDocument();
   });
 });

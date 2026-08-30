@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { AssetCategoryDTO } from "@mezan/contracts";
 import { AssetCategoriesScreen } from "./AssetCategoriesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -83,8 +83,8 @@ describe("AssetCategoriesScreen", () => {
     renderScreen();
     await screen.findByText("مركبات");
     fireEvent.click(screen.getByRole("tab", { name: /^غير نشط/ }));
+    await waitFor(() => expect(screen.queryByText("مركبات")).not.toBeInTheDocument());
     expect(screen.getByText("أثاث مكتبي")).toBeInTheDocument();
-    expect(screen.queryByText("مركبات")).not.toBeInTheDocument();
   });
 
   it("adds a new asset category through the side panel", async () => {
@@ -93,10 +93,14 @@ describe("AssetCategoriesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة تصنيف" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة تصنيف" });
-    fireEvent.change(within(dialog).getByLabelText("كود التصنيف *"), { target: { value: "FA-03" } });
-    fireEvent.change(within(dialog).getByLabelText("اسم التصنيف *"), { target: { value: "معدات تصنيع" } });
-    fireEvent.change(within(dialog).getByLabelText("العمر الإنتاجي الافتراضي (شهور) *"), { target: { value: "48" } });
-    fireEvent.change(within(dialog).getByLabelText("نسبة القيمة المتبقية الافتراضية (%) *"), { target: { value: "5" } });
+    // The identity section's two text fields render code first, then name;
+    // its two numeric fields render useful life first, then salvage rate.
+    const [codeInput, nameInput] = within(dialog).getAllByRole("textbox");
+    const [lifeInput, salvageInput] = within(dialog).getAllByRole("spinbutton");
+    fireEvent.change(codeInput, { target: { value: "FA-03" } });
+    fireEvent.change(nameInput, { target: { value: "معدات تصنيع" } });
+    fireEvent.change(lifeInput, { target: { value: "48" } });
+    fireEvent.change(salvageInput, { target: { value: "5" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByText("معدات تصنيع")).toBeInTheDocument();
@@ -107,10 +111,12 @@ describe("AssetCategoriesScreen", () => {
     await screen.findByText("مركبات");
     fireEvent.click(screen.getByRole("button", { name: "إضافة تصنيف" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة تصنيف" });
-    fireEvent.change(within(dialog).getByLabelText("كود التصنيف *"), { target: { value: "FA-01" } });
-    fireEvent.change(within(dialog).getByLabelText("اسم التصنيف *"), { target: { value: "نسخة" } });
-    fireEvent.change(within(dialog).getByLabelText("العمر الإنتاجي الافتراضي (شهور) *"), { target: { value: "48" } });
-    fireEvent.change(within(dialog).getByLabelText("نسبة القيمة المتبقية الافتراضية (%) *"), { target: { value: "5" } });
+    const [codeInput, nameInput] = within(dialog).getAllByRole("textbox");
+    const [lifeInput, salvageInput] = within(dialog).getAllByRole("spinbutton");
+    fireEvent.change(codeInput, { target: { value: "FA-01" } });
+    fireEvent.change(nameInput, { target: { value: "نسخة" } });
+    fireEvent.change(lifeInput, { target: { value: "48" } });
+    fireEvent.change(salvageInput, { target: { value: "5" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("مستخدم بالفعل");

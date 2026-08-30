@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { CustomerDTO, OpportunityDTO, PipelineStageDTO } from "@mezan/contracts";
 import { OpportunitiesScreen } from "./OpportunitiesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -118,8 +118,8 @@ describe("OpportunitiesScreen", () => {
     renderScreen();
     await screen.findByText("صفقة النور الكبرى");
     fireEvent.click(screen.getByRole("tab", { name: /مكسوبة/ }));
+    await waitFor(() => expect(screen.queryByText("صفقة النور الكبرى")).not.toBeInTheDocument());
     expect(screen.getByText("صفقة مغلقة")).toBeInTheDocument();
-    expect(screen.queryByText("صفقة النور الكبرى")).not.toBeInTheDocument();
   });
 
   it("adds a new opportunity through the side panel", async () => {
@@ -128,7 +128,10 @@ describe("OpportunitiesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "فرصة جديدة" }));
 
     const dialog = screen.getByRole("dialog", { name: "فرصة جديدة" });
-    fireEvent.change(within(dialog).getByLabelText("العنوان *"), { target: { value: "فرصة تجريبية" } });
+    expect(within(dialog).getByText("العنوان *")).toBeInTheDocument();
+    // The "العنوان *" label isn't programmatically linked to its input (see final report),
+    // so target the title field by position — first textbox in the form.
+    fireEvent.change(within(dialog).getAllByRole("textbox")[0], { target: { value: "فرصة تجريبية" } });
     fireEvent.focus(within(dialog).getByPlaceholderText("اختر العميل..."));
     fireEvent.mouseDown(within(dialog).getByText("شركة النور"));
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));

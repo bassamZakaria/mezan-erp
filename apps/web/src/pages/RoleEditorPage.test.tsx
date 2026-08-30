@@ -38,6 +38,9 @@ describe("RoleEditorPage", () => {
       screen.getByText("الصلاحيات المحددة").previousElementSibling?.textContent;
     expect(selectedCountValue()).toBe("0");
 
+    // A module with nothing selected starts collapsed; expand it before reaching its checkboxes.
+    fireEvent.click(screen.getByText("المبيعات").closest("button") as Element);
+
     const confirmCheckbox = document.querySelector(
       '[data-permission-code="sales.invoice.confirm"] input[type="checkbox"]',
     );
@@ -67,6 +70,9 @@ describe("RoleEditorPage", () => {
     fireEvent.change(screen.getByPlaceholderText("VAN_SALES"), { target: { value: "TEST_ROLE" } });
     const nameInputs = screen.getAllByDisplayValue("");
     fireEvent.change(nameInputs[0] as Element, { target: { value: "دور تجريبي" } });
+
+    // A module with nothing selected starts collapsed; expand it before reaching its checkboxes.
+    fireEvent.click(screen.getByText("المبيعات").closest("button") as Element);
 
     const viewCheckbox = document.querySelector(
       '[data-permission-code="sales.invoice.view_own"] input[type="checkbox"]',

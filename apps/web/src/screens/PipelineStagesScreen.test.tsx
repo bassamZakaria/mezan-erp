@@ -6,6 +6,18 @@ import type { PipelineStageDTO } from "@mezan/contracts";
 import { PipelineStagesScreen } from "./PipelineStagesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
+/**
+ * `Field` renders its `<label>` as a sibling of the control, not wrapping it,
+ * and never wires `htmlFor`/`id` — so `getByLabelText` cannot resolve a
+ * `TextField`. Locate the control by walking from the visible label text.
+ */
+function fieldInput(container: HTMLElement, label: string): HTMLElement {
+  const labelEl = within(container).getByText(label);
+  const control = labelEl.parentElement?.querySelector("input, textarea, select");
+  if (!control) throw new Error(`no control found for label "${label}"`);
+  return control as HTMLElement;
+}
+
 const sampleStages: PipelineStageDTO[] = [
   { id: "stage-1", name: "عميل محتمل", order: 1, defaultProbability: 10, color: "#3b82f6", isWinStage: false, isLossStage: false, active: true },
   { id: "stage-2", name: "تواصل أولي", order: 2, defaultProbability: 20, color: "#3b82f6", isWinStage: false, isLossStage: false, active: true },
@@ -66,7 +78,7 @@ describe("PipelineStagesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة مرحلة" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة مرحلة" });
-    fireEvent.change(within(dialog).getByLabelText("الاسم *"), { target: { value: "مرحلة تجريبية" } });
+    fireEvent.change(fieldInput(dialog, "الاسم *"), { target: { value: "مرحلة تجريبية" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByText("مرحلة تجريبية")).toBeInTheDocument();
@@ -78,7 +90,7 @@ describe("PipelineStagesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة مرحلة" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة مرحلة" });
-    fireEvent.change(within(dialog).getByLabelText("الاسم *"), { target: { value: "فوز آخر" } });
+    fireEvent.change(fieldInput(dialog, "الاسم *"), { target: { value: "فوز آخر" } });
     fireEvent.click(within(dialog).getByRole("switch", { name: "مرحلة فوز" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 

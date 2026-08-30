@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import { DocumentService } from "../documents/service.js";
+import { createDocumentWorkflowGate } from "../documents/journal-document.js";
 import { InMemoryDocumentRepository } from "../documents/test-helpers/in-memory-document-repository.js";
 import { StockLedgerService } from "./stock-ledger-service.js";
 import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "./test-helpers/in-memory-stores.js";
@@ -25,6 +26,7 @@ function harness() {
   const service = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: new InMemoryDocumentRepository<StockAdjustmentDocLine>(),
     numbering: { next: async () => ({ value: ++counter, formatted: `ADJ-${String(counter).padStart(6, "0")}` }) },
+    workflow: createDocumentWorkflowGate(() => null),
     stock: createInventoryOpsStockHook(stockLedger, (reason) =>
       reason === "INITIAL_STOCK" || reason === "OTHER"
         ? { inventoryAccountId: "1200", counterpartAccountId: reason === "INITIAL_STOCK" ? "3100" : "5900" }

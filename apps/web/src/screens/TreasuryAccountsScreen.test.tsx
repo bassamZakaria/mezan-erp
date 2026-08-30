@@ -17,6 +17,16 @@ const sampleAccounts: TreasuryAccountDTO[] = [
   { id: "ta-bank1", code: "BANK-001", name: "البنك الأهلي المصري — جاري", nameEn: null, type: "bank", currency: "EGP", branchId: "b1", glAccountId: "1310", openingBalance: "50000.000000", openingBalanceDate: "2026-01-01", status: "active" },
 ];
 
+/** `TextField` renders a plain `<label>` with no `for`/`aria-labelledby`, so
+ * `getByLabelText` cannot find its `<input>` — locate it by DOM adjacency
+ * instead, matching the `Field` primitive's label-then-control layout. */
+function textboxByLabel(container: HTMLElement, label: string): HTMLInputElement {
+  const labelNode = within(container).getByText(label);
+  const input = labelNode.parentElement?.querySelector("input, textarea");
+  if (!input) throw new Error(`no text input associated with label "${label}"`);
+  return input as HTMLInputElement;
+}
+
 function renderScreen(accounts: TreasuryAccountDTO[] = sampleAccounts) {
   let current = [...accounts];
   const transport = stubTransport({
@@ -66,7 +76,7 @@ describe("TreasuryAccountsScreen", () => {
   it("filters the list by type via the chip row", async () => {
     renderScreen();
     await screen.findByText("صندوق نقدي");
-    fireEvent.click(screen.getByRole("button", { name: "بنكي" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^بنكي/ }));
     expect(screen.getByText("البنك الأهلي المصري — جاري")).toBeInTheDocument();
     expect(screen.queryByText("صندوق نقدي")).not.toBeInTheDocument();
   });
@@ -77,8 +87,8 @@ describe("TreasuryAccountsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة حساب" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة حساب" });
-    fireEvent.change(within(dialog).getByLabelText("اسم الحساب *"), { target: { value: "صندوق تجريبي" } });
-    fireEvent.change(within(dialog).getByLabelText("الكود *"), { target: { value: "CASH-099" } });
+    fireEvent.change(textboxByLabel(dialog, "اسم الحساب *"), { target: { value: "صندوق تجريبي" } });
+    fireEvent.change(textboxByLabel(dialog, "الكود *"), { target: { value: "CASH-099" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByText("صندوق تجريبي")).toBeInTheDocument();
@@ -89,8 +99,8 @@ describe("TreasuryAccountsScreen", () => {
     await screen.findByText("صندوق نقدي");
     fireEvent.click(screen.getByRole("button", { name: "إضافة حساب" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة حساب" });
-    fireEvent.change(within(dialog).getByLabelText("اسم الحساب *"), { target: { value: "نسخة" } });
-    fireEvent.change(within(dialog).getByLabelText("الكود *"), { target: { value: "CASH-001" } });
+    fireEvent.change(textboxByLabel(dialog, "اسم الحساب *"), { target: { value: "نسخة" } });
+    fireEvent.change(textboxByLabel(dialog, "الكود *"), { target: { value: "CASH-001" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("مستخدم بالفعل");
@@ -108,12 +118,28 @@ describe("TreasuryAccountsScreen", () => {
     fireEvent.click(within(screen.getByRole("dialog", { name: /كشف حساب/ })).getByRole("button", { name: "تعديل" }));
 
     const editDialog = screen.getByRole("dialog", { name: "تعديل حساب" });
-    fireEvent.change(within(editDialog).getByLabelText("اسم الحساب *"), { target: { value: "صندوق الفرع الرئيسي المحدّث" } });
+    fireEvent.change(textboxByLabel(editDialog, "اسم الحساب *"), { target: { value: "صندوق الفرع الرئيسي المحدّث" } });
     fireEvent.click(within(editDialog).getByRole("switch", { name: "نشط" }));
     fireEvent.click(within(editDialog).getByRole("button", { name: "حفظ التعديلات" }));
 
     expect(await screen.findByText("صندوق الفرع الرئيسي المحدّث")).toBeInTheDocument();
     expect(screen.queryByText("صندوق نقدي الفرع الرئيسي")).not.toBeInTheDocument();
     expect(screen.getAllByText("غير نشط").length).toBeGreaterThan(0);
+  });
+
+  it("shows a retry card when the treasury accounts request fails", async () => {
+    let getCalls = 0;
+    const transport = stubTransport({
+      "GET /treasury-accounts": () => {
+        getCalls += 1;
+        return { status: 500, body: { error: "INTERNAL" } };
+      },
+      "GET /branches": () => ({ body: sampleBranches }),
+    });
+    renderWithProviders(<TreasuryAccountsScreen />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText("تعذّر تحميل حسابات الخزينة.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    await waitFor(() => expect(getCalls).toBeGreaterThan(1));
   });
 });

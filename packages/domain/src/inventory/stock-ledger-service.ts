@@ -605,7 +605,12 @@ export class StockLedgerService {
           sourceDocType: command.sourceDocType,
           sourceDocId: command.sourceDocId,
           sourceDocNumber: command.sourceDocNumber ?? null,
-          date: occurredAt,
+          // `occurredAt` is a full ISO instant; a journal entry's date is a
+          // plain YYYY-MM-DD, and the period gate matches it with SQL BETWEEN
+          // over two plain dates. Passing the instant made every posting on the
+          // LAST day of a period compare above its end date and fail as if no
+          // period covered it.
+          date: occurredAt.slice(0, 10),
           memo: `Stock issue ${command.sourceDocNumber ?? command.sourceDocId}`,
           lines: [
             { accountId: command.gl.cogsAccountId, debit: totalCost, credit: Money.zero() },
@@ -1158,7 +1163,12 @@ function buildAdjustmentPosting(
     sourceDocType: "ADJUSTMENT",
     sourceDocId: command.adjustmentId,
     sourceDocNumber: command.adjustmentNumber ?? null,
-    date,
+    // `date` arrives as the movement's full ISO instant. A journal entry's date
+    // is a plain YYYY-MM-DD, and the period gate matches it with SQL BETWEEN
+    // over two plain dates — an instant on the LAST day of a period sorts above
+    // its end date, so every adjustment posted that day failed as if no period
+    // covered it.
+    date: date.slice(0, 10),
     memo: `Stock adjustment ${command.adjustmentNumber ?? command.adjustmentId} (${command.reason})`,
     lines,
   };

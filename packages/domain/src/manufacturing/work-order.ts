@@ -778,7 +778,7 @@ export async function logWorkOrderWaste(
       sourceDocType: "WORK_ORDER",
       sourceDocId: order.id,
       sourceDocNumber: order.number,
-      date: at,
+      date: at.slice(0, 10),
       memo: `فاقد أمر التصنيع ${order.number}`,
       // Scrap can be logged many times on one order, so the ref carries the
       // waste id (which is already unique per call) rather than the order's.
@@ -918,7 +918,10 @@ export async function receiveWorkOrderProduct(
       sourceDocType: "WORK_ORDER",
       sourceDocId: order.id,
       sourceDocNumber: order.number,
-      date: occurredAt,
+      // A plain date, not the ISO instant: the period gate compares it with SQL
+      // BETWEEN against two plain dates, so an instant on the last day of a
+      // period sorts above the end date and reads as no period at all.
+      date: occurredAt.slice(0, 10),
       memo: `تحميل الفاقد الطبيعي على المنتج — أمر التصنيع ${order.number}`,
       // Once per order: the stage guard admits exactly one receipt.
       entryRef: `WO-RECEIVE-JE:${order.id}`,
@@ -1000,7 +1003,11 @@ export function buildWorkOrderGlPosting(
     sourceDocType: "WORK_ORDER",
     sourceDocId: order.id,
     sourceDocNumber: order.number,
-    date,
+    // Callers pass the completion INSTANT. A journal entry's date is a plain
+    // YYYY-MM-DD and the period gate matches it with SQL BETWEEN over two plain
+    // dates, so an instant on the last day of a period sorts above its end date
+    // and the posting fails as if no period covered it.
+    date: date.slice(0, 10),
     memo: `إكمال أمر التصنيع ${order.number}`,
     lines,
   };

@@ -132,14 +132,14 @@ describe("YearEndCloseCard", () => {
   it("plan preview: renders money formatted (never raw), net result labeled profit/loss by sign", async () => {
     renderCard({ previewBody: preview({ netResult: "5000.000000" }) });
     expect(await screen.findByText("صافي الربح")).toBeInTheDocument();
-    expect(screen.queryByText("20000.000000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("20000.000000")).not.toBeInTheDocument());
     expect(screen.getAllByText("2").length).toBeGreaterThan(0); // accountsToClose = lines.length
   });
 
   it("a negative net result renders as a labeled loss, with the absolute value shown", async () => {
     renderCard({ previewBody: preview({ netResult: "-3000.000000" }) });
     expect(await screen.findByText("صافي الخسارة")).toBeInTheDocument();
-    expect(screen.queryByText("-3000.000000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("-3000.000000")).not.toBeInTheDocument());
     expect(screen.queryByText("3000.000000")).not.toBeInTheDocument();
   });
 
@@ -198,6 +198,6 @@ describe("YearEndCloseCard", () => {
   it("no warning when every period in the year is already closed", async () => {
     renderCard({ periods: [{ id: "p1", year: 2026, periodNumber: 1, startDate: "2026-01-01", endDate: "2026-01-31", status: "closed" }] });
     await screen.findByText("صافي الربح");
-    expect(screen.queryByText(/فترات مفتوحة/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/فترات مفتوحة/)).not.toBeInTheDocument());
   });
 });

@@ -161,7 +161,7 @@ describe("PurchaseOrdersScreen (filters, stats, entity ids, save-guard)", () => 
   it("the KPI strip renders Money-formatted values from the /stats endpoint, never a raw scaled-decimal string", async () => {
     renderScreen([purchaseOrder({ subtotal: "17000.000000", total: "17000.000000" })]);
     await screen.findByText("PO-000003");
-    expect(screen.queryByText("17000.000000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("17000.000000")).not.toBeInTheDocument());
     // Both the KPI strip and the table's "total" column render the same formatted figure.
     expect(screen.getAllByText((_, el) => el?.textContent === "17,000.00").length).toBeGreaterThan(0);
   });

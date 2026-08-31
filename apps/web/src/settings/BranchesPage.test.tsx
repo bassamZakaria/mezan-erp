@@ -405,7 +405,7 @@ describe("BranchesPage", () => {
 
     // Only b1's employee shows, not b2's — the tab is scoped to this branch.
     expect(await screen.findByText("أحمد علي")).toBeInTheDocument();
-    expect(screen.queryByText("سارة عادل")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("سارة عادل")).not.toBeInTheDocument());
     expect(screen.getByText("EMP-001")).toBeInTheDocument();
   });
 

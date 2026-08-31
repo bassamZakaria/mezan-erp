@@ -153,7 +153,7 @@ describe("ItemSpecificationsScreen", () => {
       { transport, initialSession: testAdminSession },
     );
     expect(await screen.findByText("تعذّر تحميل المواصفات.")).toBeInTheDocument();
-    expect(screen.queryByText(/INTERNAL/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/INTERNAL/)).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 

@@ -99,7 +99,7 @@ describe("ExchangeRatesScreen — list", () => {
       }),
     });
     expect(await screen.findByText("تعذّر تحميل أسعار الصرف.")).toBeInTheDocument();
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 });
@@ -205,7 +205,7 @@ describe("ExchangeRatesScreen — add rate", () => {
     await user.click(screen.getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("يوجد سعر صرف مسجل لهذه العملة في نفس التاريخ.");
-    expect(screen.queryByText("DUPLICATE_RATE")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("DUPLICATE_RATE")).not.toBeInTheDocument());
   });
 });
 

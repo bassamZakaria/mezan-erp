@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent, waitFor} from "@testing-library/react";
 import type { GoodsReceiptDTO, ItemDTO, PurchaseInvoiceDTO, PurchaseOrderDTO, SupplierDTO } from "@mezan/contracts";
 import { PurchaseOrdersScreen } from "./PurchaseOrdersScreen";
 import { GoodsReceiptsScreen } from "./GoodsReceiptsScreen";
@@ -189,7 +189,7 @@ describe("PurchaseOrdersScreen", () => {
     expect(await screen.findByText("تعذّر تحميل أوامر الشراء.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("PO-000003")).toBeInTheDocument();
-    expect(screen.queryByText("تعذّر تحميل أوامر الشراء.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل أوامر الشراء.")).not.toBeInTheDocument());
   });
 });
 

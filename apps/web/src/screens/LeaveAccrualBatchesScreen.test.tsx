@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor} from "@testing-library/react";
 import type { LeaveAccrualBatchDTO } from "@mezan/contracts";
 import { LeaveAccrualBatchesScreen } from "./LeaveAccrualBatchesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -96,7 +96,7 @@ describe("LeaveAccrualBatchesScreen", () => {
   it("renders an honest empty state when there are no batches", async () => {
     renderScreen({ batches: [] });
     expect(await screen.findByText("لا توجد دورات استحقاق بعد — ستظهر هنا كل دورات الاستحقاق المجدولة واليدوية")).toBeInTheDocument();
-    expect(screen.queryByText("LAB-000001")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("LAB-000001")).not.toBeInTheDocument());
   });
 
   it("renders an Arabic failure message on a load error, never a raw enum, and retry re-fetches", async () => {
@@ -110,7 +110,7 @@ describe("LeaveAccrualBatchesScreen", () => {
       },
     });
     expect(await screen.findByText("تعذّر تحميل دورات الاستحقاق.")).toBeInTheDocument();
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("LAB-000001")).toBeInTheDocument();
   });
@@ -182,6 +182,6 @@ describe("LeaveAccrualBatchesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تشغيل" }));
 
     expect(await screen.findByText("لا توجد سياسات إجازات بنفس وتيرة الاستحقاق.")).toBeInTheDocument();
-    expect(screen.queryByText("NO_ELIGIBLE_POLICIES")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("NO_ELIGIBLE_POLICIES")).not.toBeInTheDocument());
   });
 });

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor} from "@testing-library/react";
 import type { CustomerDTO } from "@mezan/contracts";
 import { SalesHubScreen } from "./SalesHubScreen";
 import { NavigationProvider } from "../../navigation";
@@ -95,7 +95,7 @@ describe("SalesHubScreen", () => {
     expect(screen.getByRole("heading", { name: "المبيعات" })).toBeInTheDocument();
     expect(await screen.findByText("1")).toBeInTheDocument(); // pending quotes ("sent")
     expect(await screen.findByText("1,210.90")).toBeInTheDocument(); // outstanding receivable, Money-formatted
-    expect(screen.queryByText("1210.900000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("1210.900000")).not.toBeInTheDocument());
   });
 
   it("renders the recent-invoices list with customer name and formatted total", async () => {
@@ -122,7 +122,7 @@ describe("SalesHubScreen", () => {
       { transport, initialSession: testAdminSession },
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات المبيعات.");
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 
   it("navigates to the create flow for each quick action", async () => {

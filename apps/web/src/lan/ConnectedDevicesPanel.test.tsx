@@ -129,7 +129,7 @@ describe("ConnectedDevicesPanel", () => {
     renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-    expect(screen.queryByText(/غير مفعّل/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/غير مفعّل/)).not.toBeInTheDocument());
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.queryByText("جارٍ التحميل…")).not.toBeInTheDocument();
     expect(screen.getByText("تعذّر قراءة عدد المقاعد.")).toBeInTheDocument();
@@ -167,7 +167,7 @@ describe("ConnectedDevicesPanel — the LAN address", () => {
     renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText(/لا يُعرف هذا العنوان إلا على الجهاز المستضيف/)).toBeInTheDocument();
-    expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument());
   });
 
   it("says the address is unknown when the host has none to give — never a plausible one", async () => {
@@ -182,7 +182,7 @@ describe("ConnectedDevicesPanel — the LAN address", () => {
     renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText(/تعذّر تحديد عنوان هذا الجهاز/)).toBeInTheDocument();
-    expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument());
   });
 
   it("says the LAN service is not running rather than printing an address for a dead socket", async () => {
@@ -208,7 +208,7 @@ describe("ConnectedDevicesPanel — the LAN address", () => {
     renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText("سجّل الدخول لعرض حالة الترخيص.")).toBeInTheDocument();
-    expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument());
   });
 });
 
@@ -270,7 +270,7 @@ describe("ConnectedDevicesPanel — the certificate fingerprint", () => {
     // A fingerprint that matches nothing on the wire would teach the shop to
     // click past the one warning that protects it.
     expect(await screen.findByText(/تعذّرت قراءة بصمة الشهادة/)).toBeInTheDocument();
-    expect(screen.queryByText(/^([0-9A-F]{2}:){4}/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/^([0-9A-F]{2}:){4}/)).not.toBeInTheDocument());
   });
 
   it("says it is only knowable on the host, on the web build", async () => {
@@ -281,7 +281,7 @@ describe("ConnectedDevicesPanel — the certificate fingerprint", () => {
     renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText(/لا تُعرف بصمة الشهادة إلا على الجهاز المستضيف/)).toBeInTheDocument();
-    expect(screen.queryByText(/^([0-9A-F]{2}:){4}/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/^([0-9A-F]{2}:){4}/)).not.toBeInTheDocument());
   });
 
   it("shows no fingerprint block at all when the licence read failed", async () => {
@@ -336,7 +336,7 @@ describe("LicenceStatusNotice", () => {
     // The address proves the bridge answered, so the absent banner below is a
     // decision the component made rather than a reading that never arrived.
     await screen.findByText("https://192.168.1.7:4173");
-    expect(screen.queryByText("مشكلة في الترخيص")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("مشكلة في الترخيص")).not.toBeInTheDocument());
     expect(screen.queryByText("LIC-OK")).not.toBeInTheDocument();
   });
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor} from "@testing-library/react";
 import type { InventoryStockLevelsRow } from "@mezan/domain";
 import type { ItemDTO } from "@mezan/contracts";
 import { InventoryHubScreen } from "./InventoryHubScreen";
@@ -133,6 +133,6 @@ describe("InventoryHubScreen", () => {
   it("shows the Arabic error message when a query fails", async () => {
     renderScreen({ "GET /items": () => ({ status: 500, body: { error: "INTERNAL" } }) });
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات المخزون.");
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 });

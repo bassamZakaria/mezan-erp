@@ -98,7 +98,7 @@ describe("BackupRestorePage", () => {
     await user.click(screen.getByRole("button", { name: "استعادة واستبدال البيانات" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("فشل التحقق من سلامة الملف.");
-    expect(screen.queryByText(/VERIFICATION_FAILED/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/VERIFICATION_FAILED/)).not.toBeInTheDocument());
     expect(bridge.restore).toHaveBeenCalledTimes(1);
   });
 

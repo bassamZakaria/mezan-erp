@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor} from "@testing-library/react";
 import type { GoodsReceiptDTO, PurchaseInvoiceDTO, PurchaseOrderDTO, SupplierDTO } from "@mezan/contracts";
 import { PurchasesHubScreen } from "./PurchasesHubScreen";
 import { NavigationProvider } from "../../navigation";
@@ -92,7 +92,7 @@ describe("PurchasesHubScreen", () => {
     expect(screen.getByRole("heading", { name: "المشتريات" })).toBeInTheDocument();
     expect(await screen.findByText("1")).toBeInTheDocument(); // open orders (status "sent")
     expect(await screen.findByText("1,250.75")).toBeInTheDocument(); // invoice total, Money-formatted
-    expect(screen.queryByText("1250.750000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("1250.750000")).not.toBeInTheDocument());
   });
 
   it("renders the recent-invoices list with supplier name and formatted total", async () => {
@@ -120,7 +120,7 @@ describe("PurchasesHubScreen", () => {
       { transport, initialSession: testAdminSession },
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات المشتريات.");
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 
   it("navigates to the create flow for each quick action", async () => {

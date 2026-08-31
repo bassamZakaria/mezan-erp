@@ -132,7 +132,7 @@ describe("NotificationsScreen", () => {
     expect(await screen.findByText("تعذّر تحميل الإشعارات.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("تم تأكيد الفاتورة");
-    expect(screen.queryByText("تعذّر تحميل الإشعارات.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل الإشعارات.")).not.toBeInTheDocument());
   });
 
   it("the unread tab filters to unread rows only", async () => {
@@ -151,7 +151,7 @@ describe("NotificationsScreen", () => {
     await user.click(screen.getByRole("combobox", { name: "الأولوية" }));
     await user.click(await screen.findByRole("option", { name: "عاجلة" }));
     expect(await screen.findByText("إشعار عاجل")).toBeInTheDocument();
-    expect(screen.queryByText("تم تأكيد الفاتورة")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تم تأكيد الفاتورة")).not.toBeInTheDocument());
   });
 
   it("the type filter narrows the rows to that event code", async () => {
@@ -164,7 +164,7 @@ describe("NotificationsScreen", () => {
     await user.click(screen.getByRole("combobox", { name: "النوع" }));
     await user.click(await screen.findByRole("option", { name: "تم إرسال عرض سعر" }));
     expect(await screen.findByText("عرض سعر جديد لعميل")).toBeInTheDocument();
-    expect(screen.queryByText("تم تأكيد الفاتورة")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تم تأكيد الفاتورة")).not.toBeInTheDocument());
   });
 
   it("search narrows by title or body (debounced 300ms via useUrlSearch)", async () => {
@@ -207,6 +207,6 @@ describe("NotificationsScreen", () => {
   it("renders createdAt as a formatted date/time, not the raw ISO string", async () => {
     renderScreen([notification({ createdAt: "2026-08-20T10:00:00.000Z" })]);
     await screen.findByText("تم تأكيد الفاتورة");
-    expect(screen.queryByText("2026-08-20T10:00:00.000Z")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("2026-08-20T10:00:00.000Z")).not.toBeInTheDocument());
   });
 });

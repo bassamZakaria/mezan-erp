@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor} from "@testing-library/react";
 import type { SequenceListItemDTO } from "@mezan/contracts";
 import { SequencesPage } from "./SequencesPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -117,7 +117,7 @@ describe("SequencesPage — edit panel", () => {
     // the backend actually said. See the report for the fix (read `res.json()`
     // and surface `body.message`, as barcode-config-hooks.ts's readError does).
     expect(await screen.findByText("تعذّر حفظ إعدادات التسلسل.")).toBeInTheDocument();
-    expect(screen.queryByText("البادئة مستخدمة في تسلسل آخر")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("البادئة مستخدمة في تسلسل آخر")).not.toBeInTheDocument());
   });
 
   it("closing and reopening the panel for a DIFFERENT row shows that row's own current/next figures, not the previous row's", async () => {

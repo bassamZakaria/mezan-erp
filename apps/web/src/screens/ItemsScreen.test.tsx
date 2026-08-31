@@ -431,7 +431,7 @@ describe("ItemsScreen", () => {
     await user.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
 
     expect(await screen.findByText("أرز أبيض مصري 5 كجم")).toBeInTheDocument();
-    expect(screen.queryByText("تعذّر تحميل الأصناف.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل الأصناف.")).not.toBeInTheDocument());
   });
 
   it("does NOT show the empty-list message when the load failed — the banner is the only story (D123)", async () => {
@@ -519,7 +519,7 @@ describe("ItemsScreen", () => {
     );
     renderScreen(many);
     await screen.findByText("صنف رقم 1");
-    expect(screen.queryByText("صنف رقم 6")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("صنف رقم 6")).not.toBeInTheDocument());
 
     await user.click(within(screen.getByRole("navigation", { name: "ترقيم الصفحات" })).getByRole("button", { name: "2" }));
 
@@ -864,7 +864,7 @@ describe("ItemsScreen", () => {
     // with no error text anywhere on the tab. An operator cannot tell a load
     // failure from an empty warehouse.
     expect(await screen.findByText("لا يوجد مخزون من هذا الصنف في أي مستودع.")).toBeInTheDocument();
-    expect(screen.queryByText(/تعذّر/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/تعذّر/)).not.toBeInTheDocument());
   });
 
   it("shows the movements tab's own rows, with the real warehouse name and direction label", async () => {
@@ -1123,7 +1123,7 @@ describe("ItemsScreen", () => {
     const many = Array.from({ length: 7 }, (_, i) => item({ id: `itm-${i + 1}`, code: `ITM-${String(i + 1).padStart(6, "0")}`, nameAr: `صنف رقم ${i + 1}` }));
     renderScreen(many);
     await screen.findByText("صنف رقم 1");
-    expect(screen.queryByText("صنف رقم 7")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("صنف رقم 7")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByLabelText("صفوف لكل صفحة"));
     fireEvent.mouseDown(screen.getByRole("option", { name: "10" }));

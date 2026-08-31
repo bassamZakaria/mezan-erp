@@ -302,7 +302,7 @@ describe("SuppliersScreen", () => {
     renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText("لا يوجد موردون مطابقون")).toBeInTheDocument();
-    expect(screen.queryByText("تعذّر تحميل الموردين.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل الموردين.")).not.toBeInTheDocument());
   });
 
   it("computes the statement's closing payable from a real opening balance and a confirmed purchase invoice", async () => {
@@ -636,7 +636,7 @@ describe("SuppliersScreen", () => {
     const many = Array.from({ length: 15 }, (_, i) => supplier({ id: `sup-${i + 1}`, code: `S${String(i + 1).padStart(6, "0")}`, nameAr: `مورد رقم ${i + 1}` }));
     renderScreen(many, { route: "/?size=10" });
     await screen.findByText("مورد رقم 1");
-    expect(screen.queryByText("مورد رقم 15")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("مورد رقم 15")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByLabelText("صفوف لكل صفحة"));
     fireEvent.mouseDown(screen.getByRole("option", { name: "25" }));

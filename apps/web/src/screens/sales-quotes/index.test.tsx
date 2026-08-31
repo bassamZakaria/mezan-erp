@@ -202,13 +202,13 @@ describe("SalesQuotesScreen", () => {
       );
 
       expect(await screen.findByText("تعذّر تحميل عروض الأسعار.")).toBeInTheDocument();
-      expect(screen.queryByText("لا توجد عروض أسعار — أنشئ عرضاً جديداً")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText("لا توجد عروض أسعار — أنشئ عرضاً جديداً")).not.toBeInTheDocument());
 
       fail = false;
       await user.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
 
       expect(await screen.findByText("SQ-000001")).toBeInTheDocument();
-      expect(screen.queryByText("تعذّر تحميل عروض الأسعار.")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText("تعذّر تحميل عروض الأسعار.")).not.toBeInTheDocument());
     },
   );
 
@@ -270,7 +270,7 @@ describe("SalesQuotesScreen", () => {
       fireEvent.click(screen.getByRole("button", { name: "إرسال للعميل" }));
       // The bubbled row click already navigated to the detail view.
       expect(await screen.findByRole("heading", { name: "SQ-000001" })).toBeInTheDocument();
-      expect(screen.queryByText("لا يمكن إرسال عرض بلا بنود")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText("لا يمكن إرسال عرض بلا بنود")).not.toBeInTheDocument());
     },
   );
 

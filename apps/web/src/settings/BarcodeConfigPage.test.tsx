@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor} from "@testing-library/react";
 import type { BarcodeConfigDTO } from "@mezan/contracts";
 import { BarcodeConfigPage } from "./BarcodeConfigPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -262,7 +262,7 @@ describe("BarcodeConfigPage", () => {
   it("the auto-generate prefix field appears only in AUTO mode, strips non-digits, and an empty prefix saves as null (not an empty string)", async () => {
     const { getSeenBody } = renderPage();
     await screen.findByRole("heading", { name: "إعدادات الباركود" });
-    expect(screen.queryByText("بادئة الترقيم التلقائي")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("بادئة الترقيم التلقائي")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("combobox", { name: "طريقة تحديد باركود الصنف" }));
     fireEvent.mouseDown(screen.getByRole("option", { name: "توليد تلقائي" }));

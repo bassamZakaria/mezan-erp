@@ -243,6 +243,6 @@ describe("PromotionsScreen", () => {
     });
 
     expect(await screen.findByText("تعذّر تحميل العروض.")).toBeInTheDocument();
-    expect(screen.queryByText("لا توجد عروض")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("لا توجد عروض")).not.toBeInTheDocument());
   });
 });

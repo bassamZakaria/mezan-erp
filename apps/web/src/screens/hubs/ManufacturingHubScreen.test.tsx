@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor} from "@testing-library/react";
 import { ManufacturingHubScreen } from "./ManufacturingHubScreen";
 import { NavigationProvider } from "../../navigation";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
@@ -80,7 +80,7 @@ describe("ManufacturingHubScreen", () => {
     expect(await screen.findByText("12,500.50")).toBeInTheDocument(); // wip Money, never "12500.500000"
     expect(await screen.findByText("480")).toBeInTheDocument(); // unitsProducedThisMonth
     expect(await screen.findByText("26.04")).toBeInTheDocument(); // avgCostPerUnit Money
-    expect(screen.queryByText("12500.500000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("12500.500000")).not.toBeInTheDocument());
     expect(screen.queryByText("26.040000")).not.toBeInTheDocument();
   });
 
@@ -116,7 +116,7 @@ describe("ManufacturingHubScreen", () => {
       { transport, initialSession: testAdminSession },
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات التصنيع.");
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 
   it("opens the full production dashboard from the list action button", async () => {

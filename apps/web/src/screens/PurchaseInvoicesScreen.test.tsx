@@ -214,7 +214,7 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
   it("the KPI strip renders Money-formatted stats, never a raw scaled-decimal string, and unpaid turns danger-toned", async () => {
     renderScreen([purchaseInvoice({ total: "5000.000000", remainingBalance: "5000.000000" })]);
     await screen.findByText("PI-000001");
-    expect(screen.queryByText("5000.000000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("5000.000000")).not.toBeInTheDocument());
     expect(screen.getAllByText((_, el) => el?.textContent === "5,000.00").length).toBeGreaterThan(0);
   });
 
@@ -372,7 +372,7 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click(await screen.findByText("PI-000001"));
     fireEvent.click(await screen.findByRole("tab", { name: /التكاليف الإضافية/ }));
     expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
-    expect(screen.queryByText("999.000000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("999.000000")).not.toBeInTheDocument());
     expect(screen.getAllByText((_, el) => el?.textContent === "50.00").length).toBeGreaterThan(0);
     // The unrelated document's allocation must not leak in.
     expect(screen.queryByText((_, el) => el?.textContent === "999.00")).not.toBeInTheDocument();

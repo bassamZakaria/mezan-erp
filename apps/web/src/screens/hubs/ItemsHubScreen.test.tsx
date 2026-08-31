@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor} from "@testing-library/react";
 import type { ItemDTO, ItemSpecificationDTO, ListCountsDTO, ProductTemplateDTO } from "@mezan/contracts";
 import type { BomRecord, ConfigurableProductRecord } from "../../data/hooks";
 import { ItemsHubScreen } from "./ItemsHubScreen";
@@ -125,6 +125,6 @@ describe("ItemsHubScreen", () => {
   it("shows the Arabic error message when a query fails", async () => {
     renderScreen(vi.fn(), { "GET /items/counts": () => ({ status: 500, body: { error: "INTERNAL" } }) });
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات الأصناف.");
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 });

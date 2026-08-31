@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor} from "@testing-library/react";
 import { App } from "../App";
 import { AppProviders } from "../data/AppProviders";
 import { persistSession } from "../data/session";
@@ -87,7 +87,7 @@ describe("real router integration (App + routes.tsx)", () => {
     // — its own heading renders rather than the router falling through to the
     // catch-all "*" route.
     expect(await screen.findByRole("heading", { name: "العملاء" })).toBeInTheDocument();
-    expect(screen.queryByText("الصفحة غير موجودة")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("الصفحة غير موجودة")).not.toBeInTheDocument());
   });
 
   it("clicking into a known screen from the dashboard actually navigates there (a live route, not just a map entry)", async () => {

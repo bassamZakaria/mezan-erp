@@ -288,7 +288,7 @@ describe("BomsScreen — roll-up cost, scrap rate and line editing", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
     expect(await screen.findByText("BOM-0002")).toBeInTheDocument();
-    expect(screen.queryByText("BOM-0001")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("BOM-0001")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("tab", { name: /الكل/ }));
     await screen.findByText("BOM-0001");
@@ -301,7 +301,7 @@ describe("BomsScreen — roll-up cost, scrap rate and line editing", () => {
     fireEvent.click(await screen.findByRole("combobox", { name: "الصنف المجمَّع" }));
     fireEvent.mouseDown(screen.getByRole("option", { name: "طاولة خشبية" }));
     expect(await screen.findByText("BOM-0001")).toBeInTheDocument();
-    expect(screen.queryByText("BOM-0002")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("BOM-0002")).not.toBeInTheDocument());
   });
 
   it("deactivates an active BOM from the detail view", async () => {

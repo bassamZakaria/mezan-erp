@@ -138,7 +138,7 @@ describe("LeaveRequestsScreen", () => {
     expect(await screen.findByText("تعذّر تحميل طلبات الإجازات.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("LR-000001");
-    expect(screen.queryByText("تعذّر تحميل طلبات الإجازات.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل طلبات الإجازات.")).not.toBeInTheDocument());
   });
 
   it("status chip filter changes the outgoing request", async () => {

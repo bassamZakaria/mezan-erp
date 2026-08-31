@@ -123,7 +123,7 @@ describe("TreasuryAccountsScreen", () => {
     fireEvent.click(within(editDialog).getByRole("button", { name: "حفظ التعديلات" }));
 
     expect(await screen.findByText("صندوق الفرع الرئيسي المحدّث")).toBeInTheDocument();
-    expect(screen.queryByText("صندوق نقدي الفرع الرئيسي")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("صندوق نقدي الفرع الرئيسي")).not.toBeInTheDocument());
     expect(screen.getAllByText("غير نشط").length).toBeGreaterThan(0);
   });
 

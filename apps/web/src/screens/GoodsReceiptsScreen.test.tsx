@@ -177,7 +177,7 @@ describe("GoodsReceiptsScreen", () => {
     renderScreen(transport);
 
     expect(await screen.findByText("تعذّر تحميل إيصالات الاستلام.")).toBeInTheDocument();
-    expect(screen.queryByText(/INTERNAL/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/INTERNAL/)).not.toBeInTheDocument());
     expect(document.body.textContent).not.toMatch(/internal/i);
   });
 

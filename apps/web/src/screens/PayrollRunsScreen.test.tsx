@@ -154,7 +154,7 @@ describe("PayrollRunsScreen", () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "الرواتب" })).toBeInTheDocument();
     expect(await screen.findByText("PR-000001")).toBeInTheDocument();
-    expect(screen.queryByText("10000.000000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("10000.000000")).not.toBeInTheDocument());
     expect(screen.getAllByText((_, el) => el?.textContent === "10,000.00").length).toBeGreaterThan(0);
   });
 
@@ -178,7 +178,7 @@ describe("PayrollRunsScreen", () => {
     expect(await screen.findByText("تعذّر تحميل دورات الرواتب.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("PR-000001");
-    expect(screen.queryByText("تعذّر تحميل دورات الرواتب.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل دورات الرواتب.")).not.toBeInTheDocument());
   });
 
   it("status chip filter and search box each narrow the visible rows", async () => {

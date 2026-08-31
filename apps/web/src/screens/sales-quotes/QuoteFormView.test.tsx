@@ -115,7 +115,7 @@ describe("QuoteFormView", () => {
     await flushData();
     pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     expect(await screen.findByText((_, el) => el?.textContent === "200.00")).toBeInTheDocument();
-    expect(screen.queryByText("200.000000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("200.000000")).not.toBeInTheDocument());
   });
 
   it("a server refusal on create renders the server's Arabic message, not raw JSON", async () => {

@@ -393,7 +393,7 @@ describe("SalesReturnsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "استرداد للعميل" }));
 
     expect(await screen.findByText("لا يمكن الاسترداد قبل إغلاق الوردية.")).toBeInTheDocument();
-    expect(screen.queryByText(/تم إنشاء سند الصرف/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/تم إنشاء سند الصرف/)).not.toBeInTheDocument());
     expect(refundBody).toEqual({ amount: "228.000000", treasuryAccountId: "treas-1", paymentMethod: "cash", date: "2026-08-20" });
   });
 

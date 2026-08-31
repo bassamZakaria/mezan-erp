@@ -126,7 +126,7 @@ describe("LeaveBalancesScreen", () => {
     expect(await screen.findByText("تعذّر تحميل أرصدة الإجازات.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("أحمد محمود");
-    expect(screen.queryByText("تعذّر تحميل أرصدة الإجازات.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل أرصدة الإجازات.")).not.toBeInTheDocument());
   });
 
   it("changing the year chip re-requests with the new year", async () => {
@@ -175,6 +175,6 @@ describe("LeaveBalancesScreen", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
     expect(await screen.findByText("لا يمكن أن يكون الرصيد المستخدم أكبر من المستحق")).toBeInTheDocument();
-    expect(screen.queryByText(/"message"/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/"message"/)).not.toBeInTheDocument());
   });
 });

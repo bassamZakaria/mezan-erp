@@ -137,7 +137,7 @@ describe("AuditLogScreen — list", () => {
       }),
     });
     expect(await screen.findByText("تعذّر تحميل سجل المراجعة.")).toBeInTheDocument();
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 

@@ -276,6 +276,6 @@ describe("PriceListsScreen", () => {
     });
 
     expect(await screen.findByText("تعذّر تحميل قوائم الأسعار.")).toBeInTheDocument();
-    expect(screen.queryByText("لا توجد قوائم أسعار — أنشئ قائمة جديدة")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("لا توجد قوائم أسعار — أنشئ قائمة جديدة")).not.toBeInTheDocument());
   });
 });

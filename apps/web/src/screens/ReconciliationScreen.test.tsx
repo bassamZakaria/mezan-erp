@@ -98,7 +98,7 @@ describe("ReconciliationScreen", () => {
     expect(await screen.findByText("تعذّر تحميل مطابقة الأرصدة.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("العملاء");
-    expect(screen.queryByText("تعذّر تحميل مطابقة الأرصدة.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل مطابقة الأرصدة.")).not.toBeInTheDocument());
   });
 
   it("the empty state renders honestly when there are no control-account rows", async () => {

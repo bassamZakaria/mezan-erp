@@ -166,7 +166,7 @@ describe("FxRevaluationScreen — preview", () => {
     // which carries a shadda the screen's own dead local fallback (audit of
     // `t("fx.theRevaluationCouldNotBe")`) does not.
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر حساب إعادة التقييم.");
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 });
 
@@ -229,7 +229,7 @@ describe("FxRevaluationScreen — post", () => {
     });
     await user.click(screen.getByRole("button", { name: "ترحيل التقييم" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("الفترة المحاسبية مقفلة، لا يمكن ترحيل قيد إعادة التقييم.");
-    expect(screen.queryByText("PERIOD_CLOSED")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("PERIOD_CLOSED")).not.toBeInTheDocument());
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
@@ -284,6 +284,6 @@ describe("FxRevaluationScreen — party balances by currency", () => {
       }),
     });
     expect(await screen.findByText("تعذّر تحميل الأرصدة حسب العملة.")).toBeInTheDocument();
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 });

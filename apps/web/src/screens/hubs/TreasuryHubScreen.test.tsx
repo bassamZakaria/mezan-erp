@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor} from "@testing-library/react";
 import type { ChequeDTO, DashboardSummaryDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { TreasuryHubScreen } from "./TreasuryHubScreen";
 import { NavigationProvider } from "../../navigation";
@@ -92,7 +92,7 @@ describe("TreasuryHubScreen", () => {
     expect(screen.getByRole("heading", { name: "الخزينة" })).toBeInTheDocument();
     expect(await screen.findByText("1")).toBeInTheDocument(); // pending cheques
     expect(await screen.findByText("48,250.75")).toBeInTheDocument(); // cash on hand, Money-formatted
-    expect(screen.queryByText("48250.750000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("48250.750000")).not.toBeInTheDocument());
   });
 
   it("renders the recent-vouchers list with memo, doc number and formatted amount", async () => {
@@ -122,7 +122,7 @@ describe("TreasuryHubScreen", () => {
       { transport, initialSession: testAdminSession },
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات الخزينة.");
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 
   it("navigates to the create flow for the new-cash-voucher quick action", async () => {

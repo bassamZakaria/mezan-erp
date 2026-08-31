@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent, waitFor} from "@testing-library/react";
 import { TrialBalanceReportScreen } from "./TrialBalanceReportScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -92,6 +92,6 @@ describe("TrialBalanceReportScreen (report engine, wired end to end)", () => {
     fireEvent.change(screen.getByLabelText("حتى تاريخ"), { target: { value: "not-a-date" } });
     fireEvent.click(screen.getByRole("button", { name: "عرض التقرير" }));
     expect(await screen.findByText("تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD")).toBeInTheDocument();
-    expect(screen.queryByText("النقدية")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("النقدية")).not.toBeInTheDocument());
   });
 });

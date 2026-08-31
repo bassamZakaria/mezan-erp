@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within, waitFor} from "@testing-library/react";
 import type { WorkStationDTO } from "@mezan/contracts";
 import { ProductionDashboardScreen } from "./ProductionDashboardScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
@@ -80,7 +80,7 @@ describe("ProductionDashboardScreen", () => {
     expect(await screen.findByText("2")).toBeInTheDocument(); // activeWorkOrders
     expect(await screen.findByText("8,400.25")).toBeInTheDocument(); // wipValue, Money-formatted
     expect(await screen.findByText("160")).toBeInTheDocument(); // unitsProducedThisMonth
-    expect(screen.queryByText("8400.250000")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("8400.250000")).not.toBeInTheDocument());
   });
 
   it("renders each bucket's orders and the empty hint for buckets with none", async () => {
@@ -110,10 +110,10 @@ describe("ProductionDashboardScreen", () => {
     });
     renderWithProviders(<ProductionDashboardScreen />, { transport, initialSession: testAdminSession });
     expect(await screen.findByText("تعذّر تحميل لوحة الإنتاج.")).toBeInTheDocument();
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("WO-000001")).toBeInTheDocument();
-    expect(screen.queryByText("تعذّر تحميل لوحة الإنتاج.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل لوحة الإنتاج.")).not.toBeInTheDocument());
   });
 
   it("renders the registered work stations, and the empty hint when there are none", async () => {
@@ -157,6 +157,6 @@ describe("ProductionDashboardScreen", () => {
     expect(screen.getByText("مفعّلة")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إيقاف" }));
     expect(await screen.findByText("موقوفة")).toBeInTheDocument();
-    expect(screen.queryByText("مفعّلة")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("مفعّلة")).not.toBeInTheDocument());
   });
 });

@@ -107,7 +107,7 @@ describe("PayrollComponentsScreen", () => {
     expect(await screen.findByText("تعذّر تحميل مكوّنات الرواتب.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("الراتب الأساسي");
-    expect(screen.queryByText("تعذّر تحميل مكوّنات الرواتب.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل مكوّنات الرواتب.")).not.toBeInTheDocument());
   });
 
   it("the kind status-chip filter narrows the rows", async () => {

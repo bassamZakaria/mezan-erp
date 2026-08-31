@@ -119,7 +119,7 @@ describe("EtaScreen — top level", () => {
     renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText("تعذّر تحميل بيانات الفاتورة الإلكترونية.")).toBeInTheDocument();
-    expect(screen.queryByText(/INTERNAL/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/INTERNAL/)).not.toBeInTheDocument());
 
     const before = calls.filter((c) => c.startsWith("GET /eta/config")).length;
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));

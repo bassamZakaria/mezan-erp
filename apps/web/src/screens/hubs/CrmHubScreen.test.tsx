@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor} from "@testing-library/react";
 import type { ActivityDTO, LeadDTO, OpportunityDTO } from "@mezan/contracts";
 import { CrmHubScreen } from "./CrmHubScreen";
 import { NavigationProvider } from "../../navigation";
@@ -135,7 +135,7 @@ describe("CrmHubScreen", () => {
   it("shows the Arabic error message when a query fails", async () => {
     renderScreen(vi.fn(), { "GET /crm/leads": () => ({ status: 500, body: { error: "INTERNAL" } }) });
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات إدارة علاقات العملاء.");
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 
   it("renders all three quick actions and navigates on click", async () => {

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactElement } from "react";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor} from "@testing-library/react";
 import { ItemsWorkspaceScreen } from "./ItemsWorkspaceScreen";
 import { renderWithProviders, stubTransport, testAdminSession, type StubResult } from "../data/test-support";
 import { NavigationProvider } from "../navigation";
@@ -134,7 +134,7 @@ describe("ItemsWorkspaceScreen", () => {
     // But the mounted screen, reading the very same segment as its own
     // sub-page address, thinks "specs" names a specification to edit.
     expect(await screen.findByText("لم يتم العثور على هذه المواصفة.")).toBeInTheDocument();
-    expect(screen.queryByText("لا توجد مواصفات — أضف مواصفة جديدة")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("لا توجد مواصفات — أضف مواصفة جديدة")).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "العودة إلى المواصفات" })).toBeInTheDocument();
   });
 });

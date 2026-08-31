@@ -171,7 +171,7 @@ describe("AttendanceScreen", () => {
   it("renders an honest empty state, not a stuck spinner or a fabricated row", async () => {
     renderScreen({ rows: [] });
     expect(await screen.findByText("لا توجد سجلات حضور لهذه الفترة")).toBeInTheDocument();
-    expect(screen.queryByText("أحمد حسن")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("أحمد حسن")).not.toBeInTheDocument());
   });
 
   it("renders an Arabic failure message on a load error, and the retry button re-fetches", async () => {
@@ -185,10 +185,10 @@ describe("AttendanceScreen", () => {
       },
     });
     expect(await screen.findByText("تعذّر تحميل سجل الحضور.")).toBeInTheDocument();
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("أحمد حسن")).toBeInTheDocument();
-    expect(screen.queryByText("تعذّر تحميل سجل الحضور.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل سجل الحضور.")).not.toBeInTheDocument());
   });
 
   it("records a new attendance entry with the real employee id from the picker, not typed text", async () => {
@@ -236,7 +236,7 @@ describe("AttendanceScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تسجيل حضور" }));
     fireEvent.click(screen.getByRole("button", { name: "تسجيل" }));
     expect(await screen.findByText("هذا الموظف لديه سجل حضور بالفعل لهذا اليوم.")).toBeInTheDocument();
-    expect(screen.queryByText("DUPLICATE_ATTENDANCE")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("DUPLICATE_ATTENDANCE")).not.toBeInTheDocument());
   });
 
   it("corrects an existing entry via PUT, with the employee and date locked", async () => {

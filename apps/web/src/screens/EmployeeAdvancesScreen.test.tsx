@@ -168,7 +168,7 @@ describe("EmployeeAdvancesScreen", () => {
   it("renders an honest empty state when there are no advances", async () => {
     renderScreen({ advances: [] });
     expect(await screen.findByText("لا توجد سلف — ابدأ بتسجيل طلب سلفة لموظف")).toBeInTheDocument();
-    expect(screen.queryByText("ADV-000001")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("ADV-000001")).not.toBeInTheDocument());
   });
 
   it("renders an Arabic failure message on a load error, never a raw enum, and retry re-fetches", async () => {
@@ -182,7 +182,7 @@ describe("EmployeeAdvancesScreen", () => {
       },
     });
     expect(await screen.findByText("تعذّر تحميل السلف.")).toBeInTheDocument();
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("ADV-000001")).toBeInTheDocument();
   });
@@ -265,7 +265,7 @@ describe("EmployeeAdvancesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByText("لدى هذا الموظف سلفة قائمة بالفعل.")).toBeInTheDocument();
-    expect(screen.queryByText("EMPLOYEE_HAS_OPEN_ADVANCE")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("EMPLOYEE_HAS_OPEN_ADVANCE")).not.toBeInTheDocument());
   });
 
   it("approves a pending advance from the row menu and reflects the new status", async () => {

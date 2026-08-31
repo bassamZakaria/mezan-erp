@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor} from "@testing-library/react";
 import type { AccountDTO, DashboardSummaryDTO, FiscalPeriodDTO } from "@mezan/contracts";
 import { AccountingHubScreen } from "./AccountingHubScreen";
 import { NavigationProvider } from "../../navigation";
@@ -105,7 +105,7 @@ describe("AccountingHubScreen", () => {
       { transport, initialSession: testAdminSession },
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات المحاسبة.");
-    expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 
   it("renders the quick action and navigates to the create flow on click", async () => {

@@ -189,17 +189,29 @@ function serializeContract(c: Contract, withSalary = true) {
     payFrequency: c.payFrequency,
     startDate: c.startDate,
     endDate: c.endDate,
+    // Allowances and deductions ARE salary: they were listed unconditionally
+    // below the spread, which overwrote the gated copies, so a caller without
+    // `hr.employee.view_salary` lost only the basic and still read every
+    // component of the package.
     ...(withSalary
       ? {
           monthlySalary: c.monthlySalary.toString(),
-          allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString() })),
-          deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString() })),
+          allowances: c.allowances.map((a) => ({
+            id: a.id,
+            name: a.name,
+            amount: a.amount.toString(),
+            componentId: a.componentId,
+          })),
+          deductions: c.deductions.map((d) => ({
+            id: d.id,
+            name: d.name,
+            amount: d.amount.toString(),
+            componentId: d.componentId,
+          })),
         }
       : {}),
     currency: c.currency,
     leaveEntitlement: c.leaveEntitlement,
-    allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString(), componentId: a.componentId })),
-    deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString(), componentId: d.componentId })),
     status: c.status,
     /** Derived server-side so the 30-day window lives in one place (domain `CONTRACT_EXPIRING_SOON_WINDOW_DAYS`). */
     expiringSoon: isContractExpiringSoon(c),

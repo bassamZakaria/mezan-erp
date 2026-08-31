@@ -47,6 +47,7 @@ function fakeSessions(grant: SessionGrant | null): SessionRegistry {
   return {
     issue: () => "unused",
     find: (token: string) => (token === "good-token" ? grant : null),
+    inspect: (token: string) => ({ grant: token === "good-token" ? grant : null, refusal: null }),
     revoke: () => {},
     revokeUser: () => {},
   };

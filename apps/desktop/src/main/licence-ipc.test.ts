@@ -40,6 +40,7 @@ function fakeSessions(): SessionRegistry {
   return {
     issue: () => "unused",
     find: (token: string) => (token === "good-token" ? GRANT : null),
+    inspect: (token: string) => ({ grant: token === "good-token" ? GRANT : null, refusal: null }),
     revoke: () => {},
     revokeUser: () => {},
   };

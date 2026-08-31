@@ -209,9 +209,15 @@ export function replay(
       // artefact of entry order rather than the cache-corruption signal its own
       // docstring promises.
       const issuedAt = m.unitCost.scaled === 0n ? unitCostOf(totalValue, onHand) : m.unitCost;
-      const cogs = extend(m.qty, issuedAt);
+      const remainingAfter = onHand.subtract(m.qty);
+      // The same drain-to-zero rule the live engine applies (D-S44, and
+      // stock-ledger-service.ts's `applyMovement` for the reasoning). It has to
+      // be identical in both, or replaying a ledger the engine wrote would
+      // report the difference as `cacheDrift` — turning the fix into a
+      // permanent false corruption signal on every fully-sold item.
+      const cogs = remainingAfter.isZero() ? totalValue : extend(m.qty, issuedAt);
       totalValue = totalValue.add(cogs.negate());
-      onHand = onHand.subtract(m.qty);
+      onHand = remainingAfter;
       layers = consumeLayers(layers, m.qty);
       recountRemaining();
     }

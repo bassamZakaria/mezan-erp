@@ -393,7 +393,27 @@ export class StockLedgerService {
         throw new NegativeStockError(input.itemId, input.warehouseId, snap.onHand, input.qty);
       }
       unitCost = unitCostOf(snap.totalValue, snap.onHand); // moving average
-      const cogs = extend(input.qty, unitCost);
+      // A DRAIN TO ZERO TAKES THE WHOLE REMAINING VALUE (D-S44).
+      //
+      // An issue is normally valued at `qty × round(value ÷ qty)`, and the unit
+      // cost is rounded to 1e-6 — so an issue that empties the position leaves
+      // up to half a micro-unit of currency PER UNIT of quantity stranded on a
+      // position holding nothing. Draining 13.11 units in one movement stranded
+      // ~6 micro-currency; a property test caught it, intermittently, and the
+      // bound was widened rather than the behaviour fixed.
+      //
+      // Value with no quantity behind it is not a rounding curiosity: the
+      // average is zero by definition once the quantity is, so the residue is
+      // invisible on every screen and accumulates per item, per warehouse,
+      // forever. The remedy is the standard one — the last issue out of a
+      // position is worth whatever is left in it.
+      //
+      // This is safe to do here, and ONLY here, because the GL posts
+      // `signedValue` from this same variable (see `postIssue`): the sub-ledger
+      // and the control account move together by construction, so there is no
+      // window in which they disagree. `wac.ts`'s replay applies the identical
+      // rule, or `cacheDrift` would report this fix as corruption.
+      const cogs = projected.isZero() ? snap.totalValue : extend(input.qty, unitCost);
       newOnHand = projected;
       newTotalValue = snap.totalValue.add(cogs.negate());
       signed = cogs.negate();

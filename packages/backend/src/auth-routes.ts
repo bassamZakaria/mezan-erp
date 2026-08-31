@@ -49,7 +49,13 @@ async function tenantName(settings: SettingsRepository): Promise<string> {
   return s?.companyName && s.companyName.trim() !== "" ? s.companyName : SEED_TENANT_NAME;
 }
 
-async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> {
+/**
+ * @param origin where the socket says this login arrived from — null for the
+ * desktop's in-process mount. The session is BOUND to it (see
+ * @mezan/api's session-auth.ts), so it is read from `requestOrigin(c)` and
+ * never from anything in the request body or headers.
+ */
+async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null): Promise<SessionDTO> {
   let permissions: string[];
   let roleCode: string | null = null;
   if (user.isCompanyAdmin) {
@@ -77,13 +83,16 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
     // permissions travel too, but only so the UI can hide what the user cannot
     // do — the server re-reads them from this session on every request and
     // never from what comes back.
-    token: deps.sessions.issue({
-      userId: user.id,
-      permissions,
-      roleCode,
-      branchScope: user.branchScope,
-      warehouseScope: user.warehouseScope,
-    }),
+    token: deps.sessions.issue(
+      {
+        userId: user.id,
+        permissions,
+        roleCode,
+        branchScope: user.branchScope,
+        warehouseScope: user.warehouseScope,
+      },
+      origin,
+    ),
   };
 }
 
@@ -247,7 +256,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     const at = new Date().toISOString();
     await recordSuccessfulLogin(user.id, at, deps.uow);
     await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: user.id, username: needle });
-    return c.json(await toSession(user, deps));
+    // The session is bound to the origin the CREDENTIAL was verified from, so
+    // the till that logged in is the only place the token it got back works.
+    return c.json(await toSession(user, deps, requestOrigin(c)));
   });
 
   /** Ends the session server-side. Without this a token stayed valid until it idled out. */
@@ -356,7 +367,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
         email: user.email,
         seedAdminRetired: true,
       });
-      return c.json(await toSession(user, deps), 201);
+      return c.json(await toSession(user, deps, requestOrigin(c)), 201);
     } catch (err) {
       // This used to hand back the EXISTING admin's session for wizard
       // idempotency — an anonymous caller who guessed a known admin address got

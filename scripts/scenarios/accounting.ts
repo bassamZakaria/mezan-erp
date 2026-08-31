@@ -1251,4 +1251,44 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     const finalState = await ctx.req("GET", `/fiscal-periods/${march.id}`);
     ctx.check("scenario leaves March open, as it found it", finalState.body?.status === "open", String(finalState.body?.status));
   });
+
+  await ctx.scenario("journal entry — the last day of a month is postable, as an instant", async () => {
+    // THE DAY A SHOP POSTS MOST IS THE DAY IT COULD NOT POST AT ALL.
+    //
+    // A fiscal period's `endDate` is a DAY ("2026-08-31") and a document's date
+    // is an INSTANT; the range query compared them as strings, and string order
+    // puts the instant after the day it belongs to. So `findByDate` matched no
+    // period on the last day of every month and every posting failed with «لا
+    // توجد فترة مالية تغطي هذا التاريخ» — invisible on the other thirty days,
+    // which is why it survived. It surfaced only when the clock rolled onto a
+    // 31st and the demo seed itself stopped booting.
+    //
+    // Asserted here with a full timestamp on purpose: the existing repository
+    // test asked with a mid-month DAY, which is exactly the shape that cannot
+    // fail.
+    const year = new Date().getUTCFullYear();
+    for (const [label, date] of [
+      ["a 31-day month", `${year}-08-31T03:10:33.016Z`],
+      ["a 30-day month", `${year}-09-30T23:59:59.999Z`],
+      ["the first instant of a period", `${year}-08-01T00:00:00.000Z`],
+      ["the last instant of the year", `${year}-12-31T23:59:59.999Z`],
+    ] as const) {
+      const id = `SCN-JE-MONTHEND-${date.slice(5, 10)}`;
+      const posted = await ctx.req("POST", "/gl/journal-entries", {
+        id,
+        date,
+        memo: `SCN month-end probe (${label})`,
+        lines: [
+          { accountId: "1300-1", debit: "10.00", credit: "0.00" },
+          { accountId: "4900", debit: "0.00", credit: "10.00" },
+        ],
+      });
+      ctx.check(
+        `${label}: an entry dated ${date.slice(0, 10)} posts`,
+        posted.status === 201 && posted.body?.status === "posted",
+        `status ${posted.status} ${JSON.stringify(posted.body).slice(0, 140)}`,
+      );
+      if (posted.status === 201) await ctx.req("POST", `/gl/journal-entries/${id}/reverse`, {});
+    }
+  });
 }

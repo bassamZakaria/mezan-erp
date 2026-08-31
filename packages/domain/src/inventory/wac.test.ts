@@ -66,12 +66,32 @@ describe("WAC engine — golden fixtures (deterministic, byte-exact)", () => {
     expect(pos.totalValue.toString()).toBe("72.000000"); // 120 − 8×6
   });
 
-  it("surfaces the documented sub-unit WAC drift deterministically", () => {
-    // avg = 5/3 = 1.666667 (rounded up); issuing all 3 removes 5.000001 → −0.000001 residue
+  it("drains to exactly nothing, rather than to the documented sub-unit drift (D-S44)", () => {
+    // avg = 5/3 = 1.666667 (rounded up), so issuing all three at that average
+    // removes 5.000001 and used to leave −0.000001 behind. This fixture pinned
+    // that residue as "documented drift" and it was a defect wearing a label:
+    // once the quantity is zero the average is zero by definition, so value
+    // with nothing behind it is invisible on every screen and accumulates per
+    // item, per warehouse, forever.
+    //
+    // The last issue out of a position is now worth whatever is left in it, in
+    // the live engine and in this replay alike — and the GL follows by
+    // construction, because `postIssue` posts the same figure `applyMovement`
+    // computes.
     const movements = [mv("IN", "1", "1"), mv("IN", "2", "2"), mv("OUT", "3", "0")];
     const pos = replay("I1", "W1", movements);
     expect(pos.onHand.toString()).toBe("0.000000");
-    expect(pos.totalValue.toString()).toBe("-0.000001"); // exact, reproducible drift
+    expect(pos.totalValue.toString()).toBe("0.000000");
+  });
+
+  it("still leaves a PARTIAL issue valued at the moving average, untouched", () => {
+    // The drain-to-zero rule must not leak into ordinary issues: a partial
+    // issue is still `qty × average`, which is what keeps the average stable
+    // across an issue (the property directly above this one).
+    const movements = [mv("IN", "1", "1"), mv("IN", "2", "2"), mv("OUT", "2", "0")];
+    const pos = replay("I1", "W1", movements);
+    expect(pos.onHand.toString()).toBe("1.000000");
+    expect(pos.totalValue.toString()).toBe("1.666666"); // 5 − 2×1.666667
   });
 
   it("empty position replays to zero", () => {

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { FiscalPeriod, FiscalPeriodRepository, FiscalPeriodStatus } from "@mezan/domain";
+import { calendarDay } from "@mezan/domain";
 
 /** SQLite-backed FiscalPeriodRepository (docs/archive/catalog/04 "الفترات المالية"). Standalone, mirroring `createSqliteAccountRepository`. */
 
@@ -69,7 +70,12 @@ class SqliteFiscalPeriodRepository implements FiscalPeriodRepository {
   }
 
   async findByDate(date: string): Promise<FiscalPeriod | null> {
-    const row = this.selectByDate.get(date) as FiscalPeriodRow | undefined;
+    // `start_date`/`end_date` are DAYS and callers pass an INSTANT — a
+    // document's `occurredAt`. String order puts "2026-08-31T03:10:33.016Z"
+    // after "2026-08-31", so `BETWEEN` matched nothing on the last day of every
+    // month and every GL posting that day failed for want of a period. On the
+    // one day a shop posts most. See `calendarDay`.
+    const row = this.selectByDate.get(calendarDay(date)) as FiscalPeriodRow | undefined;
     return row ? toFiscalPeriod(row) : null;
   }
 

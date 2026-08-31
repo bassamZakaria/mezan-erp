@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { Money, type VatFiling, type VatFilingRepository, type VatFilingStatus } from "@mezan/domain";
+import { calendarDay } from "@mezan/domain";
 
 /**
  * Filed VAT returns (docs/archive/defect-register.md D29). One row per submission; an amended
@@ -85,7 +86,13 @@ class SqliteVatFilingStore implements VatFilingRepository {
   }
 
   async findCovering(date: string): Promise<readonly VatFiling[]> {
-    return (this.selectCovering.all(date, date) as FilingRow[]).map(toFiling);
+    // The same day-versus-instant mismatch as `findByDate`, and here it failed
+    // OPEN: `period_to >= ?` did not match on the period's own last day, so a
+    // return that had already been FILED read as not covering that day and the
+    // control refusing a posting into a filed period silently let it through.
+    // A control that works on thirty days a month is not a control.
+    const day = calendarDay(date);
+    return (this.selectCovering.all(day, day) as FilingRow[]).map(toFiling);
   }
 
   async save(filing: VatFiling): Promise<void> {

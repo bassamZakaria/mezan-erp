@@ -47,6 +47,7 @@ function fakeAuthSessions(): { sessions: SessionRegistry; revoked: string[] } {
     sessions: {
       issue: () => "unused",
       find: () => null,
+      inspect: () => ({ grant: null, refusal: null }),
       revoke: (token: string) => {
         revoked.push(token);
       },

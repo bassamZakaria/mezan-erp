@@ -96,6 +96,7 @@ export type {
 export * from "./notifications/index.js";
 
 // --- access-control cluster (phase0/access-control) ---
+export * from "./dates.js";
 export * from "./permissions/index.js";
 export * from "./workflow/index.js";
 export * from "./entitlements/index.js";

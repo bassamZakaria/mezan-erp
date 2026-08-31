@@ -358,7 +358,11 @@ describe("ConfigurableProductsScreen", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
     expect(await screen.findByText("باب قابل للتهيئة")).toBeInTheDocument();
-    expect(screen.queryByText("نافذة قابلة للتهيئة")).not.toBeInTheDocument();
+    // Wait for the active row to LEAVE rather than assuming it already has: the
+    // filtered row appearing and the unfiltered one being dropped are two
+    // renders, so asserting the removal the instant the other row shows up is a
+    // race — green in isolation, red under the full run's scheduler pressure.
+    await waitFor(() => expect(screen.queryByText("نافذة قابلة للتهيئة")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("tab", { name: /الكل/ }));
     await screen.findByText("نافذة قابلة للتهيئة");

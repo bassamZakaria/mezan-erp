@@ -108,7 +108,7 @@ import {
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
-import type { SessionRegistry } from "./session-auth.js";
+import { sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
 import type { EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
@@ -870,6 +870,16 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // — or silently steal — each other's forensic trail. Registered before every
   // route so a refusal anywhere below reaches it.
   if (options.onPermissionRefused) app.use("*", permissionRefusalReporting(options.onPermissionRefused));
+
+  // A session token presented from an address it was not issued to. The
+  // REFUSAL happens in session-auth.ts regardless of this mount (the resolver
+  // revokes and the gate answers 401); this is only the forensic row, and it
+  // has to be registered before every route so a mismatch anywhere below is
+  // seen — including on the ungated `/auth/*` and `/lan/*` paths, which are
+  // exactly the ones a copied till token would arrive on.
+  if (options.security?.sessions && options.auditSink) {
+    app.use("*", sessionOriginReporting(options.security.sessions, options.auditSink));
+  }
 
   if (options.settingsStore) {
     app.route("/settings", createSettingsRoutes(options.settingsStore, resolveAuth, options.auditSink));

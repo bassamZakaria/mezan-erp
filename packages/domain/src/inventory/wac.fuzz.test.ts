@@ -164,31 +164,21 @@ describe("weighted-average costing — fuzz", () => {
         // exclusion hid it. Its unabsorbable share is now split off into
         // `unabsorbedRevaluation`, so a drained position holds nothing but
         // the rounding residue of its own drain, whatever the ledger held.
-        const residue = position.totalValue.scaled < 0n ? -position.totalValue.scaled : position.totalValue.scaled;
-        // THE BOUND SCALES WITH THE QUANTITY DRAINED, NOT THE MOVEMENT COUNT.
+        // A DRAINED POSITION HOLDS EXACTLY NOTHING (D-S44).
         //
-        // `movements.length + 1` was the wrong shape and this suite proved it,
-        // intermittently: an issue is valued at `qty × round(value ÷ qty)`, and
-        // the unit cost is rounded to 1e-6, so a single issue can strand up to
-        // half a micro-unit of currency PER UNIT OF QUANTITY. Draining 13.11
-        // units in one movement therefore leaves up to ~6 micro-currency
-        // against a bound of 4, and the property failed roughly one run in
-        // eight — which is the worst kind of red, because it trains a reader to
-        // re-run rather than to look.
+        // This asserted a BOUND, and the bound was the wrong variable: an issue
+        // is valued at `qty × round(value ÷ qty)`, so the stranded remainder
+        // scales with the QUANTITY drained, not with the movement count. It
+        // failed about one run in eight, and was widened to match the real
+        // arithmetic — which made the suite honest and left the defect.
         //
-        // This is the honest arithmetic of a rounded average, not a weakened
-        // assertion: the residue is still bounded, still tiny (six millionths
-        // of one pound on a position that held 2,546), and still asserted. That
-        // a fully drained position keeps ANY value at all is tracked as its own
-        // defect — the standard fix is for a drain-to-zero to take the whole
-        // remaining value — and is deliberately not changed here, because the
-        // GL posts COGS from the same figure and moving one without the other
-        // would break the reconciliation this suite also guards.
-        const issued = movements
-          .filter((m) => m.direction === "OUT")
-          .reduce((sum, m) => sum + m.qty.scaled, 0n);
-        const roundingRoom = issued / 2_000_000n + BigInt(movements.length + 1);
-        expect(residue <= roundingRoom).toBe(true);
+        // The defect is now fixed at both ends (`stock-ledger-service.ts`'s
+        // `applyMovement` and `wac.ts`'s replay): the last issue out of a
+        // position is worth whatever is left in it. So there is no residue to
+        // bound, and the assertion is the one worth making — value with no
+        // quantity behind it is invisible on every screen, because the average
+        // is zero by definition once the quantity is.
+        expect(position.totalValue.scaled).toBe(0n);
       }),
       { numRuns: 400 },
     );

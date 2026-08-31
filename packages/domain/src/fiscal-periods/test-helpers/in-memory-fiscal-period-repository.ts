@@ -1,4 +1,5 @@
 import type { FiscalPeriod, FiscalPeriodRepository } from "../fiscal-period.js";
+import { calendarDay } from "../../dates.js";
 
 /** A trivial in-memory {@link FiscalPeriodRepository} fake for domain-layer unit tests. */
 export class InMemoryFiscalPeriodRepository implements FiscalPeriodRepository {
@@ -9,8 +10,12 @@ export class InMemoryFiscalPeriodRepository implements FiscalPeriodRepository {
   }
 
   async findByDate(date: string): Promise<FiscalPeriod | null> {
+    // A period boundary is a DAY and `date` may be an INSTANT; comparing them
+    // as strings put every timestamp after the last day of its own period, so
+    // nothing could post on the 31st. See `calendarDay`.
+    const day = calendarDay(date);
     for (const period of this.rows.values()) {
-      if (date >= period.startDate && date <= period.endDate) return period;
+      if (day >= period.startDate && day <= period.endDate) return period;
     }
     return null;
   }

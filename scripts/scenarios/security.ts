@@ -183,6 +183,94 @@ export async function run(ctx: Ctx): Promise<void> {
     }
   });
 
+  await ctx.scenario("security — a session only works from where it was issued", async () => {
+    // THE RESIDUAL THE WHOLE REVIEW KEPT RETURNING TO. A grant named a user and
+    // nothing else, so a token lifted from a till — read out of its storage, or
+    // taken off a machine somebody carried home — worked from any device on the
+    // shop wifi, as that user, for at least twelve hours. TLS on the LAN socket
+    // ended sniffing; it does nothing about a token that already left.
+    //
+    // Driven here rather than only in unit tests because the binding is only
+    // real if the ORIGIN reaches `sessions.issue` from the login route and
+    // `sessions.find` from the resolver, which is wiring, not arithmetic.
+    const bound = await createBackend({ dbPath: ":memory:" });
+    try {
+      /** What `@hono/node-server` hangs on `c.env`. Not a header — a client cannot write it. */
+      const from = (address: string | null) =>
+        address === null ? undefined : { incoming: { socket: { remoteAddress: address } } };
+      const call = (path: string, address: string | null, init: RequestInit = {}) =>
+        bound.app.fetch(new Request(`http://bound${path}`, init), from(address));
+      const login = async (address: string | null) => {
+        const res = await call("/auth/login", address, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
+        });
+        return ((await res.json()) as { token?: string }).token ?? "";
+      };
+      const read = (token: string, address: string | null) =>
+        call("/customers", address, { headers: { authorization: `Bearer ${token}` } });
+
+      const TILL = "192.168.7.21";
+      const THIEF = "192.168.7.99";
+
+      // 1. THE TILL BOOT PATH: login over the socket, then the bearer token
+      //    back over the same socket. Same origin throughout, so it must pass.
+      const tillToken = await login(TILL);
+      check("a till gets a token from the LAN socket", tillToken !== "", "no token");
+      check("and can use it from the till", (await read(tillToken, TILL)).status === 200);
+      // The same machine through a dual-stack listener. A binding that could not
+      // fold this would sign the till out on its next request.
+      check(
+        "including when the socket spells it ::ffff:",
+        (await read(tillToken, `::ffff:${TILL}`)).status === 200,
+      );
+
+      // 2. THE LIFTED TOKEN.
+      const stolen = await read(tillToken, THIEF);
+      check("the same token from another device ⇒ 401", stolen.status === 401, `got ${stolen.status}`);
+      check(
+        "and it is REVOKED, not merely refused there",
+        (await read(tillToken, TILL)).status === 401,
+        "the token still worked from the till",
+      );
+
+      // 3. THE DESKTOP SHELL'S OWN SESSION. No origin at all — and "no origin"
+      //    is ONE origin, the in-process mount, not a wildcard.
+      const hostToken = await login(null);
+      check("the host's own session works on the host", (await read(hostToken, null)).status === 200);
+      check(
+        "and does not work from the wifi",
+        (await read(hostToken, TILL)).status === 401,
+        "a host token was accepted over the network",
+      );
+
+      // 4. THE FORENSIC ROW. A token used from a second address is the single
+      //    clearest signal that a credential has been copied; it wrote nothing.
+      const auditor = await login(null);
+      const events = await call("/audit?stream=security&limit=50", null, {
+        headers: { authorization: `Bearer ${auditor}` },
+      });
+      const rows = ctx.rows(await events.json());
+      const rejections = rows.filter((e: any) => e.action === "SESSION_ORIGIN_REJECTED");
+      const lifted = rejections.find((e: any) => e.details?.presentedFrom === THIEF);
+      check("the lifted till token is recorded", !!lifted, JSON.stringify(rows.map((e: any) => e.action)).slice(0, 240));
+      check("as CRITICAL", lifted?.severity === "CRITICAL", String(lifted?.severity));
+      check(
+        "naming both addresses",
+        lifted?.details?.issuedFrom === TILL && lifted?.details?.presentedFrom === THIEF,
+        JSON.stringify(lifted?.details).slice(0, 160),
+      );
+      check("and attributed to the account whose token it was", lifted?.actor === lifted?.entityId && !!lifted?.actor);
+      // The host token taken onto the wifi is the same event seen from the
+      // other side, and it is recorded too — "issued on the host" is a fact.
+      const hostLifted = rejections.find((e: any) => e.details?.issuedFrom === "host");
+      check("a host token carried onto the wifi is recorded too", !!hostLifted, JSON.stringify(hostLifted?.details).slice(0, 160));
+    } finally {
+      bound.close();
+    }
+  });
+
   await ctx.scenario("security — a webhook cannot be aimed at the shop's own network", async () => {
     const transport = createFetchWebhookTransport();
     for (const url of [

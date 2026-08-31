@@ -7,7 +7,7 @@ import {
   ALL_SCOPE,
 } from "../../packages/domain/src/index.js";
 import { createLoginThrottle, throttleKey } from "../../packages/api/src/login-throttle.js";
-import { createSessionRegistry } from "../../packages/api/src/session-auth.js";
+import { canonicalOrigin, createSessionRegistry } from "../../packages/api/src/session-auth.js";
 
 /**
  * The UNIT layer of the security suite.
@@ -190,5 +190,92 @@ export async function run(ctx: Ctx): Promise<void> {
     // status quo before `revokeUser` was actually called.
     clock += 13 * 60 * 60 * 1000;
     check("an untouched session idles out", !registry.find(other));
+  });
+
+  await ctx.scenario("units — one machine's many spellings are one origin, and null is not a wildcard", async () => {
+    // A till binds the address the socket reported at login and presents the
+    // address the socket reports on every request afterwards. Those are the
+    // same machine and often not the same string: Node hands back
+    // `::ffff:192.168.1.5` on a dual-stack listener and `192.168.1.5` on an
+    // IPv4 one, a link-local address arrives carrying a `%en0` zone the peer
+    // never chose, and `fe80::1` has eight legal spellings. Compared raw, the
+    // till binds at login and is signed out on its next request — which is how
+    // a binding check gets softened to a warning and then to nothing.
+    //
+    // No reachable request shape exercises these, which is why they live at the
+    // unit layer; `security.ts` proves the binding is WIRED.
+    for (const [a, b] of [
+      ["::ffff:192.168.1.5", "192.168.1.5"],
+      ["::FFFF:192.168.1.5", "192.168.1.5"],
+      ["::ffff:c0a8:105", "192.168.1.5"],
+      ["0:0:0:0:0:ffff:c0a8:105", "192.168.1.5"],
+      ["[::ffff:192.168.1.5]", "192.168.1.5"],
+      ["fe80::1%en0", "fe80::1"],
+      ["fe80:0:0:0:0:0:0:1", "FE80::1"],
+      ["[fe80::1%eth0]", "fe80::1"],
+    ] as const) {
+      check(`${a} is ${b}`, canonicalOrigin(a) === canonicalOrigin(b), `${canonicalOrigin(a)} vs ${canonicalOrigin(b)}`);
+    }
+
+    // NULL IS THE IN-PROCESS MOUNT AND NOTHING ELSE. If any address the wire
+    // could produce collapsed to it, everything that reaches the socket could
+    // present a host-issued token — the binding would be bypassable by the one
+    // caller it most needs to stop.
+    for (const raw of ["", "   ", "%", "[]", "0.0.0.0", "::", "not-an-address"]) {
+      check(`"${raw}" is not the host`, canonicalOrigin(raw) !== null, String(canonicalOrigin(raw)));
+    }
+    check("only the host is the host", canonicalOrigin(null) === null);
+    check(
+      "and an unparseable origin is compared verbatim, never normalised together",
+      canonicalOrigin("socket-a") !== canonicalOrigin("socket-b"),
+    );
+  });
+
+  await ctx.scenario("units — a session that is in constant use still ends", async () => {
+    // `lastSeenAt` is refreshed on every find(), so the twelve-hour idle
+    // timeout only ever fired on a session nobody was using — which is exactly
+    // the session that needed no bounding. A token lifted from a till and
+    // polled once an hour never expired at any point in its life.
+    let clock = 9_000_000;
+    const registry = createSessionRegistry(() => clock);
+    const grant = { userId: "U9", permissions: ["sales.invoice.view"], roleCode: "CLERK", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE };
+    const busy = registry.issue(grant, "192.168.7.21");
+
+    let aliveAt = 0;
+    for (let hour = 1; hour <= 24; hour += 1) {
+      clock += 60 * 60 * 1000;
+      if (registry.find(busy, "192.168.7.21")) aliveAt = hour;
+    }
+    check("a polled session dies at the absolute cap, not never", aliveAt === 16, `alive through hour ${aliveAt}`);
+
+    // And the shorter idle timeout still governs the laptop nobody touched.
+    const idle = registry.issue(grant, "192.168.7.21");
+    clock += 12 * 60 * 60 * 1000 + 1;
+    const refusal = registry.inspect(idle, "192.168.7.21").refusal;
+    check("while an untouched one still goes idle first", refusal?.reason === "idle", String(refusal?.reason));
+  });
+
+  await ctx.scenario("units — a moved token is revoked, never re-bound", async () => {
+    // Re-binding to whatever address turns up is arithmetically the same as not
+    // binding: the first request from the thief re-binds the session to the
+    // thief. So a mismatch ENDS the session — including for the legitimate till
+    // it was issued to, which signs in again.
+    const registry = createSessionRegistry();
+    const grant = { userId: "U7", permissions: ["sales.invoice.view"], roleCode: "CLERK", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE };
+
+    const till = registry.issue(grant, "192.168.7.21");
+    check("the till's own token resolves", !!registry.find(till, "192.168.7.21"));
+    const moved = registry.inspect(till, "192.168.7.99").refusal;
+    check("a second address is refused as a MOVE", moved?.reason === "moved", String(moved?.reason));
+    check("naming where it was issued", moved?.issuedFrom === "192.168.7.21", String(moved?.issuedFrom));
+    check("and where it turned up", moved?.presentedFrom === "192.168.7.99", String(moved?.presentedFrom));
+    check("the token is dead at home too", !registry.find(till, "192.168.7.21"));
+
+    // The desktop shell's own session: no origin is ONE origin, not any origin.
+    const host = registry.issue(grant);
+    check("a host session works on the host", !!registry.find(host));
+    check("and nowhere on the wire", !registry.find(host, "192.168.7.21"));
+    const fromTill = registry.issue(grant, "192.168.7.21");
+    check("a till session does not work over the in-process mount", !registry.find(fromTill));
   });
 }

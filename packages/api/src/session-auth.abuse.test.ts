@@ -127,7 +127,7 @@ describe("session tokens — brute force and forgery", () => {
     expect((await app.fetch(new Request("http://local/secret", bearer(other)))).status).toBe(200);
   });
 
-  it("an idle session expires, and a used one does not", async () => {
+  it("an idle session expires, and a used one survives the idle clock", async () => {
     let clock = 1_000_000;
     const sessions = createSessionRegistry(() => clock);
     const token = sessions.issue(clerkGrant);
@@ -135,10 +135,31 @@ describe("session tokens — brute force and forgery", () => {
     clock += IDLE_TIMEOUT_MS - 1;
     expect(sessions.find(token)).not.toBeNull();
 
+    // Used, so the idle clock restarted — a shop laptop left signed in all day
+    // is not signed out at lunchtime.
     clock += IDLE_TIMEOUT_MS - 1;
-    expect(sessions.find(token)).not.toBeNull();
+    expect(sessions.find(token)).toBeNull(); // ...but the absolute cap has passed
 
+    const fresh = sessions.issue(clerkGrant);
+    clock += IDLE_TIMEOUT_MS - 1;
+    expect(sessions.find(fresh)).not.toBeNull();
     clock += IDLE_TIMEOUT_MS + 1;
+    expect(sessions.find(fresh)).toBeNull();
+  });
+
+  it("caps a session that is in constant use, which the idle timeout alone never did", () => {
+    // `lastSeenAt` refreshes on every find(), so before the absolute cap a
+    // token that was POLLED never expired at any point in its life — which is
+    // exactly the state a token lifted from a till is in.
+    let clock = 1_000_000;
+    const sessions = createSessionRegistry(() => clock);
+    const token = sessions.issue(clerkGrant);
+
+    for (let hour = 1; hour <= 16; hour += 1) {
+      clock += 60 * 60 * 1000;
+      expect(sessions.find(token)).not.toBeNull();
+    }
+    clock += 1;
     expect(sessions.find(token)).toBeNull();
   });
 

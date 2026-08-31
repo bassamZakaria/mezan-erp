@@ -12,6 +12,19 @@ describe("SqliteFiscalPeriodRepository", () => {
       expect(await repo.findByYearAndNumber(2026, 1)).toMatchObject({ startDate: "2026-01-01" });
       expect(await repo.findByDate("2026-08-15")).toMatchObject({ periodNumber: 8 });
       expect(await repo.findByDate("2027-01-01")).toBeNull();
+
+      // THE LAST DAY OF THE MONTH, AS AN INSTANT — which is what every caller
+      // actually passes (a document's `occurredAt`), and what this test used to
+      // miss by asking with a mid-month DAY. `end_date` is "2026-08-31" and
+      // string order puts "2026-08-31T…" after it, so `BETWEEN` matched nothing
+      // and every GL posting on a month's last day failed for want of a period
+      // — on the day a shop posts most, because that is when it closes.
+      expect(await repo.findByDate("2026-08-31T03:10:33.016Z")).toMatchObject({ periodNumber: 8 });
+      expect(await repo.findByDate("2026-08-01T00:00:00.000Z")).toMatchObject({ periodNumber: 8 });
+      expect(await repo.findByDate("2026-02-28T23:59:59.999Z")).toMatchObject({ periodNumber: 2 });
+      // Still outside is still outside: normalising the day must not widen the
+      // period by one.
+      expect(await repo.findByDate("2027-01-01T00:00:00.000Z")).toBeNull();
     } finally {
       repo.close();
     }

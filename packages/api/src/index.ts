@@ -59,8 +59,13 @@ export {
   createSessionRegistry,
   createSessionAuthContextResolver,
   readSessionToken,
+  sessionOriginReporting,
+  canonicalOrigin,
   type SessionGrant,
   type SessionRegistry,
+  type SessionLookup,
+  type SessionRefusal,
+  type SessionRefusalReason,
 } from "./session-auth.js";
 export { createLoginThrottle, throttleKey, type LoginThrottle } from "./login-throttle.js";
 export { requestOrigin } from "./request-origin.js";

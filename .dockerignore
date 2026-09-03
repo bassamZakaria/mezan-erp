@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.claude
+e2e-results
+docs
+*.db
+*.db-wal
+*.db-shm

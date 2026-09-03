@@ -114,6 +114,9 @@ importers:
       '@mezan/backend':
         specifier: workspace:*
         version: link:../../packages/backend
+      hono:
+        specifier: ^4.6.14
+        version: 4.13.3
 
   apps/web:
     dependencies:

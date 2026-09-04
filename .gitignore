@@ -54,3 +54,6 @@ coverage/
 .tmp-*
 **/__probe.test.ts
 *.bak
+
+# Local staging/testing databases (scripts/env.mjs)
+.data/

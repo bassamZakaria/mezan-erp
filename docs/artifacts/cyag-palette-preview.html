@@ -1,0 +1,1936 @@
+<title>Mezan in Cyag Blue</title>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --page-bg:#eae6de;
+  --page-surface:#fbf9f5;
+  --page-ink:#1b1a17;
+  --page-muted:#5d5a52;
+  --page-faint:#8a857a;
+  --page-rule:#d9d3c7;
+  --page-mark:#003ce1;
+  --mono:'IBM Plex Mono','IBM Plex Sans Arabic',monospace;
+  --body:'IBM Plex Sans Arabic','IBM Plex Sans',system-ui,sans-serif;
+  --disp:'Tajawal','IBM Plex Sans Arabic',system-ui,sans-serif;
+  --lat:'IBM Plex Sans',system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --page-bg:#14161a; --page-surface:#1c1f25; --page-ink:#e9ecef; --page-muted:#a4abb5;
+    --page-faint:#767d87; --page-rule:#2b3038; --page-mark:#6e9bff; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --page-bg:#14161a; --page-surface:#1c1f25; --page-ink:#e9ecef; --page-muted:#a4abb5;
+  --page-faint:#767d87; --page-rule:#2b3038; --page-mark:#6e9bff; color-scheme:dark;
+}
+
+body{ background:var(--page-bg); color:var(--page-ink); font-family:var(--body);
+      font-size:15px; line-height:1.65; -webkit-font-smoothing:antialiased; }
+.wrap{ max-width:1180px; margin-inline:auto; padding:44px 26px 90px; }
+.lat{ font-family:var(--lat); font-feature-settings:"ss01"; }
+.num{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+/* ── page masthead ─────────────────────────────────────────────── */
+.masthead{ display:grid; grid-template-columns:1fr auto; gap:26px; align-items:end;
+           padding-block-end:22px; border-block-end:2px solid var(--page-ink); }
+h1{ font-family:var(--disp); font-size:clamp(30px,4.4vw,46px); font-weight:800; line-height:1.06;
+    letter-spacing:-.02em; margin:0; text-wrap:balance; }
+.stand{ color:var(--page-muted); max-width:60ch; margin:12px 0 0; }
+.source{ font-size:12.5px; color:var(--page-faint); }
+.source a{ color:var(--page-mark); text-decoration-thickness:1px; text-underline-offset:3px; }
+.themebtn{ font:inherit; font-size:12.5px; padding:7px 13px; border-radius:99px; cursor:pointer;
+           background:var(--page-surface); color:var(--page-ink); border:1px solid var(--page-rule); }
+.themebtn:hover{ border-color:var(--page-mark); }
+.themebtn:focus-visible{ outline:2px solid var(--page-mark); outline-offset:2px; }
+
+section{ margin-block-start:56px; }
+h2{ font-family:var(--disp); font-size:23px; font-weight:700; letter-spacing:-.01em; margin:0 0 6px; }
+h3{ font-size:15px; font-weight:600; margin:0 0 4px; }
+.lede{ color:var(--page-muted); max-width:68ch; margin:0 0 22px; }
+.eyebrow{ font-size:11px; font-weight:600; letter-spacing:.13em; text-transform:uppercase;
+          color:var(--page-faint); margin-block-end:9px; }
+
+/* ── source swatches ───────────────────────────────────────────── */
+.swatches{ display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:2px;
+           border:1px solid var(--page-rule); border-radius:10px; overflow:hidden; }
+.sw{ padding:0; background:var(--page-surface); }
+.sw .chip{ height:74px; display:block; }
+.sw .meta{ padding:10px 12px 12px; }
+.sw .role{ font-size:12.5px; font-weight:600; }
+.sw .hex{ font-family:var(--mono); font-size:11.5px; color:var(--page-muted); }
+.grad{ background:linear-gradient(90deg,#0099F3,#0000D5); }
+
+/* ── finding callout ───────────────────────────────────────────── */
+.finding{ display:grid; grid-template-columns:auto 1fr; gap:0 18px; align-items:start;
+          background:var(--page-surface); border-inline-start:4px solid #c0402f;
+          border-radius:0 10px 10px 0; padding:18px 20px; }
+.finding .ratio{ font-family:var(--mono); font-size:32px; font-weight:600; line-height:1;
+                 color:#c0402f; padding-block-start:4px; }
+.finding p{ margin:6px 0 0; color:var(--page-muted); max-width:62ch; }
+.finding strong{ color:var(--page-ink); }
+
+/* ── contrast table ────────────────────────────────────────────── */
+.tblwrap{ overflow-x:auto; border:1px solid var(--page-rule); border-radius:10px;
+          background:var(--page-surface); }
+table.data{ border-collapse:collapse; width:100%; font-size:13.5px; min-width:540px; }
+table.data th{ text-align:start; font-weight:600; font-size:11px; letter-spacing:.1em;
+               text-transform:uppercase; color:var(--page-faint); padding:12px 14px;
+               border-block-end:1px solid var(--page-rule); white-space:nowrap; }
+table.data td{ padding:10px 14px; border-block-end:1px solid var(--page-rule); }
+table.data tr:last-child td{ border-block-end:0; }
+table.data td.n{ font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.pass{ color:#1c6b41; font-weight:600; }
+.fail{ color:#8f2a1e; font-weight:600; }
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .pass{color:#84d6a9}
+  :root:not([data-theme="light"]) .fail{color:#f0a796} }
+:root[data-theme="dark"] .pass{color:#84d6a9} :root[data-theme="dark"] .fail{color:#f0a796}
+.dot{ display:inline-block; width:11px; height:11px; border-radius:3px; margin-inline-end:7px;
+      vertical-align:-1px; }
+
+/* ══ SPECIMEN: the Mezan shell, rendered once per palette ═════════ */
+.app{
+  --bg:#f2efe9; --surface:#ffffff; --surface-2:#f7f4ed; --surface-3:#ede7da;
+  --border:#e6e0d2; --border-strong:#8a8171;
+  --text:#14231e; --text-muted:#57685f; --text-faint:#8b9189;
+  --chrome:#0b3a34; --chrome-2:#072b27; --chrome-ink:#e4f1ec; --chrome-muted:#8fb0a6;
+  --chrome-border:rgba(255,255,255,.09); --chrome-hover:rgba(255,255,255,.06);
+  --chrome-accent:#cb9e3d; --chrome-accent-ink:#1c1405;
+  --success:#2c8a57; --success-soft:#e1f1e8; --success-ink:#1c6b41;
+  --warning:#8a5f18; --warning-soft:#f7ecd3;
+  --danger:#c0402f;  --danger-soft:#f8e4df;  --danger-ink:#8f2a1e;
+  --r-sm:5px; --r-md:8px; --r-lg:14px;
+  --shadow-1:0 1px 2px rgba(20,45,36,.07), 0 1px 1px rgba(20,45,36,.04);
+  color-scheme:light;
+}
+.app.v-teal{
+  --brand:#0c463e; --brand-strong:#073029; --brand-soft:#e2efea; --brand-ink:#ffffff;
+  --accent:#b0862f; --accent-strong:#8a6620; --accent-soft:#f3e9cf;
+  --accent-bright:#cb9e3d; --accent-ink:#1c1405;
+}
+.app.v-a{
+  --brand:#003ce1; --brand-strong:#0000d5; --brand-soft:#dee9ff; --brand-ink:#ffffff;
+  --accent:#006cae; --accent-strong:#00527f; --accent-soft:#e2f2fd;
+  --accent-bright:#0099f3; --accent-ink:#04283d;
+}
+.app.v-b{
+  --brand:#0060f0; --brand-strong:#0000d5; --brand-soft:#dee9ff; --brand-ink:#ffffff;
+  --accent:#006cae; --accent-strong:#00527f; --accent-soft:#e2f2fd;
+  --accent-bright:#0099f3; --accent-ink:#04283d;
+  --brand-fill:linear-gradient(90deg,#0099f3,#0000d5);
+}
+
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .app{
+    --bg:#0a1310; --surface:#101c18; --surface-2:#152420; --surface-3:#1c2c27;
+    --border:#243530; --border-strong:#5b7a6d;
+    --text:#e9efea; --text-muted:#9db0a6; --text-faint:#6a7a70;
+    --chrome:#081310; --chrome-2:#050d0b; --chrome-muted:#83a79b;
+    --success:#4cb07d; --success-soft:#123626; --success-ink:#84d6a9;
+    --warning:#d9a24c; --warning-soft:#38290f;
+    --danger:#e37b67; --danger-soft:#3a1712; --danger-ink:#f0a796;
+    --shadow-1:0 1px 2px rgba(0,0,0,.5); color-scheme:dark;
+  }
+  :root:not([data-theme="light"]) .app.v-teal{
+    --brand:#3fb39e; --brand-strong:#57c9b3; --brand-soft:#0f2a25; --brand-ink:#06110d;
+    --accent:#d8b25f; --accent-strong:#e7c77c; --accent-soft:#2b2412; --accent-bright:#e7c77c;
+  }
+  :root:not([data-theme="light"]) .app.v-a,
+  :root:not([data-theme="light"]) .app.v-b{
+    --brand:#6e9bff; --brand-strong:#8fb4ff; --brand-soft:#101e3e; --brand-ink:#05102b;
+    --accent:#4db8ff; --accent-strong:#7fcdff; --accent-soft:#0a2536; --accent-bright:#4db8ff;
+    --brand-fill:linear-gradient(90deg,#4db8ff,#6e9bff);
+  }
+}
+:root[data-theme="dark"] .app{
+  --bg:#0a1310; --surface:#101c18; --surface-2:#152420; --surface-3:#1c2c27;
+  --border:#243530; --border-strong:#5b7a6d;
+  --text:#e9efea; --text-muted:#9db0a6; --text-faint:#6a7a70;
+  --chrome:#081310; --chrome-2:#050d0b; --chrome-muted:#83a79b;
+  --success:#4cb07d; --success-soft:#123626; --success-ink:#84d6a9;
+  --warning:#d9a24c; --warning-soft:#38290f;
+  --danger:#e37b67; --danger-soft:#3a1712; --danger-ink:#f0a796;
+  --shadow-1:0 1px 2px rgba(0,0,0,.5); color-scheme:dark;
+}
+:root[data-theme="dark"] .app.v-teal{
+  --brand:#3fb39e; --brand-strong:#57c9b3; --brand-soft:#0f2a25; --brand-ink:#06110d;
+  --accent:#d8b25f; --accent-strong:#e7c77c; --accent-soft:#2b2412; --accent-bright:#e7c77c;
+}
+:root[data-theme="dark"] .app.v-a,
+:root[data-theme="dark"] .app.v-b{
+  --brand:#6e9bff; --brand-strong:#8fb4ff; --brand-soft:#101e3e; --brand-ink:#05102b;
+  --accent:#4db8ff; --accent-strong:#7fcdff; --accent-soft:#0a2536; --accent-bright:#4db8ff;
+  --brand-fill:linear-gradient(90deg,#4db8ff,#6e9bff);
+}
+
+.app{ direction:rtl; display:grid; grid-template-columns:186px 1fr; background:var(--bg);
+      border:1px solid var(--page-rule); border-radius:12px; overflow:hidden;
+      font-size:13px; color:var(--text); }
+.app .rail{ background:linear-gradient(180deg,var(--chrome),var(--chrome-2));
+            color:var(--chrome-ink); padding:14px 12px; display:flex; flex-direction:column; gap:3px; }
+.app .mark{ display:flex; align-items:center; gap:9px; padding-block-end:12px;
+            border-block-end:1px solid var(--chrome-border); margin-block-end:10px; }
+.app .mark .glyph{ width:30px; height:30px; border-radius:8px; display:grid; place-items:center;
+                   background:var(--chrome-accent); color:var(--chrome-accent-ink);
+                   font-family:var(--disp); font-weight:800; font-size:15px; }
+.app .mark .nm{ font-family:var(--disp); font-weight:700; font-size:15px; line-height:1.15; }
+.app .mark .sub{ font-family:var(--lat); font-size:9.5px; color:var(--chrome-muted); letter-spacing:.06em; }
+.app .co{ display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:var(--r-sm);
+          background:var(--chrome-hover); margin-block-end:12px; }
+.app .co .badge{ width:20px; height:20px; border-radius:5px; background:var(--brand);
+                 color:var(--brand-ink); display:grid; place-items:center;
+                 font-family:var(--lat); font-size:10px; font-weight:700; }
+.app .co .co-n{ font-size:11.5px; font-weight:600; }
+.app .co .co-s{ font-size:9.5px; color:var(--chrome-muted); }
+.app .navlbl{ font-size:9px; letter-spacing:.14em; color:var(--chrome-muted);
+              padding:9px 9px 4px; }
+.app .nav{ position:relative; display:flex; align-items:center; gap:8px; padding:7px 9px;
+           border-radius:var(--r-sm); color:var(--chrome-ink); opacity:.78; font-size:12px; }
+.app .nav .ct{ margin-inline-start:auto; font-family:var(--mono); font-size:10px;
+               color:var(--chrome-muted); }
+.app .nav.on{ background:rgba(255,255,255,.09); opacity:1; font-weight:600; }
+.app .nav.on::before{ content:""; position:absolute; inset-inline-start:-7px; inset-block:5px;
+                      width:3px; border-radius:0 3px 3px 0; background:var(--chrome-accent); }
+.app .nav.on .ct{ color:var(--chrome-accent); }
+
+.app .main{ display:flex; flex-direction:column; min-width:0; }
+.app .top{ display:flex; align-items:center; gap:10px; padding:10px 16px;
+           background:var(--surface); border-block-end:1px solid var(--border); }
+.app .crumb{ font-size:12px; color:var(--text-muted); }
+.app .crumb b{ color:var(--text); font-weight:600; }
+.app .top .sp{ flex:1; }
+.app .btn{ font:inherit; font-size:12px; padding:6px 12px; border-radius:var(--r-md);
+           border:1px solid var(--border-strong); background:var(--surface); color:var(--text);
+           cursor:pointer; }
+.app .btn:hover{ border-color:var(--accent); }
+.app .btn:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; }
+.app .btn.primary{ background:linear-gradient(160deg,var(--brand),var(--brand-strong));
+                   color:var(--brand-ink); border-color:transparent; font-weight:600; }
+.app.v-b .btn.primary{ background:var(--brand-fill); }
+.app .btn.ghost{ background:var(--brand-soft); color:var(--brand); border-color:transparent;
+                 font-weight:600; }
+.app .stage{ padding:16px; display:flex; flex-direction:column; gap:14px; }
+.app .eyeb{ font-size:10px; font-weight:700; letter-spacing:.1em; color:var(--accent); }
+.app .kpis{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.app .kpi{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md);
+           padding:11px 13px; box-shadow:var(--shadow-1); }
+.app .kpi .kl{ font-size:11px; color:var(--text-muted); }
+.app .kpi .kv{ font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:19px;
+               font-weight:600; letter-spacing:-.02em; margin-block:4px 2px; }
+.app .kpi .kv .u{ font-family:var(--body); font-size:10.5px; color:var(--text-faint); font-weight:500; }
+.app .kpi.lead{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand) inset, var(--shadow-1); }
+.app .kpi.lead .kv{ color:var(--brand); }
+.app .delta{ font-size:10.5px; font-family:var(--mono); }
+.app .delta.up{ color:var(--success-ink); } .app .delta.dn{ color:var(--danger-ink); }
+.app .chips{ display:flex; flex-wrap:wrap; gap:7px; }
+.app .chip2{ display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:99px;
+             border:1px solid var(--border); background:var(--surface); font-size:11.5px;
+             color:var(--text-muted); }
+.app .chip2 .n{ font-family:var(--mono); font-size:10px; padding:0 5px; border-radius:99px;
+                background:var(--surface-3); }
+.app .chip2.on{ background:var(--brand); color:var(--brand-ink); border-color:var(--brand);
+                font-weight:600; }
+.app .chip2.on .n{ background:rgba(255,255,255,.22); color:#fff; }
+.app .panel{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md);
+             overflow:hidden; box-shadow:var(--shadow-1); }
+.app .ph{ display:flex; align-items:center; gap:9px; padding:10px 13px;
+          border-block-end:1px solid var(--border); }
+.app .ph h4{ margin:0; font-size:12.5px; font-weight:600; }
+.app .ph .link{ margin-inline-start:auto; font-size:11.5px; color:var(--accent); font-weight:600; }
+.app table{ width:100%; border-collapse:collapse; font-size:11.5px; }
+.app th{ text-align:start; font-size:9.5px; font-weight:600; letter-spacing:.09em;
+         color:var(--text-faint); padding:8px 13px; background:var(--surface-2);
+         border-block-end:1px solid var(--border); }
+.app td{ padding:8px 13px; border-block-end:1px solid var(--border); }
+.app tr:last-child td{ border-block-end:0; }
+.app td.n{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.app td.doc{ font-family:var(--mono); color:var(--brand); font-weight:600; }
+.app .pill{ display:inline-block; padding:2px 9px; border-radius:99px; font-size:10px;
+            font-weight:600; }
+.app .pill.ok{ background:var(--success-soft); color:var(--success-ink); }
+.app .pill.wait{ background:var(--warning-soft); color:var(--warning); }
+.app .pill.late{ background:var(--danger-soft); color:var(--danger-ink); }
+.app .pill.draft{ background:var(--brand-soft); color:var(--brand); }
+.app .bar{ height:6px; border-radius:99px; background:var(--surface-3); overflow:hidden; }
+.app .bar i{ display:block; height:100%; background:linear-gradient(90deg,var(--accent-bright),var(--brand)); }
+
+/* ── SIDEBAR OPTIONS: the chrome family, swapped whole ──────────── */
+.app.ch-teal { --chrome:#0b3a34; --chrome-2:#072b27; --chrome-ink:#e4f1ec; --chrome-muted:#8fb0a6;
+  --chrome-accent:#cb9e3d; --chrome-accent-ink:#1c1405;
+  --chrome-border:rgba(255,255,255,.09); --chrome-hover:rgba(255,255,255,.06); }
+.app.ch-navy { --chrome:#0f172a; --chrome-2:#080e1c; --chrome-ink:#f8fafc; --chrome-muted:#94a3b8;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.10); --chrome-hover:rgba(255,255,255,.07); }
+.app.ch-deep { --chrome:#001b6b; --chrome-2:#00114a; --chrome-ink:#e8eeff; --chrome-muted:#97a9e0;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.12); --chrome-hover:rgba(255,255,255,.09); }
+.app.ch-grad { --chrome:#003ce1; --chrome-2:#0000d5; --chrome-ink:#ffffff; --chrome-muted:#c3d2ff;
+  --chrome-accent:#ffffff; --chrome-accent-ink:#0000d5;
+  --chrome-border:rgba(255,255,255,.16); --chrome-hover:rgba(255,255,255,.12); }
+.app.ch-ink  { --chrome:#0b0f14; --chrome-2:#05070a; --chrome-ink:#e9edf2; --chrome-muted:#8a939f;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.08); --chrome-hover:rgba(255,255,255,.06); }
+.app.ch-steel{ --chrome:#1e293b; --chrome-2:#0f172a; --chrome-ink:#f1f5f9; --chrome-muted:#94a3b8;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.10); --chrome-hover:rgba(255,255,255,.08); }
+.app.ch-light{ --chrome:#ffffff; --chrome-2:#f8fafc; --chrome-ink:#1e293b; --chrome-muted:#64748b;
+  --chrome-accent:#003ce1; --chrome-accent-ink:#ffffff;
+  --chrome-border:#e2e8f0; --chrome-hover:#eef2f7; }
+.app.ch-light .rail{ border-inline-end:1px solid #e2e8f0; }
+.app.ch-light .co{ background:#f1f5f9; }
+
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .app.ch-teal { --chrome:#081310; --chrome-2:#050d0b;
+    --chrome-accent:#e7c77c; --chrome-muted:#83a79b; }
+  :root:not([data-theme="light"]) .app.ch-navy { --chrome:#0a1120; --chrome-2:#050912; }
+  :root:not([data-theme="light"]) .app.ch-deep { --chrome:#001450; --chrome-2:#000c33; }
+  :root:not([data-theme="light"]) .app.ch-grad { --chrome:#0030b4; --chrome-2:#0000a8; }
+  :root:not([data-theme="light"]) .app.ch-ink  { --chrome:#07090d; --chrome-2:#030405; }
+  :root:not([data-theme="light"]) .app.ch-steel{ --chrome:#151d2b; --chrome-2:#0a0f1a; }
+  :root:not([data-theme="light"]) .app.ch-light{ --chrome:#141b26; --chrome-2:#0d131c;
+    --chrome-ink:#e8eef5; --chrome-muted:#8d99a8; --chrome-accent:#4db8ff;
+    --chrome-accent-ink:#04283d; --chrome-border:rgba(255,255,255,.09);
+    --chrome-hover:rgba(255,255,255,.06); }
+  :root:not([data-theme="light"]) .app.ch-light .rail{ border-inline-end:1px solid rgba(255,255,255,.09); }
+  :root:not([data-theme="light"]) .app.ch-light .co{ background:rgba(255,255,255,.06); }
+}
+:root[data-theme="dark"] .app.ch-teal { --chrome:#081310; --chrome-2:#050d0b;
+  --chrome-accent:#e7c77c; --chrome-muted:#83a79b; }
+:root[data-theme="dark"] .app.ch-navy { --chrome:#0a1120; --chrome-2:#050912; }
+:root[data-theme="dark"] .app.ch-deep { --chrome:#001450; --chrome-2:#000c33; }
+:root[data-theme="dark"] .app.ch-grad { --chrome:#0030b4; --chrome-2:#0000a8; }
+:root[data-theme="dark"] .app.ch-ink  { --chrome:#07090d; --chrome-2:#030405; }
+:root[data-theme="dark"] .app.ch-steel{ --chrome:#151d2b; --chrome-2:#0a0f1a; }
+:root[data-theme="dark"] .app.ch-light{ --chrome:#141b26; --chrome-2:#0d131c;
+  --chrome-ink:#e8eef5; --chrome-muted:#8d99a8; --chrome-accent:#4db8ff;
+  --chrome-accent-ink:#04283d; --chrome-border:rgba(255,255,255,.09);
+  --chrome-hover:rgba(255,255,255,.06); }
+:root[data-theme="dark"] .app.ch-light .rail{ border-inline-end:1px solid rgba(255,255,255,.09); }
+:root[data-theme="dark"] .app.ch-light .co{ background:rgba(255,255,255,.06); }
+
+/* rail-only gallery */
+.rails{ display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:12px; align-items:start; }
+@media (max-width:980px){ .rails{ grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); } }
+.railcard{ display:flex; flex-direction:column; gap:8px; }
+.railcard .app{ grid-template-columns:1fr; min-width:0; }
+.railcard .rail{ padding:12px 9px; }
+.railcard .nav{ font-size:11px; padding:6px 8px; }
+.railcard .mark .nm{ font-size:13.5px; }
+.railcard .cap{ display:flex; align-items:baseline; gap:7px; flex-wrap:wrap; font-size:12px; }
+.railcard .cap b{ font-weight:600; }
+.railcard .cap .hex{ font-family:var(--mono); font-size:10.5px; color:var(--page-faint); }
+.railcard .cr{ font-family:var(--mono); font-size:10.5px; color:var(--page-muted); }
+
+
+/* ── FORCED THEMES: .tl renders a specimen light and .td dark whatever the
+     viewer's theme is. Doubled class so it outranks the [data-theme] blocks. */
+.tl.tl .app{ --bg:#f2efe9; --surface:#ffffff; --surface-2:#f7f4ed; --surface-3:#ede7da;
+  --border:#e6e0d2; --border-strong:#8a8171;
+  --text:#14231e; --text-muted:#57685f; --text-faint:#8b9189;
+  --chrome:#0b3a34; --chrome-2:#072b27; --chrome-ink:#e4f1ec; --chrome-muted:#8fb0a6;
+  --chrome-border:rgba(255,255,255,.09); --chrome-hover:rgba(255,255,255,.06);
+  --chrome-accent:#cb9e3d; --chrome-accent-ink:#1c1405;
+  --success:#2c8a57; --success-soft:#e1f1e8; --success-ink:#1c6b41;
+  --warning:#8a5f18; --warning-soft:#f7ecd3;
+  --danger:#c0402f;  --danger-soft:#f8e4df;  --danger-ink:#8f2a1e;
+  --r-sm:5px; --r-md:8px; --r-lg:14px;
+  --shadow-1:0 1px 2px rgba(20,45,36,.07), 0 1px 1px rgba(20,45,36,.04);
+  color-scheme:light; }
+.td.td .app{ --bg:#f2efe9; --surface:#ffffff; --surface-2:#f7f4ed; --surface-3:#ede7da;
+  --border:#e6e0d2; --border-strong:#8a8171;
+  --text:#14231e; --text-muted:#57685f; --text-faint:#8b9189;
+  --chrome:#0b3a34; --chrome-2:#072b27; --chrome-ink:#e4f1ec; --chrome-muted:#8fb0a6;
+  --chrome-border:rgba(255,255,255,.09); --chrome-hover:rgba(255,255,255,.06);
+  --chrome-accent:#cb9e3d; --chrome-accent-ink:#1c1405;
+  --success:#2c8a57; --success-soft:#e1f1e8; --success-ink:#1c6b41;
+  --warning:#8a5f18; --warning-soft:#f7ecd3;
+  --danger:#c0402f;  --danger-soft:#f8e4df;  --danger-ink:#8f2a1e;
+  --r-sm:5px; --r-md:8px; --r-lg:14px;
+  --shadow-1:0 1px 2px rgba(20,45,36,.07), 0 1px 1px rgba(20,45,36,.04);
+  color-scheme:light; --bg:#0a1310; --surface:#101c18; --surface-2:#152420; --surface-3:#1c2c27;
+  --border:#243530; --border-strong:#5b7a6d;
+  --text:#e9efea; --text-muted:#9db0a6; --text-faint:#6a7a70;
+  --chrome:#081310; --chrome-2:#050d0b; --chrome-muted:#83a79b;
+  --success:#4cb07d; --success-soft:#123626; --success-ink:#84d6a9;
+  --warning:#d9a24c; --warning-soft:#38290f;
+  --danger:#e37b67; --danger-soft:#3a1712; --danger-ink:#f0a796;
+  --shadow-1:0 1px 2px rgba(0,0,0,.5); color-scheme:dark; }
+.tl.tl .app.v-teal{ --brand:#0c463e; --brand-strong:#073029; --brand-soft:#e2efea; --brand-ink:#ffffff;
+  --accent:#b0862f; --accent-strong:#8a6620; --accent-soft:#f3e9cf;
+  --accent-bright:#cb9e3d; --accent-ink:#1c1405; }
+.td.td .app.v-teal{ --brand:#0c463e; --brand-strong:#073029; --brand-soft:#e2efea; --brand-ink:#ffffff;
+  --accent:#b0862f; --accent-strong:#8a6620; --accent-soft:#f3e9cf;
+  --accent-bright:#cb9e3d; --accent-ink:#1c1405; --brand:#3fb39e; --brand-strong:#57c9b3; --brand-soft:#0f2a25; --brand-ink:#06110d;
+  --accent:#d8b25f; --accent-strong:#e7c77c; --accent-soft:#2b2412; --accent-bright:#e7c77c; }
+.tl.tl .app.v-a{ --brand:#003ce1; --brand-strong:#0000d5; --brand-soft:#dee9ff; --brand-ink:#ffffff;
+  --accent:#006cae; --accent-strong:#00527f; --accent-soft:#e2f2fd;
+  --accent-bright:#0099f3; --accent-ink:#04283d; }
+.td.td .app.v-a{ --brand:#003ce1; --brand-strong:#0000d5; --brand-soft:#dee9ff; --brand-ink:#ffffff;
+  --accent:#006cae; --accent-strong:#00527f; --accent-soft:#e2f2fd;
+  --accent-bright:#0099f3; --accent-ink:#04283d; --brand:#6e9bff; --brand-strong:#8fb4ff; --brand-soft:#101e3e; --brand-ink:#05102b;
+  --accent:#4db8ff; --accent-strong:#7fcdff; --accent-soft:#0a2536; --accent-bright:#4db8ff;
+  --brand-fill:linear-gradient(90deg,#4db8ff,#6e9bff); }
+.tl.tl .app.v-b{ --brand:#0060f0; --brand-strong:#0000d5; --brand-soft:#dee9ff; --brand-ink:#ffffff;
+  --accent:#006cae; --accent-strong:#00527f; --accent-soft:#e2f2fd;
+  --accent-bright:#0099f3; --accent-ink:#04283d;
+  --brand-fill:linear-gradient(90deg,#0099f3,#0000d5); }
+.td.td .app.v-b{ --brand:#0060f0; --brand-strong:#0000d5; --brand-soft:#dee9ff; --brand-ink:#ffffff;
+  --accent:#006cae; --accent-strong:#00527f; --accent-soft:#e2f2fd;
+  --accent-bright:#0099f3; --accent-ink:#04283d;
+  --brand-fill:linear-gradient(90deg,#0099f3,#0000d5); --brand:#6e9bff; --brand-strong:#8fb4ff; --brand-soft:#101e3e; --brand-ink:#05102b;
+  --accent:#4db8ff; --accent-strong:#7fcdff; --accent-soft:#0a2536; --accent-bright:#4db8ff;
+  --brand-fill:linear-gradient(90deg,#4db8ff,#6e9bff); }
+.tl.tl .app.ch-teal{ --chrome:#0b3a34; --chrome-2:#072b27; --chrome-ink:#e4f1ec; --chrome-muted:#8fb0a6;
+  --chrome-accent:#cb9e3d; --chrome-accent-ink:#1c1405;
+  --chrome-border:rgba(255,255,255,.09); --chrome-hover:rgba(255,255,255,.06); }
+.td.td .app.ch-teal{ --chrome:#0b3a34; --chrome-2:#072b27; --chrome-ink:#e4f1ec; --chrome-muted:#8fb0a6;
+  --chrome-accent:#cb9e3d; --chrome-accent-ink:#1c1405;
+  --chrome-border:rgba(255,255,255,.09); --chrome-hover:rgba(255,255,255,.06); --chrome:#081310; --chrome-2:#050d0b;
+  --chrome-accent:#e7c77c; --chrome-muted:#83a79b; }
+.tl.tl .app.ch-navy{ --chrome:#0f172a; --chrome-2:#080e1c; --chrome-ink:#f8fafc; --chrome-muted:#94a3b8;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.10); --chrome-hover:rgba(255,255,255,.07); }
+.td.td .app.ch-navy{ --chrome:#0f172a; --chrome-2:#080e1c; --chrome-ink:#f8fafc; --chrome-muted:#94a3b8;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.10); --chrome-hover:rgba(255,255,255,.07); --chrome:#0a1120; --chrome-2:#050912; }
+.tl.tl .app.ch-deep{ --chrome:#001b6b; --chrome-2:#00114a; --chrome-ink:#e8eeff; --chrome-muted:#97a9e0;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.12); --chrome-hover:rgba(255,255,255,.09); }
+.td.td .app.ch-deep{ --chrome:#001b6b; --chrome-2:#00114a; --chrome-ink:#e8eeff; --chrome-muted:#97a9e0;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.12); --chrome-hover:rgba(255,255,255,.09); --chrome:#001450; --chrome-2:#000c33; }
+.tl.tl .app.ch-grad{ --chrome:#003ce1; --chrome-2:#0000d5; --chrome-ink:#ffffff; --chrome-muted:#c3d2ff;
+  --chrome-accent:#ffffff; --chrome-accent-ink:#0000d5;
+  --chrome-border:rgba(255,255,255,.16); --chrome-hover:rgba(255,255,255,.12); }
+.td.td .app.ch-grad{ --chrome:#003ce1; --chrome-2:#0000d5; --chrome-ink:#ffffff; --chrome-muted:#c3d2ff;
+  --chrome-accent:#ffffff; --chrome-accent-ink:#0000d5;
+  --chrome-border:rgba(255,255,255,.16); --chrome-hover:rgba(255,255,255,.12); --chrome:#0030b4; --chrome-2:#0000a8; }
+.tl.tl .app.ch-ink{ --chrome:#0b0f14; --chrome-2:#05070a; --chrome-ink:#e9edf2; --chrome-muted:#8a939f;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.08); --chrome-hover:rgba(255,255,255,.06); }
+.td.td .app.ch-ink{ --chrome:#0b0f14; --chrome-2:#05070a; --chrome-ink:#e9edf2; --chrome-muted:#8a939f;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.08); --chrome-hover:rgba(255,255,255,.06); --chrome:#07090d; --chrome-2:#030405; }
+.tl.tl .app.ch-steel{ --chrome:#1e293b; --chrome-2:#0f172a; --chrome-ink:#f1f5f9; --chrome-muted:#94a3b8;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.10); --chrome-hover:rgba(255,255,255,.08); }
+.td.td .app.ch-steel{ --chrome:#1e293b; --chrome-2:#0f172a; --chrome-ink:#f1f5f9; --chrome-muted:#94a3b8;
+  --chrome-accent:#0099f3; --chrome-accent-ink:#04283d;
+  --chrome-border:rgba(255,255,255,.10); --chrome-hover:rgba(255,255,255,.08); --chrome:#151d2b; --chrome-2:#0a0f1a; }
+.tl.tl .app.ch-light{ --chrome:#ffffff; --chrome-2:#f8fafc; --chrome-ink:#1e293b; --chrome-muted:#64748b;
+  --chrome-accent:#003ce1; --chrome-accent-ink:#ffffff;
+  --chrome-border:#e2e8f0; --chrome-hover:#eef2f7; }
+.td.td .app.ch-light{ --chrome:#ffffff; --chrome-2:#f8fafc; --chrome-ink:#1e293b; --chrome-muted:#64748b;
+  --chrome-accent:#003ce1; --chrome-accent-ink:#ffffff;
+  --chrome-border:#e2e8f0; --chrome-hover:#eef2f7; --chrome:#141b26; --chrome-2:#0d131c;
+  --chrome-ink:#e8eef5; --chrome-muted:#8d99a8; --chrome-accent:#4db8ff;
+  --chrome-accent-ink:#04283d; --chrome-border:rgba(255,255,255,.09);
+  --chrome-hover:rgba(255,255,255,.06); }
+.tl.tl .app.ch-light .rail{ border-inline-end:1px solid #e2e8f0; }
+.tl.tl .app.ch-light .co{ background:#f1f5f9; }
+.td.td .app.ch-light .rail{ border-inline-end:1px solid rgba(255,255,255,.09); }
+.td.td .app.ch-light .co{ background:rgba(255,255,255,.06); }
+
+/* ── specimen frame ────────────────────────────────────────────── */
+.spec{ margin-block-start:20px; }
+.spec > header{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+                margin-block-end:9px; }
+.spec > header .tag{ font-family:var(--mono); font-size:11px; padding:2px 8px; border-radius:4px;
+                     background:var(--page-surface); border:1px solid var(--page-rule);
+                     color:var(--page-muted); }
+.spec > header .note{ font-size:12.5px; color:var(--page-muted); }
+.themelabel{ display:flex; align-items:center; gap:12px; font-size:11px; font-weight:600;
+  letter-spacing:.13em; text-transform:uppercase; color:var(--page-faint); margin:26px 0 10px; }
+.themelabel i{ flex:1; height:1px; background:var(--page-rule); }
+.optrow{ margin-block-start:26px; padding-block-start:20px; border-block-start:1px solid var(--page-rule); }
+.optrow:first-of-type{ border-block-start:0; padding-block-start:0; }
+.opthead{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-block-end:10px; }
+.opthead b{ font-size:15px; font-weight:600; }
+.opthead .hex{ font-family:var(--mono); font-size:11px; color:var(--page-faint); }
+.opthead .cr{ font-family:var(--mono); font-size:11px; color:var(--page-muted); margin-inline-start:auto; }
+.cardnote{ font-size:12.5px; color:var(--page-muted); margin:9px 0 0; max-width:56ch; }
+.pair{ display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
+@media (max-width:900px){ .pair{ grid-template-columns:1fr; } .app{ grid-template-columns:150px 1fr; } }
+@media (max-width:620px){ .app .kpis{ grid-template-columns:1fr; } }
+
+/* ── token diff block ──────────────────────────────────────────── */
+pre.tok{ font-family:var(--mono); font-size:12px; line-height:1.75; margin:0;
+         background:var(--page-surface); border:1px solid var(--page-rule); border-radius:10px;
+         padding:16px 18px; overflow-x:auto; direction:ltr; text-align:left; }
+pre.tok .c{ color:var(--page-faint); }
+pre.tok .k{ color:var(--page-mark); }
+pre.tok del{ color:var(--page-faint); text-decoration-color:var(--page-faint); }
+.cols2{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+@media (max-width:860px){ .cols2{ grid-template-columns:1fr; } }
+footer{ margin-block-start:64px; padding-block-start:18px; border-block-start:1px solid var(--page-rule);
+        font-size:12.5px; color:var(--page-faint); }
+@media (prefers-reduced-motion:reduce){ *{ transition:none !important; animation:none !important; } }
+</style>
+
+<div class="wrap">
+
+<div class="masthead">
+  <div>
+    <h1>Mezan in Cyag Blue</h1>
+    <p class="stand">Mezan&rsquo;s brand and accent families re-cut from the <span class="lat">cyag.net</span> palette, rendered on the real sales-invoice shell so the swap can be judged as a screen rather than as a list of hex values. Nothing in <span class="lat">packages/ui/src/tokens/tokens.css</span> has been changed.</p>
+    <p class="source">Palette read from <a href="https://www.cyag.net/en">cyag.net/en</a> &mdash; three <span class="lat">_next</span> stylesheets, September 2026.</p>
+  </div>
+  <button class="themebtn" id="tt" type="button">تبديل السمة / Theme</button>
+</div>
+
+<section>
+  <div class="eyebrow">What Cyag ships</div>
+  <h2>The source palette</h2>
+  <p class="lede">Cyag runs on one gradient and a slate neutral ramp. Only the first three values are brand; the rest is Tailwind&rsquo;s slate scale, which Mezan already answers with its own warm-paper ramp.</p>
+  <div class="swatches">
+    <div class="sw"><span class="chip" style="background:#0099F3"></span><div class="meta"><div class="role">Primary</div><div class="hex lat">#0099F3</div></div></div>
+    <div class="sw"><span class="chip" style="background:#003CE1"></span><div class="meta"><div class="role">Accent / blue-mid</div><div class="hex lat">#003CE1</div></div></div>
+    <div class="sw"><span class="chip" style="background:#0000D5"></span><div class="meta"><div class="role">Secondary</div><div class="hex lat">#0000D5</div></div></div>
+    <div class="sw"><span class="chip grad"></span><div class="meta"><div class="role">Gradient</div><div class="hex lat">90deg, F3 &rarr; D5</div></div></div>
+    <div class="sw"><span class="chip" style="background:#0F172A"></span><div class="meta"><div class="role">Footer / dark</div><div class="hex lat">#0F172A</div></div></div>
+    <div class="sw"><span class="chip" style="background:#F8FAFC;box-shadow:inset 0 0 0 1px var(--page-rule)"></span><div class="meta"><div class="role">Background</div><div class="hex lat">#F8FAFC</div></div></div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">The constraint that decides the mapping</div>
+  <h2>#0099F3 cannot carry white text</h2>
+  <div class="finding">
+    <div class="ratio lat">3.07</div>
+    <div>
+      <h3>White on Cyag&rsquo;s primary fails WCAG AA (needs 4.5)</h3>
+      <p>Cyag gets away with it because its primary button is a <em>gradient</em> &mdash; the label sits mostly over the dark <span class="lat">#0000D5</span> end. Mezan fills flat: buttons, active chips, table selection, the KPI figure. So the bright blue becomes the <strong>accent</strong> family (rails, focus, eyebrows, the mark), and the deep blue becomes <strong>brand</strong>. That is the same division of labour teal and gold already have.</p>
+    </div>
+  </div>
+  <div class="tblwrap" style="margin-block-start:18px">
+    <table class="data">
+      <thead><tr><th>Pair</th><th>Ratio</th><th>AA text</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td><span class="dot" style="background:#0099F3"></span><span class="lat">#0099F3</span> on white</td><td class="n">3.07</td><td class="fail">fail</td><td>Non-text only &mdash; rail marker, bar fill, mark</td></tr>
+        <tr><td><span class="dot" style="background:#003CE1"></span><span class="lat">#003CE1</span> + white ink</td><td class="n">7.68</td><td class="pass">pass</td><td><span class="lat">--brand</span> &mdash; primary button, active chip</td></tr>
+        <tr><td><span class="dot" style="background:#0000D5"></span><span class="lat">#0000D5</span> + white ink</td><td class="n">10.71</td><td class="pass">pass</td><td><span class="lat">--brand-strong</span> &mdash; hover, gradient end</td></tr>
+        <tr><td><span class="dot" style="background:#006CAE"></span><span class="lat">#006CAE</span> on warm paper</td><td class="n">4.87</td><td class="pass">pass</td><td><span class="lat">--accent</span> &mdash; eyebrow, link, secondary label</td></tr>
+        <tr><td><span class="dot" style="background:#0060F0"></span><span class="lat">#0060F0</span> + white ink</td><td class="n">5.34</td><td class="pass">pass</td><td>Option B flat fill (gradient mid-point)</td></tr>
+        <tr><td><span class="dot" style="background:#6E9BFF"></span><span class="lat">#6E9BFF</span> on dark surface</td><td class="n">6.49</td><td class="pass">pass</td><td>Dark-theme <span class="lat">--brand</span></td></tr>
+        <tr><td><span class="dot" style="background:#4DB8FF"></span><span class="lat">#4DB8FF</span> on dark surface</td><td class="n">8.00</td><td class="pass">pass</td><td>Dark-theme <span class="lat">--accent</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Specimen 1 &mdash; the identity change</div>
+  <h2>Today&rsquo;s teal, and the blue beside it</h2>
+  <p class="lede">Same markup, same warm paper, same ink ramp, same semantic pills. Only <span class="lat">--brand*</span> and <span class="lat">--accent*</span> differ. Toggle the theme above to check both.</p>
+  <div class="pair">
+    <div class="spec"><header><span class="tag">current</span><span class="note">teal <span class="lat">#0C463E</span> + gold <span class="lat">#B0862F</span></span></header><div class="app v-teal" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+    <div class="spec"><header><span class="tag">Option A</span><span class="note">deep blue <span class="lat">#003CE1</span> + bright <span class="lat">#0099F3</span></span></header><div class="app v-a" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Specimen 2 &mdash; how the primary fills</div>
+  <h2>Flat blue, or Cyag&rsquo;s gradient</h2>
+  <p class="lede">Option A fills the primary button flat, the way every other Mezan control fills. Option B carries Cyag&rsquo;s own <span class="lat">linear-gradient(90deg,#0099F3,#0000D5)</span> onto it &mdash; closer to the website, but a gradient on a data screen repeats across every toolbar and needs a flat fallback for chips, table selection and the KPI rule anyway.</p>
+  <div class="pair">
+    <div class="spec"><header><span class="tag">Option A</span><span class="note">flat <span class="lat">#003CE1</span></span></header><div class="app v-a" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+    <div class="spec"><header><span class="tag">Option B</span><span class="note">gradient primary, flat <span class="lat">#0060F0</span> elsewhere</span></header><div class="app v-b" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Specimen 3 &mdash; every sidebar, in both themes</div>
+  <h2>Seven rails, twice</h2>
+  <p class="lede">The sidebar is its own token family (<span class="lat">--chrome*</span>): it holds one colour in <em>both</em> themes and never inherits the surface or ink ramp, which is why it can be swapped whole without touching anything else. Both rows below are pinned &mdash; the top row renders light and the bottom dark no matter which theme you are reading in, so the toggle above changes only the page around them. Ratios are the rail ink and the active marker against the rail itself; every one clears its bar.</p>
+  <div class="themelabel"><span>Light theme</span><i></i></div>
+    <div class="rails tl">
+      <div class="railcard">
+        <div class="app v-a ch-teal" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Current — deep teal</b><span class="hex lat">#0B3A34 → #072B27</span></div>
+        <div class="cr">ink 10.84:1 · marker 5.09:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-navy" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Cyag navy</b><span class="hex lat">#0F172A → #080E1C</span></div>
+        <div class="cr">ink 17.06:1 · marker 5.82:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-deep" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Deep brand blue</b><span class="hex lat">#001B6B → #00114A</span></div>
+        <div class="cr">ink 13.22:1 · marker 5.00:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-grad" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Cyag gradient</b><span class="hex lat">#003CE1 → #0000D5</span></div>
+        <div class="cr">ink 7.68:1 · marker 7.68:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-ink" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Ink</b><span class="hex lat">#0B0F14 → #05070A</span></div>
+        <div class="cr">ink 16.35:1 · marker 6.27:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-steel" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Slate steel</b><span class="hex lat">#1E293B → #0F172A</span></div>
+        <div class="cr">ink 13.35:1 · marker 4.77:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-light" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Light rail</b><span class="hex lat">#FFFFFF → #F8FAFC</span></div>
+        <div class="cr">ink 14.63:1 · marker 7.68:1</div>
+      </div>
+    </div>
+  <div class="themelabel"><span>Dark theme</span><i></i></div>
+    <div class="rails td">
+      <div class="railcard">
+        <div class="app v-a ch-teal" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Current — deep teal</b><span class="hex lat">#0B3A34 → #072B27</span></div>
+        <div class="cr">ink 10.84:1 · marker 5.09:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-navy" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Cyag navy</b><span class="hex lat">#0F172A → #080E1C</span></div>
+        <div class="cr">ink 17.06:1 · marker 5.82:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-deep" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Deep brand blue</b><span class="hex lat">#001B6B → #00114A</span></div>
+        <div class="cr">ink 13.22:1 · marker 5.00:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-grad" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Cyag gradient</b><span class="hex lat">#003CE1 → #0000D5</span></div>
+        <div class="cr">ink 7.68:1 · marker 7.68:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-ink" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Ink</b><span class="hex lat">#0B0F14 → #05070A</span></div>
+        <div class="cr">ink 16.35:1 · marker 6.27:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-steel" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Slate steel</b><span class="hex lat">#1E293B → #0F172A</span></div>
+        <div class="cr">ink 13.35:1 · marker 4.77:1</div>
+      </div>
+      <div class="railcard">
+        <div class="app v-a ch-light" dir="rtl" lang="ar"><aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside></div>
+        <div class="cap"><b>Light rail</b><span class="hex lat">#FFFFFF → #F8FAFC</span></div>
+        <div class="cr">ink 14.63:1 · marker 7.68:1</div>
+      </div>
+    </div>
+</section>
+
+<section>
+  <div class="eyebrow">The same seven, in the screen</div>
+  <h2>How each rail sits against the work</h2>
+  <p class="lede">A rail is judged next to the data, not on its own, and it has to hold in both themes &mdash; Mezan ships the toggle. Each option is shown light on the left and dark on the right, pinned the same way. Warm paper, white cards, the ink ramp and the semantic pills are identical throughout; the only variable is the chrome family.</p>
+  <div class="optrow">
+    <div class="opthead"><b>Current — deep teal</b><span class="hex lat">#0B3A34 → #072B27</span><span class="cr">marker gold #CB9E3D &middot; ink 10.84:1</span></div>
+    <div class="pair">
+      <div class="spec tl"><header><span class="tag lat">light</span></header><div class="app v-a ch-teal" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+      <div class="spec td"><header><span class="tag lat">dark</span></header><div class="app v-a ch-teal" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+    </div>
+    <p class="cardnote">Today. The one family that is not blue; in dark it deepens to <span class="lat">#081310</span> and the marker lightens to <span class="lat">#E7C77C</span>.</p>
+  </div>
+  <div class="optrow">
+    <div class="opthead"><b>Cyag navy</b><span class="hex lat">#0F172A → #080E1C</span><span class="cr">marker #0099F3 &middot; ink 17.06:1</span></div>
+    <div class="pair">
+      <div class="spec tl"><header><span class="tag lat">light</span></header><div class="app v-a ch-navy" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+      <div class="spec td"><header><span class="tag lat">dark</span></header><div class="app v-a ch-navy" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+    </div>
+    <p class="cardnote">Cyag&rsquo;s own footer colour. Highest ink contrast of the seven, and the least work: light and dark are the same rail, one step apart.</p>
+  </div>
+  <div class="optrow">
+    <div class="opthead"><b>Deep brand blue</b><span class="hex lat">#001B6B → #00114A</span><span class="cr">marker #0099F3 &middot; ink 13.22:1</span></div>
+    <div class="pair">
+      <div class="spec tl"><header><span class="tag lat">light</span></header><div class="app v-a ch-deep" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+      <div class="spec td"><header><span class="tag lat">dark</span></header><div class="app v-a ch-deep" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+    </div>
+    <p class="cardnote"><span class="lat">#0000D5</span> darkened until text sits on it. The rail becomes brand rather than neutral &mdash; strongest tie to the website, heaviest against a warm canvas.</p>
+  </div>
+  <div class="optrow">
+    <div class="opthead"><b>Cyag gradient</b><span class="hex lat">#003CE1 → #0000D5</span><span class="cr">marker white &middot; ink 7.68:1</span></div>
+    <div class="pair">
+      <div class="spec tl"><header><span class="tag lat">light</span></header><div class="app v-a ch-grad" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+      <div class="spec td"><header><span class="tag lat">dark</span></header><div class="app v-a ch-grad" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+    </div>
+    <p class="cardnote">The website&rsquo;s gradient turned on its side. Loudest option, and the marker must go white: bright blue on the lower half drops to 3.49.</p>
+  </div>
+  <div class="optrow">
+    <div class="opthead"><b>Ink</b><span class="hex lat">#0B0F14 → #05070A</span><span class="cr">marker #0099F3 &middot; ink 16.35:1</span></div>
+    <div class="pair">
+      <div class="spec tl"><header><span class="tag lat">light</span></header><div class="app v-a ch-ink" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+      <div class="spec td"><header><span class="tag lat">dark</span></header><div class="app v-a ch-ink" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+    </div>
+    <p class="cardnote">Near-black with a blue bias. In light mode the blue is the only colour on the screen; in dark the rail all but merges with the canvas.</p>
+  </div>
+  <div class="optrow">
+    <div class="opthead"><b>Slate steel</b><span class="hex lat">#1E293B → #0F172A</span><span class="cr">marker #0099F3 &middot; ink 13.35:1</span></div>
+    <div class="pair">
+      <div class="spec tl"><header><span class="tag lat">light</span></header><div class="app v-a ch-steel" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+      <div class="spec td"><header><span class="tag lat">dark</span></header><div class="app v-a ch-steel" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+    </div>
+    <p class="cardnote">Cyag&rsquo;s slate-800, one step lighter than navy. Softest edge against warm paper, weakest marker contrast of the six blues.</p>
+  </div>
+  <div class="optrow">
+    <div class="opthead"><b>Light rail</b><span class="hex lat">#FFFFFF → #F8FAFC</span><span class="cr">marker #003CE1 &middot; ink 14.63:1</span></div>
+    <div class="pair">
+      <div class="spec tl"><header><span class="tag lat">light</span></header><div class="app v-a ch-light" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+      <div class="spec td"><header><span class="tag lat">dark</span></header><div class="app v-a ch-light" dir="rtl" lang="ar">
+  <aside class="rail">
+    <div class="mark"><span class="glyph">م</span><span><span class="nm">ميزان</span><br><span class="sub lat">MEZAN ERP</span></span></div>
+    <div class="co"><span class="badge lat">C</span><span><div class="co-n lat">Cyag</div><div class="co-s">الفرع الرئيسي</div></span></div>
+    <div class="navlbl">التشغيل</div>
+    <div class="nav">لوحة المعلومات</div>
+    <div class="nav on">فواتير المبيعات<span class="ct">١٤٢</span></div>
+    <div class="nav">المشتريات<span class="ct">٦٧</span></div>
+    <div class="nav">المخزون</div>
+    <div class="navlbl">المالية</div>
+    <div class="nav">الخزينة والبنوك</div>
+    <div class="nav">القيود اليومية</div>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <div class="crumb">المبيعات · <b>فواتير المبيعات</b></div>
+      <span class="sp"></span>
+      <button class="btn" type="button">تصدير</button>
+      <button class="btn ghost" type="button">تحصيل دفعة</button>
+      <button class="btn primary" type="button">فاتورة جديدة</button>
+    </div>
+    <div class="stage">
+      <div>
+        <div class="eyeb">الفترة المفتوحة · سبتمبر ٢٠٢٦</div>
+        <div class="kpis">
+          <div class="kpi lead"><div class="kl">صافي المبيعات</div><div class="kv">٤٬٨٧٢٬٣٤٠<span class="u"> ج.م</span></div><div class="delta up">+ ١٢٫٤٪ عن أغسطس</div></div>
+          <div class="kpi"><div class="kl">ذمم مدينة (AR)</div><div class="kv">١٬٣٤٠٬٥٨٠<span class="u"> ج.م</span></div><div class="delta dn">٥٬٤٨٦٫١٢ فرق التقادم</div></div>
+          <div class="kpi"><div class="kl">ضريبة القيمة المضافة</div><div class="kv">٦٨٢٬١٢٧<span class="u"> ج.م</span></div><div class="delta up">١٤٪ · إقرار مفتوح</div></div>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip2 on">الكل<span class="n">١٤٢</span></span>
+        <span class="chip2">مسودة<span class="n">٩</span></span>
+        <span class="chip2">مؤكدة<span class="n">١٠٤</span></span>
+        <span class="chip2">متأخرة<span class="n">٢٩</span></span>
+      </div>
+      <div class="panel">
+        <div class="ph"><h4>آخر الفواتير</h4><span class="link">عرض الكل ←</span></div>
+        <table>
+          <thead><tr><th>المستند</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td class="doc">INV-2026-0417</td><td>مجموعة النيل للتوريدات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">١٨٤٬٢٥٠٫٠٠</td><td><span class="pill ok">مدفوعة</span></td></tr>
+            <tr><td class="doc">INV-2026-0416</td><td>شركة الدلتا للمقاولات</td><td class="n">٠٢/٠٩/٢٦</td><td class="n">٩٢٬٤٠٠٫٥٠</td><td><span class="pill wait">جزئي</span></td></tr>
+            <tr><td class="doc">INV-2026-0415</td><td>صيدليات الشفاء</td><td class="n">٠١/٠٩/٢٦</td><td class="n">٣٧٬٨١٢٫٠٠</td><td><span class="pill late">متأخرة ٤٥ يوم</span></td></tr>
+            <tr><td class="doc">INV-2026-0414</td><td>مخابز الرشيد</td><td class="n">٣١/٠٨/٢٦</td><td class="n">٥٬٤٨٦٫١٢</td><td><span class="pill draft">مسودة</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="padding:11px 13px">
+        <div style="display:flex;align-items:center;gap:9px;font-size:11.5px;margin-block-end:7px"><span>تحصيل المستهدف الشهري</span><span class="n" style="margin-inline-start:auto;font-family:var(--mono)">٧٢٪</span></div>
+        <div class="bar"><i style="width:72%"></i></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+    </div>
+    <p class="cardnote">What cyag.net actually does. The only option that inverts in dark rather than deepening &mdash; it needs a whole second rail defined, shown on the right.</p>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">The chrome edit</div>
+  <h2>What each rail costs in tokens</h2>
+  <p class="lede">Five declarations per option, restated in all three theme states. <span class="lat">--chrome-accent</span> is the rail&rsquo;s marker, counts and focus ring &mdash; the one gold value left in the app after the brand swap, and the reason a blue Mezan on today&rsquo;s rail still reads as two identities.</p>
+  <div class="tblwrap">
+    <table class="data">
+      <thead><tr><th>Rail</th><th><span class="lat">--chrome</span></th><th><span class="lat">--chrome-2</span></th><th>ink</th><th>marker</th></tr></thead>
+      <tbody>
+        <tr><td><span class="dot" style="background:#0B3A34"></span><b>Current — deep teal</b></td><td class="n lat">#0B3A34</td><td class="n lat">#072B27</td><td class="n">10.84</td><td class="n">5.09</td></tr>
+        <tr><td><span class="dot" style="background:#0F172A"></span><b>Cyag navy</b></td><td class="n lat">#0F172A</td><td class="n lat">#080E1C</td><td class="n">17.06</td><td class="n">5.82</td></tr>
+        <tr><td><span class="dot" style="background:#001B6B"></span><b>Deep brand blue</b></td><td class="n lat">#001B6B</td><td class="n lat">#00114A</td><td class="n">13.22</td><td class="n">5.00</td></tr>
+        <tr><td><span class="dot" style="background:#003CE1"></span><b>Cyag gradient</b></td><td class="n lat">#003CE1</td><td class="n lat">#0000D5</td><td class="n">7.68</td><td class="n">7.68</td></tr>
+        <tr><td><span class="dot" style="background:#0B0F14"></span><b>Ink</b></td><td class="n lat">#0B0F14</td><td class="n lat">#05070A</td><td class="n">16.35</td><td class="n">6.27</td></tr>
+        <tr><td><span class="dot" style="background:#1E293B"></span><b>Slate steel</b></td><td class="n lat">#1E293B</td><td class="n lat">#0F172A</td><td class="n">13.35</td><td class="n">4.77</td></tr>
+        <tr><td><span class="dot" style="background:#FFFFFF"></span><b>Light rail</b></td><td class="n lat">#FFFFFF</td><td class="n lat">#F8FAFC</td><td class="n">14.63</td><td class="n">7.68</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="cols2" style="margin-block-start:18px">
+    <div>
+      <h3>Light &mdash; e.g. Cyag navy</h3>
+      <pre class="tok"><span class="k">--chrome</span>:            #0f172a;  <del>/* #0b3a34 */</del>
+<span class="k">--chrome-2</span>:          #080e1c;  <del>/* #072b27 */</del>
+<span class="k">--chrome-ink</span>:        #f8fafc;  <del>/* #e4f1ec */</del>
+<span class="k">--chrome-ink-muted</span>:  #94a3b8;  <del>/* #a9c6bc */</del>
+<span class="k">--chrome-accent</span>:     #0099f3;  <del>/* #cb9e3d */</del></pre>
+    </div>
+    <div>
+      <h3>Dark &mdash; both blocks</h3>
+      <pre class="tok"><span class="k">--chrome</span>:            #0a1120;  <del>/* #081310 */</del>
+<span class="k">--chrome-2</span>:          #050912;  <del>/* #050d0b */</del>
+<span class="c">/* ink, muted and accent already hold
+   in the dark blocks &mdash; the rail is
+   the same colour in both themes. */</span>
+<span class="k">--chrome-accent</span>:     #0099f3;  <del>/* #e7c77c */</del></pre>
+    </div>
+  </div>
+  <p class="lede" style="margin-block-start:14px">The light rail is the exception: it is the only option whose dark theme is a different colour rather than a deeper one, so it needs the full five restated in each dark block (<span class="lat">#141b26 / #0d131c</span>, ink <span class="lat">#e8eef5</span>, marker <span class="lat">#4db8ff</span>).</p>
+</section>
+
+<section>
+  <div class="eyebrow">If you pick Option A</div>
+  <h2>The exact edit to tokens.css</h2>
+  <p class="lede">Nine declarations in the light <span class="lat">:root</span>, and the same nine in each of the two dark blocks (<span class="lat">@media prefers-color-scheme:dark</span> and <span class="lat">[data-theme=&quot;dark&quot;]</span>) &mdash; every token must keep a value in all three states. <span class="lat">--action*</span> is an alias of brand and follows on its own; <span class="lat">--chart-*</span>, the semantics and the whole ink ramp are untouched.</p>
+  <div class="cols2">
+    <div>
+      <h3>Light &mdash; bare <span class="lat">:root</span></h3>
+      <pre class="tok"><span class="c">/* brand: deep blue, the primary action */</span>
+<span class="k">--brand</span>:        #003ce1;  <del>/* #0c463e */</del>
+<span class="k">--brand-strong</span>: #0000d5;  <del>/* #073029 */</del>
+<span class="k">--brand-soft</span>:   #dee9ff;  <del>/* #e2efea */</del>
+<span class="k">--brand-ink</span>:    #ffffff;  <span class="c">/* unchanged */</span>
+
+<span class="c">/* accent: bright blue, highlights + focus */</span>
+<span class="k">--accent</span>:        #006cae;  <del>/* #b0862f */</del>
+<span class="k">--accent-strong</span>: #00527f;  <del>/* #8a6620 */</del>
+<span class="k">--accent-soft</span>:   #e2f2fd;  <del>/* #f6efdb */</del>
+<span class="k">--accent-bright</span>: #0099f3;  <del>/* #cb9e3d */</del>
+<span class="k">--accent-ink</span>:    #04283d;  <del>/* #1c1405 */</del></pre>
+    </div>
+    <div>
+      <h3>Dark &mdash; both blocks, identical values</h3>
+      <pre class="tok"><span class="k">--brand</span>:        #6e9bff;  <del>/* #3fb39e */</del>
+<span class="k">--brand-strong</span>: #8fb4ff;  <del>/* #57c9b3 */</del>
+<span class="k">--brand-soft</span>:   #101e3e;  <del>/* #0f2a25 */</del>
+<span class="k">--brand-ink</span>:    #05102b;  <del>/* #06110d */</del>
+
+<span class="k">--accent</span>:        #4db8ff;  <del>/* #d8b25f */</del>
+<span class="k">--accent-strong</span>: #7fcdff;  <del>/* #e7c77c */</del>
+<span class="k">--accent-soft</span>:   #0a2536;  <del>/* #2b2412 */</del>
+<span class="k">--accent-bright</span>: #4db8ff;  <del>/* #e7c77c */</del>
+<span class="k">--accent-ink</span>:    #04283d;  <del>/* #1c1405 */</del></pre>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Deliberately not in this preview</div>
+  <h2>What stays warm</h2>
+  <p class="lede">Cyag&rsquo;s neutral ramp (<span class="lat">#F8FAFC</span> ground, <span class="lat">#E2E8F0</span> rules, the slate ink scale) is <em>not</em> applied. Mezan&rsquo;s canvas is warm paper a clear step darker than a card, on purpose: at a lighter ground a white panel and the canvas read as one flat sheet, which is exactly what a data screen must not look like. Swapping it is the full-identity option you set aside &mdash; say the word and this page gets a fourth specimen.</p>
+</section>
+
+<footer>
+  <p>Preview only. <span class="lat">packages/ui/src/tokens/tokens.css</span> is unchanged; no build, lint or theme gate has been run against these values. Ratios computed against the light canvas <span class="lat">#F2EFE9</span> / card <span class="lat">#FFFFFF</span> and the dark surface <span class="lat">#101C18</span>.</p>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement, btn=document.getElementById('tt');
+  var stored=null;
+  try{ stored=localStorage.getItem('cyag-preview-theme'); }catch(e){}
+  if(stored==='dark'||stored==='light') root.setAttribute('data-theme',stored);
+  btn.addEventListener('click',function(){
+    var dark=root.getAttribute('data-theme')==='dark'
+      || (!root.hasAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var next=dark?'light':'dark';
+    root.setAttribute('data-theme',next);
+    try{ localStorage.setItem('cyag-preview-theme',next); }catch(e){}
+  });
+})();
+</script>

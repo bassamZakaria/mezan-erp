@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { SalesByPeriodReportScreen } from "./SalesReportsScreens";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
+import { monthStartIso } from "../../lib/dates";
 
 /**
  * Proves the operational-report screens go through the app's REAL data
@@ -34,7 +35,9 @@ describe("ReportScreen (real data-client wiring)", () => {
 
     await waitFor(() => expect(screen.getByRole("cell", { name: "2026-08-10" })).toBeInTheDocument());
     expect(requestedPath).toContain("/reports/sales/by-period");
-    expect(requestedPath).toContain("dateFrom=2026-08-01");
+    // The screen defaults to the CURRENT month (`monthStartIso()`), so a
+    // literal here rots on the first of every month.
+    expect(requestedPath).toContain(`dateFrom=${monthStartIso()}`);
     expect(requestedPath).toContain("groupBy=day");
   });
 

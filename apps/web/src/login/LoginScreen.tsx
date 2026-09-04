@@ -181,7 +181,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           instead of sitting as a badge on the card. */}
       <BrandMark
         aria-hidden
-        className="pointer-events-none fixed bottom-[-70px] end-[-40px] h-[320px] w-[320px] text-accent-strong opacity-10"
+        className="pointer-events-none fixed bottom-[-70px] end-[-40px] h-[320px] w-[320px] text-brand opacity-10"
       />
 
       <form
@@ -190,7 +190,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         className="relative w-full max-w-[380px] rounded-lg border border-border bg-surface p-[28px] pb-[18px] shadow-2"
       >
         <div className="flex items-center gap-[10px]">
-          <BrandMark className="h-[30px] w-[30px] flex-none text-accent" />
+          <BrandMark className="h-[30px] w-[30px] flex-none text-brand" />
           <span className="mz-disp text-[17px] font-bold text-ink">{t("shell.brand.name")}</span>
           <span className="ms-auto text-2xs text-ink-faint">{t("login.branchHint")}</span>
         </div>

@@ -1,18 +1,19 @@
 /*
- * Mezan design tokens — the teal-and-gold palette on the Lantern structure.
+ * Mezan design tokens — the Cyag blue palette on the Lantern structure.
  *
- * COLOUR is the pre-Lantern identity (deep teal brand, gold accent, white
- * cards on warm paper, rounded corners, lifted shadows). STRUCTURE — control
- * heights, rail and gutter widths, paddings, tile geometry, type scale and the
- * vendored Zain / Readex Pro / IBM Plex faces — stays exactly as المِشكاة left
+ * COLOUR is the Cyag corporate identity (deep blue brand, bright blue accent,
+ * white cards on warm paper, rounded corners, lifted shadows), read from
+ * cyag.net and mapped in docs/artifacts/cyag-palette-preview.html.
+ * STRUCTURE — control heights, rail and gutter widths, paddings, tile
+ * geometry, type scale and the vendored Zain / Readex Pro / IBM Plex faces — stays exactly as المِشكاة left
  * it, because the shell (workspace rail, second-row screens bar, topbar) is
  * built on those numbers.
  *
  * ── THE CHROME ────────────────────────────────────────────────────────────
- * `--chrome-*` (sidebar + topbar) is deep teal with a gold accent in BOTH
- * themes, which is why it is its own family and never inherits `--surface-*`
- * or the ink ramp. Only its COLOUR reverted: the rail widths, row heights and
- * two-row topbar layout are untouched.
+ * `--chrome-*` (sidebar + topbar) is slate steel with a bright-blue accent in
+ * BOTH themes, which is why it is its own family and never inherits
+ * `--surface-*` or the ink ramp. Only its COLOUR changed: the rail widths, row
+ * heights and two-row topbar layout are untouched.
  *
  * ── THREE THEME STATES ────────────────────────────────────────────────────
  * Light-first: the bare `:root` block is the COMPLETE palette and is the
@@ -34,18 +35,39 @@
  * structural token ever appears in a dark block.
  *
  * ── TWO COLOUR FAMILIES ───────────────────────────────────────────────────
- * `--brand*` is teal (the primary action), `--accent*` is gold (highlights,
- * eyebrows, focus). They are separate families again; `--action*` survives
- * only as an alias of brand for markup ported from design/*.html.
+ * `--brand*` is deep blue (the primary action), `--accent*` is bright blue
+ * (highlights, eyebrows, focus). They are separate families; `--action*`
+ * survives only as an alias of brand for markup ported from design/*.html.
+ *
+ * Cyag's own primary is #0099f3, and it is NOT `--brand`: white on it reaches
+ * only 3.07:1. The site gets away with that because its button is a gradient
+ * whose label sits over the dark end; Mezan fills flat, so #0099f3 is the
+ * accent (markers, focus, the mark) and #003ce1 carries the white ink at
+ * 7.68:1. `--accent` itself is a step darker again (#00629b, 5.25:1 on the
+ * warm canvas) because accent TEXT has to clear 4.5:1 — `--accent-bright` is
+ * where the true #0099f3 lives, and it is non-text only.
+ *
+ * `--chart-*` is deliberately NOT part of this swap: it is a categorical scale
+ * that needs hue separation between series, so it keeps its teal and gold
+ * members. They are data colours, not identity.
  *
  * ── CONTRAST ──────────────────────────────────────────────────────────────
  * Two values are NOT the historical ones, because the originals failed WCAG:
  *   --border-strong  light #d3cbb6 → #8a8171  (1.44:1 → 3.85:1, WCAG 1.4.11)
- *   --border-strong  dark  #33473f → #5b7a6d  (1.46:1 → 3.43:1, WCAG 1.4.11)
+ *   --border-strong  dark  #33473f → #65758b  (1.46:1 → 3.72:1, WCAG 1.4.11)
  *   --warning        light #b0791f → #8a5f18  (3.76:1 → 4.53:1 on --surface)
+ *   --accent         light #0099f3 → #00629b  (2.72:1 → 5.25:1 on --bg)
  * `--border` stays the DECORATIVE hairline (table rules, panel seams) and is
  * deliberately below 3:1 — it carries no meaning. `--border-strong` is the
  * token for a control boundary a user must be able to see.
+ *
+ * ── THE DARK RAMP IS BLUE-NEUTRAL ─────────────────────────────────────────
+ * The dark surfaces and ink ramp were teal-biased (--bg #0a1310 is r10 g19
+ * b16), which read as a green-black canvas once the identity turned blue.
+ * Every one of the nine was re-cut at hue 215° and its ORIGINAL relative
+ * luminance, so each pair holds the ratio it had: --text on --surface moved
+ * 14.98 → 15.04, --border-strong on --surface 3.70 → 3.72. Semantics and
+ * --chart-* keep their own hues — they carry meaning, not identity.
  *
  * ── LOGICAL PROPERTIES ONLY ───────────────────────────────────────────────
  * No left/right physical values here — `pnpm lint:rtl` enforces this.
@@ -68,29 +90,33 @@
   --text-muted: #424f48;
   --text-faint: #55665d;
 
-  /* ── chrome: dark teal in BOTH themes, so it never inherits the surface/ink
-        tokens. Colour only — the sidebar and topbar keep their current
-        layout, widths and heights. ────────────────────────────────────── */
-  --chrome: #0b3a34;
-  --chrome-2: #072b27;
-  --chrome-ink: #e4f1ec;
-  --chrome-ink-muted: #a9c6bc;
-  --chrome-border: rgba(255, 255, 255, 0.09);
-  --chrome-hover: rgba(255, 255, 255, 0.06);
-  --chrome-active: rgba(255, 255, 255, 0.09);
-  --chrome-accent: #cb9e3d;
+  /* ── chrome: slate steel in BOTH themes, so it never inherits the
+        surface/ink tokens. Colour only — the sidebar and topbar keep their
+        current layout, widths and heights.
 
-  /* ── brand (teal) and accent (gold): two families again ──────────────── */
-  --brand: #0c463e;
-  --brand-strong: #073029;
-  --brand-soft: #e2efea;
+        The rail is NEUTRAL, not brand: it separates from the warm canvas by
+        luminance (11.77:1), so the blue is spent on the work rather than on
+        the furniture. `--chrome-accent` is the one brand note in it. ────── */
+  --chrome: #1e293b;
+  --chrome-2: #0f172a;
+  --chrome-ink: #f1f5f9;
+  --chrome-ink-muted: #94a3b8;
+  --chrome-border: rgba(255, 255, 255, 0.10);
+  --chrome-hover: rgba(255, 255, 255, 0.08);
+  --chrome-active: rgba(255, 255, 255, 0.10);
+  --chrome-accent: #0099f3;
+
+  /* ── brand (deep blue) and accent (bright blue): two families ────────── */
+  --brand: #003ce1;
+  --brand-strong: #0000d5;
+  --brand-soft: #dee9ff;
   --brand-ink: #ffffff;
 
-  --accent: #b0862f;
-  --accent-strong: #8a6620;
-  --accent-soft: #f6efdb;
-  --accent-bright: #cb9e3d;
-  --accent-ink: #1c1405;
+  --accent: #00629b;
+  --accent-strong: #004a75;
+  --accent-soft: #e2f2fd;
+  --accent-bright: #0099f3;
+  --accent-ink: #04283d;
 
   /* ── document/state semantics ────────────────────────────────────────── */
   --success: #2c8a57;
@@ -242,37 +268,39 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-      --bg: #0a1310;
-      --surface: #101c18;
-      --surface-2: #152420;
-      --surface-3: #1c2c27;
-      --border: #243530;
-      --border-strong: #5b7a6d;
+      --bg: #0e1116;
+      --surface: #151a20;
+      --surface-2: #1c2229;
+      --surface-3: #232932;
+      --border: #2b323d;
+      --border-strong: #65758b;
 
-      --text: #e9efea;
-      --text-muted: #9db0a6;
-      --text-faint: #83978c;
+      --text: #eceef0;
+      --text-muted: #a4acb9;
+      --text-faint: #8993a2;
 
-      /* chrome: deep teal, gold accent — same role in both themes. */
-      --chrome: #081310;
-      --chrome-2: #050d0b;
-      --chrome-ink: #e4f1ec;
-      --chrome-ink-muted: #9dbdb1;
-      --chrome-border: rgba(255, 255, 255, 0.07);
-      --chrome-hover: rgba(255, 255, 255, 0.05);
-      --chrome-active: rgba(255, 255, 255, 0.08);
-      --chrome-accent: #e7c77c;
+      /* chrome: slate steel, bright-blue accent — same rail in both themes. It
+         sits only 1.29:1 off the dark canvas, so its edge is carried by
+         --chrome-border and --shadow-chrome, not by luminance. */
+      --chrome: #1e293b;
+      --chrome-2: #151d2b;
+      --chrome-ink: #f1f5f9;
+      --chrome-ink-muted: #94a3b8;
+      --chrome-border: rgba(255, 255, 255, 0.12);
+      --chrome-hover: rgba(255, 255, 255, 0.09);
+      --chrome-active: rgba(255, 255, 255, 0.12);
+      --chrome-accent: #0099f3;
 
-      --brand: #3fb39e;
-      --brand-strong: #57c9b3;
-      --brand-soft: #0f2a25;
-      --brand-ink: #06110d;
+      --brand: #6e9bff;
+      --brand-strong: #8fb4ff;
+      --brand-soft: #101e3e;
+      --brand-ink: #05102b;
 
-      --accent: #d8b25f;
-      --accent-strong: #e7c77c;
-      --accent-soft: #2b2412;
-      --accent-bright: #e7c77c;
-      --accent-ink: #1c1405;
+      --accent: #4db8ff;
+      --accent-strong: #7fcdff;
+      --accent-soft: #0a2536;
+      --accent-bright: #4db8ff;
+      --accent-ink: #04283d;
 
       --success: #4cb07d;
       --success-soft: #123626;
@@ -311,37 +339,39 @@
 }
 
 :root[data-theme="dark"] {
-    --bg: #0a1310;
-    --surface: #101c18;
-    --surface-2: #152420;
-    --surface-3: #1c2c27;
-    --border: #243530;
-    --border-strong: #5b7a6d;
+    --bg: #0e1116;
+    --surface: #151a20;
+    --surface-2: #1c2229;
+    --surface-3: #232932;
+    --border: #2b323d;
+    --border-strong: #65758b;
 
-    --text: #e9efea;
-    --text-muted: #9db0a6;
-    --text-faint: #83978c;
+    --text: #eceef0;
+    --text-muted: #a4acb9;
+    --text-faint: #8993a2;
 
-    /* chrome: deep teal, gold accent — same role in both themes. */
-    --chrome: #081310;
-    --chrome-2: #050d0b;
-    --chrome-ink: #e4f1ec;
-    --chrome-ink-muted: #9dbdb1;
-    --chrome-border: rgba(255, 255, 255, 0.07);
-    --chrome-hover: rgba(255, 255, 255, 0.05);
-    --chrome-active: rgba(255, 255, 255, 0.08);
-    --chrome-accent: #e7c77c;
+    /* chrome: slate steel, bright-blue accent — same rail in both themes. It
+       sits only 1.29:1 off the dark canvas, so its edge is carried by
+       --chrome-border and --shadow-chrome, not by luminance. */
+    --chrome: #1e293b;
+    --chrome-2: #151d2b;
+    --chrome-ink: #f1f5f9;
+    --chrome-ink-muted: #94a3b8;
+    --chrome-border: rgba(255, 255, 255, 0.12);
+    --chrome-hover: rgba(255, 255, 255, 0.09);
+    --chrome-active: rgba(255, 255, 255, 0.12);
+    --chrome-accent: #0099f3;
 
-    --brand: #3fb39e;
-    --brand-strong: #57c9b3;
-    --brand-soft: #0f2a25;
-    --brand-ink: #06110d;
+    --brand: #6e9bff;
+    --brand-strong: #8fb4ff;
+    --brand-soft: #101e3e;
+    --brand-ink: #05102b;
 
-    --accent: #d8b25f;
-    --accent-strong: #e7c77c;
-    --accent-soft: #2b2412;
-    --accent-bright: #e7c77c;
-    --accent-ink: #1c1405;
+    --accent: #4db8ff;
+    --accent-strong: #7fcdff;
+    --accent-soft: #0a2536;
+    --accent-bright: #4db8ff;
+    --accent-ink: #04283d;
 
     --success: #4cb07d;
     --success-soft: #123626;

@@ -296,7 +296,7 @@ export function AppShell({
                 aria-label={t("shell.bar.home")}
                 className="flex min-w-0 flex-1 items-center gap-[8px] py-[6px] text-chrome-ink transition-colors hover:text-chrome-ink focus-visible:outline-chrome-accent"
               >
-                <BrandMark className="h-[24px] w-[24px] flex-none text-accent" />
+                <BrandMark className="h-[24px] w-[24px] flex-none text-chrome-accent" />
                 <span className="mz-disp truncate text-lg font-bold">{t("shell.brand.name")}</span>
               </button>
               {directNavItems.map((item) => (

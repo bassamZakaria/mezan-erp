@@ -54,12 +54,20 @@
  * ── CONTRAST ──────────────────────────────────────────────────────────────
  * Two values are NOT the historical ones, because the originals failed WCAG:
  *   --border-strong  light #d3cbb6 → #8a8171  (1.44:1 → 3.85:1, WCAG 1.4.11)
- *   --border-strong  dark  #33473f → #5b7a6d  (1.46:1 → 3.43:1, WCAG 1.4.11)
+ *   --border-strong  dark  #33473f → #65758b  (1.46:1 → 3.72:1, WCAG 1.4.11)
  *   --warning        light #b0791f → #8a5f18  (3.76:1 → 4.53:1 on --surface)
  *   --accent         light #0099f3 → #00629b  (2.72:1 → 5.25:1 on --bg)
  * `--border` stays the DECORATIVE hairline (table rules, panel seams) and is
  * deliberately below 3:1 — it carries no meaning. `--border-strong` is the
  * token for a control boundary a user must be able to see.
+ *
+ * ── THE DARK RAMP IS BLUE-NEUTRAL ─────────────────────────────────────────
+ * The dark surfaces and ink ramp were teal-biased (--bg #0a1310 is r10 g19
+ * b16), which read as a green-black canvas once the identity turned blue.
+ * Every one of the nine was re-cut at hue 215° and its ORIGINAL relative
+ * luminance, so each pair holds the ratio it had: --text on --surface moved
+ * 14.98 → 15.04, --border-strong on --surface 3.70 → 3.72. Semantics and
+ * --chart-* keep their own hues — they carry meaning, not identity.
  *
  * ── LOGICAL PROPERTIES ONLY ───────────────────────────────────────────────
  * No left/right physical values here — `pnpm lint:rtl` enforces this.
@@ -260,16 +268,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-      --bg: #0a1310;
-      --surface: #101c18;
-      --surface-2: #152420;
-      --surface-3: #1c2c27;
-      --border: #243530;
-      --border-strong: #5b7a6d;
+      --bg: #0e1116;
+      --surface: #151a20;
+      --surface-2: #1c2229;
+      --surface-3: #232932;
+      --border: #2b323d;
+      --border-strong: #65758b;
 
-      --text: #e9efea;
-      --text-muted: #9db0a6;
-      --text-faint: #83978c;
+      --text: #eceef0;
+      --text-muted: #a4acb9;
+      --text-faint: #8993a2;
 
       /* chrome: slate steel, bright-blue accent — same rail in both themes. It
          sits only 1.29:1 off the dark canvas, so its edge is carried by
@@ -331,16 +339,16 @@
 }
 
 :root[data-theme="dark"] {
-    --bg: #0a1310;
-    --surface: #101c18;
-    --surface-2: #152420;
-    --surface-3: #1c2c27;
-    --border: #243530;
-    --border-strong: #5b7a6d;
+    --bg: #0e1116;
+    --surface: #151a20;
+    --surface-2: #1c2229;
+    --surface-3: #232932;
+    --border: #2b323d;
+    --border-strong: #65758b;
 
-    --text: #e9efea;
-    --text-muted: #9db0a6;
-    --text-faint: #83978c;
+    --text: #eceef0;
+    --text-muted: #a4acb9;
+    --text-faint: #8993a2;
 
     /* chrome: slate steel, bright-blue accent — same rail in both themes. It
        sits only 1.29:1 off the dark canvas, so its edge is carried by

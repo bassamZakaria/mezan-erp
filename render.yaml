@@ -17,7 +17,6 @@ services:
       # keeps the fallback admin predictable — it is not a secret.
       - key: MEZAN_SEED_ADMIN_PIN
         value: "123456"
-      # Set in the Render dashboard to put the whole demo behind one shared
-      # basic-auth password (username: demo). Leave unset for an open demo.
-      - key: MEZAN_DEMO_PASSWORD
-        sync: false
+      # MEZAN_DEMO_PASSWORD is deliberately NOT declared here: a `sync: false`
+      # var makes the blueprint stop and ask for a value before it will deploy.
+      # Add it in the dashboard afterwards to put the demo behind basic auth.

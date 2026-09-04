@@ -10,8 +10,8 @@
  * built on those numbers.
  *
  * ── THE CHROME ────────────────────────────────────────────────────────────
- * `--chrome-*` (sidebar + topbar) is deep brand blue with a bright-blue accent
- * in BOTH themes, which is why it is its own family and never inherits
+ * `--chrome-*` (sidebar + topbar) is slate steel with a bright-blue accent in
+ * BOTH themes, which is why it is its own family and never inherits
  * `--surface-*` or the ink ramp. Only its COLOUR changed: the rail widths, row
  * heights and two-row topbar layout are untouched.
  *
@@ -82,16 +82,20 @@
   --text-muted: #424f48;
   --text-faint: #55665d;
 
-  /* ── chrome: deep brand blue in BOTH themes, so it never inherits the
+  /* ── chrome: slate steel in BOTH themes, so it never inherits the
         surface/ink tokens. Colour only — the sidebar and topbar keep their
-        current layout, widths and heights. ─────────────────────────────── */
-  --chrome: #001b6b;
-  --chrome-2: #00114a;
-  --chrome-ink: #e8eeff;
-  --chrome-ink-muted: #97a9e0;
-  --chrome-border: rgba(255, 255, 255, 0.12);
-  --chrome-hover: rgba(255, 255, 255, 0.09);
-  --chrome-active: rgba(255, 255, 255, 0.12);
+        current layout, widths and heights.
+
+        The rail is NEUTRAL, not brand: it separates from the warm canvas by
+        luminance (11.77:1), so the blue is spent on the work rather than on
+        the furniture. `--chrome-accent` is the one brand note in it. ────── */
+  --chrome: #1e293b;
+  --chrome-2: #0f172a;
+  --chrome-ink: #f1f5f9;
+  --chrome-ink-muted: #94a3b8;
+  --chrome-border: rgba(255, 255, 255, 0.10);
+  --chrome-hover: rgba(255, 255, 255, 0.08);
+  --chrome-active: rgba(255, 255, 255, 0.10);
   --chrome-accent: #0099f3;
 
   /* ── brand (deep blue) and accent (bright blue): two families ────────── */
@@ -267,14 +271,16 @@
       --text-muted: #9db0a6;
       --text-faint: #83978c;
 
-      /* chrome: deep brand blue, bright-blue accent — same role in both themes. */
-      --chrome: #001450;
-      --chrome-2: #000c33;
-      --chrome-ink: #e8eeff;
-      --chrome-ink-muted: #97a9e0;
-      --chrome-border: rgba(255, 255, 255, 0.10);
-      --chrome-hover: rgba(255, 255, 255, 0.07);
-      --chrome-active: rgba(255, 255, 255, 0.10);
+      /* chrome: slate steel, bright-blue accent — same rail in both themes. It
+         sits only 1.29:1 off the dark canvas, so its edge is carried by
+         --chrome-border and --shadow-chrome, not by luminance. */
+      --chrome: #1e293b;
+      --chrome-2: #151d2b;
+      --chrome-ink: #f1f5f9;
+      --chrome-ink-muted: #94a3b8;
+      --chrome-border: rgba(255, 255, 255, 0.12);
+      --chrome-hover: rgba(255, 255, 255, 0.09);
+      --chrome-active: rgba(255, 255, 255, 0.12);
       --chrome-accent: #0099f3;
 
       --brand: #6e9bff;
@@ -336,14 +342,16 @@
     --text-muted: #9db0a6;
     --text-faint: #83978c;
 
-    /* chrome: deep brand blue, bright-blue accent — same role in both themes. */
-    --chrome: #001450;
-    --chrome-2: #000c33;
-    --chrome-ink: #e8eeff;
-    --chrome-ink-muted: #97a9e0;
-    --chrome-border: rgba(255, 255, 255, 0.10);
-    --chrome-hover: rgba(255, 255, 255, 0.07);
-    --chrome-active: rgba(255, 255, 255, 0.10);
+    /* chrome: slate steel, bright-blue accent — same rail in both themes. It
+       sits only 1.29:1 off the dark canvas, so its edge is carried by
+       --chrome-border and --shadow-chrome, not by luminance. */
+    --chrome: #1e293b;
+    --chrome-2: #151d2b;
+    --chrome-ink: #f1f5f9;
+    --chrome-ink-muted: #94a3b8;
+    --chrome-border: rgba(255, 255, 255, 0.12);
+    --chrome-hover: rgba(255, 255, 255, 0.09);
+    --chrome-active: rgba(255, 255, 255, 0.12);
     --chrome-accent: #0099f3;
 
     --brand: #6e9bff;

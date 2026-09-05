@@ -6,6 +6,7 @@
   "main": "dist/main/index.cjs",
   "scripts": {
     "demo": "tsx src/headless-demo.ts",
+    "icon": "node scripts/render-icon.mjs",
     "build:main": "node scripts/build.mjs",
     "start": "pnpm run build:main && electron .",
     "package": "pnpm run build:main && electron-builder",

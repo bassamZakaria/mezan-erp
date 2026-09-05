@@ -77,6 +77,26 @@ directories:
   output: release
   buildResources: build
 
+# THE APP'S OWN MARK, NOT ELECTRON'S.
+#
+# `mac.icon`, `win.icon` and `linux.icon` below are set explicitly rather than
+# left to buildResources auto-discovery, because the two files are NOT
+# interchangeable and the default hides that: `build/icon.icns` is a
+# multi-resolution container whose 16px member was laid out at 16px, while
+# `build/icon.png` is a single 1024px bitmap that electron-builder downsamples
+# into the Windows .ico and the Linux images.
+#
+# Both are generated from `build/icon.svg` by `scripts/render-icon.mjs`
+# (`pnpm --filter desktop icon`) and are COMMITTED. The glyph is the same
+# balance-beam mark the UI draws — packages/ui/src/shell/BrandMark.tsx — on the
+# brand blue `--brand: #003ce1` from packages/ui/src/tokens/tokens.css. If that
+# glyph or that token changes, edit icon.svg to match and re-run the script;
+# do not hand-edit the bitmaps.
+#
+# Nothing gates this. With no icon configured electron-builder substitutes the
+# default Electron atom and the build SUCCEEDS, which is how every package this
+# repo has produced so far shipped branded as Electron.
+
 # Fail the package rather than emit an unsigned installer.
 #
 # app-builder-lib enforces this in the Windows and macOS packagers only
@@ -161,6 +181,7 @@ extraResources:
 # AZURE_CLIENT_SECRET) INSTEAD of signtoolOptions — app-builder-lib refuses to
 # use both, and silently prefers Azure if both are present.
 win:
+  icon: build/icon.png
   target:
     - target: nsis
       arch: [x64]
@@ -231,6 +252,7 @@ win:
 # all. Setting `identity: null` here would mean "skip signing entirely" and is
 # the one value that must never appear.
 mac:
+  icon: build/icon.icns
   target:
     - target: dmg
       arch: [x64, arm64]
@@ -259,6 +281,7 @@ mac:
   notarize: true
 
 linux:
+  icon: build/icon.png
   target:
     - target: AppImage
       arch: [x64]

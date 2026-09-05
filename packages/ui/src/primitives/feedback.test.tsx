@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConfirmDialog, Skeleton, SkeletonTable, ToastProvider, useOptionalToast, useToast } from "./feedback";
 
@@ -54,6 +54,23 @@ describe("ToastProvider", () => {
     vi.useRealTimers();
   });
 
+  /**
+   * Advancing a fake timer fires the toast's `dismiss`, which is a React state
+   * update. A bare `vi.advanceTimersByTimeAsync` leaves that update outside
+   * `act`, so React may not have committed by the time the next line asserts on
+   * the DOM — and whether it has depends on how loaded the machine is.
+   *
+   * That is not a theoretical race: this file passed on its own and failed
+   * roughly one full-suite run in three, which is enough to fail the pre-push
+   * gate and block every push in the repository for a reason that has nothing
+   * to do with the change being pushed.
+   */
+  async function advanceTimers(ms: number): Promise<void> {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
   it("renders a live region labelled in Arabic for the toast stack", () => {
     render(<ToastProvider>{null}</ToastProvider>);
     expect(screen.getByRole("region", { name: "رسائل النظام" })).toBeInTheDocument();
@@ -99,7 +116,7 @@ describe("ToastProvider", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "أظهر إشعارًا" }));
     expect(screen.getByRole("status")).toBeInTheDocument();
-    await vi.advanceTimersByTimeAsync(1000);
+    await advanceTimers(1000);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
@@ -110,7 +127,7 @@ describe("ToastProvider", () => {
       </ToastProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "أظهر إشعارًا" }));
-    await vi.advanceTimersByTimeAsync(120_000);
+    await advanceTimers(120_000);
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
@@ -121,7 +138,7 @@ describe("ToastProvider", () => {
       </ToastProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "أظهر إشعارًا" }));
-    await vi.advanceTimersByTimeAsync(120_000);
+    await advanceTimers(120_000);
     expect(screen.getByText("تنبيه")).toBeInTheDocument();
   });
 
@@ -132,9 +149,9 @@ describe("ToastProvider", () => {
       </ToastProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "أظهر إشعارًا" }));
-    await vi.advanceTimersByTimeAsync(100);
+    await advanceTimers(100);
     expect(screen.getByRole("status")).toBeInTheDocument();
-    await vi.advanceTimersByTimeAsync(7900);
+    await advanceTimers(7900);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 

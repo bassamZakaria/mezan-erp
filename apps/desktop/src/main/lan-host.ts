@@ -31,6 +31,17 @@ export interface LanHostOptions {
   readonly host?: string;
   /** Bind port. Defaults to 4173; pass 0 in tests for an OS-assigned ephemeral port. */
   readonly port?: number;
+  /**
+   * Whether a request that is NOT on the public list may reach the rest of the
+   * app — i.e. whether this caller is a connected client rather than a stranger
+   * on the wifi. See {@link LAN_PUBLIC_ROUTES} for why this exists and what it
+   * has to check.
+   *
+   * OMITTED MEANS DENY, and that is the pre-client behaviour exactly: a host
+   * built without this forwards the seat protocol and nothing else. It is not
+   * optional-with-a-permissive-default anywhere.
+   */
+  readonly authorizeClientRequest?: (request: Request, remote: string) => boolean;
 }
 
 export interface LanHostHandle {
@@ -88,7 +99,7 @@ interface LanRoute {
 }
 
 /**
- * THE ONLY THINGS THIS SOCKET SERVES.
+ * THE ONLY THINGS THIS SOCKET SERVES TO AN UNAUTHENTICATED CALLER.
  *
  * It used to serve `options.app.fetch` directly, and `options.app` is the whole
  * backend `createBackend` composes — so `/bootstrap/admin`, `/bootstrap/seed`,
@@ -107,14 +118,14 @@ interface LanRoute {
  * its header from it, and the name is on the sign outside. `GET /health` is how
  * a till tells "host is off" from "host refused me".
  *
- * There is no wider "read set a till needs" here because there is no till
- * screen in this build to derive one from (POS is out of v1 scope), and a guess
- * at that list would be a guess at which of ~40 routers leaks the customer
- * ledger. When a real till screen lands, each route it needs gets added here
- * ONE AT A TIME, with the reason, rather than a prefix that quietly re-opens
- * everything mounted under it later.
+ * EVERY OTHER ROUTE is reached the other way — see `authorizeClientRequest` and
+ * `LAN_NEVER_ROUTES` below. This list stayed the WHOLE surface for as long as
+ * there was no client to serve; that was the right shape then and it is the
+ * wrong one for a shop where the accountant and the storekeeper are on two
+ * machines, because it means the second machine can sign in, take a seat, and
+ * then read nothing and post nothing.
  */
-const LAN_ALLOWED_ROUTES: readonly LanRoute[] = [
+const LAN_PUBLIC_ROUTES: readonly LanRoute[] = [
   { method: "POST", path: "/auth/login" },
   { method: "POST", path: "/auth/logout" },
   { method: "GET", path: "/tenant" },
@@ -123,18 +134,41 @@ const LAN_ALLOWED_ROUTES: readonly LanRoute[] = [
 ];
 
 /**
+ * NEVER over the LAN socket, licensed, authenticated, seated or otherwise.
+ *
+ * `/bootstrap/admin` is the second half of the anonymous-tenant-takeover chain
+ * (auth-routes.ts): on a tenant that reads as unclaimed, an anonymous POST comes
+ * back holding `permissions: ["*"]`. It has its own claimed-tenant check, and
+ * this is the independent second guard — the one that does not depend on that
+ * check being right. Claiming and seeding a tenant is something you do standing
+ * at the host machine, so nothing is lost by making it unreachable from the wire.
+ *
+ * This list is checked BEFORE the authenticated path, so widening what a client
+ * may reach can never widen this.
+ */
+const LAN_NEVER_ROUTES: readonly LanRoute[] = [{ method: null, path: "/bootstrap", subtree: true }];
+
+/**
  * Matches against the RAW pathname, never a decoded one. `new URL()` collapses
  * `..` segments, so `/lan/../users` arrives here already normalised to
  * `/users` and is refused; a percent-encoded `/%61uth/login` matches nothing
  * here AND matches nothing in Hono's router either (it routes on the raw path
  * too), so refusing it cannot strand a real caller.
  */
-function isAllowedOverLan(method: string, pathname: string): boolean {
-  return LAN_ALLOWED_ROUTES.some((route) => {
+function matches(routes: readonly LanRoute[], method: string, pathname: string): boolean {
+  return routes.some((route) => {
     if (route.method !== null && route.method !== method) return false;
     if (route.subtree) return pathname === route.path || pathname.startsWith(`${route.path}/`);
     return pathname === route.path;
   });
+}
+
+export function isPublicOverLan(method: string, pathname: string): boolean {
+  return matches(LAN_PUBLIC_ROUTES, method, pathname);
+}
+
+export function isNeverOverLan(method: string, pathname: string): boolean {
+  return matches(LAN_NEVER_ROUTES, method, pathname);
 }
 
 function ipv4ToInt(address: string): number | null {
@@ -290,14 +324,43 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
     }
 
     const pathname = new URL(request.url).pathname;
-    if (!isAllowedOverLan(request.method, pathname)) {
-      // 404, not 403, and byte-identical to Hono's own not-found body: a 403
-      // would confirm that `/bootstrap/admin` exists and is merely fenced off,
-      // which is the one fact a stranger on the wifi should not be handed.
-      return new Response("404 Not Found", {
+    // 404, not 403, and byte-identical to Hono's own not-found body: a 403
+    // would confirm that `/bootstrap/admin` exists and is merely fenced off,
+    // which is the one fact a stranger on the wifi should not be handed.
+    //
+    // `x-mezan-lan-refused` LEAKS NOTHING and is what makes a client usable.
+    // The header is on EVERY refusal this socket makes — a fenced-off route, a
+    // route that does not exist, an unauthenticated caller, a seatless one —
+    // so it is constant, and a stranger learns from it exactly what the 404
+    // already told them: this socket refused you. What it buys is on the other
+    // side: `GET /customers/GONE` returning 404 because that customer is not
+    // there, and `GET /customers` returning 404 because the caller holds no
+    // seat, are otherwise the SAME response, and a client cannot tell "the
+    // document is missing" from "I am not connected". Without it, a client's
+    // boot sequence — which fires before its stored session is restored — reads
+    // as a dozen missing routes, and the shell renders «الصفحة غير موجودة» over
+    // a perfectly healthy host. That is what the first two-machine run did.
+    const notFound = () =>
+      new Response("404 Not Found", {
         status: 404,
-        headers: { "content-type": "text/plain; charset=UTF-8" },
+        headers: { "content-type": "text/plain; charset=UTF-8", "x-mezan-lan-refused": "1" },
       });
+
+    // Order is load-bearing: the never-list is consulted first, so no
+    // authorisation result and no future addition to the public list can reach
+    // a route that is meant to be unreachable from the wire.
+    if (isNeverOverLan(request.method, pathname)) return notFound();
+
+    if (!isPublicOverLan(request.method, pathname)) {
+      // Everything past the sign-in and seat protocol needs a caller who has
+      // actually connected — a live session, minted over THIS socket, whose
+      // user holds a seat. A stranger on the wifi gets the same 404 the whole
+      // app used to give them.
+      // The RAW peer address, not the normalised one: this is the value
+      // `requestOrigin` hands the session registry when the token was minted
+      // (packages/api/src/request-origin.ts), and the authorizer has to ask the
+      // registry the same question the app itself asks.
+      if (!options.authorizeClientRequest?.(request, remoteRaw ?? remote)) return notFound();
     }
 
     // `env` is FORWARDED, not dropped. The backend reads the peer address off
@@ -341,7 +404,8 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
             `[lan] multi-till host listening on https://${hostname}:${info.port} ` +
               `(seats=${options.entitlements.seats}, ` +
               `sha256=${tls.fingerprintSha256}, ` +
-              `routes=${LAN_ALLOWED_ROUTES.map((r) => r.path).join(" ")})`,
+              `public=${LAN_PUBLIC_ROUTES.map((r) => r.path).join(" ")}, ` +
+              `clients=${options.authorizeClientRequest ? "the rest of the app, once signed in and seated" : "REFUSED (no authorizer wired)"})`,
           );
           resolveReady(info);
         },

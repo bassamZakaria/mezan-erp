@@ -523,14 +523,26 @@ session/permission gate the route itself carries:
   the shop actually meant to share them on. `0.0.0.0` is still the fallback when the host has
   no such interface at all (no cable, no wifi), and it logs loudly when that happens, because
   that is a state worth someone looking at rather than shipping into silently.
-- **A path allow-list, checked before anything else.** Only `POST /auth/login`,
-  `POST /auth/logout`, `GET /tenant`, `GET /health`, and everything under `/lan/*` is
-  forwarded to the app at all — `/bootstrap/*`, `/users`, `/gl`, `/reports`, everything else
-  gets a 404 that is byte-identical to Hono's own not-found body (a 403 would confirm the
-  route exists and is merely fenced off, which is the one fact a stranger on the wifi should
-  not be handed). This is a second, independent guard on top of `/bootstrap/admin`'s own
-  claimed-tenant check (§2) — the anonymous-takeover route is simply not reachable from the
-  LAN socket at all, licensed or not.
+- **A public list, a never-list, and a seat.** Unauthenticated, a caller reaches only
+  `POST /auth/login`, `POST /auth/logout`, `GET /tenant`, `GET /health` and `/lan/*`.
+  `/bootstrap/*` is on the **never**-list — unreachable over this socket for anybody,
+  licensed, authenticated and seated included, because it is the second half of the
+  anonymous-tenant-takeover chain (§2) and claiming a tenant is something you do standing at
+  the host. Everything else is forwarded **only** to a caller who holds a live session minted
+  over this socket AND a licensed seat (`main/lan-authorization.ts`); a licence is not a
+  credential, and signing in is not connecting. Anything refused gets a 404 byte-identical to
+  Hono's own not-found body — never a 403, which would confirm the route exists and is merely
+  fenced off.
+
+  Until the client edition landed, that list of five WAS the whole surface, which meant the
+  second machine in a shop could sign in, take a seat, and then read nothing and post nothing.
+
+  Refusals carry an `x-mezan-lan-refused: 1` header. It leaks nothing — it is on every
+  refusal this socket makes, so it tells a stranger exactly what the 404 already did — and it
+  is what lets a client tell "this customer was deleted" from "I am not connected", which are
+  otherwise the same response. Without it a client's boot sequence, which fires before its
+  stored session is restored, reads as a dozen missing routes and the shell renders
+  «الصفحة غير موجودة» over a perfectly healthy host.
 - **An own-subnet check on every request, not cached at bind time.** A request whose remote
   address does not sit inside one of this host's own attached subnets gets `403 OFF_SUBNET`,
   re-evaluated per request — deliberately, so a shop laptop that later goes home on a phone
@@ -735,6 +747,122 @@ A consultant who cannot say this plainly is setting the client up to find out th
   filesystem access to `mezan.db` — in practice, the company admin — from opening the file with
   another tool and editing past the trigger, or from restoring an older backup that never had
   the entry in question.
+
+---
+
+## 7A. Building the installer, and rolling out the second machine
+
+Everything in this section was verified end to end on two live instances before it was
+written: a packaged host, a packaged client on the same wifi, a real TLS socket between
+them, and a customer created from the client that is still in the host's encrypted database.
+
+### 7A.1 One command builds the installers
+
+```bash
+pnpm desktop:package            # this machine's platform
+pnpm desktop:package --mac      # macOS .dmg (x64 + arm64)
+pnpm desktop:package --win      # Windows NSIS .exe — must be run ON Windows, see below
+pnpm desktop:package --help
+```
+
+It runs the six steps in the order that matters, and `scripts/package-desktop.mjs` says why
+each one is there. Three are easy to skip and each produces an installer that looks fine and
+is not: fetching the Electron **binary** (`pnpm install` never does — `allowBuilds.electron:
+false`), rebuilding the native modules for **Electron's** ABI rather than Node's, and
+verifying that by launching the real Electron and opening a real encrypted database.
+
+**The build is UNSIGNED unless you pass `--signed`.** That is right for a build you are about
+to test on your own machine and wrong for anything a client installs — see §8. An unsigned
+macOS build is refused by Gatekeeper on any machine but the one that built it, and the
+auto-updater refuses to run on it at all.
+
+**Windows must be built on Windows.** Not an electron-builder limitation: `better-sqlite3` and
+`better-sqlite3-multiple-ciphers` are native modules that need a Windows binary for Electron's
+ABI, and those cannot be cross-compiled from macOS or Linux. A `.exe` produced that way opens
+no database. Build it on a Windows machine, or push a `v*` tag and let the windows-latest
+runner in `.github/workflows/release.yml` do it — that path also signs it.
+
+**After a package build, the native modules are left compiled for Electron**, so `pnpm test`
+cannot load them. The command rebuilds them for Node on the way out unless you pass
+`--keep-electron-abi`.
+
+### 7A.2 One host, many clients — and exactly one copy of the books
+
+Mezan ships ONE executable that plays one of two roles.
+
+- The **host** holds `mezan.db`, takes the backups, holds the licence, and opens the LAN
+  socket (§6).
+- A **client** holds no database at all. It renders the same UI, and every request it makes
+  is forwarded to the host over the pinned TLS socket. There is one copy of the ledger, on
+  one machine, and **no synchronisation anywhere** — two copies of a ledger that have to be
+  merged is not a feature, it is a class of defect nothing recovers from.
+
+`client.json`, beside the database, IS the role: no file, host; a file, client. A damaged
+client.json stops the app rather than falling back to either role, because a client that
+silently became a host would open its own empty database, seed its own chart of accounts,
+look entirely normal, and take a day of somebody's invoices into books nobody else can see.
+
+### 7A.3 The rollout, in order
+
+**1. On the host: put the licence where the app can read it.** Entitlements now come from
+`licence.json` beside the database (`MEZAN_ENTITLEMENTS_JSON` still wins if it is set, for
+development). Before this, entitlements were env-var-only — which a packaged app launched
+from the Start menu or the Dock never has, so **no shipped install could be licensed at
+all**, and `lan.multi_till` was unreachable by anyone. It is schema-validated and **not**
+cryptographically verified; see §7 and `main/licence-file.ts` for what that does and does not
+buy you.
+
+```json
+{
+  "plan": "ENTERPRISE",
+  "activeModules": ["sales", "purchases", "inventory", "accounting", "treasury"],
+  "features": { "lan.multi_till": true },
+  "seats": 3,
+  "expiresAt": null
+}
+```
+
+**2. Start the host and let the OS firewall let it in.** The socket binds, and on both macOS
+and Windows the operating system's own firewall silently drops the incoming connections until
+the app is allowed. This is the single most likely reason a correctly configured client says
+"no answer from the host": on macOS the app must be added to System Settings → Network →
+Firewall → Options; on Windows, approve the prompt on first launch (or add an inbound rule for
+the Mezan executable). Nothing in the product can tell you this is happening — from the
+client's side an OS-blocked port and an unplugged machine are the same silence.
+
+**3. Read the address and the fingerprint off the host's «الأجهزة المتصلة» screen** — or off
+its console line — and compare the fingerprint by eye, in the shop (§6.3). They are also both
+printed at startup:
+
+```
+[lan] multi-till host listening on https://192.168.1.7:4173 (seats=3, sha256=49:0E:…, …)
+```
+
+**4. Pair each client, once, from a shortcut or a terminal:**
+
+```
+Mezan --pair-host=https://192.168.1.7:4173 --pair-fingerprint=49:0E:E0:… --device-label="مكتب المحاسب"
+```
+
+It writes `client.json` (mode `0600`) and exits. It refuses to run on a machine that already
+has a `mezan.db`, because a client holds no books of its own and pairing would orphan them.
+Re-pairing an existing client keeps its `deviceId`, so repointing a till at a rebuilt host
+does not burn a second seat.
+
+**5. Start the client and sign in.** It claims a licensed seat automatically as part of
+signing in, and re-announces itself every 15 seconds — the host reaps a device it has not
+seen for 45 seconds, so without that heartbeat the app loads on login and goes empty a minute
+later. If the licence has no free seat, the **login itself** is refused with an Arabic
+message; there is deliberately no "signed in but seatless" state, because it renders as a
+complete application in which every single screen is empty.
+
+### 7A.4 What a client cannot do, and says so
+
+Backups and restore are the host's (`النسخ الاحتياطي يُدار من الجهاز الرئيسي`), and the
+licence panel on a client reports which host it is paired with and which certificate it
+pinned rather than restating a licence it does not own. The client also does **not** run the
+auto-updater: a client and its host must be the same version, so the host is updated first,
+deliberately, by a person.
 
 ---
 

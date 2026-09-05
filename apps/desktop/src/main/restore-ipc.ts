@@ -326,3 +326,30 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
     },
   );
 }
+
+/**
+ * The backup channels on a CLIENT machine, answering honestly instead of not
+ * existing at all.
+ *
+ * A client holds no database, so it has nothing to back up and nothing to
+ * restore into. But an `ipcMain.handle` channel that was never registered does
+ * NOT degrade to "no data": it rejects, and the renderer shows
+ * `Error invoking remote method 'mezan:backup:list': No handler registered` —
+ * an English Electron internal, on a settings screen, in an Arabic product.
+ * That exact failure appeared above the shell on the first live client run
+ * (see `registerClientLicenceStatusOverIpc`), which is why every channel the
+ * preload bridge exposes now has an answer in BOTH roles.
+ *
+ * The message names the host, because the person at this machine is not being
+ * told "no" — they are being told which machine to walk to.
+ */
+export function registerClientBackupRefusalsOverIpc(hostUrl: string): void {
+  const refusal: BackupFailure = {
+    ok: false,
+    code: "UNAVAILABLE",
+    message: `النسخ الاحتياطي يُدار من الجهاز الرئيسي (${hostUrl}). هذا الجهاز محطة متصلة ولا يحتفظ بقاعدة بيانات خاصة به.`,
+  };
+  ipcMain.handle(MEZAN_BACKUP_LIST_CHANNEL, () => refusal);
+  ipcMain.handle(MEZAN_BACKUP_CREATE_CHANNEL, () => refusal);
+  ipcMain.handle(MEZAN_BACKUP_RESTORE_CHANNEL, () => refusal);
+}

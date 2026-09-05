@@ -46,6 +46,47 @@ export interface LicenceIpcDeps {
  * the renderer as "Error invoking remote method 'mezan:licence:status'", which
  * is not something to put in front of a shop owner in any language.
  */
+/**
+ * The CLIENT-machine answer on the same channel.
+ *
+ * It has to be registered, and the first live two-machine run is why: a client
+ * registered no handler at all, so the shell's own licence panel put
+ * `Error invoking remote method 'mezan:licence:status': No handler registered`
+ * across the top of the window, in English, on the very first screen after
+ * login. An unregistered `ipcMain.handle` channel does not degrade to "no data";
+ * it rejects, and the rejection is rendered.
+ *
+ * WHAT IT REPORTS AND WHY IT IS NOT THE HOST'S LICENCE. A client is entitled to
+ * nothing on its own — the host's licence is what governs, and the host enforces
+ * it per request. Restating the host's plan and seat count here would mean
+ * re-fetching a fact this process does not own and cannot verify, and every
+ * disagreement between the two readings would be a support call. What the client
+ * knows for certain, and what a person standing at the client machine actually
+ * needs, is which host it is paired with and which certificate it pinned — so
+ * that is what it says. `listening: false` is honest: this machine listens on
+ * nothing.
+ */
+export function registerClientLicenceStatusOverIpc(config: {
+  hostUrl: string;
+  fingerprintSha256: string;
+}): void {
+  ipcMain.handle(MEZAN_LICENCE_STATUS_CHANNEL, (): LicenceStatusResult => {
+    return {
+      ok: true,
+      code: "LIC-OK",
+      messageAr: `هذا الجهاز يعمل كمحطة متصلة بالجهاز الرئيسي على ${config.hostUrl}. الترخيص وعدد المقاعد يُداران من الجهاز الرئيسي.`,
+      plan: "CLIENT",
+      seats: 0,
+      expiresAt: null,
+      lan: {
+        listening: false,
+        url: config.hostUrl,
+        fingerprintSha256: config.fingerprintSha256,
+      },
+    };
+  });
+}
+
 export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
   ipcMain.handle(
     MEZAN_LICENCE_STATUS_CHANNEL,

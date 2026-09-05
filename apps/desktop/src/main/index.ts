@@ -2,16 +2,20 @@ import { app, BrowserWindow, safeStorage } from "electron";
 import Database from "better-sqlite3";
 import { createBackend, takeSeededAdminSecrets, type BackendHandle } from "@mezan/backend";
 import { SeatSessionRegistry } from "@mezan/domain";
-import { registerHonoOverIpc, registerPrintToPdfOverIpc } from "./ipc.js";
-import { registerRestoreOverIpc } from "./restore-ipc.js";
+import { registerHonoOverIpc, registerHonoOverLanClient, registerPrintToPdfOverIpc } from "./ipc.js";
+import { readClientConfig, readPairingRequest, writeClientConfig, type ClientConfig } from "./client-config.js";
+import { createLanClient, withSeatClaim } from "./lan-client.js";
+import { readLicenceSource } from "./licence-file.js";
+import { registerClientBackupRefusalsOverIpc, registerRestoreOverIpc } from "./restore-ipc.js";
 import { createWindow, hardenWebContents } from "./window.js";
 import { initAutoUpdater } from "./updater.js";
 import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
 import { defaultBackupsDir, defaultDbPath, isDev, rendererEntry, rendererRoot } from "./env.js";
 import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./renderer-protocol.js";
 import { diagnoseDesktopEntitlements } from "./entitlements.js";
-import { registerLicenceStatusOverIpc } from "./licence-ipc.js";
+import { registerClientLicenceStatusOverIpc, registerLicenceStatusOverIpc } from "./licence-ipc.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
+import { createLanClientAuthorizer } from "./lan-authorization.js";
 import { loadOrCreateLanTlsIdentity } from "./lan-tls.js";
 import {
   clearRecoveryPinIfClaimed,
@@ -73,11 +77,114 @@ app.on("web-contents-created", (_event, contents) => {
   hardenWebContents(contents, rendererEntry().url);
 });
 
+/**
+ * The whole of the client-machine startup.
+ *
+ * Notice what is NOT here, and that each absence is the point: no database, no
+ * encryption key, no seed, no backup schedule, no LAN socket, no licence
+ * resolution. A client holds nothing to protect, backs up nothing, and is
+ * entitled to nothing on its own — the host's licence is what governs, and the
+ * host enforces it on every request (main/lan-authorization.ts). Duplicating
+ * any of that here would be a second source of truth for a fact that has one.
+ *
+ * The updater is likewise not started: a client and its host must run the same
+ * version, and a client that updated itself independently would be talking to a
+ * host it no longer matches. Updating the host first is a deliberate,
+ * consultant-driven step, not something two machines negotiate.
+ */
+async function startAsLanClient(config: ClientConfig): Promise<void> {
+  console.log(
+    `[client] this machine is a Mezan CLIENT of ${config.hostUrl} ` +
+      `(device ${config.deviceLabel}, pinned sha256=${config.fingerprintSha256})`,
+  );
+  if (shouldServeRenderer()) serveRenderer(rendererRoot());
+  // EVERY channel the preload bridge exposes gets an answer here, not just the
+  // ones a client can satisfy. An unregistered `ipcMain.handle` rejects, and the
+  // renderer prints the rejection — the first live client run showed
+  // "Error invoking remote method 'mezan:licence:status': No handler registered"
+  // in English above an Arabic shell. A refusal with a reason is a screen; a
+  // missing handler is a bug report shown to the shop.
+  registerHonoOverLanClient(withSeatClaim(createLanClient({ config }), config));
+  registerPrintToPdfOverIpc();
+  registerClientLicenceStatusOverIpc(config);
+  registerClientBackupRefusalsOverIpc(config.hostUrl);
+  createWindow();
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+}
+
 app.whenReady().then(async () => {
   const dbPath = isDev() ? ":memory:" : defaultDbPath();
   // Tells the seed whether this is a real install: a packaged build must not
   // create its fallback admin with the published demo PIN (see seed.ts).
   process.env["MEZAN_PACKAGED"] = app.isPackaged ? "1" : "0";
+
+  /**
+   * HOST OR CLIENT, and it is decided before anything opens, creates or seeds a
+   * database — because on a client, none of that must happen at all.
+   *
+   * A client that fell through to the host path would open its own empty
+   * `mezan.db`, seed its own chart of accounts, and present a Mezan that looks
+   * entirely normal and holds none of the shop's data. Somebody would then work
+   * in it for a day. That is why an unreadable client config stops the app
+   * instead of defaulting either way (client-config.ts).
+   */
+  if (!isDev()) {
+    // Pairing runs BEFORE the role is read, and exits: it is a provisioning
+    // command, not a mode. Running it against a machine that already holds
+    // books would be a mistake worth noticing, so it says what it found rather
+    // than quietly repointing a host at somebody else's data.
+    let pairing: ReturnType<typeof readPairingRequest>;
+    try {
+      pairing = readPairingRequest();
+    } catch (err) {
+      console.error(`[pair] ${err instanceof Error ? err.message : String(err)}`);
+      app.exit(1);
+      return;
+    }
+    if (pairing) {
+      if ((await readDatabaseFileState(dbPath)) !== "absent") {
+        console.error(
+          `[pair] ${dbPath} already exists. A client holds no books of its own, so pairing this machine ` +
+            "would leave that database orphaned. Move or delete it first if this machine really is to become a client.",
+        );
+        app.exit(1);
+        return;
+      }
+      const config = await writeClientConfig(dbPath, pairing).catch((err: unknown) => {
+        console.error("[pair] could not write the pairing", err);
+        return null;
+      });
+      if (!config) {
+        app.exit(1);
+        return;
+      }
+      console.log(
+        `[pair] this machine is now a Mezan CLIENT of ${config.hostUrl}\n` +
+          `       device: ${config.deviceLabel} (${config.deviceId})\n` +
+          `       pinned certificate: ${config.fingerprintSha256}\n` +
+          `       Compare that fingerprint against the host's screen before you use it.`,
+      );
+      app.exit(0);
+      return;
+    }
+
+    const role = await readClientConfig(dbPath);
+    if (role.role === "unusable") {
+      console.error(`[client] ${role.reason}`);
+      console.error(
+        "[client] Mezan will not start. Fix or delete client.json — deleting it makes this machine a HOST " +
+          "with its own separate books, which is almost certainly not what you want on a machine that was a client.",
+      );
+      app.exit(1);
+      return;
+    }
+    if (role.role === "client") {
+      await startAsLanClient(role.config);
+      return;
+    }
+  }
 
   /**
    * Encryption at rest, resolved BEFORE anything opens the database — the
@@ -234,7 +341,14 @@ app.whenReady().then(async () => {
   // Resolved ONCE, diagnosis and all: `mezan:licence:status` must report the
   // same reading every gate below was built from, not re-read the environment
   // and answer a different question than the one the app is running on.
-  const licence = diagnoseDesktopEntitlements();
+  // The licence source, resolved from the file beside the database when no
+  // environment variable overrides it — see licence-file.ts for why an env-only
+  // source meant no packaged install could ever be licensed.
+  const licenceSource = await readLicenceSource(defaultDbPath());
+  const licence = diagnoseDesktopEntitlements({
+    ...process.env,
+    MEZAN_ENTITLEMENTS_JSON: licenceSource,
+  });
   const entitlements = licence.entitlements;
   if (licence.status !== "licensed") {
     console.warn(`[licence] ${licence.code} — ${licence.detailAr}`);
@@ -324,10 +438,20 @@ app.whenReady().then(async () => {
   // The identity is a thunk, and it lives BESIDE the database rather than in
   // it: the socket must present the same certificate on every launch or no
   // till can pin it, and lan-host.ts must keep importing no `electron`.
+  const sessions = backend.sessions;
   lanHost = startLanHost({
     app: backend.app,
     entitlements,
     tls: () => loadOrCreateLanTlsIdentity(defaultDbPath()),
+    // What turns the LAN socket from a seat-protocol endpoint into something a
+    // second machine can actually run the business on. Without it the socket
+    // serves login and `/lan/*` and refuses everything else — see
+    // lan-authorization.ts for the three things this has to establish before a
+    // request reaches the app.
+    authorizeClientRequest: createLanClientAuthorizer({
+      resolveSessionUser: (token, origin) => sessions.find(token, origin)?.userId ?? null,
+      registry: seatRegistry,
+    }),
   });
 
   createWindow();

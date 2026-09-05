@@ -522,6 +522,13 @@ export interface CreateBackendOptions {
    * better-sqlite3 with no key, exactly as before.
    */
   readonly connection?: SqliteOpenOptions;
+  /**
+   * The verified-license state every mutating request is gated against
+   * (docs/archive/plan.md §2.5). Supplied by apps/desktop from the Ed25519
+   * offline license; omitted by every other edition, which stays fully
+   * writable.
+   */
+  readonly resolveLicenseState?: CreateAppOptions["resolveLicenseState"];
 }
 
 /**
@@ -1233,6 +1240,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // The LAN routes need the SAME session registry the auth routes issue
     // into, or a disconnect revokes a token nobody is holding.
     ...(options.lan ? { lan: { ...options.lan, sessions } } : {}),
+    ...(options.resolveLicenseState ? { resolveLicenseState: options.resolveLicenseState } : {}),
     settingsStore: settings,
     branchStore: branches,
     warehouseStore: warehouses,

@@ -5,15 +5,15 @@ import { SeatSessionRegistry } from "@mezan/domain";
 import { registerHonoOverIpc, registerHonoOverLanClient, registerPrintToPdfOverIpc } from "./ipc.js";
 import { readClientConfig, readPairingRequest, writeClientConfig, type ClientConfig } from "./client-config.js";
 import { createLanClient, withSeatClaim } from "./lan-client.js";
-import { readLicenceSource } from "./licence-file.js";
 import { registerClientBackupRefusalsOverIpc, registerRestoreOverIpc } from "./restore-ipc.js";
 import { createWindow, hardenWebContents } from "./window.js";
-import { initAutoUpdater } from "./updater.js";
+import { registerAutoUpdater } from "./updater.js";
 import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
 import { defaultBackupsDir, defaultDbPath, isDev, rendererEntry, rendererRoot } from "./env.js";
 import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./renderer-protocol.js";
 import { diagnoseDesktopEntitlements } from "./entitlements.js";
 import { registerClientLicenceStatusOverIpc, registerLicenceStatusOverIpc } from "./licence-ipc.js";
+import { loadDesktopLicense } from "./license-runtime.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
 import { createLanClientAuthorizer } from "./lan-authorization.js";
 import { loadOrCreateLanTlsIdentity } from "./lan-tls.js";
@@ -338,18 +338,22 @@ app.whenReady().then(async () => {
   // `lan.multi_till`, a LAN-visible socket for other tills/tablets in the
   // shop (§6.3.3). `/lan/sessions` seat enforcement lives on this one app
   // instance in both cases — see @mezan/api's lan/routes.ts.
-  // Resolved ONCE, diagnosis and all: `mezan:licence:status` must report the
-  // same reading every gate below was built from, not re-read the environment
-  // and answer a different question than the one the app is running on.
-  // The licence source, resolved from the file beside the database when no
-  // environment variable overrides it — see licence-file.ts for why an env-only
-  // source meant no packaged install could ever be licensed.
-  const licenceSource = await readLicenceSource(defaultDbPath());
-  const licence = diagnoseDesktopEntitlements({
-    ...process.env,
-    MEZAN_ENTITLEMENTS_JSON: licenceSource,
+  // The Ed25519 offline license is the ONE source of both entitlements and
+  // write permission (docs/archive/plan.md §2.5). Past its grace window it
+  // resolves to READ_ONLY: data stays viewable, new postings are refused by
+  // the write-gate below — closes D115, where an unsigned env var decided this.
+  const license = await loadDesktopLicense({
+    userDataDir: app.getPath("userData"),
+    packaged: app.isPackaged,
   });
-  const entitlements = licence.entitlements;
+  const entitlements = license.entitlements;
+
+  // The support-code reading for `mezan:licence:status`, which also carries the
+  // LAN address and certificate fingerprint. It reports on the DEV env seam
+  // only and grants nothing — `license` above is what every gate is built from.
+  // See the note on `diagnoseDesktopEntitlements`; the two collapse once that
+  // channel reports the verified state directly.
+  const licence = diagnoseDesktopEntitlements();
   if (licence.status !== "licensed") {
     console.warn(`[licence] ${licence.code} — ${licence.detailAr}`);
   }
@@ -363,6 +367,7 @@ app.whenReady().then(async () => {
     dbPath,
     connection: cipher,
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
+    resolveLicenseState: () => license.state,
   });
 
   if (!isDev()) {
@@ -454,8 +459,8 @@ app.whenReady().then(async () => {
     }),
   });
 
-  createWindow();
-  initAutoUpdater();
+  const mainWindow = createWindow();
+  registerAutoUpdater(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

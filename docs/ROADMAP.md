@@ -45,7 +45,7 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
 | **Open now (§3)** | Two items: those row menus, and outbound notification delivery |
 | **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
-| **Defects (§5)** | None open. D65 closed by `d3294fc`; D1–D64 were already closed. `pnpm scenarios` measured 3876/0 on 2026-08-29 |
+| **Defects (§5)** | None open on `main`. D115 (licence model unwired) fixed. D65 closed by `d3294fc`; D1–D64 were already closed. `pnpm scenarios` measured 3876/0 on 2026-08-29 |
 | **Decisions (§6)** | Six open (DEC-2 … DEC-7), each blocking its own issue rather than the build |
 | **Beyond parity (§7)** | 27 candidates across E1–E3, none started; `enhancements` branch only |
 | **Shell follow-ups (§8)** | 8 items, queued behind the i18n sweep |
@@ -503,7 +503,7 @@ need a measured reading in the running app before anyone fixes them.
 | D112 | The aging reports declare no `reconciliation` block and no test ties their total to the AR or AP control account — the first report an accountant opens agrees only with itself. `inventory-valuation` is the same: `sales-by-item` and `purchases-by-item` DO declare one, and no test asserts it either, so the tie mechanism is dark on every report that has it | `packages/domain/src/reports/aging-customers.ts`, `aging-suppliers.ts`, `inventory-valuation.ts` | fixed in this pass — all three declare a `reconciliation` block against their control account, tested at a non-zero balance both agreeing and diverging, and `ReportReconciliationSpec.available` now suppresses the banner when the caller wires no reference rather than comparing a real total against a defaulted zero. The contexts still have to be fed in `packages/api/src/reports-routes.ts` (another owner this pass) for the banner to appear on screen |
 | D113 | The topbar's bell, theme and user menus portal their dropdown to `document.body` with no focus management at all — no focus on open, none restored on close. `SidePanel` does both correctly, so the pattern exists and these three do not use it. A keyboard user who opens one cannot reliably Tab into it and is left stranded when it closes. Rendered on every screen | `packages/ui/src/shell/ChromeActions.tsx`, `NotificationsPanel.tsx`, `TopbarMenu.tsx` | fixed in this pass — `TopbarMenu` focuses the panel's first item on open and returns focus to its trigger on close (unless a pointer click elsewhere dismissed it); `NotificationsPanel` takes focus, traps Tab through `useFocusTrap`, and restores focus to whatever opened it. `ChromeActions` no longer has a dropdown at all — its portal/popup imports were dead and are now removed |
 | D114 | `EntityPicker` filters with a plain lower-cased substring match instead of the app's own `normalizeForSearch`, so «الامل» finds nothing where «الأمل» is stored — while the customer LIST, which does normalise, finds it. The entity is reachable only by someone who reproduces the stored spelling character for character, across roughly 35 picker call sites | `packages/ui/src/primitives/EntityPicker.tsx` | fixed in this pass — the picker filters through `matchesSearch` from `packages/ui/src/lib/search.ts`, a verbatim copy of the domain normaliser (@mezan/ui carries no dependency on @mezan/domain), guarded by `search.test.ts` |
-| D115 | **The Ed25519 licence model is not wired to the app that ships.** `resolveDesktopEntitlements` reads `MEZAN_ENTITLEMENTS_JSON` — an unsigned environment variable — straight into `createEntitlements`: no signature check, no expiry, no machine fingerprint, no grace period. `verifyLicense`, which does all four and is thoroughly tested, is called by nothing the desktop binary runs. Anyone with shell access grants themselves any plan | `apps/desktop/src/main/entitlements.ts` vs `packages/domain/src/licensing/**` | reported |
+| D115 | **The Ed25519 licence model is not wired to the app that ships.** `resolveDesktopEntitlements` reads `MEZAN_ENTITLEMENTS_JSON` — an unsigned environment variable — straight into `createEntitlements`: no signature check, no expiry, no machine fingerprint, no grace period. `verifyLicense`, which does all four and is thoroughly tested, is called by nothing the desktop binary runs. Anyone with shell access grants themselves any plan | `apps/desktop/src/main/entitlements.ts` vs `packages/domain/src/licensing/**` | fixed. Desktop startup now reads `license.mezan` and drives `verifyLicense` (signature + monotonic-clock rollback guard + machine fingerprint + expiry/grace) via `main/license.ts` + `main/license-runtime.ts`; a packaged build with no authentic licence fails CLOSED to read-only, never open. Both entitlements AND write permission come from the verified licence: past grace it resolves to READ_ONLY, enforced server-side by a global write-gate (`packages/api/src/license-gate.ts`) that refuses every mutating method with 403 `LICENSE_READ_ONLY` while leaving reads/print/export and sign-in/activation open, so data is never withheld. A polled `GET /license/state` drives an Arabic-first banner (`apps/web/src/LicenseBanner.tsx`). Guarded: `license-gate.test.ts`, `license.test.ts` |
 | D116 | Roughly a third of the permission catalogue gates nothing. The entire POS module (33 codes) has no route at all; eleven treasury codes, `sales.invoice.void`, `sales.customer.merge`, `crm.lead.assign`, `hr.payroll.run`, `installments.collect` and others gate nothing either. An admin can tick any of them in the role editor and the product does not change — and a confirmed sales invoice cannot be voided through any route, only a draft cancelled | `packages/domain/src/permissions/catalog.ts` vs `packages/api/src/*-routes.ts` | guarded (`permission-catalog-coverage.test.ts`) |
 | D117 | Nothing stops the last company admin being deactivated or demoted. `saveUser` and `setUserStatus` have no last-admin check, so a departing employee holding `admin.users.deactivate` — or one fat-fingered click — can lock the shop out of its own books with no way back through the product | `packages/domain/src/users/save-user.ts` | fixed in this pass — `saveUser` and `setUserStatus` refuse when the target is the last ACTIVE company admin (`LAST_COMPANY_ADMIN`, 409); an inactive admin is not a way back in |
 | D118 | `PUT /users/:id` lets a caller holding only `admin.users.edit` set their own `branchScope` and `warehouseScope` to `*`, defeating every read-narrowing the app applies. The same shape as D86, for scope rather than the admin flag | `packages/api/src/users-routes.ts` | fixed in this pass — `ungrantableScopes` refuses any grant of a branch/warehouse scope wider than the caller's own, on create and on edit |
@@ -695,15 +695,24 @@ loud. Read what a closed entry says it did **not** fix before promising a client
   place. A sink the application itself cannot write to — signed export on a schedule,
   syslog to an external collector, a hash-chained rows-since-last-export digest — is still
   open; the trigger only ever promised to stop the app's own code from cutting a corner.
-- **License verification is a stub.** `MEZAN_ENTITLEMENTS_JSON` is read from the environment
-  with no signature check, so an env var unlocks LAN mode and every module. The real Ed25519
-  verifier (`packages/domain/src/licensing/license.ts`) is written and unwired — Phase 8, and
-  already documented as out of scope in that file. This decision is unchanged; what closed
-  was a separate defect sitting on top of it — a missing/malformed/invalid/expired licence
-  used to fail silently (`console.warn`, an install that just looked absent). `entitlements.ts`
-  now exposes `diagnoseDesktopEntitlements()` with a status, a support-readable code and an
-  Arabic message, surfaced on `الأجهزة المتصلة` — see `docs/INSTALL.md` §7. It still trusts
-  the same unsigned env var; it just no longer hides that it is doing so.
+- **License verification is wired (was a stub — D115, now fixed).** Desktop startup now reads `license.mezan` and runs the
+  Ed25519 verifier (`packages/domain/src/licensing/license.ts`) end to end — signature,
+  clock-rollback guard, machine fingerprint, expiry and grace — through
+  `main/license.ts` + `main/license-runtime.ts`. The verified licence is the single source
+  of both entitlements and write permission; past grace the app is READ_ONLY, enforced by
+  the server-side write-gate (`packages/api/src/license-gate.ts`), and a packaged build with
+  no authentic licence fails closed to read-only. `MEZAN_ENTITLEMENTS_JSON` survives only as
+  a documented DEV convenience (ignored by packaged builds). The vendor public key and
+  fingerprint salt are baked by the release build; the full activation portal / air-gapped
+  code UX remains Phase 8.
+- **The auto-update channel is signed and user-consented (was CONFIG-ONLY).** The electron-updater flow (`main/updater.ts`) checks on
+  launch only when the operator opts in (`MEZAN_AUTO_UPDATE=1`, and outside shop hours),
+  never auto-downloads, and verifies a detached Ed25519 signature over the release's
+  SHA-512 (`main/update-verify.ts`) against `MEZAN_UPDATE_PUBLIC_KEY` BEFORE downloading —
+  refusing any release that does not verify. Progress and the refusal surface in an
+  Arabic-first banner (`apps/web/src/UpdateBanner.tsx`). This is the offline-first trust
+  layer and is independent of OS code-signing/notarization, which is still a vendor-cert
+  release step (`electron-builder.yml`). Guarded: `update-verify.test.ts`.
 - **A fresh, never-configured install can still be claimed by whoever reaches it first.**
   `POST /bootstrap/admin` has to be open before there is anyone to authenticate as; it now
   closes the moment the tenant has an account of its own (S1, hardened by S17 so that fact

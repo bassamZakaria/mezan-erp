@@ -15,9 +15,84 @@ const UNLICENSED_ENTITLEMENTS: EntitlementsView = createEntitlements({
   expiresAt: null,
 });
 
-const SYSTEM_CLOCK: Clock = { now: () => Date.now() };
+/**
+ * Resolves the desktop edition's current `Entitlements` (docs/archive/plan.md §2.5).
+ *
+ * STUBBED SEAM: the real path is the Ed25519 offline license file (§2.5) —
+ * `verifyLicense()` in @mezan/domain/licensing, wired to a real machine
+ * `FingerprintSource` and a persisted monotonic-clock store. That activation
+ * flow (fingerprinting per OS, the request/response air-gapped code UX, the
+ * signing-key/public-key distribution) is its own, larger piece of work
+ * (docs/archive/plan.md Phase 8 "Licensing service + activation portal") and is
+ * OUT OF SCOPE here — this issue only needs a real `Entitlements` object to
+ * gate LAN mode against, not the full activation UX.
+ *
+ * Until that lands, this reads a pre-verified entitlements JSON blob from
+ * `MEZAN_ENTITLEMENTS_JSON` (validated against the SAME `entitlementsSchema`
+ * the license payload itself uses) and falls back to `UNLICENSED_ENTITLEMENTS`
+ * — never to a permissive default — when it's absent or invalid. Swapping in
+ * real license verification later only touches this one function.
+ */
+export function resolveDesktopEntitlements(
+  env: Record<string, string | undefined> = process.env,
+): EntitlementsView {
+  return parseDesktopEntitlementsJson(env) ?? UNLICENSED_ENTITLEMENTS;
+}
 
-/** What the resolver could work out about the licence, beyond the capability set. */
+/**
+ * Parses the dev/back-compat `MEZAN_ENTITLEMENTS_JSON` blob, returning `null`
+ * (not the unlicensed fallback) when it is absent or invalid — so the license
+ * resolver can tell "no dev entitlements configured" apart from "configured but
+ * empty". This env path is a DEVELOPER CONVENIENCE only; a packaged build
+ * derives entitlements from the verified license, never from this var.
+ */
+export function parseDesktopEntitlementsJson(
+  env: Record<string, string | undefined> = process.env,
+): EntitlementsView | null {
+  const raw = env["MEZAN_ENTITLEMENTS_JSON"];
+  if (!raw) return null;
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(raw);
+  } catch (err) {
+    console.warn(
+      "[entitlements] MEZAN_ENTITLEMENTS_JSON is not valid JSON — falling back to unlicensed",
+      err,
+    );
+    return null;
+  }
+
+  const parsed = entitlementsSchema.safeParse(parsedJson);
+  if (!parsed.success) {
+    console.warn(
+      "[entitlements] MEZAN_ENTITLEMENTS_JSON failed schema validation — falling back to unlicensed",
+      parsed.error.flatten(),
+    );
+    return null;
+  }
+
+  return createEntitlements(parsed.data);
+}
+
+/**
+ * WHAT THE LICENCE SCREEN SAYS, as opposed to what the licence PERMITS.
+ *
+ * `main/license-runtime.ts` owns the real decision now: it verifies the signed
+ * `license.mezan` and produces the state the write gate enforces (ACTIVE /
+ * GRACE / READ_ONLY). Nothing here grants anything.
+ *
+ * This is only the human-readable reading of the DEV entitlements seam, kept
+ * because `mezan:licence:status` reports two facts the verified licence does not
+ * carry — the LAN address and the certificate fingerprint a consultant needs to
+ * pair a till — and needs a short, stable code to read down the phone beside
+ * them.
+ *
+ * FOLLOW-UP: once that channel reports the verified licence state directly, this
+ * and `LicenceStatusNotice` collapse into `LicenseBanner`. Until then treat
+ * `LicenseBanner` as authoritative on whether posting is allowed; this can only
+ * ever say something about the env seam.
+ */
 export type DesktopLicenceStatus = "licensed" | "missing" | "malformed" | "invalid" | "expired";
 
 export interface DesktopEntitlementsDiagnosis {
@@ -46,6 +121,8 @@ const CODE: Record<DesktopLicenceStatus, LicenceCode> = {
   expired: "LIC-EXPIRED",
 };
 
+const SYSTEM_CLOCK: Clock = { now: () => Date.now() };
+
 function diagnosis(
   status: DesktopLicenceStatus,
   entitlements: EntitlementsView,
@@ -53,39 +130,6 @@ function diagnosis(
   return { entitlements, status, code: CODE[status], detailAr: DETAIL_AR[status] };
 }
 
-/**
- * Resolves the desktop edition's current `Entitlements` (docs/archive/plan.md §2.5)
- * AND says what it found, which is the half that was missing.
- *
- * IT ANSWERED EVERY FAILURE WITH A `console.warn` AND NOTHING ELSE. A missing,
- * malformed or schema-invalid `MEZAN_ENTITLEMENTS_JSON` fell to
- * `UNLICENSED_ENTITLEMENTS` — zero seats, no modules, no LAN — the window
- * opened, and the product was simply ABSENT: no message, no code to read down
- * the phone, nothing an owner or the consultant standing next to them could
- * act on. Falling closed is right; falling closed silently is not.
- *
- * EXPIRY DOES NOT WITHHOLD CAPABILITY HERE, deliberately. licensing/license.ts
- * states the ethic — "a licensing lapse NEVER withholds data" — and models the
- * real cutover as ACTIVE → GRACE → READ_ONLY, all of them `usable`, driven by
- * the `graceDays` the signed payload carries. `entitlementsSchema` has no
- * `graceDays`, so a hard cutoff invented here would take a shop offline on a
- * date with no grace and no warning — the opposite of the fix. Past `expiresAt`
- * this reports `expired` (and the screen says so, in Arabic, with LIC-EXPIRED)
- * while the capability set stays exactly as granted; the enforcement decision
- * belongs to `verifyLicense`, which already models it, when Phase 8 wires the
- * real Ed25519 licence file in place of this env-var seam.
- *
- * STUBBED SEAM: the real path is the Ed25519 offline license file (§2.5) —
- * `verifyLicense()` in @mezan/domain/licensing, wired to a real machine
- * `FingerprintSource` and a persisted monotonic-clock store. That activation
- * flow (fingerprinting per OS, the request/response air-gapped code UX, the
- * signing-key/public-key distribution) is its own, larger piece of work
- * (docs/archive/plan.md Phase 8 "Licensing service + activation portal") and is
- * OUT OF SCOPE here. FINGERPRINT_MISMATCH — "this licence belongs to another
- * machine" — has no code below for the same reason: nothing in this build reads
- * a machine fingerprint, so a state it cannot detect must not be one it claims
- * to report.
- */
 export function diagnoseDesktopEntitlements(
   env: Record<string, string | undefined> = process.env,
   clock: Clock = SYSTEM_CLOCK,
@@ -93,48 +137,26 @@ export function diagnoseDesktopEntitlements(
   const raw = env["MEZAN_ENTITLEMENTS_JSON"];
   if (!raw) return diagnosis("missing", UNLICENSED_ENTITLEMENTS);
 
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(raw);
-  } catch (err) {
-    console.warn(
-      "[entitlements] MEZAN_ENTITLEMENTS_JSON is not valid JSON — falling back to unlicensed",
-      err,
-    );
-    return diagnosis("malformed", UNLICENSED_ENTITLEMENTS);
+  const entitlements = parseDesktopEntitlementsJson(env);
+  if (!entitlements) {
+    // `parseDesktopEntitlementsJson` collapses both failures to null and logs
+    // which one it was; the distinction matters only to the support code, so it
+    // is re-derived here rather than widening that function's return type.
+    try {
+      JSON.parse(raw);
+      return diagnosis("invalid", UNLICENSED_ENTITLEMENTS);
+    } catch {
+      return diagnosis("malformed", UNLICENSED_ENTITLEMENTS);
+    }
   }
-
-  const parsed = entitlementsSchema.safeParse(parsedJson);
-  if (!parsed.success) {
-    console.warn(
-      "[entitlements] MEZAN_ENTITLEMENTS_JSON failed schema validation — falling back to unlicensed",
-      parsed.error.flatten(),
-    );
-    return diagnosis("invalid", UNLICENSED_ENTITLEMENTS);
-  }
-
-  const entitlements = createEntitlements(parsed.data);
 
   // The same comparison licensing/license.ts §5 makes, and no other: a null
   // `expiresAt` is a perpetual grant, and an unparseable one is treated as
   // not-expired there too rather than as a licence to revoke.
   const expiresAt = entitlements.expiresAt === null ? NaN : Date.parse(entitlements.expiresAt);
   if (!Number.isNaN(expiresAt) && clock.now() > expiresAt) {
-    console.warn(`[entitlements] licence expired at ${entitlements.expiresAt}`);
     return diagnosis("expired", entitlements);
   }
 
   return diagnosis("licensed", entitlements);
-}
-
-/**
- * The capability set alone, for the gates that only ever needed that much
- * (main/index.ts's `SeatSessionRegistry`, `createBackend`, `startLanHost`).
- * Kept as its own export so adding the diagnosis did not change what every
- * existing caller receives.
- */
-export function resolveDesktopEntitlements(
-  env: Record<string, string | undefined> = process.env,
-): EntitlementsView {
-  return diagnoseDesktopEntitlements(env).entitlements;
 }

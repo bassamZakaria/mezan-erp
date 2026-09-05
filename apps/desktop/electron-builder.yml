@@ -19,6 +19,11 @@
 # ---------------------------------------------------------------------------
 # WHY THIS FILE IS A SECURITY FILE.
 #
+# There are TWO independent trust layers on updates, and neither replaces the
+# other. The OS layer (this file) proves the PUBLISHER; the app layer
+# (main/update-verify.ts) proves the ARTIFACT, offline, without needing any OS
+# certificate at all. A release must satisfy both.
+#
 # electron-updater verifies a downloaded package against the PUBLISHER the app
 # was signed with. For as long as nothing here signed anything there was no
 # publisher, so there was nothing to verify against: whatever answered the feed
@@ -41,6 +46,30 @@
 #      credentials are missing.
 #   3. main/updater.ts — refuses to run at all on a build whose own signature
 #      it cannot confirm.
+#
+# LAYER TWO: THE ARTIFACT'S OWN Ed25519 SIGNATURE (main/update-verify.ts).
+#
+# Independent of every certificate above, and the layer that still holds if the
+# OS one is ever misconfigured. The release build signs each artifact's SHA-512
+# with the vendor Ed25519 secret key and publishes the detached signature beside
+# the installer as `<feed>/<version>.sig`; the app refuses to download or
+# install any release whose signature does not verify against
+# `MEZAN_UPDATE_PUBLIC_KEY`. No key configured means nothing is ever installed —
+# fail closed, like the licence.
+#
+# Plus user consent: `autoDownload` and `autoInstallOnAppQuit` are always false.
+# The person chooses to download, then chooses to install. The launch-time check
+# does not even run unless `MEZAN_AUTO_UPDATE=1`.
+#
+# So the release pipeline must, per version:
+#   1. build + upload the installer and `latest.yml` (electron-builder),
+#   2. sign `latest.yml`'s primary `sha512` with the vendor Ed25519 secret key,
+#   3. upload that signature as `<publish.url>/<version>.sig`.
+# `MEZAN_UPDATE_PUBLIC_KEY` and `MEZAN_UPDATE_FEED_URL` are set in the build env.
+#
+# The Ed25519 layer does NOT excuse shipping unsigned binaries: OS signing and
+# notarization stay required for anything a customer installs (§8 of
+# docs/INSTALL.md), which is what `forceCodeSigning: true` above enforces.
 # ---------------------------------------------------------------------------
 appId: com.mezan.desktop
 productName: Mezan

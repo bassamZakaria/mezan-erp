@@ -41,6 +41,8 @@ import { NavigationProvider, toScreenIntent, type ScreenIntent, type ScreenInten
 import { groupKeyForScreen, hubScreenForGroup, parsePath, pathForRoute } from "./routing";
 import { isRoutable, type RoutableKey, type ScreenKey } from "./router/screens";
 import { Breadcrumbs, parentSegments } from "./Breadcrumbs";
+import { LicenseBanner } from "./LicenseBanner";
+import { UpdateBanner } from "./UpdateBanner";
 import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
 import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
 import { EMPTY } from "./lib/empty";
@@ -554,14 +556,23 @@ export function AppLayout() {
       onSelectWarehouse={setWarehouse}
     >
       {/*
-        A licence problem is the whole app's problem, not the connected-devices
-        screen's. It used to be neither: an unlicensed or expired install fell
-        silently to zero seats and no modules, and the window simply opened with
-        things ABSENT — no message, and no code the owner could read down the
-        phone to support. The notice renders nothing when the licence is healthy,
-        while it is still being read, or on the browser build, so it costs a
-        healthy shop nothing.
+        THREE BANNERS, AND THE FIRST TWO OVERLAP — a follow-up should merge them.
+
+        `LicenseBanner` reports the VERIFIED licence state from the signed
+        `license.mezan` (ACTIVE / GRACE with a countdown / READ_ONLY), which is
+        the one that decides whether posting is still allowed.
+
+        `LicenceStatusNotice` predates it and reports the older entitlements
+        diagnosis (LIC-MISSING / LIC-MALFORMED / LIC-EXPIRED) plus the LAN
+        address and certificate fingerprint a consultant needs to pair a till —
+        which the other does not carry. That LAN half is why it stays for now;
+        the licence half is now said twice and should move.
+
+        All three render nothing when everything is healthy, so a working shop
+        sees none of them.
       */}
+      <LicenseBanner />
+      <UpdateBanner />
       <LicenceStatusNotice />
       <Breadcrumbs screen={activeScreen} />
       {/*

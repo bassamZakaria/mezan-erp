@@ -29,6 +29,11 @@ vi.mock("electron", () => ({
       return electronState.isPackaged;
     },
   },
+  // The updater registers one IPC handler for the user-initiated actions
+  // (download / install / check) before it ever reaches the launch-check gates
+  // these tests exercise, so the mock has to carry it or the module throws on
+  // import rather than failing an assertion.
+  ipcMain: { handle: () => {}, removeHandler: () => {} },
 }));
 
 vi.mock("electron-updater", () => ({
@@ -60,7 +65,24 @@ vi.mock("electron-updater", () => ({
 // A static import is correct here despite the mocks above: vitest hoists
 // `vi.mock` calls above the import block, so `electron` and `electron-updater`
 // are already replaced by the time this module is evaluated.
-import { initAutoUpdater, inspectAppSignature, realSignatureEnvironment } from "./updater.js";
+import { registerAutoUpdater, inspectAppSignature, realSignatureEnvironment } from "./updater.js";
+import type { BrowserWindow } from "electron";
+
+/**
+ * The updater posts status to a window; the launch-check paths asserted below
+ * all return before that happens, so a stub is enough and keeps these tests
+ * free of a real BrowserWindow.
+ */
+/** Every status the updater pushes to the renderer, in order. */
+const sentToRenderer: unknown[] = [];
+const WIN = {
+  isDestroyed: () => false,
+  webContents: {
+    send: (_channel: string, status: unknown) => {
+      sentToRenderer.push(status);
+    },
+  },
+} as unknown as BrowserWindow;
 import type { SignatureEnvironment, SignatureReport } from "./updater.js";
 
 const SIGNED: SignatureReport = {
@@ -109,43 +131,42 @@ function macEnvironment(overrides: Partial<SignatureEnvironment> = {}): Signatur
   };
 }
 
-describe("initAutoUpdater — the enable gate", () => {
+describe("registerAutoUpdater — the enable gate", () => {
   it("does nothing at all in a dev build", () => {
     electronState.isPackaged = false;
-    initAutoUpdater({ MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_INSTALL: "1" }, CLOSED, SIGNED);
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_INSTALL: "1" }, CLOSED, SIGNED);
     expect(updaterState.checkCalls).toBe(0);
     expect(updaterState.autoInstallOnAppQuit).toBe(false);
   });
 
   it("stays off when the enable flag is absent, even on a signed build", () => {
-    initAutoUpdater({}, CLOSED, SIGNED);
+    registerAutoUpdater(WIN, {}, CLOSED, SIGNED);
     expect(updaterState.checkCalls).toBe(0);
   });
 
   it("stays off for any value of the enable flag other than exactly \"1\"", () => {
     for (const value of ["0", "true", "yes", "", "1 "]) {
-      initAutoUpdater({ MEZAN_AUTO_UPDATE: value }, CLOSED, SIGNED);
+      registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: value }, CLOSED, SIGNED);
     }
     expect(updaterState.checkCalls).toBe(0);
   });
 });
 
-describe("initAutoUpdater — the signature gate", () => {
+describe("registerAutoUpdater — the signature gate", () => {
   it("refuses to check for updates on an unsigned build, even with the enable flag set", () => {
-    initAutoUpdater({ MEZAN_AUTO_UPDATE: "1" }, CLOSED, UNSIGNED);
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1" }, CLOSED, UNSIGNED);
     expect(updaterState.checkCalls).toBe(0);
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("REFUSED"));
   });
 
   it("refuses when the signature is merely UNKNOWN — 'I could not tell' is not 'it is fine'", () => {
-    initAutoUpdater({ MEZAN_AUTO_UPDATE: "1" }, CLOSED, UNKNOWN);
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1" }, CLOSED, UNKNOWN);
     expect(updaterState.checkCalls).toBe(0);
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("REFUSED"));
   });
 
   it("refuses an unsigned build even when the INSTALL flag is also set", () => {
-    initAutoUpdater(
-      { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_INSTALL: "1" },
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_INSTALL: "1" },
       CLOSED,
       UNSIGNED,
     );
@@ -157,8 +178,7 @@ describe("initAutoUpdater — the signature gate", () => {
   });
 
   it("proceeds on an unsigned build ONLY with the explicit ALLOW_UNSIGNED override", () => {
-    initAutoUpdater(
-      { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED: "1" },
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED: "1" },
       CLOSED,
       UNSIGNED,
     );
@@ -167,8 +187,7 @@ describe("initAutoUpdater — the signature gate", () => {
   });
 
   it("does not treat any value but \"1\" as the override", () => {
-    initAutoUpdater(
-      { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED: "true" },
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED: "true" },
       CLOSED,
       UNSIGNED,
     );
@@ -176,36 +195,50 @@ describe("initAutoUpdater — the signature gate", () => {
   });
 
   it("checks for updates on a signed build", () => {
-    initAutoUpdater({ MEZAN_AUTO_UPDATE: "1" }, CLOSED, SIGNED);
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1" }, CLOSED, SIGNED);
     expect(updaterState.checkCalls).toBe(1);
   });
 });
 
-describe("initAutoUpdater — shop hours and the install gate", () => {
+describe("registerAutoUpdater — shop hours and the install gate", () => {
   it("does not touch the network during shop hours", () => {
-    initAutoUpdater({ MEZAN_AUTO_UPDATE: "1" }, OPEN, SIGNED);
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1" }, OPEN, SIGNED);
     expect(updaterState.checkCalls).toBe(0);
   });
 
   it("checks but does not download without the install flag", () => {
-    initAutoUpdater({ MEZAN_AUTO_UPDATE: "1" }, CLOSED, SIGNED);
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1" }, CLOSED, SIGNED);
     expect(updaterState.checkCalls).toBe(1);
     expect(updaterState.autoDownload).toBe(false);
     expect(updaterState.autoInstallOnAppQuit).toBe(false);
   });
 
-  it("downloads and installs only with the install flag on a signed build", () => {
-    initAutoUpdater({ MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_INSTALL: "1" }, CLOSED, SIGNED);
-    expect(updaterState.autoDownload).toBe(true);
-    expect(updaterState.autoInstallOnAppQuit).toBe(true);
+  /**
+   * REWRITTEN, and the change is the point. These two used to assert that
+   * `MEZAN_AUTO_UPDATE_INSTALL=1` set `autoDownload` and `autoInstallOnAppQuit`
+   * to true — i.e. that a correctly configured install would swap the running
+   * app underneath whoever was using it, on quit, with no one agreeing to it.
+   *
+   * The signed-update channel removed that on purpose: consent is now a second,
+   * independent safeguard beside the Ed25519 artifact signature, so BOTH flags
+   * stay false no matter what the environment says, and the renderer asks. The
+   * old assertions are inverted rather than deleted, because "nothing installs
+   * itself" is exactly the guarantee a regression here would quietly take away.
+   */
+  it("never auto-downloads or auto-installs, whatever the environment asks for", () => {
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_INSTALL: "1" }, CLOSED, SIGNED);
+    expect(updaterState.autoDownload).toBe(false);
+    expect(updaterState.autoInstallOnAppQuit).toBe(false);
     expect(updaterState.checkCalls).toBe(1);
   });
 
-  it("says UNVERIFIABLE, not just 'unsigned', when both overrides are stacked", () => {
+  it("keeps consent even when the signature override is stacked on the install flag", () => {
     // The loudest configuration this product can be put into: the signature gate
-    // overridden AND installing enabled. It is reachable — a test machine needs
-    // it — so what it must never be is quiet.
-    initAutoUpdater(
+    // overridden AND installing requested. It is reachable — a test machine needs
+    // it — so what it must never do is install anything on its own, and what it
+    // must never be is quiet about running unsigned.
+    registerAutoUpdater(
+      WIN,
       {
         MEZAN_AUTO_UPDATE: "1",
         MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED: "1",
@@ -214,22 +247,30 @@ describe("initAutoUpdater — shop hours and the install gate", () => {
       CLOSED,
       UNSIGNED,
     );
-    expect(updaterState.autoInstallOnAppQuit).toBe(true);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("UNVERIFIABLE"));
+    expect(updaterState.autoInstallOnAppQuit).toBe(false);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED=1"),
+    );
   });
 
   it("registers the error/available/not-available handlers so a failure is never silent", () => {
-    initAutoUpdater({ MEZAN_AUTO_UPDATE: "1" }, CLOSED, SIGNED);
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1" }, CLOSED, SIGNED);
+    // `download-progress` and `update-downloaded` joined the set when downloads
+    // became a user-driven step with a progress bar behind it.
     expect([...updaterState.listeners.keys()].sort()).toEqual([
+      "download-progress",
       "error",
       "update-available",
+      "update-downloaded",
       "update-not-available",
     ]);
+    // "Never silent" now means it reaches the PERSON, not a console nobody
+    // opens: the failure is pushed to the renderer as an `error` status, which
+    // is what UpdateBanner renders. Asserting the console instead would pass on
+    // a build where the banner never lit up.
+    sentToRenderer.length = 0;
     updaterState.listeners.get("error")?.[0]?.(new Error("boom"));
-    updaterState.listeners.get("update-available")?.[0]?.({ version: "1.2.3" });
-    updaterState.listeners.get("update-not-available")?.[0]?.();
-    expect(console.error).toHaveBeenCalledWith("[updater] error", expect.any(Error));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining("1.2.3"));
+    expect(sentToRenderer).toEqual([{ phase: "error", reason: "boom" }]);
   });
 });
 
@@ -377,7 +418,7 @@ describe("the update check never throws into the main process", () => {
   it("swallows a rejected checkForUpdates — an offline shop is the common case, not an error", async () => {
     const failure = new Error("getaddrinfo ENOTFOUND");
     checkForUpdatesResult = Promise.reject(failure);
-    initAutoUpdater({ MEZAN_AUTO_UPDATE: "1" }, CLOSED, SIGNED);
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1" }, CLOSED, SIGNED);
     await new Promise((resolve) => setImmediate(resolve));
     expect(console.warn).toHaveBeenCalledWith(
       expect.stringContaining("check failed"),

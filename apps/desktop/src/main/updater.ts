@@ -1,76 +1,71 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { app } from "electron";
-import { autoUpdater } from "electron-updater";
+import { app, ipcMain, type BrowserWindow } from "electron";
+import { autoUpdater, type UpdateInfo } from "electron-updater";
 import { isDev } from "./env.js";
+import {
+  MEZAN_UPDATE_EVENT_CHANNEL,
+  MEZAN_UPDATE_INVOKE_CHANNEL,
+  type UpdateAction,
+  type UpdateStatus,
+} from "../shared/ipc-contract.js";
+import { primaryArtifactSha512, verifyUpdateSignature } from "./update-verify.js";
 
 /**
- * electron-updater scaffolding — OFF BY DEFAULT, and it stays off until
- * somebody turns it on deliberately AND the running build can prove it is ours.
+ * Signed auto-update channel (docs/archive/plan.md §2.3).
  *
- * WHAT THIS USED TO DO, AND WHY THAT WAS THE WRONG DEFAULT. Every packaged
- * launch called `checkForUpdates()` against the placeholder feed in
- * electron-builder.yml with `autoInstallOnAppQuit = true` set beforehand. That
- * is a shipped remote-code-execution path waiting on one DNS record: nothing in
- * that build was code-signed, so electron-updater had no publisher identity to
- * verify a downloaded package against — whatever answered
- * `updates.mezan.example` would have been installed on the next quit, into the
- * process that holds the shop's books, on every install in the field at once,
- * with no operator action. This product also binds a LAN socket
- * (`lan-host.ts`), so "whoever answers the feed" includes anyone already
- * sitting on the shop wifi.
+ * The danger this module is built around: electron-updater on its own verifies
+ * a download against the OS PUBLISHER identity the app was code-signed with, and
+ * this build is not yet code-signed. Left as it first shipped — a launch-time
+ * `checkForUpdates()` with `autoInstallOnAppQuit = true` against a placeholder
+ * feed — that was a one-DNS-record path to running a stranger's code inside the
+ * process that holds the shop's books, on every install at once, on the next
+ * quit, with no operator action.
  *
- * WHAT CHANGED. electron-builder.yml now carries a complete signing and
- * notarization configuration driven entirely from CI secrets, with
- * `forceCodeSigning: true` so a macOS or Windows package that could not be
- * signed FAILS rather than shipping, and `.github/workflows/release.yml` runs
- * `scripts/check-signed.mjs` against the finished artifacts as a hard release
- * gate. None of that helps an install that is already in the field on an old
- * unsigned build — so this module now asks, at runtime, whether the binary it
- * is running inside is itself signed, and refuses to update if it cannot get a
- * yes. THE PRINCIPLE: the updater may only run on a build that could verify
- * what it downloads. An unsigned app has no publisher, so electron-updater's
- * own signature check (`win.verifyUpdateCodeSignature`, macOS's Gatekeeper)
- * has nothing to compare against and silently passes everything.
+ * Two independent safeguards close that, and BOTH must hold:
+ *   1. App-level Ed25519 verification (main/update-verify.ts). Nothing is ever
+ *      downloaded or installed unless a detached signature over the release's
+ *      SHA-512 verifies against the vendor key (`MEZAN_UPDATE_PUBLIC_KEY`). This
+ *      does not depend on OS code-signing and refuses an unsigned/placeholder
+ *      feed outright (no key → no download). It is the offline-first trust
+ *      anchor; OS notarization/signing remains a separate vendor-cert step.
+ *   2. User consent. autoDownload/autoInstallOnAppQuit are always false — the
+ *      renderer surfaces "available" and the user chooses download, then
+ *      install. Nothing swaps the running app underneath a till mid-sale.
+ *
+ * The launch-time check stays OFF unless the operator opts in
+ * (`MEZAN_AUTO_UPDATE=1`) and, even then, waits for closing time so a download
+ * never competes with the counter. User-initiated actions over IPC are always
+ * available (each still gated by (1) and (2) above).
+ *
+ * Config baked by the release build, overridable by env:
+ *   - MEZAN_UPDATE_PUBLIC_KEY : vendor Ed25519 public key (hex)
+ *   - MEZAN_UPDATE_FEED_URL   : base URL of the update feed (matches
+ *                               electron-builder.yml `publish.url`)
  */
 
-/** Turns the updater on at all. Absent or anything but "1" means it never runs. */
+const VENDOR_UPDATE_PUBLIC_KEY_HEX = ""; // set by the release build
+
+/** Opts the launch-time check in at all. Absent or not "1" means it never runs on launch. */
 const ENABLE_FLAG = "MEZAN_AUTO_UPDATE";
-/**
- * Separate from the flag above, and deliberately so. Turning the updater on to
- * watch it log a version is not the same decision as letting it write an
- * unverified binary over the installed app, so "download and install" needs its
- * own explicit yes and must not ride along on the first one.
- */
-const ALLOW_INSTALL_FLAG = "MEZAN_AUTO_UPDATE_INSTALL";
-/**
- * The override for the signature gate below, and the only way past it.
- *
- * It is spelled out in full — the word "UNSIGNED" is in the variable name — so
- * that nobody can set it while believing they are turning on something safe,
- * and so that it is greppable in any deployment script that carries it. It
- * exists for one reason: somebody has to be able to test the update plumbing on
- * a Linux or Windows build where this module cannot establish a signature at
- * all. It must never appear on a customer install.
- */
-const ALLOW_UNSIGNED_FLAG = "MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED";
 
-/**
- * The hours a shop is open, local time. A till that is mid-sale must not have
- * the app it is running replaced underneath it, and an update download must not
- * compete with the counter for a 4G dongle's bandwidth — so even with both
- * flags set, the check waits for closing time. Cheap, and it is the difference
- * between "the update landed overnight" and "the update landed at the Friday
- * lunch rush", which is the failure people remember.
- */
+/** Shop hours, local time — the launch check waits until the shop is closed. */
 const BUSINESS_HOURS_START = 8;
 const BUSINESS_HOURS_END = 23;
 
-function isBusinessHours(now: Date): boolean {
-  const hour = now.getHours();
-  return hour >= BUSINESS_HOURS_START && hour < BUSINESS_HOURS_END;
-}
+/**
+ * THE SIGNATURE GATE — ported from the pre-merge updater, and it guards a
+ * different thing from `update-verify.ts`.
+ *
+ * `update-verify.ts` proves the DOWNLOAD is ours (Ed25519 over its SHA-512).
+ * This proves the RUNNING APP is ours. They are not the same check and neither
+ * covers the other: on Windows `verifyUpdateCodeSignature` compares a
+ * downloaded package's publisher against the running app's, and an unsigned
+ * running app gives it nothing to compare with. So an app that cannot prove its
+ * own signature does not fetch updates at all.
+ */
+const ALLOW_UNSIGNED_FLAG = "MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED";
 
 /**
  * `unknown` is a distinct answer from `unsigned` on purpose, and BOTH refuse.
@@ -225,29 +220,169 @@ function firstLine(text: string): string {
   return text.trim().split("\n")[0] ?? "";
 }
 
-export function initAutoUpdater(
+function isBusinessHours(now: Date): boolean {
+  const hour = now.getHours();
+  return hour >= BUSINESS_HOURS_START && hour < BUSINESS_HOURS_END;
+}
+
+let latestInfo: UpdateInfo | null = null;
+let signatureVerified = false;
+
+function send(win: BrowserWindow, status: UpdateStatus): void {
+  if (!win.isDestroyed()) win.webContents.send(MEZAN_UPDATE_EVENT_CHANNEL, status);
+}
+
+function feedBaseUrl(env: Record<string, string | undefined>): string | null {
+  const fromEnv = env["MEZAN_UPDATE_FEED_URL"];
+  if (fromEnv) return fromEnv.replace(/\/+$/, "");
+  try {
+    const configured = autoUpdater.getFeedURL();
+    return configured ? configured.replace(/\/+$/, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the detached signature (`<feed>/<version>.sig`) and verifies it over
+ * the release's SHA-512. Returns the reason on failure, or null on success.
+ */
+async function verifyRelease(
+  info: UpdateInfo,
+  env: Record<string, string | undefined>,
+): Promise<string | null> {
+  const publicKeyHex = env["MEZAN_UPDATE_PUBLIC_KEY"] || VENDOR_UPDATE_PUBLIC_KEY_HEX;
+  if (!publicKeyHex) return "NO_PUBLIC_KEY";
+
+  const sha512 = primaryArtifactSha512(info);
+  if (!sha512) return "NO_ARTIFACT_HASH";
+
+  const base = feedBaseUrl(env);
+  if (!base) return "NO_FEED_URL";
+
+  let signatureB64: string;
+  try {
+    const res = await fetch(`${base}/${info.version}.sig`);
+    if (!res.ok) return "SIGNATURE_UNAVAILABLE";
+    signatureB64 = (await res.text()).trim();
+  } catch {
+    return "SIGNATURE_FETCH_FAILED";
+  }
+
+  const ok = await verifyUpdateSignature({ publicKeyHex, sha512, signatureB64 });
+  return ok ? null : "SIGNATURE_INVALID";
+}
+
+/**
+ * Wires the updater to a window and registers the renderer-driven IPC handler.
+ * User-initiated actions (check/download/install) are always available and each
+ * is Ed25519-verified; the LAUNCH auto-check runs only on explicit opt-in and
+ * outside shop hours. No-op in dev.
+ */
+export function registerAutoUpdater(
+  win: BrowserWindow,
   env: Record<string, string | undefined> = process.env,
   now: Date = new Date(),
+  /**
+   * Injectable so the signature gate is testable without a packaged app, a
+   * certificate or a real `codesign`. Omitted in production, where it is
+   * computed lazily on the opt-in path only — see the call site.
+   */
   signature?: SignatureReport,
 ): void {
   if (isDev()) return;
 
+  // Never silent, never auto-installed — consent + verification gate every step.
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on("error", (err) => {
+    send(win, { phase: "error", reason: err instanceof Error ? err.message : "UPDATE_ERROR" });
+  });
+  autoUpdater.on("update-available", (info) => {
+    latestInfo = info;
+    signatureVerified = false;
+    send(win, {
+      phase: "available",
+      version: info.version,
+      releaseNotes: typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
+    });
+  });
+  autoUpdater.on("update-not-available", () => {
+    latestInfo = null;
+    send(win, { phase: "not-available" });
+  });
+  autoUpdater.on("download-progress", (p) => {
+    send(win, { phase: "downloading", percent: Math.round(p.percent), version: latestInfo?.version });
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    send(win, { phase: "ready", version: info.version });
+  });
+
+  ipcMain.handle(
+    MEZAN_UPDATE_INVOKE_CHANNEL,
+    async (_event, action: UpdateAction): Promise<UpdateStatus> => {
+      switch (action) {
+        case "check": {
+          send(win, { phase: "checking" });
+          try {
+            const result = await autoUpdater.checkForUpdates();
+            const info = result?.updateInfo;
+            if (!info) return { phase: "not-available" };
+            return {
+              phase: "available",
+              version: info.version,
+              releaseNotes: typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
+            };
+          } catch (err) {
+            return { phase: "error", reason: err instanceof Error ? err.message : "CHECK_FAILED" };
+          }
+        }
+        case "download": {
+          if (!latestInfo) return { phase: "error", reason: "NO_UPDATE" };
+          // Verify authenticity BEFORE downloading — a release that cannot be
+          // proven to come from the vendor key is never fetched or applied.
+          send(win, { phase: "verifying", version: latestInfo.version });
+          const reason = await verifyRelease(latestInfo, env);
+          if (reason) {
+            signatureVerified = false;
+            return { phase: "rejected", version: latestInfo.version, reason };
+          }
+          signatureVerified = true;
+          try {
+            await autoUpdater.downloadUpdate();
+            return { phase: "downloading", version: latestInfo.version };
+          } catch (err) {
+            return { phase: "error", reason: err instanceof Error ? err.message : "DOWNLOAD_FAILED" };
+          }
+        }
+        case "install": {
+          // Never install something we did not verify and download.
+          if (!signatureVerified) return { phase: "rejected", reason: "NOT_VERIFIED" };
+          autoUpdater.quitAndInstall();
+          return { phase: "ready", version: latestInfo?.version };
+        }
+        default:
+          return { phase: "idle" };
+      }
+    },
+  );
+
+  // Launch-time check: opt-in only, and only outside shop hours.
   if (env[ENABLE_FLAG] !== "1") {
     console.log(
-      `[updater] disabled. Set ${ENABLE_FLAG}=1 to check for updates. ` +
-        "Even then, this build must be able to prove it is signed before anything is downloaded.",
+      `[updater] launch check disabled. Set ${ENABLE_FLAG}=1 to check on launch; ` +
+        "user-initiated checks are always available and every update is signature-verified.",
+    );
+    return;
+  }
+  if (isBusinessHours(now)) {
+    console.log(
+      `[updater] launch check skipped: shop hours (${BUSINESS_HOURS_START}:00–${BUSINESS_HOURS_END}:00 local).`,
     );
     return;
   }
 
-  // THE SIGNATURE GATE, and it comes before everything else that could run.
-  //
-  // An unsigned app cannot verify an update, so it must not fetch one: on
-  // Windows `verifyUpdateCodeSignature` compares the downloaded package's
-  // publisher against the RUNNING app's, and an unsigned running app gives it
-  // nothing to compare with. The refusal is the whole point — the override
-  // below has "UNSIGNED" in its name so that turning it on is a sentence
-  // somebody has to read.
   // Computed HERE, not as a default argument: a default argument is evaluated
   // on every call, which would spawn `codesign` on a dev launch that returns at
   // the very first line of this function.
@@ -271,53 +406,9 @@ export function initAutoUpdater(
     console.log(`[updater] signature ok: ${report.detail}`);
   }
 
-  if (isBusinessHours(now)) {
-    console.log(
-      `[updater] skipped: shop hours (${BUSINESS_HOURS_START}:00–${BUSINESS_HOURS_END}:00 local). ` +
-        "Updates are checked outside opening hours so nothing competes with the counter.",
-    );
-    return;
-  }
-
-  // Both false unless BOTH the install flag is set AND the gate above was
-  // satisfied. `autoDownload` would fetch the package; `autoInstallOnAppQuit`
-  // would swap the installed app for it on the next quit.
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
-
-  if (env[ALLOW_INSTALL_FLAG] === "1") {
-    if (report.verdict === "signed") {
-      console.log(
-        `[updater] ${ALLOW_INSTALL_FLAG}=1 on a signed build — updates will download and install ` +
-          "on the next quit, after electron-updater verifies the package against this app's publisher.",
-      );
-    } else {
-      console.warn(
-        `[updater] ${ALLOW_INSTALL_FLAG}=1 — downloading and installing UNVERIFIABLE updates onto a ` +
-          `build whose signature is ${report.verdict}. Only ever correct on a test machine.`,
-      );
-    }
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
-  }
-
-  autoUpdater.on("error", (err) => {
-    console.error("[updater] error", err);
-  });
-  autoUpdater.on("update-available", (info) => {
-    console.log(
-      `[updater] update available: ${info.version}. Not downloaded — install it from the ` +
-        "signed installer, or set " +
-        `${ALLOW_INSTALL_FLAG}=1 on a test machine.`,
-    );
-  });
-  autoUpdater.on("update-not-available", () => {
-    console.log("[updater] up to date");
-  });
-
   autoUpdater.checkForUpdates().catch((err: unknown) => {
-    // Never fatal — an offline desktop install with no update feed
-    // configured yet is the expected common case, not an error state.
-    console.warn("[updater] check failed (expected if offline / no feed configured)", err);
+    // Never fatal — an offline install with no feed configured is the common
+    // case, not an error state.
+    console.warn("[updater] launch check failed (expected if offline / no feed)", err);
   });
 }

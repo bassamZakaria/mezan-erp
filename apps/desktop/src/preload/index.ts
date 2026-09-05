@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import {
   MEZAN_BACKUP_CREATE_CHANNEL,
   MEZAN_BACKUP_LIST_CHANNEL,
@@ -6,6 +6,8 @@ import {
   MEZAN_FETCH_CHANNEL,
   MEZAN_LICENCE_STATUS_CHANNEL,
   MEZAN_PRINT_TO_PDF_CHANNEL,
+  MEZAN_UPDATE_EVENT_CHANNEL,
+  MEZAN_UPDATE_INVOKE_CHANNEL,
   type BackupCreateResult,
   type BackupFailure,
   type BackupListResult,
@@ -15,6 +17,8 @@ import {
   type LicenceStatusResult,
   type MezanBridge,
   type PrintToPdfOptions,
+  type UpdateAction,
+  type UpdateStatus,
 } from "../shared/ipc-contract.js";
 
 /**
@@ -79,6 +83,15 @@ const mezanBridge: MezanBridge = {
     restore(sessionToken: string, fileName: string): Promise<BackupRestoreResult> {
       return ipcRenderer.invoke(MEZAN_BACKUP_RESTORE_CHANNEL, sessionToken, fileName);
     },
+  },
+  /** Drives the signed update channel (main/updater.ts + main/update-verify.ts). */
+  update(action: UpdateAction): Promise<UpdateStatus> {
+    return ipcRenderer.invoke(MEZAN_UPDATE_INVOKE_CHANNEL, action);
+  },
+  onUpdateEvent(listener: (status: UpdateStatus) => void): () => void {
+    const handler = (_event: IpcRendererEvent, status: UpdateStatus) => listener(status);
+    ipcRenderer.on(MEZAN_UPDATE_EVENT_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(MEZAN_UPDATE_EVENT_CHANNEL, handler);
   },
   /**
    * Licence health plus the LAN address, both of which live in the main

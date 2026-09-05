@@ -14,6 +14,14 @@ import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./re
 import { diagnoseDesktopEntitlements } from "./entitlements.js";
 import { registerClientLicenceStatusOverIpc, registerLicenceStatusOverIpc } from "./licence-ipc.js";
 import { loadDesktopLicense } from "./license-runtime.js";
+import {
+  attemptCheckin,
+  checkinMessageAr,
+  decideCheckin,
+  readCheckinState,
+  recordSuccessfulCheckin,
+  REFUSE_TO_START_AFTER_DAYS,
+} from "./license-checkin.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
 import { createLanClientAuthorizer } from "./lan-authorization.js";
 import { loadOrCreateLanTlsIdentity } from "./lan-tls.js";
@@ -351,6 +359,51 @@ app.whenReady().then(async () => {
   });
   const entitlements = license.entitlements;
 
+  /**
+   * THE ONLINE CHECK-IN, and the two thresholds it enforces.
+   *
+   * The signed licence proves authenticity, not currency: it cannot know it was
+   * revoked yesterday, or copied to a second machine last week. So the install
+   * confirms itself against the licensing service, and going too long without
+   * doing so costs it something — see license-checkin.ts for why the cost is
+   * staged rather than immediate.
+   *
+   * The attempt is fire-and-forget on purpose: a shop must not wait on a network
+   * round trip to open its till, and a vendor outage must never delay a launch.
+   * Only a SUCCESSFUL answer moves the clock; a failure leaves the day counter
+   * to degrade gently on its own.
+   */
+  const checkin = await readCheckinState(dbPath);
+  const installedAt = license.state.expiresAt ?? new Date().toISOString();
+  const verdict = decideCheckin({ ...checkin, installedAt, now: new Date() });
+
+  if (verdict.verdict === "refuse-to-start") {
+    console.error(`[licence] ${checkinMessageAr(verdict.verdict, verdict.daysSince)}`);
+    console.error(
+      "[licence] REFUSING TO START: the licence has not been confirmed online for " +
+        `${verdict.daysSince} days (limit ${REFUSE_TO_START_AFTER_DAYS}). Connect this machine to ` +
+        "the internet and restart, or install a fresh licence file from support.",
+    );
+    app.exit(1);
+    return;
+  }
+  if (verdict.verdict === "read-only") {
+    console.warn(`[licence] ${checkinMessageAr(verdict.verdict, verdict.daysSince)}`);
+  }
+
+  void attemptCheckin({
+    endpoint: process.env["MEZAN_LICENSE_CHECKIN_URL"],
+    licenseId: license.state.state,
+    fingerprint: app.getPath("userData"),
+  }).then(async (attempt) => {
+    if (attempt.revoked) {
+      console.error("[licence] the licensing service reports this licence as REVOKED.");
+      return;
+    }
+    if (attempt.reachedServer) await recordSuccessfulCheckin(dbPath, new Date());
+    else console.warn(`[licence] check-in did not reach the service: ${attempt.error ?? "unknown"}`);
+  });
+
   // The support-code reading for `mezan:licence:status`, which also carries the
   // LAN address and certificate fingerprint. It reports on the DEV env seam
   // only and grants nothing — `license` above is what every gate is built from.
@@ -370,7 +423,24 @@ app.whenReady().then(async () => {
     dbPath,
     connection: cipher,
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
-    resolveLicenseState: () => license.state,
+    /*
+     * The check-in verdict is folded in HERE, at the one place the write gate
+     * reads. Enforcing it only at startup would make it a message rather than a
+     * rule: the app would print a warning and then happily post invoices for the
+     * rest of the day. Past the window the state becomes READ_ONLY, which the
+     * gate in packages/api/src/license-gate.ts already refuses every mutating
+     * method against while leaving reads, printing and export open.
+     */
+    resolveLicenseState: () =>
+      verdict.verdict === "read-only"
+        ? {
+            ...license.state,
+            state: "READ_ONLY" as const,
+            canWrite: false,
+            usable: true,
+            reason: "CHECKIN_OVERDUE",
+          }
+        : license.state,
   });
 
   if (!isDev()) {

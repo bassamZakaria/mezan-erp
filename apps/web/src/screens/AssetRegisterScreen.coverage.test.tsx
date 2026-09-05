@@ -334,7 +334,11 @@ describe("AssetRegisterScreen — filters and pagination", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /تصفية النتائج/ })).toHaveTextContent("2"),
     );
-    expect(await screen.findByText("معدة تصنيع")).toBeInTheDocument();
+    // A generous timeout, not the 1s default: the row leaves and comes back
+    // while the refiltered list is in flight, and under a fully parallel suite
+    // that round trip does not always finish inside a second. The behaviour is
+    // right; only the deadline was.
+    expect(await screen.findByText("معدة تصنيع", {}, { timeout: 5000 })).toBeInTheDocument();
   });
 
   it("resets to the first page once the current page it was on no longer exists", async () => {

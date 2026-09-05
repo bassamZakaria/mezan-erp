@@ -84,7 +84,10 @@ export function SalesReturnsScreen() {
   const confirmReturn = useConfirmSalesReturn();
   const cancelReturn = useCancelSalesReturn();
 
-  const invoices = (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled");
+  const invoices = useMemo(
+    () => (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled"),
+    [invoicesQuery.data],
+  );
   const warehouses = warehousesQuery.data ?? EMPTY;
   const customers = customersQuery.data ?? EMPTY;
   const items = itemsQuery.data ?? EMPTY;
@@ -187,7 +190,11 @@ export function SalesReturnsScreen() {
     const invoice = invoices.find((i) => i.id === invoiceId);
     if (!invoice) return;
     const firstLine = invoice.lines.find((l) => l.isStock && l.unitCost !== null);
-    setLines(firstLine ? [blankLine(firstLine.itemId, reason)] : []);
+    // Bail instead of `setLines([])`: the grid is already empty here, and a fresh
+    // `[]` is never `Object.is`-equal to the current state, so React would re-render
+    // and re-run this effect forever on an invoice with nothing returnable.
+    if (!firstLine) return;
+    setLines([blankLine(firstLine.itemId, reason)]);
   }, [firstSegment, invoices, invoiceId, lines.length, reason]);
 
   useEffect(() => {

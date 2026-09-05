@@ -247,8 +247,10 @@ describe("SalesReturnsScreen — a draft return with no return number yet", () =
     const noDocNo = salesReturn({ id: "sr-nodoc", docNo: null });
     render([noDocNo]);
 
-    await screen.findByText("مسودة");
-    fireEvent.click(screen.getByText("مسودة"));
+    // «مسودة» shows twice on the row: the document-number column falls back to it for
+    // an unnumbered draft, and the status pill carries it too. The number cell is first.
+    const [numberCell] = await screen.findAllByText("مسودة");
+    fireEvent.click(numberCell!);
 
     expect(await screen.findByRole("heading", { name: "مرتجع مبيعات" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "تأكيد المرتجع" })).toBeInTheDocument();
@@ -364,7 +366,8 @@ describe("SalesReturnsScreen — arriving already pointed at a source invoice", 
       { transport, initialSession: testAdminSession },
     );
     await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
-    expect(screen.getByRole("combobox", { name: "فاتورة المصدر *" })).toHaveTextContent("INV-000123");
+    // The heading paints before the invoice list lands; the pickers can only fill in after it.
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "فاتورة المصدر *" })).toHaveTextContent("INV-000123"));
     expect(screen.getByRole("combobox", { name: "الصنف" })).toHaveTextContent("أسمنت بورتلاندي");
     expect(screen.getByRole("combobox", { name: "المستودع *" })).toHaveTextContent("مستودع الفرع الرئيسي");
   });

@@ -134,7 +134,11 @@ describe("BankReconciliationScreen — list filters", () => {
     await screen.findByText("ST-001");
 
     await user.type(screen.getByPlaceholderText("جميع الحسابات"), "بنك");
-    await user.click(await screen.findByText("بنك مصر — الحساب الجاري"));
+    // The same name also sits in the statement row's account column, so scope the
+    // click to the picker's listbox — and to the label span, since the mousedown
+    // handler lives on the button inside the <li role="option">.
+    const accountList = await screen.findByRole("listbox");
+    await user.click(within(accountList).getByText("بنك مصر — الحساب الجاري"));
     await waitFor(() => expect(paths.some((p) => p.includes("treasuryAccountId=ta-bank1"))).toBe(true));
 
     fireEvent.change(screen.getByLabelText("من"), { target: { value: "2026-08-01" } });
@@ -171,7 +175,7 @@ describe("BankReconciliationScreen — list filters", () => {
     expect(await screen.findByText("ta-missing")).toBeInTheDocument();
     const row = screen.getByText("ta-missing").closest("tr") as HTMLElement;
     expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(2);
-    expect(within(row).getByRole("button", { name: "إجراءات ta-missing" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "إجراءات stmt-2" })).toBeInTheDocument();
   });
 });
 
@@ -363,9 +367,9 @@ describe("BankReconciliationScreen — matching", () => {
 
     await within(panel).findByText("إيداع نقدي");
     const pickers = within(panel).getAllByLabelText("طابِق مع حركة خزينة");
-    fireEvent.click(pickers[0]!);
+    fireEvent.focus(pickers[0]!);
     fireEvent.mouseDown(await within(panel).findByText("إيداع نقدي - سند قبض"));
-    fireEvent.click(pickers[1]!);
+    fireEvent.focus(pickers[1]!);
     fireEvent.mouseDown(await within(panel).findByText("مصروف بنكي"));
 
     const matchButtons = within(panel).getAllByRole("button", { name: "مطابقة" });
@@ -403,7 +407,8 @@ describe("BankReconciliationScreen — matching", () => {
     expect(within(panel).getByText("2026-08-01")).toBeInTheDocument();
 
     await user.click(within(panel).getByLabelText("طابِق مع حركة خزينة"));
-    expect(await screen.findByRole("option", { name: "JE-99" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "je-bare" })).toBeInTheDocument();
+    // An option's accessible name runs its label straight into its sublabel.
+    expect(await screen.findByRole("option", { name: /^JE-99/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^je-bare/ })).toBeInTheDocument();
   });
 });

@@ -311,9 +311,30 @@ describe("AssetRegisterScreen — filters and pagination", () => {
 
     fireEvent.click(screen.getByRole("combobox", { name: "الفرع" }));
     fireEvent.mouseDown(await screen.findByRole("option", { name: "الفرع الرئيسي" }));
-    await waitFor(() => expect(screen.getByText("معدة تصنيع")).toBeInTheDocument());
 
-    expect(screen.getByText("2")).toBeInTheDocument();
+    /*
+     * BOTH waits are needed, and neither implies the other — which is why this
+     * test passed on its own and failed under a loaded full suite, blocking the
+     * pre-push gate for everyone.
+     *
+     * Waiting for the row alone proved nothing: «معدة تصنيع» was already on
+     * screen before this second filter was applied, so that wait resolved on the
+     * first tick and left the badge assertion racing a state update. But waiting
+     * for the badge alone is not enough either: the row is briefly removed while
+     * the refiltered list is in flight, so it has to be waited back IN rather
+     * than asserted synchronously. br-1 is «الفرع الرئيسي», which is asset-2's
+     * own branch, so it does come back.
+     *
+     * And the badge is read through its OWN button rather than `getByText("2")`.
+     * The count is a bare `<span>2</span>` inside the filter toggle
+     * (DocumentList.tsx), so a loose text query matches any other "2" the screen
+     * happens to be rendering — a row count, a page number — and then fails as
+     * "found multiple elements" rather than as anything to do with filters.
+     */
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /تصفية النتائج/ })).toHaveTextContent("2"),
+    );
+    expect(await screen.findByText("معدة تصنيع")).toBeInTheDocument();
   });
 
   it("resets to the first page once the current page it was on no longer exists", async () => {

@@ -25,6 +25,7 @@
     "dev:fresh": "node scripts/dev.mjs --fresh",
     "server": "tsx apps/server/src/index.ts",
     "desktop:demo": "pnpm --filter desktop demo",
+    "desktop:package": "node scripts/package-desktop.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:install": "playwright install --with-deps chromium",

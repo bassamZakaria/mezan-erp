@@ -15,7 +15,11 @@ import { dirname } from "node:path";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCAN_DIRS = ["apps", "packages"];
 const SCAN_EXT = new Set([".css", ".scss", ".tsx", ".ts", ".jsx"]);
-const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".worktrees", "build"]);
+// `release` is electron-builder output (apps/desktop/release) — a packaged copy of
+// the built web bundle, so every rule below matched MINIFIED CSS and reported the
+// font-face block as a hardcoded physical property. It is gitignored; these
+// scanners walk the filesystem, not the index, so they have to be told too.
+const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".worktrees", "build", "release", "coverage"]);
 
 const RULES = [
   {

@@ -188,8 +188,17 @@ jobs:
       # better-sqlite3, opens a database and round-trips an Arabic row through
       # it. An ABI mismatch fails here with the NODE_MODULE_VERSION numbers in
       # the log, instead of on a customer's machine on a Friday morning.
+      # `--no-sandbox`, and it has to come BEFORE the script path so Chromium
+      # parses it at process start rather than treating it as an app argument.
+      #
+      # A GitHub runner ships Electron's SUID sandbox helper without the
+      # root-owned mode 4755 it requires, and Electron aborts rather than run
+      # unsandboxed: "The SUID sandbox helper binary was found, but is not
+      # configured correctly." This probe opens a SQLite database and renders no
+      # web content at all — there is nothing here for that sandbox to contain —
+      # so it is disabled for the probe on CI only, and never in the shipped app.
       - name: Native ABI check (Electron opens a database)
-        run: xvfb-run -a pnpm --filter desktop run check:abi
+        run: xvfb-run -a pnpm --filter desktop exec electron --no-sandbox scripts/check-native-abi.cjs
 
       - name: Build the main/preload bundles
         run: pnpm --filter desktop run build:main

@@ -61,6 +61,44 @@ function countOf(body: unknown): number | null {
   return null;
 }
 
+/**
+ * THIS CHECK MUST NOT DEPEND ON TODAY'S DATE.
+ *
+ * A period-scoped report defaults to `firstOfMonth(today) … today`
+ * (packages/api/src/reports-routes.ts). The demo seed writes its history as
+ * fixed date literals — roughly 180 of them, spread across
+ * packages/backend/src/demo-seed/, most of them in August 2026. So a bare GET
+ * asks "did this tenant trade during the current CALENDAR month", which is a
+ * fact about the clock, not about the seed.
+ *
+ * That is exactly what went wrong: eight report surfaces reported empty and the
+ * job went red the moment the month rolled over, with nothing about the seed or
+ * the reports having changed. The reports are healthy — the same request over
+ * an August window returns rows.
+ *
+ * So period reports are asked over a window that spans the seeded history. What
+ * this file is for is "the seed populates every surface"; leaving the window at
+ * the default tested the date instead, and would go red again every 1st.
+ *
+ * NOT A FIX FOR THE UNDERLYING WART: a demo tenant whose newest document is
+ * weeks old still opens with blank sales reports for anyone who runs it after
+ * the month turns. Making the seed relative to the clock is the real answer and
+ * is a change to ~180 literals plus every scenario expectation built on them.
+ */
+const FROM = "2020-01-01";
+const TO = "2099-12-31";
+
+function windowFor(path: string): string {
+  // The two families spell the same idea differently: `/reports/*` takes
+  // dateFrom/dateTo, `/financial-reports/*` takes periodFrom/periodTo. Sending
+  // the wrong pair is silently ignored and leaves the default window in place,
+  // which is how /financial-reports/vat-return stayed empty after the rest were
+  // fixed.
+  if (path.startsWith("/financial-reports/")) return `?periodFrom=${FROM}&periodTo=${TO}`;
+  if (path.startsWith("/reports/")) return `?dateFrom=${FROM}&dateTo=${TO}`;
+  return "";
+}
+
 async function main() {
   const dir = mkdtempSync(join(tmpdir(), "mezan-coverage-"));
   const { app } = await createBackend({ dbPath: join(dir, "coverage.db"), seedDemoData: true });
@@ -76,7 +114,7 @@ async function main() {
 
   for (const path of paths) {
     if (NEEDS_PARAMS.has(path)) { notLists.push(path); continue; }
-    const res = await app.fetch(new Request(`http://coverage${path}`, { headers: HEADERS }));
+    const res = await app.fetch(new Request(`http://coverage${path}${windowFor(path)}`, { headers: HEADERS }));
     if (!res.ok) { failed.push([path, res.status]); continue; }
     const n = countOf(await res.json().catch(() => null));
     if (n === null) notLists.push(path);

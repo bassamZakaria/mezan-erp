@@ -1,10 +1,11 @@
 import type Database from "better-sqlite3";
-import { mkdir, open as fsOpen, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, open as fsOpen, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { buildManifest, countRows, serializeManifest, type BackupReason } from "./manifest.js";
 import { sha256File } from "./checksum.js";
 import { createArchive, type ArchiveExtraFile } from "./archive.js";
 import { applyRetention, DEFAULT_RETENTION_POLICY, type RetentionPolicy } from "./retention.js";
+import { verifyArchive } from "./restore-service.js";
 
 export const BACKUP_FILE_EXTENSION = ".mezanbak";
 const BACKUP_FILE_PREFIX = "mezan-backup-";
@@ -217,6 +218,36 @@ export async function createBackup(params: {
       outputPath: archivePath,
       extraFiles,
     });
+
+    /*
+     * VERIFY BEFORE RETENTION, and before reporting success.
+     *
+     * Order matters twice over. Retention deletes older archives to make room
+     * for this one, so proving this one first is what stops a bad backup
+     * evicting a good one — the way a shop ends up with nothing but corrupt
+     * files. And an archive that cannot be opened must never be counted as a
+     * backup: it is renamed out of the way so retention and the restore screen
+     * cannot mistake it for one, and the failure is raised rather than logged
+     * quietly.
+     */
+    /*
+     * Only an archive this process can OPEN can be verified. A portable archive
+     * is plaintext, and an install with no cipher was plaintext already; an
+     * encrypted-and-not-portable archive would need the key handed in, and
+     * pretending to verify one without it would be worse than not trying —
+     * a green tick that checked nothing.
+     */
+    const verifiable = portable !== undefined || !encrypted;
+    try {
+      if (verifiable) await verifyArchive({ archivePath, workDir: tmpDir });
+    } catch (err) {
+      const quarantined = `${archivePath}.unverified`;
+      await rename(archivePath, quarantined).catch(() => undefined);
+      throw new Error(
+        `Backup written but it does not verify, so it is not a backup. Moved to ${quarantined}. ` +
+          `Cause: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
 
     const removed = await pruneToRetention(backupsDir, retentionPolicy);
 

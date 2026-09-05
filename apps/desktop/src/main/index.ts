@@ -330,7 +330,6 @@ app.whenReady().then(async () => {
       sqlite: backupConn,
       appVersion: app.getVersion(),
       encrypted,
-      dbPath,
       // Portable archives need the key to decrypt the copy with; on an install
       // with no cipher there is nothing to decrypt and nothing changes.
       ...(cipher ? { portable: { key: cipher.key, open: (file: string, key: string) => openTenantConnection(file, { ...cipher!, key }) } } : {}),

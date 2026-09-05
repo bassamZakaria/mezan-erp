@@ -130,3 +130,51 @@ function runIntegrityCheck(db: Database.Database): void {
     db.close();
   }
 }
+
+export interface VerifyResult {
+  readonly ok: true;
+  /** Row counts read back out of the archive, per table. */
+  readonly tables: Record<string, number>;
+}
+
+/**
+ * Proves an archive can actually be restored, WITHOUT restoring it.
+ *
+ * THE FAILURE THIS EXISTS FOR. Everything the restore path checks — manifest
+ * shape, checksum, `PRAGMA integrity_check` — was only ever run at restore
+ * time, which is the single worst moment to discover that a backup is
+ * unusable: the shop is already in trouble, and the archive that was going to
+ * save them has been quietly bad for weeks. Nothing at write time opened an
+ * archive to see whether it was a database at all.
+ *
+ * So the same four steps run immediately after each archive is sealed, into a
+ * throwaway directory. The cost is one extract and one integrity check per
+ * backup; the thing it buys is that "a backup exists" and "a backup works" stop
+ * being different statements.
+ *
+ * Row counts are read back and returned so the caller can compare them with the
+ * manifest the snapshot recorded — an archive that opens cleanly but lost a
+ * table is still a bad backup.
+ */
+export async function verifyArchive(params: {
+  archivePath: string;
+  workDir: string;
+  cipher?: RestoreCipher;
+}): Promise<VerifyResult> {
+  const extractDir = path.join(params.workDir, `verify-${Date.now()}-${process.pid}`);
+  const { dbFilePath, manifestJson } = await extractArchive(params.archivePath, extractDir);
+  try {
+    const manifest = parseManifest(manifestJson);
+
+    const actualChecksum = await sha256File(dbFilePath);
+    if (actualChecksum !== manifest.checksum) {
+      throw new ChecksumMismatchError(manifest.checksum, actualChecksum);
+    }
+
+    await assertIntegrityOk(dbFilePath, params.cipher);
+
+    return { ok: true, tables: manifest.tables };
+  } finally {
+    await rm(extractDir, { recursive: true, force: true });
+  }
+}

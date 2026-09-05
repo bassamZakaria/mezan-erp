@@ -55,6 +55,18 @@ export const routes: RouteObject[] = [
     ErrorBoundary: RouteErrorBoundary,
     children: [
       { index: true, element: <Navigate to="/dashboard" replace /> },
+      /*
+       * THE DESKTOP ENTRY POINT. The packaged shell loads
+       * `app://mezan/index.html` (main/renderer-protocol.ts), so the app boots
+       * on the path `/index.html` — which matches no screen and fell straight
+       * through to the catch-all below. Every launch of the desktop build
+       * landed on «الصفحة غير موجودة» with the whole navigation rail rendered
+       * around it, and the only way to a real screen was to click one.
+       *
+       * A browser build is served at `/` and never sees this path, which is
+       * why it is invisible everywhere except the packaged app.
+       */
+      { path: "index.html", element: <Navigate to="/dashboard" replace /> },
       ...Object.keys(SCREEN_MODULES).map(screenRoute),
       /*
        * المستخدمون / الأدوار are not stateless screen modules — the role

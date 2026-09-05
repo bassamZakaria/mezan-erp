@@ -70,6 +70,24 @@ describe("real router integration (App + routes.tsx)", () => {
     expect(screen.getByText("الصفحة غير موجودة")).toBeInTheDocument();
   });
 
+  /**
+   * The packaged desktop shell loads `app://mezan/index.html`, so the app boots
+   * on `/index.html`. That matched no screen and fell through to the catch-all,
+   * so EVERY launch of the desktop build landed on «الصفحة غير موجودة» with the
+   * navigation rail drawn around it. Invisible in a browser, which is served at
+   * `/`.
+   */
+  it("the desktop shell's entry path lands on the dashboard, not the not-found boundary", async () => {
+    persistSession(testAdminSession);
+    render(
+      <AppProviders transport={appTransport()}>
+        <App initialEntries={["/index.html"]} />
+      </AppProviders>,
+    );
+    expect(await screen.findByRole("heading", { name: /مرحباً/ })).toBeInTheDocument();
+    expect(screen.queryByText("الصفحة غير موجودة")).not.toBeInTheDocument();
+  });
+
   it("a route parameter reaches its screen — /sell/customers/CUST-1 matches the customers splat route and renders the real screen, not the not-found boundary", async () => {
     const transport = stubTransport({
       "POST /auth/login": () => ({ body: testAdminSession }),

@@ -107,6 +107,13 @@ export function AppLayout() {
   const profile = useProfile();
   const { t, locale } = useAppTranslation();
   const [showWizard, setShowWizard] = useState(false);
+  /**
+   * Set only by cancelling the wizard that an UNCLAIMED tenant opens on its
+   * own. Kept apart from `showWizard`, which tracks the wizard the login screen
+   * opens deliberately — the two are opened by different things and only one of
+   * them can be closed by a flag the render path reads.
+   */
+  const [wizardDismissed, setWizardDismissed] = useState(false);
   // Read before the session gate: it decides whether a signed-out visitor sees
   // the login form or the first-run wizard. Ungated, like `/tenant`.
   const bootstrapStatus = useBootstrapStatus();
@@ -480,10 +487,31 @@ export function AppLayout() {
     // types their own name, fails five times, and is locked out of a
     // brand-new install inside ninety seconds. `GET /bootstrap/status` already
     // knows the answer; the screen just has to read it.
-    if (bootstrapStatus.data?.claimed === false) {
-      return <FirstRunWizard onFinish={() => setShowWizard(false)} onCancel={() => setShowWizard(false)} />;
+    // `wizardDismissed`, NOT `showWizard`. This branch opens the wizard from a
+    // SERVER fact — `claimed === false` — so a cancel that only set
+    // `showWizard` changed a flag this branch never reads: the wizard
+    // re-rendered identically and «إلغاء والعودة لتسجيل الدخول» did nothing at
+    // all. On a fresh install that is every install, and it left no way to
+    // reach the login screen without completing the wizard — so the seeded
+    // administrator account, which is the whole recovery path when the wizard
+    // is not what you wanted, was unreachable from the UI.
+    //
+    // `onFinish` did not show the bug only because finishing flips `claimed` on
+    // the server and this branch stops matching on its own.
+    if (bootstrapStatus.data?.claimed === false && !wizardDismissed) {
+      return <FirstRunWizard onFinish={() => setShowWizard(false)} onCancel={() => setWizardDismissed(true)} />;
     }
-    return <LoginScreen onStartWizard={() => setShowWizard(true)} />;
+    // Re-arming the auto-open: someone who cancelled into the login screen and
+    // then chose «الإعداد الأولي» means it, and must not land back on a screen
+    // a stale dismissal is still suppressing.
+    return (
+      <LoginScreen
+        onStartWizard={() => {
+          setWizardDismissed(false);
+          setShowWizard(true);
+        }}
+      />
+    );
   }
 
   // The Arabic name is the record; the Latin one shows on the English UI when

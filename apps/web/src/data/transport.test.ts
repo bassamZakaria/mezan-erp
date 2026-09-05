@@ -61,6 +61,47 @@ describe("createElectronTransport", () => {
     await expect(res.json()).resolves.toEqual({ id: "ITEM-1" });
   });
 
+  /**
+   * THE ONE THAT COST A NIGHT. `ApiContext.request` builds a real `Headers`
+   * instance, and `contextBridge` structured-clones every argument into the
+   * isolated world — where a `Headers` object, which has no own enumerable
+   * properties, arrives as `{}`. `Authorization` was dropped on every desktop
+   * request: sign in, get a 200 and a valid token, then watch every call come
+   * back 401, which the renderer reads as an expired session and bounces you
+   * back to the login screen. The browser build was fine throughout, because
+   * `fetch` takes a `Headers` natively — so nothing short of running the
+   * packaged app could see it.
+   */
+  it("flattens a Headers instance to a plain object, or the bridge drops every header", async () => {
+    const bridgeFetch = vi.fn(async () => ({ status: 200, headers: {}, body: "{}" }));
+    const transport = createElectronTransport({ fetch: bridgeFetch });
+
+    const headers = new Headers();
+    headers.set("authorization", "Bearer TOKEN-1");
+    headers.set("x-branch-scope", "*");
+    await transport("/items", { method: "GET", headers });
+
+    expect(bridgeFetch).toHaveBeenCalledWith("http://mezan.local/items", {
+      method: "GET",
+      headers: { authorization: "Bearer TOKEN-1", "x-branch-scope": "*" },
+    });
+    // A plain object, not a Headers — that distinction IS the bug.
+    const sent = bridgeFetch.mock.calls[0] as unknown as [string, { headers: unknown }];
+    expect(sent[1].headers).not.toBeInstanceOf(Headers);
+    expect(Object.keys(sent[1].headers as object)).toHaveLength(2);
+  });
+
+  it("passes a plain-object headers init through unchanged", async () => {
+    const bridgeFetch = vi.fn(async () => ({ status: 200, headers: {}, body: "{}" }));
+    const transport = createElectronTransport({ fetch: bridgeFetch });
+
+    await transport("/items", { headers: { authorization: "Bearer TOKEN-2" } });
+
+    expect(bridgeFetch).toHaveBeenCalledWith("http://mezan.local/items", {
+      headers: { authorization: "Bearer TOKEN-2" },
+    });
+  });
+
   it("computes ok as false outside the 200-399 range", async () => {
     const bridgeFetch = vi.fn(async () => ({ status: 500, headers: {}, body: JSON.stringify({ error: "SERVER_ERROR" }) }));
     const transport = createElectronTransport({ fetch: bridgeFetch });

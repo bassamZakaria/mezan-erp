@@ -462,4 +462,51 @@ describe("AppLayout — first-run wizard", () => {
     // onFinish closed the wizard; the admin session from step 2 now shows the real shell.
     expect(await screen.findByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" })).toBeInTheDocument();
   });
+
+  /**
+   * An unclaimed tenant opens the wizard from a SERVER fact, so its cancel used
+   * to set `showWizard` — a flag that branch never reads. The wizard re-rendered
+   * identically and the button did nothing, on every fresh install, leaving no
+   * way to reach the login screen without completing the wizard. That also put
+   * the seeded administrator account — the recovery path for anyone who did not
+   * want the wizard — out of reach entirely.
+   */
+  it("cancelling the wizard an unclaimed install opened actually reaches the login screen", async () => {
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+      "GET /tenant": () => ({ body: { name: "Cyag" } }),
+      // Stays false for the whole test: cancelling must not depend on the
+      // server changing its mind.
+      "GET /bootstrap/status": () => ({
+        body: { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0, claimed: false },
+      }),
+    });
+    renderLayout(transport, ["/dashboard"], null);
+
+    fireEvent.click(await screen.findByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
+
+    expect(await screen.findByRole("button", { name: "الإعداد الأولي" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" })).not.toBeInTheDocument();
+  });
+
+  /** ...and the way back in still works, rather than being suppressed by the dismissal. */
+  it("reopens the wizard from the login screen after it was cancelled", async () => {
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+      "GET /tenant": () => ({ body: { name: "Cyag" } }),
+      "GET /bootstrap/status": () => ({
+        body: { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0, claimed: false },
+      }),
+    });
+    renderLayout(transport, ["/dashboard"], null);
+
+    fireEvent.click(await screen.findByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
+    fireEvent.click(await screen.findByRole("button", { name: "الإعداد الأولي" }));
+
+    expect(await screen.findByRole("heading", { name: "معالج الإعداد الأولي" })).toBeInTheDocument();
+  });
 });

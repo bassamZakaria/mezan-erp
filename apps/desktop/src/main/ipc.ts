@@ -30,6 +30,27 @@ export function registerHonoOverIpc(honoApp: App): void {
       response.headers.forEach((value, key) => {
         headers[key] = value;
       });
+      // Same reason the client mount logs its refusals: a 401 on ANY request
+      // after sign-in makes the renderer clear the session and bounce back to
+      // the login screen with «انتهت الجلسة» (ApiContext.tsx), and the screen
+      // cannot say WHICH request did it. Without this line the only symptom is
+      // "I log in and it throws me straight back out", which is unfalsifiable
+      // from the outside.
+      // `MEZAN_LOG_IPC=1` widens it to every request, which is what a support
+      // call needs when the complaint is "it signs me straight back out" and
+      // the refusal that caused it is a 200 followed by something else.
+      if (process.env["MEZAN_LOG_IPC"] === "1" || response.status >= 400) {
+        // WHETHER a token was attached, never any part of the token itself: a
+        // session token is a bearer credential and a log file is not the place
+        // for one, not even a fragment. "no-token" is the whole of what was
+        // needed to find the bug this line exists for — the renderer was
+        // sending none at all.
+        const authenticated = Object.keys(req.headers ?? {}).some((k) => k.toLowerCase() === "authorization");
+        console.warn(
+          `[ipc] ${req.method ?? "GET"} ${new URL(req.url).pathname} -> ${response.status}` +
+            (authenticated ? "" : " (no-token)"),
+        );
+      }
       return {
         status: response.status,
         headers,

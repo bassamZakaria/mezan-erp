@@ -26,6 +26,27 @@ import { z } from "zod";
  * S3-compatible on purpose: one implementation reaches Backblaze B2, Wasabi,
  * MinIO, a NAS or AWS itself, and the shop's own bucket stays the shop's.
  */
+/**
+ * THE PREFERRED SHAPE: this machine holds no bucket credential at all.
+ *
+ * `presignEndpoint` is asked, over HTTPS, for a short-lived URL to PUT one
+ * archive to; the vendor signs it with a secret that never leaves their side.
+ * The alternative below (`accessKeyId`/`secretAccessKey`) puts a long-lived
+ * credential in a plaintext file on a shop counter, where one stolen laptop is
+ * the whole bucket — every shop in it, if the bucket is shared. Prefer this.
+ *
+ * `token` is whatever the endpoint uses to recognise the shop. It is a bearer
+ * secret, so it is still worth protecting — but it buys an attacker a URL to
+ * upload with, not the ability to read every other shop's archives.
+ */
+export const presignedBackupConfigSchema = z.object({
+  mode: z.literal("presigned"),
+  presignEndpoint: z.string().url().startsWith("https://"),
+  token: z.string().min(1),
+});
+
+export type PresignedBackupConfig = z.infer<typeof presignedBackupConfigSchema>;
+
 export const remoteBackupConfigSchema = z.object({
   /**
    * Full endpoint origin, e.g. `https://s3.eu-central-003.backblazeb2.com`.
@@ -52,6 +73,7 @@ export function remoteBackupConfigPath(dbPath: string): string {
 export type RemoteBackupSetup =
   | { readonly configured: false }
   | { readonly configured: true; readonly config: RemoteBackupConfig }
+  | { readonly configured: true; readonly presigned: PresignedBackupConfig }
   | { readonly configured: false; readonly error: string };
 
 /**
@@ -77,6 +99,20 @@ export async function readRemoteBackupConfig(dbPath: string): Promise<RemoteBack
     parsedJson = JSON.parse(raw);
   } catch {
     return { configured: false, error: `${file} is not valid JSON.` };
+  }
+
+  // `mode: "presigned"` selects the credential-free path; anything else is read
+  // as the legacy shape that carries bucket keys. Checked first so a file that
+  // means to be presigned is never silently parsed as the weaker one.
+  if ((parsedJson as { mode?: unknown } | null)?.mode === "presigned") {
+    const asPresigned = presignedBackupConfigSchema.safeParse(parsedJson);
+    if (!asPresigned.success) {
+      const problems = asPresigned.error.issues.map(
+        (i) => `${i.path.join(".") || "(root)"}: ${i.message}`,
+      );
+      return { configured: false, error: `${file} is not a valid presigned destination — ${problems.join("; ")}` };
+    }
+    return { configured: true, presigned: asPresigned.data };
   }
 
   const parsed = remoteBackupConfigSchema.safeParse(parsedJson);

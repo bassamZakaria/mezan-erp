@@ -2,7 +2,8 @@ import { app } from "electron";
 import type Database from "better-sqlite3";
 import { createBackup, runPreMigrationBackup } from "../backup/index.js";
 import { readRemoteBackupConfig } from "../backup/remote-config.js";
-import { syncBackupToRemote } from "../backup/remote-backup.js";
+import { requestPresignedUpload, syncBackupToRemote, uploadToPresignedUrl } from "../backup/remote-backup.js";
+import path from "node:path";
 import { defaultBackupsDir } from "./env.js";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -66,6 +67,26 @@ async function copyOffMachine(archivePath: string, dbPath: string): Promise<void
     if ("error" in setup && setup.error) console.warn(`[backup] online backup not used — ${setup.error}`);
     return;
   }
+
+  // The credential-free path: ask for a short-lived URL, then PUT to it. This
+  // process never sees a bucket key. See remote-config.ts for why that matters.
+  if ("presigned" in setup) {
+    const minted = await requestPresignedUpload(setup.presigned, path.basename(archivePath));
+    if (!minted.ok) {
+      console.error(`[backup] could not obtain an upload URL: ${minted.error}. The local backup was still written.`);
+      return;
+    }
+    const put = await uploadToPresignedUrl(minted.url, archivePath);
+    if (put.ok) console.log(`[backup] uploaded ${put.key} via a presigned URL`);
+    else
+      console.error(
+        `[backup] ONLINE COPY FAILED for ${put.key}` +
+          (put.status ? ` (HTTP ${put.status})` : "") +
+          `: ${put.error ?? "unknown"}. The local backup was still written.`,
+      );
+    return;
+  }
+
   const outcome = await syncBackupToRemote(setup.config, archivePath);
   if (outcome.uploaded.ok) {
     console.log(
@@ -89,6 +110,8 @@ export function scheduleBackups(params: {
   encrypted?: boolean;
   /** Where the online-backup destination is read from (beside the database). */
   dbPath: string;
+  /** Present to write archives that restore on other hardware — see the call site. */
+  portable?: { readonly key: string; readonly open: (file: string, key: string) => Database.Database };
 }): () => void {
   const backupsDir = params.backupsDir ?? defaultBackupsDir();
   const run = (reason: "scheduled" | "on-close") =>
@@ -98,6 +121,14 @@ export function scheduleBackups(params: {
       appVersion: params.appVersion,
       reason,
       encrypted: params.encrypted,
+      // PORTABLE OVER CONFIDENTIAL — the owner's decision, taken deliberately.
+      //
+      // An archive that restores on replacement hardware, at the cost of being
+      // the shop's books in the clear wherever it lands. Without this, losing
+      // the machine loses the books: the archive would be keyed to a keychain
+      // that died with it. `portable` is only possible when the key is to hand,
+      // so an install with no cipher keeps the previous behaviour untouched.
+      ...(params.portable ? { portable: params.portable } : {}),
     })
       .then((result) => copyOffMachine(result.archivePath, params.dbPath))
       .catch((err: unknown) => console.error(`[backup] ${reason} backup failed`, err));

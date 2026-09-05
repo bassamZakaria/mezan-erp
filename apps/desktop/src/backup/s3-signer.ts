@@ -73,6 +73,62 @@ export interface SignedRequest {
   readonly headers: Record<string, string>;
 }
 
+/**
+ * A presigned URL: the whole authorisation carried in the query string, so
+ * whoever holds the URL can make exactly that one request until it expires.
+ *
+ * THIS IS THE FUNCTION THAT LETS A SHOP PC HOLD NO CREDENTIALS. Signing with
+ * `signS3Request` needs the secret key on the machine making the request, which
+ * on a desktop install means a long-lived bucket credential sitting in a file on
+ * every shop counter — and one leaked laptop is then the whole bucket, for every
+ * shop in it. With this, the secret stays on the vendor's side: it mints a URL
+ * scoped to ONE method, ONE key and a few minutes, and the app just PUTs to it.
+ *
+ * So this runs SERVER-side. It lives here because the signing is identical and
+ * duplicating it is how the two drift apart; the desktop imports the uploader,
+ * not this.
+ *
+ * `expiresInSeconds` is capped by S3 at 7 days, and should be minutes — the URL
+ * IS the credential while it lives.
+ */
+export function presignS3Url(
+  input: Omit<SignInput, "payloadSha256" | "extraHeaders"> & { expiresInSeconds: number },
+): string {
+  const stamp = amzDate(input.now);
+  const date = stamp.slice(0, 8);
+  const scope = `${date}/${input.region}/s3/aws4_request`;
+  const url = new URL(input.url.toString());
+
+  // The host is the only signed header, so a presigned URL cannot be replayed
+  // against a different endpoint.
+  const signedHeaders = "host";
+  url.searchParams.set("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
+  url.searchParams.set("X-Amz-Credential", `${input.accessKeyId}/${scope}`);
+  url.searchParams.set("X-Amz-Date", stamp);
+  url.searchParams.set("X-Amz-Expires", String(input.expiresInSeconds));
+  url.searchParams.set("X-Amz-SignedHeaders", signedHeaders);
+
+  const canonicalRequest = [
+    input.method,
+    canonicalUri(url.pathname),
+    canonicalQuery(url),
+    `host:${url.host}\n`,
+    signedHeaders,
+    // Presigned URLs sign the payload as UNSIGNED-PAYLOAD: the body is not known
+    // when the URL is minted, which is the entire point of handing it out.
+    "UNSIGNED-PAYLOAD",
+  ].join("\n");
+
+  const stringToSign = ["AWS4-HMAC-SHA256", stamp, scope, sha256Hex(canonicalRequest)].join("\n");
+  const signingKey = hmac(
+    hmac(hmac(hmac(`AWS4${input.secretAccessKey}`, date), input.region), "s3"),
+    "aws4_request",
+  );
+  const signature = createHmac("sha256", signingKey).update(stringToSign, "utf8").digest("hex");
+  url.searchParams.set("X-Amz-Signature", signature);
+  return url.toString();
+}
+
 export function signS3Request(input: SignInput): SignedRequest {
   const stamp = amzDate(input.now);
   const date = stamp.slice(0, 8);

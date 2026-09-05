@@ -77,6 +77,78 @@ function send(
   });
 }
 
+export type PresignResult =
+  | { readonly ok: true; readonly url: string }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Asks the vendor endpoint for a short-lived URL to upload ONE archive to.
+ *
+ * The endpoint is expected to answer `{ "url": "https://..." }`. It decides the
+ * key, the expiry and the bucket — none of which this machine gets a say in,
+ * which is the point: a compromised shop PC can ask for an upload URL and
+ * nothing else.
+ */
+export async function requestPresignedUpload(
+  config: { presignEndpoint: string; token: string },
+  fileName: string,
+): Promise<PresignResult> {
+  try {
+    const url = new URL(config.presignEndpoint);
+    const body = Buffer.from(JSON.stringify({ fileName }), "utf8");
+    const res = await send(
+      "PUT",
+      url,
+      {
+        authorization: `Bearer ${config.token}`,
+        "content-type": "application/json",
+      },
+      body,
+    );
+    if (res.status < 200 || res.status >= 300) {
+      return { ok: false, error: `presign endpoint answered HTTP ${res.status}: ${res.body.slice(0, 200)}` };
+    }
+    const parsed = JSON.parse(res.body) as { url?: unknown };
+    if (typeof parsed.url !== "string" || !parsed.url.startsWith("https://")) {
+      return { ok: false, error: "presign endpoint did not return an https url" };
+    }
+    return { ok: true, url: parsed.url };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * PUTs an archive to a URL that was signed somewhere else.
+ *
+ * THE PREFERRED PATH, and the reason it exists: signing on the machine means a
+ * long-lived bucket credential in a file on every shop counter, and one stolen
+ * laptop is then the whole bucket — every shop in it. Here the vendor mints a
+ * URL scoped to one method, one key and a few minutes; this process holds no
+ * secret at all, and a copied URL is worthless once it expires.
+ *
+ * No signing happens here on purpose. If this function ever needs the secret
+ * key, the design has gone backwards.
+ */
+export async function uploadToPresignedUrl(
+  presignedUrl: string,
+  filePath: string,
+): Promise<RemoteUploadResult> {
+  const key = path.basename(filePath);
+  try {
+    const url = new URL(presignedUrl);
+    if (url.protocol !== "https:") {
+      return { ok: false, key, error: "presigned URL is not https — refusing to send the books in clear" };
+    }
+    const body = await readFile(filePath);
+    const res = await send("PUT", url, { "content-type": "application/octet-stream" }, body);
+    if (res.status >= 200 && res.status < 300) return { ok: true, key, status: res.status };
+    return { ok: false, key, status: res.status, error: res.body.slice(0, 400) };
+  } catch (err) {
+    return { ok: false, key, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** PUTs one finished archive. The whole file is read into memory — see the note. */
 export async function uploadBackup(
   config: RemoteBackupConfig,

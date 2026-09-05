@@ -76,6 +76,31 @@ async function assertSnapshotEncrypted(filePath: string): Promise<void> {
 }
 
 /**
+ * The mirror of `assertSnapshotEncrypted`, for the portable path.
+ *
+ * `sqlcipher_export` failing quietly would leave a still-encrypted snapshot that
+ * gets sealed into an archive labelled portable — and nobody would find out
+ * until a shop tried to restore it on replacement hardware, which is the one
+ * moment they cannot afford to. So the header is read back and the archive is
+ * refused unless it really is a plain SQLite file.
+ */
+async function assertSnapshotReadable(filePath: string): Promise<void> {
+  const handle = await fsOpen(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(SQLITE_HEADER.length);
+    const { bytesRead } = await handle.read(buffer, 0, SQLITE_HEADER.length, 0);
+    if (bytesRead !== SQLITE_HEADER.length || !buffer.equals(SQLITE_HEADER)) {
+      throw new Error(
+        "Portable backup was requested but the snapshot is still encrypted — refusing to write an archive " +
+          "that claims to be restorable on another machine and is not.",
+      );
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
  * Creates one backup: SQLite's online backup API (`better-sqlite3`'s
  * `.backup()`, which wraps SQLite's Online Backup API) copies a
  * transactionally-consistent snapshot of the *live* database — safe to run
@@ -98,6 +123,22 @@ export async function createBackup(params: {
   reason: BackupReason;
   /** True when `sqlite` is a keyed connection — see the note above. */
   encrypted?: boolean;
+  /**
+   * Write the archive UNENCRYPTED so it can be restored on another machine.
+   *
+   * The trade is stated in full at the call site: a portable archive is the
+   * shop's whole books in the clear. Off by default, and it must stay a thing
+   * somebody chose rather than a default anybody inherits.
+   *
+   * Needs the key and a way to open a keyed connection, because decrypting is
+   * done by rekeying a COPY — see the branch below. Passing the opener rather
+   * than importing the driver keeps this module free of the cipher package,
+   * which is a desktop-only dependency.
+   */
+  portable?: {
+    readonly key: string;
+    readonly open: (file: string, key: string) => Database.Database;
+  };
   schemaVersion?: number;
   extraFiles?: readonly ArchiveExtraFile[];
   retentionPolicy?: RetentionPolicy;
@@ -109,6 +150,7 @@ export async function createBackup(params: {
     appVersion,
     reason,
     encrypted = false,
+    portable,
     schemaVersion,
     extraFiles,
     retentionPolicy = DEFAULT_RETENTION_POLICY,
@@ -122,7 +164,40 @@ export async function createBackup(params: {
   const tmpDbPath = path.join(tmpDir, `snapshot-${now.getTime()}-${process.pid}.sqlite`);
 
   try {
-    if (encrypted) {
+    if (encrypted && portable) {
+      /*
+       * PLAINTEXT ON PURPOSE — the owner's decision, and it has a cost.
+       *
+       * `VACUUM INTO` inherits the source's key, which makes an archive that
+       * only THIS machine can ever open: lose the PC and the backup is a file
+       * nobody on earth can read, which is the disaster backups exist for.
+       * Exporting unkeyed makes the archive restorable on replacement hardware
+       * — and makes it the shop's complete books in the clear, in the backups
+       * folder and in whatever bucket they are uploaded to. Anyone who opens
+       * the file reads every customer, price, salary and balance.
+       *
+       * `ATTACH ... KEY ''` + `sqlcipher_export` is the documented route out of
+       * SQLite3MultipleCiphers; `VACUUM INTO` cannot do it, because it has no
+       * way to say "and drop the cipher".
+       */
+      if (!portable.key || !portable.open) {
+        throw new Error("A portable backup of an encrypted database needs the key to decrypt the copy with.");
+      }
+      await rm(tmpDbPath, { force: true });
+      // Copy first (still encrypted, still transactionally consistent against a
+      // live WAL database), then decrypt the COPY. `sqlcipher_export` is not
+      // exposed by this build of SQLite3MultipleCiphers, and rekeying the copy
+      // never touches the live database — which matters, because a rekey that
+      // went wrong on the original would be the shop's books.
+      sqlite.exec(`VACUUM INTO ${sqlStringLiteral(tmpDbPath)}`);
+      const copy = portable.open(tmpDbPath, portable.key);
+      try {
+        copy.pragma("rekey=''");
+      } finally {
+        copy.close();
+      }
+      await assertSnapshotReadable(tmpDbPath);
+    } else if (encrypted) {
       // `VACUUM INTO` refuses an existing target; a crashed run can leave one.
       await rm(tmpDbPath, { force: true });
       sqlite.exec(`VACUUM INTO ${sqlStringLiteral(tmpDbPath)}`);

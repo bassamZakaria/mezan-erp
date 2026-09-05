@@ -12,7 +12,11 @@ import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
 import { defaultBackupsDir, defaultDbPath, isDev, rendererEntry, rendererRoot } from "./env.js";
 import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./renderer-protocol.js";
 import { diagnoseDesktopEntitlements } from "./entitlements.js";
-import { registerClientLicenceStatusOverIpc, registerLicenceStatusOverIpc } from "./licence-ipc.js";
+import {
+  registerClientLicenceStatusOverIpc,
+  registerLicenceCheckinOverIpc,
+  registerLicenceStatusOverIpc,
+} from "./licence-ipc.js";
 import { loadDesktopLicense } from "./license-runtime.js";
 import {
   attemptCheckin,
@@ -508,6 +512,14 @@ app.whenReady().then(async () => {
   // Registered before the socket is opened, and reading `lanHost` through a
   // getter: the bind is asynchronous (lan-host.ts), so the address is null
   // until it completes and the screen must be told null rather than a guess.
+  registerLicenceCheckinOverIpc({
+    dbPath,
+    installedAt,
+    endpoint: process.env["MEZAN_LICENSE_CHECKIN_URL"],
+    licenseId: license.state.state,
+    fingerprint: app.getPath("userData"),
+    sessions: backend.sessions,
+  });
   registerLicenceStatusOverIpc({
     diagnosis: () => licence,
     lanHost: () => lanHost,

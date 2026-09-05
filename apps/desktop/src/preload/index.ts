@@ -4,6 +4,7 @@ import {
   MEZAN_BACKUP_LIST_CHANNEL,
   MEZAN_BACKUP_RESTORE_CHANNEL,
   MEZAN_FETCH_CHANNEL,
+  MEZAN_LICENCE_CHECKIN_CHANNEL,
   MEZAN_LICENCE_STATUS_CHANNEL,
   MEZAN_PRINT_TO_PDF_CHANNEL,
   MEZAN_UPDATE_EVENT_CHANNEL,
@@ -14,6 +15,7 @@ import {
   type BackupRestoreResult,
   type IpcFetchRequest,
   type IpcFetchResponse,
+  type LicenceCheckinResult,
   type LicenceStatusResult,
   type MezanBridge,
   type PrintToPdfOptions,
@@ -102,6 +104,10 @@ const mezanBridge: MezanBridge = {
   licence: {
     status(sessionToken: string): Promise<LicenceStatusResult> {
       return ipcRenderer.invoke(MEZAN_LICENCE_STATUS_CHANNEL, sessionToken);
+    },
+    /** The operator asking now, rather than waiting for the silent startup check. */
+    checkin(sessionToken: string): Promise<LicenceCheckinResult> {
+      return ipcRenderer.invoke(MEZAN_LICENCE_CHECKIN_CHANNEL, sessionToken);
     },
   },
 };

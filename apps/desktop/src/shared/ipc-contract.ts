@@ -133,6 +133,28 @@ export type BackupRestoreResult =
 export const MEZAN_LICENCE_STATUS_CHANNEL = "mezan:licence:status";
 
 /**
+ * A licence check-in the OPERATOR asked for, rather than the fire-and-forget one
+ * at startup.
+ *
+ * It exists because the automatic check is deliberately silent and asynchronous:
+ * a till must not wait on a network round trip to open. That is right for a
+ * launch and useless for the person on the phone to support, who needs to
+ * connect the machine, press a button, and be told what happened. Without this,
+ * the only way to clear an overdue check-in is to restart the app and hope.
+ */
+export const MEZAN_LICENCE_CHECKIN_CHANNEL = "mezan:licence:checkin";
+
+export interface LicenceCheckinResult {
+  /** True only when the licensing service actually answered. */
+  readonly reachedServer: boolean;
+  readonly revoked: boolean;
+  /** Days since the last SUCCESSFUL check-in, after this attempt. */
+  readonly daysSince: number;
+  /** Arabic, ready to render. */
+  readonly messageAr: string;
+}
+
+/**
  * The code an owner reads down the phone to support. Stable, short, and always
  * rendered ALONGSIDE Arabic prose — never on its own in front of a user.
  *
@@ -261,5 +283,6 @@ export interface MezanBridge {
   onUpdateEvent(listener: (status: UpdateStatus) => void): () => void;
   readonly licence: {
     status(sessionToken: string): Promise<LicenceStatusResult>;
+    checkin(sessionToken: string): Promise<LicenceCheckinResult>;
   };
 }

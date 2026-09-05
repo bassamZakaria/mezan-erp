@@ -1,12 +1,21 @@
 import { ipcMain } from "electron";
 import type { SessionRegistry } from "@mezan/api";
 import {
+  MEZAN_LICENCE_CHECKIN_CHANNEL,
   MEZAN_LICENCE_STATUS_CHANNEL,
+  type LicenceCheckinResult,
   type LicenceStatusFailure,
   type LicenceStatusResult,
 } from "../shared/ipc-contract.js";
 import type { DesktopEntitlementsDiagnosis } from "./entitlements.js";
 import type { LanHostHandle } from "./lan-host.js";
+import {
+  attemptCheckin,
+  checkinMessageAr,
+  decideCheckin,
+  readCheckinState,
+  recordSuccessfulCheckin,
+} from "./license-checkin.js";
 
 const UNAUTHORIZED: LicenceStatusFailure = {
   ok: false,
@@ -121,6 +130,77 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
           // cannot recover from anywhere else in the product.
           fingerprintSha256: host?.fingerprint() ?? null,
         },
+      };
+    },
+  );
+}
+
+/**
+ * `mezan:licence:checkin` — the operator asking, now, rather than waiting for
+ * the silent one at startup.
+ *
+ * SESSION-GATED like the status channel: whether a shop's licence is current is
+ * a fact about that shop. No permission beyond a session, for the same reason —
+ * a licence problem is the owner's to see, and hiding it behind an admin grant
+ * hides it from the person holding the phone to support.
+ *
+ * Records the success itself, so pressing the button is what actually clears an
+ * overdue window. A failed attempt records NOTHING and says so: the day counter
+ * has to keep degrading on its own rather than be reset by an attempt that
+ * reached nobody, or "press the button" becomes the way around the whole thing.
+ */
+export function registerLicenceCheckinOverIpc(deps: {
+  readonly dbPath: string;
+  readonly installedAt: string;
+  readonly endpoint: string | undefined;
+  readonly licenseId: string;
+  readonly fingerprint: string;
+  readonly sessions: SessionRegistry;
+}): void {
+  ipcMain.handle(
+    MEZAN_LICENCE_CHECKIN_CHANNEL,
+    async (_event, sessionToken: unknown): Promise<LicenceCheckinResult> => {
+      if (typeof sessionToken !== "string" || !deps.sessions.find(sessionToken)) {
+        return { reachedServer: false, revoked: false, daysSince: 0, messageAr: UNAUTHORIZED.message };
+      }
+
+      const attempt = await attemptCheckin({
+        endpoint: deps.endpoint,
+        licenseId: deps.licenseId,
+        fingerprint: deps.fingerprint,
+      });
+      if (attempt.reachedServer && !attempt.revoked) {
+        await recordSuccessfulCheckin(deps.dbPath, new Date()).catch((err: unknown) =>
+          console.error("[licence] could not record the check-in", err),
+        );
+      }
+
+      const state = await readCheckinState(deps.dbPath);
+      const verdict = decideCheckin({ ...state, installedAt: deps.installedAt, now: new Date() });
+
+      if (attempt.revoked) {
+        return {
+          reachedServer: true,
+          revoked: true,
+          daysSince: verdict.daysSince,
+          messageAr: "هذا الترخيص مُلغى. تواصل مع الدعم.",
+        };
+      }
+      if (!attempt.reachedServer) {
+        return {
+          reachedServer: false,
+          revoked: false,
+          daysSince: verdict.daysSince,
+          messageAr:
+            `تعذّر الوصول إلى خدمة التراخيص (${attempt.error ?? "سبب غير معروف"}). ` +
+            checkinMessageAr(verdict.verdict, verdict.daysSince),
+        };
+      }
+      return {
+        reachedServer: true,
+        revoked: false,
+        daysSince: verdict.daysSince,
+        messageAr: "تم التحقق من الترخيص بنجاح.",
       };
     },
   );

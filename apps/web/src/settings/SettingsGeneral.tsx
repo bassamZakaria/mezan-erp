@@ -3,6 +3,7 @@ import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import type { TenantSettingsDTO, UpdateTenantSettingsDTO } from "@mezan/contracts";
 import { useSettings, useUpdateSettings, useSendTestEmail } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { MaintenancePanel } from "./MaintenancePanel";
 import {
   TextField,
   NumberField,
@@ -543,5 +544,11 @@ export function SettingsGeneral() {
 
   if (!query.data) return null;
 
-  return <SettingsForm initial={query.data} />;
+  return (
+    <>
+      <SettingsForm initial={query.data} />
+      {/* Renders nothing in a browser — see MaintenancePanel. */}
+      <MaintenancePanel />
+    </>
+  );
 }

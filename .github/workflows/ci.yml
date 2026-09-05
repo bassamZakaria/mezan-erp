@@ -126,11 +126,21 @@ jobs:
   desktop:
     name: desktop · native ABI · package
     runs-on: ubuntu-latest
-    env:
-      # Overrides the workflow-level skip: this is the ONE job that needs the
-      # real Electron binary, because loading better-sqlite3 under Electron is
-      # the entire point of it.
-      ELECTRON_SKIP_BINARY_DOWNLOAD: "0"
+    # NO `ELECTRON_SKIP_BINARY_DOWNLOAD: "0"` HERE, and that is the fix.
+    #
+    # This job used to override the workflow-level skip with the string "0",
+    # which does not override anything: electron/install.js guards on
+    # `if (process.env.ELECTRON_SKIP_BINARY_DOWNLOAD)` — a plain truthiness
+    # check — and the STRING "0" is truthy in JavaScript. So the download was
+    # skipped exactly as if the value were "1", install.js exited 0, and the
+    # step went green with no binary on disk. The failure surfaced two steps
+    # later as "Electron failed to install correctly, please delete
+    # node_modules/electron and try installing again", which sends you to look
+    # at the install rather than at the variable that suppressed it.
+    #
+    # This job had been red on `main` since 2026-08-30 for that reason alone.
+    # The variable is now removed from the one step that must not see it (see
+    # "Fetch the Electron binary" below) rather than reassigned here.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -152,8 +162,19 @@ jobs:
       # none of them launch it, and the download is ~100MB. Running the
       # package's documented install script here fetches the binary for this job
       # only, without editing the workspace policy every other job depends on.
+      # `env -u`, because the value has to be ABSENT, not falsy-looking. See the
+      # note on this job's missing `env:` block for what "0" actually did.
       - name: Fetch the Electron binary
-        run: pnpm --filter desktop exec node ./node_modules/electron/install.js
+        run: env -u ELECTRON_SKIP_BINARY_DOWNLOAD pnpm --filter desktop exec node ./node_modules/electron/install.js
+
+      # The step above is the only one that can silently no-op, so prove it did
+      # not: without this, a future change to that guard is invisible again
+      # until the ABI check fails with a message about node_modules.
+      - name: The Electron binary is actually on disk
+        run: |
+          test -s apps/desktop/node_modules/electron/path.txt \
+            || { echo "::error::electron/path.txt is missing — the binary download was skipped."; exit 1; }
+          echo "electron binary: $(cat apps/desktop/node_modules/electron/path.txt)"
 
       - name: Rebuild native modules against Electron's ABI
         run: |

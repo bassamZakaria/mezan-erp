@@ -330,6 +330,7 @@ app.whenReady().then(async () => {
       sqlite: backupConn,
       appVersion: app.getVersion(),
       encrypted,
+      dbPath,
     });
   }
 

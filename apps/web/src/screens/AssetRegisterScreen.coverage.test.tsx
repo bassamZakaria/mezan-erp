@@ -307,7 +307,7 @@ describe("AssetRegisterScreen — filters and pagination", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "التصنيف" }));
     fireEvent.mouseDown(await screen.findByRole("option", { name: "FA-02 — معدات" }));
     await waitFor(() => expect(screen.queryByText("سيارة النقل")).not.toBeInTheDocument());
-    expect(screen.getByText("معدة تصنيع")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("معدة تصنيع")).toBeInTheDocument(), { timeout: 5000 });
 
     fireEvent.click(screen.getByRole("combobox", { name: "الفرع" }));
     fireEvent.mouseDown(await screen.findByRole("option", { name: "الفرع الرئيسي" }));

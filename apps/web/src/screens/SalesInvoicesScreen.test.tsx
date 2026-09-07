@@ -529,6 +529,33 @@ describe("SalesInvoicesScreen — row-scoped confirm from the list", () => {
     fireEvent.click(within(rowB!).getByRole("button", { name: /^إجراءات/ }));
     expect(screen.getByRole("menuitem", { name: "تأكيد الفاتورة" })).toBeEnabled();
   });
+
+  /**
+   * guards N-9 — the row's confirm acts from the LIST payload, never from a
+   * detail read, so the version the list served has to ride back out as
+   * `expectedVersion` or the server's optimistic guard never fires.
+   */
+  it("sends the version the LIST row was served as expectedVersion", async () => {
+    const list = [{ ...draftA, version: 7 }, draftB];
+    let sent: unknown = null;
+    const base = stubTransport(baseHandlers(list));
+    const transport: Transport = async (path, init) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && path === "/sales-invoices/inv-draft-a/confirm") {
+        sent = JSON.parse(String(init?.body ?? "{}"));
+        return { status: 200, ok: true, json: async <T,>() => ({ ...draftA, status: "confirmed" }) as T, text: async () => "" };
+      }
+      return base(path, init);
+    };
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findAllByText("مسودة");
+
+    const [rowA] = screen.getAllByRole("row").slice(1);
+    fireEvent.click(within(rowA!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+
+    await waitFor(() => expect(sent).toEqual({ expectedVersion: 7 }));
+  });
 });
 
 function acceptedQuote(overrides: Partial<SalesQuoteRecord> = {}): SalesQuoteRecord {

@@ -104,9 +104,9 @@ describe("the document row version", () => {
   it("reads a whole page of versions at once, skipping ids it does not hold", async () => {
     const store = createSqliteSalesInvoiceStore();
     closers.push(store);
-    await store.save(invoice("inv-a"));
-    await store.save(invoice("inv-b"));
-    await store.update({ ...invoice("inv-b"), notes: "moved" });
+    await store.save({ ...invoice("inv-a"), docNo: "INV-000010" });
+    await store.save({ ...invoice("inv-b"), docNo: "INV-000011" });
+    await store.update({ ...invoice("inv-b"), docNo: "INV-000011", notes: "moved" });
 
     const versions = await store.versions.readMany(["inv-a", "inv-b", "missing"]);
     expect(versions.get("inv-a")).toBe(1);

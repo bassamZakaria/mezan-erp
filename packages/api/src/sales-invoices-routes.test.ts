@@ -605,6 +605,40 @@ describe("sales invoice routes — optimistic concurrency (N-9)", () => {
     expect(res.status).toBe(200);
   });
 
+  /**
+   * The list row's own kebab confirms the invoice — it does not open the
+   * detail first. A list that omits `version` therefore leaves the row with
+   * nothing to send back, and the guard above never fires at all.
+   */
+  it("serves the row version on the LIST, so a row-level confirm can send it", async () => {
+    const { app } = await draft();
+    const res = await app.fetch(req("/", { permissions: "sales.invoice.view" }));
+    const rows = (await res.json()) as { id: string; version: number }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.version).toBe(1);
+  });
+
+  it("refuses a confirm sent with a version the LIST row served before another till moved it", async () => {
+    const { app, repo, id } = await draft();
+    const rows = (await (await app.fetch(req("/", { permissions: "sales.invoice.view" }))).json()) as {
+      version: number;
+    }[];
+    const staleVersion = rows[0]!.version;
+
+    const current = (await repo.findById(id))!;
+    await repo.update({ ...current, notes: "غيّرها صندوق آخر" });
+
+    const res = await app.fetch(
+      req(`/${id}/confirm`, {
+        method: "POST",
+        permissions: "sales.invoice.confirm",
+        body: JSON.stringify({ expectedVersion: staleVersion }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect((await repo.findById(id))!.status).toBe("draft");
+  });
+
   it("refuses a stale cancel too, not only a stale confirm", async () => {
     const { app, repo, id } = await draft();
     const current = (await repo.findById(id))!;

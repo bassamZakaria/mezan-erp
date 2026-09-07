@@ -83,4 +83,21 @@ describe("guarded", () => {
     expect(() => wrapped(eventFrom("https://example.test/x"))).toThrow(/may only be invoked by the Mezan renderer/);
     expect(handler).not.toHaveBeenCalled();
   });
+
+  /**
+   * The wrapper is generic over the handler's OWN argument list and return
+   * type. When it was not, every argument collapsed to `never` and a handler
+   * with a real payload could not be registered without a cast.
+   */
+  it("keeps the handler's own signature, arguments and return type alike", async () => {
+    const wrapped = guarded(
+      "mezan:fetch",
+      async (_event: IpcMainInvokeEvent, url: string, retries: number): Promise<{ url: string; retries: number }> => ({
+        url,
+        retries,
+      }),
+    );
+    const result: { url: string; retries: number } = await wrapped(eventFrom("app://mezan/index.html"), "/health", 2);
+    expect(result).toEqual({ url: "/health", retries: 2 });
+  });
 });

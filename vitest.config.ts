@@ -14,6 +14,15 @@ export default defineConfig({
     environment: "node",
     include: ["packages/**/*.test.{ts,tsx}", "apps/**/*.test.{ts,tsx}"],
     setupFiles: ["packages/ui/src/test/setup.ts"],
+    /*
+     * Vitest's 5s default is the per-test budget, and testing-library's
+     * `waitFor` deadline has to fit INSIDE it — at 5s each a slow wait ate the
+     * whole test and the run failed a different handful of screen tests every
+     * time while every one of them passed on its own. A hanging test still
+     * fails here, just not on a stopwatch that a loaded machine can trip.
+     */
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     coverage: {
       provider: "v8",
       reporter: ["text-summary", "json-summary", "html", "lcov"],

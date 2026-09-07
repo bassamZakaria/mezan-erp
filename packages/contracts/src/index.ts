@@ -772,6 +772,8 @@ export {
   createFollowUpSchema,
   completeFollowUpSchema,
   collectionFollowUpSchema,
+  collectInstallmentSchema,
+  type CollectInstallmentDTO,
   type InstallmentFrequencyDTO,
   type InstallmentLineStatusDTO,
   type CreateInstallmentPlanDTO,

@@ -7,6 +7,11 @@ import {
   cancelFollowUp,
   generateInstallmentSchedule,
   processOverdueInstallments,
+  collectInstallment,
+  outstandingOf,
+  InstallmentPlanNotCollectableError,
+  InstallmentLineNotCollectableError,
+  InstallmentOverpaymentError,
   FollowUpNotFoundError,
   InvalidFollowUpTransitionError,
   InvalidInstallmentScheduleError,
@@ -23,6 +28,7 @@ import {
   processOverdueInstallmentsSchema,
   createFollowUpSchema,
   completeFollowUpSchema,
+  collectInstallmentSchema,
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
@@ -81,6 +87,24 @@ export interface InstallmentsRoutesDeps {
   /** Direct repo access for the overdue batch, which rewrites line statuses in place rather than transitioning the document's own status (see `overdue.ts`). */
   readonly plansRepo: DocumentRepository<InstallmentLine>;
   readonly followUps: CollectionFollowUpRepository;
+  /**
+   * Raises the real customer-collection voucher behind a collected instalment.
+   * Without it تحصيل قسط is refused rather than moving `paidAmount` with
+   * nothing posted behind it, which is the two-stores-of-one-fact shape D1
+   * already cost this codebase.
+   */
+  readonly collect?: (input: {
+    invoiceId: string;
+    customerId: string;
+    branchId: string;
+    amount: Money;
+    treasuryAccountId: string;
+    paymentMethod: "cash" | "bank" | "cheque" | "card" | "wallet";
+    date: string;
+    referenceNo?: string | null;
+    memo?: string | null;
+    actor?: string;
+  }) => Promise<{ voucherId: string }>;
 }
 
 /**
@@ -261,6 +285,82 @@ export function createInstallmentsRoutes(
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  /**
+   * تحصيل قسط. The voucher is raised BEFORE the plan is rewritten: if the
+   * treasury posting fails there must be no paid instalment recording money
+   * that never arrived, and the reverse order cannot be undone from here.
+   */
+  plans.post("/:id/collect", gate("installments.collect"), async (c) => {
+    const parsed = collectInstallmentSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    if (!deps.collect) {
+      return c.json(
+        { error: "INSTALLMENT_COLLECTION_UNAVAILABLE", message: "تحصيل الأقساط غير متاح — الخزينة غير موصولة." },
+        503,
+      );
+    }
+    const plan = (await deps.plans.findById(c.req.param("id"))) as InstallmentPlanDocument | null;
+    if (!plan) return c.json({ error: "NOT_FOUND" }, 404);
+
+    try {
+      const result = collectInstallment(plan, {
+        installmentNo: parsed.data.installmentNo,
+        amount: Money.fromMajor(parsed.data.amount),
+      });
+      const { voucherId } = await deps.collect({
+        invoiceId: result.sourceInvoiceId,
+        customerId: result.customerId,
+        branchId: parsed.data.branchId,
+        amount: Money.fromMajor(parsed.data.amount),
+        treasuryAccountId: parsed.data.treasuryAccountId,
+        paymentMethod: parsed.data.paymentMethod,
+        date: parsed.data.date,
+        referenceNo: parsed.data.referenceNo,
+        memo: parsed.data.memo ?? `تحصيل قسط — ${plan.docNo ?? plan.id}`,
+        actor: callerUserId(c),
+      });
+      await deps.plansRepo.update(result.plan);
+      return c.json({
+        plan: serializePlan(result.plan),
+        voucherId,
+        applied: result.applied.map((a) => ({ no: a.no, amount: a.amount.toString(), settled: a.settled })),
+        remaining: result.remaining.toString(),
+      });
+    } catch (err) {
+      if (
+        err instanceof InstallmentPlanNotCollectableError ||
+        err instanceof InstallmentLineNotCollectableError ||
+        err instanceof InstallmentOverpaymentError
+      ) {
+        return c.json({ error: err.code, message: err.message }, 422);
+      }
+      return handleDocumentError(c, err);
+    }
+  });
+
+  /** What each instalment still owes — what the collection dialog opens on. */
+  plans.get("/:id/outstanding", gate("installments.plan.view"), async (c) => {
+    const plan = (await deps.plans.findById(c.req.param("id"))) as InstallmentPlanDocument | null;
+    if (!plan) return c.json({ error: "NOT_FOUND" }, 404);
+    const lines = plan.lines.map((l) => ({
+      no: l.no,
+      dueDate: l.dueDate,
+      status: l.status,
+      amount: l.amount.toString(),
+      paidAmount: l.paidAmount.toString(),
+      lateFeeAmount: l.lateFeeAmount.toString(),
+      outstanding: outstandingOf(l).toString(),
+    }));
+    return c.json({
+      planId: plan.id,
+      status: plan.status,
+      lines,
+      remaining: Money.sum(plan.lines.map(outstandingOf)).toString(),
+    });
   });
 
   plans.post("/:id/cancel", gate("installments.plan.cancel"), async (c) => {

@@ -341,34 +341,39 @@ describe("installments plan router — confirm and cancel lifecycle", () => {
   });
 });
 
-describe("installments plan router — no route ever collects an instalment (D-gap)", () => {
-  it("LIMITATION: the permission catalog defines installments.collect and installments.collection.create, but this router mounts no route for either — an instalment's paidAmount can never move off zero through the HTTP surface", async () => {
+describe("installments plan router — the collect route the catalogue always promised (D119)", () => {
+  it("mounts a route for installments.collect, and it moves paidAmount off zero", async () => {
     const deps = await buildDeps();
-    const app = createInstallmentsRoutes(deps, insecureHeaderAuthContextResolver);
+    const app = createInstallmentsRoutes(
+      { ...deps, collect: async () => ({ voucherId: "VCH-1" }) },
+      insecureHeaderAuthContextResolver,
+    );
 
     const paths = app.routes.map((r) => `${r.method} ${r.path}`);
-    expect(paths.some((p) => /collect/i.test(p))).toBe(false);
+    expect(paths.some((p) => /collect/i.test(p))).toBe(true);
 
-    // Confirm this is not because collection is a no-op success path: a
-    // plausible collect URL on an existing, confirmed plan resolves to
-    // Hono's unmatched-route 404, not a handled response.
     const created = await app.fetch(req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify(planPayload) }));
     expect(created.status).toBe(201);
     await app.fetch(req("/plans/IP1/confirm", { method: "POST", permissions: CREATE, body: "{}" }));
 
-    const attempt = await app.fetch(
-      req("/plans/IP1/lines/1/collect", { method: "POST", permissions: "installments.collect", body: JSON.stringify({ amount: "3333.333334" }) }),
+    const collected = await app.fetch(
+      req("/plans/IP1/collect", {
+        method: "POST",
+        permissions: "installments.collect",
+        body: JSON.stringify({
+          installmentNo: 1,
+          amount: "1000.00",
+          treasuryAccountId: "TRS-CASH",
+          branchId: "BR1",
+          date: "2026-09-01",
+        }),
+      }),
     );
-    expect(attempt.status).toBe(404);
+    expect(collected.status).toBe(200);
 
-    // And so `paidAmount` — set to zero at schedule generation — is never
-    // written again by anything reachable from this router.
     const readBack = await app.fetch(req("/plans/IP1", { permissions: VIEW }));
     const body = (await readBack.json()) as PlanBody;
-    for (const line of body.lines) expect(line.paidAmount).toBe("0.000000");
-
-    // When this gap is closed, the assertions above should be rewritten
-    // around whatever collect route/permission wiring lands.
+    expect(Number(body.lines.find((l) => l.no === 1)?.paidAmount)).toBeCloseTo(1000, 2);
   });
 });
 
@@ -777,5 +782,150 @@ describe("follow-ups router — filters, chip counts and the KPI strip", () => {
     const completedOnly = await app.fetch(req("/follow-ups/stats?status=completed", { permissions: FU_VIEW }));
     const completedBody = (await completedOnly.json()) as { count: number; pending: number; completed: number; cancelled: number };
     expect(completedBody).toEqual({ count: 1, pending: 0, completed: 1, cancelled: 0 });
+  });
+});
+
+describe("installments plan router — تحصيل قسط (D119)", () => {
+  const COLLECT = "installments.collect";
+
+  async function collectingApp() {
+    const deps = await buildDeps();
+    const raised: Record<string, unknown>[] = [];
+    const app = createInstallmentsRoutes(
+      {
+        ...deps,
+        collect: async (input) => {
+          raised.push({ ...input, amount: input.amount.toString() });
+          return { voucherId: `VCH-${raised.length}` };
+        },
+      },
+      insecureHeaderAuthContextResolver,
+    );
+    return { app, raised };
+  }
+
+  async function confirmedPlan(app: Awaited<ReturnType<typeof collectingApp>>["app"]): Promise<string> {
+    const created = await app.fetch(
+      req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify(planPayload) }),
+    );
+    expect(created.status).toBe(201);
+    const confirmed = await app.fetch(req("/plans/IP1/confirm", { method: "POST", permissions: CREATE }));
+    expect(confirmed.status).toBe(200);
+    const body = (await confirmed.json()) as { document: PlanBody };
+    return body.document.lines[0]?.amount ?? "0";
+  }
+
+  const collection = {
+    installmentNo: 1,
+    amount: "0",
+    treasuryAccountId: "TRS-CASH",
+    branchId: "BR1",
+    paymentMethod: "cash" as const,
+    date: "2026-09-01",
+  };
+
+  function collect(body: Record<string, unknown>, permissions = COLLECT) {
+    return req("/plans/IP1/collect", { method: "POST", permissions, body: JSON.stringify(body) });
+  }
+
+  it("gates on installments.collect", async () => {
+    const { app } = await collectingApp();
+    const due = await confirmedPlan(app);
+    const res = await app.fetch(collect({ ...collection, amount: due }, VIEW));
+    expect(res.status).toBe(403);
+  });
+
+  it("raises a real customer-collection voucher and marks the installment paid", async () => {
+    const { app, raised } = await collectingApp();
+    const due = await confirmedPlan(app);
+    const res = await app.fetch(collect({ ...collection, amount: due }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { plan: PlanBody; voucherId: string; remaining: string };
+
+    expect(body.voucherId).toBe("VCH-1");
+    expect(raised).toHaveLength(1);
+    expect(raised[0]).toMatchObject({
+      invoiceId: "INV1",
+      customerId: "CUST1",
+      treasuryAccountId: "TRS-CASH",
+      branchId: "BR1",
+      paymentMethod: "cash",
+    });
+
+    const first = body.plan.lines.find((l) => l.no === 1);
+    expect(first?.status).toBe("paid");
+    expect(Number(first?.paidAmount)).toBeCloseTo(Number(due), 2);
+  });
+
+  it("persists the collection — a reload shows the installment still paid", async () => {
+    const { app } = await collectingApp();
+    const due = await confirmedPlan(app);
+    await app.fetch(collect({ ...collection, amount: due }));
+
+    const reloaded = (await (await app.fetch(req("/plans/IP1", { permissions: VIEW }))).json()) as PlanBody;
+    expect(reloaded.lines.find((l) => l.no === 1)?.status).toBe("paid");
+  });
+
+  it("refuses more than the plan owes, and writes neither a voucher nor a paid line", async () => {
+    const { app, raised } = await collectingApp();
+    await confirmedPlan(app);
+    const res = await app.fetch(collect({ ...collection, installmentNo: undefined, amount: "99999.00" }));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("INSTALLMENT_OVERPAYMENT");
+    expect(raised).toHaveLength(0);
+
+    const reloaded = (await (await app.fetch(req("/plans/IP1", { permissions: VIEW }))).json()) as PlanBody;
+    expect(reloaded.lines.every((l) => l.status === "pending")).toBe(true);
+  });
+
+  it("refuses a collection against a draft plan", async () => {
+    const { app } = await collectingApp();
+    await app.fetch(req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify(planPayload) }));
+    const res = await app.fetch(collect({ ...collection, amount: "100.00" }));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("INSTALLMENT_PLAN_NOT_COLLECTABLE");
+  });
+
+  it("refuses rather than moving paidAmount when no treasury port is wired", async () => {
+    const app = createInstallmentsRoutes(await buildDeps(), insecureHeaderAuthContextResolver);
+    await app.fetch(req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify(planPayload) }));
+    await app.fetch(req("/plans/IP1/confirm", { method: "POST", permissions: CREATE }));
+    const res = await app.fetch(collect({ ...collection, amount: "100.00" }));
+    expect(res.status).toBe(503);
+
+    const reloaded = (await (await app.fetch(req("/plans/IP1", { permissions: VIEW }))).json()) as PlanBody;
+    expect(reloaded.lines.every((l) => Number(l.paidAmount) === 0)).toBe(true);
+  });
+
+  it("leaves the plan untouched when the treasury posting throws", async () => {
+    const deps = await buildDeps();
+    const app = createInstallmentsRoutes(
+      {
+        ...deps,
+        collect: async () => {
+          throw new Error("treasury down");
+        },
+      },
+      insecureHeaderAuthContextResolver,
+    );
+    await app.fetch(req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify(planPayload) }));
+    await app.fetch(req("/plans/IP1/confirm", { method: "POST", permissions: CREATE }));
+    const failed = await app.fetch(collect({ ...collection, amount: "100.00" }));
+    expect(failed.status).toBe(500);
+
+    const reloaded = (await (await app.fetch(req("/plans/IP1", { permissions: VIEW }))).json()) as PlanBody;
+    expect(reloaded.lines.every((l) => Number(l.paidAmount) === 0)).toBe(true);
+  });
+
+  it("reports what each installment still owes", async () => {
+    const { app } = await collectingApp();
+    const due = await confirmedPlan(app);
+    await app.fetch(collect({ ...collection, amount: due }));
+
+    const res = await app.fetch(req("/plans/IP1/outstanding", { permissions: VIEW }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { remaining: string; lines: { no: number; outstanding: string }[] };
+    expect(Number(body.lines.find((l) => l.no === 1)?.outstanding)).toBe(0);
+    expect(Number(body.remaining)).toBeCloseTo(10000 - Number(due), 2);
   });
 });

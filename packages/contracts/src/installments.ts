@@ -63,6 +63,25 @@ export const processOverdueInstallmentsResultSchema = z.object({
   totalLateFeesApplied: positiveDecimalString,
 });
 
+/**
+ * تحصيل قسط. `installmentNo` omitted means "run this payment down the schedule
+ * oldest-first", which is what a customer handing over a round sum means. The
+ * treasury account is required and never defaulted: the money has to land in a
+ * real till, and guessing which one is how a collection ends up in the wrong
+ * drawer (D119).
+ */
+export const collectInstallmentSchema = z.object({
+  installmentNo: z.number().int().min(1).optional(),
+  amount: positiveDecimalString,
+  treasuryAccountId: z.string().min(1),
+  branchId: z.string().min(1),
+  paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).default("cash"),
+  date: z.string().min(1),
+  referenceNo: z.string().nullable().default(null),
+  memo: z.string().nullable().default(null),
+});
+export type CollectInstallmentDTO = z.infer<typeof collectInstallmentSchema>;
+
 // --- متابعة التحصيل (collection follow-ups) ---
 
 export const followUpTypeSchema = z.enum(["CALL", "VISIT", "SMS", "EMAIL", "NOTE"]);

@@ -59,7 +59,7 @@ async function addressKeysAreUnique(ctx: Ctx): Promise<void> {
       ["specifications", "/item-specifications", "code"],
       ["product templates", "/inventory/product-templates", "code"],
     ] as const) {
-      const rows = ctx.rows((await ctx.req("GET", path)).body);
+      const rows = await ctx.allRows(path);
       const keys = rows.map((r: any) => String(r[key] ?? ""));
       ctx.check(`${label}: every row carries a non-empty ${key}`, keys.every((k) => k !== ""), `${keys.filter((k) => k === "").length} blank`);
       const dupes = duplicates(keys);
@@ -75,7 +75,7 @@ async function addressKeysAreUnique(ctx: Ctx): Promise<void> {
  */
 async function everyListedRowHasAResolvableAddress(ctx: Ctx): Promise<void> {
   await ctx.scenario("items-forms / every row the list draws resolves from its own address", async () => {
-    const items = ctx.rows((await ctx.req("GET", "/items")).body);
+    const items = await ctx.allRows("/items");
     ctx.check("the catalogue is not empty, so the check means something", items.length > 0, `${items.length} items`);
     const unresolvable = items.filter((row: any) => items.filter((r: any) => r.code === row.code || r.id === row.code).length !== 1);
     ctx.check("each item's code finds exactly one row", unresolvable.length === 0, unresolvable.slice(0, 3).map((r: any) => r.code).join(", "));
@@ -94,10 +94,10 @@ async function everyListedRowHasAResolvableAddress(ctx: Ctx): Promise<void> {
  */
 async function unknownAddressResolvesToNothing(ctx: Ctx): Promise<void> {
   await ctx.scenario("items-forms / an address that names no record resolves to nothing", async () => {
-    const items = ctx.rows((await ctx.req("GET", "/items")).body);
+    const items = await ctx.allRows("/items");
     ctx.check("no item answers to a made-up code", !items.some((r: any) => r.code === "IT-DOES-NOT-EXIST" || r.id === "IT-DOES-NOT-EXIST"));
 
-    const specs = ctx.rows((await ctx.req("GET", "/item-specifications")).body);
+    const specs = await ctx.allRows("/item-specifications");
     ctx.check("no specification answers to a made-up code", !specs.some((r: any) => r.code === "NOPE-404"));
 
     const direct = await ctx.req("GET", "/items/IT-DOES-NOT-EXIST");
@@ -111,7 +111,7 @@ async function unknownAddressResolvesToNothing(ctx: Ctx): Promise<void> {
  * ITM-000001, and this is the assertion that fails.
  */
 async function nextCodeIsFree(ctx: Ctx): Promise<void> {
-  const items = ctx.rows((await ctx.req("GET", "/items")).body);
+  const items = await ctx.allRows("/items");
   const offered = nextItemCode(items.length);
   ctx.check("the offered code is not already taken", !items.some((r: any) => r.code === offered), offered);
 
@@ -180,7 +180,7 @@ async function itemFormRoundTrip(ctx: Ctx): Promise<void> {
   });
   ctx.check("edit returns 2xx", patched.ok, `status ${patched.status}`);
 
-  const after = ctx.rows((await ctx.req("GET", "/items")).body).find((r: any) => r.id === id);
+  const after = (await ctx.allRows("/items")).find((r: any) => r.id === id);
   ctx.check("the edited name is what came back", after?.nameEn === "Form page test item (edited)", String(after?.nameEn));
   ctx.check("the status the form set stuck", after?.status === "inactive", String(after?.status));
   ctx.check("and the CODE the address is keyed on did not move", after?.code === code, `${after?.code} vs ${code}`);
@@ -214,7 +214,7 @@ async function specificationFormRoundTrip(ctx: Ctx): Promise<void> {
   });
   ctx.check("edit returns 2xx", patched.ok, `status ${patched.status}`);
 
-  const after = ctx.rows((await ctx.req("GET", "/item-specifications")).body).find((r: any) => r.code === code);
+  const after = (await ctx.allRows("/item-specifications")).find((r: any) => r.code === code);
   ctx.check("the third allowed value was added", (after?.values ?? []).length === 3, JSON.stringify(after?.values));
   ctx.check("the toggle the form flipped stuck", after?.filterable === false, String(after?.filterable));
   ctx.check("the code the address is keyed on did not move", after?.code === code);
@@ -235,14 +235,14 @@ async function templateFormRoundTrip(ctx: Ctx): Promise<void> {
 
   // The form navigates to the new template's own address on success, so the
   // code it was created with has to come back on the created row.
-  const after = ctx.rows((await ctx.req("GET", "/inventory/product-templates")).body).find((r: any) => r.code === code);
+  const after = (await ctx.allRows("/inventory/product-templates")).find((r: any) => r.code === code);
   ctx.check("the new template is addressable by the code just sent", after !== undefined, code);
   ctx.check("and it starts with no attributes, as the empty form implies", (after?.attributes ?? []).length === 0);
 }
 
 /** BOMF-002 — «قائمة مواد جديدة» sends lines as strings, not numbers. */
 async function bomFormRoundTrip(ctx: Ctx): Promise<void> {
-  const items = ctx.rows((await ctx.req("GET", "/items")).body);
+  const items = await ctx.allRows("/items");
   const product = items.find((r: any) => r.type === "stock");
   const component = items.find((r: any) => r.type === "stock" && r.id !== product?.id);
   if (!product || !component) {
@@ -262,14 +262,14 @@ async function bomFormRoundTrip(ctx: Ctx): Promise<void> {
   });
   ctx.check("create returns 2xx", created.ok, `status ${created.status} ${JSON.stringify(created.body).slice(0, 160)}`);
 
-  const after = ctx.rows((await ctx.req("GET", "/manufacturing/boms")).body).find((r: any) => r.id === id);
+  const after = (await ctx.allRows("/manufacturing/boms")).find((r: any) => r.id === id);
   ctx.check("the BOM came back with its one line", (after?.lines ?? []).length === 1, JSON.stringify(after?.lines ?? []).slice(0, 120));
   ctx.check("bound to the component the picker chose, by real id", after?.lines?.[0]?.itemId === component.id);
 }
 
 /** CFGF-002 — the configurable-product form's inputs/materials/formulas payload. */
 async function configurableFormRoundTrip(ctx: Ctx): Promise<void> {
-  const items = ctx.rows((await ctx.req("GET", "/items")).body);
+  const items = await ctx.allRows("/items");
   const output = items.find((r: any) => r.type === "stock");
   const material = items.find((r: any) => r.type === "stock" && r.id !== output?.id);
   if (!output || !material) {
@@ -296,7 +296,7 @@ async function configurableFormRoundTrip(ctx: Ctx): Promise<void> {
   });
   ctx.check("create returns 2xx", created.ok, `status ${created.status} ${JSON.stringify(created.body).slice(0, 160)}`);
 
-  const after = ctx.rows((await ctx.req("GET", "/manufacturing/configurable-products")).body).find((r: any) => r.id === id);
+  const after = (await ctx.allRows("/manufacturing/configurable-products")).find((r: any) => r.id === id);
   ctx.check("the input the form defined came back", (after?.inputs ?? []).length === 1, JSON.stringify(after?.inputs ?? []).slice(0, 120));
   // A zod wire schema strips unknown keys, so a formula the client sends and
   // the contract omits vanishes behind a cheerful 201 — assert it survived.

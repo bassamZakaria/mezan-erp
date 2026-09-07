@@ -30,8 +30,7 @@ export async function run(ctx: Ctx): Promise<void> {
   }
 
   async function confirmedInvoiceTotals() {
-    const res = await req("GET", "/purchases/invoices");
-    return rows(res.body)
+    return (await ctx.allRows("/purchases/invoices"))
       .filter((x: any) => x.status === "confirmed")
       .reduce((s: number, x: any) => s + n(x.total), 0);
   }
@@ -692,8 +691,7 @@ export async function run(ctx: Ctx): Promise<void> {
         afterReceipt.inventory,
         start.inventory,
       );
-      const grniAfterReceipt = await ctx.req("GET", "/gl/journal-entries?sourceModule=purchases");
-      const receiptEntry = ctx.rows(grniAfterReceipt.body).find((e: any) => e.sourceDocId === "GRN-DEMO-3");
+      const receiptEntry = (await ctx.allRows("/gl/journal-entries?sourceModule=purchases")).find((e: any) => e.sourceDocId === "GRN-DEMO-3");
       checkEq("crediting بضاعة واردة لم تُفوتر by the goods' value", n(receiptEntry?.lines?.find((l: any) => l.accountId === "2120")?.credit), 7750);
 
       const invoice = await req("POST", "/purchases/invoices", {
@@ -711,7 +709,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
       const afterInvoice = await ctx.invariants();
       checkEq("the books stay reconciled through the invoice too", afterInvoice.inventory, start.inventory);
-      const invoiceEntry = ctx.rows((await ctx.req("GET", "/gl/journal-entries?sourceModule=purchases")).body).find((e: any) => e.sourceDocId === "SCN-PI-GRN3");
+      const invoiceEntry = (await ctx.allRows("/gl/journal-entries?sourceModule=purchases")).find((e: any) => e.sourceDocId === "SCN-PI-GRN3");
       checkEq("and the invoice DEBITS 2120, clearing what the receipt credited", n(invoiceEntry?.lines?.find((l: any) => l.accountId === "2120")?.debit), 7750);
       check(
         "without debiting inventory a second time — the receipt already owns that debit",

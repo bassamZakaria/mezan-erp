@@ -24,6 +24,12 @@ export interface AdminAuditEntry {
   readonly action: string;
   readonly severity?: AuditSeverity;
   readonly details?: Readonly<Record<string, unknown>> | null;
+  /**
+   * The branch the act belongs to, for callers that know it. Omitted means
+   * "no branch", which is what the audit viewer's unfiltered view shows and
+   * what every branch filter deliberately excludes.
+   */
+  readonly branchId?: string | null;
 }
 
 export async function recordAdminEvent(
@@ -41,6 +47,7 @@ export async function recordAdminEvent(
     // to be the identity the server issued, or the log is writable by whoever
     // it is meant to incriminate.
     actor: getAuthContext(c)?.userId ?? "system",
+    branchId: entry.branchId ?? null,
     severity: entry.severity ?? "WARNING",
     details: withOrigin(c, entry.details),
   });

@@ -1165,7 +1165,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.notificationRuleRepo) {
     app.route(
       "/notification-rules",
-      createNotificationRulesRoutes(options.notificationRuleRepo, resolveAuth, options.emittedEventCodes),
+      createNotificationRulesRoutes(options.notificationRuleRepo, resolveAuth, options.emittedEventCodes, options.auditSink),
     );
   }
   if (options.notificationRepo) {

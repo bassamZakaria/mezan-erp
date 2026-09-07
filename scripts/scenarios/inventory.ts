@@ -431,8 +431,7 @@ async function purchaseReturnCreditsInventoryAtWhatLeftStock_D47(ctx: Ctx): Prom
     // NOT asserted as zero: D3 (a completed work order never touches GL 1200)
     // runs earlier in this file and leaves a known 80.00 gap. This scenario is
     // about the purchase-return posting itself, not that open defect.
-    const entries = await ctx.req("GET", "/gl/journal-entries");
-    const list = (entries.body ?? []) as Array<{
+    const list = (await ctx.allRows("/gl/journal-entries")) as Array<{
       memo?: string;
       lines: Array<{ accountId: string; debit: string; credit: string }>;
     }>;
@@ -755,7 +754,7 @@ async function itemDefaultSupplierIsBound_R54(ctx: Ctx): Promise<void> {
  */
 async function attentionBannerCountsMatchTheirFilter_R19(ctx: Ctx): Promise<void> {
   await ctx.scenario("an attention banner's count equals the rows its filter returns (R1.9)", async () => {
-    const items = ((await ctx.req("GET", "/items")).body ?? []) as Array<{ stockState: string | null }>;
+    const items = (await ctx.allRows("/items")) as Array<{ stockState: string | null }>;
     const out = items.filter((i) => i.stockState === "out").length;
     const low = items.filter((i) => i.stockState === "low").length;
     ctx.check("the seed has both exceptions to advertise", out > 0 && low > 0, `out=${out} low=${low}`);
@@ -767,17 +766,17 @@ async function attentionBannerCountsMatchTheirFilter_R19(ctx: Ctx): Promise<void
     ctx.checkEq("no item is counted by two banners at once", both, 0);
 
     const sales = ((await ctx.req("GET", "/sales-invoices/counts")).body ?? {}) as Record<string, number>;
-    const overdueRows = ((await ctx.req("GET", "/sales-invoices?status=overdue")).body ?? []) as unknown[];
+    const overdueRows = await ctx.allRows("/sales-invoices?status=overdue");
     ctx.checkEq("the overdue banner's count equals the rows its filter returns", sales.overdue ?? 0, overdueRows.length);
 
     const purchases = ((await ctx.req("GET", "/purchases/invoices/counts")).body ?? {}) as Record<string, number>;
     for (const key of ["overdue", "due_soon"]) {
-      const rows = ((await ctx.req("GET", `/purchases/invoices?status=${key}`)).body ?? []) as unknown[];
+      const rows = await ctx.allRows(`/purchases/invoices?status=${key}`);
       ctx.checkEq(`the purchase "${key}" banner matches its filter`, purchases[key] ?? 0, rows.length);
     }
 
     const vouchers = ((await ctx.req("GET", "/vouchers/counts")).body ?? {}) as Record<string, number>;
-    const unallocated = ((await ctx.req("GET", "/vouchers?needsAllocation=any")).body ?? []) as unknown[];
+    const unallocated = await ctx.allRows("/vouchers?needsAllocation=any");
     ctx.checkEq("the needs-allocation banner matches its queue", vouchers.needs_allocation ?? 0, unallocated.length);
   });
 }

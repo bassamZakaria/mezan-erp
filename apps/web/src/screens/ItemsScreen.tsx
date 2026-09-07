@@ -84,6 +84,8 @@ const NO_CATEGORY_KEY = "common.uncategorized" as const;
 const DEFAULT_GL_ID = "__default__";
 const DEFAULT_GL_KEY = "items.defaultForTheItemType" as const;
 const PAGE_SIZES = [5, 10, 25, 50, 100] as const;
+/** Stable identity so the catalogue-size query is not re-keyed on every render. */
+const WHOLE_CATALOGUE: ItemListFilter = {};
 
 /** Draft shape for the add/edit panel. Money fields are plain numbers here (MoneyInput's contract) — converted to/from the ItemDTO's decimal-string wire shape on submit/load. */
 /**
@@ -292,8 +294,8 @@ function draftToItem(draft: ItemDraft, id: string): ItemDTO {
   };
 }
 
-function nextItemCode(items: ItemDTO[]): string {
-  return `ITM-${String(items.length + 1).padStart(6, "0")}`;
+function nextItemCode(catalogueSize: number): string {
+  return `ITM-${String(catalogueSize + 1).padStart(6, "0")}`;
 }
 
 /** الأصناف (Items) — docs/archive/catalog/03-inventory.md. List (KPI strip + filters + table + pager), item detail (tabs), add/edit form. */
@@ -766,6 +768,13 @@ export function ItemsScreen() {
   const query = useItems({ ...filter, page, pageSize, sort: serverSortKey(sort.key), sortDir: sort.direction });
   const items = query.data ?? EMPTY;
   const counts = useItemCounts(filter).data ?? {};
+  // The offered code counts the CATALOGUE, never the page in front of the
+  // reader: `items` has been one server page since Q-9, so this offered
+  // ITM-000026 on every full page and the create was refused the moment that
+  // code was taken. `filter` cannot be used either — it would count what the
+  // reader has searched for.
+  const catalogueQuery = useItemCounts(WHOLE_CATALOGUE);
+  const catalogueSize = catalogueQuery.data?.all ?? 0;
   const stats = useItemStats(filter).data ?? {};
 
   const totalCount = counts.all ?? 0;
@@ -821,11 +830,11 @@ export function ItemsScreen() {
     }
     if (seededFor.current === formSegment) return;
     if (formSegment === "new") {
-      // NOT before the catalogue has loaded: `nextItemCode([])` is ITM-000001,
+      // NOT before the catalogue has loaded: `nextItemCode(0)` is ITM-000001,
       // which is already taken, and the guard below would then keep that wrong
       // code for the life of the form.
-      if (query.isLoading) return;
-      setDraft({ ...BLANK_DRAFT, code: nextItemCode(items) });
+      if (query.isLoading || catalogueQuery.isLoading) return;
+      setDraft({ ...BLANK_DRAFT, code: nextItemCode(catalogueSize) });
     } else if (editingItem) {
       setDraft(draftFromItem(editingItem));
     } else {
@@ -833,7 +842,7 @@ export function ItemsScreen() {
     }
     seededFor.current = formSegment;
     setFormError(null);
-  }, [formSegment, editingItem, items, query.isLoading]);
+  }, [formSegment, editingItem, items, query.isLoading, catalogueQuery.isLoading, catalogueSize]);
 
   function openCreateForm() {
     subPage.open("new");

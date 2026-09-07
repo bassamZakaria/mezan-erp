@@ -368,15 +368,16 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------
   await ctx.scenario("platform / D5 — a confirmed sales invoice reaches the ETA queue", async () => {
     const submissions = await req("GET", "/eta/submissions", undefined, {});
-    const queued = rows(submissions.body);
+    const queued = await ctx.allRows("/eta/submissions");
     check("D5 — /eta/submissions has rows: a confirmed invoice now produces one", submissions.status === 200 && queued.length > 0, `${submissions.status}: ${queued.length} rows`);
 
-    const confirmed = rows((await req("GET", "/sales-invoices", undefined, {})).body).filter(
+    const confirmed = (await ctx.allRows("/sales-invoices")).filter(
       (i: any) => i.status !== "draft" && i.status !== "pending" && i.status !== "cancelled",
     );
     check("D5 — every live sales invoice is queued exactly once", queued.length === confirmed.length, `queued=${queued.length} live invoices=${confirmed.length}`);
-    check("D5 — a queued submission starts جاهز", queued.every((s: any) => s.status === "ready"), JSON.stringify(queued.map((s: any) => s.status)));
-    check("D5 — the queue keys each row by the invoice's own document number", queued.every((s: any) => confirmed.some((i: any) => (i.docNo ?? i.id) === s.internalId)), JSON.stringify(queued.map((s: any) => s.internalId)));
+    check("D5 — a queued submission starts جاهز", queued.every((s: any) => s.status === "ready"), JSON.stringify([...new Set(queued.map((s: any) => s.status))]));
+    const orphaned = queued.filter((s: any) => !confirmed.some((i: any) => (i.docNo ?? i.id) === s.internalId));
+    check("D5 — the queue keys each row by the invoice's own document number", orphaned.length === 0, JSON.stringify(orphaned.slice(0, 5).map((s: any) => s.internalId)));
   });
 
   // ---------------------------------------------------------------------
@@ -505,6 +506,14 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const anyBranchFilter = await req("GET", `/audit?${q}&branchId=BR-MAIN`, undefined, {});
     check("a branchless historical row never appears under ANY specific-branch filter", !anyBranchFilter.body.events.some((e: any) => e.branchId === null), JSON.stringify(anyBranchFilter.body.events.map((e: any) => e.branchId)));
+
+    // The audit rows stay — the trail is append-only — but the three RULES are
+    // scenario scaffolding, and every later assertion that counts the tenant's
+    // notification rules would count them too.
+    for (const id of ["SCN-AUD-A", "SCN-AUD-B", "SCN-AUD-C"]) {
+      const removed = await req("DELETE", `/notification-rules/${id}`, undefined, {});
+      check(`the scenario's rule ${id} is removed again`, removed.status === 204, `status ${removed.status}`);
+    }
   });
 
   // ---------------------------------------------------------------------

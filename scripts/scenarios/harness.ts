@@ -178,5 +178,37 @@ export async function boot() {
     return 0;
   }
 
-  return { app, sessions, req, rows, n, check, checkEq, scenario, invariants, report, passes, failures };
+  /**
+   * READS A WHOLE LIST, not the first page of one.
+   *
+   * Every list query carries `pageSize` with a compiled-in default of 25
+   * (packages/contracts/src/paging.ts, Q-8) — omitting it used to mean "every
+   * row ever", which is what `GET /gl/journal-entries` answered with. So a bare
+   * GET is one page now, and a scenario that compares a whole-set count against
+   * "the rows the list returned" has to walk the pages or it is asking a
+   * different question than the one it reads.
+   *
+   * A route with no paging simply answers the same body each time and the walk
+   * stops after the first page.
+   */
+  async function allRows(path: string, over?: Record<string, string>): Promise<any[]> {
+    const sep = path.includes("?") ? "&" : "?";
+    const out: any[] = [];
+    let previous = "";
+    for (let page = 1; page <= 200; page += 1) {
+      const res = await req("GET", `${path}${sep}page=${page}&pageSize=200`, undefined, over);
+      if (!res.ok) return out;
+      const batch = rows(res.body);
+      // An unpaged route ignores the query and repeats itself; taking that as a
+      // second page would count every row twice.
+      const fingerprint = JSON.stringify(batch.map((r: any) => r?.id ?? r));
+      if (page > 1 && fingerprint === previous) break;
+      previous = fingerprint;
+      out.push(...batch);
+      if (batch.length < 200) break;
+    }
+    return out;
+  }
+
+  return { app, sessions, req, rows, allRows, n, check, checkEq, scenario, invariants, report, passes, failures };
 }

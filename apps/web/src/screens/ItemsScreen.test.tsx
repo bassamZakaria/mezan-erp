@@ -368,6 +368,20 @@ describe("ItemsScreen", () => {
     expect(screen.getByRole("heading", { name: "الأصناف" })).toBeInTheDocument();
   });
 
+  // guards Q-9: `items` is one server page, so the offered code used to be
+  // ITM-000026 on every full page — a code the catalogue already held.
+  it("offers a code counted from the whole catalogue, not from the page on screen", async () => {
+    const user = userEvent.setup();
+    const catalogue = Array.from({ length: 30 }, (_, i) =>
+      item({ id: `itm-${i + 1}`, code: `ITM-${String(i + 1).padStart(6, "0")}`, nameAr: `صنف رقم ${i + 1}` }),
+    );
+    renderScreen(catalogue);
+    await screen.findByText("صنف رقم 1");
+    await user.click(screen.getByRole("button", { name: "إضافة صنف" }));
+
+    expect(screen.getByLabelText("كود الصنف")).toHaveValue("ITM-000031");
+  });
+
   it("hides the inventory-policy section once the item type is switched to service", async () => {
     const user = userEvent.setup();
     renderScreen();

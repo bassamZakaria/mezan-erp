@@ -1,3 +1,4 @@
+import { DEFAULT_PAGE_SIZE } from "../../packages/contracts/src/paging.js";
 import type { Ctx } from "./harness.js";
 
 /**
@@ -813,15 +814,25 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   await scenario("a list is a PAGE, and the totals beside it still count the whole set", async () => {
-    const all = await req("GET", "/sales-invoices");
-    check("the unpaged list still answers with every row", all.ok && Array.isArray(all.body) && all.body.length > 1, `status ${all.status} rows ${all.body?.length}`);
+    // A BARE GET IS ONE PAGE NOW (Q-8). It used to mean "every row ever", and
+    // that is what made five screens fetch the whole table; the default is
+    // what makes the unbounded read unreachable by omission. So the whole set
+    // is what walking the pages returns, not what one request answers with.
+    const all = await ctx.allRows("/sales-invoices");
+    check("walking the pages reaches every row", all.length > 1, `${all.length} rows`);
+    const bare = await req("GET", "/sales-invoices");
+    check(
+      "and a request that names no page gets the first one, not the table",
+      bare.ok && Array.isArray(bare.body) && bare.body.length === Math.min(DEFAULT_PAGE_SIZE, all.length),
+      `status ${bare.status} rows ${bare.body?.length} of ${all.length}`,
+    );
 
-    const total = all.body.length;
+    const total = all.length;
     const firstPage = await req("GET", "/sales-invoices?page=1&pageSize=1");
     const secondPage = await req("GET", "/sales-invoices?page=2&pageSize=1");
     check("pageSize is honoured by the SERVER, not by the browser slicing what it was sent", firstPage.ok && firstPage.body.length === 1, `status ${firstPage.status} rows ${firstPage.body?.length}`);
     check("page 2 is a different row from page 1", secondPage.ok && secondPage.body.length === 1 && secondPage.body[0].id !== firstPage.body[0].id, `${firstPage.body?.[0]?.id} vs ${secondPage.body?.[0]?.id}`);
-    check("the page keeps the list's own order", firstPage.body[0].id === all.body[0].id && secondPage.body[0].id === all.body[1].id, `${firstPage.body?.[0]?.id}/${secondPage.body?.[0]?.id}`);
+    check("the page keeps the list's own order", firstPage.body[0].id === all[0].id && secondPage.body[0].id === all[1].id, `${firstPage.body?.[0]?.id}/${secondPage.body?.[0]?.id}`);
 
     const pastTheEnd = await req("GET", `/sales-invoices?page=${total + 5}&pageSize=25`);
     check("a page past the end is empty, not an error", pastTheEnd.ok && pastTheEnd.body.length === 0, `status ${pastTheEnd.status} rows ${pastTheEnd.body?.length}`);
@@ -836,7 +847,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // Deep-linking is why the route had to learn document numbers: the screen
     // can no longer find a document among the rows it happens to hold.
-    const withDocNo = all.body.find((inv: any) => inv.docNo);
+    const withDocNo = all.find((inv: any) => inv.docNo);
     check("a confirmed invoice is reachable by its document NUMBER, not only by its id", withDocNo !== undefined, "no numbered invoice in the seed");
     if (withDocNo) {
       const byDocNo = await req("GET", `/sales-invoices/${withDocNo.docNo}`);

@@ -10,11 +10,14 @@ import {
   IMPLEMENTED_NOTIFICATION_CHANNELS,
   buildNotificationTriggerCatalog,
   type EventCode,
+  auditBranchFromScope,
+  type AuditSink,
   type NotificationRule,
   type NotificationRuleRepository,
 } from "@mezan/domain";
 import { createNotificationRuleSchema, updateNotificationRuleSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 
 function serialize(rule: NotificationRule) {
   return {
@@ -61,10 +64,37 @@ export function createNotificationRulesRoutes(
   repo: NotificationRuleRepository,
   resolveAuthContext: AuthContextResolver,
   emittedEventCodes: readonly EventCode[] = [],
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const triggers = buildNotificationTriggerCatalog(emittedEventCodes);
+
+  /**
+   * Who is told about a voided invoice is an internal control, so changing it
+   * — and above all silencing it — belongs on the forensic trail. The webhook
+   * registry it replaced recorded every write; these routes recorded nothing.
+   */
+  function record(c: Context, rule: NotificationRule, action: string, severity: "INFO" | "WARNING" | "CRITICAL") {
+    const ctx = getAuthContext(c);
+    return recordAdminEvent(audit, c, {
+      module: "notification-rules",
+      entityType: "NOTIFICATION_RULE",
+      entityId: rule.id,
+      action,
+      severity,
+      branchId: ctx ? auditBranchFromScope(ctx.branchScope) : null,
+      details: {
+        id: rule.id,
+        name: rule.name,
+        eventCode: rule.eventCode,
+        recipientType: rule.recipientType,
+        recipientValue: rule.recipientValue,
+        channels: rule.channels,
+        active: rule.active,
+      },
+    });
+  }
 
   app.get("/events", gate("notifications.rule.view"), (c) => {
     return c.json(DOMAIN_EVENT_CATALOG);
@@ -113,6 +143,7 @@ export function createNotificationRulesRoutes(
         },
         repo,
       );
+      await record(c, rule, "CREATE", "WARNING");
       return c.json(serialize(rule), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -141,6 +172,7 @@ export function createNotificationRulesRoutes(
         },
         repo,
       );
+      await record(c, rule, "UPDATE", "WARNING");
       return c.json(serialize(rule));
     } catch (err) {
       return handleDomainError(c, err);
@@ -150,6 +182,7 @@ export function createNotificationRulesRoutes(
   app.post("/:id/activate", gate("notifications.rule.manage"), async (c) => {
     try {
       const rule = await setNotificationRuleActive(c.req.param("id"), true, repo);
+      await record(c, rule, "ACTIVATE", "INFO");
       return c.json(serialize(rule));
     } catch (err) {
       return handleDomainError(c, err);
@@ -159,6 +192,7 @@ export function createNotificationRulesRoutes(
   app.post("/:id/deactivate", gate("notifications.rule.manage"), async (c) => {
     try {
       const rule = await setNotificationRuleActive(c.req.param("id"), false, repo);
+      await record(c, rule, "DEACTIVATE", "CRITICAL");
       return c.json(serialize(rule));
     } catch (err) {
       return handleDomainError(c, err);
@@ -167,7 +201,9 @@ export function createNotificationRulesRoutes(
 
   app.delete("/:id", gate("notifications.rule.manage"), async (c) => {
     try {
+      const existing = await repo.findById(c.req.param("id"));
       await deleteNotificationRule(c.req.param("id"), repo);
+      if (existing) await record(c, existing, "DELETE", "CRITICAL");
       return c.body(null, 204);
     } catch (err) {
       return handleDomainError(c, err);

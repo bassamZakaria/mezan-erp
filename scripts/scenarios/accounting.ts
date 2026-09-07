@@ -628,11 +628,11 @@ export async function voucherTypesRouteToTheirOwnAccounts_R81(ctx: Ctx): Promise
 export async function voucherQueuesAreAServerConcern_R82_R83(ctx: Ctx): Promise<void> {
   await ctx.scenario("voucher chip counts and needs-allocation queues agree with the rows (R8.2, R8.3)", async () => {
     const counts = ((await ctx.req("GET", "/vouchers/counts")).body ?? {}) as Record<string, number>;
-    const all = ((await ctx.req("GET", "/vouchers")).body ?? []) as Array<{ status: string; voucherType: string }>;
+    const all = (await ctx.allRows("/vouchers")) as Array<{ status: string; voucherType: string }>;
     ctx.checkEq("counts.all matches the unfiltered row count", counts.all, all.length);
 
     for (const status of ["draft", "confirmed", "cancelled"]) {
-      const rows = ((await ctx.req("GET", `/vouchers?status=${status}`)).body ?? []) as unknown[];
+      const rows = await ctx.allRows(`/vouchers?status=${status}`);
       ctx.checkEq(`chip "${status}" counts exactly the rows it shows`, counts[status] ?? 0, rows.length);
     }
 
@@ -644,20 +644,20 @@ export async function voucherQueuesAreAServerConcern_R82_R83(ctx: Ctx): Promise<
     ctx.check("and some of them are legitimately zero", typeKeys.some((k) => counts[k] === 0), JSON.stringify(counts));
     for (const key of typeKeys) {
       const type = key.slice("type:".length);
-      const rows = ((await ctx.req("GET", `/vouchers?type=${type}`)).body ?? []) as unknown[];
+      const rows = await ctx.allRows(`/vouchers?type=${type}`);
       ctx.checkEq(`type chip "${type}" counts exactly the rows it shows`, counts[key] ?? 0, rows.length);
     }
 
     // The queues, split by intent.
-    const receipts = ((await ctx.req("GET", "/vouchers?needsAllocation=receipt")).body ?? []) as Array<{
+    const receipts = (await ctx.allRows("/vouchers?needsAllocation=receipt")) as Array<{
       voucherType: string;
       status: string;
       allocationSummary: { needsAllocation: boolean };
     }>;
-    const payments = ((await ctx.req("GET", "/vouchers?needsAllocation=payment")).body ?? []) as Array<{
+    const payments = (await ctx.allRows("/vouchers?needsAllocation=payment")) as Array<{
       voucherType: string;
     }>;
-    const any = ((await ctx.req("GET", "/vouchers?needsAllocation=any")).body ?? []) as unknown[];
+    const any = await ctx.allRows("/vouchers?needsAllocation=any");
 
     ctx.check("the receipt queue is not empty — an empty queue proves nothing", receipts.length > 0, `${receipts.length}`);
     ctx.check("the payment queue is not empty", payments.length > 0, `${payments.length}`);
@@ -753,7 +753,7 @@ async function draftAndConfirmAdjustment(ctx: Ctx, id: string, reason: string) {
  */
 export async function everyJournalEntryNamesItsModule_R63(ctx: Ctx): Promise<void> {
   await ctx.scenario("every journal entry names the module that produced it (R6.3)", async () => {
-    const entries = ((await ctx.req("GET", "/gl/journal-entries")).body ?? []) as Array<{
+    const entries = (await ctx.allRows("/gl/journal-entries")) as Array<{
       entryNo: string | null;
       memo: string;
       source: string;
@@ -775,14 +775,16 @@ export async function everyJournalEntryNamesItsModule_R63(ctx: Ctx): Promise<voi
     const misfiled = entries.filter((e) => e.source === "system" && e.sourceModule === "manual");
     ctx.check("no system entry is filed as a manual one", misfiled.length === 0, JSON.stringify(misfiled.map((e) => e.entryNo)));
 
-    for (const entry of entries) {
-      if (entry.sourceModule === "manual") continue;
-      ctx.check(`${entry.entryNo} carries the document it came from`, entry.sourceDocType !== null, JSON.stringify(entry));
-    }
+    const anonymous = entries.filter((e) => e.sourceModule !== "manual" && e.sourceDocType === null);
+    ctx.check(
+      "every non-manual entry carries the document it came from",
+      anonymous.length === 0,
+      JSON.stringify(anonymous.slice(0, 5).map((e) => [e.entryNo, e.sourceModule, e.memo.slice(0, 30)])),
+    );
 
     // And the filter returns exactly the entries of that module.
     for (const module of ["sales", "purchases", "inventory", "treasury", "payroll"]) {
-      const filtered = ((await ctx.req("GET", `/gl/journal-entries?sourceModule=${module}`)).body ?? []) as Array<{ sourceModule: string }>;
+      const filtered = (await ctx.allRows(`/gl/journal-entries?sourceModule=${module}`)) as Array<{ sourceModule: string }>;
       const expected = entries.filter((e) => e.sourceModule === module).length;
       ctx.checkEq(`the ${module} filter returns exactly that module's entries`, filtered.length, expected);
       ctx.check(`and nothing else leaks into it`, filtered.every((e) => e.sourceModule === module), module);

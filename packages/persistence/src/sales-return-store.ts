@@ -22,6 +22,8 @@ interface WireLine {
   unitPrice: string;
   unitCost: string;
   taxAmount: string;
+  /** The rate the source invoice line charged. Dropped here, the per-rate VAT split the posting computes cannot survive a reload (D76). */
+  taxRatePercent?: number | null;
 }
 
 function serializeLine(line: SalesReturnLine): WireLine {
@@ -37,6 +39,7 @@ function serializeLine(line: SalesReturnLine): WireLine {
     unitPrice: line.unitPrice.toString(),
     unitCost: line.unitCost.toString(),
     taxAmount: line.taxAmount.toString(),
+    taxRatePercent: line.taxRatePercent ?? null,
   };
 }
 
@@ -54,6 +57,7 @@ function deserializeLine(wire: unknown): SalesReturnLine {
     unitPrice: Money.fromMajor(w.unitPrice),
     unitCost: Money.fromMajor(w.unitCost),
     taxAmount: Money.fromMajor(w.taxAmount),
+    taxRatePercent: w.taxRatePercent ?? null,
   };
 }
 

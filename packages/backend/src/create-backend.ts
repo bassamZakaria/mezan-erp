@@ -40,6 +40,7 @@ import {
   PhysicalCountService,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
+  purchaseInvoiceLineTax,
   salesInvoiceBaseGrandTotal,
   type OpenPartyDocument,
   purchaseInvoiceTotal,
@@ -1798,6 +1799,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
             }
           }
+          // The tax the line was ACTUALLY charged — after line, promotion and
+          // header discounts, and zero when the customer is tax-exempt. Handing
+          // the return a zero here credited no VAT at all and left it no rate
+          // to group the posting by (D76).
+          const chargedTax = new Map<string, { tax: Money; rate: number }>();
+          const invoiceTotals = salesInvoiceTotals(invoice);
+          for (const [i, line] of invoice.lines.entries()) {
+            chargedTax.set(line.lineId, {
+              tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
+              rate: line.taxRatePercent,
+            });
+          }
           return {
             id: invoice.id,
             number: invoice.docNo ?? invoice.id,
@@ -1816,7 +1829,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               alreadyReturnedQty: returnedByItem.get(l.itemId) ?? Qty.zero(),
               unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
               unitCost: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
-              taxAmount: Money.zero(),
+              taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
+              taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
             })),
           };
         },
@@ -1917,7 +1931,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                 qty: l.qty,
                 alreadyReturnedQty: returnedByItem.get(l.itemId as string) ?? Qty.zero(),
                 unitCost: l.unitCost,
-                taxAmount: Money.zero(),
+                // The input VAT the line actually carried, and the rate that
+                // produced it — a return with neither credits no VAT back and
+                // gives the VAT return nothing to group by (D76).
+                taxAmount: purchaseInvoiceLineTax(l),
+                taxRatePercent: l.taxRatePercent,
               })),
           };
         },

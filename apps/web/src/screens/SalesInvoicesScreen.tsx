@@ -1215,6 +1215,15 @@ function InvoiceDetailView({
     .filter((a) => a.status === "active")
     .map((a) => ({ value: a.id, label: `${a.name} (${a.code})` }));
   const [paymentTreasuryId, setPaymentTreasuryId] = useState("");
+  // «تحصيل دفعة» opened with no treasury selected and no default, so the first
+  // attempt at every collection was refused on submit with nothing said
+  // beforehand (D93). Same seeding the refund flow on returns already does.
+  useEffect(() => {
+    if (paymentTreasuryId !== "") return;
+    const accounts = treasuryQuery.data ?? [];
+    const first = accounts.find((a) => a.status === "active") ?? accounts[0];
+    if (first) setPaymentTreasuryId(first.id);
+  }, [treasuryQuery.data, paymentTreasuryId]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "cheque" | "card" | "wallet">("cash");
   const [payBusy, setPayBusy] = useState(false);
 

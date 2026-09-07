@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -17,7 +17,7 @@ import {
   type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
-import type { GoodsReceiptDTO, GoodsReceiptStatusDTO } from "@mezan/contracts";
+import type { GoodsReceiptDTO, GoodsReceiptStatusDTO, PurchaseOrderDTO } from "@mezan/contracts";
 import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, usePurchaseOrders, useSettings, useSuppliers,
   useUsers,
   useBranches,
@@ -48,10 +48,32 @@ const STATUS_TONE: Record<GoodsReceiptStatusDTO, PillTone> = {
 
 const num = (v: string) => Number(v);
 
-interface PreviewLine {
+/**
+ * One line of a receipt taken against a purchase order. `qty` is what the
+ * storekeeper says arrived and defaults to `outstandingQty`; a partial delivery
+ * is the normal case, so the two are not the same number (D73).
+ */
+interface FromOrderLine {
+  key: string;
   itemId: string;
   qty: number;
+  outstandingQty: number;
   unitCost: number;
+}
+
+function buildFromOrderLines(order: PurchaseOrderDTO): FromOrderLine[] {
+  return order.lines
+    .map((line, index) => {
+      const outstandingQty = Number(line.qty) - Number(line.receivedQty);
+      return {
+        key: `${order.id}:${index}`,
+        itemId: line.itemId,
+        qty: outstandingQty,
+        outstandingQty,
+        unitCost: Number(line.unitPrice),
+      };
+    })
+    .filter((line) => line.outstandingQty > 0);
 }
 
 /** One hand-entered line of an ad-hoc (PO-less) receipt — only reachable when the policy is off. */
@@ -265,14 +287,28 @@ export function GoodsReceiptsScreen() {
   const receipts = query.data ?? EMPTY;
   const selected = selectedId === null ? null : (receipts.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
 
-  // create-from-PO preview only — the server auto-fills the real lines from the PO's outstanding qty on save.
-  const previewLines: PreviewLine[] = useMemo(() => {
-    const order = orders.find((o) => o.id === pickedOrder?.id);
-    if (!order) return [];
-    return order.lines
-      .map((l) => ({ itemId: l.itemId, qty: Number(l.qty) - Number(l.receivedQty), unitCost: Number(l.unitPrice) }))
-      .filter((l) => l.qty > 0);
-  }, [pickedOrder, orders]);
+  /**
+   * The from-PO lines are seeded from the order's outstanding quantities and
+   * then edited per row, so they are state rather than a memo — re-seeding on
+   * every `orders` refetch would throw away what the storekeeper typed.
+   */
+  const [fromOrderLines, setFromOrderLines] = useState<FromOrderLine[]>([]);
+  const [linesOrderId, setLinesOrderId] = useState<string | null>(null);
+  useEffect(() => {
+    const orderId = pickedOrder?.id ?? null;
+    if (orderId === null) {
+      if (linesOrderId !== null) {
+        setLinesOrderId(null);
+        setFromOrderLines([]);
+      }
+      return;
+    }
+    if (orderId === linesOrderId) return;
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    setLinesOrderId(orderId);
+    setFromOrderLines(buildFromOrderLines(order));
+  }, [pickedOrder, orders, linesOrderId]);
 
   const filtered = useMemo(() => [...receipts].sort((a, b) => b.number.localeCompare(a.number)), [receipts]);
 
@@ -309,6 +345,8 @@ export function GoodsReceiptsScreen() {
     setSupplier(null);
     setAdHocWarehouseId(workingLocation.warehouseId ?? warehousesForForm[0]?.id ?? "");
     setAdHocLines([blankAdHocLine()]);
+    setFromOrderLines([]);
+    setLinesOrderId(null);
     subPage.open("new");
   }
 
@@ -321,17 +359,30 @@ export function GoodsReceiptsScreen() {
   }
 
   const usableAdHocLines = adHocLines.filter((l) => l.itemId !== "" && l.qty > 0);
+  // A line received at zero is simply not on the receipt; one above the PO's
+  // outstanding quantity is an over-receipt the server would refuse anyway.
+  const usableFromOrderLines = fromOrderLines.filter((l) => l.qty > 0);
+  const overReceiptLine = fromOrderLines.some((l) => l.qty > l.outstandingQty);
   const canSave =
     method === "from-order"
-      ? pickedOrder !== null && previewLines.length > 0
+      ? pickedOrder !== null && usableFromOrderLines.length > 0 && !overReceiptLine
       : !requirePoForGrn && supplier !== null && adHocWarehouseId !== "" && usableAdHocLines.length > 0;
 
   async function save() {
     setFormError(null);
     try {
       if (method === "from-order") {
-        if (!pickedOrder || previewLines.length === 0) return;
-        await createReceipt.mutateAsync({ id: crypto.randomUUID(), purchaseOrderId: pickedOrder.id, date });
+        if (!pickedOrder || usableFromOrderLines.length === 0 || overReceiptLine) return;
+        await createReceipt.mutateAsync({
+          id: crypto.randomUUID(),
+          purchaseOrderId: pickedOrder.id,
+          date,
+          lines: usableFromOrderLines.map((l) => ({
+            itemId: l.itemId,
+            qty: String(l.qty),
+            unitCost: String(l.unitCost),
+          })),
+        });
       } else {
         if (!supplier || adHocWarehouseId === "" || usableAdHocLines.length === 0) return;
         await createReceipt.mutateAsync({
@@ -436,20 +487,36 @@ export function GoodsReceiptsScreen() {
         {methodChosen && method === "from-order" ? (
           <>
             <EntityPicker label={t("goodsReceipts.field.order")} value={pickedOrder} onChange={setPickedOrder} options={orderOptions} placeholder={t("goodsReceipts.field.orderPlaceholder")} emptyMessage={t("goodsReceipts.field.orderEmpty")} />
-            {previewLines.length > 0 ? (
-              <div className="rounded-lg border border-border bg-surface p-[12px]">
-                <div className="mb-[8px] text-[12.5px] font-semibold text-ink">{t("goodsReceipts.linesAuto")}</div>
-                <table className="w-full border-collapse text-[12.5px]">
-                  <tbody>
-                    {previewLines.map((l, i) => (
-                      <tr key={i} className="border-b border-border last:border-b-0">
-                        <td className="py-[7px]">{itemName(l.itemId)}</td>
-                        <td className="py-[7px] text-end"><QtyDisplay value={l.qty} /></td>
-                        <td className="py-[7px] text-end"><MoneyValue value={l.unitCost} showUnit={false} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {fromOrderLines.length > 0 ? (
+              <div className="flex flex-col gap-[10px]">
+                <span className="text-[12.5px] font-semibold text-ink">{t("goodsReceipts.linesAuto")}</span>
+                {fromOrderLines.map((line) => (
+                  <div key={line.key} className="rounded-lg border border-border bg-surface p-[12px]">
+                    <div className="flex flex-wrap items-baseline justify-between gap-[8px]">
+                      <span className="text-[12.5px] font-semibold text-ink">{itemName(line.itemId)}</span>
+                      <span className="text-[12px] text-ink-muted">
+                        {t("goodsReceipts.col.unitCost")} <MoneyValue value={line.unitCost} showUnit={false} />
+                      </span>
+                    </div>
+                    <div className="mt-[10px] grid grid-cols-2 gap-[8px]">
+                      <NumberField
+                        label={t("goodsReceipts.col.receivedQty")}
+                        value={line.qty}
+                        min={0}
+                        max={line.outstandingQty}
+                        hint={`${t("goodsReceipts.line.outstanding")}: ${line.outstandingQty}`}
+                        onChange={(v) =>
+                          setFromOrderLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, qty: v } : l)))
+                        }
+                      />
+                    </div>
+                    {line.qty > line.outstandingQty ? (
+                      <p role="alert" className="mt-[8px] text-[12px] text-danger-ink">
+                        {t("goodsReceipts.error.overReceipt", { outstanding: String(line.outstandingQty) })}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             ) : null}
           </>

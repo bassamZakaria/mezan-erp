@@ -26,6 +26,12 @@ import {
   NegativeStockError,
   UncostedDeficitIssueError,
   CreditLimitExceededError,
+  JournalEntryNotFoundError,
+  JournalEntryNotPostedError,
+  JournalEntryAlreadyReversedError,
+  assertSalesInvoiceTransition,
+  isSalesInvoiceTerminal,
+  type DocumentStockHook,
   type AppliedSalesInvoicePromotion,
   type SalesInvoice,
   type SalesInvoiceDiscount,
@@ -55,6 +61,7 @@ import {
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
 import type { CurrencyCheck } from "./currency-policy.js";
+import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf } from "./permission-gate.js";
 
@@ -113,6 +120,13 @@ export interface SalesInvoiceRoutesDeps {
     memo?: string | null;
     actor?: string;
   }) => Promise<{ voucherId: string }>;
+  /**
+   * Puts the issued stock back when a confirmed invoice is voided. Bind it with
+   * `createInventoryStockHook(stockLedger)` — the same adapter the returns and
+   * transfer documents use. Without it a void that would move stock answers 503
+   * rather than reversing the GL and leaving the warehouse permanently short.
+   */
+  readonly stockRestore?: DocumentStockHook;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -185,12 +199,17 @@ function serializeTotals(totals: SalesInvoiceTotals) {
  * What the invoice still owes. Shared by `serialize` and the counts/stats
  * endpoints so a row's own "remaining" and the KPI strip's total can never
  * be computed two different ways.
+ *
+ * A cancelled or reversed invoice owes NOTHING — a void reverses the AR
+ * posting, so an invoice that went on reporting a remaining balance would put
+ * the invoice screen at odds with the receivable the ledger actually carries.
  */
 function remainingOf(
   invoice: SalesInvoice,
   totals: SalesInvoiceTotals,
   returnedCredit: Money = Money.zero(),
 ): Money {
+  if (isSalesInvoiceTerminal(invoice.status)) return Money.zero();
   return totals.grandTotal.add(invoice.amountPaid.negate()).add(returnedCredit.negate());
 }
 
@@ -213,7 +232,7 @@ function serialize(
   // to come off what the invoice still says is owed — otherwise the invoice
   // screen and the AR sub-ledger disagree with the ledger by the returned
   // amount, and a fully-returned invoice still reads as unpaid in full.
-  const remaining = totals.grandTotal.add(paid.negate()).add(returnedCredit.negate());
+  const remaining = remainingOf(invoice, totals, returnedCredit);
   return {
     id: invoice.id,
     docType: invoice.docType,
@@ -274,14 +293,16 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof InvalidSalesInvoiceError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
   }
-  if (err instanceof SalesInvoiceNotFoundError) {
+  if (err instanceof SalesInvoiceNotFoundError || err instanceof JournalEntryNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (
     err instanceof DuplicateSalesInvoiceError ||
     err instanceof InvalidSalesInvoiceTransitionError ||
     err instanceof ApprovalRequestRejectedError ||
-    err instanceof DuplicateJournalEntryError
+    err instanceof DuplicateJournalEntryError ||
+    err instanceof JournalEntryAlreadyReversedError ||
+    err instanceof JournalEntryNotPostedError
   ) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
@@ -321,6 +342,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  *   GET  /:id                  get one                   (sales.invoice.view)
  *   POST /:id/confirm          confirm → stock + GL + AR  (sales.invoice.confirm)
  *   POST /:id/cancel           cancel a draft            (sales.invoice.delete_draft)
+ *   POST /:id/void             void a confirmed invoice  (sales.invoice.void)
  *   POST /:id/payments         record a collection       (sales.invoice.edit)
  */
 /**
@@ -515,9 +537,38 @@ export function createSalesInvoicesRoutes(
       );
     }
 
+    /**
+     * The ceiling is a PERCENTAGE, so an amount discount is converted to the
+     * percentage of the line it actually represents before it is compared —
+     * typing the same 96% giveaway as «مبلغ» rather than «نسبة» used to walk
+     * past the ceiling and past `pos.discount.approve` entirely (D87).
+     *
+     * All bigint: `ceiling` becomes a 1e-6 scalar the same way money does, and
+     * `discount/gross > ceiling/100` is cross-multiplied rather than divided,
+     * so no rounding rule and no float ever enters the comparison.
+     */
+    const ceilingScaled = Money.fromMajor(String(ceiling)).scaled;
+    const aboveCeiling = (grossScaled: bigint, discountScaled: bigint) =>
+      grossScaled > 0n && discountScaled * 100n * 1_000_000n > grossScaled * ceilingScaled;
+    const lineGross = (line: LineInput) =>
+      (Qty.fromMajor(line.qty).scaled * Money.fromMajor(line.unitPrice).scaled) / 1_000_000n;
+
     const overCeiling =
-      body.lines.some((line) => line.discountType === "percent" && (line.discountPercent ?? 0) > ceiling) ||
-      (body.discount?.type === "percent" && body.discount.percent > ceiling);
+      body.lines.some((line) => {
+        if (line.discountType === "percent") return (line.discountPercent ?? 0) > ceiling;
+        if (line.discountType === "amount" && line.discountAmount !== undefined) {
+          return aboveCeiling(lineGross(line), Money.fromMajor(line.discountAmount).scaled);
+        }
+        return false;
+      }) ||
+      (body.discount?.type === "percent"
+        ? body.discount.percent > ceiling
+        : body.discount?.type === "amount"
+          ? aboveCeiling(
+              body.lines.reduce((sum, line) => sum + lineGross(line), 0n),
+              Money.fromMajor(body.discount.amount).scaled,
+            )
+          : false);
     if (overCeiling && !(ctx && can(ctx, "pos.discount.approve"))) {
       return c.json(
         {
@@ -678,6 +729,7 @@ export function createSalesInvoicesRoutes(
       partially_paid: 0,
       paid: 0,
       cancelled: 0,
+      reversed: 0,
       open: 0,
       overdue: 0,
     };
@@ -711,7 +763,10 @@ export function createSalesInvoicesRoutes(
     let remaining = Money.zero();
     let count = 0;
     for (const invoice of invoices) {
-      if (invoice.status === "draft" || invoice.status === "cancelled") continue;
+      // A voided invoice is neither a sale nor a receivable any more — its GL
+      // entry has been reversed, so counting it here would leave the KPI strip
+      // reporting revenue the ledger no longer holds.
+      if (invoice.status === "draft" || isSalesInvoiceTerminal(invoice.status)) continue;
       const totals = totalsFor(svc, invoice);
       const credit = credits.get(invoice.id) ?? Money.zero();
       count += 1;
@@ -786,6 +841,132 @@ export function createSalesInvoicesRoutes(
     try {
       const invoice = await svc.cancel(c.req.param("id"));
       return c.json(serialize(invoice, totalsFor(svc, invoice)));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  /**
+   * إلغاء فاتورة مبيعات مؤكدة (`sales.invoice.void`). Before this the only exit
+   * from a wrong invoice was cancelling it while it was still a draft, so a
+   * confirmed one had none at all — the permission existed and gated nothing
+   * (D116).
+   *
+   * It follows `cancelPurchaseInvoice` exactly, because a posted entry is
+   * immutable: nothing is edited or deleted. The GL engine posts a LINKED
+   * mirror entry and marks the original «معكوس» (and refuses outright when the
+   * period the reversal falls in is closed or locked), the issued stock goes
+   * back at the cost it left at, and the invoice moves to `reversed` so it
+   * leaves the receivable. Both halves are restored or neither is attempted.
+   */
+  app.post("/:id/void", gate("sales.invoice.void"), async (c) => {
+    const svc = service(c);
+    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
+    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+
+    try {
+      assertSalesInvoiceTransition(invoice.id, invoice.status, "reversed");
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+
+    // The purchase side refuses when the received goods have already been
+    // consumed; the sales side's equivalents are a collection that has moved
+    // real cash and a return that has already given part of the goods back.
+    // Either one has to be undone on its own document first, or the void would
+    // silently strand a voucher or a credit note against a document that no
+    // longer exists.
+    if (invoice.amountPaid.scaled !== 0n) {
+      return c.json(
+        {
+          error: "INVOICE_HAS_COLLECTIONS",
+          message: "لا يمكن إلغاء فاتورة حُصّلت مبالغ عليها — اعكس التحصيل أولاً.",
+        },
+        409,
+      );
+    }
+    const returnedCredit = await creditFor(invoice.id);
+    if (returnedCredit.scaled !== 0n) {
+      return c.json(
+        {
+          error: "INVOICE_HAS_RETURNS",
+          message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع — ألغِ المرتجع أولاً.",
+        },
+        409,
+      );
+    }
+    if (!invoice.journalEntryId) {
+      return c.json(
+        { error: "INVOICE_NOT_POSTED", message: "الفاتورة ليس لها قيد يومية لعكسه." },
+        409,
+      );
+    }
+
+    const stockLines = invoice.lines.filter((l) => l.isStock && !l.qty.isZero());
+    if (stockLines.length > 0 && !deps.stockRestore) {
+      return c.json(
+        {
+          error: "STOCK_RESTORE_UNAVAILABLE",
+          message: "إلغاء الفاتورة يتطلب إرجاع المخزون؛ وحدة المخزون غير مفعّلة.",
+        },
+        503,
+      );
+    }
+    // Restoring at a cost the document does not carry would put stock back at
+    // zero value and leave GL 1200 permanently above the valuation report.
+    if (stockLines.some((l) => l.unitCost === null)) {
+      return c.json(
+        {
+          error: "ISSUE_COST_UNKNOWN",
+          message: "لا يمكن إرجاع المخزون: تكلفة الصرف غير مسجّلة على الفاتورة.",
+        },
+        409,
+      );
+    }
+
+    const date = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    try {
+      const reversal = await deps.gl.reverse(invoice.journalEntryId, {
+        reversalId: `${invoice.id}:void`,
+        date,
+        memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
+      });
+      if (stockLines.length > 0) {
+        await deps.stockRestore!.apply({
+          sourceDocType: "SALES_INVOICE",
+          // A separate source id from the issue, whose movement ids are
+          // `${invoice.id}:${index}` — reusing it would collide in the ledger.
+          sourceDocId: `${invoice.id}:void`,
+          sourceDocNumber: invoice.docNo,
+          warehouseId: invoice.warehouseId,
+          date,
+          lines: stockLines.map((l) => ({
+            itemId: l.itemId,
+            direction: "IN" as const,
+            qty: l.qty,
+            unitCost: l.unitCost as Money,
+          })),
+        });
+      }
+      const voided: SalesInvoice = { ...invoice, status: "reversed" };
+      await deps.repo.update(voided);
+      await recordAdminEvent(deps.audit, c, {
+        module: "sales",
+        entityType: "SALES_INVOICE",
+        entityId: voided.id,
+        action: "VOID",
+        details: {
+          docNo: voided.docNo,
+          customerId: voided.customerId,
+          previousStatus: invoice.status,
+          grandTotal: totalsFor(svc, voided).grandTotal.toString(),
+          reversalJournalEntryId: reversal.journalEntryId,
+        },
+      });
+      return c.json({
+        ...serialize(voided, totalsFor(svc, voided), Money.zero(), maySeeCost(c)),
+        reversalJournalEntryId: reversal.journalEntryId,
+      });
     } catch (err) {
       return handleDomainError(c, err);
     }

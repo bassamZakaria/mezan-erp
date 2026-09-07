@@ -2,9 +2,11 @@ import { z } from "zod";
 import { Money, Qty } from "../money/index.js";
 import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
+import type { Warehouse } from "../settings/warehouse.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countRows } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
 
 /**
  * مستويات المخزون — Stock Levels (docs/archive/catalog/08-reports.md): point-in-time
@@ -19,11 +21,20 @@ export type StockLevelStatus = "out" | "low" | "normal";
 export interface InventoryStockLevelsContext {
   readonly items: readonly Item[];
   readonly snapshots: readonly WacSnapshot[];
+  /**
+   * The warehouse register, for resolving each position's branch (D111). A WAC
+   * snapshot carries a warehouse and never a branch, so without this the
+   * `branchId` parameter has nothing to match on. Optional: omit it and the
+   * report runs unfiltered by branch — every route that mounts this report
+   * wires it.
+   */
+  readonly warehouses?: readonly Warehouse[];
 }
 
 export interface InventoryStockLevelsParams {
   readonly warehouseId: string;
   readonly search: string;
+  readonly branchId: string;
 }
 
 export interface InventoryStockLevelsRow {
@@ -44,6 +55,7 @@ const STATUS_LABEL: Record<StockLevelStatus, string> = { out: "نافد", low: "
 const paramsSchema = z.object({
   warehouseId: z.string(),
   search: z.string(),
+  branchId: branchIdParamSchema,
 });
 
 function computeStatus(onHand: number, reorderPoint: number | null): StockLevelStatus {
@@ -62,10 +74,11 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
     titleAr: "مستويات المخزون",
     descriptionAr: "الأصناف التي تحتاج تدخلاً الآن — الأصناف الأقل من حد إعادة الطلب.",
     paramsSchema,
-    defaultParams: { warehouseId: "", search: "" },
+    defaultParams: { warehouseId: "", search: "", branchId: "" },
     paramFields: [
       { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع (اتركه فارغاً لكل المستودعات)" },
       { kind: "text", key: "search", label: "الصنف", placeholder: "ابحث بالاسم أو الكود" },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.itemId,
     columns: [
@@ -91,12 +104,16 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
     },
     run: (params, ctx) => {
       const search = params.search.trim().toLowerCase();
+      const branchOf = branchOfWarehouse(ctx.warehouses);
       const rows: InventoryStockLevelsRow[] = [];
       for (const item of ctx.items) {
         if (!itemTypeTracksStock(item.type)) continue;
         if (search && !item.nameAr.toLowerCase().includes(search) && !item.code.toLowerCase().includes(search)) continue;
         const positions = ctx.snapshots.filter(
-          (s) => s.itemId === item.id && (params.warehouseId === "" || s.warehouseId === params.warehouseId),
+          (s) =>
+            s.itemId === item.id &&
+            (params.warehouseId === "" || s.warehouseId === params.warehouseId) &&
+            matchesBranch(branchOf(s.warehouseId), params.branchId),
         );
         const onHand = Qty.sum(positions.map((p) => p.onHand));
         const value = Money.sum(positions.map((p) => p.totalValue));

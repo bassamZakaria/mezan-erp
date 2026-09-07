@@ -28,6 +28,11 @@ const CATALOG_TO_ENTITLEMENT_MODULE: Readonly<Record<string, string>> = {
   cheques: "financial_papers",
 };
 
+/** True when `moduleId` is core platform surface, never entitlement-gated. */
+export function isAlwaysLicensed(moduleId: string): boolean {
+  return ALWAYS_LICENSED_MODULES.has(moduleId);
+}
+
 /** True when `moduleId` (a catalog module) is available under `entitlements`. */
 export function isModuleLicensed(moduleId: string, entitlements: Entitlements): boolean {
   if (ALWAYS_LICENSED_MODULES.has(moduleId)) return true;

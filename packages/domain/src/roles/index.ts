@@ -4,6 +4,8 @@ export {
   deleteRole,
   UnknownPermissionError,
   UnlicensedPermissionError,
+  PlatformOnlyPermissionError,
+  UngrantablePermissionError,
   DuplicateRoleCodeError,
   SystemRoleImmutableError,
   RoleNotFoundError,

@@ -5,6 +5,7 @@ import type { CostLayer } from "../inventory/cost-layer.js";
 import { layerRemainingValue } from "../inventory/cost-layer.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
 
 /**
  * أصناف قاربت على الانتهاء — Expiring Soon / FEFO (docs/archive/catalog/08-reports.md):
@@ -49,6 +50,7 @@ export interface InventoryExpiringParams {
   readonly window: "" | ExpiryWindow;
   readonly search: string;
   readonly warehouseId: string;
+  readonly branchId: string;
 }
 
 export interface InventoryExpiringRow {
@@ -71,6 +73,7 @@ const paramsSchema = z.object({
   window: z.enum(["", "expired", "within30", "within60", "within90"]),
   search: z.string(),
   warehouseId: z.string(),
+  branchId: branchIdParamSchema,
 });
 
 export function createInventoryExpiringReport(today: string): ReportDefinition<
@@ -84,7 +87,7 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
     descriptionAr:
       "الدفعات التي لها تاريخ صلاحية مرتبة بالأقرب انتهاءً — وهو نفس ترتيب الصرف (FEFO) الذي يتبعه المخزون.",
     paramsSchema,
-    defaultParams: { window: "", search: "", warehouseId: "" },
+    defaultParams: { window: "", search: "", warehouseId: "", branchId: "" },
     paramFields: [
       {
         kind: "select",
@@ -100,6 +103,7 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
       },
       { kind: "text", key: "search", label: "بحث", placeholder: "اسم الصنف أو رقم الدفعة" },
       { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,
     columns: [
@@ -131,6 +135,7 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
+      const branchOf = branchOfWarehouse(ctx.warehouses);
       const search = params.search.trim().toLowerCase();
       const todayMs = Date.parse(`${today}T00:00:00Z`);
 
@@ -140,6 +145,7 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
         if (expiryDate === null) continue;
         if (layer.remainingQty.scaled <= 0n) continue;
         if (params.warehouseId !== "" && layer.warehouseId !== params.warehouseId) continue;
+        if (!matchesBranch(branchOf(layer.warehouseId), params.branchId)) continue;
 
         const itemNameAr = itemNames.get(layer.itemId) ?? layer.itemId;
 

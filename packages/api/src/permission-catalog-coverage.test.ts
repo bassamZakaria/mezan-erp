@@ -77,11 +77,10 @@ describe("the permission catalogue against the routes that check it", () => {
     for (const code of pos) expect(GATED.has(code), `${code} is gated somewhere`).toBe(false);
   });
 
-  it("LIMITATION (D116): a confirmed sales invoice has no void route, only a draft cancel", () => {
-    // `sales.invoice.void` exists in the catalogue; nothing gates on it, and
-    // the only cancel route checks `sales.invoice.delete_draft`.
+  /** Guards the sales-invoice half of D116: the void route now exists and is gated. */
+  it("gives a confirmed sales invoice an exit, gated separately from the draft cancel", () => {
     expect(ALL_PERMISSION_CODES).toContain("sales.invoice.void");
-    expect(GATED.has("sales.invoice.void")).toBe(false);
+    expect(GATED.has("sales.invoice.void")).toBe(true);
     expect(GATED.has("sales.invoice.delete_draft")).toBe(true);
   });
 

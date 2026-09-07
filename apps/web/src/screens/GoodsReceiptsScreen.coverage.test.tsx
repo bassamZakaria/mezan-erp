@@ -351,7 +351,9 @@ describe("GoodsReceiptsScreen — receiving against a purchase order", () => {
     pickFromCombobox(document.body, "أمر الشراء *", "PO-000001");
 
     expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
-    expect(screen.getByText("20")).toBeInTheDocument();
+    // The outstanding quantity seeds an EDITABLE field (D73), not a read-only preview cell.
+    expect(screen.getByLabelText("الكمية المستلمة")).toHaveValue(20);
+    expect(screen.getByText("المتبقي على أمر الشراء: 20")).toBeInTheDocument();
     expect(screen.queryByText("دواء أموكسيسيلين")).not.toBeInTheDocument();
   });
 });

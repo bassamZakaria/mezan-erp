@@ -5,6 +5,7 @@ import type { Supplier } from "../suppliers/supplier.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * المشتريات حسب المورد — Purchases by Supplier (docs/archive/catalog/08-reports.md):
@@ -23,6 +24,7 @@ export interface PurchasesBySupplierContext {
 export interface PurchasesBySupplierParams {
   readonly dateFrom: string;
   readonly dateTo: string;
+  readonly branchId: string;
 }
 
 export interface PurchasesBySupplierRow {
@@ -39,6 +41,7 @@ export interface PurchasesBySupplierRow {
 const paramsSchema = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  branchId: branchIdParamSchema,
 });
 
 export function createPurchasesBySupplierReport(
@@ -50,8 +53,8 @@ export function createPurchasesBySupplierReport(
     titleAr: "المشتريات حسب المورد",
     descriptionAr: "على من نعتمد أكثر في مشترياتنا وما هي المستحقات المتبقية (لا يشمل السداد — لا تتبع فواتير المشتريات حالياً دفعات).",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo },
-    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }],
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, branchId: "" },
+    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.supplierId,
     columns: [
       { key: "supplierNameAr", header: "اسم المورد", format: "text", value: (row) => row.supplierNameAr, entity: { kind: "supplier", id: (row) => row.supplierId } },
@@ -79,6 +82,7 @@ export function createPurchasesBySupplierReport(
       for (const invoice of ctx.invoices) {
         if (invoice.status !== "confirmed") continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
+        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const total = purchaseInvoiceTotal(invoice);
         const existing = bySupplier.get(invoice.supplierId) ?? { count: 0, total: Money.zero() };
         bySupplier.set(invoice.supplierId, { count: existing.count + 1, total: existing.total.add(total) });

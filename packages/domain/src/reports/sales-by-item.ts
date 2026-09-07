@@ -3,6 +3,7 @@ import type { SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { aggregateItemSales } from "./sales-item-aggregation.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * المبيعات حسب الصنف — Sales by Item (docs/archive/catalog/08-reports.md): top
@@ -30,6 +31,7 @@ export interface SalesByItemContext {
 export interface SalesByItemParams {
   readonly dateFrom: string;
   readonly dateTo: string;
+  readonly branchId: string;
 }
 
 export interface SalesByItemRow {
@@ -45,6 +47,7 @@ export interface SalesByItemRow {
 const paramsSchema = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  branchId: branchIdParamSchema,
 });
 
 export function createSalesByItemReport(
@@ -56,8 +59,8 @@ export function createSalesByItemReport(
     titleAr: "المبيعات حسب الصنف",
     descriptionAr: "ما هي الأصناف الأعلى إيراداً في الفترة المحددة.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo },
-    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }],
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, branchId: "" },
+    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.itemId,
     columns: [
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
@@ -91,7 +94,8 @@ export function createSalesByItemReport(
       { key: "topShare", labelAr: "حصة أعلى صنف", format: "percent", value: (rows) => rows[0]?.contributionPercent ?? 0 },
     ],
     run: (params, ctx) => {
-      const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
+      const inBranch = ctx.invoices.filter((invoice) => matchesBranch(invoice.branchId, params.branchId));
+      const aggregates = aggregateItemSales(inBranch, params.dateFrom, params.dateTo);
       const namesEn = new Map((ctx.items ?? []).map((i) => [i.id, i.nameEn ?? null]));
       const totalRevenue = sumRows(aggregates, (a) => a.revenue);
       return aggregates

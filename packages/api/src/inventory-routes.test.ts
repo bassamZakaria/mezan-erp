@@ -628,15 +628,9 @@ describe("inventory routes — every quantity move pairs with its money conseque
   });
 });
 
-describe("inventory routes — LIMITATION: write paths do not enforce warehouseScopeOf (D103 shape)", () => {
-  // The LIST routes above narrow by `warehouseScopeOf` (e.g. `/transfers`,
-  // `/adjustments`). `POST /adjustments` and `POST /transfers` never call it —
-  // exactly the asymmetry catalogued for stock-documents-routes.ts as D103. A
-  // caller whose x-warehouse-scope is "W1" can still post an adjustment or a
-  // transfer that touches a warehouse outside that scope. When this is fixed,
-  // both `expect(...).toBe(201)` calls below flip to 403.
-  it("posts an adjustment against an out-of-scope warehouse without refusal", async () => {
-    const { app } = newApp();
+describe("inventory write paths enforce warehouseScopeOf (D103)", () => {
+  it("D103: refuses an adjustment against an out-of-scope warehouse, and posts no movement", async () => {
+    const { app, service } = newApp();
     const res = await app.fetch(
       req("/adjustments", {
         method: "POST",
@@ -650,11 +644,15 @@ describe("inventory routes — LIMITATION: write paths do not enforce warehouseS
         }),
       }),
     );
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(403);
+    expect((await res.json()) as unknown).toMatchObject({ error: "WAREHOUSE_OUT_OF_SCOPE", warehouseId: "W9" });
+
+    expect((await service.getBalanceDetail("I1", "W9")).onHand.toString()).toBe("0.000000");
+    expect(await service.getMovements("I1", "W9")).toEqual([]);
   });
 
-  it("posts a transfer touching an out-of-scope warehouse without refusal", async () => {
-    const { app } = newApp();
+  it("D103: refuses a transfer OUT of a warehouse the caller may not see, leaving both positions untouched", async () => {
+    const { app, service } = newApp();
     await app.fetch(
       req("/adjustments", {
         method: "POST",
@@ -675,6 +673,114 @@ describe("inventory routes — LIMITATION: write paths do not enforce warehouseS
         body: JSON.stringify({ transferId: "TRF-OUT-OF-SCOPE", fromWarehouseId: "W9", toWarehouseId: "W8", lines: [{ itemId: "I1", qty: "2" }] }),
       }),
     );
+    expect(res.status).toBe(403);
+    expect((await res.json()) as unknown).toMatchObject({ error: "WAREHOUSE_OUT_OF_SCOPE", warehouseId: "W9" });
+
+    expect((await service.getBalanceDetail("I1", "W9")).onHand.toString()).toBe("5.000000");
+    expect((await service.getBalanceDetail("I1", "W8")).onHand.toString()).toBe("0.000000");
+  });
+
+  it("D103: refuses a transfer INTO a warehouse the caller may not see, leaving both positions untouched", async () => {
+    const { app, service } = newApp();
+    await app.fetch(
+      req("/adjustments", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        body: JSON.stringify({
+          adjustmentId: "ADJ1",
+          warehouseId: "W1",
+          reason: "INITIAL_STOCK",
+          lines: [{ itemId: "I1", direction: "IN", qty: "5", unitCost: "1" }],
+        }),
+      }),
+    );
+    const res = await app.fetch(
+      req("/transfers", {
+        method: "POST",
+        permissions: "inventory.transfer.create",
+        headers: { "x-warehouse-scope": "W1" },
+        body: JSON.stringify({ transferId: "TRF-INTO-BLIND", fromWarehouseId: "W1", toWarehouseId: "W8", lines: [{ itemId: "I1", qty: "2" }] }),
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()) as unknown).toMatchObject({ error: "WAREHOUSE_OUT_OF_SCOPE", warehouseId: "W8" });
+
+    expect((await service.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("5.000000");
+    expect((await service.getBalanceDetail("I1", "W8")).onHand.toString()).toBe("0.000000");
+  });
+
+  it("D103: a caller scoped to the warehouse they name still posts an adjustment", async () => {
+    const { app, service } = newApp();
+    const res = await app.fetch(
+      req("/adjustments", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        headers: { "x-warehouse-scope": "W1,W2" },
+        body: JSON.stringify({
+          adjustmentId: "ADJ-IN-SCOPE",
+          warehouseId: "W1",
+          reason: "INITIAL_STOCK",
+          lines: [{ itemId: "I1", direction: "IN", qty: "5", unitCost: "1" }],
+        }),
+      }),
+    );
     expect(res.status).toBe(201);
+    expect((await service.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("5.000000");
+  });
+
+  it("D103: a caller scoped to both ends still posts a transfer", async () => {
+    const { app, service } = newApp();
+    await app.fetch(
+      req("/adjustments", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        headers: { "x-warehouse-scope": "W1,W2" },
+        body: JSON.stringify({
+          adjustmentId: "ADJ-SEED",
+          warehouseId: "W1",
+          reason: "INITIAL_STOCK",
+          lines: [{ itemId: "I1", direction: "IN", qty: "5", unitCost: "1" }],
+        }),
+      }),
+    );
+    const res = await app.fetch(
+      req("/transfers", {
+        method: "POST",
+        permissions: "inventory.transfer.create",
+        headers: { "x-warehouse-scope": "W1,W2" },
+        body: JSON.stringify({ transferId: "TRF-IN-SCOPE", fromWarehouseId: "W1", toWarehouseId: "W2", lines: [{ itemId: "I1", qty: "2" }] }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect((await service.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("3.000000");
+    expect((await service.getBalanceDetail("I1", "W2")).onHand.toString()).toBe("2.000000");
+  });
+
+  it("D103: an unscoped caller — no x-warehouse-scope header, or \"*\" — still writes anywhere", async () => {
+    const { app, service } = newApp();
+    const noHeader = await app.fetch(
+      req("/adjustments", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        body: JSON.stringify({
+          adjustmentId: "ADJ-NO-HEADER",
+          warehouseId: "W9",
+          reason: "INITIAL_STOCK",
+          lines: [{ itemId: "I1", direction: "IN", qty: "5", unitCost: "1" }],
+        }),
+      }),
+    );
+    expect(noHeader.status).toBe(201);
+
+    const star = await app.fetch(
+      req("/transfers", {
+        method: "POST",
+        permissions: "inventory.transfer.create",
+        headers: { "x-warehouse-scope": "*" },
+        body: JSON.stringify({ transferId: "TRF-STAR", fromWarehouseId: "W9", toWarehouseId: "W8", lines: [{ itemId: "I1", qty: "2" }] }),
+      }),
+    );
+    expect(star.status).toBe(201);
+    expect((await service.getBalanceDetail("I1", "W8")).onHand.toString()).toBe("2.000000");
   });
 });

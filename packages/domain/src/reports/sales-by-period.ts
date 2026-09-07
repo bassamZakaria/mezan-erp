@@ -5,6 +5,7 @@ import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoi
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
 import { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * المبيعات حسب الفترة — Sales by Period (docs/archive/catalog/08-reports.md): day/
@@ -22,6 +23,7 @@ export interface SalesByPeriodParams {
   readonly dateFrom: string;
   readonly dateTo: string;
   readonly groupBy: PeriodGroupBy;
+  readonly branchId: string;
 }
 
 export interface SalesByPeriodRow {
@@ -37,6 +39,7 @@ const paramsSchema = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   groupBy: z.enum(["day", "week", "month"]),
+  branchId: branchIdParamSchema,
 });
 
 export function createSalesByPeriodReport(
@@ -48,7 +51,7 @@ export function createSalesByPeriodReport(
     titleAr: "المبيعات حسب الفترة",
     descriptionAr: "كيف كانت حركة المبيعات في الفترة المحددة، صافية من الخصومات ومع الضريبة.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, groupBy: "day" },
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, groupBy: "day", branchId: "" },
     paramFields: [
       { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
@@ -61,6 +64,7 @@ export function createSalesByPeriodReport(
           { value: "month", label: "شهري" },
         ],
       },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.bucket,
     columns: [
@@ -88,6 +92,7 @@ export function createSalesByPeriodReport(
       for (const invoice of ctx.invoices) {
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
+        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const totals = salesInvoiceTotals(invoice);
         const discount = Money.fromScaled(totals.lineDiscountTotal.scaled + totals.invoiceDiscountTotal.scaled);
         const key = periodBucketKey(invoice.date, params.groupBy);

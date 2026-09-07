@@ -4,6 +4,7 @@ import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * أعمار ديون العملاء — Customer Debt Aging (docs/archive/catalog/08-reports.md): the
@@ -59,6 +60,7 @@ export interface AgingCustomersContext {
 
 export interface AgingCustomersParams {
   readonly asOfDate: string;
+  readonly branchId: string;
 }
 
 export interface AgingCustomersRow {
@@ -76,6 +78,7 @@ export interface AgingCustomersRow {
 
 const paramsSchema = z.object({
   asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  branchId: branchIdParamSchema,
 });
 
 function daysPastDue(dueDate: string, asOfDate: string): number {
@@ -132,8 +135,8 @@ export function createAgingCustomersReport(
     titleAr: "أعمار ديون العملاء",
     descriptionAr: "العملاء المتأخرون 90 يوماً أو أكثر يحتاجون تدخلاً فورياً.",
     paramsSchema,
-    defaultParams: { asOfDate: defaultAsOfDate },
-    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }],
+    defaultParams: { asOfDate: defaultAsOfDate, branchId: "" },
+    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.customerId,
     columns: [
       { key: "customerNameAr", header: "اسم العميل", format: "text", value: (row) => row.customerNameAr, entity: { kind: "customer", id: (row) => row.customerId } },
@@ -169,6 +172,7 @@ export function createAgingCustomersReport(
       for (const invoice of ctx.invoices) {
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
         if (invoice.date > params.asOfDate) continue;
+        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const totals = salesInvoiceTotals(invoice);
         const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
         const settled = allocated.scaled > invoice.amountPaid.scaled ? allocated : invoice.amountPaid;

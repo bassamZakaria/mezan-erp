@@ -6,6 +6,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, countDistinct } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 import { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
 
 /**
  * سجل المخزون — Stock Ledger (docs/archive/catalog/08-reports.md): the full
@@ -26,6 +27,7 @@ export interface InventoryLedgerParams {
   readonly dateTo: string;
   readonly itemId: string;
   readonly warehouseId: string;
+  readonly branchId: string;
 }
 
 export interface InventoryLedgerRow {
@@ -45,6 +47,7 @@ const paramsSchema = z.object({
   dateTo: z.string(),
   itemId: z.string(),
   warehouseId: z.string(),
+  branchId: branchIdParamSchema,
 });
 
 export function createInventoryLedgerReport(): ReportDefinition<
@@ -57,11 +60,12 @@ export function createInventoryLedgerReport(): ReportDefinition<
     titleAr: "سجل المخزون",
     descriptionAr: "السجل الزمني الكامل لحركات المخزون مع الرصيد الجاري لكل صنف/مستودع. جميع التكاليف بالعملة الأساسية للشركة.",
     paramsSchema,
-    defaultParams: { dateFrom: "", dateTo: "", itemId: "", warehouseId: "" },
+    defaultParams: { dateFrom: "", dateTo: "", itemId: "", warehouseId: "", branchId: "" },
     paramFields: [
       { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       { kind: "text", key: "itemId", label: "الصنف", placeholder: "معرف الصنف" },
       { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.movementId,
     columns: [
@@ -89,10 +93,12 @@ export function createInventoryLedgerReport(): ReportDefinition<
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
+      const branchOf = branchOfWarehouse(ctx.warehouses);
 
       const filtered = ctx.movements
         .filter((m) => params.itemId === "" || m.itemId === params.itemId)
         .filter((m) => params.warehouseId === "" || m.warehouseId === params.warehouseId)
+        .filter((m) => matchesBranch(branchOf(m.warehouseId), params.branchId))
         .filter((m) => withinDateRange(m.occurredAt.slice(0, 10), params.dateFrom || undefined, params.dateTo || undefined))
         .slice()
         .sort((a, b) => (a.occurredAt < b.occurredAt ? -1 : a.occurredAt > b.occurredAt ? 1 : a.id.localeCompare(b.id)));

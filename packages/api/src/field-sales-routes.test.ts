@@ -264,3 +264,76 @@ describe("field-sales router — full open -> cash movements -> settle flow", ()
     expect(res.status).toBe(404);
   });
 });
+
+/**
+ * D70. The van-trip reads gated on the plain `.view` tier, so a role built from
+ * `field.van_trip.view_own` + `.open` — which is what a distribution rep is
+ * given — got a 403 on the trip they were driving. They now read, narrowed by
+ * the scope their session already carries.
+ */
+describe("D70: a view_own van-sales rep reads their own trips, narrowed by scope", () => {
+  async function openTripIn(app: ReturnType<typeof newApp>["app"], vanWarehouseId: string): Promise<string> {
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "field.van_trip.open",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...openPayload, vanWarehouseId }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { id: string }).id;
+  }
+
+  it("lists only the trips inside the rep's own van warehouse", async () => {
+    const { app } = newApp();
+    const inA = await openTripIn(app, "VAN-A");
+    await openTripIn(app, "VAN-B");
+
+    const res = await app.fetch(
+      req("/", { permissions: "field.van_trip.view_own", headers: { "x-warehouse-scope": "VAN-A" } }),
+    );
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as { id: string }[];
+    expect(rows.map((r) => r.id)).toEqual([inA]);
+  });
+
+  it("404s the rep on another van's trip, and serves their own", async () => {
+    const { app } = newApp();
+    const inA = await openTripIn(app, "VAN-A");
+    const inB = await openTripIn(app, "VAN-B");
+
+    const scoped = { permissions: "field.van_trip.view_own", headers: { "x-warehouse-scope": "VAN-A" } };
+    expect((await app.fetch(req(`/${inB}`, scoped))).status).toBe(404);
+    expect((await app.fetch(req(`/${inA}`, scoped))).status).toBe(200);
+  });
+
+  it("shows an unscoped view_own caller nothing rather than the whole tenant", async () => {
+    const { app } = newApp();
+    await openTripIn(app, "VAN-A");
+
+    const res = await app.fetch(req("/", { permissions: "field.van_trip.view_own" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown[]).toEqual([]);
+  });
+
+  it("still shows a plain .view holder every trip", async () => {
+    const { app } = newApp();
+    const inA = await openTripIn(app, "VAN-A");
+    const inB = await openTripIn(app, "VAN-B");
+
+    const res = await app.fetch(req("/", { permissions: "field.van_trip.view" }));
+    const rows = (await res.json()) as { id: string }[];
+    expect(rows.map((r) => r.id).sort()).toEqual([inA, inB].sort());
+  });
+
+  it("narrows a .view holder by their branch scope too", async () => {
+    const { app } = newApp();
+    await openTripIn(app, "VAN-A");
+
+    const res = await app.fetch(
+      req("/", { permissions: "field.van_trip.view", headers: { "x-branch-scope": "OTHER-BRANCH" } }),
+    );
+    expect((await res.json()) as unknown[]).toEqual([]);
+  });
+});

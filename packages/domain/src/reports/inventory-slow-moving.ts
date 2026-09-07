@@ -2,10 +2,12 @@ import { z } from "zod";
 import { Money, Qty } from "../money/index.js";
 import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
+import type { Warehouse } from "../settings/warehouse.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countRows, maxOf } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
 
 /**
  * أصناف بطيئة الحركة — Slow-Moving Items (docs/archive/catalog/08-reports.md): items
@@ -32,6 +34,14 @@ export interface InventorySlowMovingContext {
   readonly items: readonly Item[];
   readonly snapshots: readonly WacSnapshot[];
   readonly invoices: readonly SalesInvoice[];
+  /**
+   * The warehouse register, for resolving each position's branch (D111). A WAC
+   * snapshot carries a warehouse and never a branch, so without this the
+   * `branchId` parameter has nothing to match on. Optional: omit it and the
+   * report runs unfiltered by branch — every route that mounts this report
+   * wires it.
+   */
+  readonly warehouses?: readonly Warehouse[];
 }
 
 export interface InventorySlowMovingParams {
@@ -39,6 +49,7 @@ export interface InventorySlowMovingParams {
   readonly search: string;
   readonly daysSinceLastSale: number;
   readonly warehouseId: string;
+  readonly branchId: string;
 }
 
 export interface InventorySlowMovingRow {
@@ -58,6 +69,7 @@ const paramsSchema = z.object({
   search: z.string(),
   daysSinceLastSale: z.coerce.number().int().min(0),
   warehouseId: z.string(),
+  branchId: branchIdParamSchema,
 });
 
 export function createInventorySlowMovingReport(today: string): ReportDefinition<
@@ -70,7 +82,7 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
     titleAr: "أصناف بطيئة الحركة",
     descriptionAr: "أصناف لم تُباع منذ أكثر من حد الأيام المحدد — رأس مال مجمد.",
     paramsSchema,
-    defaultParams: { severity: "", search: "", daysSinceLastSale: 90, warehouseId: "" },
+    defaultParams: { severity: "", search: "", daysSinceLastSale: 90, warehouseId: "", branchId: "" },
     paramFields: [
       {
         kind: "select",
@@ -86,6 +98,7 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
       { kind: "text", key: "search", label: "بحث", placeholder: "اسم الصنف" },
       { kind: "text", key: "daysSinceLastSale", label: "أيام منذ آخر بيع" },
       { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.itemId,
     columns: [
@@ -112,9 +125,11 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
       const search = params.search.trim().toLowerCase();
       const todayMs = Date.parse(`${today}T00:00:00Z`);
 
+      const branchOf = branchOfWarehouse(ctx.warehouses);
       const lastSaleByItem = new Map<string, string>();
       for (const invoice of ctx.invoices) {
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
+        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         for (const line of invoice.lines) {
           const existing = lastSaleByItem.get(line.itemId);
           if (!existing || invoice.date > existing) lastSaleByItem.set(line.itemId, invoice.date);
@@ -126,7 +141,10 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
         if (!itemTypeTracksStock(item.type)) continue;
         if (search && !item.nameAr.toLowerCase().includes(search)) continue;
         const positions = ctx.snapshots.filter(
-          (s) => s.itemId === item.id && (params.warehouseId === "" || s.warehouseId === params.warehouseId),
+          (s) =>
+            s.itemId === item.id &&
+            (params.warehouseId === "" || s.warehouseId === params.warehouseId) &&
+            matchesBranch(branchOf(s.warehouseId), params.branchId),
         );
         const onHand = Number(Qty.sum(positions.map((p) => p.onHand)).toString());
         const value = Number(Money.sum(positions.map((p) => p.totalValue)).toString());

@@ -46,6 +46,44 @@ import {
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createPermissionGate, getAuthContext, withinScope } from "./permission-gate.js";
 
 /**
+ * Everything a «شيك» voucher knows about the cheque it raised, handed to the
+ * register so the paper and the money are one record rather than two (D81).
+ *
+ * `chequeNumber` is the voucher's `referenceNo`, which is where the cheque
+ * number is typed today. The three fields a cheque needs and the voucher wire
+ * contract does NOT carry — the drawee bank, the due date (a post-dated cheque
+ * is the normal case here, so its due date is the whole point) and the
+ * "شيكات تحت التحصيل" control account — are the adapter's to resolve; see
+ * `packages/contracts/src/voucher.ts` `createVoucherSchema`.
+ */
+export interface VoucherChequeRegistration {
+  readonly voucherId: string;
+  /** A receipt voucher takes a cheque IN; a payment voucher issues one OUT. */
+  readonly direction: "incoming" | "outgoing";
+  readonly chequeNumber: string | null;
+  readonly amount: Money;
+  readonly currency: string;
+  readonly issueDate: string;
+  readonly branchId: string;
+  /** Customer for an incoming cheque, supplier for an outgoing one. */
+  readonly partyId: string | null;
+  readonly counterpartyGlAccountId: string | null;
+  readonly memo: string | null;
+  /** The RESOLVED caller — the same attribution every cheque transition carries (D80). */
+  readonly actor: string;
+}
+
+/**
+ * Registers the cheque behind a «شيك» voucher. Returns the cheque's id, or null
+ * when the register declined to record one (nothing the voucher carries names a
+ * cheque, for instance). Omit the port entirely and a cheque voucher behaves
+ * exactly as it did before — it just leaves the register short.
+ */
+export interface VoucherChequeRegistrationPort {
+  register(input: VoucherChequeRegistration): Promise<{ chequeId: string } | null>;
+}
+
+/**
  * Everything the voucher routes bind the {@link VoucherService} to. Numbering
  * (CV- + the JE number) is the ledger store's connection-bound engine so both
  * stay gap-free; the document/allocation/invoice repos come from the voucher
@@ -55,6 +93,8 @@ export type VoucherRoutesDeps = Omit<VoucherServiceDeps, "events"> & {
   readonly events?: VoucherServiceDeps["events"];
   /** Generates ids when the request omits them. Defaults to a UUID. */
   readonly idGen?: () => string;
+  /** The cheque register a «شيك» voucher writes into (D81). */
+  readonly cheques?: VoucherChequeRegistrationPort;
 };
 
 function serialize(doc: VoucherDocument) {
@@ -391,33 +431,75 @@ export function createVouchersRoutes(
     }
     const d = parsed.data;
     try {
-      const doc = await serviceFor(c).createVoucher({
-        id: d.id ?? idGen(),
-        date: d.date,
-        memo: d.memo,
-        voucherType: d.voucherType,
-        amount: Money.fromMajor(d.amount),
-        currency: d.currency,
-        branchId: d.branchId,
-        paymentMethod: d.paymentMethod,
-        treasuryAccountId: d.treasuryAccountId,
-        treasuryGlAccountId: d.treasuryGlAccountId,
-        counterpartyGlAccountId: d.counterpartyGlAccountId ?? null,
-        counterTreasuryAccountId: d.counterTreasuryAccountId ?? null,
-        counterTreasuryGlAccountId: d.counterTreasuryGlAccountId ?? null,
-        customerId: d.customerId ?? null,
-        supplierId: d.supplierId ?? null,
-        referenceNo: d.referenceNo ?? null,
-        costCenterId: d.costCenterId ?? null,
-        withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
-        withholdingRatePercent: d.withholdingRatePercent ?? null,
-        withholdingGlAccountId: d.withholdingGlAccountId ?? null,
+      const svc = serviceFor(c);
+      /**
+       * The voucher and its cheque are ONE act: a «شيك» voucher that saved
+       * while the register write failed would leave a payment nobody can
+       * chase the paper for, which is exactly the gap D81 filed. The document
+       * repository's transaction is the enclosing one because in every real
+       * composition both stores sit on the same SQLite connection.
+       */
+      const doc = await deps.documents.transaction(async () => {
+        const created = await svc.createVoucher({
+          id: d.id ?? idGen(),
+          date: d.date,
+          memo: d.memo,
+          voucherType: d.voucherType,
+          amount: Money.fromMajor(d.amount),
+          currency: d.currency,
+          branchId: d.branchId,
+          paymentMethod: d.paymentMethod,
+          treasuryAccountId: d.treasuryAccountId,
+          treasuryGlAccountId: d.treasuryGlAccountId,
+          counterpartyGlAccountId: d.counterpartyGlAccountId ?? null,
+          counterTreasuryAccountId: d.counterTreasuryAccountId ?? null,
+          counterTreasuryGlAccountId: d.counterTreasuryGlAccountId ?? null,
+          customerId: d.customerId ?? null,
+          supplierId: d.supplierId ?? null,
+          referenceNo: d.referenceNo ?? null,
+          costCenterId: d.costCenterId ?? null,
+          withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
+          withholdingRatePercent: d.withholdingRatePercent ?? null,
+          withholdingGlAccountId: d.withholdingGlAccountId ?? null,
+        });
+        await registerChequeFor(c, created);
+        return created;
       });
       return c.json(serialize(doc), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
   });
+
+  /**
+   * D81 — a voucher whose payment method is «شيك» raised a cheque the register
+   * never heard of, so «سجل الشيكات» missed every cheque written on the
+   * voucher screen. Post-dated cheques are ordinary Egyptian SMB receivables,
+   * which made that register the one place the business could see them.
+   *
+   * A تحويل (transfer) moves money between the tenant's own treasury accounts
+   * and names no counterparty, so it raises no register entry.
+   */
+  async function registerChequeFor(c: Context, doc: VoucherDocument): Promise<void> {
+    if (!deps.cheques) return;
+    const line = voucherLine(doc);
+    if (line.paymentMethod !== "cheque") return;
+    const direction = getVoucherTypeDefinition(line.voucherType).direction;
+    if (direction !== "receipt" && direction !== "payment") return;
+    await deps.cheques.register({
+      voucherId: doc.id,
+      direction: direction === "receipt" ? "incoming" : "outgoing",
+      chequeNumber: line.referenceNo,
+      amount: line.amount,
+      currency: line.currency,
+      issueDate: doc.date,
+      branchId: line.branchId,
+      partyId: direction === "receipt" ? line.customerId : line.supplierId,
+      counterpartyGlAccountId: line.counterpartyGlAccountId,
+      memo: doc.memo ?? null,
+      actor: getAuthContext(c)?.userId ?? deps.actor ?? "system",
+    });
+  }
 
   app.post("/:id/confirm", gate("treasury.cash_voucher.confirm"), async (c) => {
     let body: unknown = {};

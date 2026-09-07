@@ -373,15 +373,16 @@ describe("eta router — the e-seal hold before transmit", () => {
     expect(body.submittedAt).toBeNull();
   });
 
-  it("a second submit call on a pending_signature document DOES transmit, moving it on to submitted", async () => {
+  it("a second submit call does NOT transmit an unsigned document — it stays parked on pending_signature", async () => {
     const { app, service } = newApp(accepting);
     await app.fetch(req("/config", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ signingMethod: "eseal" }) }));
     await service.enqueue(invoiceInput);
     await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
 
     const res = await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
-    const body = (await res.json()) as { status: string };
-    expect(body.status).toBe("submitted");
+    const body = (await res.json()) as { status: string; submittedAt: string | null };
+    expect(body.status).toBe("pending_signature");
+    expect(body.submittedAt).toBeNull();
   });
 });
 

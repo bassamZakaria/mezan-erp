@@ -262,6 +262,23 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
         key: "permissions",
         itemKeys: ["users", "roles", "settings-workflow", "notification-rules", "audit", "devices", "settings-backup"],
       },
+      /**
+       * تقارير الرقابة والأمان. The four exception reports read the SAME
+       * append-only trail «سجل المراجعة» serves raw, so they sit beside it
+       * rather than under التقارير — an auditor arrives at the log and finds
+       * the questions already asked, instead of interrogating `action` strings
+       * by hand.
+       */
+      {
+        key: "security",
+        defaultCollapsed: true,
+        itemKeys: [
+          "security-exceptions",
+          "security-post-posting-changes",
+          "security-after-hours",
+          "security-new-accounts",
+        ],
+      },
     ],
   },
 ];

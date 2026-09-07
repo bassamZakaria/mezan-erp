@@ -601,3 +601,36 @@ describe("financial reports routes — malformed and impossible dates", () => {
     expect(body.rows).toEqual([]);
   });
 });
+
+describe("financial reports — D111: the statements carry no branch dimension (pinned LIMITATION)", () => {
+  it("LIMITATION (D111): a branch-scoped caller gets the whole company's trial balance, because a journal entry has no branch", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts });
+
+    const wide = (await (await app.fetch(req("/trial-balance?asOfDate=2026-08-31", "accounting.reports.view"))).json()) as {
+      grandTotals: Record<string, number>;
+    };
+    const scoped = (await (
+      await app.fetch(
+        new Request("http://local/trial-balance?asOfDate=2026-08-31", {
+          headers: { "x-permissions": "accounting.reports.view", "x-branch-scope": "br-1" },
+        }),
+      )
+    ).json()) as { grandTotals: Record<string, number> };
+
+    // Identical, and honestly so: there is no branch on a posted line to narrow
+    // by. Scoping the statements needs a branch on the GL posting first — until
+    // then this assertion is the record of what the product actually does.
+    expect(scoped.grandTotals).toEqual(wide.grandTotals);
+    expect(wide.grandTotals.debit).toBeGreaterThan(0);
+  });
+
+  it("LIMITATION (D111): a branchId parameter is not declared, so it is stripped rather than honoured", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts });
+    const res = await app.fetch(req("/trial-balance?asOfDate=2026-08-31&branchId=br-2", "accounting.reports.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { params: Record<string, unknown> };
+    expect(body.params.branchId).toBeUndefined();
+  });
+});

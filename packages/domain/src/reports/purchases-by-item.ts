@@ -5,6 +5,7 @@ import type { Item } from "../items/item.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * المشتريات حسب الصنف — Purchases by Item (docs/archive/catalog/08-reports.md):
@@ -26,6 +27,7 @@ export interface PurchasesByItemContext {
 export interface PurchasesByItemParams {
   readonly dateFrom: string;
   readonly dateTo: string;
+  readonly branchId: string;
 }
 
 export interface PurchasesByItemRow {
@@ -41,6 +43,7 @@ export interface PurchasesByItemRow {
 const paramsSchema = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  branchId: branchIdParamSchema,
 });
 
 export function createPurchasesByItemReport(
@@ -52,8 +55,8 @@ export function createPurchasesByItemReport(
     titleAr: "المشتريات حسب الصنف",
     descriptionAr: "ما هي الأصناف الأكثر تكلفة في الشراء خلال الفترة المحددة.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo },
-    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }],
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, branchId: "" },
+    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.itemId,
     columns: [
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
@@ -92,6 +95,7 @@ export function createPurchasesByItemReport(
       for (const invoice of ctx.invoices) {
         if (invoice.status !== "confirmed") continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
+        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         for (const line of invoice.lines) {
           if (line.kind !== "inventory" || line.itemId === null) continue;
           const existing = byItem.get(line.itemId) ?? { qty: Qty.zero(), cost: Money.zero() };

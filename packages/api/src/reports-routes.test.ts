@@ -927,41 +927,354 @@ describe("reports routes — D112: the aging reports tie to the AR/AP control ac
   });
 });
 
-describe("reports routes — D111: branch scope is NOT applied to any non-inventory report (pinned LIMITATION)", () => {
-  it("LIMITATION (D111): a caller scoped to one branch still sees every branch's invoices in /sales/by-period", async () => {
+/**
+ * D111. Two branches, two customers, two warehouses — the fixture every branch
+ * assertion below reads off. br-1 bills 200.00 and holds 1,000.00 of stock;
+ * br-2 bills 400.00 and holds 500.00. No figure is shared between them, so a
+ * leak across the branch boundary cannot look like a coincidence.
+ */
+async function twoBranches() {
+  const harness = await newApp();
+  const { deps } = harness;
+
+  await deps.warehouses.save({
+    id: "wh-1", code: "WH-1", name: "مخزن القاهرة", nameEn: null, branchId: "br-1", type: "MAIN", isDefault: true, active: true,
+  });
+  await deps.warehouses.save({
+    id: "wh-2", code: "WH-2", name: "مخزن الجيزة", nameEn: null, branchId: "br-2", type: "MAIN", isDefault: false, active: true,
+  });
+
+  await deps.salesInvoices.save(
+    makeInvoice({ id: "inv-br1", docNo: "INV-BR1", date: "2026-08-10", dueDate: "2026-08-20", branchId: "br-1", warehouseId: "wh-1", customerId: "cust-br1", customerNameAr: "عميل القاهرة", arAccountId: "1105" }),
+  );
+  await deps.salesInvoices.save(
+    makeInvoice({
+      id: "inv-br2", docNo: "INV-BR2", date: "2026-08-10", dueDate: "2026-08-20", branchId: "br-2", warehouseId: "wh-2", customerId: "cust-br2", customerNameAr: "عميل الجيزة", arAccountId: "1105",
+      lines: [makeInvoiceLine({ lineId: "l-br2", qty: Qty.fromMajor("4") })],
+    }),
+  );
+
+  await deps.purchaseInvoices.create(
+    makePurchaseInvoice({ id: "pi-br1", number: "PI-BR1", supplierId: "sup-br1", branchId: "br-1", warehouseId: "wh-1", date: "2026-08-10", dueDate: "2026-08-20" }),
+  );
+  await deps.purchaseInvoices.create(
+    makePurchaseInvoice({
+      id: "pi-br2", number: "PI-BR2", supplierId: "sup-br2", branchId: "br-2", warehouseId: "wh-2", date: "2026-08-10", dueDate: "2026-08-20",
+      lines: [{ itemId: "item-1", description: null, kind: "inventory", qty: Qty.fromMajor("3"), unitCost: Money.fromMajor("100.00"), taxRatePercent: 0 }],
+    }),
+  );
+
+  await deps.items.create(makeItem({ id: "item-1", code: "ITEM-1", nameAr: "صنف الفروع", type: "finished_good" }));
+  const stock = new StockLedgerService({
+    ledger: deps.stockLedger,
+    layers: deps.costLayers,
+    snapshots: deps.wacSnapshots,
+    policy: { allowNegativeStock: false },
+    transaction: async (fn) => fn(),
+  });
+  await stock.recordOpeningBalance({
+    adjustmentId: "adj-br1",
+    warehouseId: "wh-1",
+    lines: [{ itemId: "item-1", qty: Qty.fromMajor("40"), unitCost: Money.fromMajor("25.00") }],
+  });
+  await stock.recordOpeningBalance({
+    adjustmentId: "adj-br2",
+    warehouseId: "wh-2",
+    lines: [{ itemId: "item-1", qty: Qty.fromMajor("20"), unitCost: Money.fromMajor("25.00") }],
+  });
+
+  return harness;
+}
+
+function scopedReq(path: string, permissions: string, branchScope?: string) {
+  const headers: Record<string, string> = { "x-permissions": permissions };
+  if (branchScope !== undefined) headers["x-branch-scope"] = branchScope;
+  return new Request(`http://local${path}`, { headers });
+}
+
+describe("reports routes — D111: the actor's branch scope, and the branchId parameter", () => {
+  const RANGE = "dateFrom=2026-08-01&dateTo=2026-08-31";
+
+  async function netOf(app: Awaited<ReturnType<typeof twoBranches>>["app"], request: Request): Promise<number> {
+    const body = (await (await app.fetch(request)).json()) as { kpis: { key: string; value: number }[] };
+    return body.kpis.find((k) => k.key === "net")?.value ?? 0;
+  }
+
+  it("/sales/by-period: unscoped sees both branches, a scoped caller only their own, branchId narrows, and an out-of-scope branchId does not widen", async () => {
+    const { app } = await twoBranches();
+
+    // (a) an unscoped caller sees every branch.
+    expect(await netOf(app, scopedReq(`/sales/by-period?${RANGE}`, "sales.invoice.view"))).toBe(600);
+
+    // (b) a br-1-scoped caller sees br-1 alone.
+    expect(await netOf(app, scopedReq(`/sales/by-period?${RANGE}`, "sales.invoice.view", "br-1"))).toBe(200);
+
+    // (c) an explicit branchId narrows the unscoped caller.
+    expect(await netOf(app, scopedReq(`/sales/by-period?${RANGE}&branchId=br-2`, "sales.invoice.view"))).toBe(400);
+
+    // (d) the br-1 caller asking for br-2 gets their own nothing, never br-2's 400.
+    expect(await netOf(app, scopedReq(`/sales/by-period?${RANGE}&branchId=br-2`, "sales.invoice.view", "br-1"))).toBe(0);
+  });
+
+  it("/sales/by-customer: the rows themselves, not just the totals, are branch-scoped", async () => {
+    const { app } = await twoBranches();
+
+    async function customers(request: Request): Promise<string[]> {
+      const body = (await (await app.fetch(request)).json()) as { rows: { customerId: string; total: number }[] };
+      return body.rows.map((r) => r.customerId).sort();
+    }
+
+    expect(await customers(scopedReq(`/sales/by-customer?${RANGE}`, "sales.invoice.view"))).toEqual(["cust-br1", "cust-br2"]);
+    expect(await customers(scopedReq(`/sales/by-customer?${RANGE}`, "sales.invoice.view", "br-1"))).toEqual(["cust-br1"]);
+    expect(await customers(scopedReq(`/sales/by-customer?${RANGE}&branchId=br-2`, "sales.invoice.view"))).toEqual(["cust-br2"]);
+    expect(await customers(scopedReq(`/sales/by-customer?${RANGE}&branchId=br-2`, "sales.invoice.view", "br-1"))).toEqual([]);
+  });
+
+  it("/purchases/by-supplier: the same four answers on the purchase side", async () => {
+    const { app } = await twoBranches();
+
+    async function totals(request: Request): Promise<Record<string, number>> {
+      const body = (await (await app.fetch(request)).json()) as { rows: { supplierId: string; total: number }[] };
+      return Object.fromEntries(body.rows.map((r) => [r.supplierId, r.total]));
+    }
+
+    expect(await totals(scopedReq(`/purchases/by-supplier?${RANGE}`, "purchases.invoice.view"))).toEqual({ "sup-br1": 100, "sup-br2": 300 });
+    expect(await totals(scopedReq(`/purchases/by-supplier?${RANGE}`, "purchases.invoice.view", "br-1"))).toEqual({ "sup-br1": 100 });
+    expect(await totals(scopedReq(`/purchases/by-supplier?${RANGE}&branchId=br-2`, "purchases.invoice.view"))).toEqual({ "sup-br2": 300 });
+    expect(await totals(scopedReq(`/purchases/by-supplier?${RANGE}&branchId=br-2`, "purchases.invoice.view", "br-1"))).toEqual({});
+  });
+
+  it("/aging/customers: the ladder is branch-scoped, figures and all", async () => {
+    const { app } = await twoBranches();
+
+    async function ladder(request: Request): Promise<Record<string, number>> {
+      const body = (await (await app.fetch(request)).json()) as { rows: { customerId: string; total: number }[] };
+      return Object.fromEntries(body.rows.map((r) => [r.customerId, r.total]));
+    }
+
+    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).toEqual({ "cust-br1": 200, "cust-br2": 400 });
+    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view", "br-1"))).toEqual({ "cust-br1": 200 });
+    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22&branchId=br-2", "sales.invoice.view"))).toEqual({ "cust-br2": 400 });
+    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22&branchId=br-2", "sales.invoice.view", "br-1"))).toEqual({});
+  });
+
+  it("/inventory/valuation: stock reaches its branch through the warehouse holding it", async () => {
+    const { app } = await twoBranches();
+
+    async function value(request: Request): Promise<number> {
+      const body = (await (await app.fetch(request)).json()) as { grandTotals: { totalValue?: number } };
+      return body.grandTotals.totalValue ?? 0;
+    }
+
+    // 40 × 25.00 in br-1's warehouse, 20 × 25.00 in br-2's.
+    expect(await value(scopedReq("/inventory/valuation", "inventory.valuation.view"))).toBe(1500);
+    expect(await value(scopedReq("/inventory/valuation", "inventory.valuation.view", "br-1"))).toBe(1000);
+    expect(await value(scopedReq("/inventory/valuation?branchId=br-2", "inventory.valuation.view"))).toBe(500);
+    expect(await value(scopedReq("/inventory/valuation?branchId=br-2", "inventory.valuation.view", "br-1"))).toBe(0);
+  });
+
+  it("/inventory/stock-levels and /inventory/movement narrow to the branch's warehouses too", async () => {
+    const { app } = await twoBranches();
+
+    const levels = (await (await app.fetch(scopedReq("/inventory/stock-levels", "inventory.stock.view", "br-1"))).json()) as {
+      rows: { itemId: string; onHand: number; warehouseCount: number }[];
+    };
+    expect(levels.rows.find((r) => r.itemId === "item-1")?.onHand).toBe(40);
+    expect(levels.rows.find((r) => r.itemId === "item-1")?.warehouseCount).toBe(1);
+
+    const movements = (await (
+      await app.fetch(scopedReq("/inventory/movement?dateFrom=2020-01-01&dateTo=2030-01-01", "inventory.stock.view", "br-1"))
+    ).json()) as { rows: { warehouseName: string }[] };
+    expect(movements.rows.length).toBeGreaterThan(0);
+    expect(movements.rows.every((r) => r.warehouseName === "مخزن القاهرة")).toBe(true);
+  });
+
+  it("declares branchId in the parameter surface of every report that carries the dimension, and in none that does not", async () => {
+    const { app } = await twoBranches();
+    // A parameter the report does not declare is stripped by its schema, so
+    // the only proof that a route HONOURS branchId is that the figures move.
+    // These two do not carry the dimension at all: installments plans and
+    // journal entries have no branch, so the parameter changes nothing.
+    const overview = await app.fetch(scopedReq("/installments/overview?branchId=br-2", "installments.plan.view"));
+    expect(overview.status).toBe(200);
+    const params = ((await overview.json()) as { params: Record<string, unknown> }).params;
+    expect(params.branchId).toBeUndefined();
+  });
+});
+
+describe("reports routes — D112: the reconciliation banner renders in the running app", () => {
+  it("aging/customers carries a non-zero reconciliation that agrees with the AR control account, and flags divergence when it does not", async () => {
     const { app, deps } = await newApp();
     await deps.salesInvoices.save(
-      makeInvoice({ id: "inv-br1", docNo: "INV-BR1", date: "2026-08-10", branchId: "br-1", customerId: "cust-br1" }),
-    );
-    await deps.salesInvoices.save(
-      makeInvoice({ id: "inv-br2", docNo: "INV-BR2", date: "2026-08-10", branchId: "br-2", customerId: "cust-br2" }),
-    );
-
-    const scoped = await app.fetch(
-      new Request("http://local/sales/by-period?dateFrom=2026-08-01&dateTo=2026-08-31", {
-        headers: { "x-permissions": "sales.invoice.view", "x-branch-scope": "br-1" },
+      makeInvoice({
+        id: "inv-banner",
+        docNo: "INV-BANNER",
+        date: "2026-01-01",
+        dueDate: "2026-01-01",
+        customerId: "cust-banner",
+        arAccountId: "1105",
+        lines: [makeInvoiceLine({ unitPrice: Money.fromMajor("1000.00"), qty: Qty.fromMajor("1") })],
       }),
     );
-    const body = (await scoped.json()) as { kpis: { key: string; value: number }[] };
-    const revenueKpi = body.kpis.find((k) => k.key === "net");
-    // No branch narrowing exists on this route at all: a br-1-scoped caller's
-    // KPI still reflects BOTH invoices' revenue, not just br-1's.
-    expect(revenueKpi).toBeDefined();
-    expect(revenueKpi!.value).toBeGreaterThan(0);
+    await deps.ledger.save({
+      id: "je-banner-invoice",
+      date: "2026-01-01",
+      memo: "invoice",
+      status: "posted",
+      source: "system",
+      sourceDocType: "SALES_INVOICE",
+      sourceDocId: "inv-banner",
+      lines: [
+        { accountId: "1105", debit: Money.fromMajor("1000.00"), credit: Money.zero() },
+        { accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("1000.00") },
+      ],
+    });
 
-    const rows = (await (
-      await app.fetch(req("/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31", "sales.invoice.view"))
-    ).json()) as { rows: { customerId: string }[] };
-    const scopedRows = await app.fetch(
-      new Request("http://local/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31", {
-        headers: { "x-permissions": "sales.invoice.view", "x-branch-scope": "br-1" },
-      }),
+    const agreed = (await (await app.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
+      reconciliation: { labelAr: string; reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean } | null;
+    };
+    // The banner is the point: before D112 was fixed this was null on every run.
+    expect(agreed.reconciliation).not.toBeNull();
+    expect(agreed.reconciliation!.reportTotal).toBe(1000);
+    expect(agreed.reconciliation!.referenceTotal).toBe(1000);
+    expect(agreed.reconciliation!.referenceTotal).not.toBe(0);
+    expect(agreed.reconciliation!.withinTolerance).toBe(true);
+
+    // A posting the sub-ledger knows nothing about: the control account now
+    // holds 1,150 against a ladder of 1,000.
+    await deps.ledger.save({
+      id: "je-banner-orphan",
+      date: "2026-02-01",
+      memo: "unmatched AR posting",
+      status: "posted",
+      source: "manual",
+      lines: [
+        { accountId: "1105", debit: Money.fromMajor("150.00"), credit: Money.zero() },
+        { accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("150.00") },
+      ],
+    });
+    const diverged = (await (await app.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
+      reconciliation: { reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean };
+    };
+    expect(diverged.reconciliation.reportTotal).toBe(1000);
+    expect(diverged.reconciliation.referenceTotal).toBe(1150);
+    expect(diverged.reconciliation.diff).toBe(-150);
+    expect(diverged.reconciliation.withinTolerance).toBe(false);
+  });
+
+  it("aging/suppliers ties to the AP control account on its natural (credit) side", async () => {
+    const { app, deps } = await newApp();
+    await deps.purchaseInvoices.create(
+      makePurchaseInvoice({ id: "pi-banner", number: "PI-BANNER", supplierId: "sup-banner", date: "2026-01-01", dueDate: "2026-01-01" }),
     );
-    const scopedBody = (await scopedRows.json()) as { rows: { customerId: string }[] };
-    // Both customers appear even though the request was scoped to br-1 only —
-    // the same rows an unscoped caller gets.
-    expect(scopedBody.rows.map((r) => r.customerId).sort()).toEqual(rows.rows.map((r) => r.customerId).sort());
-    expect(scopedBody.rows.some((r) => r.customerId === "cust-br2")).toBe(true);
+    await deps.ledger.save({
+      id: "je-banner-purchase",
+      date: "2026-01-01",
+      memo: "purchase invoice",
+      status: "posted",
+      source: "system",
+      sourceDocType: "PURCHASE_INVOICE",
+      sourceDocId: "pi-banner",
+      lines: [
+        { accountId: "1200", debit: Money.fromMajor("100.00"), credit: Money.zero() },
+        { accountId: "2100", debit: Money.zero(), credit: Money.fromMajor("100.00") },
+      ],
+    });
+
+    const body = (await (await app.fetch(req("/aging/suppliers?asOfDate=2026-08-22", "purchases.invoice.view"))).json()) as {
+      reconciliation: { reportTotal: number; referenceTotal: number; withinTolerance: boolean } | null;
+    };
+    expect(body.reconciliation).not.toBeNull();
+    expect(body.reconciliation!.reportTotal).toBe(100);
+    // A credit-natural control account: 100 owed reads as +100 here, not −100.
+    expect(body.reconciliation!.referenceTotal).toBe(100);
+    expect(body.reconciliation!.withinTolerance).toBe(true);
+  });
+
+  it("inventory/valuation ties the stock sub-ledger to the inventory control account, and reports the drift when it does not", async () => {
+    const { app, deps } = await newApp();
+    await deps.items.create(makeItem({ id: "item-val", code: "ITEM-VAL", nameAr: "صنف التقييم", type: "finished_good" }));
+    const stock = new StockLedgerService({
+      ledger: deps.stockLedger,
+      layers: deps.costLayers,
+      snapshots: deps.wacSnapshots,
+      policy: { allowNegativeStock: false },
+      transaction: async (fn) => fn(),
+    });
+    await stock.recordOpeningBalance({
+      adjustmentId: "adj-val",
+      warehouseId: "wh-1",
+      lines: [{ itemId: "item-val", qty: Qty.fromMajor("40"), unitCost: Money.fromMajor("25.00") }],
+    });
+    await deps.ledger.save({
+      id: "je-val-opening",
+      date: "2026-01-01",
+      memo: "opening stock",
+      status: "posted",
+      source: "system",
+      sourceDocType: "STOCK_ADJUSTMENT",
+      sourceDocId: "adj-val",
+      lines: [
+        { accountId: "1200", debit: Money.fromMajor("1000.00"), credit: Money.zero() },
+        { accountId: "3100", debit: Money.zero(), credit: Money.fromMajor("1000.00") },
+      ],
+    });
+
+    const agreed = (await (await app.fetch(req("/inventory/valuation", "inventory.valuation.view"))).json()) as {
+      reconciliation: { reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean } | null;
+    };
+    expect(agreed.reconciliation).not.toBeNull();
+    expect(agreed.reconciliation!.reportTotal).toBe(1000);
+    expect(agreed.reconciliation!.referenceTotal).toBe(1000);
+    expect(agreed.reconciliation!.referenceTotal).not.toBe(0);
+    expect(agreed.reconciliation!.withinTolerance).toBe(true);
+
+    // Stock written down in the GL and not in the sub-ledger — exactly the
+    // divergence the banner exists to surface.
+    await deps.ledger.save({
+      id: "je-val-writedown",
+      date: "2026-02-01",
+      memo: "write-down posted only in the GL",
+      status: "posted",
+      source: "manual",
+      lines: [
+        { accountId: "5100", debit: Money.fromMajor("250.00"), credit: Money.zero() },
+        { accountId: "1200", debit: Money.zero(), credit: Money.fromMajor("250.00") },
+      ],
+    });
+    const diverged = (await (await app.fetch(req("/inventory/valuation", "inventory.valuation.view"))).json()) as {
+      reconciliation: { reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean };
+    };
+    expect(diverged.reconciliation.referenceTotal).toBe(750);
+    expect(diverged.reconciliation.diff).toBe(250);
+    expect(diverged.reconciliation.withinTolerance).toBe(false);
+  });
+
+  it("withholds the banner from a branch-narrowed run, where a company-wide control account is not the right reference", async () => {
+    const { app, deps } = await twoBranches();
+    await deps.ledger.save({
+      id: "je-branch-ar",
+      date: "2026-08-10",
+      memo: "both branches' invoices",
+      status: "posted",
+      source: "system",
+      lines: [
+        { accountId: "1105", debit: Money.fromMajor("600.00"), credit: Money.zero() },
+        { accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("600.00") },
+      ],
+    });
+
+    const wide = (await (await app.fetch(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
+      reconciliation: { referenceTotal: number } | null;
+    };
+    expect(wide.reconciliation?.referenceTotal).toBe(600);
+
+    const scoped = (await (await app.fetch(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view", "br-1"))).json()) as {
+      reconciliation: unknown;
+    };
+    // 200 against a company-wide 600 is not a discrepancy, so no banner at all
+    // rather than one that cries wolf on every branch manager's screen.
+    expect(scoped.reconciliation).toBeNull();
   });
 });
 

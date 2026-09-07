@@ -7,6 +7,7 @@ import {
   type App,
   type PermissionRefusal,
   type CreateAppOptions,
+  type InstallmentCollectPort,
   type SessionRegistry,
 } from "@mezan/api";
 import {
@@ -29,6 +30,7 @@ import {
   createSalesReturnDocumentType,
   createPurchaseReturnDocumentType,
   createLandedCostDocumentType,
+  LANDED_COST_DOC_TYPE,
   LandedCostService,
   installmentPlanDocumentType,
   stockAdjustmentDocumentType,
@@ -39,6 +41,7 @@ import {
   PhysicalCountService,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
+  purchaseInvoiceLineTax,
   salesInvoiceBaseGrandTotal,
   type OpenPartyDocument,
   purchaseInvoiceTotal,
@@ -303,10 +306,17 @@ function adjustmentGlAccountsForReason(
  * The GL accounts التكاليف الإضافية posts against — the freight/customs
  * accrual reuses trade payables (2100) as its clearing account; no dedicated
  * "accrued landed cost" leaf exists in the template.
+ *
+ * `unabsorbedCostAccountId` is تكلفة البضاعة المباعة (5100, `item_type.cogs`).
+ * A landed cost that arrives after the goods were sold cannot raise the basis
+ * of stock that is gone, so that part is a period cost and is reclassified out
+ * of 1200 into 5100 — otherwise GL inventory exceeds the valuation report by
+ * exactly that figure, permanently (D84).
  */
 const LANDED_COST_GL_ACCOUNTS = {
   inventoryAccountId: "1200",
   accruedLandedCostPayableId: "2100",
+  unabsorbedCostAccountId: "5100",
 };
 
 /**
@@ -753,6 +763,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
     gl: createInventoryGlPostingHook(salesInvoiceGl),
+    // The last-resort cost for an issue out of a position that holds nothing
+    // and was never received anywhere. Without it such an issue was written at
+    // zero and COGS was understated by the whole deficit (D101).
+    fallbackUnitCost: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
   });
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const documentWorkflowGate = createDocumentWorkflowGate(
@@ -823,7 +837,34 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: documentGl,
     workflow: documentWorkflowGate,
   });
-  const landedCosts = new LandedCostService(landedCostDocuments, stockService);
+  const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
+    postUnabsorbed: async (posting) => {
+      await postJournalEntry(
+        {
+          id: posting.entryId,
+          date: posting.date,
+          memo: posting.memo,
+          source: "system",
+          sourceDocType: LANDED_COST_DOC_TYPE,
+          sourceDocId: posting.sourceDocId,
+          sourceDocNumber: posting.sourceDocNumber,
+          lines: [
+            {
+              accountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
+              debit: posting.amount,
+              credit: Money.zero(),
+            },
+            {
+              accountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
+              debit: Money.zero(),
+              credit: posting.amount,
+            },
+          ],
+        },
+        salesInvoiceGl,
+      );
+    },
+  });
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
     repo: installmentPlans,
     numbering: { next: (opts) => ledger.numbering.next("INSTALLMENT_PLAN", { branchId: opts?.branchId }) },
@@ -1233,6 +1274,61 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }).catch(() => undefined);
   };
 
+  /**
+   * تحصيل من عميل — creates and CONFIRMS a real collection voucher and
+   * allocates it to the invoice, so the money lands in a treasury account, AR
+   * is credited in the ledger, and the invoice's amountPaid follows from the
+   * allocation. It used to increment amountPaid and post nothing (D1). Shared
+   * by the sales invoice screen and the instalment collection route.
+   */
+  const collectFromCustomer: InstallmentCollectPort = async (input) => {
+    const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
+    if (!treasury?.glAccountId) {
+      throw new InvalidSalesInvoicePaymentError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
+    }
+    const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
+    const service = new VoucherService({
+      documents: vouchers.documents,
+      ledger,
+      accounts,
+      periods: fiscalPeriods,
+      numbering: ledger.numbering,
+      treasuryAccounts,
+      allocations: vouchers.allocations,
+      invoices: vouchers.invoices,
+      settings,
+      settlement: {
+        applySettled: async ({ invoiceId, kind, settled }) => {
+          if (kind !== "sales") return;
+          await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
+        },
+      },
+      audit: auditSink,
+      actor: input.actor,
+    });
+    await service.createVoucher({
+      id: voucherId,
+      date: input.date,
+      memo: input.memo ?? undefined,
+      voucherType: "customer_collection",
+      amount: input.amount,
+      branchId: input.branchId,
+      paymentMethod: input.paymentMethod,
+      treasuryAccountId: input.treasuryAccountId,
+      treasuryGlAccountId: treasury.glAccountId,
+      counterpartyGlAccountId: "1105",
+      customerId: input.customerId,
+      referenceNo: input.referenceNo ?? null,
+    });
+    await service.confirmVoucher(voucherId);
+    await service.allocate(voucherId, {
+      allocationId: `${voucherId}:A1`,
+      invoiceId: input.invoiceId,
+      amount: input.amount,
+    });
+    return { voucherId };
+  };
+
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },
@@ -1446,60 +1542,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // The customer's own price list, consulted SERVER-side. The engine
       // (resolvePrice) always existed and no route called it, so the whole
       // pricing order held only in the browser (D35).
-      /**
-       * تحصيل من عميل — the invoice screen's collect action. It creates and
-       * CONFIRMS a real collection voucher and allocates it to the invoice, so
-       * the money lands in a treasury account, AR is credited in the ledger,
-       * and the invoice's amountPaid follows from the allocation. It used to
-       * increment amountPaid and post nothing (D1).
-       */
-      collect: async (input) => {
-        const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
-        if (!treasury?.glAccountId) {
-          throw new InvalidSalesInvoicePaymentError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
-        }
-        const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
-        const service = new VoucherService({
-          documents: vouchers.documents,
-          ledger,
-          accounts,
-          periods: fiscalPeriods,
-          numbering: ledger.numbering,
-          treasuryAccounts,
-          allocations: vouchers.allocations,
-          invoices: vouchers.invoices,
-          settings,
-          settlement: {
-            applySettled: async ({ invoiceId, kind, settled }) => {
-              if (kind !== "sales") return;
-              await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
-            },
-          },
-          audit: auditSink,
-          actor: input.actor,
-        });
-        await service.createVoucher({
-          id: voucherId,
-          date: input.date,
-          memo: input.memo ?? undefined,
-          voucherType: "customer_collection",
-          amount: input.amount,
-          branchId: input.branchId,
-          paymentMethod: input.paymentMethod,
-          treasuryAccountId: input.treasuryAccountId,
-          treasuryGlAccountId: treasury.glAccountId,
-          counterpartyGlAccountId: "1105",
-          customerId: input.customerId,
-          referenceNo: input.referenceNo ?? null,
-        });
-        await service.confirmVoucher(voucherId);
-        await service.allocate(voucherId, {
-          allocationId: `${voucherId}:A1`,
-          invoiceId: input.invoiceId,
-          amount: input.amount,
-        });
-        return { voucherId };
-      },
+      collect: collectFromCustomer,
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
           // تفعيل قوائم الأسعار (settings §"الرقابة الائتمانية"): with price
@@ -1795,6 +1838,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
             }
           }
+          // The tax the line was ACTUALLY charged — after line, promotion and
+          // header discounts, and zero when the customer is tax-exempt. Handing
+          // the return a zero here credited no VAT at all and left it no rate
+          // to group the posting by (D76).
+          const chargedTax = new Map<string, { tax: Money; rate: number }>();
+          const invoiceTotals = salesInvoiceTotals(invoice);
+          for (const [i, line] of invoice.lines.entries()) {
+            chargedTax.set(line.lineId, {
+              tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
+              rate: line.taxRatePercent,
+            });
+          }
           return {
             id: invoice.id,
             number: invoice.docNo ?? invoice.id,
@@ -1813,7 +1868,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               alreadyReturnedQty: returnedByItem.get(l.itemId) ?? Qty.zero(),
               unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
               unitCost: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
-              taxAmount: Money.zero(),
+              taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
+              taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
             })),
           };
         },
@@ -1914,14 +1970,23 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                 qty: l.qty,
                 alreadyReturnedQty: returnedByItem.get(l.itemId as string) ?? Qty.zero(),
                 unitCost: l.unitCost,
-                taxAmount: Money.zero(),
+                // The input VAT the line actually carried, and the rate that
+                // produced it — a return with neither credits no VAT back and
+                // gives the VAT return nothing to group by (D76).
+                taxAmount: purchaseInvoiceLineTax(l),
+                taxRatePercent: l.taxRatePercent,
               })),
           };
         },
       },
     },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
-    installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },
+    installments: {
+      plans: installmentPlanDocuments,
+      plansRepo: installmentPlans,
+      followUps,
+      collect: collectFromCustomer,
+    },
     reports: {
       allocatable: vouchers.invoices,
       // The customer aging ladder has to net every credit the GL already

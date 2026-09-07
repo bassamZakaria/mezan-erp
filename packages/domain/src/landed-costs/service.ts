@@ -34,33 +34,48 @@ export interface UnabsorbedLandedCost {
 }
 
 /**
- * DECISION PENDING — the GL half of D135.
+ * Reclassifies the part of a landed cost the stock could not absorb.
  *
  * `buildGlPosting` debits the inventory control account for the WHOLE document
  * because it is pure over the document and cannot know what is still on hand.
- * When `unabsorbedTotal` is nonzero that debit is wrong by exactly that amount:
- * the stock valuation report will be lower than GL inventory until the
- * remainder is posted to an expense account instead.
+ * Whatever the revaluation could not capitalise belongs to units already sold,
+ * so it is a PERIOD cost: the caller moves it out of inventory and into cost of
+ * sales in a second, balanced entry. Without that GL inventory exceeded the
+ * stock valuation report by exactly the unabsorbed figure, forever (D84).
  *
- * Closing it needs a mapping decision nobody has made: cost of sales
- * (`item_type.cogs`, 5100 in the standard chart) or a dedicated landed-cost /
- * purchase-price-variance account. Until then this figure is returned so the
- * caller can surface it rather than have it disappear.
+ * The amount is stated here; which accounts it lands in is the composition
+ * root's decision, as it is for every other posting this module makes.
  */
+export interface LandedCostUnabsorbedGlPort {
+  postUnabsorbed(posting: {
+    readonly entryId: string;
+    readonly date: string;
+    readonly memo: string;
+    readonly sourceDocId: string;
+    readonly sourceDocNumber: string | null;
+    readonly amount: Money;
+  }): Promise<void>;
+}
+
 export interface LandedCostConfirmResult extends ConfirmResult<LandedCostLine> {
   readonly unabsorbed: readonly UnabsorbedLandedCost[];
   readonly unabsorbedTotal: Money;
+  /** The reclassification entry, when there was an unabsorbed remainder and a GL port to post it through. */
+  readonly unabsorbedJournalEntryId: string | null;
 }
 
 export class LandedCostService {
   constructor(
     private readonly documents: DocumentService<LandedCostLine>,
     private readonly stock: StockLedgerService,
+    private readonly gl?: LandedCostUnabsorbedGlPort,
   ) {}
 
   async confirm(id: string, opts: ConfirmOptions = {}): Promise<LandedCostConfirmResult> {
     const result = await this.documents.confirm(id, opts);
-    if (result.held) return { ...result, unabsorbed: [], unabsorbedTotal: Money.zero() };
+    if (result.held) {
+      return { ...result, unabsorbed: [], unabsorbedTotal: Money.zero(), unabsorbedJournalEntryId: null };
+    }
 
     const unabsorbed: UnabsorbedLandedCost[] = [];
     for (const line of result.document.lines) {
@@ -82,6 +97,19 @@ export class LandedCostService {
         });
       }
     }
-    return { ...result, unabsorbed, unabsorbedTotal: Money.sum(unabsorbed.map((u) => u.amount)) };
+    const unabsorbedTotal = Money.sum(unabsorbed.map((u) => u.amount));
+    let unabsorbedJournalEntryId: string | null = null;
+    if (unabsorbedTotal.scaled !== 0n && this.gl) {
+      unabsorbedJournalEntryId = `${result.document.id}:UNABSORBED`;
+      await this.gl.postUnabsorbed({
+        entryId: unabsorbedJournalEntryId,
+        date: result.document.date,
+        memo: `تكلفة إضافية غير مُحمَّلة على المخزون — ${result.document.docNo ?? result.document.id}`,
+        sourceDocId: result.document.id,
+        sourceDocNumber: result.document.docNo,
+        amount: unabsorbedTotal,
+      });
+    }
+    return { ...result, unabsorbed, unabsorbedTotal, unabsorbedJournalEntryId };
   }
 }

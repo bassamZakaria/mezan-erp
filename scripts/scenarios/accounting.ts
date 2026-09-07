@@ -1125,7 +1125,7 @@ export async function aPostedEntryCannotBeEditedOrDeletedThroughAnyRoute(ctx: Ct
  * An opening balance is how every migration starts: the shop's existing
  * debtors are typed in on day one. If that figure never reaches the AR control
  * account, the sub-ledger and the GL disagree from the very first day and no
- * amount of correct posting afterwards will close the gap.
+ * amount of correct posting afterwards will close the gap. Guards D142.
  */
 export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: Ctx): Promise<void> {
   await ctx.scenario("opening balances — a customer's opening balance against GL 1105", async () => {
@@ -1133,6 +1133,7 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
     const opening = 4250;
 
     const arBefore = await accountBalance(ctx, "1105");
+    const equityBefore = await accountBalance(ctx, "3210");
 
     const created = await ctx.req("POST", "/customers", {
       id,
@@ -1156,17 +1157,24 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
       JSON.stringify(listed).slice(0, 220),
     );
 
-    const arAfter = await accountBalance(ctx, "1105");
+    // D142: the control account moves by exactly the opening balance, against
+    // أرصدة افتتاحية (3210) — the sub-ledger and the GL agree from day one.
+    ctx.checkEq("GL 1105 moved by exactly the opening balance", await accountBalance(ctx, "1105"), arBefore + opening);
+    ctx.checkEq("and the other side landed in opening-balance equity 3210 as a credit", await accountBalance(ctx, "3210"), equityBefore - opening);
+
+    // Correcting an opening balance after it was posted moves the control
+    // account by the DIFFERENCE, so a typo fixed on the customer screen cannot
+    // put the sub-ledger and the GL back out of step.
+    const corrected = await ctx.req("PATCH", `/customers/${id}`, { openingBalance: `${opening + 270}.00` });
     ctx.check(
-      "FINDING: GL 1105 did not move — the opening balance is held on the customer record only, so the AR sub-ledger " +
-        "exceeds its control account by exactly the opening balances typed in at go-live, and nothing in the product " +
-        "ever closes that gap",
-      arAfter === arBefore,
-      `1105 before ${arBefore} after ${arAfter} (opening ${opening})`,
+      "the opening balance can be corrected after it was posted",
+      corrected.status === 200 && ctx.n(corrected.body?.openingBalance) === opening + 270,
+      `status ${corrected.status} body ${JSON.stringify(corrected.body).slice(0, 200)}`,
     );
+    ctx.checkEq("and GL 1105 followed the correction, not the whole figure twice", await accountBalance(ctx, "1105"), arBefore + opening + 270);
 
     // Put it back, or every reconciliation scenario after this one inherits
-    // the gap this one just demonstrated.
+    // this one's debtor.
     const cleared = await ctx.req("PATCH", `/customers/${id}`, { openingBalance: "0.00" });
     ctx.check(
       "the opening balance is cleared again so later scenarios start level",
@@ -1174,6 +1182,7 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
       `status ${cleared.status} body ${JSON.stringify(cleared.body).slice(0, 200)}`,
     );
     ctx.checkEq("and GL 1105 is exactly where it started", await accountBalance(ctx, "1105"), arBefore);
+    ctx.checkEq("and so is 3210", await accountBalance(ctx, "3210"), equityBefore);
   });
 }
 

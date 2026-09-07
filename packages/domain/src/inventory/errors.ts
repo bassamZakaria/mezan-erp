@@ -28,6 +28,30 @@ export class NegativeStockError extends Error {
 }
 
 /**
+ * Raised when an issue would drive a position negative and there is NO
+ * defensible cost to write it at — the position holds nothing, the item was
+ * never received anywhere, and no fallback cost is configured.
+ *
+ * The alternative was writing the movement at zero, which understated COGS by
+ * the whole deficit and said nothing on any screen (D101). A refusal at least
+ * says which item has no cost basis.
+ */
+export class UncostedDeficitIssueError extends Error {
+  readonly code = "UNCOSTED_DEFICIT_ISSUE";
+  constructor(
+    readonly itemId: string,
+    readonly warehouseId: string,
+    readonly requested: Qty,
+  ) {
+    super(
+      `صرف ${requested.toString()} من الصنف "${itemId}" من المستودع "${warehouseId}" ` +
+        `يتجاوز الرصيد المتاح، ولا توجد تكلفة معروفة لهذا الصنف تُسعَّر بها الكمية الناقصة.`,
+    );
+    this.name = "UncostedDeficitIssueError";
+  }
+}
+
+/**
  * Raised when an issue would draw on stock that has already expired.
  *
  * Only issues are blocked. Writing expired goods OFF — an adjustment with the

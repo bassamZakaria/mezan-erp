@@ -122,7 +122,11 @@ import { createSettingsRoutes } from "./settings-routes.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
-import { createCustomersRouter, type CustomerReceivablesSource } from "./customers-routes.js";
+import {
+  createCustomersRouter,
+  type CustomerOpeningBalancePoster,
+  type CustomerReceivablesSource,
+} from "./customers-routes.js";
 import { createSuppliersRouter, type SupplierPayablesSource } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
 import {
@@ -257,6 +261,29 @@ function serialize(entry: JournalEntry) {
     })),
   };
 }
+
+/**
+ * تحصيل قسط — turns an instalment collection into a real confirmed customer
+ * collection voucher allocated to the plan line's source invoice, exactly as
+ * the sales invoice `collect` port does. Without it an instalment's
+ * `paidAmount` could only ever move with nothing posted behind it (D1's shape).
+ */
+export type InstallmentCollectPort = (input: {
+  invoiceId: string;
+  customerId: string;
+  branchId: string;
+  amount: Money;
+  treasuryAccountId: string;
+  paymentMethod: "cash" | "bank" | "cheque" | "card" | "wallet";
+  date: string;
+  referenceNo?: string | null;
+  memo?: string | null;
+  actor?: string;
+}) => Promise<{ voucherId: string }>;
+
+/** حسابات المدينون / الأرصدة الافتتاحية from the seed chart template — where a customer's opening balance lands (D142). */
+const AR_CONTROL_ACCOUNT_ID = "1105";
+const OPENING_BALANCE_EQUITY_ACCOUNT_ID = "3210";
 
 export interface CreateAppOptions {
   /**
@@ -740,7 +767,10 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /** Mounts `/installments` (docs/archive/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل") when present. */
-  readonly installments?: InstallmentsRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  readonly installments?: InstallmentsRoutesDeps & {
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly collect?: InstallmentCollectPort;
+  };
   /**
    * Mounts `/reports` (docs/archive/catalog/08 — operational reports) when present.
    * Independent of `options.inventory`/`options.purchases`/etc. — it takes
@@ -999,6 +1029,43 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       }
     : undefined;
 
+  /**
+   * A customer's opening balance debits the AR control account and credits
+   * opening-balance equity, through the same period-gated, numbered, audited
+   * posting path every document uses. Without it the AR sub-ledger exceeded
+   * GL 1105 by every debtor typed in at go-live and nothing closed the gap
+   * (D142). Needs `options.gl`; a composition with no ledger posts nothing.
+   */
+  const customerOpeningBalanceGl: CustomerOpeningBalancePoster | undefined = options.gl
+    ? async (posting) => {
+        const receivable = posting.amount.scaled > 0n ? posting.amount : posting.amount.negate();
+        const debitAr = posting.amount.scaled > 0n;
+        await postJournalEntry(
+          {
+            id: posting.entryId,
+            date: posting.date,
+            memo: `رصيد افتتاحي — ${posting.customerName}`,
+            source: "system",
+            sourceDocType: "CUSTOMER_OPENING_BALANCE",
+            sourceDocId: posting.customerId,
+            lines: [
+              {
+                accountId: AR_CONTROL_ACCOUNT_ID,
+                debit: debitAr ? receivable : Money.zero(),
+                credit: debitAr ? Money.zero() : receivable,
+              },
+              {
+                accountId: OPENING_BALANCE_EQUITY_ACCOUNT_ID,
+                debit: debitAr ? Money.zero() : receivable,
+                credit: debitAr ? receivable : Money.zero(),
+              },
+            ],
+          },
+          options.gl!,
+        );
+      }
+    : undefined;
+
   if (options.customerStore) {
     app.route(
       "/customers",
@@ -1008,6 +1075,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         options.auditSink,
         options.priceListRepo,
         customerReceivables,
+        customerOpeningBalanceGl,
       ),
     );
   }

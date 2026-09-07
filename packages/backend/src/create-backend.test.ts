@@ -1257,6 +1257,123 @@ describe("createBackend — reconciliation still ties after a confirmed sales re
 });
 
 /**
+ * D76's remaining wiring. The return DOCUMENT has carried a per-rate tax split
+ * since the domain fix, but the composition root's `findConfirmedInvoice`
+ * adapter handed every line `taxAmount: Money.zero()` — so a return built from
+ * a VAT-charged invoice credited no VAT at all and carried no rate for the VAT
+ * return to group by.
+ */
+describe("createBackend — a return of a VAT-charged invoice credits the VAT back (D76)", () => {
+  it("«مرتجع من فاتورة» carries the invoice line's own tax share and rate onto the return, and the GL reverses it", async () => {
+    const app = await newBackend();
+
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-vat-ret", code: "item-vat-ret", nameAr: "منتج بضريبة", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/adjustments",
+          {
+            adjustmentId: "adj-vat-ret",
+            warehouseId: "WH-MAIN",
+            reason: "INITIAL_STOCK",
+            lines: [{ itemId: "item-vat-ret", direction: "IN", qty: "100", unitCost: "10" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+
+    await createCustomer(app, "cust-vat-ret", "0");
+
+    expect(
+      (
+        await post(
+          app,
+          "/sales-invoices",
+          {
+            id: "inv-vat-ret",
+            date: "2026-08-22",
+            dueDate: "2026-09-21",
+            customerId: "cust-vat-ret",
+            customerNameAr: "عميل cust-vat-ret",
+            warehouseId: "WH-MAIN",
+            branchId: "BR-MAIN",
+            arAccountId: "1105",
+            taxAccountId: "2200",
+            lines: [
+              {
+                lineId: "L1",
+                itemId: "item-vat-ret",
+                itemNameAr: "منتج بضريبة",
+                isStock: true,
+                qty: "20",
+                unitPrice: "50",
+                taxRatePercent: 14,
+                revenueAccountId: "4100",
+                cogsAccountId: "5100",
+                inventoryAccountId: "1200",
+              },
+            ],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    const confirmInvoice = await post(app, "/sales-invoices/inv-vat-ret/confirm", {}, admin(app));
+    expect(confirmInvoice.status).toBe(200);
+
+    const built = await post(
+      app,
+      "/sales-returns/from-invoice",
+      {
+        id: "sr-vat-ret",
+        date: "2026-08-23",
+        memo: "",
+        sourceInvoiceId: "inv-vat-ret",
+        warehouseId: "WH-MAIN",
+        reason: "DEFECTIVE",
+        requested: [{ itemId: "item-vat-ret", qty: "5" }],
+      },
+      admin(app),
+    );
+    expect(built.status).toBe(201);
+    const draft = (await built.json()) as { lines: { taxAmount: string; taxRatePercent: number | null }[] };
+    // 5 of 20 pieces sold at 50 with 14% output VAT: base 250, VAT 35.
+    expect(Number(draft.lines[0]!.taxAmount)).toBe(35);
+    expect(draft.lines[0]!.taxRatePercent).toBe(14);
+
+    const confirmed = await post(app, "/sales-returns/sr-vat-ret/confirm", {}, admin(app));
+    expect(confirmed.status).toBe(200);
+    const { document } = (await confirmed.json()) as { document: { journalEntryId: string } };
+
+    const entry = await app.fetch(
+      new Request(`http://local/gl/journal-entries/${document.journalEntryId}`, { headers: admin(app) }),
+    );
+    const je = (await entry.json()) as {
+      lines: { accountId: string; debit: string; credit: string; taxRatePercent: number | null }[];
+    };
+    const vat = je.lines.filter((l) => l.accountId === "2200");
+    expect(vat).toHaveLength(1);
+    expect(Number(vat[0]!.debit)).toBe(35);
+    expect(vat[0]!.taxRatePercent).toBe(14);
+    // And AR is credited the whole 285, not the 250 base alone.
+    const ar = je.lines.filter((l) => l.accountId === "1105");
+    expect(Number(ar[0]!.credit)).toBe(285);
+  });
+});
+
+/**
  * سداد للمورد straight off the invoice — `create-backend.ts`'s `purchases.pay`
  * adapter (R4.4, the purchase-side mirror of `salesInvoices.collect`/D40): a
  * real confirmed supplier-payment voucher, allocated to the invoice, moving

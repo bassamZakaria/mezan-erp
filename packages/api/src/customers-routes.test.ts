@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { Money, NoFiscalPeriodForDateError } from "@mezan/domain";
 import { createSqliteCustomerRepository, type SqliteCustomerRepositoryHandle } from "@mezan/persistence";
-import { createCustomersRouter } from "./customers-routes.js";
+import { createCustomersRouter, type CustomerOpeningBalancePoster } from "./customers-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteCustomerRepositoryHandle[] = [];
@@ -191,5 +192,113 @@ describe("customers router — CRUD", () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * D142 — a customer's opening balance is how every migration starts, and it
+ * has to reach the AR control account or the sub-ledger exceeds GL 1105 from
+ * day one by the sum of the debtors typed in at go-live.
+ */
+describe("customers router — the opening balance reaches the AR control account (D142)", () => {
+  interface Posted {
+    entryId: string;
+    customerId: string;
+    date: string;
+    amount: string;
+  }
+
+  function newPostingApp(poster?: CustomerOpeningBalancePoster) {
+    const repo = createSqliteCustomerRepository();
+    handles.push(repo);
+    const posted: Posted[] = [];
+    const recording: CustomerOpeningBalancePoster = async (p) => {
+      posted.push({ entryId: p.entryId, customerId: p.customerId, date: p.date, amount: p.amount.toString() });
+      await (poster?.(p) ?? Promise.resolve());
+    };
+    const app = createCustomersRouter(repo, insecureHeaderAuthContextResolver, undefined, undefined, undefined, recording);
+    return { app, repo, posted };
+  }
+
+  function create(body: Record<string, unknown>) {
+    return req("/", {
+      method: "POST",
+      permissions: "sales.customer.create",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  function patch(id: string, body: Record<string, unknown>) {
+    return req(`/${id}`, {
+      method: "PATCH",
+      permissions: "sales.customer.edit",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("posts the whole opening balance on create, dated at the date the caller gave", async () => {
+    const { app, posted } = newPostingApp();
+    const res = await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2026-01-01" }));
+    expect(res.status).toBe(201);
+    expect(posted).toEqual([
+      { entryId: expect.stringContaining("CUST-OPEN-JE:c1:"), customerId: "c1", date: "2026-01-01", amount: "4250.000000" },
+    ]);
+  });
+
+  it("posts nothing when there is no opening balance to post", async () => {
+    const { app, posted } = newPostingApp();
+    expect((await app.fetch(create(VALID_PAYLOAD))).status).toBe(201);
+    expect(posted).toEqual([]);
+  });
+
+  it("a customer in credit posts a NEGATIVE movement, so the control account is credited rather than debited", async () => {
+    const { app, posted } = newPostingApp();
+    expect((await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "-500.50", openingBalanceDate: "2026-01-01" }))).status).toBe(201);
+    expect(posted[0]?.amount).toBe("-500.500000");
+  });
+
+  it("an opening balance corrected after it was posted moves the control account by the DELTA, not by the new figure", async () => {
+    const { app, posted } = newPostingApp();
+    await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2026-01-01" }));
+    const res = await app.fetch(patch("c1", { openingBalance: "4520.00", openingBalanceDate: "2026-01-01" }));
+    expect(res.status).toBe(200);
+    expect(posted.map((p) => p.amount)).toEqual(["4250.000000", "270.000000"]);
+  });
+
+  it("clearing an opening balance back to zero posts the reversing movement", async () => {
+    const { app, posted } = newPostingApp();
+    await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2026-01-01" }));
+    await app.fetch(patch("c1", { openingBalance: "0.00", openingBalanceDate: "2026-01-01" }));
+    expect(posted.map((p) => p.amount)).toEqual(["4250.000000", "-4250.000000"]);
+  });
+
+  it("an edit that leaves the opening balance alone posts nothing", async () => {
+    const { app, posted } = newPostingApp();
+    await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2026-01-01" }));
+    await app.fetch(patch("c1", { creditLimit: "9000.00" }));
+    expect(posted).toHaveLength(1);
+  });
+
+  it("a refused period refuses the customer too — no debtor is left carrying a balance the ledger never heard about", async () => {
+    const { app, repo } = newPostingApp(async () => {
+      throw new NoFiscalPeriodForDateError("2020-01-01");
+    });
+    const res = await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2020-01-01" }));
+    expect(res.status).toBe(422);
+    expect(await repo.findById("c1")).toBeNull();
+  });
+
+  it("a refused period leaves an existing opening balance exactly where it was", async () => {
+    let refuse = false;
+    const { app, repo } = newPostingApp(async () => {
+      if (refuse) throw new NoFiscalPeriodForDateError("2020-01-01");
+    });
+    await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2026-01-01" }));
+    refuse = true;
+    const res = await app.fetch(patch("c1", { openingBalance: "9999.00", openingBalanceDate: "2020-01-01" }));
+    expect(res.status).toBe(422);
+    expect((await repo.findById("c1"))?.openingBalance.toString()).toBe(Money.fromMajor("4250.00").toString());
   });
 });

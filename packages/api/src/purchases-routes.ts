@@ -39,6 +39,7 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   NegativeStockError,
+  UncostedDeficitIssueError,
   CashBalanceWouldGoNegativeError,
   InvalidDocumentError,
   AllocationMismatchError,
@@ -298,6 +299,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof NegativeStockError ||
+    err instanceof UncostedDeficitIssueError ||
     // Raised by the voucher engine behind `POST /invoices/:id/payments` — the
     // same D20 shape: a refusal the caller can act on must not answer 500.
     err instanceof CashBalanceWouldGoNegativeError ||

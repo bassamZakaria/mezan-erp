@@ -1,4 +1,4 @@
-export { createApp, type App, type CreateAppOptions } from "./app.js";
+export { createApp, type App, type CreateAppOptions, type InstallmentCollectPort } from "./app.js";
 export {
   createModuleGate,
   type EntitlementsResolver,

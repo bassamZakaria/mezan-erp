@@ -167,3 +167,63 @@ describe("sales-quotes routes", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("sales quotes — a rep holding only view_own (D70)", () => {
+  const VIEW_OWN = "sales.quote.view_own";
+  const CREATE = "sales.quote.create";
+
+  function scoped(path: string, permissions: string, branchScope?: string) {
+    const headers = new Headers({ "x-permissions": permissions, "x-user-id": "rep-1" });
+    if (branchScope !== undefined) headers.set("x-branch-scope", branchScope);
+    return new Request(`http://local${path}`, { headers });
+  }
+
+  async function seedTwoBranches(app: ReturnType<typeof harness>["app"]) {
+    for (const branchId of ["BR1", "BR2"]) {
+      const res = await app.fetch(
+        req("/", { method: "POST", permissions: CREATE, body: JSON.stringify({ ...draftBody, branchId }) }),
+      );
+      expect(res.status).toBe(201);
+    }
+  }
+
+  it("no longer answers 403 — the rep can list, count and stat their own quotes", async () => {
+    const { app } = harness();
+    await seedTwoBranches(app);
+    for (const path of ["/", "/counts", "/stats"]) {
+      const res = await app.fetch(scoped(path, VIEW_OWN, "BR1"));
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("shows a view_own rep only the branch they are scoped to", async () => {
+    const { app } = harness();
+    await seedTwoBranches(app);
+    const rows = (await (await app.fetch(scoped("/", VIEW_OWN, "BR1"))).json()) as { branchId: string }[];
+    expect(rows.map((r) => r.branchId)).toEqual(["BR1"]);
+  });
+
+  it("shows a view_own rep carrying the all-branch sentinel nothing, rather than the whole tenant", async () => {
+    const { app } = harness();
+    await seedTwoBranches(app);
+    const rows = (await (await app.fetch(scoped("/", VIEW_OWN, "*"))).json()) as unknown[];
+    expect(rows).toEqual([]);
+  });
+
+  it("still shows a full sales.quote.view caller every branch", async () => {
+    const { app } = harness();
+    await seedTwoBranches(app);
+    const rows = (await (await app.fetch(scoped("/", "sales.quote.view", "*"))).json()) as { branchId: string }[];
+    expect(rows.map((r) => r.branchId).sort()).toEqual(["BR1", "BR2"]);
+  });
+
+  it("404s a quote outside the caller's branch scope instead of serving it by id", async () => {
+    const { app } = harness();
+    await seedTwoBranches(app);
+    const all = (await (await app.fetch(scoped("/", "sales.quote.view", "*"))).json()) as { id: string; branchId: string }[];
+    const other = all.find((q) => q.branchId === "BR2");
+    expect(other).toBeDefined();
+    const res = await app.fetch(scoped(`/${other?.id}`, "sales.quote.view", "BR1"));
+    expect(res.status).toBe(404);
+  });
+});

@@ -5,6 +5,7 @@ import {
   StockLedgerService,
   ExpiredStockError,
   NegativeStockError,
+  UncostedDeficitIssueError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
   rollupStockBalance,
@@ -146,6 +147,9 @@ function handleDomainError(c: Context, err: unknown) {
       },
       422,
     );
+  }
+  if (err instanceof UncostedDeficitIssueError) {
+    return c.json({ error: err.code, message: err.message, requested: err.requested.toString() }, 422);
   }
   if (err instanceof ExpiredStockError) {
     return c.json({ error: err.code, message: err.message, batchNo: err.batchNo, expiryDate: err.expiryDate }, 422);

@@ -755,6 +755,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
     gl: createInventoryGlPostingHook(salesInvoiceGl),
+    // The last-resort cost for an issue out of a position that holds nothing
+    // and was never received anywhere. Without it such an issue was written at
+    // zero and COGS was understated by the whole deficit (D101).
+    fallbackUnitCost: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
   });
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const documentWorkflowGate = createDocumentWorkflowGate(

@@ -8,6 +8,7 @@ import {
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   NegativeStockError,
+  UncostedDeficitIssueError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
   PhysicalCountNotFoundError,
@@ -195,6 +196,9 @@ function handleDocumentError(c: Context, err: unknown): Response {
       { error: err.code, message: err.message, onHand: err.onHand.toString(), requested: err.requested.toString() },
       422,
     );
+  }
+  if (err instanceof UncostedDeficitIssueError) {
+    return c.json({ error: err.code, message: err.message, requested: err.requested.toString() }, 422);
   }
   if (err instanceof SameWarehouseTransferError) {
     return c.json({ error: err.code, message: err.message }, 422);

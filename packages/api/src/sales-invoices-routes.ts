@@ -24,6 +24,7 @@ import {
   DuplicateJournalEntryError,
   ExpiredStockError,
   NegativeStockError,
+  UncostedDeficitIssueError,
   CreditLimitExceededError,
   type AppliedSalesInvoicePromotion,
   type SalesInvoice,
@@ -304,6 +305,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof NegativeStockError ||
+    err instanceof UncostedDeficitIssueError ||
     err instanceof ExpiredStockError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);

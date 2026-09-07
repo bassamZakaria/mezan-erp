@@ -66,6 +66,20 @@ export type InventoryDomainEvent =
       readonly averageCostAfter: Money;
     }
   | {
+      /**
+       * An issue that drove a position below zero against stock that was never
+       * received. It is written at a fallback cost rather than at zero (D101);
+       * this event is what stops that being silent.
+       */
+      readonly type: "StockIssuedShort";
+      readonly movementId: string;
+      readonly itemId: string;
+      readonly warehouseId: string;
+      readonly shortQty: Qty;
+      readonly unitCost: Money;
+      readonly costBasis: "last_receipt_here" | "last_receipt_elsewhere" | "item_cost_price";
+    }
+  | {
       readonly type: "StockAdjustmentPosted";
       readonly adjustmentId: string;
       readonly warehouseId: string;

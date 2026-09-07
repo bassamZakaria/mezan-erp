@@ -209,22 +209,46 @@ export function Select<TValue extends string = string>({
     return 0;
   }
 
+  /*
+   * The listbox type-ahead contract, and the two halves of it this control used
+   * to get wrong (D137). An Arabic catalogue is full of names that share their
+   * first word — «بنك مصر» / «بنك القاهرة», «الخزنة الرئيسية» / «الخزنة الفرعية» —
+   * so both halves were the common case here rather than a corner of it.
+   *
+   * A GROWING query narrows: it searches from the current option INCLUSIVE, so
+   * each further keystroke keeps the match it already has instead of stepping to
+   * the next one and walking across the matches. Only a repeat of the same
+   * single character cycles, which is the standard behaviour and the one way a
+   * user asks for the next match.
+   */
   function jumpByPrefix(char: string, from: number) {
     const now = Date.now();
     const state = typeahead.current;
-    state.query = now - state.at > 700 ? char : state.query + char;
+    const expired = now - state.at > 700;
+    state.query = expired ? char : state.query + char;
     state.at = now;
+
     const query = state.query.toLowerCase();
+    const repeatedSameChar = query.length > 1 && [...query].every((c) => c === query[0]);
+    const cycling = expired || repeatedSameChar;
+    const search = cycling ? query.slice(0, 1) : query;
+
     const total = options.length;
-    for (let offset = 1; offset <= total; offset += 1) {
+    for (let offset = cycling ? 1 : 0; offset <= total; offset += 1) {
       const index = (from + offset) % total;
       const option = options[index];
-      if (option && !option.disabled && option.label.toLowerCase().startsWith(query)) {
+      if (option && !option.disabled && option.label.toLowerCase().startsWith(search)) {
         if (open) setActive(index);
         else commit(index);
         return;
       }
     }
+  }
+
+  /** True while a type-ahead query is still in flight, so a space extends it rather than committing. */
+  function typeaheadInFlight() {
+    const state = typeahead.current;
+    return state.query.length > 0 && Date.now() - state.at <= 700;
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -252,9 +276,20 @@ export function Select<TValue extends string = string>({
         setActive(edge("last"));
         return;
       case "Enter":
+        event.preventDefault();
+        if (!open) openMenu(selectedIndex >= 0 ? selectedIndex : edge("first"));
+        else commit(active);
+        return;
       case " ":
       case "Spacebar":
         event.preventDefault();
+        // A space mid-query is a word separator, not the select key: «بنك القاهرة»
+        // cannot be typed past its first word otherwise, and the space instead
+        // picks whatever happens to be active (D137).
+        if (typeaheadInFlight()) {
+          jumpByPrefix(" ", current);
+          return;
+        }
         if (!open) openMenu(selectedIndex >= 0 ? selectedIndex : edge("first"));
         else commit(active);
         return;

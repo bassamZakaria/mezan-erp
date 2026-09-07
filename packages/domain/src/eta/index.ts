@@ -84,4 +84,13 @@ export {
   searchEtaActivityCodes,
   type EtaActivityCode,
 } from "./activity-codes.js";
+export {
+  attachEtaSignature,
+  etaComplianceNotice,
+  etaPayloadIsSigned,
+  unavailableEsealSigningPort,
+  EtaSigningUnavailableError,
+  type EtaSignatureResult,
+  type EtaSigningPort,
+} from "./signing.js";
 export { resolveEtaVatSubType } from "./tax-subtype.js";

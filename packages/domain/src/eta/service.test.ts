@@ -111,9 +111,12 @@ describe("EtaService — lifecycle", () => {
     const s = await svc.enqueue(doc);
     const pending = await svc.submit(s.id);
     expect(pending.status).toBe("pending_signature");
-    // Signing done → next submit transmits.
-    const submitted = await svc.submit(s.id);
-    expect(submitted.status).toBe("submitted");
+    // No signing agent is wired, so the row says why it is parked...
+    expect(pending.errors[0]).toContain("ختم إلكتروني");
+    // ...and pressing إرسال again parks it again rather than transmitting an
+    // unsigned version-1.0 document, which is what it used to do.
+    const again = await svc.submit(s.id);
+    expect(again.status).toBe("pending_signature");
   });
 
   it("requires a reason to exclude and blocks excluding an accepted document", async () => {

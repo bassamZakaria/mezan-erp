@@ -10,6 +10,13 @@ import {
   type EtaReceiptQueueSummary,
   type EtaReceiptUuidPort,
 } from "./receipt.js";
+import {
+  attachEtaSignature,
+  etaPayloadIsSigned,
+  unavailableEsealSigningPort,
+  EtaSigningUnavailableError,
+  type EtaSigningPort,
+} from "./signing.js";
 import type {
   EtaSubmission,
   EtaSubmissionRepository,
@@ -70,6 +77,12 @@ export interface EtaServiceDeps {
    * nothing at the authority.
    */
   readonly receiptUuid?: EtaReceiptUuidPort;
+  /**
+   * الختم الإلكتروني — the signing agent. Defaults to a port that refuses, so
+   * a submission parks in بانتظار التوقيع and stays there instead of being
+   * transmitted unsigned.
+   */
+  readonly signing?: EtaSigningPort;
 }
 
 /** What a till needs to print (or reprint) one receipt. */
@@ -90,12 +103,14 @@ export type EtaEnqueueInput = EtaDocumentInput;
 export class EtaService {
   private readonly transmitPort: EtaTransmitPort;
   private readonly receiptUuidPort: EtaReceiptUuidPort;
+  private readonly signingPort: EtaSigningPort;
   private readonly now: () => string;
   private readonly newId: () => string;
 
   constructor(private readonly deps: EtaServiceDeps) {
     this.transmitPort = deps.transmit ?? stubOnlineTransmitPort();
     this.receiptUuidPort = deps.receiptUuid ?? unavailableEtaReceiptUuidPort();
+    this.signingPort = deps.signing ?? unavailableEsealSigningPort();
     this.now = deps.now ?? (() => new Date().toISOString());
     this.newId = deps.newId ?? (() => `eta-${Math.random().toString(36).slice(2)}`);
   }
@@ -211,14 +226,27 @@ export class EtaService {
    * queued and re-throws {@link EtaOfflineError}.
    */
   async submit(id: string): Promise<EtaSubmission> {
-    const submission = await this.require(id);
+    let submission = await this.require(id);
     if (!["ready", "pending_signature", "error"].includes(submission.status)) {
       throw new InvalidEtaTransitionError(submission.status, "submit");
     }
     const config = await this.deps.config.get();
 
-    if (config.signingMethod === "eseal" && submission.status === "ready") {
-      return this.persist({ ...submission, status: "pending_signature", errors: [] });
+    if (config.signingMethod === "eseal" && !etaPayloadIsSigned(submission.payload)) {
+      try {
+        const signature = await this.signingPort.sign(submission, config);
+        submission = await this.persist({
+          ...submission,
+          payload: attachEtaSignature(submission.payload, signature),
+          status: "ready",
+          errors: [],
+        });
+      } catch (err) {
+        if (!(err instanceof EtaSigningUnavailableError)) throw err;
+        // Parked, and it says why. Pressing إرسال again re-enters this branch
+        // and parks again: an unsigned 1.0 document is never transmitted.
+        return this.persist({ ...submission, status: "pending_signature", errors: [err.message] });
+      }
     }
 
     const result = await this.transmitPort.transmit(submission, config);

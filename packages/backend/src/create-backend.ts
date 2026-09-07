@@ -30,6 +30,7 @@ import {
   createSalesReturnDocumentType,
   createPurchaseReturnDocumentType,
   createLandedCostDocumentType,
+  LANDED_COST_DOC_TYPE,
   LandedCostService,
   installmentPlanDocumentType,
   stockAdjustmentDocumentType,
@@ -305,10 +306,17 @@ function adjustmentGlAccountsForReason(
  * The GL accounts التكاليف الإضافية posts against — the freight/customs
  * accrual reuses trade payables (2100) as its clearing account; no dedicated
  * "accrued landed cost" leaf exists in the template.
+ *
+ * `unabsorbedCostAccountId` is تكلفة البضاعة المباعة (5100, `item_type.cogs`).
+ * A landed cost that arrives after the goods were sold cannot raise the basis
+ * of stock that is gone, so that part is a period cost and is reclassified out
+ * of 1200 into 5100 — otherwise GL inventory exceeds the valuation report by
+ * exactly that figure, permanently (D84).
  */
 const LANDED_COST_GL_ACCOUNTS = {
   inventoryAccountId: "1200",
   accruedLandedCostPayableId: "2100",
+  unabsorbedCostAccountId: "5100",
 };
 
 /**
@@ -829,7 +837,34 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: documentGl,
     workflow: documentWorkflowGate,
   });
-  const landedCosts = new LandedCostService(landedCostDocuments, stockService);
+  const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
+    postUnabsorbed: async (posting) => {
+      await postJournalEntry(
+        {
+          id: posting.entryId,
+          date: posting.date,
+          memo: posting.memo,
+          source: "system",
+          sourceDocType: LANDED_COST_DOC_TYPE,
+          sourceDocId: posting.sourceDocId,
+          sourceDocNumber: posting.sourceDocNumber,
+          lines: [
+            {
+              accountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
+              debit: posting.amount,
+              credit: Money.zero(),
+            },
+            {
+              accountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
+              debit: Money.zero(),
+              credit: posting.amount,
+            },
+          ],
+        },
+        salesInvoiceGl,
+      );
+    },
+  });
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
     repo: installmentPlans,
     numbering: { next: (opts) => ledger.numbering.next("INSTALLMENT_PLAN", { branchId: opts?.branchId }) },

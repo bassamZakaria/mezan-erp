@@ -114,7 +114,23 @@ export function createLandedCostsRoutes(
   app.post("/:id/confirm", gate("purchases.landed_cost.confirm"), async (c) => {
     try {
       const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c) });
-      return c.json({ document: serialize(result.document), held: result.held });
+      return c.json({
+        document: serialize(result.document),
+        held: result.held,
+        // A landed cost that arrives after the goods were sold cannot raise the
+        // basis of stock that is gone. That part is reclassified out of
+        // inventory into cost of sales, and the caller is told how much and by
+        // which entry rather than being left to wonder why the valuation report
+        // moved by less than the document's total (D84).
+        unabsorbedTotal: result.unabsorbedTotal.toString(),
+        unabsorbedJournalEntryId: result.unabsorbedJournalEntryId,
+        unabsorbed: result.unabsorbed.map((u) => ({
+          itemId: u.itemId,
+          warehouseId: u.warehouseId,
+          sourceInvoiceId: u.sourceInvoiceId,
+          amount: u.amount.toString(),
+        })),
+      });
     } catch (err) {
       return handleDocumentError(c, err);
     }

@@ -25,6 +25,24 @@ password before anything loads.
 - 512 MB RAM, shared CPU. Fine for a handful of concurrent demo users.
 - No persistent disk — see the reseed note above.
 
+## Counting visitors
+
+The demo reports to Cloudflare Web Analytics when `MEZAN_ANALYTICS_TOKEN` holds a
+site token, and serves nothing extra when it does not. The tag is injected by
+`apps/server/src/cloud.ts` as it serves `index.html`, so it exists only on this
+cloud mount — the desktop and LAN builds serve the same bundle and stay offline.
+
+1. Cloudflare dashboard -> Analytics & Logs -> Web Analytics -> **Add a site**, with
+   hostname `mezan-demo.onrender.com`. Adding a site here does not move DNS.
+2. Copy the `token` out of the JS snippet Cloudflare shows.
+3. Render dashboard -> `mezan-demo` -> Environment -> add `MEZAN_ANALYTICS_TOKEN`.
+4. Redeploy, open the URL, and the visit appears in Cloudflare within ~60 seconds.
+
+It counts unique visitors, page views, referrers and countries, sets no cookies and
+needs no consent banner. Ad blockers suppress some visits, so read the number as a
+floor. The free instance also sleeps after 15 minutes, so a client's first hit is the
+40-60 second wake described above -- some will give up before the beacon ever fires.
+
 ## Demo logins
 
 Every seeded account uses PIN `123456`. Sign in with the email as the username:

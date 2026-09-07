@@ -158,6 +158,29 @@ describe("registerHonoOverIpc — the hard size guard", () => {
     expect(response.status).toBe(200);
     expect(response.body).toBe(atLimit);
   });
+
+  /**
+   * guards Q-1 — the app this mount serves is no longer in this process. It is
+   * main/backend-process.ts's shim over the utility process that owns SQLite,
+   * so `fetch` resolves a tick later and its body arrives as bytes off a
+   * MessagePort. This mount must not have learned anything about that: same
+   * channel, same response shape, same size guard.
+   */
+  it("serves a backend whose fetch answers from another process", async () => {
+    const bridged = {
+      fetch: async () => {
+        await Promise.resolve();
+        return new Response(new TextEncoder().encode(JSON.stringify({ ok: true })), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    } as unknown as App;
+
+    const response = await invokeFetch(bridged);
+    expect(response.status).toBe(200);
+    expect(response.body).toBe(JSON.stringify({ ok: true }));
+  });
 });
 
 /**

@@ -1,8 +1,7 @@
 import { hostname } from "node:os";
 import { app, BrowserWindow, dialog, safeStorage } from "electron";
 import Database from "better-sqlite3";
-import { createBackend, takeSeededAdminSecrets, type BackendHandle } from "@mezan/backend";
-import { SeatSessionRegistry } from "@mezan/domain";
+import { startBackendProcess, type BackendProcessHandle } from "./backend-process.js";
 import { registerHonoOverIpc, registerHonoOverLanClient, registerPrintToPdfOverIpc, registerSavePdfOverIpc } from "./ipc.js";
 import { readClientConfig, readPairingRequest, writeClientConfig, type ClientConfig } from "./client-config.js";
 import { createLanClient, withSeatClaim } from "./lan-client.js";
@@ -33,7 +32,6 @@ import { startLanHost, type LanHostHandle } from "./lan-host.js";
 import { advertiseLanHost } from "./lan-discovery.js";
 import { registerPairingOverIpc } from "./pairing-ipc.js";
 import { registerClientMaintenanceRefusalsOverIpc } from "./client-refusals.js";
-import { createLanClientAuthorizer } from "./lan-authorization.js";
 import { loadOrCreateLanTlsIdentity } from "./lan-tls.js";
 import {
   clearRecoveryPinIfClaimed,
@@ -72,7 +70,7 @@ import { runPreMigrationBackup } from "../backup/index.js";
  * headlessly instead.
  */
 
-let backend: BackendHandle | undefined;
+let backend: BackendProcessHandle | undefined;
 let backupConn: Database.Database | undefined;
 let cipher: TenantCipher | undefined;
 let disposeBackupSchedule: (() => void) | undefined;
@@ -623,16 +621,29 @@ app.whenReady().then(async () => {
     }
   });
 
-  const seatRegistry = new SeatSessionRegistry(entitlements.seats);
-  // `createBackend`, NOT `createApp`. This is the composition that carries the
-  // session resolver, the seeded tenant and the real `/auth` routes; building
-  // the app directly left every route resolving its caller from the
-  // `x-permissions` header — on the one edition that binds a LAN socket, so
-  // any device on the shop wifi could send `x-permissions: *`.
-  backend = await createBackend({
+  /**
+   * THE BACKEND NOW RUNS IN ITS OWN PROCESS (docs/artifacts/audit-2026-09-07.md
+   * Q-1), and everything that touches SQLite goes with it: the Hono app, the
+   * session registry, the seat registry, the entitlements and the event bus.
+   *
+   * It was composed HERE, and served from here over both mounts, so every
+   * synchronous `better-sqlite3` call blocked the one loop that also draws the
+   * window, answers the LAN socket and runs the backup schedule — a `VACUUM
+   * INTO` on an 88 MB database measured 1,129 ms with ZERO event-loop ticks.
+   * One slow report froze the host UI and every till at once, and a till's read
+   * timeout turned a database problem into «لا يوجد رد من الجهاز الرئيسي».
+   *
+   * WHAT STAYS ON THIS SIDE, each for a reason it cannot leave: licence
+   * verification and the online check-in (`safeStorage`, `app.getPath`, the
+   * network), the database key's unsealing (`safeStorage` again), the backup
+   * schedule's own connection, the LAN socket, the window and the updater. The
+   * worker receives the UNSEALED key over the port and opens the encrypted
+   * database itself; the key is never written to disk.
+   */
+  backend = startBackendProcess({
     dbPath,
-    connection: cipher,
-    lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
+    cipherKey: cipher?.key ?? null,
+    entitlements,
     /*
      * MODULE gating, from the VERIFIED licence and only from it. Passed only
      * when a signed licence actually produced the capability set: an unpackaged
@@ -640,57 +651,34 @@ app.whenReady().then(async () => {
      * API keeps its own all-modules default and an ABSENCE of a licence never
      * withholds a shop's own data — the write gate is what a lapse closes.
      */
-    ...(license.verified ? { entitlements } : {}),
+    applyEntitlements: license.verified,
+    licence: license,
     /*
-     * The verdict is resolved PER REQUEST, not closed over at startup. Enforcing
-     * a startup constant made two things impossible: pressing «تحقق الآن» could
-     * not lift read-only without a restart (the handler wrote the file and
-     * nothing re-read it), and a licence that expired during a session left open
-     * for weeks was never noticed. This is a small file read plus arithmetic —
-     * cheap enough per request, and honest enough to change its mind.
+     * The write gate's verdict is resolved PER REQUEST inside the worker — not
+     * closed over at startup, and not round-tripped back to this process on
+     * every call. The worker re-reads the SAME MAC'd guard record
+     * `currentVerdict()` reads here, under the same key, and does the same
+     * arithmetic. A startup constant made two things impossible: pressing
+     * «تحقق الآن» could not lift read-only without a restart, and a licence
+     * that expired during a long session was never noticed. Both survive.
      */
-    resolveLicenseState: () =>
-      reevaluateLicenseState(liveLicence, { now: Date.now(), checkin: currentVerdict() }),
+    userDataDir: app.getPath("userData"),
+    installedAt,
+    /*
+     * EXTERNAL CONTRACT, and it must be re-stated here: a forked child does not
+     * inherit assignments this process made after its own launch, and `GET
+     * /health` — which a client compares against its own before it renders a
+     * single screen — plus the seed's packaged check both read these off
+     * `process.env`.
+     */
+    env: {
+      MEZAN_PACKAGED: process.env["MEZAN_PACKAGED"] ?? "0",
+      MEZAN_APP_VERSION: app.getVersion(),
+      MEZAN_SCHEMA_VERSION: String(CURRENT_SCHEMA_VERSION),
+    },
+    log,
   });
-
-  if (!isDev()) {
-    /**
-     * The seeded admin's credentials, printed exactly once, where a human can
-     * read them.
-     *
-     * A packaged build's seed PIN is random (seed.ts), and it used to go
-     * nowhere: the owner met a login screen asking for a PIN that had never
-     * been shown to anybody, on an install with no other account and no reset
-     * route. `takeSeededAdminSecrets()` is a one-shot read, so this writes the
-     * file only on the launch that actually seeded the tenant — never on the
-     * ones after it, and never over a PIN the owner has since changed.
-     */
-    const seeded = takeSeededAdminSecrets();
-    if (seeded?.generated) {
-      const target = await writeRecoveryPin(dbPath, seeded.pin, "first-run").catch(
-        (err: unknown) => {
-          log(
-            `[recovery] could not write the recovery file: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          return null;
-        },
-      );
-      // The PIN also goes to stdout, because the recovery file is unreachable
-      // on the failure that matters most — a first launch that cannot write to
-      // its own data directory.
-      console.log(
-        `[recovery] first-run administrator PIN: ${seeded.pin}` +
-          (target ? ` (also written to ${target})` : " (recovery file NOT written)"),
-      );
-    } else {
-      // Cheap, and it runs on every launch: the file is a live credential and
-      // stops being needed the moment the owner has an account of their own.
-      await clearRecoveryPinIfClaimed(dbPath, backupConn ?? dbPath).catch((err: unknown) => {
-        console.warn("[recovery] could not clear the recovery file", err);
-        return false;
-      });
-    }
-  }
+  const backendProcess = backend;
 
   registerHonoOverIpc(backend.app);
   registerPrintToPdfOverIpc();
@@ -716,10 +704,15 @@ app.whenReady().then(async () => {
           },
         }
       : {}),
-    closeLiveConnections: () => {
+    closeLiveConnections: async () => {
       disposeBackupSchedule?.();
       disposeBackupSchedule = undefined;
-      backend?.close();
+      // AWAITED, and this is the whole reason `closeLiveConnections` may now
+      // return a promise: the database handle is in another process, and a
+      // worker still holding it would go on writing into the inode the restore
+      // has already unlinked — the restore appears to work and the next launch
+      // shows the old data.
+      await backend?.close();
       backend = undefined;
       backupConn?.close();
       backupConn = undefined;
@@ -728,7 +721,7 @@ app.whenReady().then(async () => {
       app.relaunch();
       app.exit(0);
     },
-    sessions: backend.sessions,
+    sessions: { find: (token) => backendProcess.findSession(token) },
   });
   // Registered before the socket is opened, and reading `lanHost` through a
   // getter: the bind is asynchronous (lan-host.ts), so the address is null
@@ -744,7 +737,7 @@ app.whenReady().then(async () => {
     licenseId: license.identity.licenseId,
     fingerprint: license.identity.fingerprint,
     publicKey: loaded.config.publicKey,
-    sessions: backend.sessions,
+    sessions: { find: (token) => backendProcess.findSession(token) },
     log,
   });
   registerLicenceStatusOverIpc({
@@ -763,6 +756,11 @@ app.whenReady().then(async () => {
         guardStore: guard,
       });
       liveLicence = reloaded.license;
+      // The worker's per-request write gate resolves against ITS copy of the
+      // licence, so an imported one that never reached it would leave the
+      // install read-only until the next launch — the exact failure the
+      // per-request verdict exists to prevent.
+      backendProcess.replaceLicence(liveLicence);
       return liveLicence;
     },
     // The SALTED hash, under the salt this build was made with — the exact
@@ -782,9 +780,9 @@ app.whenReady().then(async () => {
     dbPath,
     backupsDir: defaultBackupsDir(),
     plaintextArchivePath: () => plaintextArchivePath,
-    seatsUsed: () => seatRegistry.connectedCount,
+    seatsUsed: async () => (await backendProcess.connectedDevices()).length,
     lanHost: () => lanHost,
-    sessions: backend.sessions,
+    sessions: { find: (token) => backendProcess.findSession(token) },
     // Only the IMPORT channel consults this, and only to let the first-run
     // wizard install a licence before any account exists to sign in with.
     tenantIsClaimed: async () => {
@@ -794,42 +792,6 @@ app.whenReady().then(async () => {
       return body.claimed !== false;
     },
   });
-  // The identity is a thunk, and it lives BESIDE the database rather than in
-  // it: the socket must present the same certificate on every launch or no
-  // till can pin it, and lan-host.ts must keep importing no `electron`.
-  const sessions = backend.sessions;
-  lanHost = startLanHost({
-    app: backend.app,
-    entitlements,
-    tls: () => loadOrCreateLanTlsIdentity(defaultDbPath()),
-    // What turns the LAN socket from a seat-protocol endpoint into something a
-    // second machine can actually run the business on. Without it the socket
-    // serves login and `/lan/*` and refuses everything else — see
-    // lan-authorization.ts for the three things this has to establish before a
-    // request reaches the app.
-    authorizeClientRequest: createLanClientAuthorizer({
-      resolveSessionUser: (token, origin) => sessions.find(token, origin)?.userId ?? null,
-      registry: seatRegistry,
-    }),
-  });
-
-  /**
-   * BEING FINDABLE, so adding a till is not a consultant reading an IP off a
-   * router. The advertisement carries the certificate fingerprint, and it is a
-   * CONVENIENCE ONLY: mDNS is unauthenticated, so the till still pins what the
-   * handshake presented and a human still compares it once. Started after the
-   * bind because there is nothing to advertise until there is a port.
-   */
-  void lanHost.ready.then((info) => {
-    const fingerprint = lanHost?.fingerprint();
-    if (!info || !fingerprint || lanHost?.closedReason() !== null) return;
-    stopAdvertising = advertiseLanHost({
-      port: info.port,
-      fingerprintSha256: fingerprint,
-      name: `Mezan — ${hostname()}`,
-    });
-  });
-
   /**
    * The HOST side of in-app pairing. A machine that has just been installed and
    * not yet claimed can still choose to become a till instead, which is the
@@ -858,8 +820,103 @@ app.whenReady().then(async () => {
   registerAutoUpdater(mainWindow, process.env, new Date(), undefined, {
     // Read at the moment the operator presses install, from the live registry —
     // the confirmation names the tills that are about to lose their host.
-    connectedDevices: () => seatRegistry.list().map((session) => session.deviceLabel),
+    connectedDevices: async () =>
+      (await backendProcess.connectedDevices()).map((session) => session.deviceLabel),
   });
+
+  /**
+   * EVERYTHING ABOVE RAN WHILE THE DATABASE WAS STILL OPENING.
+   *
+   * `startBackendProcess` returns immediately, so the window, both mounts and
+   * every IPC channel exist from the first moment — and `backend.app.fetch`
+   * answers 503 with «جارٍ تشغيل قاعدة البيانات» until the worker says it is
+   * ready, exactly the way main/startup-busy.ts answers during the pre-update
+   * backup. A dock icon that does nothing, or an unregistered channel that
+   * rejects with an English Electron internal, are the two failures this
+   * ordering exists to avoid.
+   *
+   * Only what genuinely needs a live database waits below — the LAN socket
+   * above all: a till that reached a host still opening its database would read
+   * 503 from `GET /health`, which its own version check cannot tell from a host
+   * running the wrong build. Nothing is published until there is something to
+   * publish.
+   */
+  await backendProcess.ready;
+
+  // The identity is a thunk, and it lives BESIDE the database rather than in
+  // it: the socket must present the same certificate on every launch or no
+  // till can pin it, and lan-host.ts must keep importing no `electron`.
+  lanHost = startLanHost({
+    app: backend.app,
+    entitlements,
+    tls: () => loadOrCreateLanTlsIdentity(defaultDbPath()),
+    // What turns the LAN socket from a seat-protocol endpoint into something a
+    // second machine can actually run the business on. Without it the socket
+    // serves login and `/lan/*` and refuses everything else — see
+    // lan-authorization.ts for the three things this has to establish before a
+    // request reaches the app. Both registries it consults now live in the
+    // backend process, so the decision is taken THERE — on every request,
+    // against the live registries, never against a copy mirrored into this
+    // process that would go on authorising a till whose seat had been reaped.
+    authorizeClientRequest: (request, remote) => backendProcess.authorizeLanClient(request, remote),
+  });
+
+  /**
+   * BEING FINDABLE, so adding a till is not a consultant reading an IP off a
+   * router. The advertisement carries the certificate fingerprint, and it is a
+   * CONVENIENCE ONLY: mDNS is unauthenticated, so the till still pins what the
+   * handshake presented and a human still compares it once. Started after the
+   * bind because there is nothing to advertise until there is a port.
+   */
+  void lanHost.ready.then((info) => {
+    const fingerprint = lanHost?.fingerprint();
+    if (!info || !fingerprint || lanHost?.closedReason() !== null) return;
+    stopAdvertising = advertiseLanHost({
+      port: info.port,
+      fingerprintSha256: fingerprint,
+      name: `Mezan — ${hostname()}`,
+    });
+  });
+
+  if (!isDev()) {
+    /**
+     * The seeded admin's credentials, printed exactly once, where a human can
+     * read them.
+     *
+     * A packaged build's seed PIN is random (seed.ts), and it used to go
+     * nowhere: the owner met a login screen asking for a PIN that had never
+     * been shown to anybody, on an install with no other account and no reset
+     * route. `takeSeededAdminSecrets()` is a one-shot read INSIDE THE WORKER —
+     * the seed runs there now — so the PIN travels on the `ready` message and
+     * is read here once. Without that it would be read by nobody, and the owner
+     * would meet a login screen asking for a code never shown to anybody.
+     */
+    const seeded = backendProcess.seededAdmin();
+    if (seeded?.generated) {
+      const target = await writeRecoveryPin(dbPath, seeded.pin, "first-run").catch(
+        (err: unknown) => {
+          log(
+            `[recovery] could not write the recovery file: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return null;
+        },
+      );
+      // The PIN also goes to stdout, because the recovery file is unreachable
+      // on the failure that matters most — a first launch that cannot write to
+      // its own data directory.
+      console.log(
+        `[recovery] first-run administrator PIN: ${seeded.pin}` +
+          (target ? ` (also written to ${target})` : " (recovery file NOT written)"),
+      );
+    } else {
+      // Cheap, and it runs on every launch: the file is a live credential and
+      // stops being needed the moment the owner has an account of their own.
+      await clearRecoveryPinIfClaimed(dbPath, backupConn ?? dbPath).catch((err: unknown) => {
+        console.warn("[recovery] could not clear the recovery file", err);
+        return false;
+      });
+    }
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -877,5 +934,5 @@ app.on("will-quit", () => {
   void lanHost?.close();
   disposeBackupSchedule?.();
   backupConn?.close();
-  backend?.close();
+  void backend?.close();
 });

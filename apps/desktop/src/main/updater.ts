@@ -460,7 +460,7 @@ export interface UpdaterDeps {
    * Labels of the tills holding a seat on this host, read from the live seat
    * registry at the moment the operator presses install — never a cached count.
    */
-  readonly connectedDevices?: () => readonly string[];
+  readonly connectedDevices?: () => readonly string[] | Promise<readonly string[]>;
   /** Injected in tests; production uses the Electron dialog. */
   readonly confirmInstall?: ConfirmInstall;
 }
@@ -570,7 +570,7 @@ export function registerAutoUpdater(
           const inBusinessHours = isBusinessHours(new Date());
           const answer = await confirmInstall({
             version: verified.version,
-            devices: connectedDevices(),
+            devices: await connectedDevices(),
             inBusinessHours,
           });
           switch (resolveInstallDecision({ ...answer, inBusinessHours })) {

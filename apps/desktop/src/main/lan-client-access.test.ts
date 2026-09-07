@@ -78,7 +78,17 @@ function multiTill() {
   });
 }
 
-/** The whole host, wired exactly as main/index.ts wires it. */
+/**
+ * The whole host, wired exactly as main/index.ts wires it.
+ *
+ * guards Q-1 — BOTH SEAMS ARE ASYNC HERE, and that is the shipped shape. The
+ * backend and the two registries live in a separate process now
+ * (main/backend-process.ts), so `app.fetch` and the authorisation decision both
+ * cross a MessagePort. The Promise wrappers below stand in for that hop: the
+ * seat check must still be taken on EVERY request against the live registries,
+ * and every refusal in this file must still be a refusal when the answer
+ * arrives a tick later.
+ */
 async function startHost() {
   const entitlements = multiTill();
   const seatRegistry = new SeatSessionRegistry(entitlements.seats);
@@ -86,16 +96,20 @@ async function startHost() {
     dbPath: ":memory:",
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
   });
+  const authorize = createLanClientAuthorizer({
+    resolveSessionUser: (token, origin) => backend.sessions.find(token, origin)?.userId ?? null,
+    registry: seatRegistry,
+  });
   const handle = startLanHost({
-    app: backend.app,
+    app: {
+      fetch: async (request: Request, env?: unknown) =>
+        await backend.app.fetch(request, env as Parameters<typeof backend.app.fetch>[1]),
+    },
     entitlements,
     tls: identity,
     host: "127.0.0.1",
     port: 0,
-    authorizeClientRequest: createLanClientAuthorizer({
-      resolveSessionUser: (token, origin) => backend.sessions.find(token, origin)?.userId ?? null,
-      registry: seatRegistry,
-    }),
+    authorizeClientRequest: async (request, remote) => authorize(request, remote),
   });
   const port = (await handle.ready)!.port;
   return {

@@ -444,6 +444,77 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     uow.close();
   });
 
+  /**
+   * guards Q-1 — THE AUTHORISER ANSWERS A TICK LATER NOW.
+   *
+   * The session and seat registries moved into the backend process with the
+   * database, so this socket asks across a MessagePort and the answer is a
+   * promise. A refusal that is only a refusal while the check is synchronous is
+   * not a refusal: an un-awaited promise is truthy, and every stranger on the
+   * shop wifi would have been let straight through.
+   */
+  it("waits for an asynchronous authorisation before serving a fenced route", async () => {
+    const entitlements = multiTill();
+    const backend = await createBackend({
+      dbPath: ":memory:",
+      lan: { resolveEntitlements: () => entitlements, registry: new SeatSessionRegistry(2) },
+    });
+
+    const asked: string[] = [];
+    const handle = startLanHost({
+      app: backend.app,
+      entitlements,
+      tls: identity,
+      host: "127.0.0.1",
+      port: 0,
+      authorizeClientRequest: async (request) => {
+        await Promise.resolve();
+        asked.push(new URL(request.url).pathname);
+        return false;
+      },
+    });
+    const port = (await handle.ready)!.port;
+
+    // 404 is the SOCKET's refusal. If the promise had been used unawaited it
+    // would have been truthy, the request would have reached the app, and the
+    // app would have answered 401 — which is what the paired test above sees.
+    const res = await lanFetch(port, "/customers");
+    expect(res.status).toBe(404);
+    expect(asked).toEqual(["/customers"]);
+
+    await handle.close();
+    backend.close();
+  });
+
+  it("serves a fenced route once the asynchronous authorisation says yes", async () => {
+    const entitlements = multiTill();
+    const backend = await createBackend({
+      dbPath: ":memory:",
+      lan: { resolveEntitlements: () => entitlements, registry: new SeatSessionRegistry(2) },
+    });
+    const handle = startLanHost({
+      app: backend.app,
+      entitlements,
+      tls: identity,
+      host: "127.0.0.1",
+      port: 0,
+      authorizeClientRequest: async () => {
+        await Promise.resolve();
+        return true;
+      },
+    });
+    const port = (await handle.ready)!.port;
+
+    // `/customers` is fenced — a stranger gets the socket's own 404. Reached,
+    // it is the APP that answers, and it answers 401 because this caller holds
+    // no session. Telling those two apart is the whole point.
+    const refusedByTheSocket = await lanFetch(port, "/customers");
+    expect(refusedByTheSocket.status).toBe(401);
+
+    await handle.close();
+    backend.close();
+  });
+
   it("does not let a path trick reach a held-back route", async () => {
     const { uow, handle, port } = await openSocket();
 

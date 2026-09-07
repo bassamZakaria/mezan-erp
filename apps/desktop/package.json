@@ -10,7 +10,8 @@
     "build:main": "node scripts/build.mjs",
     "start": "pnpm run build:main && electron .",
     "package": "pnpm run build:main && electron-builder",
-    "check:abi": "electron scripts/check-native-abi.cjs"
+    "check:abi": "electron scripts/check-native-abi.cjs",
+    "prove:off-loop": "tsx scripts/prove-backend-off-loop.mts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

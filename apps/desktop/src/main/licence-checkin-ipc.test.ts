@@ -4,7 +4,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getPublicKeyAsync } from "@noble/ed25519";
 import { bytesToHex, signCheckinResponse } from "@mezan/domain";
-import type { SessionGrant, SessionRegistry } from "@mezan/api";
+import type { SessionGrant } from "@mezan/api";
+import type { SessionLookup } from "./backend-bridge.js";
 import {
   MEZAN_LICENCE_CHECKIN_CHANNEL,
   type LicenceCheckinResult,
@@ -50,14 +51,14 @@ const GRANT: SessionGrant = {
   warehouseScope: "*",
 };
 
-function fakeSessions(): SessionRegistry {
-  return {
-    issue: () => "unused",
-    find: (token: string) => (token === "good-token" ? GRANT : null),
-    inspect: (token: string) => ({ grant: token === "good-token" ? GRANT : null, refusal: null }),
-    revoke: () => {},
-    revokeUser: () => {},
-  };
+/**
+ * guards Q-1 — ASYNC ON PURPOSE. The session registry lives in the backend
+ * process now (main/backend-process.ts), so this channel reads the caller's
+ * grant across a MessagePort. A refusal that only holds while the lookup is
+ * synchronous is not a refusal.
+ */
+function fakeSessions(): SessionLookup {
+  return { find: async (token: string) => (token === "good-token" ? GRANT : null) };
 }
 
 const dirs: string[] = [];

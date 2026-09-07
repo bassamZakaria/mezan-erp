@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { BrowserWindow, dialog } from "electron";
 import { handleGuarded } from "./ipc-guard.js";
-import type { App } from "@mezan/api";
+import type { FetchLike } from "./backend-bridge.js";
 import { LanClientError, MAX_RESPONSE_BYTES, tooLargeResponse } from "./lan-client.js";
 import {
   MEZAN_FETCH_CHANNEL,
@@ -18,10 +18,15 @@ import {
  * Registers the single IPC handler that carries every renderer request into
  * the shared Hono app. There is no HTTP server and no port on desktop
  * (docs/archive/plan.md §2.2): the preload bridge marshals a `Request` over IPC and
- * this handler calls `honoApp.fetch(new Request(...))` in-process, returning
- * the response as a structured-clone-safe plain object.
+ * this handler calls `honoApp.fetch(new Request(...))`, returning the response
+ * as a structured-clone-safe plain object.
+ *
+ * `honoApp` is no longer necessarily in this process. On the shipped desktop
+ * host it is main/backend-process.ts's shim over the utility process that owns
+ * SQLite (Q-1); the headless demo and the tests still pass a real Hono app.
+ * Nothing below can tell, and nothing below should.
  */
-export function registerHonoOverIpc(honoApp: App): void {
+export function registerHonoOverIpc(honoApp: FetchLike): void {
   handleGuarded(
     MEZAN_FETCH_CHANNEL,
     async (_event, req: IpcFetchRequest): Promise<IpcFetchResponse> => {

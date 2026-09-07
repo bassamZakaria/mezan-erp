@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { SessionGrant, SessionRegistry } from "@mezan/api";
+import type { SessionGrant } from "@mezan/api";
+import type { SessionLookup } from "./backend-bridge.js";
 import { createBackup } from "../backup/index.js";
 import {
   cipherDriver,
@@ -54,14 +55,14 @@ vi.mock("electron", () => ({
  */
 const RENDERER_EVENT = { senderFrame: { url: "app://mezan/index.html" } } as never;
 
-function fakeSessions(grant: SessionGrant | null): SessionRegistry {
-  return {
-    issue: () => "unused",
-    find: (token: string) => (token === "good-token" ? grant : null),
-    inspect: (token: string) => ({ grant: token === "good-token" ? grant : null, refusal: null }),
-    revoke: () => {},
-    revokeUser: () => {},
-  };
+/**
+ * guards Q-1 — ASYNC ON PURPOSE. The session registry lives in the backend
+ * process now (main/backend-process.ts), so every one of these channels reads
+ * the caller's grant across a MessagePort. A refusal that only holds while the
+ * lookup is synchronous is not a refusal.
+ */
+function fakeSessions(grant: SessionGrant | null): SessionLookup {
+  return { find: async (token: string) => (token === "good-token" ? grant : null) };
 }
 
 const ADMIN: SessionGrant = {

@@ -4,7 +4,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { extract as tarExtract } from "tar";
 import type Database from "better-sqlite3";
-import type { SessionRegistry } from "@mezan/api";
+import type { SessionLookup } from "./backend-bridge.js";
 import { createAuditEvent } from "@mezan/domain";
 import { createSqliteAuditSink, deriveAuditChainKey, openSqliteConnection } from "@mezan/persistence";
 import {
@@ -104,11 +104,11 @@ export interface RestoreIpcDeps {
    * succeeds and leaves the still-running backend writing into an unlinked
    * inode — the restore appears to work and the next launch shows the old data.
    */
-  readonly closeLiveConnections: () => void;
+  readonly closeLiveConnections: () => void | Promise<void>;
   /** `app.relaunch(); app.exit(0)`, injected so this module needs no Electron lifecycle of its own. */
   readonly relaunch: () => void;
   /** Reads the caller's grant from the live session registry (api/session-auth.ts). */
-  readonly sessions: SessionRegistry;
+  readonly sessions: SessionLookup;
 }
 
 function failure(code: BackupFailure["code"], message: string): BackupFailure {
@@ -116,9 +116,9 @@ function failure(code: BackupFailure["code"], message: string): BackupFailure {
 }
 
 /** Who the SERVER says made this request. Never a name the caller asserts. */
-function actorOf(deps: RestoreIpcDeps, token: unknown): string {
+async function actorOf(deps: RestoreIpcDeps, token: unknown): Promise<string> {
   if (typeof token !== "string") return "unknown";
-  return deps.sessions.find(token)?.userId ?? "unknown";
+  return (await deps.sessions.find(token))?.userId ?? "unknown";
 }
 
 /**
@@ -203,9 +203,13 @@ const UNAUTHORIZED = failure(
  * let somebody confirm a backup ran last night without also letting them
  * overwrite the company's data.
  */
-function authorize(deps: RestoreIpcDeps, token: unknown, permission: string): BackupFailure | null {
+async function authorize(
+  deps: RestoreIpcDeps,
+  token: unknown,
+  permission: string,
+): Promise<BackupFailure | null> {
   if (typeof token !== "string" || token === "") return UNAUTHORIZED;
-  const grant = deps.sessions.find(token);
+  const grant = await deps.sessions.find(token);
   if (!grant) return UNAUTHORIZED;
   if (!grant.permissions.includes("*") && !grant.permissions.includes(permission)) {
     return UNAUTHORIZED;
@@ -285,7 +289,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
   handleGuarded(
     MEZAN_BACKUP_LIST_CHANNEL,
     async (_event, sessionToken: unknown): Promise<BackupListResult | BackupFailure> => {
-      const denied = authorize(deps, sessionToken, VIEW_PERMISSION);
+      const denied = await authorize(deps, sessionToken, VIEW_PERMISSION);
       if (denied) return denied;
 
       const found = await listBackups(deps.backupsDir);
@@ -298,7 +302,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
   handleGuarded(
     MEZAN_BACKUP_CREATE_CHANNEL,
     async (_event, sessionToken: unknown): Promise<BackupCreateResult> => {
-      const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
+      const denied = await authorize(deps, sessionToken, RESTORE_PERMISSION);
       if (denied) return denied;
 
       const sqlite = deps.sqlite();
@@ -328,7 +332,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
   handleGuarded(
     MEZAN_BACKUP_RESTORE_CHANNEL,
     async (_event, sessionToken: unknown, fileName: unknown): Promise<BackupRestoreResult> => {
-      const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
+      const denied = await authorize(deps, sessionToken, RESTORE_PERMISSION);
       if (denied) return denied;
 
       const archivePath = resolveArchivePath(deps.backupsDir, fileName);
@@ -338,7 +342,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       if (!(await stat(archivePath).catch(() => null))) {
         return failure("NOT_FOUND", "ملف النسخة الاحتياطية غير موجود. حدّث القائمة وحاول مرة أخرى.");
       }
-      return performRestore(deps, archivePath, actorOf(deps, sessionToken));
+      return performRestore(deps, archivePath, await actorOf(deps, sessionToken));
     },
   );
 
@@ -354,7 +358,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
   handleGuarded(
     MEZAN_BACKUP_REVERT_CHANNEL,
     async (_event, sessionToken: unknown): Promise<BackupRestoreResult> => {
-      const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
+      const denied = await authorize(deps, sessionToken, RESTORE_PERMISSION);
       if (denied) return denied;
 
       const candidates = (await listBackups(deps.backupsDir)).filter((entry) =>
@@ -368,7 +372,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
           "لا توجد نسخة محفوظة قبل التحديث على هذا الجهاز. تُؤخذ هذه النسخة تلقائياً عند أول تشغيل بعد تحديث يغيّر قاعدة البيانات.",
         );
       }
-      return performRestore(deps, newest.path, actorOf(deps, sessionToken));
+      return performRestore(deps, newest.path, await actorOf(deps, sessionToken));
     },
   );
 
@@ -379,7 +383,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
   handleGuarded(
     MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
     async (_event, sessionToken: unknown, passphrase: unknown): Promise<BackupExportResult> => {
-      const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
+      const denied = await authorize(deps, sessionToken, RESTORE_PERMISSION);
       if (denied) return denied;
 
       if (typeof passphrase !== "string" || passphrase.length < MIN_PASSPHRASE_LENGTH) {
@@ -460,7 +464,7 @@ async function performRestore(
   }
 
   const restoredFrom = await describeArchive(archivePath, new Date());
-  deps.closeLiveConnections();
+  await deps.closeLiveConnections();
 
   try {
     const restored = await restoreBackup({

@@ -229,7 +229,13 @@ export function isFullIntegrityCheckDue(lastIntegrityCheckAt: string | null, now
  * off-thread path rather than one only exercised in production.
  */
 function resolveWorkerEntry(): { modulePath: string; execArgv: string[] } {
-  const here = path.dirname(fileURLToPath(import.meta.url));
+  // `__dirname` FIRST: scripts/build.mjs bundles this module as CommonJS, and
+  // esbuild resolves `import.meta` to an empty object in that format, so
+  // `fileURLToPath(undefined)` throws and a packaged app never finds its own
+  // worker. `__dirname` is real in the bundle and absent under tsx, where
+  // `import.meta.url` is real.
+  const here =
+    typeof __dirname === "string" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
   for (const built of ["backup-worker.cjs", "backup-worker.js"]) {
     const candidate = path.join(here, built);
     if (existsSync(candidate)) return { modulePath: candidate, execArgv: [] };

@@ -4,15 +4,20 @@ import { networkInterfaces } from "node:os";
 import { serve, type ServerType } from "@hono/node-server";
 import type { Http2Bindings, HttpBindings } from "@hono/node-server";
 import { hasFeature, LAN_MULTI_TILL_FEATURE, type Entitlements } from "@mezan/domain";
-import type { App } from "@mezan/api";
+import type { FetchLike } from "./backend-bridge.js";
 import type { LanTlsIdentity } from "./lan-tls.js";
 
 const FALLBACK_LAN_HOST = "0.0.0.0";
 const DEFAULT_LAN_PORT = 4173;
 
 export interface LanHostOptions {
-  /** The SAME Hono app instance the IPC bridge already serves in-process. */
-  readonly app: App;
+  /**
+   * The SAME backend the IPC bridge already serves. On the shipped host that is
+   * main/backend-process.ts's shim over the utility process that owns SQLite
+   * (Q-1) — one backend, two mounts, exactly as before; what changed is only
+   * that `fetch` now crosses a process boundary.
+   */
+  readonly app: FetchLike;
   readonly entitlements: Entitlements;
   /**
    * The host's persistent TLS identity, resolved lazily so this module stays
@@ -40,8 +45,14 @@ export interface LanHostOptions {
    * OMITTED MEANS DENY, and that is the pre-client behaviour exactly: a host
    * built without this forwards the seat protocol and nothing else. It is not
    * optional-with-a-permissive-default anywhere.
+   *
+   * ASYNC because the session and seat registries moved into the backend
+   * process with the database (Q-1). The answer is still resolved on EVERY
+   * request against the live registries — never against a copy mirrored into
+   * this process, which would go on authorising a till whose seat had already
+   * been reaped.
    */
-  readonly authorizeClientRequest?: (request: Request, remote: string) => boolean;
+  readonly authorizeClientRequest?: (request: Request, remote: string) => boolean | Promise<boolean>;
 }
 
 /**
@@ -402,10 +413,10 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
   const withinRate = createSourceRateLimiter();
   let closedReason: LanClosedReason | null = hostname === FALLBACK_LAN_HOST ? "NO_INTERFACE" : null;
 
-  const handle = (
+  const handle = async (
     request: Request,
     env: HttpBindings | Http2Bindings,
-  ): Response | Promise<Response> => {
+  ): Promise<Response> => {
     const remoteRaw = env.incoming.socket.remoteAddress;
     const remote = remoteRaw ? normalizeRemoteAddress(remoteRaw) : null;
 
@@ -468,7 +479,7 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
       // `requestOrigin` hands the session registry when the token was minted
       // (packages/api/src/request-origin.ts), and the authorizer has to ask the
       // registry the same question the app itself asks.
-      if (!options.authorizeClientRequest?.(request, remoteRaw ?? remote)) return notFound();
+      if (!(await options.authorizeClientRequest?.(request, remoteRaw ?? remote))) return notFound();
     }
 
     // `env` is FORWARDED, not dropped. The backend reads the peer address off

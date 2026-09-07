@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } fro
 import path from "node:path";
 import { app, dialog, shell } from "electron";
 import { handleGuarded } from "./ipc-guard.js";
-import type { SessionRegistry } from "@mezan/api";
+import type { SessionLookup } from "./backend-bridge.js";
 import {
   MEZAN_APP_VERSION_CHANNEL,
   MEZAN_LICENCE_CHECKIN_CHANNEL,
@@ -67,14 +67,19 @@ export interface LicenceIpcDeps {
   /** The unencrypted pre-conversion archive, while it is still on this disk. */
   readonly plaintextArchivePath: () => string | null;
   /** Seats currently held, from the live seat registry. */
-  readonly seatsUsed: () => number;
+  /**
+   * Async because the seat registry moved into the backend process with the
+   * database (Q-1). A real registry stays assignable, which is what the tests
+   * and the headless demo pass.
+   */
+  readonly seatsUsed: () => number | Promise<number>;
   /**
    * The live LAN handle, through a getter: `startLanHost` runs after this is
    * registered, and the socket's address is not known until `ready` resolves.
    */
   readonly lanHost: () => LanHostHandle | undefined;
   /** Reads the caller's grant from the live session registry (api/session-auth.ts). */
-  readonly sessions: SessionRegistry;
+  readonly sessions: SessionLookup;
   /**
    * Told when an imported licence has been verified, so the write gate can
    * re-read it without a restart. Optional: an install that cannot re-evaluate
@@ -299,7 +304,7 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
       canWrite: licence.state.canWrite,
       plan: licence.entitlements.plan,
       seats: licence.entitlements.seats,
-      seatsUsed: deps.seatsUsed(),
+      seatsUsed: await deps.seatsUsed(),
       modules: [...licence.entitlements.activeModules],
       expiresAt: licence.state.expiresAt ?? licence.entitlements.expiresAt ?? null,
       // The licence's own reading first: that is the SALTED hash `machineBinding`
@@ -337,7 +342,7 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
     MEZAN_LICENCE_STATUS_CHANNEL,
     async (_event, sessionToken: unknown): Promise<LicenceStatusResult> => {
       if (typeof sessionToken !== "string" || sessionToken === "") return UNAUTHORIZED;
-      if (!deps.sessions.find(sessionToken)) return UNAUTHORIZED;
+      if (!(await deps.sessions.find(sessionToken))) return UNAUTHORIZED;
       try {
         return await describe(deps.licence());
       } catch (err) {
@@ -360,7 +365,8 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
   handleGuarded(
     MEZAN_LICENCE_IMPORT_CHANNEL,
     async (_event, sessionToken: unknown): Promise<LicenceImportResult> => {
-      const signedIn = typeof sessionToken === "string" && deps.sessions.find(sessionToken) !== null;
+      const signedIn =
+        typeof sessionToken === "string" && (await deps.sessions.find(sessionToken)) !== null;
       const unclaimed = signedIn ? false : ((await deps.tenantIsClaimed?.().catch(() => true)) === false);
       if (!signedIn && !unclaimed) {
         return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
@@ -435,14 +441,14 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
     return null;
   }
 
-  function authorized(sessionToken: unknown): boolean {
-    return typeof sessionToken === "string" && deps.sessions.find(sessionToken) !== null;
+  async function authorized(sessionToken: unknown): Promise<boolean> {
+    return typeof sessionToken === "string" && (await deps.sessions.find(sessionToken)) !== null;
   }
 
   handleGuarded(
     MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL,
     async (_event, sessionToken: unknown, body: unknown): Promise<SupportActionResult> => {
-      if (!authorized(sessionToken)) {
+      if (!(await authorized(sessionToken))) {
         return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
       }
       if (typeof body !== "string" || body === "") {
@@ -471,8 +477,8 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
 
   handleGuarded(
     MEZAN_SUPPORT_REVEAL_CHANNEL,
-    (_event, sessionToken: unknown, target: unknown): SupportActionResult => {
-      if (!authorized(sessionToken)) {
+    async (_event, sessionToken: unknown, target: unknown): Promise<SupportActionResult> => {
+      if (!(await authorized(sessionToken))) {
         return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
       }
       const file = resolveTarget(target);
@@ -489,8 +495,8 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
 
   handleGuarded(
     MEZAN_SUPPORT_DELETE_CHANNEL,
-    (_event, sessionToken: unknown, target: unknown): SupportActionResult => {
-      if (!authorized(sessionToken)) {
+    async (_event, sessionToken: unknown, target: unknown): Promise<SupportActionResult> => {
+      if (!(await authorized(sessionToken))) {
         return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
       }
       const file = resolveTarget(target);
@@ -531,13 +537,13 @@ export function registerLicenceCheckinOverIpc(deps: {
   readonly fingerprint: string | null;
   /** The vendor key the ANSWER is verified against, not just the licence. */
   readonly publicKey: string | null;
-  readonly sessions: SessionRegistry;
+  readonly sessions: SessionLookup;
   readonly log?: (message: string) => void;
 }): void {
   handleGuarded(
     MEZAN_LICENCE_CHECKIN_CHANNEL,
     async (_event, sessionToken: unknown): Promise<LicenceCheckinResult> => {
-      if (typeof sessionToken !== "string" || !deps.sessions.find(sessionToken)) {
+      if (typeof sessionToken !== "string" || !(await deps.sessions.find(sessionToken))) {
         return { reachedServer: false, revoked: false, daysSince: 0, messageAr: UNAUTHORIZED.message };
       }
 

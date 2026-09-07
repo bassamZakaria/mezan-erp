@@ -94,6 +94,27 @@ await build({
   logLevel: "info",
 });
 
+// The process that owns SQLite (docs/artifacts/audit-2026-09-07.md Q-1):
+// forked as an Electron `utilityProcess`, so — like the backup worker above —
+// it needs its own entry point rather than riding along inside index.cjs.
+// Bundled beside it so backend-process.ts's `resolveBackendWorkerEntry()` finds
+// it at a fixed, predictable path.
+await build({
+  entryPoints: [path.join(appDir, "src/main/backend-worker.ts")],
+  outfile: path.join(appDir, "dist/main/backend-worker.cjs"),
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: "node20",
+  external,
+  // The worker imports main/license.ts for `reevaluateLicenseState`, which is
+  // reached from the same module graph as the vendor identifiers; without these
+  // the bundle would fail to resolve them.
+  define: vendorDefine,
+  sourcemap: true,
+  logLevel: "info",
+});
+
 await build({
   entryPoints: [path.join(appDir, "src/preload/index.ts")],
   outfile: path.join(appDir, "dist/preload/index.cjs"),

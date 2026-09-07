@@ -258,6 +258,25 @@ function serialize(entry: JournalEntry) {
   };
 }
 
+/**
+ * تحصيل قسط — turns an instalment collection into a real confirmed customer
+ * collection voucher allocated to the plan line's source invoice, exactly as
+ * the sales invoice `collect` port does. Without it an instalment's
+ * `paidAmount` could only ever move with nothing posted behind it (D1's shape).
+ */
+export type InstallmentCollectPort = (input: {
+  invoiceId: string;
+  customerId: string;
+  branchId: string;
+  amount: Money;
+  treasuryAccountId: string;
+  paymentMethod: "cash" | "bank" | "cheque" | "card" | "wallet";
+  date: string;
+  referenceNo?: string | null;
+  memo?: string | null;
+  actor?: string;
+}) => Promise<{ voucherId: string }>;
+
 export interface CreateAppOptions {
   /**
    * Mounts `/lan/*` (docs/archive/plan.md §2.6/§6.3.3) on this same app instance when
@@ -740,7 +759,10 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /** Mounts `/installments` (docs/archive/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل") when present. */
-  readonly installments?: InstallmentsRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  readonly installments?: InstallmentsRoutesDeps & {
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly collect?: InstallmentCollectPort;
+  };
   /**
    * Mounts `/reports` (docs/archive/catalog/08 — operational reports) when present.
    * Independent of `options.inventory`/`options.purchases`/etc. — it takes

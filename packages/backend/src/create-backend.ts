@@ -7,6 +7,7 @@ import {
   type App,
   type PermissionRefusal,
   type CreateAppOptions,
+  type InstallmentCollectPort,
   type SessionRegistry,
 } from "@mezan/api";
 import {
@@ -1233,6 +1234,61 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }).catch(() => undefined);
   };
 
+  /**
+   * تحصيل من عميل — creates and CONFIRMS a real collection voucher and
+   * allocates it to the invoice, so the money lands in a treasury account, AR
+   * is credited in the ledger, and the invoice's amountPaid follows from the
+   * allocation. It used to increment amountPaid and post nothing (D1). Shared
+   * by the sales invoice screen and the instalment collection route.
+   */
+  const collectFromCustomer: InstallmentCollectPort = async (input) => {
+    const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
+    if (!treasury?.glAccountId) {
+      throw new InvalidSalesInvoicePaymentError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
+    }
+    const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
+    const service = new VoucherService({
+      documents: vouchers.documents,
+      ledger,
+      accounts,
+      periods: fiscalPeriods,
+      numbering: ledger.numbering,
+      treasuryAccounts,
+      allocations: vouchers.allocations,
+      invoices: vouchers.invoices,
+      settings,
+      settlement: {
+        applySettled: async ({ invoiceId, kind, settled }) => {
+          if (kind !== "sales") return;
+          await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
+        },
+      },
+      audit: auditSink,
+      actor: input.actor,
+    });
+    await service.createVoucher({
+      id: voucherId,
+      date: input.date,
+      memo: input.memo ?? undefined,
+      voucherType: "customer_collection",
+      amount: input.amount,
+      branchId: input.branchId,
+      paymentMethod: input.paymentMethod,
+      treasuryAccountId: input.treasuryAccountId,
+      treasuryGlAccountId: treasury.glAccountId,
+      counterpartyGlAccountId: "1105",
+      customerId: input.customerId,
+      referenceNo: input.referenceNo ?? null,
+    });
+    await service.confirmVoucher(voucherId);
+    await service.allocate(voucherId, {
+      allocationId: `${voucherId}:A1`,
+      invoiceId: input.invoiceId,
+      amount: input.amount,
+    });
+    return { voucherId };
+  };
+
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },
@@ -1446,60 +1502,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // The customer's own price list, consulted SERVER-side. The engine
       // (resolvePrice) always existed and no route called it, so the whole
       // pricing order held only in the browser (D35).
-      /**
-       * تحصيل من عميل — the invoice screen's collect action. It creates and
-       * CONFIRMS a real collection voucher and allocates it to the invoice, so
-       * the money lands in a treasury account, AR is credited in the ledger,
-       * and the invoice's amountPaid follows from the allocation. It used to
-       * increment amountPaid and post nothing (D1).
-       */
-      collect: async (input) => {
-        const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
-        if (!treasury?.glAccountId) {
-          throw new InvalidSalesInvoicePaymentError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
-        }
-        const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
-        const service = new VoucherService({
-          documents: vouchers.documents,
-          ledger,
-          accounts,
-          periods: fiscalPeriods,
-          numbering: ledger.numbering,
-          treasuryAccounts,
-          allocations: vouchers.allocations,
-          invoices: vouchers.invoices,
-          settings,
-          settlement: {
-            applySettled: async ({ invoiceId, kind, settled }) => {
-              if (kind !== "sales") return;
-              await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
-            },
-          },
-          audit: auditSink,
-          actor: input.actor,
-        });
-        await service.createVoucher({
-          id: voucherId,
-          date: input.date,
-          memo: input.memo ?? undefined,
-          voucherType: "customer_collection",
-          amount: input.amount,
-          branchId: input.branchId,
-          paymentMethod: input.paymentMethod,
-          treasuryAccountId: input.treasuryAccountId,
-          treasuryGlAccountId: treasury.glAccountId,
-          counterpartyGlAccountId: "1105",
-          customerId: input.customerId,
-          referenceNo: input.referenceNo ?? null,
-        });
-        await service.confirmVoucher(voucherId);
-        await service.allocate(voucherId, {
-          allocationId: `${voucherId}:A1`,
-          invoiceId: input.invoiceId,
-          amount: input.amount,
-        });
-        return { voucherId };
-      },
+      collect: collectFromCustomer,
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
           // تفعيل قوائم الأسعار (settings §"الرقابة الائتمانية"): with price
@@ -1921,7 +1924,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       },
     },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
-    installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },
+    installments: {
+      plans: installmentPlanDocuments,
+      plansRepo: installmentPlans,
+      followUps,
+      collect: collectFromCustomer,
+    },
     reports: {
       allocatable: vouchers.invoices,
       // The customer aging ladder has to net every credit the GL already

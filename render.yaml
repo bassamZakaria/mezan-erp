@@ -4,6 +4,12 @@ services:
     runtime: docker
     plan: free
     region: frankfurt
+    # Without these two keys Render tracks whichever branch was selected in the
+    # dashboard when the blueprint was first created — which is how a merge to
+    # main deployed nothing at all. Naming the branch here keeps the trigger in
+    # the repo instead of in someone's browser session.
+    branch: main
+    autoDeploy: true
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
     envVars:

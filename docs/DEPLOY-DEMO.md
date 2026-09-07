@@ -7,7 +7,8 @@ tenant from scratch. Anything a client types is lost when the instance restarts.
 
 ## Render (no credit card)
 
-1. Push this branch to GitHub.
+1. Push to GitHub. The blueprint tracks `main` (`render.yaml` says so), so every
+   merge to `main` redeploys the demo on its own.
 2. On <https://dashboard.render.com> → **New → Blueprint**, point it at the repo.
    Render reads `render.yaml` and creates the `mezan-demo` web service on the free plan.
 3. Wait for the first build (~5-8 minutes; it installs the workspace and runs

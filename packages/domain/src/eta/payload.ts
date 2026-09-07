@@ -29,9 +29,17 @@ export interface EtaLineInput {
   readonly taxAmount: string;
 }
 
+/**
+ * The invoice document covers فاتورة/إشعار خصم/إشعار إضافة only. An
+ * `EtaDocumentType` of "receipt" is a different document with a different
+ * shape and a different endpoint — see receipt.ts — and excluding it here is
+ * what stops it being filed through the wrong builder.
+ */
+export type EtaInvoiceDocumentType = Exclude<EtaDocumentType, "receipt">;
+
 export interface EtaDocumentInput {
   readonly internalId: string;
-  readonly documentType: EtaDocumentType;
+  readonly documentType: EtaInvoiceDocumentType;
   /** ISO datetime the document was issued/confirmed. */
   readonly issueDateTime: string;
   readonly receiver: EtaPartyInput;
@@ -43,7 +51,7 @@ export interface EtaDocumentInput {
   readonly totalAmount: string;
 }
 
-const DOCUMENT_TYPE_CODES: Record<EtaDocumentType, string> = {
+const DOCUMENT_TYPE_CODES: Record<EtaInvoiceDocumentType, string> = {
   invoice: "I",
   credit_note: "C",
   debit_note: "D",

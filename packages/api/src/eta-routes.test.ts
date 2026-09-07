@@ -22,6 +22,7 @@ import {
   type SqliteEtaStoreHandle,
 } from "@mezan/persistence";
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
+import type { EtaReceiptUuidPort } from "@mezan/domain";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteEtaStoreHandle[] = [];
@@ -751,5 +752,171 @@ describe("eta router — tax sub-types", () => {
     expect(body.map((r) => r.taxRateId).sort()).toEqual(["t1", "t2"]);
     expect(body.find((r) => r.taxRateId === "t1")).toMatchObject({ etaSubType: "V009", resolved: true });
     expect(body.find((r) => r.taxRateId === "t2")).toMatchObject({ etaSubType: "auto", resolved: false });
+  });
+});
+
+
+/* ------------------------------------------------------------------ */
+/* الإيصال الإلكتروني — the B2C receipt surface                        */
+/* ------------------------------------------------------------------ */
+
+function countingUuidPort(): EtaReceiptUuidPort & { calls: number } {
+  const port = {
+    calls: 0,
+    async compute(): Promise<string> {
+      port.calls += 1;
+      return `uuid-${port.calls}`;
+    },
+  };
+  return port;
+}
+
+function receiptApp(uuid?: EtaReceiptUuidPort) {
+  const store = createSqliteEtaStore();
+  handles.push(store);
+  let seq = 0;
+  const service = new EtaService({
+    config: store.config,
+    submissions: store.submissions,
+    receiptUuid: uuid,
+    now: () => "2026-09-01T10:00:00.000Z",
+    newId: () => `sub-${++seq}`,
+  });
+  return { app: createEtaRoutes({ service }, insecureHeaderAuthContextResolver), service, store };
+}
+
+const receiptBody = {
+  internalId: "RCP-000001",
+  issueDateTime: "2026-09-01T10:00:00.000Z",
+  receiptType: "sale",
+  previousUuid: null,
+  seller: { deviceSerialNumber: "POS-0001", branchCode: "1" },
+  buyer: { type: "P", id: null, name: null },
+  paymentMethod: "cash",
+  lines: [
+    {
+      internalCode: "SKU-1",
+      description: "شاي",
+      itemType: "EGS",
+      itemCode: "EG-1",
+      unitType: "EA",
+      quantity: "2",
+      unitPrice: "25.00",
+      totalSale: "50.00",
+      netSale: "50.00",
+      total: "57.00",
+      taxSubType: "V009",
+      taxRate: "14",
+      taxAmount: "7.00",
+    },
+  ],
+  totalSales: "50.00",
+  netAmount: "50.00",
+  totalAmount: "57.00",
+  taxTotals: [{ taxType: "T1", amount: "7.00" }],
+};
+
+function issue(body: unknown = receiptBody, permissions = "accounting.eta.submit") {
+  return req("/receipts", { method: "POST", permissions, body: JSON.stringify(body) });
+}
+
+describe("eta router — receipts", () => {
+  it("issues a receipt with its UUID and QR, gated behind eta.submit", async () => {
+    const { app } = receiptApp(countingUuidPort());
+
+    expect((await app.fetch(issue(receiptBody, "accounting.eta.view"))).status).toBe(403);
+
+    const res = await app.fetch(issue());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { uuid: string; qrValue: string; submission: { documentType: string; status: string } };
+    expect(body.uuid).toBe("uuid-1");
+    expect(body.qrValue).toContain("/receipts/search/uuid-1/share/");
+    expect(body.submission.documentType).toBe("receipt");
+    expect(body.submission.status).toBe("ready");
+  });
+
+  it("reprints the same UUID and QR instead of minting a second submission", async () => {
+    const uuid = countingUuidPort();
+    const { app } = receiptApp(uuid);
+
+    type Printed = { uuid: string; qrValue: string; submission: { id: string } };
+    const first = (await (await app.fetch(issue())).json()) as Printed;
+    const again = (await (await app.fetch(issue())).json()) as Printed;
+
+    expect(again.uuid).toBe(first.uuid);
+    expect(again.qrValue).toBe(first.qrValue);
+    expect(again.submission.id).toBe(first.submission.id);
+    expect(uuid.calls).toBe(1);
+
+    const listed = (await (await app.fetch(req("/submissions", { permissions: "accounting.eta.view" }))).json()) as unknown[];
+    expect(listed).toHaveLength(1);
+  });
+
+  it("serves the stored receipt for a reprint, payload and all", async () => {
+    const { app } = receiptApp(countingUuidPort());
+    await app.fetch(issue());
+
+    const res = await app.fetch(req("/receipts/RCP-000001", { permissions: "accounting.eta.view" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      uuid: string;
+      submission: { payload: { header: { uuid: string }; seller: { deviceSerialNumber: string } } };
+    };
+    expect(body.uuid).toBe("uuid-1");
+    expect(body.submission.payload.header.uuid).toBe("uuid-1");
+    expect(body.submission.payload.seller.deviceSerialNumber).toBe("POS-0001");
+  });
+
+  it("404s a reprint of a receipt that was never issued", async () => {
+    const { app } = receiptApp(countingUuidPort());
+    const res = await app.fetch(req("/receipts/RCP-999", { permissions: "accounting.eta.view" }));
+    expect(res.status).toBe(404);
+  });
+
+  it("refuses money that is not an exact decimal string", async () => {
+    const { app } = receiptApp(countingUuidPort());
+    const res = await app.fetch(issue({ ...receiptBody, totalAmount: 57 }));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
+  });
+
+  it("refuses a receipt with no lines", async () => {
+    const { app } = receiptApp(countingUuidPort());
+    expect((await app.fetch(issue({ ...receiptBody, lines: [] }))).status).toBe(400);
+  });
+
+  it("reports 501, not a bad request, when no UUID service is configured", async () => {
+    const { app } = receiptApp();
+    const res = await app.fetch(issue());
+    expect(res.status).toBe(501);
+    expect(((await res.json()) as { error: string }).error).toBe("ETA_RECEIPT_UUID_UNAVAILABLE");
+  });
+
+  it("counts what has not been reported and what has aged past the 72-hour window", async () => {
+    const { app, service } = receiptApp(countingUuidPort());
+    await app.fetch(issue());
+    await app.fetch(
+      issue({ ...receiptBody, internalId: "RCP-000002", issueDateTime: "2026-08-20T10:00:00.000Z" }),
+    );
+
+    const res = await app.fetch(req("/receipts/summary", { permissions: "accounting.eta.view" }));
+    expect(res.status).toBe(200);
+    const summary = (await res.json()) as {
+      windowHours: number;
+      pending: number;
+      overdue: number;
+      overdueEntries: { internalId: string }[];
+    };
+    expect(summary.windowHours).toBe(72);
+    expect(summary.pending).toBe(2);
+    // "now" is the service clock: 2026-09-01T10:00Z, so the August receipt is long past its window.
+    expect(summary.overdue).toBe(1);
+    expect(summary.overdueEntries[0]?.internalId).toBe("RCP-000002");
+    expect((await service.receiptQueueSummary()).pending).toBe(2);
+  });
+
+  it("gates the summary behind eta.view", async () => {
+    const { app } = receiptApp(countingUuidPort());
+    expect((await app.fetch(req("/receipts/summary"))).status).toBe(403);
   });
 });

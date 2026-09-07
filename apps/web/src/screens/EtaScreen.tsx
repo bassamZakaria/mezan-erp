@@ -46,6 +46,8 @@ import {
   useUpdateEtaConfig,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEtaReceiptQueue } from "./eta/receipt-queue";
+import { useEtaStrings } from "./eta/strings";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const STATUS_TONE: Record<EtaSubmissionStatusDTO, PillTone> = {
@@ -781,8 +783,66 @@ function UnitMappingTab() {
   );
 }
 
+/**
+ * ما لم يُبلَّغ من الإيصالات — the post-sale reporting queue.
+ *
+ * An e-receipt is reported AFTER the sale, so a queue that is merely long is
+ * normal (the till kept selling while the line was down) and a queue with
+ * anything past the window is not. The two counts are shown apart for that
+ * reason: only one of them is a problem.
+ */
+function ReceiptQueueCard() {
+  const et = useEtaStrings();
+  const query = useEtaReceiptQueue();
+  const summary = query.data;
+
+  if (query.isError) {
+    return (
+      <Card className="mb-[14px] p-[12px_16px]">
+        <p className="text-[12.5px] text-danger-ink">{et("receiptsLoadFailed")}</p>
+      </Card>
+    );
+  }
+  if (!summary) return null;
+
+  return (
+    <Card className="mb-[14px] p-[12px_16px]">
+      <div className="flex flex-wrap items-center justify-between gap-[12px]">
+        <div>
+          <div className="text-[13px] font-semibold text-ink">{et("receiptsTitle")}</div>
+          <p className="mt-[3px] text-[11.5px] text-ink-muted">
+            {et("receiptsWindow", { hours: String(summary.windowHours) })} {et("receiptsOfflineOk")}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-[8px]">
+          <StatusPill label={`${et("receiptsPending")} — ${summary.pending}`} tone={summary.pending > 0 ? "info" : "neutral"} />
+          {summary.dueSoon > 0 ? <StatusPill label={`${et("receiptsDueSoon")} — ${summary.dueSoon}`} tone="warning" /> : null}
+          <StatusPill label={`${et("receiptsOverdue")} — ${summary.overdue}`} tone={summary.overdue > 0 ? "danger" : "neutral"} />
+        </div>
+      </div>
+
+      {summary.overdue > 0 ? (
+        <div role="alert" className="mt-[10px] rounded-md border border-danger bg-danger-soft px-[12px] py-[8px] text-[12px] text-danger-ink">
+          {et("receiptsOverdueWarning", { count: String(summary.overdue) })}
+        </div>
+      ) : null}
+
+      {summary.pending === 0 ? (
+        <p className="mt-[8px] text-[11.5px] text-ink-muted">{et("receiptsNone")}</p>
+      ) : summary.oldestPendingIssuedAt ? (
+        <p className="mt-[8px] text-[11.5px] text-ink-muted">
+          {et("receiptsOldest", { date: summary.oldestPendingIssuedAt })}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
 function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatusDTO, AppTranslationKey> }) {
   const { t } = useAppTranslation();
+  const et = useEtaStrings();
+  const configQuery = useEtaConfig();
+  const config = configQuery.data?.config ?? null;
   const submissionsQuery = useEtaSubmissions();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
     EtaSubmissionStatusDTO | "all",
@@ -845,14 +905,51 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
 
   const columns: DocumentListColumn<EtaSubmissionDTO>[] = [
     { key: "internal", header: t("eta.internalId"), render: (s) => <span className="mz-num font-semibold text-ink">{s.internalId}</span> },
-    { key: "type", header: t("common.type"), render: (s) => <span className="text-ink-muted">{t(TYPE_KEYS[s.documentType])}</span> },
-    { key: "status", header: t("common.status"), render: (s) => <StatusPill label={t(statusKeys[s.status])} tone={STATUS_TONE[s.status]} /> },
+    {
+      key: "type",
+      header: t("common.type"),
+      render: (s) => (
+        <span className="text-ink-muted">
+          {(s.documentType as string) === "receipt" ? et("typeReceipt") : t(TYPE_KEYS[s.documentType])}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: t("common.status"),
+      render: (s) => (
+        <div className="flex flex-wrap items-center gap-[6px]">
+          <StatusPill label={t(statusKeys[s.status])} tone={STATUS_TONE[s.status]} />
+          {/* Nothing signs a parked submission in this build, so the row says so
+              rather than leaving it to be discovered at a tax audit. */}
+          {s.status === "pending_signature" ? <StatusPill label={et("badgeAwaitingSeal")} tone="warning" /> : null}
+          {config?.environment === "preproduction" ? <StatusPill label={et("badgeTestMode")} tone="warning" /> : null}
+        </div>
+      ),
+    },
     { key: "uuid", header: t("eta.authorityId"), render: (s) => <span className="mz-num text-ink-muted">{s.etaUuid ?? "—"}</span> },
     { key: "errors", header: t("eta.errors"), render: (s) => <span className="text-danger-ink">{s.errors.length > 0 ? s.errors.join(t("dataMigration.reasonSeparator")) : "—"}</span> },
   ];
 
+  const unsealed = allSubs.filter((s) => s.status === "pending_signature").length;
+
   return (
     <div>
+      {config?.environment === "preproduction" ? (
+        <div role="status" className="mb-[14px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+          <span className="font-semibold">{et("testModeTitle")}</span> — {et("testModeBody")}
+        </div>
+      ) : null}
+
+      {config?.signingMethod === "eseal" ? (
+        <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          <span className="font-semibold">{et("esealNotWiredTitle")}</span> — {et("esealNotWiredBody")}
+          {unsealed > 0 ? ` (${unsealed})` : ""}
+        </div>
+      ) : null}
+
+      <ReceiptQueueCard />
+
       <div className="mb-[12px] flex justify-end">
         <Button variant="primary" onClick={submitAll} disabled={submitAllMutation.isPending}>{t("eta.submitEverythingReady")}</Button>
       </div>

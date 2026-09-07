@@ -12,6 +12,30 @@ export {
   type EtaConfigRepository,
 } from "./config.js";
 export {
+  ETA_RECEIPT_REPORTING_WINDOW_HOURS,
+  buildEtaReceiptPayload,
+  canonicalizeEtaDocument,
+  etaReceiptHoursRemaining,
+  etaReceiptIssuedAt,
+  etaReceiptQrValue,
+  etaReceiptReportingDeadline,
+  getEtaReceiptPaymentMethodLabel,
+  getEtaReceiptTypeLabel,
+  summarizeEtaReceiptQueue,
+  unavailableEtaReceiptUuidPort,
+  EtaReceiptUuidUnavailableError,
+  type EtaReceiptBuyerInput,
+  type EtaReceiptInput,
+  type EtaReceiptLineInput,
+  type EtaReceiptPaymentMethod,
+  type EtaReceiptQueueEntry,
+  type EtaReceiptQueueSummary,
+  type EtaReceiptSellerInput,
+  type EtaReceiptTaxTotalInput,
+  type EtaReceiptType,
+  type EtaReceiptUuidPort,
+} from "./receipt.js";
+export {
   ETA_SUBMISSION_STATUSES,
   getEtaStatusLabel,
   getEtaDocumentTypeLabel,
@@ -26,6 +50,7 @@ export {
   type EtaPartyInput,
   type EtaLineInput,
   type EtaDocumentInput,
+  type EtaInvoiceDocumentType,
 } from "./payload.js";
 export {
   EtaService,
@@ -34,6 +59,7 @@ export {
   type EtaTransmitPort,
   type EtaServiceDeps,
   type EtaEnqueueInput,
+  type EtaReceiptPrintData,
 } from "./service.js";
 export {
   EtaSubmissionNotFoundError,

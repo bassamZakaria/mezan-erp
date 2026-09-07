@@ -4,6 +4,7 @@ import { cn } from "../lib/cn";
 import { formatDate, formatNumber } from "../lib/format";
 import { Money } from "../primitives/atoms";
 import { PrintToolbar } from "./PrintToolbar";
+import { QrCode } from "./QrCode";
 import { resolvePrintTemplateConfig, type PrintDocumentModel, type PrintTemplateConfig } from "./types";
 
 /**
@@ -247,13 +248,29 @@ export function PrintView({ config, document, showToolbar = true, className }: P
             </div>
           ) : null}
 
-          {document.etaUuid ? (
-            <p className="mt-[8px] border-t border-border pt-[6px] text-center text-[10px] text-ink-muted">
-              <span>{t("print.etaUuid")}</span>{" "}
-              <span className="mz-num" dir="ltr">
-                {document.etaUuid}
-              </span>
+          {document.complianceNotice ? (
+            <p
+              className="mt-[8px] rounded-md border border-warning bg-warning-soft p-[6px_10px] text-center text-[10.5px] font-semibold text-warning-ink"
+              style={{ borderColor: identity.primaryColor }}
+            >
+              {document.complianceNotice}
             </p>
+          ) : null}
+
+          {document.etaUuid || document.etaQrValue ? (
+            <div className="mt-[8px] flex flex-col items-center gap-[6px] border-t border-border pt-[6px]">
+              {document.etaQrValue ? (
+                <QrCode value={document.etaQrValue} label={t("print.etaUuid")} className="h-[26mm] w-[26mm]" />
+              ) : null}
+              {document.etaUuid ? (
+                <p className="text-center text-[10px] text-ink-muted">
+                  <span>{t("print.etaUuid")}</span>{" "}
+                  <span className="mz-num" dir="ltr">
+                    {document.etaUuid}
+                  </span>
+                </p>
+              ) : null}
+            </div>
           ) : null}
 
           {footer.text ? <p className="mt-[6px] text-center text-[10px] text-ink-faint">{footer.text}</p> : null}

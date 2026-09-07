@@ -256,6 +256,22 @@ export interface PrintDocumentModel {
    * is simply not rendered then rather than printing an empty label.
    */
   etaUuid?: string;
+  /**
+   * What the QR on the paper encodes — for an e-receipt, the authority's own
+   * share URL (see @mezan/domain's `etaReceiptQrValue`). A B2C receipt is
+   * reported AFTER the sale, so this is the only thing the customer or an
+   * inspector can check the receipt against at the counter. Passed in rather
+   * than built here: @mezan/ui must not decide what a tax document says.
+   */
+  etaQrValue?: string;
+  /**
+   * A compliance state the printed copy must not hide — «وضع الاختبار» while
+   * filing against the pre-production environment, or «في انتظار الختم
+   * الإلكتروني» for a document that has been queued but not sealed. Printing a
+   * document that looks filed when it is not is how this is discovered at an
+   * audit instead of at the till.
+   */
+  complianceNotice?: string;
   lines: PrintDocumentLine[];
   totals: PrintDocumentTotals;
 }

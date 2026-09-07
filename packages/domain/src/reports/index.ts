@@ -261,3 +261,27 @@ export {
   type AccountLedgerParams,
   type AccountLedgerRow,
 } from "./account-ledger.js";
+
+// --- نموذج 41 — Withholding-tax (Form 41) quarterly filing ---------------
+
+export {
+  amendForm41Filing,
+  assertWithholdingNotFiled,
+  recordForm41Filing,
+  withholdingQuarter,
+  withholdingQuarterOf,
+  DuplicateForm41FilingError,
+  Form41FilingNotFoundError,
+  Form41PeriodAlreadyFiledError,
+  type Form41Filing,
+  type Form41FilingRepository,
+  type Form41FilingStatus,
+  type Form41Quarter,
+  type RecordForm41FilingCommand,
+  type WithholdingQuarter,
+} from "./form41-filing.js";
+export {
+  buildForm41Return,
+  type Form41Return,
+  type Form41ReturnRow,
+} from "./form41-return.js";

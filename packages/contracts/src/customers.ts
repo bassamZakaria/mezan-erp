@@ -47,6 +47,13 @@ export const createCustomerSchema = z.object({
   paymentTermsDays: z.number().int().nonnegative().optional(),
   currency: z.string().min(1).optional(),
   openingBalance: z.string().optional(),
+  /**
+   * The date the opening balance is posted at — it lands in the GL as a debit
+   * to the AR control account against opening-balance equity (D142), so it
+   * decides which fiscal period the migration's debtors fall in. Not stored on
+   * the customer; the posted entry is the record of it. Defaults to today.
+   */
+  openingBalanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   active: z.boolean().optional(),
   priceListId: z.string().nullable().optional(),
   creditLimit: z.string().optional(),
@@ -59,7 +66,10 @@ export const createCustomerSchema = z.object({
 });
 
 /** PATCH /customers/:id body — every field but id optional. */
-export const updateCustomerSchema = customerSchema.omit({ id: true }).partial();
+export const updateCustomerSchema = customerSchema
+  .omit({ id: true })
+  .partial()
+  .extend({ openingBalanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 
 export type EtaBuyerTypeDTO = z.infer<typeof etaBuyerTypeSchema>;
 export type CustomerDTO = z.infer<typeof customerSchema>;

@@ -151,6 +151,57 @@ export interface DocumentStockHook {
   // Deliberately NOT `| void`: a hook that returns nothing puts the caller back
   // to guessing the value from the document, which is the defect above.
   apply(plan: DocumentStockPlan): Promise<DocumentStockResult>;
+  /**
+   * Undo what `apply` moved for `reversesDocId`, recorded under the reversing
+   * document's own id (`plan.sourceDocId`). `DocumentService.reverse` reversed
+   * the GL and left the stock where it was (B-10), so a reversed goods movement
+   * stayed on hand while GL 1200 had been credited.
+   *
+   * Optional only so an existing adapter that cannot reverse is a loud
+   * `MissingHookError` at the call rather than a silent no-op.
+   */
+  reverse?(plan: DocumentStockPlan, reversesDocId: string): Promise<DocumentStockResult>;
+}
+
+/** The part of a recorded stock movement `mirrorStockPlan` needs. */
+export interface MirrorableStockMovement {
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly direction: "IN" | "OUT";
+  readonly qty: Qty;
+  /** The cost the movement actually recorded — a receipt cost on an IN, the moving average on an OUT. */
+  readonly unitCost: Money;
+}
+
+/**
+ * Build the plan that undoes `movements`, keyed to the reversing document.
+ *
+ * Every line comes back at the cost it left at — read off the movement, never
+ * re-derived from the document — so the reversal is valuation-neutral and the
+ * position returns to exactly where it stood. Value-only movements (a landed
+ * cost) carry no quantity and are not reversed here.
+ */
+export function mirrorStockPlan(
+  plan: DocumentStockPlan,
+  movements: readonly MirrorableStockMovement[],
+): DocumentStockPlan | null {
+  const moved = movements.filter((m) => !m.qty.isZero());
+  if (moved.length === 0) return null;
+  const warehouses = [...new Set(moved.map((m) => m.warehouseId))];
+  if (warehouses.length > 1) {
+    throw new Error("لا يمكن عكس حركة مخزنية موزّعة على أكثر من مستودع");
+  }
+  return {
+    ...plan,
+    warehouseId: warehouses[0] as string,
+    toWarehouseId: undefined,
+    lines: moved.map((m) => ({
+      itemId: m.itemId,
+      direction: m.direction === "IN" ? ("OUT" as const) : ("IN" as const),
+      qty: m.qty,
+      unitCost: m.unitCost,
+    })),
+  };
 }
 
 /* --- Workflow-gate hook (via the workflow engine) ------------------------ */

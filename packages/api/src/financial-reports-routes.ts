@@ -17,7 +17,7 @@ import {
   type RunReportOutcome,
   type VatReturnContext,
 } from "@mezan/domain";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * القوائم المالية — the seven financial statements (docs/archive/catalog/08-reports.md),
@@ -29,7 +29,7 @@ import { createPermissionGate, type AuthContextResolver } from "./permission-gat
  * `@mezan/domain/reports/*`; this file is wiring only.
  */
 export interface FinancialReportsRoutesDeps {
-  readonly ledger: Pick<LedgerRepository, "list">;
+  readonly ledger: Pick<LedgerRepository, "list"> & Pick<Partial<LedgerRepository>, "accountBalances">;
   readonly accounts: Pick<AccountRepository, "list">;
   /**
    * The GL accounts the VAT return reads output/input tax off. Required for
@@ -47,6 +47,19 @@ export interface FinancialReportsRoutesDeps {
   readonly cashAccountIds?: readonly string[];
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
   readonly today?: () => string;
+  /**
+   * Which branch each posted entry belongs to (P-7).
+   *
+   * The general ledger carries NO branch dimension of its own — a journal entry
+   * has no `branchId` — so a branch-limited statement can only be produced by
+   * resolving each entry through the document that posted it. An entry this
+   * cannot attribute is EXCLUDED from a branch-limited statement rather than
+   * counted in it: a company figure presented as a branch figure is worse than
+   * a statement that says it could not be produced.
+   *
+   * Omitted, the statements accept no branch narrowing at all and say so.
+   */
+  readonly branchOfEntry?: (entries: readonly JournalEntry[]) => Promise<ReadonlyMap<string, string | null>>;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -101,21 +114,45 @@ export function createFinancialReportsRoutes(
    * original in place, so loading only "posted" would keep the mirror and drop
    * what it offsets.
    */
-  async function loadJournalEntries(bounds: { fromDate?: string; toDate?: string }): Promise<JournalEntry[]> {
+  async function loadJournalEntries(
+    bounds: { fromDate?: string; toDate?: string },
+    branches?: readonly string[],
+  ): Promise<JournalEntry[]> {
     const [posted, reversed] = await Promise.all([
       deps.ledger.list({ ...bounds, status: "posted" }),
       deps.ledger.list({ ...bounds, status: "reversed" }),
     ]);
-    return [...posted, ...reversed].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+    const entries = [...posted, ...reversed].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+    if (!branches || !deps.branchOfEntry) return entries;
+    const allowed = new Set(branches);
+    const branchByEntryId = await deps.branchOfEntry(entries);
+    return entries.filter((e) => {
+      const branchId = branchByEntryId.get(e.id) ?? null;
+      return branchId !== null && allowed.has(branchId);
+    });
+  }
+
+  /**
+   * The branches a statement may cover (P-7). `branchScopeOf` is the scope;
+   * `?branchId=` may only narrow it, never widen it. `undefined` means the
+   * whole company and no per-entry attribution is attempted at all.
+   */
+  function statementBranches(c: Context): readonly string[] | undefined {
+    const scope = branchScopeOf(c);
+    const requested = (c.req.query("branchId") ?? "").trim();
+    if (requested === "" || requested === "*") return scope;
+    if (scope && !scope.includes(requested)) return [];
+    return [requested];
   }
 
   async function loadGlContext(
+    c: Context,
     bounds: { fromDate?: string; toDate?: string },
     preloadedAccounts?: readonly Account[],
   ): Promise<GlReportContext> {
     const [accounts, journalEntries] = await Promise.all([
       preloadedAccounts ? Promise.resolve(preloadedAccounts) : deps.accounts.list(),
-      loadJournalEntries(bounds),
+      loadJournalEntries(bounds, statementBranches(c)),
     ]);
     return { accounts, journalEntries, cashAccountIds: deps.cashAccountIds };
   }
@@ -125,7 +162,19 @@ export function createFinancialReportsRoutes(
   app.get("/trial-balance", gate("accounting.reports.view"), async (c) => {
     const definition = createTrialBalanceReport(todayIso(deps));
     const params = mergeParams(c, definition.defaultParams);
-    const ctx = await loadGlContext({ toDate: isoDateOrUndefined(params.asOfDate) });
+    const toDate = isoDateOrUndefined(params.asOfDate);
+    // The trial balance is a balance per account and nothing else, so when the
+    // ledger can aggregate it there is no reason to read a line of the GL (Q-6).
+    // The SQL aggregate has no branch dimension to narrow by, so a
+    // branch-limited trial balance falls back to reading the entries.
+    if (deps.ledger.accountBalances && statementBranches(c) === undefined) {
+      const [accounts, balances] = await Promise.all([
+        deps.accounts.list(),
+        deps.ledger.accountBalances({ toDate }),
+      ]);
+      return respond(c, runReport(definition, params, { accounts, balances }));
+    }
+    const ctx = await loadGlContext(c, { toDate });
     return respond(c, runReport(definition, params, ctx));
   });
 
@@ -140,7 +189,7 @@ export function createFinancialReportsRoutes(
     // column reading zero on every run — the comparison silently did nothing.
     const periodFrom = String(params.periodFrom);
     const prior = comparativeRange({ from: periodFrom, to: String(params.periodTo) }, params.compareTo as never);
-    const ctx = await loadGlContext({
+    const ctx = await loadGlContext(c, {
       fromDate: isoDateOrUndefined(prior.from < periodFrom ? prior.from : periodFrom),
       toDate: isoDateOrUndefined(params.periodTo),
     });
@@ -152,7 +201,7 @@ export function createFinancialReportsRoutes(
   app.get("/balance-sheet", gate("accounting.reports.view"), async (c) => {
     const definition = createBalanceSheetReport(todayIso(deps));
     const params = mergeParams(c, definition.defaultParams);
-    const ctx = await loadGlContext({ toDate: isoDateOrUndefined(params.asOfDate) });
+    const ctx = await loadGlContext(c, { toDate: isoDateOrUndefined(params.asOfDate) });
     return respond(c, runReport(definition, params, ctx));
   });
 
@@ -164,7 +213,7 @@ export function createFinancialReportsRoutes(
     const params = mergeParams(c, definition.defaultParams);
     // The opening-cash figure needs every entry before periodFrom, so the
     // ledger query is bounded on the upper end only.
-    const ctx = await loadGlContext({ toDate: isoDateOrUndefined(params.periodTo) });
+    const ctx = await loadGlContext(c, { toDate: isoDateOrUndefined(params.periodTo) });
     return respond(c, runReport(definition, params, ctx));
   });
 
@@ -196,7 +245,7 @@ export function createFinancialReportsRoutes(
         400,
       );
     }
-    const base = await loadGlContext({
+    const base = await loadGlContext(c, {
       fromDate: isoDateOrUndefined(params.periodFrom),
       toDate: isoDateOrUndefined(params.periodTo),
     });
@@ -210,7 +259,7 @@ export function createFinancialReportsRoutes(
     const today = todayIso(deps);
     const definition = createGeneralLedgerReport({ periodFrom: firstOfMonth(today), periodTo: today });
     const params = mergeParams(c, definition.defaultParams);
-    const ctx = await loadGlContext({
+    const ctx = await loadGlContext(c, {
       fromDate: isoDateOrUndefined(params.periodFrom),
       toDate: isoDateOrUndefined(params.periodTo),
     });
@@ -230,7 +279,7 @@ export function createFinancialReportsRoutes(
     });
     const params = mergeParams(c, definition.defaultParams);
     // The opening balance needs every entry before periodFrom.
-    const ctx = await loadGlContext({ toDate: isoDateOrUndefined(params.periodTo) }, accounts);
+    const ctx = await loadGlContext(c, { toDate: isoDateOrUndefined(params.periodTo) }, accounts);
     return respond(c, runReport(definition, params, ctx));
   });
 

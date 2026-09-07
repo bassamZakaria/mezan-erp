@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { DocumentList, EmptyState, StatusPill, Button, Card, SidePanel, formatDateTime, type DocumentListColumn, type Locale, type PillTone } from "@mezan/ui";
 import type { AuditEventDTO, AuditSeverityDTO, AuditStreamDTO } from "@mezan/contracts";
-import { useAuditLog } from "../data/platform-hooks";
+import { useAuditLog, useVerifyAuditChain } from "../data/platform-hooks";
 import { useBranches } from "../data/hooks";
 import { branchName } from "../settings/branch-name";
 import { SelectField, TextField } from "../settings/form-controls";
@@ -86,6 +86,7 @@ export function AuditLogScreen() {
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [selected, setSelected] = useState<AuditEventDTO | null>(null);
+  const verify = useVerifyAuditChain();
 
   function updateFilters(patch: Partial<Filters>) {
     setFilters((f) => ({ ...f, ...patch }));
@@ -163,10 +164,49 @@ export function AuditLogScreen() {
     <>
       {listQuery.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("audit.couldNotLoadTheAudit")}</p>
+          {/*
+            The SERVER's reason, not this screen's fixed sentence. A 502 from a
+            sleeping host, a permission denial and an expired session all used
+            to read «تعذّر تحميل سجل المراجعة»; `readError` now carries the
+            reason, or the sentence plus a «رمز 502» support code.
+          */}
+          <p className="text-[13px] font-semibold text-danger-ink">
+            {listQuery.error?.message ?? t("audit.couldNotLoadTheAudit")}
+          </p>
           <Button size="sm" className="mt-[10px]" onClick={() => listQuery.refetch()}>
             {t("common.retry")}
           </Button>
+        </Card>
+      ) : null}
+
+      {verify.isSuccess || verify.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p
+            role="status"
+            className={
+              verify.data?.ok
+                ? "text-[13px] font-semibold text-success-ink"
+                : "text-[13px] font-semibold text-danger-ink"
+            }
+          >
+            {verify.isError
+              ? verify.error.message
+              : verify.data?.ok
+                ? t("audit.verifyOk", { checked: verify.data.checked })
+                : verify.data?.brokenRowId !== null && verify.data?.brokenRowId !== undefined
+                  ? t("audit.verifyBroken", {
+                      row: verify.data.brokenRowId,
+                      reason: t(`audit.verifyReason.${verify.data.reason}` as AppTranslationKey),
+                    })
+                  : t("audit.verifyBrokenNoRow", {
+                      reason: t(`audit.verifyReason.${verify.data?.reason ?? "OK"}` as AppTranslationKey),
+                    })}
+          </p>
+          {verify.data && verify.data.unchained > 0 ? (
+            <p className="mt-[6px] text-[12.5px] text-ink-muted">
+              {t("audit.verifyUnchained", { unchained: verify.data.unchained })}
+            </p>
+          ) : null}
         </Card>
       ) : null}
 
@@ -174,6 +214,11 @@ export function AuditLogScreen() {
         title={t("audit.auditLog")}
         description={t("audit.aRecordOfSecurityEvents")}
         listKey="audit-log"
+        actions={
+          <Button onClick={() => verify.mutate()} disabled={verify.isPending}>
+            {verify.isPending ? t("audit.verifyChecking") : t("audit.verify")}
+          </Button>
+        }
         statsCollapsible
         stats={[
           { label: t("audit.totalUnderTheCurrentFilters"), value: <span className="mz-num">{total}</span> },

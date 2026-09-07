@@ -12,7 +12,7 @@ import type {
   PayslipDTO,
   TreasuryDisbursementDTO,
 } from "@mezan/contracts";
-import { ApiError } from "./hooks";
+import { ApiError, readError } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -33,7 +33,7 @@ export function useEmployeeAdvances(): UseQueryResult<EmployeeAdvanceDTO[], ApiE
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/advances");
-      if (!res.ok) throw new ApiError(res.status, t("advances.advancesCouldNotBeLoaded"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("advances.advancesCouldNotBeLoaded"), t));
       return res.json<EmployeeAdvanceDTO[]>();
     },
   });
@@ -47,7 +47,7 @@ export function useEmployeeAdvanceBalances(): UseQueryResult<EmployeeAdvanceBala
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/advances/outstanding");
-      if (!res.ok) throw new ApiError(res.status, t("hrApi.advanceBalancesCouldNotBe"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("hrApi.advanceBalancesCouldNotBe"), t));
       return res.json<EmployeeAdvanceBalanceDTO[]>();
     },
   });
@@ -110,7 +110,7 @@ export function usePayrollRuns(): UseQueryResult<PayrollRunDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/payroll/runs");
-      if (!res.ok) throw new ApiError(res.status, t("payroll.payrollRunsCouldNotBe"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("payroll.payrollRunsCouldNotBe"), t));
       return res.json<PayrollRunDTO[]>();
     },
   });
@@ -124,7 +124,7 @@ export function usePayrollRun(runId: string | null): UseQueryResult<PayrollRunDe
     enabled: session !== null && runId !== null,
     queryFn: async () => {
       const res = await request(`/hr/payroll/runs/${runId}`);
-      if (!res.ok) throw new ApiError(res.status, t("hrApi.thePayrollRunCouldNot"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("hrApi.thePayrollRunCouldNot"), t));
       return res.json<PayrollRunDetailDTO>();
     },
   });
@@ -217,7 +217,7 @@ export function useEmployeePayslips(employeeId: string | null): UseQueryResult<P
     enabled: session !== null && employeeId !== null,
     queryFn: async () => {
       const res = await request(`/hr/payroll/payslips?employeeId=${encodeURIComponent(employeeId ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("payroll.payrollRunsCouldNotBe"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("payroll.payrollRunsCouldNotBe"), t));
       return res.json<PayslipDTO[]>();
     },
   });
@@ -233,7 +233,7 @@ export function usePayrollComponents(): UseQueryResult<PayrollComponentDTO[], Ap
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/payroll/components");
-      if (!res.ok) throw new ApiError(res.status, t("payrollComponents.componentsCouldNotBeLoaded"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("payrollComponents.componentsCouldNotBeLoaded"), t));
       return res.json<PayrollComponentDTO[]>();
     },
   });

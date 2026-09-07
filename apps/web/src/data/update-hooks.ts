@@ -17,7 +17,13 @@ export type UpdatePhase =
   | "verifying"
   | "ready"
   | "error"
-  | "rejected";
+  | "rejected"
+  /** No feed and no vendor key in this build — information, not a failure. */
+  | "unavailable"
+  /** Consented, and it happens when the app is next closed. */
+  | "scheduled"
+  /** The launch-time pre-update backup is running. */
+  | "migrating";
 
 export interface UpdateStatus {
   readonly phase: UpdatePhase;
@@ -47,6 +53,8 @@ export interface UseUpdatesResult {
   check(): void;
   download(): void;
   install(): void;
+  /** Puts the banner away. The state it was reporting is not lost — it is re-pushed. */
+  dismiss(): void;
 }
 
 export function useUpdates(): UseUpdatesResult {
@@ -61,7 +69,16 @@ export function useUpdates(): UseUpdatesResult {
   const run = useCallback(
     (action: UpdateAction) => {
       if (!bridge) return;
-      void bridge.update(action).then(setStatus);
+      // THE MISSING CATCH. On a client machine the update channel is refused,
+      // and an `ipcMain.handle` rejection with no handler here left the button
+      // silently dead — press, nothing, forever. A rejection is a state to
+      // render, not an unhandled promise.
+      void bridge.update(action).then(setStatus, (err: unknown) =>
+        setStatus({
+          phase: "error",
+          reason: err instanceof Error ? err.message : String(err),
+        }),
+      );
     },
     [bridge],
   );
@@ -72,5 +89,6 @@ export function useUpdates(): UseUpdatesResult {
     check: () => run("check"),
     download: () => run("download"),
     install: () => run("install"),
+    dismiss: () => setStatus({ phase: "idle" }),
   };
 }

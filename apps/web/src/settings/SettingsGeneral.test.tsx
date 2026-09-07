@@ -153,6 +153,8 @@ describe("SettingsGeneral", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
   });
 
+  // guards §4.5 #13 — the fixed fallback sentence now carries the HTTP status
+  // as a support code when the refusal body names no reason of its own.
   it("surfaces the server error instead of saving an out-of-range value", async () => {
     renderScreen();
     await screen.findByRole("button", { name: "حفظ الإعدادات" });
@@ -160,7 +162,7 @@ describe("SettingsGeneral", () => {
     fireEvent.change(textboxByLabel("نسبة الضريبة الافتراضية (%)"), { target: { value: "999" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
     // Still dirty — the invalid patch was rejected by the server, not silently saved.
-    expect(await screen.findByText("تعذر حفظ الإعدادات.")).toBeInTheDocument();
+    expect(await screen.findByText(/^تعذر حفظ الإعدادات\. \(رمز \d{3}\)$/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeEnabled();
   });
 
@@ -170,7 +172,7 @@ describe("SettingsGeneral", () => {
     });
     renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
 
-    expect(await screen.findByText("تعذّر تحميل الإعدادات.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل الإعدادات\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 
@@ -390,7 +392,7 @@ describe("SettingsGeneral", () => {
     fireEvent.change(textboxByLabel("نسبة الضريبة الافتراضية (%)"), { target: { value: "999" } });
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    expect(await screen.findByText("تعذر حفظ الإعدادات.")).toBeInTheDocument();
+    expect(await screen.findByText(/^تعذر حفظ الإعدادات\. \(رمز \d{3}\)$/)).toBeInTheDocument();
     // The rejected out-of-range field AND the untouched-by-the-error field on
     // the other tab both still hold the user's edits — nothing was reverted.
     expect(textboxByLabel("نسبة الضريبة الافتراضية (%)")).toHaveValue(999);
@@ -418,7 +420,7 @@ describe("SettingsGeneral", () => {
     fireEvent.change(textboxByLabel("اسم المنشأة"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
 
-    expect(await screen.findByText("تعذر حفظ الإعدادات.")).toBeInTheDocument();
+    expect(await screen.findByText(/^تعذر حفظ الإعدادات\. \(رمز \d{3}\)$/)).toBeInTheDocument();
     expect(putCalls).toBe(1);
     expect(textboxByLabel("اسم المنشأة")).toHaveValue("");
   });

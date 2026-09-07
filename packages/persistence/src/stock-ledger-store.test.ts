@@ -180,3 +180,55 @@ describe("StockLedgerService on SQLite — parity with the pure engine", () => {
     expect(totalValue.toString()).toBe("50.000000");
   });
 });
+
+/**
+ * Q-6: the inventory reports read the whole ledger by issuing one synchronous
+ * query PER POSITION (12,001 of them on the reference database). `listAll`
+ * replaces that, and its ORDER is part of the contract — it must be byte for
+ * byte what `listPositions()` + a `listByPosition` per position produced, or
+ * the ledger and drift reports read a different ledger.
+ */
+describe("SqliteStockLedgerStore — listAll equals the per-position walk (guards Q-6)", () => {
+  it("returns every movement and every layer in the same order, in one query", async () => {
+    const { store, service } = newService({ allowNegativeStock: true });
+    // Two items across two warehouses, interleaved so position order and
+    // insertion order genuinely differ.
+    for (const [n, itemId, warehouseId] of [
+      [1, "I2", "W2"],
+      [2, "I1", "W1"],
+      [3, "I2", "W1"],
+      [4, "I1", "W2"],
+      [5, "I1", "W1"],
+    ] as const) {
+      await service.recordOpeningBalance({
+        adjustmentId: `open-${n}`,
+        warehouseId,
+        lines: [{ itemId, qty: Qty.fromMajor("10"), unitCost: Money.fromMajor(`${n}.50`) }],
+      });
+    }
+    await service.postIssue({
+      issueId: "iss-1",
+      warehouseId: "W1",
+      sourceDocType: "SALES_INVOICE",
+      sourceDocId: "inv-1",
+      sourceDocNumber: null,
+      occurredAt: "2026-03-02T00:00:00.000Z",
+      lines: [{ itemId: "I1", qty: Qty.fromMajor("4") }],
+    });
+
+    const positions = await store.ledger.listPositions();
+    const walked = (
+      await Promise.all(positions.map((p) => store.ledger.listByPosition(p.itemId, p.warehouseId)))
+    ).flat();
+    const inOneQuery = await store.ledger.listAll!();
+    expect(inOneQuery.map((m) => m.id)).toEqual(walked.map((m) => m.id));
+    expect(inOneQuery).toEqual(walked);
+
+    const walkedLayers = (
+      await Promise.all(positions.map((p) => store.layers.listByPosition(p.itemId, p.warehouseId)))
+    ).flat();
+    const layersInOneQuery = await store.layers.listAll!();
+    expect(layersInOneQuery.map((l) => l.id)).toEqual(walkedLayers.map((l) => l.id));
+    expect(layersInOneQuery).toEqual(walkedLayers);
+  });
+});

@@ -18,7 +18,7 @@ import {
   ITEM_TYPES,
   itemTypeTracksStock,
   matchesSearch } from "@mezan/domain";
-import { createItemSchema, updateItemSchema } from "@mezan/contracts";
+import { createItemSchema, updateItemSchema, pageQuerySchema, DEFAULT_PAGE_SIZE } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /** Wire representation of an item — money as decimal strings, byte-stable. */
@@ -156,7 +156,19 @@ export function createItemsRouter(
     readonly seasonId?: string;
     readonly unitCode?: string;
     readonly search?: string;
+    /** One page of rows, 1-based, defaulted so an omitted page never means the whole catalogue (Q-8). */
+    readonly page: number;
+    readonly pageSize: number;
+    /**
+     * The total order the page is cut from. It lives here rather than in the
+     * browser because sorting a page instead of the set reorders rows within a
+     * page and leaves the pages themselves arbitrary.
+     */
+    readonly sort: "code" | "nameAr" | "salePrice" | "costPrice";
+    readonly sortDir: "asc" | "desc";
   }
+
+  const SORT_KEYS = ["code", "nameAr", "salePrice", "costPrice"] as const;
 
   interface ItemRow {
     readonly item: Item;
@@ -174,7 +186,31 @@ export function createItemsRouter(
       // `q` is the parameter the list has always taken; `search` is the name
       // every other list resource uses. Both reach the same filter.
       search: c.req.query("search") || c.req.query("q") || undefined,
+      sort: SORT_KEYS.find((k) => k === c.req.query("sort")) ?? "code",
+      sortDir: c.req.query("sortDir") === "desc" ? "desc" : "asc",
+      ...pageOf(c),
     };
+  }
+
+  /** The catalogue's total order — see `ItemListFilter.sort`. */
+  function orderRows(rows: readonly ItemRow[], filter: ItemListFilter): ItemRow[] {
+    const dir = filter.sortDir === "asc" ? 1 : -1;
+    // Money is a scaled bigint; comparing the scaled values keeps the order
+    // exact rather than routing every price through an IEEE-754 double.
+    const scaled = (value: Money | null) => value?.scaled ?? 0n;
+    const compare = (a: bigint, b: bigint) => (a === b ? 0 : a < b ? -1 : 1);
+    return [...rows].sort((a, b) => {
+      if (filter.sort === "salePrice") return compare(scaled(a.item.salePrice), scaled(b.item.salePrice)) * dir;
+      if (filter.sort === "costPrice") return compare(scaled(a.item.costPrice), scaled(b.item.costPrice)) * dir;
+      if (filter.sort === "nameAr") return a.item.nameAr.localeCompare(b.item.nameAr) * dir;
+      return a.item.code.localeCompare(b.item.code) * dir;
+    });
+  }
+
+  /** The requested page, clamped to the compiled-in ceiling — never the caller's own limit. */
+  function pageOf(c: Context): { page: number; pageSize: number } {
+    const parsed = pageQuerySchema.safeParse({ page: c.req.query("page"), pageSize: c.req.query("pageSize") });
+    return parsed.success ? parsed.data : { page: 1, pageSize: DEFAULT_PAGE_SIZE };
   }
 
   /**
@@ -226,8 +262,13 @@ export function createItemsRouter(
   }
 
   app.get("/", gate("inventory.item.view"), async (c) => {
-    const rows = await listFilteredItems(parseItemListQuery(c));
-    return c.json(rows.map(serializeRow));
+    const filter = parseItemListQuery(c);
+    const rows = await listFilteredItems(filter);
+    // The chip states (low_stock/out_of_stock) are computed from the stock
+    // snapshot, not stored, so the page is cut after them. The counts route
+    // still reports the whole filtered set.
+    const offset = (filter.page - 1) * filter.pageSize;
+    return c.json(orderRows(rows, filter).slice(offset, offset + filter.pageSize).map(serializeRow));
   });
 
   /**

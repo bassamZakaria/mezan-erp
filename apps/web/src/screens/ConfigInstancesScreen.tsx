@@ -529,7 +529,7 @@ export function ConfigInstancesScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("customOrders.customOrdersCouldNotBe")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("customOrders.customOrdersCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

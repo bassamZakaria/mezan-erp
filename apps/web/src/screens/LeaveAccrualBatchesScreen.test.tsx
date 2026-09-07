@@ -109,7 +109,7 @@ describe("LeaveAccrualBatchesScreen", () => {
         },
       },
     });
-    expect(await screen.findByText("تعذّر تحميل دورات الاستحقاق.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل دورات الاستحقاق. (رمز 500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("LAB-000001")).toBeInTheDocument();
@@ -183,5 +183,23 @@ describe("LeaveAccrualBatchesScreen", () => {
 
     expect(await screen.findByText("لا توجد سياسات إجازات بنفس وتيرة الاستحقاق.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("NO_ELIGIBLE_POLICIES")).not.toBeInTheDocument());
+  });
+});
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("LeaveAccrualBatchesScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <LeaveAccrualBatchesScreen />,
+      {
+        transport: stubTransport({
+          "GET /hr/leave-accrual-batches": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل دورات الاستحقاق.")).not.toBeInTheDocument();
   });
 });

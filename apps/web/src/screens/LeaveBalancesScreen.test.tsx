@@ -123,10 +123,10 @@ describe("LeaveBalancesScreen", () => {
       },
     });
     renderWithProviders(<LeaveBalancesScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل أرصدة الإجازات.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل أرصدة الإجازات. (رمز 500)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("أحمد محمود");
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل أرصدة الإجازات.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل أرصدة الإجازات. (رمز 500)")).not.toBeInTheDocument());
   });
 
   it("changing the year chip re-requests with the new year", async () => {

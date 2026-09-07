@@ -1,27 +1,36 @@
-import { ipcMain } from "electron";
+import { handleGuarded } from "./ipc-guard.js";
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { extract as tarExtract } from "tar";
 import type Database from "better-sqlite3";
 import type { SessionRegistry } from "@mezan/api";
+import { createAuditEvent } from "@mezan/domain";
+import { createSqliteAuditSink, deriveAuditChainKey, openSqliteConnection } from "@mezan/persistence";
 import {
   createBackup,
+  exportPortableBackup,
+  isPreUpdateArchive,
   listBackups,
   parseManifest,
   restoreBackup,
   BackupKeyMismatchError,
   BACKUP_FILE_EXTENSION,
   MANIFEST_ENTRY_NAME,
+  MIN_PASSPHRASE_LENGTH,
+  WeakPassphraseError,
   type BackupManifest,
   type RestoreCipher,
 } from "../backup/index.js";
 import {
   MEZAN_BACKUP_CREATE_CHANNEL,
+  MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
   MEZAN_BACKUP_LIST_CHANNEL,
   MEZAN_BACKUP_RESTORE_CHANNEL,
+  MEZAN_BACKUP_REVERT_CHANNEL,
   type BackupCreateResult,
   type BackupEntryDTO,
+  type BackupExportResult,
   type BackupFailure,
   type BackupListResult,
   type BackupRestoreResult,
@@ -78,6 +87,17 @@ export interface RestoreIpcDeps {
    */
   readonly cipher?: RestoreCipher;
   /**
+   * The key and an opener for it, used ONLY by «تصدير نسخة قابلة للنقل» —
+   * decrypting a copy is the only way an archive can be restored on replacement
+   * hardware, and the copy is then re-encrypted under the operator's passphrase
+   * before it reaches the backups folder. Nothing else in this module may use
+   * it: a scheduled archive that took this path would be the books in the clear.
+   */
+  readonly portable?: {
+    readonly key: string;
+    readonly open: (file: string, key: string) => Database.Database;
+  };
+  /**
    * Closes EVERY connection to `dbPath`. Must close the backend's own
    * connection too, not just the backup one: on Windows the atomic rename in
    * `restoreBackup` fails outright while a handle is open, and on POSIX it
@@ -93,6 +113,67 @@ export interface RestoreIpcDeps {
 
 function failure(code: BackupFailure["code"], message: string): BackupFailure {
   return { ok: false, code, message };
+}
+
+/** Who the SERVER says made this request. Never a name the caller asserts. */
+function actorOf(deps: RestoreIpcDeps, token: unknown): string {
+  if (typeof token !== "string") return "unknown";
+  return deps.sessions.find(token)?.userId ?? "unknown";
+}
+
+/**
+ * Records the restore in the RESTORED database's audit trail (audit S-3).
+ *
+ * AFTER the file swap, and this is the whole point: a restore replaces the
+ * trail wholesale, so an event written before the swap is destroyed by the very
+ * act it was recording. Written into the archive's own trail, the row survives
+ * — and it is CRITICAL, because "somebody replaced the books with an older
+ * copy" is the single most consequential thing that can happen to this file.
+ *
+ * A failure here never fails the restore: the data is already in place and
+ * relaunch is scheduled. It goes to the console and the operator keeps their
+ * books.
+ */
+async function recordRestoredEvent(
+  deps: RestoreIpcDeps,
+  actor: string,
+  archiveFileName: string,
+  manifestCreatedAt: string,
+  safetyBackupFileName: string | null,
+): Promise<void> {
+  let sqlite: Database.Database | undefined;
+  try {
+    const opened = openSqliteConnection(
+      deps.dbPath,
+      deps.cipher ? { driver: deps.cipher.driver, key: deps.cipher.key } : undefined,
+    );
+    sqlite = opened.sqlite;
+    const sink = createSqliteAuditSink(
+      sqlite,
+      deps.cipher ? { chainKey: deriveAuditChainKey(deps.cipher.key) } : {},
+    );
+    await sink.append(
+      createAuditEvent({
+        stream: "security",
+        module: "backup",
+        entityType: "DATABASE",
+        entityId: archiveFileName,
+        action: "backup.restored",
+        actor,
+        severity: "CRITICAL",
+        details: {
+          archive: archiveFileName,
+          archiveCreatedAt: manifestCreatedAt,
+          safetyBackup: safetyBackupFileName,
+          appVersion: deps.appVersion,
+        },
+      }),
+    );
+  } catch (err) {
+    console.error("[backup] could not record the restore in the audit trail", err);
+  } finally {
+    sqlite?.close();
+  }
 }
 
 const UNAUTHORIZED = failure(
@@ -201,7 +282,7 @@ async function describeArchive(archivePath: string, createdAtFallback: Date): Pr
  * render as-is.
  */
 export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
-  ipcMain.handle(
+  handleGuarded(
     MEZAN_BACKUP_LIST_CHANNEL,
     async (_event, sessionToken: unknown): Promise<BackupListResult | BackupFailure> => {
       const denied = authorize(deps, sessionToken, VIEW_PERMISSION);
@@ -214,7 +295,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
     },
   );
 
-  ipcMain.handle(
+  handleGuarded(
     MEZAN_BACKUP_CREATE_CHANNEL,
     async (_event, sessionToken: unknown): Promise<BackupCreateResult> => {
       const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
@@ -244,7 +325,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
     },
   );
 
-  ipcMain.handle(
+  handleGuarded(
     MEZAN_BACKUP_RESTORE_CHANNEL,
     async (_event, sessionToken: unknown, fileName: unknown): Promise<BackupRestoreResult> => {
       const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
@@ -257,74 +338,178 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       if (!(await stat(archivePath).catch(() => null))) {
         return failure("NOT_FOUND", "ملف النسخة الاحتياطية غير موجود. حدّث القائمة وحاول مرة أخرى.");
       }
+      return performRestore(deps, archivePath, actorOf(deps, sessionToken));
+    },
+  );
 
-      // The safety copy comes FIRST, and from the live connection, because after
-      // the next few lines there is no live connection to take one from.
-      // Without it, restoring the wrong file — which is exactly what a worried
-      // owner does at 9pm with the shop shut — is irreversible.
-      let safetyBackupFileName: string | null = null;
-      const sqlite = deps.sqlite();
-      if (sqlite) {
-        try {
-          const safety = await createBackup({
-            sqlite,
-            backupsDir: deps.backupsDir,
-            appVersion: deps.appVersion,
-            reason: "manual",
-            encrypted: deps.cipher !== undefined,
-          });
-          safetyBackupFileName = path.basename(safety.archivePath);
-        } catch (err) {
-          console.error("[backup] safety backup before restore failed", err);
-          return failure(
-            "FAILED",
-            "تعذّر أخذ نسخة احتياطية من بياناتك الحالية قبل الاستعادة، ولم تتم الاستعادة.",
-          );
-        }
+  /**
+   * «الرجوع إلى ما قبل التحديث» — the same verified restore, pointed at the
+   * archive this build took before it moved the schema.
+   *
+   * The archive existed and nothing surfaced it: the only route back was for an
+   * owner to recognise a timestamp. The path is deliberately IDENTICAL to the
+   * manual restore below — safety copy first, verify, atomic rename, relaunch —
+   * so there is one restore in this product, not two.
+   */
+  handleGuarded(
+    MEZAN_BACKUP_REVERT_CHANNEL,
+    async (_event, sessionToken: unknown): Promise<BackupRestoreResult> => {
+      const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
+      if (denied) return denied;
+
+      const candidates = (await listBackups(deps.backupsDir)).filter((entry) =>
+        isPreUpdateArchive(path.basename(entry.path)),
+      );
+      candidates.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const newest = candidates[0];
+      if (!newest) {
+        return failure(
+          "NOT_FOUND",
+          "لا توجد نسخة محفوظة قبل التحديث على هذا الجهاز. تُؤخذ هذه النسخة تلقائياً عند أول تشغيل بعد تحديث يغيّر قاعدة البيانات.",
+        );
+      }
+      return performRestore(deps, newest.path, actorOf(deps, sessionToken));
+    },
+  );
+
+  /**
+   * «تصدير نسخة قابلة للنقل», and it is the only route to a non-machine-keyed
+   * archive in the product.
+   */
+  handleGuarded(
+    MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
+    async (_event, sessionToken: unknown, passphrase: unknown): Promise<BackupExportResult> => {
+      const denied = authorize(deps, sessionToken, RESTORE_PERMISSION);
+      if (denied) return denied;
+
+      if (typeof passphrase !== "string" || passphrase.length < MIN_PASSPHRASE_LENGTH) {
+        return failure(
+          "INVALID_NAME",
+          `اكتب كلمة سر لا تقل عن ${MIN_PASSPHRASE_LENGTH} حروف. هذه الكلمة هي الشيء الوحيد الذي يحمي النسخة المنقولة، ولا يمكن استرجاعها إذا نُسيت.`,
+        );
       }
 
-      const restoredFrom = await describeArchive(archivePath, new Date());
-      deps.closeLiveConnections();
+      const sqlite = deps.sqlite();
+      if (!sqlite) {
+        return failure(
+          "UNAVAILABLE",
+          "لا توجد قاعدة بيانات على القرص في هذه النسخة التطويرية، فلا يمكن تصدير نسخة قابلة للنقل.",
+        );
+      }
 
       try {
-        const restored = await restoreBackup({
-          archivePath,
-          targetDbPath: deps.dbPath,
-          workDir: path.dirname(deps.dbPath),
-          cipher: deps.cipher,
+        const exported = await exportPortableBackup({
+          sqlite,
+          backupsDir: deps.backupsDir,
+          appVersion: deps.appVersion,
+          passphrase,
+          encrypted: deps.cipher !== undefined,
+          ...(deps.portable ? { portable: deps.portable } : {}),
         });
-        console.log(
-          `[backup] restored ${path.basename(archivePath)} ` +
-            `(taken ${restored.manifest.createdAt} by app ${restored.manifest.appVersion})`,
-        );
-        // Scheduled, not awaited: `app.exit()` kills the process, and the reply
-        // to this invoke has not reached the renderer yet. The screen gets its
-        // confirmation, then the window goes.
-        setTimeout(deps.relaunch, RELAUNCH_DELAY_MS);
-        return { ok: true, restoredFrom, safetyBackupFileName, relaunching: true };
+        return { ok: true, filePath: exported.filePath };
       } catch (err) {
-        console.error("[backup] restore failed", err);
-        // Every verification step runs BEFORE the atomic rename, so the live
-        // database file is untouched — but its connections are now closed and
-        // this process can no longer serve anything. Relaunching brings the app
-        // back on exactly the data it had a moment ago.
-        setTimeout(deps.relaunch, RELAUNCH_DELAY_MS);
-        // A foreign key is not a damaged file, and saying so would send an
-        // owner to delete a backup that is intact and restorable — it just
-        // needs the key card from the machine that wrote it.
-        if (err instanceof BackupKeyMismatchError) {
+        if (err instanceof WeakPassphraseError) {
           return failure(
-            "VERIFICATION_FAILED",
-            "هذه النسخة الاحتياطية مشفّرة بمفتاح جهاز آخر، ولا يمكن فتحها هنا. استخدم مفتاح التشفير الخاص بالجهاز الذي أخذها. لم تتغيّر بياناتك.",
+            "INVALID_NAME",
+            `اكتب كلمة سر لا تقل عن ${MIN_PASSPHRASE_LENGTH} حروف.`,
           );
         }
+        console.error("[backup] portable export failed", err);
         return failure(
-          "VERIFICATION_FAILED",
-          "فشل التحقق من ملف النسخة الاحتياطية، ولم تتغيّر بياناتك. سيُعاد تشغيل البرنامج الآن.",
+          "FAILED",
+          "تعذّر تصدير نسخة قابلة للنقل. تأكد من وجود مساحة كافية على القرص.",
         );
       }
     },
   );
+}
+
+/**
+ * ONE restore, used by both the manual pick and the revert-to-pre-update
+ * button. The archive path has already been proven to be inside the backups
+ * directory by the caller.
+ */
+async function performRestore(
+  deps: RestoreIpcDeps,
+  archivePath: string,
+  actor: string,
+): Promise<BackupRestoreResult> {
+  // The safety copy comes FIRST, and from the live connection, because after
+  // the next few lines there is no live connection to take one from.
+  // Without it, restoring the wrong file — which is exactly what a worried
+  // owner does at 9pm with the shop shut — is irreversible.
+  let safetyBackupFileName: string | null = null;
+  const sqlite = deps.sqlite();
+  if (sqlite) {
+    try {
+      const safety = await createBackup({
+        sqlite,
+        backupsDir: deps.backupsDir,
+        appVersion: deps.appVersion,
+        reason: "manual",
+        encrypted: deps.cipher !== undefined,
+      });
+      safetyBackupFileName = path.basename(safety.archivePath);
+    } catch (err) {
+      console.error("[backup] safety backup before restore failed", err);
+      return failure(
+        "FAILED",
+        "تعذّر أخذ نسخة احتياطية من بياناتك الحالية قبل الاستعادة، ولم تتم الاستعادة.",
+      );
+    }
+  }
+
+  const restoredFrom = await describeArchive(archivePath, new Date());
+  deps.closeLiveConnections();
+
+  try {
+    const restored = await restoreBackup({
+      archivePath,
+      targetDbPath: deps.dbPath,
+      workDir: path.dirname(deps.dbPath),
+      cipher: deps.cipher,
+    });
+    console.log(
+      `[backup] restored ${path.basename(archivePath)} ` +
+        `(taken ${restored.manifest.createdAt} by app ${restored.manifest.appVersion})`,
+    );
+    // REQUIRED ORDERING: after the swap, into the database that just landed.
+    // The trail this row belongs to is the one the archive brought with it;
+    // written a moment earlier it would have been overwritten by the restore
+    // it records.
+    await recordRestoredEvent(
+      deps,
+      actor,
+      path.basename(archivePath),
+      restored.manifest.createdAt,
+      safetyBackupFileName,
+    );
+    // Scheduled, not awaited: `app.exit()` kills the process, and the reply
+    // to this invoke has not reached the renderer yet. The screen gets its
+    // confirmation, then the window goes.
+    setTimeout(deps.relaunch, RELAUNCH_DELAY_MS);
+    return { ok: true, restoredFrom, safetyBackupFileName, relaunching: true };
+  } catch (err) {
+    console.error("[backup] restore failed", err);
+    // Every verification step runs BEFORE the atomic rename, so the live
+    // database file is untouched — but its connections are now closed and
+    // this process can no longer serve anything. Relaunching brings the app
+    // back on exactly the data it had a moment ago.
+    setTimeout(deps.relaunch, RELAUNCH_DELAY_MS);
+    // A foreign key is not a damaged file, and saying so would send an
+    // owner to delete a backup that is intact and restorable — it just
+    // needs the key card from the machine that wrote it.
+    if (err instanceof BackupKeyMismatchError) {
+      return failure(
+        "VERIFICATION_FAILED",
+        "هذه النسخة الاحتياطية مشفّرة بمفتاح جهاز آخر، ولا يمكن فتحها هنا. استخدم مفتاح التشفير الخاص بالجهاز الذي أخذها. لم تتغيّر بياناتك.",
+      );
+    }
+    return failure(
+      "VERIFICATION_FAILED",
+      "فشل التحقق من ملف النسخة الاحتياطية، ولم تتغيّر بياناتك. سيُعاد تشغيل البرنامج الآن.",
+    );
+  }
 }
 
 /**
@@ -349,7 +534,9 @@ export function registerClientBackupRefusalsOverIpc(hostUrl: string): void {
     code: "UNAVAILABLE",
     message: `النسخ الاحتياطي يُدار من الجهاز الرئيسي (${hostUrl}). هذا الجهاز محطة متصلة ولا يحتفظ بقاعدة بيانات خاصة به.`,
   };
-  ipcMain.handle(MEZAN_BACKUP_LIST_CHANNEL, () => refusal);
-  ipcMain.handle(MEZAN_BACKUP_CREATE_CHANNEL, () => refusal);
-  ipcMain.handle(MEZAN_BACKUP_RESTORE_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_LIST_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_CREATE_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_RESTORE_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_REVERT_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL, () => refusal);
 }

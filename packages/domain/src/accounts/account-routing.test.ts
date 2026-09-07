@@ -78,3 +78,32 @@ describe("DEFAULT_ACCOUNT_ROUTING_OPTIONS / EMPTY_ACCOUNT_ROUTING", () => {
     expect(EMPTY_ACCOUNT_ROUTING.options).toEqual(DEFAULT_ACCOUNT_ROUTING_OPTIONS);
   });
 });
+
+/**
+ * guards B-8 — the sub-ledger↔GL reconciliation compared against "1105",
+ * "2100" and "1200" compiled into the composition root, with no slot a tenant
+ * could override. On a recoded chart every figure read as a mismatch.
+ */
+describe("control-account slots", () => {
+  it("ships one slot per control account, defaulting to the standard chart", () => {
+    expect(routedAccountId(EMPTY_ACCOUNT_ROUTING, "control.receivable")).toBe("1105");
+    expect(routedAccountId(EMPTY_ACCOUNT_ROUTING, "control.payable")).toBe("2100");
+    expect(routedAccountId(EMPTY_ACCOUNT_ROUTING, "control.inventory")).toBe("1200");
+  });
+
+  it("accepts all three as routing keys, so the routing screen can offer them", () => {
+    for (const key of ["control.receivable", "control.payable", "control.inventory"]) {
+      expect(isAccountRoutingKey(key), key).toBe(true);
+    }
+  });
+
+  it("a recoded chart overrides them", () => {
+    const routing: AccountRouting = {
+      overrides: { "control.receivable": "1200-AR", "control.payable": "2000-AP", "control.inventory": "1310" },
+      options: DEFAULT_ACCOUNT_ROUTING_OPTIONS,
+    };
+    expect(routedAccountId(routing, "control.receivable")).toBe("1200-AR");
+    expect(routedAccountId(routing, "control.payable")).toBe("2000-AP");
+    expect(routedAccountId(routing, "control.inventory")).toBe("1310");
+  });
+});

@@ -187,3 +187,34 @@ describe("createStandaloneSqliteDocumentStore", () => {
     }
   });
 });
+
+describe("createSqliteDocumentStore — listByLineRef (guards Q-5)", () => {
+  it("returns only the documents whose lines cite one of the ids, honouring the status filter", async () => {
+    const store = createStandaloneSqliteDocumentStore<TestLine>("TEST_DOC", serializeLine, deserializeLine);
+    await store.save(doc({ id: "d-1", status: "confirmed", lines: [{ itemId: "item-a", amount: Money.fromMajor("1") }] }));
+    await store.save(doc({ id: "d-2", status: "confirmed", lines: [{ itemId: "item-b", amount: Money.fromMajor("2") }] }));
+    await store.save(doc({ id: "d-3", status: "draft", lines: [{ itemId: "item-a", amount: Money.fromMajor("3") }] }));
+    await store.save(
+      doc({
+        id: "d-4",
+        status: "confirmed",
+        lines: [
+          { itemId: "item-c", amount: Money.fromMajor("4") },
+          { itemId: "item-a", amount: Money.fromMajor("5") },
+        ],
+      }),
+    );
+
+    const hits = await store.listByLineRef!("itemId", ["item-a"], { status: "confirmed" });
+    // d-4 matches on its second line and must appear exactly once, not per matching line.
+    expect(hits.map((d) => d.id).sort()).toEqual(["d-1", "d-4"]);
+    expect(hits.find((d) => d.id === "d-4")?.lines).toHaveLength(2);
+
+    expect(await store.listByLineRef!("itemId", [])).toEqual([]);
+    expect((await store.listByLineRef!("itemId", ["item-b", "item-c"], { status: "confirmed" })).map((d) => d.id).sort()).toEqual([
+      "d-2",
+      "d-4",
+    ]);
+    store.close();
+  });
+});

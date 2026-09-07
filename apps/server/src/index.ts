@@ -33,9 +33,23 @@ if (seeded?.generated) {
   console.log("[server] ------------------------------------------------------------");
 }
 const port = Number(process.env.PORT ?? 3000);
+/**
+ * SECURITY: LOOPBACK BY DEFAULT.
+ *
+ * `serve()` with no `hostname` binds every interface, and this line then
+ * PRINTED `http://127.0.0.1:…` — so a developer running the dev backend on a
+ * café network was serving an unlicensed, seeded ERP to that network while
+ * being told it was local-only. Set MEZAN_BIND deliberately (a container needs
+ * `0.0.0.0`); the address actually bound is printed below, never a guess.
+ */
+const hostname = process.env.MEZAN_BIND ?? "127.0.0.1";
 
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`[server] Mezan API listening on http://127.0.0.1:${info.port} (db: ${dbPath}${seedDemoData ? ", demo seed ON" : ""})`);
+serve({ fetch: app.fetch, port, hostname }, (info) => {
+  const shown = info.family === "IPv6" ? `[${info.address}]` : info.address;
+  console.log(`[server] Mezan API listening on http://${shown}:${info.port} (db: ${dbPath}${seedDemoData ? ", demo seed ON" : ""})`);
+  if (hostname !== "127.0.0.1" && hostname !== "localhost") {
+    console.log(`[server] NOTE: bound to ${hostname} — reachable from other machines on this network.`);
+  }
   console.log(`[server] try: POST /auth/login , GET /dashboard/summary`);
   console.log(`[server] try: GET /reports/sales/by-period , /reports/inventory/valuation , /reports/aging/customers , etc. (docs/archive/catalog/08-reports.md)`);
 });

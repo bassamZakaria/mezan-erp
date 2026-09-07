@@ -163,3 +163,36 @@ describe("createIncomeStatementReport", () => {
     expect(outcome.ok).toBe(false);
   });
 });
+
+/** guards C-10 — the amount, the comparative and the variance were all float arithmetic. */
+describe("createIncomeStatementReport — exact arithmetic", () => {
+  it("computes a fractional variance exactly", () => {
+    const entries = [
+      je({ id: "p1", date: "2026-02-01", lines: [dr("1100", "0.10"), cr("4100", "0.10")] }),
+      je({ id: "c1", date: "2026-03-01", lines: [dr("1100", "0.30"), cr("4100", "0.30")] }),
+    ];
+    const params = { periodFrom: "2026-03-01", periodTo: "2026-03-31", compareTo: "previous" as const };
+    const outcome = runReport(createIncomeStatementReport(params), params, { accounts, journalEntries: entries });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const revenue = outcome.rows.find((r) => r.accountId === "4100");
+    expect(revenue).toMatchObject({ amount: 0.3, priorAmount: 0.1 });
+    // 0.30 − 0.10 = 0.20, exactly — not 0.19999999999999998.
+    expect(revenue!.variance).toBe(0.2);
+  });
+
+  it("nets income exactly over many small revenue and expense postings", () => {
+    const entries = [
+      je({ id: "s1", date: "2026-03-01", lines: [dr("1100", "0.10"), cr("4100", "0.10")] }),
+      je({ id: "s2", date: "2026-03-02", lines: [dr("1100", "0.20"), cr("4100", "0.20")] }),
+      je({ id: "e1", date: "2026-03-03", lines: [dr("5100", "0.10"), cr("1100", "0.10")] }),
+      je({ id: "e2", date: "2026-03-04", lines: [dr("5200", "0.10"), cr("1100", "0.10")] }),
+    ];
+    const params = { periodFrom: "2026-03-01", periodTo: "2026-03-31", compareTo: "previous" as const };
+    const outcome = runReport(createIncomeStatementReport(params), params, { accounts, journalEntries: entries });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows.find((r) => r.accountId === "4100")?.amount).toBe(0.3);
+    expect(incomeStatementNetIncome(outcome.rows)).toBeCloseTo(0.1, 10);
+  });
+});

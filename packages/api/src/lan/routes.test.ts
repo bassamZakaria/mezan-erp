@@ -335,6 +335,74 @@ describe("LAN SSE events endpoint", () => {
     controller.abort();
     await reader.cancel().catch(() => {});
   });
+
+  /**
+   * guards N-12: ONE MACHINE HOLDING UNLIMITED STREAMS IS A DENIAL OF SERVICE.
+   *
+   * Each subscriber is a live socket plus a heartbeat timer on the host's
+   * single event loop — the loop every SQLite call in the product runs on — and
+   * nothing counted them, so a signed-in till looping `GET /lan/events` could
+   * take the shop down without ever exceeding its seat or its permissions.
+   */
+  it("refuses a session that holds too many concurrent streams, and frees the slot when one closes", async () => {
+    const { app } = buildApp({ seats: 2, licensed: true, sseHeartbeatMs: 5 });
+    const open: Array<{ controller: AbortController; reader: ReadableStreamDefaultReader }> = [];
+
+    for (let i = 0; i < 3; i += 1) {
+      const controller = new AbortController();
+      const res = await app.fetch(
+        new Request("http://local/events", {
+          signal: controller.signal,
+          headers: { authorization: "Bearer till-token" },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const reader = res.body!.getReader();
+      // Read the `connected` frame so the stream is genuinely established.
+      await reader.read();
+      open.push({ controller, reader });
+    }
+
+    const refused = await app.fetch(
+      new Request("http://local/events", {
+        signal: new AbortController().signal,
+        headers: { authorization: "Bearer till-token" },
+      }),
+    );
+    expect(refused.status).toBe(429);
+
+    // A different session is unaffected — the cap belongs to the session, not
+    // to the host.
+    const other = await app.fetch(
+      new Request("http://local/events", {
+        signal: new AbortController().signal,
+        headers: { authorization: "Bearer other-token" },
+      }),
+    );
+    expect(other.status).toBe(200);
+    await other.body!.cancel().catch(() => {});
+
+    // Closing one frees exactly one slot — released in `finally`, so a stream
+    // that dies mid-write does not strand its slot forever.
+    const first = open.shift()!;
+    first.controller.abort();
+    await first.reader.cancel().catch(() => {});
+    await new Promise((r) => setTimeout(r, 20));
+
+    const afterClose = await app.fetch(
+      new Request("http://local/events", {
+        signal: new AbortController().signal,
+        headers: { authorization: "Bearer till-token" },
+      }),
+    );
+    expect(afterClose.status).toBe(200);
+    await afterClose.body!.cancel().catch(() => {});
+
+    for (const held of open) {
+      held.controller.abort();
+      await held.reader.cancel().catch(() => {});
+    }
+  });
 });
 
 describe("a licence is not a credential (S8)", () => {

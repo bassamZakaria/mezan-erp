@@ -55,6 +55,9 @@ CREATE INDEX IF NOT EXISTS idx_movement_source_doc ON stock_movement(source_doc_
 -- index to open and fell back to a full scan. seq trails the date so a range
 -- scan still reads the ledger in its append order.
 CREATE INDEX IF NOT EXISTS idx_movement_occurred ON stock_movement(occurred_at, seq);
+-- The whole-ledger read the inventory reports share (Q-6): matching the
+-- ORDER BY exactly turns it into an index scan rather than a sort of the table.
+CREATE INDEX IF NOT EXISTS idx_movement_all_order ON stock_movement(item_id, warehouse_id, occurred_at, seq);
 
 CREATE TRIGGER IF NOT EXISTS stock_movement_no_update
 BEFORE UPDATE ON stock_movement
@@ -232,6 +235,8 @@ class SqliteStockLedgerStore {
   private readonly selectMovByItem: Database.Statement;
   private readonly selectMovByWarehouse: Database.Statement;
   private readonly selectPositions: Database.Statement;
+  private readonly selectAllMovements: Database.Statement;
+  private readonly selectAllLayers: Database.Statement;
   private readonly selectMovBySourceDocType: Database.Statement;
   private readonly selectMovBySourceDoc: Database.Statement;
   private readonly insertLayer: Database.Statement;
@@ -265,6 +270,11 @@ class SqliteStockLedgerStore {
     this.selectPositions = sqlite.prepare(
       `SELECT DISTINCT item_id, warehouse_id FROM stock_movement ORDER BY item_id, warehouse_id`,
     );
+    // The ORDER BY is the contract: identical to listPositions() followed by a
+    // listByPosition per position, which is what this replaces (Q-6).
+    this.selectAllMovements = sqlite.prepare(
+      `SELECT * FROM stock_movement ORDER BY item_id, warehouse_id, occurred_at, seq`,
+    );
     this.selectMovBySourceDocType = sqlite.prepare(
       `SELECT * FROM stock_movement WHERE source_doc_type = ? ORDER BY occurred_at, seq`,
     );
@@ -283,6 +293,9 @@ class SqliteStockLedgerStore {
     `);
     this.selectLayers = sqlite.prepare(
       `SELECT * FROM cost_layer WHERE item_id = ? AND warehouse_id = ? ORDER BY seq`,
+    );
+    this.selectAllLayers = sqlite.prepare(
+      `SELECT * FROM cost_layer ORDER BY item_id, warehouse_id, seq`,
     );
     this.updateLayerRemaining = sqlite.prepare(
       `UPDATE cost_layer SET remaining_qty = ? WHERE id = ?`,
@@ -340,6 +353,10 @@ class SqliteStockLedgerStore {
     return rows.map((r) => ({ itemId: r.item_id, warehouseId: r.warehouse_id }));
   }
 
+  async listAllMovements(): Promise<readonly StockMovement[]> {
+    return (this.selectAllMovements.all() as MovementRow[]).map(toMovement);
+  }
+
   async listBySourceDocType(sourceDocType: StockSourceDocType): Promise<readonly StockMovement[]> {
     return (this.selectMovBySourceDocType.all(sourceDocType) as MovementRow[]).map(toMovement);
   }
@@ -377,6 +394,10 @@ class SqliteStockLedgerStore {
   // listByPosition is shared with StockLedgerRepository above? No — different table.
   async listLayersByPosition(itemId: string, warehouseId: string): Promise<readonly CostLayer[]> {
     return (this.selectLayers.all(itemId, warehouseId) as LayerRow[]).map(toLayer);
+  }
+
+  async listAllLayers(): Promise<readonly CostLayer[]> {
+    return (this.selectAllLayers.all() as LayerRow[]).map(toLayer);
   }
 
   // --- WacSnapshotRepository ---
@@ -437,12 +458,14 @@ export function createSqliteStockLedgerStore(path: SqliteConnectionInput = ":mem
     listPositions: () => store.listPositions(),
     listBySourceDocType: (t) => store.listBySourceDocType(t),
     listBySourceDoc: (id) => store.listBySourceDoc(id),
+    listAll: () => store.listAllMovements(),
   };
   const layers: CostLayerRepository = {
     add: (l) => store.add(l),
     listByPosition: (i, w) => store.listLayersByPosition(i, w),
     updateRemaining: (id, q) => store.updateRemaining(id, q),
     remove: (id) => store.remove(id),
+    listAll: () => store.listAllLayers(),
   };
   const snapshots: WacSnapshotRepository = {
     get: (i, w) => store.get(i, w),

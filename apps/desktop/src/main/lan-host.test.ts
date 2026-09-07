@@ -9,7 +9,12 @@ import { createEntitlements, SeatSessionRegistry } from "@mezan/domain";
 import { createApp, createSessionAuthContextResolver, createSessionRegistry } from "@mezan/api";
 import { createSqliteUnitOfWork } from "@mezan/persistence";
 import { createBackend, SEED_ADMIN_EMAIL } from "@mezan/backend";
-import { isOnOwnSubnet, normalizeRemoteAddress, startLanHost } from "./lan-host.js";
+import {
+  createSourceRateLimiter,
+  isOnOwnSubnet,
+  normalizeRemoteAddress,
+  startLanHost,
+} from "./lan-host.js";
 import { loadOrCreateLanTlsIdentity, type LanTlsIdentity } from "./lan-tls.js";
 
 /**
@@ -303,12 +308,10 @@ describe("the LAN socket is TLS, and it is the certificate the screen names", ()
  * `apps/desktop/src/main/index.ts` ships.
  *
  * D109 was: the socket served `app.fetch` whole, so every router the backend
- * mounts — `/bootstrap/*`, `/users`, `/gl`, `/reports`, and the then-ungated
- * legacy `POST /journal-entries` (D99, gated since) — answered anyone on the
- * shop wifi. The
- * allow-list in lan-host.ts is what closed it; these are the tests that keep
- * it closed, because a route added to the backend next month must not become
- * LAN-reachable by default.
+ * mounts — `/bootstrap/*`, `/users`, `/gl/*`, `/reports` — answered anyone on
+ * the shop wifi. The allow-list in lan-host.ts is what closed it; these are the
+ * tests that keep it closed, because a route added to the backend next month
+ * must not become LAN-reachable by default.
  */
 describe("what the LAN socket exposes to a stranger (D109)", () => {
   const multiTill = () =>
@@ -405,10 +408,10 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     close();
   });
 
-  it("refuses the ungated legacy journal-entry route, and writes nothing", async () => {
+  it("refuses the posting route to a stranger, and writes nothing", async () => {
     const { uow, handle, port } = await openSocket();
 
-    const res = await lanFetch(port, "/journal-entries", {
+    const res = await lanFetch(port, "/gl/journal-entries", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(entry),
@@ -417,7 +420,7 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     expect(res.status).toBe(404);
     expect(await uow.journal.findById("JE-FROM-THE-WIFI")).toBeNull();
 
-    const read = await lanFetch(port, "/journal-entries/JE-FROM-THE-WIFI");
+    const read = await lanFetch(port, "/gl/journal-entries/JE-FROM-THE-WIFI");
     expect(read.status).toBe(404);
 
     await handle.close();
@@ -445,7 +448,7 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     const { uow, handle, port } = await openSocket();
 
     for (const pathname of [
-      "/lan/../journal-entries",
+      "/lan/../gl/journal-entries",
       "/lan/../../bootstrap/status",
       "/%62ootstrap/status",
     ]) {
@@ -508,7 +511,7 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     backend.close();
   });
 
-  it("still refuses the legacy route when the app carries a real session resolver", async () => {
+  it("still refuses the posting route when the app carries a real session resolver", async () => {
     const entitlements = multiTill();
     const uow = createSqliteUnitOfWork(":memory:");
     const sessions = createSessionRegistry();
@@ -521,14 +524,14 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     const address = await handle.ready;
     const port = (address as { port: number }).port;
 
-    const res = await lanFetch(port, "/journal-entries", {
+    const res = await lanFetch(port, "/gl/journal-entries", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...entry, id: "JE-STILL-OPEN" }),
     });
 
-    // D99 has since put a permission gate on `POST /journal-entries`, so with a
-    // real session resolver a stranger would get 401 from the gate. This still
+    // `POST /gl/journal-entries` carries a permission gate, so with a real
+    // session resolver a stranger would get 401 from the gate. This still
     // asserts 404, and that difference is the point: the allow-list refuses the
     // route before any gate is consulted, so the socket's safety does not
     // depend on every route below it having been remembered.
@@ -559,5 +562,125 @@ describe("isOnOwnSubnet", () => {
     expect(isOnOwnSubnet("203.0.113.7")).toBe(false);
     expect(isOnOwnSubnet(normalizeRemoteAddress("::ffff:203.0.113.7"))).toBe(false);
     expect(isOnOwnSubnet("2001:db8::1")).toBe(false);
+  });
+});
+
+/** The licensed-for-multi-till entitlements every case below starts from. */
+function multiTillEntitlements() {
+  return createEntitlements({
+    plan: "ENTERPRISE",
+    activeModules: ["sales"],
+    features: { "lan.multi_till": true },
+    seats: 2,
+    expiresAt: null,
+  });
+}
+
+/**
+ * guards N-5: «الشبكة المحلية غير مشغّلة» covered four unrelated faults with
+ * four different fixes, and the distinguishing reason went to a console the
+ * shop never opens. One sentence and no named cause is one support call per
+ * install.
+ */
+describe("why the local network is not serving", () => {
+  it("says NOT_LICENSED when the licence does not carry multi-till", () => {
+    const handle = startLanHost({
+      app: { fetch: () => new Response("") } as never,
+      entitlements: createEntitlements({
+        plan: "STANDARD",
+        activeModules: ["sales"],
+        features: {},
+        seats: 1,
+        expiresAt: null,
+      }),
+      tls: () => Promise.reject(new Error("never reached")),
+    });
+
+    expect(handle.enabled).toBe(false);
+    expect(handle.closedReason()).toBe("NOT_LICENSED");
+  });
+
+  it("says TLS_UNAVAILABLE — not a plain-HTTP fallback — when the identity cannot be read", async () => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const handle = startLanHost({
+      app: { fetch: () => new Response("") } as never,
+      entitlements: multiTillEntitlements(),
+      port: 0,
+      host: "127.0.0.1",
+      tls: () => Promise.reject(new Error("the certificate is not readable")),
+    });
+
+    await handle.ready;
+    expect(handle.address()).toBeNull();
+    expect(handle.closedReason()).toBe("TLS_UNAVAILABLE");
+    await handle.close();
+    warn.mockRestore();
+  });
+
+  it("says PORT_IN_USE when something else already holds the port", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const squatter = createTcpServer(() => {});
+    await new Promise<void>((resolve) => squatter.listen(0, "127.0.0.1", () => resolve()));
+    const port = (squatter.address() as AddressInfo).port;
+
+    const tls = await identity();
+    const handle = startLanHost({
+      app: { fetch: () => new Response("") } as never,
+      entitlements: multiTillEntitlements(),
+      host: "127.0.0.1",
+      port,
+      tls: async () => tls,
+    });
+
+    await handle.ready;
+    expect(handle.closedReason()).toBe("PORT_IN_USE");
+
+    await handle.close();
+    await new Promise<void>((r) => squatter.close(() => r()));
+    error.mockRestore();
+  });
+
+  it("reports null once the socket is genuinely serving", async () => {
+    const tls = await identity();
+    const handle = startLanHost({
+      app: { fetch: () => new Response("ok") } as never,
+      entitlements: multiTillEntitlements(),
+      host: "127.0.0.1",
+      port: 0,
+      tls: async () => tls,
+    });
+
+    await handle.ready;
+    expect(handle.closedReason()).toBeNull();
+    // guards N-6: the host can reach its own advertised address, which is the
+    // one probe that separates "not listening" from "a firewall is dropping
+    // the packets" — the failure INSTALL.md §7A.3 calls the likeliest there is.
+    const reachability = await handle.testReachability(2_000);
+    expect(reachability.reachable).toBe(true);
+    expect(reachability.detail).toBeNull();
+
+    await handle.close();
+  });
+});
+
+/**
+ * guards N-12: the login ladder counts CREDENTIAL failures; nothing counted
+ * requests, so a device on the shop wifi could hold the host's single-threaded
+ * event loop — the one every SQLite call runs on — at whatever rate it liked,
+ * with no account at all.
+ */
+describe("createSourceRateLimiter", () => {
+  it("lets a busy till through and stops a loop, per source address", () => {
+    let now = 1_000_000;
+    const within = createSourceRateLimiter(() => now, 5, 1_000);
+
+    for (let i = 0; i < 5; i += 1) expect(within("192.168.1.40")).toBe(true);
+    expect(within("192.168.1.40")).toBe(false);
+    // A second till is unaffected: the ceiling belongs to the address.
+    expect(within("192.168.1.41")).toBe(true);
+
+    // The window rolls, and the till that hit the ceiling is served again.
+    now += 1_000;
+    expect(within("192.168.1.40")).toBe(true);
   });
 });

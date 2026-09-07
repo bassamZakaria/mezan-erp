@@ -20,7 +20,8 @@ export type AccountRoutingSection =
   | "sales_discount"
   | "inventory_adjustment"
   | "payroll"
-  | "item_type";
+  | "item_type"
+  | "control";
 
 export interface AccountRoutingSlot {
   /** Stable key the posting code asks for. Never renamed once shipped. */
@@ -65,6 +66,14 @@ export const ACCOUNT_ROUTING_SLOTS: readonly AccountRoutingSlot[] = [
   { key: "payroll.employer_contributions", section: "payroll", labelAr: "مساهمات صاحب العمل", labelEn: "Employer contributions", defaultAccountId: "5130" },
   { key: "payroll.salaries_payable", section: "payroll", labelAr: "رواتب مستحقة", labelEn: "Salaries payable", defaultAccountId: "2170" },
   { key: "payroll.withholdings_payable", section: "payroll", labelAr: "استقطاعات مستحقة", labelEn: "Withholdings payable", defaultAccountId: "2190" },
+
+  // --- حسابات المراقبة (control accounts) ---
+  // The sub-ledger↔GL reconciliation compared against "1105"/"2100"/"1200"
+  // compiled into the composition root, so a tenant on a recoded chart of
+  // accounts reported a mismatch equal to every collection ever made (B-8).
+  { key: "control.receivable", section: "control", labelAr: "حساب مراقبة ذمم العملاء", labelEn: "Accounts receivable control", defaultAccountId: "1105" },
+  { key: "control.payable", section: "control", labelAr: "حساب مراقبة ذمم الموردين", labelEn: "Accounts payable control", defaultAccountId: "2100" },
+  { key: "control.inventory", section: "control", labelAr: "حساب مراقبة المخزون", labelEn: "Inventory control", defaultAccountId: "1200" },
 
   // --- حسب نوع الصنف ---
   { key: "item_type.revenue", section: "item_type", labelAr: "إيرادات المبيعات", labelEn: "Sales revenue", defaultAccountId: "4100" },

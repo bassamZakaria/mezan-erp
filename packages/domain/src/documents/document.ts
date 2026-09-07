@@ -105,6 +105,18 @@ export interface DocumentRepository<Line> {
   update(doc: FrameworkDocument<Line>): Promise<void>;
   findById(id: string): Promise<FrameworkDocument<Line> | null>;
   list(filter?: DocumentListFilter): Promise<readonly FrameworkDocument<Line>[]>;
+  /**
+   * The documents whose LINES cite one of `ids` in the field named `field` —
+   * one query, rather than reading the whole type's history and filtering it
+   * in JS. Optional: a repository that cannot express it leaves the caller to
+   * fall back to `list()`, which is what {@link DocumentService.listByLineRef}
+   * does.
+   */
+  listByLineRef?(
+    field: string,
+    ids: readonly string[],
+    filter?: DocumentListFilter,
+  ): Promise<readonly FrameworkDocument<Line>[]>;
   /** Run `fn` in one atomic transaction. In-memory implementations may just call `fn`. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

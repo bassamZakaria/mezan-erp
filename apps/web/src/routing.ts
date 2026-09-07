@@ -47,8 +47,9 @@ for (const group of navGroupSpecs) {
  */
 const UNLISTED_SCREEN_GROUP: Record<string, string> = {
   labels: "items",
-  // حالة النظام is hidden from the rail for now; the screen still works and
-  // still answers at the address it has always had.
+  // حالة النظام is back in the rail under `setup`; this entry is the guard that
+  // keeps its address the same either way (the loop below skips a key the nav
+  // tree already placed).
   status: "setup",
   "report-inventory-movement": "stock",
   "report-inventory-expiring": "stock",

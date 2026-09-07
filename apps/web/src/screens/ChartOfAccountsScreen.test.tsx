@@ -183,7 +183,7 @@ describe("ChartOfAccountsScreen", () => {
   it("does NOT show the empty-tree message when the load failed — the banner is the only story (D123)", async () => {
     renderScreen(sampleAccounts, { onGetAccounts: () => ({ status: 500, body: { error: "INTERNAL" } }) });
 
-    expect(await screen.findByText("تعذّر تحميل دليل الحسابات.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل دليل الحسابات. (رمز 500)")).toBeInTheDocument();
     // An empty chart of accounts and an unreachable one are opposite facts:
     // one invites "add an account", the other must invite "retry".
     expect(screen.queryByText("لا توجد حسابات مطابقة")).not.toBeInTheDocument();

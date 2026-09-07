@@ -87,3 +87,21 @@ describe("WarehousesPage", () => {
     expect(await screen.findByText("مستودع تجريبي")).toBeInTheDocument();
   });
 });
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("WarehousesPage — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <WarehousesPage />,
+      {
+        transport: stubTransport({
+          "GET /warehouses": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+          "GET /branches": () => ({ body: sampleBranches }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+  });
+});

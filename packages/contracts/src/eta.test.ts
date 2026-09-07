@@ -76,6 +76,14 @@ describe("etaConfigSchema", () => {
     signingMethod: "none" as const,
     clientId: null,
     hasClientSecret: false,
+    // guards P-1 — the gateway addresses and the external signer are part of the
+    // config the screen round-trips, not hidden constants.
+    preproductionIdentityUrl: "https://id.preprod.eta.gov.eg",
+    preproductionApiUrl: "https://api.preprod.invoicing.eta.gov.eg/api/v1",
+    productionIdentityUrl: "https://id.eta.gov.eg",
+    productionApiUrl: "https://api.invoicing.eta.gov.eg/api/v1",
+    signingCommand: null,
+    signingCommandArgs: [] as string[],
   };
 
   it("accepts a minimal valid config and preserves every field verbatim", () => {
@@ -145,6 +153,8 @@ describe("etaSubmissionSchema", () => {
     createdAt: "2026-08-30T10:00:00.000Z",
     updatedAt: "2026-08-30T10:05:00.000Z",
     submittedAt: "2026-08-30T10:05:00.000Z",
+    gatewaySubmissionId: "SUB-1",
+    signed: false,
   };
 
   it("accepts a minimal valid submission and preserves every field verbatim", () => {
@@ -172,7 +182,15 @@ describe("excludeEtaSubmissionSchema", () => {
 });
 
 describe("etaTestConnectionResultSchema", () => {
-  const result = { ok: false, reason: "offline" as const, checkedAt: "2026-08-30T10:00:00.000Z" };
+  // guards P-1 — the check now reports what a real token request returned, so
+  // "connected" is a state the contract must be able to carry.
+  const result = {
+    ok: false,
+    reason: "unreachable" as const,
+    detail: "تعذّر الوصول إلى خادم المصلحة.",
+    identityUrl: "https://id.preprod.eta.gov.eg",
+    checkedAt: "2026-08-30T10:00:00.000Z",
+  };
 
   it("accepts a minimal valid payload and preserves every field verbatim", () => {
     const parsed = etaTestConnectionResultSchema.safeParse(result);
@@ -180,8 +198,8 @@ describe("etaTestConnectionResultSchema", () => {
     if (parsed.success) expect(parsed.data).toEqual(result);
   });
 
-  it("accepts a null reason on success", () => {
-    const parsed = etaTestConnectionResultSchema.safeParse({ ...result, ok: true, reason: null });
+  it("accepts a successful handshake with no detail", () => {
+    const parsed = etaTestConnectionResultSchema.safeParse({ ...result, ok: true, reason: "connected", detail: null });
     expect(parsed.success).toBe(true);
   });
 

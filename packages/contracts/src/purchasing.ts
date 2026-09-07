@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 
 /**
  * Wire contracts for the purchase chain (docs/archive/catalog/02): أوامر الشراء →
@@ -47,6 +48,8 @@ export const purchaseOrderSchema = z.object({
   total: decimalString,
   createdBy: z.string(),
   createdAt: z.string(),
+  /** N-9 — the row version the detail read serves; sent back as `expectedVersion` on the next act. */
+  version: z.number().int().positive().optional(),
 });
 
 export const createPurchaseOrderLineSchema = z.object({
@@ -155,6 +158,8 @@ export const purchaseInvoiceSchema = z.object({
   remainingBalance: decimalString,
   createdBy: z.string(),
   createdAt: z.string(),
+  /** N-9 — the row version the detail read serves; sent back as `expectedVersion` on the next act. */
+  version: z.number().int().positive().optional(),
 });
 
 export const createPurchaseInvoiceLineSchema = z.object({
@@ -340,6 +345,9 @@ export const purchaseInvoiceListQuerySchema = z.object({
   warehouseId: z.string().optional(),
   /** Free-text over the document number and the supplier's own invoice number. */
   search: z.string().optional(),
+  /** One page of rows, 1-based. Both carry a default, so an omitted page never means the whole table (Q-8). */
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
 });
 
 /** `GET /purchases/invoices/stats` — the KPI strip, summed in `Money`. */

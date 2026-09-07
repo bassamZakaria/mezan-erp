@@ -2,7 +2,14 @@ import { describe, it, expect } from "vitest";
 import { DEFAULT_ETA_CONFIG, computeEtaReadiness, type EtaConfig, type EtaConfigRepository } from "./config.js";
 import type { EtaSubmission, EtaSubmissionRepository, EtaSubmissionStatus } from "./submission.js";
 import { EtaService, stubOnlineTransmitPort, type EtaTransmitPort, type EtaEnqueueInput } from "./service.js";
-import { DuplicateEtaSubmissionError, EtaExclusionReasonRequiredError, EtaOfflineError, InvalidEtaTransitionError } from "./errors.js";
+import type { EtaSignerPort } from "./signer.js";
+import {
+  DuplicateEtaSubmissionError,
+  EtaExclusionReasonRequiredError,
+  EtaOfflineError,
+  EtaSignerNotConfiguredError,
+  InvalidEtaTransitionError,
+} from "./errors.js";
 
 class MemConfig implements EtaConfigRepository {
   private cfg: EtaConfig;
@@ -38,12 +45,14 @@ class MemSubmissions implements EtaSubmissionRepository {
 }
 
 let counter = 0;
-function service(configOverrides: Partial<EtaConfig> = {}, transmit?: EtaTransmitPort) {
+function service(configOverrides: Partial<EtaConfig> = {}, transmit?: EtaTransmitPort, signer?: EtaSignerPort) {
   const config = new MemConfig({ ...DEFAULT_ETA_CONFIG, ...configOverrides });
   const submissions = new MemSubmissions();
-  const svc = new EtaService({ config, submissions, transmit, now: () => "2026-08-22T10:00:00.000Z", newId: () => `eta-${++counter}` });
+  const svc = new EtaService({ config, submissions, transmit, signer, now: () => "2026-08-22T10:00:00.000Z", newId: () => `eta-${++counter}` });
   return { svc, submissions };
 }
+
+const fakeSigner: EtaSignerPort = { async sign() { return "CADES-SIGNATURE"; } };
 
 const doc: EtaEnqueueInput = {
   internalId: "INV-000014",
@@ -106,14 +115,89 @@ describe("EtaService — lifecycle", () => {
     expect(errored.errors[0]).toContain("غير صالح");
   });
 
-  it("routes a v1.0 e-seal document to بانتظار التوقيع before transmission", async () => {
-    const { svc } = service({ signingMethod: "eseal" }, acceptingPort);
+  it("routes a v1.0 e-seal document to بانتظار التوقيع, then signs and transmits it", async () => {
+    const { svc } = service({ signingMethod: "eseal" }, acceptingPort, fakeSigner);
     const s = await svc.enqueue(doc);
     const pending = await svc.submit(s.id);
     expect(pending.status).toBe("pending_signature");
-    // Signing done → next submit transmits.
     const submitted = await svc.submit(s.id);
     expect(submitted.status).toBe("submitted");
+    expect(submitted.signature).toBe("CADES-SIGNATURE");
+  });
+
+  // guards P-1 — an unsigned v1.0 document must not be transmitted; it stays
+  // بانتظار التوقيع and the reason is Arabic.
+  it("refuses to transmit a v1.0 document when no signing program is configured", async () => {
+    const { svc, submissions } = service({ signingMethod: "eseal" }, acceptingPort);
+    const s = await svc.enqueue(doc);
+    await svc.submit(s.id);
+    await expect(svc.submit(s.id)).rejects.toBeInstanceOf(EtaSignerNotConfiguredError);
+    const after = submissions.rows.get(s.id)!;
+    expect(after.status).toBe("pending_signature");
+    expect(after.errors[0]).toContain("جهاز التوقيع");
+  });
+
+  // guards P-1 — the queue driver a scheduler calls.
+  it("processQueue signs and transmits everything pending, then polls what was already sent", async () => {
+    const polling: EtaTransmitPort = {
+      async transmit() { return { ok: true, etaUuid: "UUID-1", submissionId: "SUB-1" }; },
+      async fetchStatus() { return { state: "accepted" as const, errors: [] }; },
+    };
+    const { svc } = service({ signingMethod: "eseal" }, polling, fakeSigner);
+    const s = await svc.enqueue(doc);
+    await svc.submit(s.id);
+
+    const result = await svc.processQueue();
+    expect(result.submitted.map((x) => x.id)).toEqual([s.id]);
+    expect(result.accepted.map((x) => x.id)).toEqual([s.id]);
+    expect((await svc.findById(s.id))!.status).toBe("accepted");
+  });
+
+  // guards P-1 — an install with no credentials opens no socket and loses nothing.
+  it("processQueue leaves an offline document queued and names it", async () => {
+    const { svc } = service({}, stubOnlineTransmitPort());
+    const s = await svc.enqueue(doc);
+    const result = await svc.processQueue();
+    expect(result.queued).toEqual([s.id]);
+    expect((await svc.findById(s.id))!.status).toBe("ready");
+  });
+
+  // guards P-1 — the transmit evidence lands on the submission record.
+  it("records every request and response of a transmit attempt on the submission", async () => {
+    const logging: EtaTransmitPort = {
+      async transmit() {
+        return {
+          ok: true,
+          etaUuid: "UUID-1",
+          submissionId: "SUB-1",
+          log: [{ at: "2026-08-22T10:00:00.000Z", attempt: 1, method: "POST", url: "https://eta/documentsubmissions", requestBody: "{}", status: 200, responseBody: "{}", error: null }],
+        };
+      },
+    };
+    const { svc } = service({}, logging);
+    const s = await svc.enqueue(doc);
+    const submitted = await svc.submit(s.id);
+    expect(submitted.transmitLog).toHaveLength(1);
+    expect(submitted.gatewaySubmissionId).toBe("SUB-1");
+  });
+
+  // guards P-1 — اختبار الاتصال must report what actually happened, not a fixed answer.
+  it("testConnection reports missing credentials without touching the port, and the port's answer once set", async () => {
+    let called = 0;
+    const checking: EtaTransmitPort = {
+      async transmit() { return { ok: true }; },
+      async checkCredentials() {
+        called += 1;
+        return { ok: true, reason: "connected" as const, detail: null, identityUrl: "https://id.preprod.eta.gov.eg", checkedAt: "2026-08-22T10:00:00.000Z" };
+      },
+    };
+    const unset = service({}, checking);
+    await expect(unset.svc.testConnection()).resolves.toMatchObject({ ok: false, reason: "missing_credentials" });
+    expect(called).toBe(0);
+
+    const set = service({ clientId: "cid", hasClientSecret: true }, checking);
+    await expect(set.svc.testConnection()).resolves.toMatchObject({ ok: true, reason: "connected" });
+    expect(called).toBe(1);
   });
 
   it("requires a reason to exclude and blocks excluding an accepted document", async () => {

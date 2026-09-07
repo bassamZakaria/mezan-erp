@@ -90,7 +90,7 @@ export function PipelineScreen() {
 
       {(stagesQuery.isError || opportunitiesQuery.isError) ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("pipeline.pipelineDataCouldNotBe")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{stagesQuery.error?.message ?? opportunitiesQuery.error?.message ?? t("pipeline.pipelineDataCouldNotBe")}</p>
           <Button
             size="sm"
             className="mt-[10px]"

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { FirstRunWizard } from "./FirstRunWizard";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -28,7 +28,6 @@ function renderWizard(onFinish = () => {}, onCancel = () => {}) {
 }
 
 function goToAdminStep() {
-  fireEvent.click(screen.getByRole("button", { name: "تفعيل" }));
   fireEvent.click(screen.getByRole("button", { name: "التالي" }));
 }
 
@@ -49,19 +48,28 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     document.documentElement.removeAttribute("data-theme");
   });
 
-  it("starts on the activate-license step", () => {
+  /**
+   * guards L-5 / support #2. The step asked for an `XXXX-XXXX-XXXX-XXXX` key
+   * the product has never used, called nothing, and showed a green «مُفعّل» —
+   * so a new owner was told the licence took and then met a 403 on every save.
+   */
+  it("starts on the licence step, which asks for a FILE and never blocks التالي", () => {
     document.documentElement.setAttribute("data-theme", theme);
     renderWizard();
     expect(screen.getByRole("heading", { name: "معالج الإعداد الأولي" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "تفعيل الترخيص" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "التالي" })).toBeDisabled();
+    expect(screen.queryByPlaceholderText("XXXX-XXXX-XXXX-XXXX")).not.toBeInTheDocument();
+    expect(screen.getByText(/ملف يرسله لك الدعم/)).toBeInTheDocument();
+    // A shop without a file yet must still be able to finish setting up: the
+    // write gate enforces the licence, not this button.
+    expect(screen.getByRole("button", { name: "التالي" })).toBeEnabled();
   });
 
-  it("enables التالي once activation is stubbed-completed", () => {
+  it("shows no success pill and no licence facts on the browser build", () => {
     renderWizard();
-    fireEvent.click(screen.getByRole("button", { name: "تفعيل" }));
-    expect(screen.getByText("مُفعّل")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "التالي" })).toBeEnabled();
+    expect(screen.queryByText("مُفعّل")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "استيراد ملف الترخيص" })).toBeDisabled();
+    expect(screen.getByText(/تُثبَّت التراخيص على الجهاز الرئيسي/)).toBeInTheDocument();
   });
 
   it("validates the admin step, then persists the admin and advances to seed", async () => {
@@ -178,5 +186,80 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "سجّل الدخول بحسابك" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * THE ACTIVATION STEP ON A REAL DESKTOP HOST — guards L-5 / support #2.
+ *
+ * Outside the theme matrix, because the bridge has to be installed and torn
+ * down around each case and none of this is about colour.
+ */
+describe("FirstRunWizard — installing a licence file", () => {
+  interface Bridge {
+    mezan?: { licence?: Record<string, (...args: unknown[]) => Promise<unknown>> };
+  }
+
+  afterEach(() => {
+    delete (globalThis as Bridge).mezan;
+  });
+
+  function withBridge(importResult: unknown): ReturnType<typeof vi.fn> {
+    const importLicence = vi.fn().mockResolvedValue(importResult);
+    (globalThis as Bridge).mezan = {
+      licence: {
+        status: () => Promise.resolve({ ok: false, code: "UNAUTHORIZED", message: "لا جلسة." }),
+        import: importLicence,
+      },
+    };
+    return importLicence;
+  }
+
+  it("states the verified plan, seats and expiry — not «activated»", async () => {
+    const importLicence = withBridge({
+      ok: true,
+      accepted: true,
+      status: { plan: "PRO", seats: 4, expiresAt: "2027-03-01T00:00:00.000Z", code: "LIC-OK" },
+    });
+    renderWizard();
+
+    fireEvent.click(screen.getByRole("button", { name: "استيراد ملف الترخيص" }));
+    await waitFor(() => expect(importLicence).toHaveBeenCalled());
+    expect(await screen.findByText(/PRO/)).toHaveTextContent("4");
+    expect(await screen.findByText(/2027-03-01/)).toBeInTheDocument();
+    expect(screen.getByText("مُفعّل")).toBeInTheDocument();
+  });
+
+  // The finding itself: a file that copies but does not verify is not an
+  // activation, and must never paint the green pill.
+  it("shows no success pill when the file is installed but refused", async () => {
+    withBridge({
+      ok: true,
+      accepted: false,
+      status: { plan: "UNLICENSED", seats: 0, expiresAt: null, code: "LIC-INVALID" },
+    });
+    renderWizard();
+
+    fireEvent.click(screen.getByRole("button", { name: "استيراد ملف الترخيص" }));
+    expect(await screen.findByText(/لم يُقبل/)).toBeInTheDocument();
+    expect(screen.queryByText("مُفعّل")).not.toBeInTheDocument();
+  });
+
+  it("says nothing at all when the file picker is cancelled", async () => {
+    const importLicence = withBridge({ ok: false, code: "CANCELLED", message: "لم يتم اختيار أي ملف." });
+    renderWizard();
+
+    fireEvent.click(screen.getByRole("button", { name: "استيراد ملف الترخيص" }));
+    await waitFor(() => expect(importLicence).toHaveBeenCalled());
+    expect(screen.queryByText("مُفعّل")).not.toBeInTheDocument();
+    expect(screen.queryByText(/لم يتم اختيار أي ملف/)).not.toBeInTheDocument();
+  });
+
+  it("renders the refusal the main process gave, in Arabic", async () => {
+    withBridge({ ok: false, code: "UNREADABLE", message: "تعذّرت قراءة الملف المختار." });
+    renderWizard();
+
+    fireEvent.click(screen.getByRole("button", { name: "استيراد ملف الترخيص" }));
+    expect(await screen.findByText("تعذّرت قراءة الملف المختار.")).toBeInTheDocument();
   });
 });

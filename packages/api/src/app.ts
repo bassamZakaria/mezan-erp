@@ -7,12 +7,8 @@ import {
   purchaseInvoiceTotal,
   extend,
   voucherLine,
-  postJournalEntrySpike,
-  UnbalancedEntryError,
-  InvalidJournalEntryError,
   SeatSessionRegistry,
   createEntitlements,
-  type JournalEntry,
   type UnitOfWork,
   type AccountRepository,
   type SettingsRepository,
@@ -106,11 +102,10 @@ import {
   type GateableActionType,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
-import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import { sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
-import type { EntitlementsResolver } from "./module-gate.js";
+import { applyModuleGates, type EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
 import { createPermissionGate, insecureHeaderAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 import {
@@ -122,7 +117,7 @@ import { createSettingsRoutes } from "./settings-routes.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
-import { createCustomersRouter, type CustomerReceivablesSource } from "./customers-routes.js";
+import { createCustomersRouter, type CustomerReceivablesSource, type PartyOpeningBalancePoster } from "./customers-routes.js";
 import { createSuppliersRouter, type SupplierPayablesSource } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
 import {
@@ -155,7 +150,7 @@ import { createManufacturingRoutes, type ManufacturingRoutesDeps } from "./manuf
 import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
 import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
-import { createDataMigrationRoutes, type DataMigrationTransactor } from "./data-migration-routes.js";
+import { createDataMigrationRoutes, type DataMigrationRoutesDeps, type DataMigrationTransactor } from "./data-migration-routes.js";
 import { createSalesHistoricalImportRoutes } from "./sales-historical-import-routes.js";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
@@ -241,21 +236,6 @@ function defaultEntitlementsResolver(): EntitlementsResolver {
     expiresAt: null,
   });
   return () => entitlements;
-}
-
-/** Wire representation of an entry — money as decimal strings, byte-stable. */
-function serialize(entry: JournalEntry) {
-  return {
-    id: entry.id,
-    date: entry.date,
-    memo: entry.memo,
-    status: entry.status,
-    lines: entry.lines.map((l) => ({
-      accountId: l.accountId,
-      debit: l.debit.toString(),
-      credit: l.credit.toString(),
-    })),
-  };
 }
 
 export interface CreateAppOptions {
@@ -384,6 +364,14 @@ export interface CreateAppOptions {
   readonly customerStore?: CustomerRepository;
   /** Mounts `/suppliers` (docs/archive/catalog/02 "الموردون") when present — omit it for no `/suppliers` route. */
   readonly supplierStore?: SupplierRepository;
+  /**
+   * Posts a customer's رصيد افتتاحي into the ledger (B-2). Omit it and the
+   * field is stored master data that no report counts — which is what put the
+   * customer KPI above the aging ladder by Σ opening balances.
+   */
+  readonly customerOpeningBalances?: PartyOpeningBalancePoster;
+  /** The supplier-side twin of {@link customerOpeningBalances} (B-2). */
+  readonly supplierOpeningBalances?: PartyOpeningBalancePoster;
   /** مجموعات الضرائب (R6.4) — mounts `/tax-groups` when present. */
   readonly taxGroupRepo?: TaxGroupRepository;
   /** Mounts `/tax-rates` (docs/archive/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
@@ -571,6 +559,9 @@ export interface CreateAppOptions {
     readonly orders: PurchaseOrderRepository;
     readonly receipts: GoodsReceiptRepository;
     readonly invoices: PurchaseInvoiceRepository;
+    /** N-9 — optimistic concurrency for orders and invoices; omit for the previous last-write-wins behaviour. */
+    readonly orderVersions?: NonNullable<PurchasesRoutesDeps["orderVersions"]>;
+    readonly invoiceVersions?: NonNullable<PurchasesRoutesDeps["invoiceVersions"]>;
     readonly numbering: NextNumberService;
     readonly stock: StockLedgerService;
     /** GL posting engine deps — the invoice confirm builds a JE and posts it here. */
@@ -685,28 +676,7 @@ export interface CreateAppOptions {
    * are NOT here — they reuse `/purchases/historical-import` and the sibling
    * `/sales/historical-import` mount directly. Omit for no such routes.
    */
-  readonly dataMigration?: {
-    readonly departments: DepartmentRepository;
-    readonly employees: EmployeeRepository;
-    readonly treasuryAccounts: TreasuryAccountRepository;
-    readonly suppliers: SupplierRepository;
-    readonly customers: CustomerRepository;
-    readonly items: ItemRepository;
-    readonly assetCategories: AssetCategoryRepository;
-    readonly assets: AssetRepository;
-    readonly branches: BranchRepository;
-    /** Optional — enables the item opening-balance step (`/data-migration/opening-balances`). */
-    readonly warehouses?: WarehouseRepository;
-    readonly stockAdjustments?: DocumentService<StockAdjustmentDocLine>;
-    readonly transact?: DataMigrationTransactor;
-    readonly historicalCounts?: () => Promise<{
-      salesInvoices: number;
-      salesReturns: number;
-      purchaseInvoices: number;
-      purchaseReturns: number;
-    }>;
-    readonly resolveAuthContext?: AuthContextResolver;
-  };
+  readonly dataMigration?: DataMigrationRoutesDeps;
   /**
    * Mounts `/sales-returns` (docs/archive/catalog/01 §"مرتجعات المبيعات") when
    * present. The caller builds the `DocumentService` (repo + numbering + GL
@@ -912,6 +882,21 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     c.json(resolveLicenseState ? await resolveLicenseState(c) : WRITABLE_LICENSE_STATE),
   );
 
+  /**
+   * MODULE gating, before every route mounted below — the other half of the
+   * licence, and the half that had no call site at all: `createModuleGate`
+   * existed, was exported, and gated nothing, so a Core-priced licence served
+   * manufacturing, HR and assets in full.
+   *
+   * It reads the SAME `resolveEntitlements` the `/roles` route and `GET
+   * /entitlements` read, so a build cannot report one capability set and serve
+   * another. Inert wherever no source is wired: the default resolver grants
+   * every module (`DEFAULT_ACTIVE_MODULES`), so cloud, tests and an unpackaged
+   * desktop are unchanged; only a desktop install running under a verified
+   * licence narrows it.
+   */
+  applyModuleGates(app, resolveEntitlements);
+
   if (options.settingsStore) {
     app.route("/settings", createSettingsRoutes(options.settingsStore, resolveAuth, options.auditSink));
   }
@@ -1008,11 +993,15 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         options.auditSink,
         options.priceListRepo,
         customerReceivables,
+        options.customerOpeningBalances,
       ),
     );
   }
   if (options.supplierStore) {
-    app.route("/suppliers", createSuppliersRouter(options.supplierStore, resolveAuth, supplierPayables, options.auditSink));
+    app.route(
+      "/suppliers",
+      createSuppliersRouter(options.supplierStore, resolveAuth, supplierPayables, options.auditSink, options.supplierOpeningBalances),
+    );
   }
 
   if (options.accounts) {
@@ -1354,6 +1343,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           purchases.gl,
         );
       },
+      // The confirm's atomic boundary (B-7): GL entry, stock receipt, invoice
+      // status and the payables sub-ledger commit together or not at all.
+      transaction: (fn) => purchases.gl.ledger.transaction(fn),
     };
     const glReversePort: PurchaseGlReversalPort = {
       reverse: async (sourceDocId, opts) => {
@@ -1382,6 +1374,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           orders: purchases.orders,
           receipts: purchases.receipts,
           invoices: purchases.invoices,
+          // N-9: declared on the option but never forwarded, so the whole
+          // optimistic-concurrency guard was dead through `createApp`.
+          orderVersions: purchases.orderVersions,
+          invoiceVersions: purchases.invoiceVersions,
           numbering: purchases.numbering,
           stock: purchases.stock,
           gl: glPort,
@@ -1553,88 +1549,18 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     }),
   );
   app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink));
-  if (options.apiKeys) {
-    app.route(
-      "/api-keys",
-      createApiKeysRoutes(options.apiKeys.repo, hasher, (options.apiKeys.resolveAuthContext ?? resolveAuth) ?? resolveAuth, options.auditSink),
-    );
-  }
-  if (options.webhooks) {
-    app.route(
-      "/webhooks",
-      createWebhooksRoutes(
-        {
-          webhooks: options.webhooks.webhooks,
-          deliveries: options.webhooks.deliveries,
-          emittedEventCodes: options.emittedEventCodes,
-        },
-        (options.webhooks.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
-        options.auditSink,
-      ),
-    );
-  }
-
   /**
-   * DEPRECATED — the spike's original poster; `POST /gl/journal-entries`
-   * supersedes it and is the route the product uses.
+   * DEC-17: `/api-keys` and `/webhooks` are NOT mounted.
    *
-   * Gated as of D99: it was mounted with no permission check at all, so anyone
-   * who could reach the API could post into the books. The gate closes WHO may
-   * post. It does NOT give this route the fiscal-period check, the account
-   * validation, the numbering, the audit event or the cost-centre / currency /
-   * rate line fields the gl route has — the remaining fix is to delete it once
-   * its last two callers are moved onto a gl-mounted composition.
+   * Both were complete server-side and had no verifier on the other end — no
+   * screen, no consumer, no signature scheme a caller could check — so the
+   * product's only outbound surface was one nobody could use and everybody
+   * could be attacked through. `createApiKeysRoutes` and `createWebhooksRoutes`
+   * are kept, tested and unmounted; re-mount them here when the decision to
+   * ship an integration surface is taken and a verifier exists.
    */
-  const legacyJournalGate = createPermissionGate(resolveAuth);
-
-  app.post("/journal-entries", legacyJournalGate("accounting.journal.post"), async (c) => {
-    const parsed = createJournalEntrySchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json(
-        { error: "VALIDATION_ERROR", details: parsed.error.flatten() },
-        400,
-      );
-    }
-
-    try {
-      const entry = await postJournalEntrySpike(
-        {
-          id: parsed.data.id,
-          date: parsed.data.date,
-          memo: parsed.data.memo,
-          lines: parsed.data.lines.map((l) => ({
-            accountId: l.accountId,
-            debit: Money.fromMajor(l.debit),
-            credit: Money.fromMajor(l.credit),
-          })),
-        },
-        uow,
-      );
-      return c.json(serialize(entry), 201);
-    } catch (err) {
-      if (err instanceof UnbalancedEntryError) {
-        return c.json(
-          {
-            error: err.code,
-            message: err.message,
-            totalDebit: err.totalDebit.toString(),
-            totalCredit: err.totalCredit.toString(),
-          },
-          422,
-        );
-      }
-      if (err instanceof InvalidJournalEntryError) {
-        return c.json({ error: err.code, message: err.message }, 400);
-      }
-      throw err;
-    }
-  });
-
-  app.get("/journal-entries/:id", legacyJournalGate("accounting.journal.view"), async (c) => {
-    const entry = await uow.journal.findById(c.req.param("id"));
-    if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(entry));
-  });
+  void createApiKeysRoutes;
+  void createWebhooksRoutes;
 
   if (options.printTemplateConfig) {
     app.route(

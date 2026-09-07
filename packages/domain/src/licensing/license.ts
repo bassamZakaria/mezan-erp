@@ -11,14 +11,17 @@
  * printable and exportable, only new postings are blocked.
  */
 
-import { verifyAsync } from "@noble/ed25519";
+import { getPublicKeyAsync, signAsync, verifyAsync } from "@noble/ed25519";
 import { createEntitlements, type EntitlementsView } from "../entitlements/entitlements.js";
 import type { Clock, FingerprintSource, MonotonicClockStore } from "./ports.js";
 import {
   base64UrlToBytes,
+  bytesToBase64Url,
+  bytesToHex,
   bytesToUtf8,
   saltedFingerprintHash,
   toBytes,
+  utf8ToBytes,
 } from "./encoding.js";
 
 /** License payload shape, mirroring the cloud tenant object (§2.5). */
@@ -68,6 +71,13 @@ export interface LicenseVerifyResult {
   readonly payload: LicensePayload | null;
   /** Machine-readable reason for a non-usable result. */
   readonly reason?: string;
+  /**
+   * This machine's SALTED fingerprint hash — the same value `machineBinding`
+   * carries, so the check-in payload identifies the install and support can be
+   * read the exact string to bind a replacement PC to. Null when the machine
+   * identity could not be read. The raw identifier never appears here.
+   */
+  readonly fingerprint?: string | null;
 }
 
 export interface VerifyOptions {
@@ -130,7 +140,41 @@ export function parseLicense(raw: string): ParsedLicense {
   return { payload, signedBytes, signature };
 }
 
-function fail(state: LicenseState, reason: string): LicenseVerifyResult {
+/**
+ * The VENDOR half of the same format — the only thing that can mint a licence
+ * `verifyLicense` will accept.
+ *
+ * It signs exactly the bytes the verifier checks: the ASCII of the base64url
+ * payload segment. Signing the encoded form rather than the JSON is what keeps
+ * signer and verifier from disagreeing over key order or whitespace, and it is
+ * why this lives beside the verifier instead of in a script that would drift
+ * from it.
+ *
+ * `privateKey` is the 32-byte Ed25519 seed (hex or raw). It belongs on the
+ * vendor's machine and must never ship inside the app.
+ */
+export async function signLicense(
+  payload: LicensePayload,
+  privateKey: string | Uint8Array,
+): Promise<string> {
+  const payloadB64 = bytesToBase64Url(utf8ToBytes(JSON.stringify(payload)));
+  const signature = await signAsync(utf8ToBytes(payloadB64), toBytes(privateKey));
+  return `${payloadB64}.${bytesToBase64Url(signature)}`;
+}
+
+/**
+ * The public key to bake into builds for a given signing seed — what the vendor
+ * sets as `MEZAN_LICENSE_PUBLIC_KEY`. Hex, both ways in and out.
+ */
+export async function licensePublicKeyHex(privateKey: string | Uint8Array): Promise<string> {
+  return bytesToHex(await getPublicKeyAsync(toBytes(privateKey)));
+}
+
+function fail(
+  state: LicenseState,
+  reason: string,
+  fingerprint: string | null = null,
+): LicenseVerifyResult {
   return {
     state,
     usable: false,
@@ -138,6 +182,7 @@ function fail(state: LicenseState, reason: string): LicenseVerifyResult {
     entitlements: null,
     payload: null,
     reason,
+    fingerprint,
   };
 }
 
@@ -150,11 +195,24 @@ export async function verifyLicense(
   raw: string,
   options: VerifyOptions,
 ): Promise<LicenseVerifyResult> {
+  // Read once, up front, and carry it into every branch: the check-in payload
+  // has to identify THIS machine even when the licence is invalid, and support
+  // has to be able to read the string back for a replacement PC.
+  let fingerprint: string | null;
+  try {
+    fingerprint = await saltedFingerprintHash(
+      await options.fingerprintSource.read(),
+      options.fingerprintSalt,
+    );
+  } catch {
+    fingerprint = null;
+  }
+
   let parsed: ParsedLicense;
   try {
     parsed = parseLicense(raw);
   } catch (err) {
-    return fail("INVALID", err instanceof Error ? err.message : "parse error");
+    return fail("INVALID", err instanceof Error ? err.message : "parse error", fingerprint);
   }
 
   // 1. Signature authenticity.
@@ -168,7 +226,7 @@ export async function verifyLicense(
   } catch {
     signatureOk = false;
   }
-  if (!signatureOk) return fail("INVALID", "BAD_SIGNATURE");
+  if (!signatureOk) return fail("INVALID", "BAD_SIGNATURE", fingerprint);
 
   const { payload } = parsed;
   const now = options.clock.now();
@@ -178,7 +236,7 @@ export async function verifyLicense(
     const highWater = await options.monotonicStore.getHighWaterMark();
     const tolerance = options.clockRollbackToleranceMs ?? 0;
     if (highWater !== null && now < highWater - tolerance) {
-      return fail("TAMPERED", "CLOCK_ROLLBACK");
+      return fail("TAMPERED", "CLOCK_ROLLBACK", fingerprint);
     }
     await options.monotonicStore.record(Math.max(now, highWater ?? now));
   }
@@ -186,15 +244,13 @@ export async function verifyLicense(
   // 3. notBefore.
   const notBefore = Date.parse(payload.notBefore);
   if (!Number.isNaN(notBefore) && now < notBefore) {
-    return fail("NOT_YET_VALID", "BEFORE_NOT_BEFORE");
+    return fail("NOT_YET_VALID", "BEFORE_NOT_BEFORE", fingerprint);
   }
 
   // 4. Machine fingerprint (soft-bound: empty binding = unbound license).
   if (payload.machineBinding.length > 0) {
-    const raw = await options.fingerprintSource.read();
-    const hash = await saltedFingerprintHash(raw, options.fingerprintSalt);
-    if (!payload.machineBinding.includes(hash)) {
-      return fail("FINGERPRINT_MISMATCH", "MACHINE_NOT_BOUND");
+    if (fingerprint === null || !payload.machineBinding.includes(fingerprint)) {
+      return fail("FINGERPRINT_MISMATCH", "MACHINE_NOT_BOUND", fingerprint);
     }
   }
 
@@ -216,6 +272,7 @@ export async function verifyLicense(
       canWrite: true,
       entitlements,
       payload,
+      fingerprint,
     };
   }
   if (now <= graceEnd) {
@@ -225,6 +282,7 @@ export async function verifyLicense(
       canWrite: true,
       entitlements,
       payload,
+      fingerprint,
     };
   }
   return {
@@ -234,5 +292,6 @@ export async function verifyLicense(
     entitlements,
     payload,
     reason: "EXPIRED_PAST_GRACE",
+    fingerprint,
   };
 }

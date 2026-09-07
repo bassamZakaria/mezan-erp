@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS voucher (
   direction                      TEXT NOT NULL,
   amount                         INTEGER NOT NULL,
   currency                       TEXT NOT NULL,
+  fx_rate                        TEXT,
   branch_id                      TEXT NOT NULL,
   payment_method                 TEXT NOT NULL,
   treasury_account_id            TEXT NOT NULL,
@@ -66,6 +67,9 @@ CREATE TABLE IF NOT EXISTS voucher (
 );
 CREATE INDEX IF NOT EXISTS idx_voucher_status ON voucher(status);
 CREATE INDEX IF NOT EXISTS idx_voucher_type ON voucher(voucher_type);
+-- Every voucher list and every treasury report bounds by date; without this the
+-- only plan was a full scan and a sort of the table (Q-8).
+CREATE INDEX IF NOT EXISTS idx_voucher_date ON voucher(date);
 CREATE TABLE IF NOT EXISTS voucher_allocation (
   id          TEXT PRIMARY KEY,
   voucher_id  TEXT NOT NULL,
@@ -100,6 +104,7 @@ interface VoucherRow {
   direction: string;
   amount: bigint;
   currency: string;
+  fx_rate: string | null;
   branch_id: string;
   payment_method: string;
   treasury_account_id: string;
@@ -128,6 +133,7 @@ function toDocument(row: VoucherRow): FrameworkDocument<VoucherLine> {
     direction: row.direction as VoucherDirection,
     amount: Money.fromScaled(row.amount),
     currency: row.currency,
+    fxRate: row.fx_rate,
     branchId: row.branch_id,
     paymentMethod: row.payment_method as VoucherPaymentMethod,
     treasuryAccountId: row.treasury_account_id,
@@ -174,6 +180,7 @@ function docParams(doc: FrameworkDocument<VoucherLine>) {
     direction: line.direction,
     amount: line.amount.toScaledNumber(),
     currency: line.currency,
+    fx_rate: line.fxRate ?? null,
     branch_id: line.branchId,
     payment_method: line.paymentMethod,
     treasury_account_id: line.treasuryAccountId,
@@ -205,14 +212,14 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
   constructor(private readonly sqlite: Database.Database) {
     this.insert = sqlite.prepare(`
       INSERT INTO voucher (
-        id, doc_no, doc_type, date, memo, status, voucher_type, direction, amount, currency,
+        id, doc_no, doc_type, date, memo, status, voucher_type, direction, amount, currency, fx_rate,
         branch_id, payment_method, treasury_account_id, treasury_gl_account_id,
         counterparty_gl_account_id, counter_treasury_account_id, counter_treasury_gl_account_id,
         customer_id, supplier_id, reference_no, cost_center_id,
         withholding_amount, withholding_rate_percent, withholding_gl_account_id, created_at, confirmed_at,
         reverses_doc_id, reversed_by_doc_id, workflow_request_id, journal_entry_id
       ) VALUES (
-        @id, @doc_no, @doc_type, @date, @memo, @status, @voucher_type, @direction, @amount, @currency,
+        @id, @doc_no, @doc_type, @date, @memo, @status, @voucher_type, @direction, @amount, @currency, @fx_rate,
         @branch_id, @payment_method, @treasury_account_id, @treasury_gl_account_id,
         @counterparty_gl_account_id, @counter_treasury_account_id, @counter_treasury_gl_account_id,
         @customer_id, @supplier_id, @reference_no, @cost_center_id,
@@ -222,7 +229,7 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
     `);
     this.updateStmt = sqlite.prepare(`
       UPDATE voucher SET
-        doc_no = @doc_no, memo = @memo, status = @status, amount = @amount,
+        doc_no = @doc_no, memo = @memo, status = @status, amount = @amount, fx_rate = @fx_rate,
         counterparty_gl_account_id = @counterparty_gl_account_id,
         counter_treasury_account_id = @counter_treasury_account_id,
         counter_treasury_gl_account_id = @counter_treasury_gl_account_id,
@@ -451,6 +458,10 @@ export function createSqliteVoucherStore(path: SqliteConnectionInput = ":memory:
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  // An existing books file already has `voucher`, and CREATE TABLE IF NOT
+  // EXISTS silently no-ops on it, so the FX rate column has to be added here.
+  const columns = new Set((sqlite.prepare(`PRAGMA table_info(voucher)`).all() as { name: string }[]).map((c) => c.name));
+  if (!columns.has("fx_rate")) sqlite.exec(`ALTER TABLE voucher ADD COLUMN fx_rate TEXT`);
   return {
     documents: new SqliteVoucherRepository(sqlite),
     allocations: new SqliteAllocationRepository(sqlite),

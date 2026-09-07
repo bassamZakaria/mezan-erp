@@ -125,7 +125,25 @@ describe("AssetCategoriesScreen", () => {
   it("shows a retry banner instead of the list when the categories fail to load", async () => {
     const transport = stubTransport({ "GET /assets/categories": () => ({ status: 500, body: { error: "INTERNAL" } }) });
     renderWithProviders(<AssetCategoriesScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل تصنيفات الأصول.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل تصنيفات الأصول. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
+});
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("AssetCategoriesScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <AssetCategoriesScreen />,
+      {
+        transport: stubTransport({
+          "GET /assets/categories": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل تصنيفات الأصول.")).not.toBeInTheDocument();
   });
 });

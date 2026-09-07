@@ -22,6 +22,7 @@ import { Money } from "@mezan/domain";
 import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO } from "@mezan/contracts";
 import {
   useAccounts,
+  useCostCenters,
   useCreateJournalEntry,
   useJournalEntries,
   useJournalEntryCounts,
@@ -32,11 +33,12 @@ import {
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { errorMessage } from "../lib/error-message";
+import { JournalEntryPrintPage } from "../print/documents";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { useEntityName } from "../lib/entity-names";
-import { sumMajor } from "../lib/money";
+import { majorOf, sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 
@@ -96,14 +98,35 @@ interface LineDraft {
   key: string;
   accountId: string;
   memo: string;
-  debit: number;
-  credit: number;
+  /** Exact decimal text as typed. Never a float — `Money.fromMajor(String(300.29999999999995))` throws in render (B-1). */
+  debit: string;
+  credit: string;
+  costCenterId: string;
 }
 
 let lineSeq = 0;
 function blankLine(): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, accountId: "", memo: "", debit: 0, credit: 0 };
+  return { key: `l${lineSeq}`, accountId: "", memo: "", debit: "", credit: "", costCenterId: "" };
+}
+
+const AMOUNT_TEXT = /^\d{1,15}(\.\d{1,6})?$/;
+
+/** A partially-typed amount ("", "12.") is zero, not a crash; anything else is rejected before it reaches `Money`. */
+function amountOf(text: string): Money | null {
+  const trimmed = text.trim();
+  if (trimmed === "") return Money.zero();
+  if (!AMOUNT_TEXT.test(trimmed)) return null;
+  return Money.fromMajor(trimmed);
+}
+
+function amountOrZero(text: string): Money {
+  return amountOf(text) ?? Money.zero();
+}
+
+function isPositiveAmount(text: string): boolean {
+  const money = amountOf(text);
+  return money !== null && !money.equals(Money.zero());
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -112,9 +135,11 @@ export function JournalsScreen() {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const accountsQuery = useAccounts();
+  const costCentersQuery = useCostCenters();
   const createJournalEntry = useCreateJournalEntry();
   const reverseJournalEntry = useReverseJournalEntry();
   const accounts = accountsQuery.data ?? EMPTY;
+  const costCenters = costCentersQuery.data ?? EMPTY;
 
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
@@ -152,7 +177,10 @@ export function JournalsScreen() {
     }),
     [statusFilter, moduleFilter, fromDate, toDate, search],
   );
-  const query = useJournalEntries(filter);
+  // The ROWS query carries the page; the chips and the KPI strip must not, or
+  // they would report the page instead of the filtered set (Q-9). The register
+  // used to fetch every entry ever posted and slice it here.
+  const query = useJournalEntries({ ...filter, page, pageSize });
   const counts = useJournalEntryCounts(filter).data ?? {};
   const stats = useJournalEntryStats(filter).data ?? {};
 
@@ -161,10 +189,11 @@ export function JournalsScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [accounts, nameOf]);
 
-  const documents = query.data ?? [];
-
-  const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
-  const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
+  // What the server returned IS the page; `counts.all` is the filtered total
+  // the pager needs, since the rows on screen no longer are it.
+  const pageRows = query.data ?? [];
+  const totalRows = counts.all ?? pageRows.length;
+  const pageCount = Math.max(1, Math.ceil(totalRows / pageSize));
   useEffect(() => {
     if (page > pageCount) setPage(1);
   }, [page, pageCount, setPage]);
@@ -174,7 +203,7 @@ export function JournalsScreen() {
 
   const selected =
     selectedId && selectedId !== "new"
-      ? documents.find((d) => d.id === selectedId || d.entryNo === selectedId) ?? null
+      ? pageRows.find((d) => d.id === selectedId || d.entryNo === selectedId) ?? null
       : null;
 
   const columns: DocumentListColumn<JournalDoc>[] = [
@@ -202,7 +231,7 @@ export function JournalsScreen() {
 
   function openDetail(id: string) {
     setRowError(null);
-    const doc = documents.find((d) => d.id === id);
+    const doc = pageRows.find((d) => d.id === id);
     subPage.open(doc?.entryNo ?? id);
   }
 
@@ -236,10 +265,16 @@ export function JournalsScreen() {
       <CreateJournalView
         onPost={(body) => createJournalEntry.mutateAsync(body)}
         accountOptions={accounts.map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` }))}
+        costCenterOptions={costCenters
+          .filter((c) => c.status === "active")
+          .map((c) => ({ value: c.id, label: `${c.code} — ${nameOf(c)}` }))}
         onDone={subPage.close}
       />
     );
   }
+
+  // `#/money/journals/<entryNo>/print` — the entry as a document (P-6).
+  if (selected && subPage.segments[1] === "print") return <JournalEntryPrintPage entry={selected} />;
 
   if (selected) {
     const totals = docTotals(selected);
@@ -262,6 +297,7 @@ export function JournalsScreen() {
                   {t("journals.reverseEntry")}
                 </Button>
               ) : null}
+              <Button onClick={() => subPage.open(selected.entryNo ?? selected.id, "print")}>{t("journals.print")}</Button>
             </>
           }
           summary={[
@@ -338,7 +374,12 @@ export function JournalsScreen() {
         description={t("journals.theJournalRegisterDraftAwaiting")}
         actions={
           <>
-            <Button onClick={() => window.print()}>{t("journals.print")}</Button>
+            {/*
+              NOT `window.print()`. It printed the browser's view of the
+              register — chrome, filters, the paging widget — instead of a
+              document. A journal entry prints as a document, from its own
+              page; the register itself exports (P-6).
+            */}
             <Button variant="primary" onClick={() => subPage.open("new")}>
               {t("journals.newEntry")}
             </Button>
@@ -433,7 +474,7 @@ export function JournalsScreen() {
         }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{documents.length}</span> {t("journals.entries")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totalRows}</span> {t("journals.entries")}
           </>
         }
         emptyState={
@@ -455,10 +496,12 @@ export function JournalsScreen() {
 function CreateJournalView({
   onPost,
   accountOptions,
+  costCenterOptions,
   onDone,
 }: {
   onPost: (body: CreateGlJournalEntryDTO) => Promise<unknown>;
   accountOptions: { value: string; label: string }[];
+  costCenterOptions: { value: string; label: string }[];
   onDone: () => void;
 }) {
   const { t } = useAppTranslation();
@@ -468,14 +511,24 @@ function CreateJournalView({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const totalDebit = lines.reduce((s, l) => s + (l.debit || 0), 0);
-  const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0);
   // Exact balance check via Money (no float drift) — the same invariant the domain enforces.
-  const balanced = Money.fromMajor(String(totalDebit)).equals(Money.fromMajor(String(totalCredit))) && totalDebit > 0;
-  const allLinesValid = lines.every((l) => l.accountId !== "" && (l.debit > 0) !== (l.credit > 0));
+  const totalDebit = Money.sum(lines.map((l) => amountOrZero(l.debit)));
+  const totalCredit = Money.sum(lines.map((l) => amountOrZero(l.credit)));
+  const balanced = totalDebit.equals(totalCredit) && !totalDebit.equals(Money.zero());
+  const allLinesValid = lines.every(
+    (l) =>
+      l.accountId !== "" &&
+      amountOf(l.debit) !== null &&
+      amountOf(l.credit) !== null &&
+      isPositiveAmount(l.debit) !== isPositiveAmount(l.credit),
+  );
   const canPost = balanced && allLinesValid && memo.trim() !== "" && !busy;
 
   const options = useMemo(() => [{ value: "", label: t("journals.chooseAnAccount") }, ...accountOptions], [accountOptions, t]);
+  const centerOptions = useMemo(
+    () => [{ value: "", label: t("journals.noCostCenter") }, ...costCenterOptions],
+    [costCenterOptions, t],
+  );
 
   function updateLine(index: number, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -498,9 +551,10 @@ function CreateJournalView({
         memo: memo.trim(),
         lines: lines.map((l) => ({
           accountId: l.accountId,
-          debit: String(l.debit || 0),
-          credit: String(l.credit || 0),
+          debit: amountOrZero(l.debit).toString(),
+          credit: amountOrZero(l.credit).toString(),
           memo: l.memo.trim() === "" ? null : l.memo.trim(),
+          costCenterId: l.costCenterId === "" ? null : l.costCenterId,
         })),
       });
       onDone();
@@ -511,7 +565,9 @@ function CreateJournalView({
     }
   }
 
-  const difference = Math.abs(totalDebit - totalCredit);
+  const debitMajor = majorOf(totalDebit.toString());
+  const creditMajor = majorOf(totalCredit.toString());
+  const difference = Math.abs(majorOf(totalDebit.add(totalCredit.negate()).toString()));
 
   return (
     <div className="w-full">
@@ -542,11 +598,12 @@ function CreateJournalView({
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-[13px]">
+              <table className="w-full min-w-[780px] border-collapse text-[13px]">
                 <thead>
                   <tr>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.account")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.description")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.costCenter")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.credit")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px]" />
@@ -576,15 +633,25 @@ function CreateJournalView({
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">
+                        <Select
+                          size="sm"
+                          className="min-w-[150px]"
+                          aria-label={t("journals.costCenterLabel", { n: String(i + 1) })}
+                          value={line.costCenterId}
+                          onChange={(value) => updateLine(i, { costCenterId: value })}
+                          options={centerOptions}
+                        />
+                      </td>
+                      <td className="px-[12px] py-[8px]">
                         <TextInput
                           type="number"
                           size="sm"
                           numeric
                           className="w-[110px] text-end"
                           aria-label={t("journals.debitLabel", { n: String(i + 1) })}
-                          value={line.debit || ""}
+                          value={line.debit}
                           min={0}
-                          onChange={(e) => updateLine(i, { debit: e.target.valueAsNumber || 0, credit: 0 })}
+                          onChange={(e) => updateLine(i, { debit: e.target.value, credit: "" })}
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">
@@ -594,9 +661,9 @@ function CreateJournalView({
                           numeric
                           className="w-[110px] text-end"
                           aria-label={t("journals.creditLabel", { n: String(i + 1) })}
-                          value={line.credit || ""}
+                          value={line.credit}
                           min={0}
-                          onChange={(e) => updateLine(i, { credit: e.target.valueAsNumber || 0, debit: 0 })}
+                          onChange={(e) => updateLine(i, { credit: e.target.value, debit: "" })}
                         />
                       </td>
                       <td className="px-[12px] py-[8px] text-center">
@@ -624,11 +691,11 @@ function CreateJournalView({
             <dl className="flex flex-col gap-[8px] text-[13px]">
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">{t("journals.totalDebit")}</dt>
-                <dd><MoneyDisplay value={totalDebit} /></dd>
+                <dd><MoneyDisplay value={debitMajor} /></dd>
               </div>
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">{t("journals.totalCredit")}</dt>
-                <dd><MoneyDisplay value={totalCredit} /></dd>
+                <dd><MoneyDisplay value={creditMajor} /></dd>
               </div>
               <div className="flex items-center justify-between border-t border-border pt-[8px]">
                 <dt className="text-ink-muted">{t("journals.difference")}</dt>

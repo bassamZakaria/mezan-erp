@@ -24,11 +24,22 @@ const entry = {
   readable: true,
 };
 
-function installBridge(overrides: Partial<Record<"list" | "create" | "restore", unknown>> = {}) {
+function installBridge(
+  overrides: Partial<
+    Record<"list" | "create" | "restore" | "revertToPreUpdate" | "exportPortable", unknown>
+  > = {},
+) {
   const bridge = {
     list: vi.fn(async () => ({ backupsDir: "/data/backups", entries: [entry] })),
     create: vi.fn(async () => ({ ok: true, entry })),
     restore: vi.fn(async () => ({ ok: true, restoredFrom: entry, safetyBackupFileName: "safety.mezanbak", relaunching: true })),
+    revertToPreUpdate: vi.fn(async () => ({
+      ok: true,
+      restoredFrom: entry,
+      safetyBackupFileName: "safety.mezanbak",
+      relaunching: true,
+    })),
+    exportPortable: vi.fn(async () => ({ ok: true, filePath: "/data/backups/mezan-portable.enc" })),
     ...overrides,
   };
   (globalThis as { mezan?: unknown }).mezan = { backup: bridge };
@@ -86,6 +97,50 @@ describe("BackupRestorePage", () => {
     await waitFor(() => expect(bridge.restore).toHaveBeenCalledWith(testAdminSession.token, entry.fileName));
   });
 
+  /**
+   * guards support #14. The column printed `manual` / `scheduled` /
+   * `pre-migration` / `on-close` raw — four English machine tokens in an Arabic
+   * table, in the one place an owner looks while choosing which copy of their
+   * books to restore.
+   */
+  it("names each archive's reason in Arabic and shows the version it recorded", async () => {
+    installBridge({
+      list: vi.fn(async () => ({
+        backupsDir: "/data/backups",
+        entries: [
+          { ...entry, fileName: "a.mezanbak", reason: "manual" },
+          { ...entry, fileName: "b.mezanbak", reason: "scheduled" },
+          { ...entry, fileName: "c.mezanbak", reason: "pre-migration" },
+          { ...entry, fileName: "d.mezanbak", reason: "on-close" },
+          { ...entry, fileName: "e.mezanbak", reason: "pre-update" },
+        ],
+      })),
+    });
+    renderWithProviders(<BackupRestorePage />, { transport: stubTransport({}), initialSession: testAdminSession });
+
+    expect(await screen.findByText("يدوي")).toBeInTheDocument();
+    expect(screen.getByText("مجدول")).toBeInTheDocument();
+    expect(screen.getByText("قبل ترقية قاعدة البيانات")).toBeInTheDocument();
+    expect(screen.getByText("عند إغلاق البرنامج")).toBeInTheDocument();
+    expect(screen.getByText("قبل تحديث البرنامج")).toBeInTheDocument();
+    expect(screen.queryByText("pre-migration")).not.toBeInTheDocument();
+    // The version each archive RECORDS — the build that wrote it, never this one.
+    expect(screen.getAllByText("2026.8")).toHaveLength(5);
+  });
+
+  // A reason a newer build wrote is shown as it is rather than mislabelled as
+  // one of the five this build knows.
+  it("passes an unrecognised reason through instead of guessing", async () => {
+    installBridge({
+      list: vi.fn(async () => ({
+        backupsDir: "/data/backups",
+        entries: [{ ...entry, reason: "pre-restore" }],
+      })),
+    });
+    renderWithProviders(<BackupRestorePage />, { transport: stubTransport({}), initialSession: testAdminSession });
+    expect(await screen.findByText("pre-restore")).toBeInTheDocument();
+  });
+
   it("shows the refusal the main process gave, never its code", async () => {
     const bridge = installBridge({
       restore: vi.fn(async () => ({ ok: false, code: "VERIFICATION_FAILED", message: "فشل التحقق من سلامة الملف." })),
@@ -127,5 +182,74 @@ describe("BackupRestorePage", () => {
     await waitFor(() => expect(bridge.create).toHaveBeenCalledWith(testAdminSession.token));
     expect(await screen.findByText("تم أخذ النسخة الاحتياطية.")).toBeInTheDocument();
     expect(bridge.list).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * GUARDS U-9 and N-11 — the two routes this screen did not have: back out of an
+ * update that broke the books, and take a copy that opens on other hardware
+ * without leaving the shop's books in the clear in the backups folder.
+ */
+describe("BackupRestorePage — revert and portable export", () => {
+  it("restores the pre-update copy without asking the owner to recognise a timestamp", async () => {
+    const bridge = installBridge();
+    renderWithProviders(<BackupRestorePage />, {
+      transport: stubTransport({}),
+      initialSession: testAdminSession,
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "استعادة نسخة ما قبل التحديث" }));
+
+    expect(bridge.revertToPreUpdate).toHaveBeenCalledWith(testAdminSession.token);
+    await waitFor(() => expect(screen.getByText(/سيُعاد تشغيل التطبيق/)).toBeInTheDocument());
+  });
+
+  it("surfaces the main process's Arabic reason when there is no pre-update copy", async () => {
+    installBridge({
+      revertToPreUpdate: vi.fn(async () => ({
+        ok: false,
+        code: "NOT_FOUND",
+        message: "لا توجد نسخة محفوظة قبل التحديث على هذا الجهاز.",
+      })),
+    });
+    renderWithProviders(<BackupRestorePage />, {
+      transport: stubTransport({}),
+      initialSession: testAdminSession,
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "استعادة نسخة ما قبل التحديث" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("لا توجد نسخة محفوظة قبل التحديث");
+  });
+
+  it("will not export a portable copy without a passphrase", async () => {
+    const bridge = installBridge();
+    renderWithProviders(<BackupRestorePage />, {
+      transport: stubTransport({}),
+      initialSession: testAdminSession,
+    });
+
+    const button = await screen.findByRole("button", { name: "تصدير" });
+    expect(button).toBeDisabled();
+    expect(bridge.exportPortable).not.toHaveBeenCalled();
+  });
+
+  it("exports under the passphrase the owner typed, and names the file it wrote", async () => {
+    const bridge = installBridge();
+    renderWithProviders(<BackupRestorePage />, {
+      transport: stubTransport({}),
+      initialSession: testAdminSession,
+    });
+
+    await userEvent.type(
+      await screen.findByLabelText("كلمة سر النسخة المنقولة"),
+      "kalimat-sirr-2026",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "تصدير" }));
+
+    expect(bridge.exportPortable).toHaveBeenCalledWith(testAdminSession.token, "kalimat-sirr-2026");
+    await waitFor(() =>
+      expect(screen.getByText(/mezan-portable\.enc/)).toBeInTheDocument(),
+    );
   });
 });

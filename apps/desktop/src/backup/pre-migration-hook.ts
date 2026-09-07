@@ -16,6 +16,14 @@ export async function runPreMigrationBackup(params: {
   appVersion: string;
   /** True when `sqlite` is keyed — keeps the archive encrypted (backup-service.ts). */
   encrypted?: boolean;
+  /**
+   * Names the archive in the file system, so "revert to before the update" can
+   * find it. Omitted by the one-off pre-encryption safety copy, which is not an
+   * update and must not be what a revert picks up.
+   */
+  label?: string;
+  /** Raw tenant key — moves the copy off the caller's process. See `createBackup`. */
+  cipher?: { readonly key: string };
 }): Promise<BackupResult> {
   return createBackup({
     sqlite: params.sqlite,
@@ -23,5 +31,7 @@ export async function runPreMigrationBackup(params: {
     appVersion: params.appVersion,
     reason: "pre-migration",
     encrypted: params.encrypted,
+    cipher: params.cipher,
+    label: params.label,
   });
 }

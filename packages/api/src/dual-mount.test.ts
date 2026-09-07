@@ -3,8 +3,10 @@ import { serve } from "@hono/node-server";
 import type { AddressInfo } from "node:net";
 import { createApp } from "./app.js";
 import {
+  createSqliteAccountRepository,
+  createSqliteFiscalPeriodRepository,
+  createSqliteLedgerStore,
   createSqliteUnitOfWork,
-  type SqliteUnitOfWorkHandle,
 } from "@mezan/persistence";
 
 /**
@@ -35,19 +37,53 @@ const unbalancedEntry = {
   ],
 };
 
-const handles: SqliteUnitOfWorkHandle[] = [];
+const handles: { close(): void }[] = [];
 const servers: { close: (cb?: () => void) => void }[] = [];
 
-function newInProcessApp() {
+/**
+ * The legacy `POST /journal-entries` spike is gone (B-6): it wrote into
+ * `uow_journal_*`, which no report reads, and skipped the period gate, the
+ * account check, numbering and audit. Both mount points now exercise the one
+ * real posting engine, `/gl/journal-entries`.
+ */
+async function newApp() {
   const uow = createSqliteUnitOfWork(":memory:");
-  handles.push(uow);
-  return createApp(uow);
+  const ledger = createSqliteLedgerStore();
+  const accounts = createSqliteAccountRepository();
+  const periods = createSqliteFiscalPeriodRepository();
+  handles.push(uow, ledger, accounts, periods);
+  for (const [id, type, naturalBalance] of [
+    ["1300-1", "asset", "debit"],
+    ["4000", "revenue", "credit"],
+    ["2200", "liability", "credit"],
+  ] as const) {
+    await accounts.create({
+      id,
+      code: id,
+      nameAr: id,
+      nameEn: null,
+      type,
+      naturalBalance,
+      parentId: null,
+      isHeader: false,
+      status: "active",
+    });
+  }
+  await periods.create({
+    id: "fp-2026-08",
+    year: 2026,
+    periodNumber: 8,
+    startDate: "2026-08-01",
+    endDate: "2026-08-31",
+    status: "open",
+  });
+  return createApp(uow, {
+    gl: { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-22T10:00:00.000Z" },
+  });
 }
 
 async function newHttpApp(): Promise<{ baseUrl: string }> {
-  const uow = createSqliteUnitOfWork(":memory:");
-  handles.push(uow);
-  const app = createApp(uow);
+  const app = await newApp();
   const server = serve({ fetch: app.fetch, port: 0 });
   servers.push(server as unknown as { close: (cb?: () => void) => void });
   // @hono/node-server exposes the underlying node server synchronously.
@@ -65,10 +101,10 @@ afterEach(async () => {
 describe("dual-mount journal posting", () => {
   // Proof test #1
   it("posts a balanced entry and persists it as 'posted' (retrievable via GET)", async () => {
-    const app = newInProcessApp();
+    const app = await newApp();
 
     const postRes = await app.fetch(
-      new Request("http://local/journal-entries", {
+      new Request("http://local/gl/journal-entries", {
         method: "POST",
         headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
         body: JSON.stringify(balancedEntry),
@@ -77,7 +113,7 @@ describe("dual-mount journal posting", () => {
     expect(postRes.status).toBe(201);
 
     const getRes = await app.fetch(
-      new Request(`http://local/journal-entries/${balancedEntry.id}`, {
+      new Request(`http://local/gl/journal-entries/${balancedEntry.id}`, {
         headers: { "x-permissions": "accounting.journal.view" },
       }),
     );
@@ -85,21 +121,45 @@ describe("dual-mount journal posting", () => {
     const fetched = (await getRes.json()) as {
       id: string;
       status: string;
+      entryNo: string | null;
       lines: Array<{ accountId: string; debit: string; credit: string }>;
     };
     expect(fetched.status).toBe("posted");
     expect(fetched.id).toBe(balancedEntry.id);
     expect(fetched.lines).toHaveLength(3);
-    expect(fetched.lines[0]).toEqual({
+    expect(fetched.lines[0]).toMatchObject({
       accountId: "1300-1",
       debit: "1150.750000",
       credit: "0.000000",
     });
+    // The real engine numbers the entry; the spike never did.
+    expect(fetched.entryNo).not.toBeNull();
+  });
+
+  // guards B-6: the spike's unprefixed mount posted into uow_journal_*, which
+  // no report reads, with no period gate, no account check and no numbering.
+  it("no longer mounts the unprefixed legacy poster", async () => {
+    const app = await newApp();
+    const res = await app.fetch(
+      new Request("http://local/journal-entries", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
+        body: JSON.stringify(balancedEntry),
+      }),
+    );
+    expect(res.status).toBe(404);
+
+    const get = await app.fetch(
+      new Request(`http://local/journal-entries/${balancedEntry.id}`, {
+        headers: { "x-permissions": "accounting.journal.view" },
+      }),
+    );
+    expect(get.status).toBe(404);
   });
 
   // Proof test #2
   it("returns byte-identical responses over HTTP and via app.fetch()", async () => {
-    const inProcApp = newInProcessApp();
+    const inProcApp = await newApp();
     const { baseUrl } = await newHttpApp();
 
     const requestInit: RequestInit = {
@@ -108,9 +168,9 @@ describe("dual-mount journal posting", () => {
       body: JSON.stringify(balancedEntry),
     };
 
-    const httpRes = await fetch(`${baseUrl}/journal-entries`, requestInit);
+    const httpRes = await fetch(`${baseUrl}/gl/journal-entries`, requestInit);
     const inProcRes = await inProcApp.fetch(
-      new Request("http://local/journal-entries", requestInit),
+      new Request("http://local/gl/journal-entries", requestInit),
     );
 
     expect(httpRes.status).toBe(inProcRes.status);
@@ -126,7 +186,7 @@ describe("dual-mount journal posting", () => {
 
   // Proof test #3
   it("rejects an unbalanced entry with 422 on BOTH mount points", async () => {
-    const inProcApp = newInProcessApp();
+    const inProcApp = await newApp();
     const { baseUrl } = await newHttpApp();
 
     const requestInit: RequestInit = {
@@ -135,9 +195,9 @@ describe("dual-mount journal posting", () => {
       body: JSON.stringify(unbalancedEntry),
     };
 
-    const httpRes = await fetch(`${baseUrl}/journal-entries`, requestInit);
+    const httpRes = await fetch(`${baseUrl}/gl/journal-entries`, requestInit);
     const inProcRes = await inProcApp.fetch(
-      new Request("http://local/journal-entries", requestInit),
+      new Request("http://local/gl/journal-entries", requestInit),
     );
 
     expect(httpRes.status).toBe(422);

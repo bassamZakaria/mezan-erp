@@ -173,6 +173,28 @@ function stateFor(sqlite: Database.Database): ConnectionState {
  *   concurrent confirms before this queue existed). This never surfaces as
  *   SQLITE_BUSY: each waits its turn instead of contending for the write
  *   lock, so nothing times out or throws.
+ *
+ * READS DO NOT TAKE THIS MUTEX, AND THAT IS A LATENT DIRTY-READ HAZARD.
+ * Every store in this package shares ONE connection, and SQLite shows a
+ * connection its own uncommitted rows. A read issued on this connection while
+ * a transaction is open therefore observes rows that may still roll back.
+ *
+ * It is safe TODAY for one reason only: `better-sqlite3` is fully synchronous,
+ * so a `fn` that only touches the database never yields the event loop, and no
+ * other request can interleave a read between the BEGIN and the COMMIT. That
+ * safety is a property of what the transaction bodies happen to contain, not
+ * of this function. ONE `await fetch()`, one attachment write, one `await` on
+ * a timer inside a confirm — e.g. sales-invoices/service.ts's confirm path —
+ * opens the window, and every till on the LAN can then read a half-posted
+ * invoice.
+ *
+ * The mechanism for a read that must not see uncommitted rows is
+ * {@link withSqliteRead}: it queues on the same per-connection mutex, so it
+ * runs strictly between transactions. It is deliberately NOT applied to every
+ * store read — that would serialize the whole application behind the write
+ * lock — so a caller opts in where the isolation matters.
+ * `sqlite-connection.test.ts` pins both halves of this: the hazard, and the
+ * isolation `withSqliteRead` restores.
  */
 export async function withSqliteTransaction<T>(
   sqlite: Database.Database,
@@ -216,6 +238,32 @@ export async function withSqliteTransaction<T>(
         throw err;
       }
     });
+  } finally {
+    release();
+  }
+}
+
+/**
+ * Runs `fn` with this connection's transaction mutex held, so it cannot observe
+ * a transaction's uncommitted rows — see the dirty-read note on
+ * {@link withSqliteTransaction}.
+ *
+ * A nested call (already inside this connection's transaction) runs straight
+ * through: it is that transaction's OWN read, and queueing on a mutex the
+ * caller already holds would deadlock.
+ */
+export async function withSqliteRead<T>(sqlite: Database.Database, fn: () => T | Promise<T>): Promise<T> {
+  const state = stateFor(sqlite);
+  if (state.nesting.getStore()) return fn();
+
+  const previous = state.queue;
+  let release!: () => void;
+  state.queue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await fn();
   } finally {
     release();
   }

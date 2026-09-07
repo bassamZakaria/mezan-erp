@@ -1,7 +1,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { ReportGroupResult, ReportReconciliationResult, ReportKpiResult } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { ApiError } from "./hooks";
+import { ApiError, withSupportCode } from "./hooks";
 import { readReportFieldErrors } from "./report-errors";
 import { useAppTranslation } from "../i18n";
 
@@ -47,7 +47,14 @@ export function useReport<Row>(
     enabled: session !== null && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request(`${options.apiRoot ?? "/reports"}${apiPath}${toQueryString(params)}`);
-      if (!res.ok) throw new ApiError(res.status, t("reportsApi.theReportCouldNotBe"), await readReportFieldErrors(res));
+      if (!res.ok) {
+        const fieldErrors = await readReportFieldErrors(res);
+        throw new ApiError(
+          res.status,
+          fieldErrors?._root ?? withSupportCode(t("reportsApi.theReportCouldNotBe"), res.status, t),
+          fieldErrors,
+        );
+      }
       return res.json<ReportResult<Row>>();
     },
   });

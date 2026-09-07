@@ -71,7 +71,7 @@ describe("CostCenterPnLScreen — list", () => {
       initialSession: testAdminSession,
       transport: stubTransport({ "GET /cost-center-pl": () => ({ status: 500, body: { error: "INTERNAL" } }) }),
     });
-    expect(await screen.findByText("تعذّر تحميل أرباح مراكز التكلفة.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل أرباح مراكز التكلفة. (رمز 500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });

@@ -40,10 +40,12 @@ function req(path: string, init: RequestInit & { permissions?: string } = {}) {
 
 const accepting: EtaTransmitPort = { async transmit() { return { ok: true, etaUuid: "U-1" }; } };
 
+const fakeSigner = { async sign() { return "CADES-SIGNATURE"; } };
+
 function newApp(transmit?: EtaTransmitPort) {
   const store = createSqliteEtaStore();
   handles.push(store);
-  const service = new EtaService({ config: store.config, submissions: store.submissions, transmit, now: () => "2026-08-22T10:00:00.000Z", newId: () => "sub-1" });
+  const service = new EtaService({ config: store.config, submissions: store.submissions, transmit, signer: fakeSigner, now: () => "2026-08-22T10:00:00.000Z", newId: () => "sub-1" });
   const app = createEtaRoutes({ service, setClientSecret: (s) => store.config.setClientSecret(s) }, insecureHeaderAuthContextResolver);
   return { app, service, store };
 }
@@ -372,15 +374,84 @@ describe("eta router — the e-seal hold before transmit", () => {
     expect(body.submittedAt).toBeNull();
   });
 
-  it("a second submit call on a pending_signature document DOES transmit, moving it on to submitted", async () => {
+  it("a second submit call on a pending_signature document signs it, then transmits", async () => {
     const { app, service } = newApp(accepting);
     await app.fetch(req("/config", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ signingMethod: "eseal" }) }));
     await service.enqueue(invoiceInput);
     await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
 
     const res = await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
-    const body = (await res.json()) as { status: string };
+    const body = (await res.json()) as { status: string; signed: boolean };
     expect(body.status).toBe("submitted");
+    expect(body.signed).toBe(true);
+  });
+
+  // guards P-1 — an unsigned v1.0 document is refused in Arabic and stays
+  // بانتظار التوقيع rather than being transmitted for the authority to reject.
+  it("refuses in Arabic when no external signing command is configured, and does not transmit", async () => {
+    const store = createSqliteEtaStore();
+    handles.push(store);
+    const failIfCalled: EtaTransmitPort = {
+      async transmit(): Promise<EtaTransmitResult> {
+        throw new Error("an unsigned document must never be transmitted");
+      },
+    };
+    const service = new EtaService({ config: store.config, submissions: store.submissions, transmit: failIfCalled, now: () => "2026-08-22T10:00:00.000Z", newId: () => "sub-1" });
+    const app = createEtaRoutes({ service, setClientSecret: (x) => store.config.setClientSecret(x) }, insecureHeaderAuthContextResolver);
+
+    await app.fetch(req("/config", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ signingMethod: "eseal" }) }));
+    await service.enqueue(invoiceInput);
+    await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
+
+    const res = await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("ETA_SIGNER_NOT_CONFIGURED");
+    expect(body.message).toContain("جهاز التوقيع");
+    expect((await service.findById("sub-1"))!.status).toBe("pending_signature");
+  });
+});
+
+// guards P-1 — the queue driver a scheduler calls, and the status poll.
+describe("eta router — POST /submissions/process", () => {
+  it("submits everything pending and then records the authority's clearance", async () => {
+    const polling: EtaTransmitPort = {
+      async transmit() { return { ok: true, etaUuid: "UUID-1", submissionId: "SUB-1" }; },
+      async fetchStatus() { return { state: "accepted" as const, errors: [] }; },
+    };
+    const { app, service } = newApp(polling);
+    await service.enqueue(invoiceInput);
+
+    const res = await app.fetch(req("/submissions/process", { method: "POST", permissions: SUBMIT }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { submitted: unknown[]; accepted: { id: string }[]; queued: string[]; unsigned: string[] };
+    expect(body.submitted).toHaveLength(1);
+    expect(body.accepted.map((s) => s.id)).toEqual(["sub-1"]);
+    expect((await service.findById("sub-1"))!.status).toBe("accepted");
+  });
+
+  it("leaves an unconfigured install's documents queued rather than failing", async () => {
+    const { app, service } = newApp();
+    await service.enqueue(invoiceInput);
+    const res = await app.fetch(req("/submissions/process", { method: "POST", permissions: SUBMIT }));
+    const body = (await res.json()) as { queued: string[] };
+    expect(body.queued).toEqual(["sub-1"]);
+    expect((await service.findById("sub-1"))!.status).toBe("ready");
+  });
+
+  it("refresh-status records a rejection with the authority's own reasons", async () => {
+    const polling: EtaTransmitPort = {
+      async transmit() { return { ok: true, etaUuid: "UUID-1" }; },
+      async fetchStatus() { return { state: "rejected" as const, errors: ["Signature could not be verified"] }; },
+    };
+    const { app, service } = newApp(polling);
+    await service.enqueue(invoiceInput);
+    await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
+
+    const res = await app.fetch(req("/submissions/sub-1/refresh-status", { method: "POST", permissions: SUBMIT }));
+    const body = (await res.json()) as { status: string; errors: string[] };
+    expect(body.status).toBe("error");
+    expect(body.errors).toEqual(["Signature could not be verified"]);
   });
 });
 
@@ -478,8 +549,16 @@ describe("eta router — activity code and unit code lookups", () => {
 });
 
 describe("eta router — test-connection (اختبار الاتصال)", () => {
-  it("reports missing_credentials before any clientId/secret is on file, and offline once both are — it never fakes a handshake", async () => {
-    const { app } = newApp();
+  // guards P-1 — the check used to answer a hardcoded ok:false. It now makes a
+  // real token request, and only once credentials exist.
+  it("reports missing_credentials before any clientId/secret is on file, and the gateway's real answer once both are", async () => {
+    const checking: EtaTransmitPort = {
+      async transmit() { return { ok: true }; },
+      async checkCredentials(config) {
+        return { ok: true, reason: "connected" as const, detail: null, identityUrl: config.preproductionIdentityUrl, checkedAt: "2026-08-22T10:00:00.000Z" };
+      },
+    };
+    const { app } = newApp(checking);
     const before = await app.fetch(req("/test-connection", { method: "POST", permissions: SUBMIT }));
     const beforeBody = (await before.json()) as { ok: boolean; reason: string };
     expect(beforeBody.ok).toBe(false);
@@ -487,9 +566,10 @@ describe("eta router — test-connection (اختبار الاتصال)", () => {
 
     await app.fetch(req("/config", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ clientId: "cid", clientSecret: "shh" }) }));
     const after = await app.fetch(req("/test-connection", { method: "POST", permissions: SUBMIT }));
-    const afterBody = (await after.json()) as { ok: boolean; reason: string };
-    expect(afterBody.ok).toBe(false);
-    expect(afterBody.reason).toBe("offline");
+    const afterBody = (await after.json()) as { ok: boolean; reason: string; identityUrl: string };
+    expect(afterBody.ok).toBe(true);
+    expect(afterBody.reason).toBe("connected");
+    expect(afterBody.identityUrl).toBe("https://id.preprod.eta.gov.eg");
   });
 
   it("gates on eta.submit, not eta.view", async () => {

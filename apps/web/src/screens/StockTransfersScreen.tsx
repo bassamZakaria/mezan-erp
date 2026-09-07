@@ -285,7 +285,7 @@ export function StockTransfersScreen() {
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t("stockXfer.stockTransfersCouldNotBe")}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("stockXfer.stockTransfersCouldNotBe")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
           {t("common.retry")}
         </Button>

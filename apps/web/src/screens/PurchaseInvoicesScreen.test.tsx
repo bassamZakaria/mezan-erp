@@ -140,7 +140,14 @@ function renderScreen(
     "GET /settings/currencies": () => ({ body: { base: "EGP", multiCurrencyEnabled: false, allowed: [] } }),
     "GET /purchases/invoices": (_init, path) => {
       lastListPath = path;
-      return { body: current };
+      // guards Q-9: the route now applies the newest-first order and cuts the
+      // page, so the stub honours the same contract — a stub returning
+      // everything would let a client-side slice pass unnoticed.
+      const params = new URL(path, "http://x").searchParams;
+      const ordered = [...current].sort((a, b) => b.number.localeCompare(a.number));
+      const pageSize = Number(params.get("pageSize") ?? 25);
+      const page = Number(params.get("page") ?? 1);
+      return { body: ordered.slice((page - 1) * pageSize, page * pageSize) };
     },
     "GET /purchases/invoices/counts": () => ({
       body: { all: current.length, overdue: 0, due_soon: 0, draft: 0, confirmed: current.length, cancelled: 0, partially_paid: 0, paid: 0 },

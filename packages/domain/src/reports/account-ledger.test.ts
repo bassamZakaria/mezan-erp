@@ -139,3 +139,20 @@ describe("createAccountLedgerReport", () => {
     expect(picker.options.map((o) => o.value)).toEqual(["1100", "4100"]);
   });
 });
+
+/** guards C-10 — the running balance was a float accumulator down the whole ledger. */
+describe("createAccountLedgerReport — exact arithmetic", () => {
+  it("runs 0.10 + 0.20 + 0.10 to exactly 0.40, not 0.4000000000000001", () => {
+    const entries = [
+      je({ id: "a", entryNo: "JE-1", date: "2026-03-01", lines: [dr("1100", "0.10"), cr("4100", "0.10")] }),
+      je({ id: "b", entryNo: "JE-2", date: "2026-03-02", lines: [dr("1100", "0.20"), cr("4100", "0.20")] }),
+      je({ id: "c", entryNo: "JE-3", date: "2026-03-03", lines: [dr("1100", "0.10"), cr("4100", "0.10")] }),
+    ];
+    const params = { accountId: "1100", periodFrom: "2026-03-01", periodTo: "2026-03-31" };
+    const outcome = runReport(createAccountLedgerReport(accounts, params), params, { accounts, journalEntries: entries });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows[outcome.rows.length - 1]?.balance).toBe(0.4);
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+});

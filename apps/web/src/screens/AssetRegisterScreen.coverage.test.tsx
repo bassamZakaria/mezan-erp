@@ -409,11 +409,11 @@ describe("AssetRegisterScreen — list load failures", () => {
     });
     renderWithProviders(<AssetRegisterScreen />, { transport, initialSession: testAdminSession });
 
-    expect(await screen.findByText("تعذّر تحميل سجل الأصول.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل سجل الأصول. (رمز 500)")).toBeInTheDocument();
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
 
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل سجل الأصول.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل سجل الأصول. (رمز 500)")).not.toBeInTheDocument());
     expect(await screen.findByText("سيارة النقل")).toBeInTheDocument();
   });
 });

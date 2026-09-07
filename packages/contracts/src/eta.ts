@@ -34,6 +34,12 @@ export const etaConfigSchema = z.object({
   signingMethod: etaSigningMethodSchema,
   clientId: z.string().nullable(),
   hasClientSecret: z.boolean(),
+  preproductionIdentityUrl: z.string(),
+  preproductionApiUrl: z.string(),
+  productionIdentityUrl: z.string(),
+  productionApiUrl: z.string(),
+  signingCommand: z.string().nullable(),
+  signingCommandArgs: z.array(z.string()),
 });
 
 /** Config update — `clientSecret` (plain) is accepted here but never returned. */
@@ -48,6 +54,12 @@ export const updateEtaConfigSchema = z.object({
   signingMethod: etaSigningMethodSchema.optional(),
   clientId: z.string().nullable().optional(),
   clientSecret: z.string().optional(),
+  preproductionIdentityUrl: z.string().url().optional(),
+  preproductionApiUrl: z.string().url().optional(),
+  productionIdentityUrl: z.string().url().optional(),
+  productionApiUrl: z.string().url().optional(),
+  signingCommand: z.string().nullable().optional(),
+  signingCommandArgs: z.array(z.string()).optional(),
 });
 
 export const etaReadinessSchema = z.object({
@@ -68,6 +80,28 @@ export const etaSubmissionSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   submittedAt: z.string().nullable(),
+  gatewaySubmissionId: z.string().nullable(),
+  signed: z.boolean(),
+});
+
+/** One request/response of one transmit attempt. Secrets are redacted upstream. */
+export const etaTransmitLogEntrySchema = z.object({
+  at: z.string(),
+  attempt: z.number(),
+  method: z.string(),
+  url: z.string(),
+  requestBody: z.string().nullable(),
+  status: z.number().nullable(),
+  responseBody: z.string(),
+  error: z.string().nullable(),
+});
+
+export const etaConnectionCheckSchema = z.object({
+  ok: z.boolean(),
+  reason: z.enum(["connected", "missing_credentials", "rejected", "unreachable"]),
+  detail: z.string().nullable(),
+  identityUrl: z.string(),
+  checkedAt: z.string(),
 });
 
 export const excludeEtaSubmissionSchema = z.object({ reason: z.string().min(1) });
@@ -78,11 +112,7 @@ export const etaActivityCodeSchema = z.object({
   labelEn: z.string(),
 });
 
-export const etaTestConnectionResultSchema = z.object({
-  ok: z.boolean(),
-  reason: z.enum(["missing_credentials", "offline"]).nullable(),
-  checkedAt: z.string(),
-});
+export const etaTestConnectionResultSchema = etaConnectionCheckSchema;
 
 export const etaBranchCodeRowSchema = z.object({
   branchId: z.string(),
@@ -152,6 +182,8 @@ export type EtaSubmissionDTO = z.infer<typeof etaSubmissionSchema>;
 export type ExcludeEtaSubmissionDTO = z.infer<typeof excludeEtaSubmissionSchema>;
 export type EtaActivityCodeDTO = z.infer<typeof etaActivityCodeSchema>;
 export type EtaTestConnectionResultDTO = z.infer<typeof etaTestConnectionResultSchema>;
+export type EtaTransmitLogEntryDTO = z.infer<typeof etaTransmitLogEntrySchema>;
+export type EtaConnectionCheckDTO = z.infer<typeof etaConnectionCheckSchema>;
 export type EtaBranchCodeRowDTO = z.infer<typeof etaBranchCodeRowSchema>;
 export type UpdateEtaBranchCodeDTO = z.infer<typeof updateEtaBranchCodeSchema>;
 export type EtaItemMappingRowDTO = z.infer<typeof etaItemMappingRowSchema>;

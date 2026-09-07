@@ -128,3 +128,50 @@ describe("DocumentList", () => {
     expect(screen.getByText("INV-000123")).toBeInTheDocument();
   });
 });
+
+/**
+ * Q-9: no list virtualization anywhere. A page of 200 rows rendered 200 table
+ * rows into the DOM; it now renders the visible window plus overscan, with a
+ * spacer holding the scroll height so the pager and the scrollbar are unmoved.
+ */
+describe("DocumentList — windowed rows (guards Q-9)", () => {
+  const many: Row[] = Array.from({ length: 200 }, (_, i) => ({
+    id: `r-${i}`,
+    number: `INV-${String(i).padStart(6, "0")}`,
+    total: i,
+  }));
+
+  function dataRows(container: HTMLElement) {
+    return container.querySelectorAll("tbody tr[data-mz-row-index]");
+  }
+
+  it("renders far fewer rows than the page holds, and the first row is one of them", () => {
+    const { container } = renderList({ rows: many });
+    const rendered = dataRows(container);
+    expect(rendered.length).toBeGreaterThan(0);
+    expect(rendered.length).toBeLessThan(many.length);
+    expect(screen.getByText("INV-000000")).toBeInTheDocument();
+    // A row far below the fold is not in the DOM at all.
+    expect(screen.queryByText("INV-000199")).toBeNull();
+  });
+
+  it("keeps the scroll height with spacer rows, so the scrollbar does not lie", () => {
+    const { container } = renderList({ rows: many });
+    const spacers = [...container.querySelectorAll('tbody tr[aria-hidden="true"] > td')] as HTMLTableCellElement[];
+    const spacerPx = spacers.reduce((sum, td) => sum + Number.parseInt(td.style.height || "0", 10), 0);
+    const renderedPx = dataRows(container).length * 36;
+    expect(spacerPx + renderedPx).toBe(many.length * 36);
+  });
+
+  it("renders a short page whole — no spacers, no window", () => {
+    const { container } = renderList({ rows: many.slice(0, 40) });
+    expect(dataRows(container)).toHaveLength(40);
+    expect(container.querySelectorAll('tbody tr[aria-hidden="true"]')).toHaveLength(0);
+  });
+
+  it("renders whole when a row can expand, because an expanded row is not 36px", () => {
+    const { container } = renderList({ rows: many, renderExpandedRow: () => <div>تفاصيل</div> });
+    expect(dataRows(container)).toHaveLength(many.length);
+    expect(container.querySelectorAll('tbody tr[aria-hidden="true"]')).toHaveLength(0);
+  });
+});

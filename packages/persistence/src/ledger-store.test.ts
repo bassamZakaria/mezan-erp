@@ -3,6 +3,7 @@ import {
   Money,
   postJournalEntry,
   reverseJournalEntry,
+  netBalancesByAccount,
   type Account,
   type JournalPostingDeps,
 } from "@mezan/domain";
@@ -212,5 +213,95 @@ describe("SqliteLedgerStore — numbering, reversal, persistence", () => {
     expect(fetched?.status).toBe("posted");
     expect(fetched?.lines[0]?.memo).toBe("cash in");
     expect(fetched?.lines[0]?.debit.toString()).toBe("500.000000");
+  });
+});
+
+/**
+ * Q-6: the trial balance and the by-item reconciliations used to fold every
+ * posted line in JS. These aggregates replace that fold and must answer
+ * EXACTLY what the fold answered — `netBalancesByAccount` is the reference.
+ */
+describe("SqliteLedgerStore — SQL aggregates equal the JS fold (guards Q-6)", () => {
+  async function seeded() {
+    const { deps, ledger } = await harness();
+    const post = (id: string, date: string, cash: string, sourceDocType: string | null) =>
+      postJournalEntry(
+        {
+          id,
+          date,
+          memo: id,
+          ...(sourceDocType ? { sourceDocType, sourceDocId: id } : {}),
+          lines: [
+            { accountId: "1300-1", debit: Money.fromMajor(cash), credit: Money.zero() },
+            { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor(cash) },
+          ],
+        },
+        deps,
+      );
+    await post("je-a", "2026-08-05", "1150.75", "SALES_INVOICE");
+    await post("je-b", "2026-08-20", "0.01", "SALES_INVOICE");
+    await post("je-c", "2026-09-02", "999.99", "PURCHASE_INVOICE");
+    const reversible = await post("je-d", "2026-08-25", "42.50", null);
+    await reverseJournalEntry(reversible.id, deps, { reversalId: "je-d-rev" });
+    return { ledger, deps };
+  }
+
+  it("accountBalances matches netBalancesByAccount over the same slice", async () => {
+    const { ledger } = await seeded();
+    for (const toDate of [undefined, "2026-08-21", "2026-08-31", "2026-12-31"]) {
+      const entries = [...(await ledger.list({ status: "posted" })), ...(await ledger.list({ status: "reversed" }))];
+      const expected = netBalancesByAccount(entries, toDate ? { to: toDate } : {});
+      const actual = await ledger.accountBalances!(toDate ? { toDate } : {});
+      // A zero-net account is present in the fold and in the aggregate alike;
+      // compare the maps entry for entry rather than trusting the key sets.
+      const keys = new Set([...expected.keys(), ...actual.keys()]);
+      for (const key of keys) {
+        expect(actual.get(key)?.toString() ?? "0.000000", `${key} @ ${toDate ?? "all"}`).toBe(
+          expected.get(key)?.toString() ?? "0.000000",
+        );
+      }
+    }
+  });
+
+  it("sumLines is GROSS debit and credit, restricted by date, account and source document type", async () => {
+    const { ledger } = await seeded();
+    const fold = async (opts: { from: string; to: string; docTypes?: readonly string[] }) => {
+      let debit = Money.zero();
+      let credit = Money.zero();
+      for (const entry of await ledger.list({ status: "posted" })) {
+        if (entry.date < opts.from || entry.date > opts.to) continue;
+        if (opts.docTypes && !opts.docTypes.includes(entry.sourceDocType ?? "")) continue;
+        for (const line of entry.lines) {
+          if (line.accountId !== "4000") continue;
+          debit = debit.add(line.debit);
+          credit = credit.add(line.credit);
+        }
+      }
+      return { debit: debit.toString(), credit: credit.toString() };
+    };
+
+    for (const opts of [
+      { from: "2026-01-01", to: "2026-12-31" },
+      { from: "2026-08-01", to: "2026-08-31" },
+      { from: "2026-01-01", to: "2026-12-31", docTypes: ["SALES_INVOICE"] as const },
+      { from: "2026-01-01", to: "2026-12-31", docTypes: ["NOTHING_POSTS_THIS"] as const },
+    ]) {
+      const sums = await ledger.sumLines!({
+        statuses: ["posted"],
+        fromDate: opts.from,
+        toDate: opts.to,
+        accountIds: ["4000"],
+        ...(opts.docTypes ? { sourceDocTypes: opts.docTypes } : {}),
+      });
+      expect({ debit: sums.debit.toString(), credit: sums.credit.toString() }).toEqual(await fold(opts));
+    }
+  });
+
+  it("an empty account or status set matches nothing rather than everything", async () => {
+    const { ledger } = await seeded();
+    expect((await ledger.accountBalances!({ accountIds: [] })).size).toBe(0);
+    expect((await ledger.accountBalances!({ statuses: [] })).size).toBe(0);
+    const sums = await ledger.sumLines!({ accountIds: [] });
+    expect(sums.debit.toString()).toBe("0.000000");
   });
 });

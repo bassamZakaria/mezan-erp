@@ -61,6 +61,7 @@ import {
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
+import { VoucherPrintPage } from "../print/documents";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
@@ -217,7 +218,7 @@ export function TreasuryVouchersScreen() {
    * needs-allocation queues — which are a server concern (R8.3): a work queue
    * has to be right over every voucher, not over the page the client holds.
    */
-  const listFilter: VoucherListQueryDTO = useMemo(
+  const listFilter: Partial<VoucherListQueryDTO> = useMemo(
     () => ({
       ...(typeFilter === "all" ? {} : { type: typeFilter }),
       ...(statusFilter === "needs_allocation"
@@ -236,7 +237,10 @@ export function TreasuryVouchersScreen() {
     }),
     [typeFilter, statusFilter, branchFilter, fromDate, toDate, debouncedSearch],
   );
-  const query = useVouchers(listFilter);
+  // Only the ROWS query carries the page (Q-9): the screen used to fetch every
+  // voucher in the book and slice it here, and the chips and the KPI strip
+  // still have to speak for the whole filtered set.
+  const query = useVouchers({ ...listFilter, page, pageSize });
   const voucherCounts = useVoucherCounts(listFilter).data ?? {};
   // The KPI strip has to honour the active chip (R1.1) — /stats, unlike
   // /counts, keeps the status filter, so switching to "مسودة" moves the
@@ -291,10 +295,10 @@ export function TreasuryVouchersScreen() {
     (def) => [def.code, voucherCounts[`type:${def.code}`] ?? 0] as const,
   );
 
-  const filtered = documents;
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  // What the server returned IS the page; `counts.all` is the filtered total.
+  const pageRows = documents;
+  const totalRows = counts.all ?? pageRows.length;
+  const pageCount = Math.max(1, Math.ceil(totalRows / pageSize));
   useEffect(() => {
     if (page > pageCount) setPage(1);
   }, [page, pageCount, setPage]);
@@ -369,6 +373,15 @@ export function TreasuryVouchersScreen() {
         onDone={subPage.close}
       />
     );
+  }
+
+  // سند الخزينة as a document (P-6). It was `window.print()` over the list,
+  // which put the browser chrome and the filter bar on a signed instrument.
+  if (selectedId && subPage.segments[1] === "print") {
+    const voucher = documents.find((d) => d.id === selectedId || d.docNo === selectedId);
+    if (voucher) {
+      return <VoucherPrintPage voucher={voucher} partyName={partyName(voucher.customerId ?? voucher.supplierId)} />;
+    }
   }
 
   if (selectedId) {
@@ -504,7 +517,7 @@ export function TreasuryVouchersScreen() {
             label={t("vouchers.action.view") + " " + (d.docNo ?? d.id)}
             items={[
               { key: "view", label: t("vouchers.action.view"), onSelect: () => openDetail(d.id) },
-              { key: "print", label: t("vouchers.action.print"), onSelect: () => window.print() },
+              { key: "print", label: t("vouchers.action.print"), onSelect: () => subPage.open(d.docNo ?? d.id, "print") },
               // A confirmed voucher is REVERSED, never cancelled — the entry
               // it posted is immutable. Only a draft can be voided outright.
               ...(d.status === "draft"

@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { getPublicKeyAsync, signAsync } from "@noble/ed25519";
-import { bytesToHex, type Clock, type FingerprintSource, type LicensePayload, type MonotonicClockStore } from "@mezan/domain";
-import { decideLicense, mapVerifyResult, type DecideLicenseInput } from "./license.js";
+import { bytesToHex, saltedFingerprintHash, type Clock, type FingerprintSource, type LicensePayload, type MonotonicClockStore } from "@mezan/domain";
+import {
+  decideLicense,
+  mapVerifyResult,
+  NO_PUBLIC_KEY_MESSAGE_AR,
+  reevaluateLicenseState,
+  type DecideLicenseInput,
+} from "./license.js";
 
 function base64Url(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -119,5 +125,120 @@ describe("mapVerifyResult", () => {
     expect(r.state.state).toBe("GRACE");
     expect(r.state.canWrite).toBe(true);
     expect(r.state.graceEndsAt).toBe("2026-06-04T00:00:00.000Z");
+  });
+});
+
+/** guards L-1 */
+describe("a build with no vendor key blames the build, not the shop", () => {
+  it("carries its own Arabic message, distinct from «no licence»", async () => {
+    const raw = await signLicense();
+    const withKey = await decideLicense(baseInput({ licenseRaw: null, packaged: true }));
+    const withoutKey = await decideLicense(baseInput({ licenseRaw: raw, publicKey: null }));
+
+    expect(withoutKey.state.reason).toBe("NO_PUBLIC_KEY");
+    expect(withoutKey.state.messageAr).toBe(NO_PUBLIC_KEY_MESSAGE_AR);
+    expect(withoutKey.state.messageAr).toMatch(/[؀-ۿ]/);
+    // The unlicensed state must NOT borrow it: the two sentences send the owner
+    // to two different places.
+    expect(withKey.state.messageAr).toBeUndefined();
+  });
+});
+
+/** guards L-3, L-4 */
+describe("the licence's identity reaches the check-in", () => {
+  it("exposes payload.licenseId, notBefore and the salted fingerprint", async () => {
+    const raw = await signLicense({ licenseId: "lic-77", notBefore: "2026-01-05T00:00:00.000Z" });
+    const r = await decideLicense(baseInput({ licenseRaw: raw }));
+    expect(r.verified).toBe(true);
+    expect(r.identity.licenseId).toBe("lic-77");
+    expect(r.identity.notBefore).toBe("2026-01-05T00:00:00.000Z");
+    // The SALTED hash of "RAW-MACHINE" under salt "salt" — never the raw id.
+    expect(r.identity.fingerprint).toBe(await saltedFingerprintHash("RAW-MACHINE", "salt"));
+    expect(r.identity.fingerprint).not.toContain("RAW-MACHINE");
+  });
+
+  it("is not verified for a dev build, so nothing is module-gated by an absence", async () => {
+    const r = await decideLicense(baseInput({ packaged: false, licenseRaw: null }));
+    expect(r.verified).toBe(false);
+  });
+});
+
+/** guards L-3, L-7 */
+describe("reevaluateLicenseState", () => {
+  const ok = { verdict: "ok" as const, daysSince: 0, blocking: false };
+
+  it("notices an expiry that happens mid-session, without a restart", async () => {
+    const raw = await signLicense({ expiresAt: "2026-06-02T00:00:00.000Z", graceDays: 0 });
+    const base = await decideLicense(
+      baseInput({ licenseRaw: raw, clock: clockAt("2026-06-01T00:00:00.000Z") }),
+    );
+    expect(base.state.state).toBe("ACTIVE");
+
+    const later = reevaluateLicenseState(base, {
+      now: Date.parse("2026-06-03T00:00:00.000Z"),
+      checkin: ok,
+    });
+    expect(later.state).toBe("READ_ONLY");
+    expect(later.canWrite).toBe(false);
+    expect(later.usable).toBe(true);
+  });
+
+  it("lifts read-only the moment a check-in succeeds — no restart", async () => {
+    const raw = await signLicense();
+    const base = await decideLicense(baseInput({ licenseRaw: raw }));
+
+    const overdue = reevaluateLicenseState(base, {
+      now: Date.parse("2026-06-01T00:00:00.000Z"),
+      checkin: { verdict: "read-only", daysSince: 12, blocking: false },
+    });
+    expect(overdue.canWrite).toBe(false);
+    expect(overdue.reason).toBe("CHECKIN_OVERDUE");
+    expect(overdue.daysSince).toBe(12);
+
+    const cleared = reevaluateLicenseState(base, {
+      now: Date.parse("2026-06-01T00:00:00.000Z"),
+      checkin: ok,
+    });
+    expect(cleared.canWrite).toBe(true);
+  });
+
+  it("asks for a blocking notice past thirty days, and still leaves the data usable", async () => {
+    const raw = await signLicense();
+    const base = await decideLicense(baseInput({ licenseRaw: raw }));
+    const blocked = reevaluateLicenseState(base, {
+      now: Date.parse("2026-06-01T00:00:00.000Z"),
+      checkin: { verdict: "blocked", daysSince: 44, blocking: true },
+    });
+    expect(blocked.state).toBe("READ_ONLY");
+    expect(blocked.blocking).toBe(true);
+    expect(blocked.usable).toBe(true);
+    expect(blocked.messageAr).toMatch(/[؀-ۿ]/);
+  });
+
+  it("enforces a revocation as READ_ONLY with its own reason", async () => {
+    const raw = await signLicense();
+    const base = await decideLicense(baseInput({ licenseRaw: raw }));
+    const revoked = reevaluateLicenseState(base, {
+      now: Date.parse("2026-06-01T00:00:00.000Z"),
+      checkin: { verdict: "revoked", daysSince: 0, blocking: true },
+    });
+    expect(revoked.state).toBe("REVOKED");
+    expect(revoked.reason).toBe("REVOKED");
+    expect(revoked.canWrite).toBe(false);
+    expect(revoked.usable).toBe(true);
+  });
+
+  /**
+   * "Your check-in is overdue" is the wrong answer to "you never had a
+   * licence": the shop needs to be told to install one, not to go online.
+   */
+  it("does not fold a check-in verdict into an install that has no licence", async () => {
+    const base = await decideLicense(baseInput({ packaged: true, licenseRaw: null }));
+    const state = reevaluateLicenseState(base, {
+      now: Date.parse("2026-06-01T00:00:00.000Z"),
+      checkin: { verdict: "blocked", daysSince: 99, blocking: true },
+    });
+    expect(state.state).toBe("UNLICENSED");
+    expect(state.reason).toBe("NO_LICENSE");
   });
 });

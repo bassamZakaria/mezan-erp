@@ -13,6 +13,7 @@ import {
   type AccountBalance,
   type AccountLedgerLine,
   type JournalListFilter,
+  type LedgerAggregateFilter,
   type LedgerRepository,
   type PostedLine,
   type PostedLineFilter,
@@ -206,7 +207,8 @@ class SqliteLedgerRepository implements LedgerRepository {
     return row ? this.hydrate(row) : null;
   }
 
-  async list(filter: JournalListFilter = {}): Promise<readonly JournalEntry[]> {
+  /** The `WHERE` shared by `list` and `count`, so a page and its total agree. */
+  private listWhere(filter: JournalListFilter): { sql: string; params: unknown[] } {
     const clauses: string[] = [];
     const params: unknown[] = [];
     if (filter.status) {
@@ -229,10 +231,42 @@ class SqliteLedgerRepository implements LedgerRepository {
       clauses.push("source_doc_id = ?");
       params.push(filter.sourceDocId);
     }
-    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM journal_entry ${where} ORDER BY date, id`)
-      .all(...params) as EntryRow[];
+    if (filter.sourceDocTypes) {
+      // An empty set matches nothing, exactly as asked.
+      if (filter.sourceDocTypes.length === 0) clauses.push("0 = 1");
+      else {
+        clauses.push(`source_doc_type IN (${filter.sourceDocTypes.map(() => "?").join(",")})`);
+        params.push(...filter.sourceDocTypes);
+      }
+    }
+    const term = filter.search?.trim();
+    if (term) {
+      const like = `%${term.toLowerCase()}%`;
+      clauses.push(
+        "(LOWER(COALESCE(entry_no, '')) LIKE ? OR LOWER(memo) LIKE ? OR LOWER(COALESCE(source_doc_number, '')) LIKE ?)",
+      );
+      params.push(like, like, like);
+    }
+    return { sql: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params };
+  }
+
+  async count(filter: JournalListFilter = {}): Promise<number> {
+    const { sql, params } = this.listWhere(filter);
+    const row = this.sqlite.prepare(`SELECT COUNT(*) AS n FROM journal_entry ${sql}`).get(...params) as {
+      n: number | bigint;
+    };
+    return Number(row.n);
+  }
+
+  async list(filter: JournalListFilter = {}): Promise<readonly JournalEntry[]> {
+    const { sql: where, params } = this.listWhere(filter);
+    let sql = `SELECT * FROM journal_entry ${where} ORDER BY date, id`;
+    if (filter.limit !== undefined) {
+      // OFFSET is meaningless to SQLite without a LIMIT.
+      sql += " LIMIT ? OFFSET ?";
+      params.push(filter.limit, filter.offset ?? 0);
+    }
+    const rows = this.sqlite.prepare(sql).all(...params) as EntryRow[];
     // One query for the whole page's lines, not one per entry: a list of 500
     // entries used to issue 501 synchronous round trips on the UI thread.
     const linesByEntry = childRowsByParent<LineRow & { entry_id: string }>(this.sqlite, {
@@ -310,6 +344,70 @@ class SqliteLedgerRepository implements LedgerRepository {
       debit: Money.fromScaled(r.debit),
       credit: Money.fromScaled(r.credit),
     }));
+  }
+
+  /** The shared `WHERE` for the two aggregates below. */
+  private aggregateWhere(filter: LedgerAggregateFilter): { sql: string; params: unknown[] } {
+    const statuses = filter.statuses ?? (["posted", "reversed"] as const);
+    const params: unknown[] = [];
+    const clauses: string[] = [];
+    if (statuses.length === 0) clauses.push("0 = 1");
+    else {
+      clauses.push(`je.status IN (${statuses.map(() => "?").join(",")})`);
+      params.push(...statuses);
+    }
+    if (filter.fromDate) { clauses.push("je.date >= ?"); params.push(filter.fromDate); }
+    if (filter.toDate) { clauses.push("je.date <= ?"); params.push(filter.toDate); }
+    if (filter.sourceDocTypes) {
+      if (filter.sourceDocTypes.length === 0) clauses.push("0 = 1");
+      else {
+        clauses.push(`je.source_doc_type IN (${filter.sourceDocTypes.map(() => "?").join(",")})`);
+        params.push(...filter.sourceDocTypes);
+      }
+    }
+    if (filter.excludeSourceDocTypes && filter.excludeSourceDocTypes.length > 0) {
+      clauses.push(
+        `(je.source_doc_type IS NULL OR je.source_doc_type NOT IN (${filter.excludeSourceDocTypes.map(() => "?").join(",")}))`,
+      );
+      params.push(...filter.excludeSourceDocTypes);
+    }
+    if (filter.accountIds) {
+      if (filter.accountIds.length === 0) clauses.push("0 = 1");
+      else {
+        clauses.push(`jl.account_id IN (${filter.accountIds.map(() => "?").join(",")})`);
+        params.push(...filter.accountIds);
+      }
+    }
+    return { sql: clauses.join(" AND "), params };
+  }
+
+  async accountBalances(filter: LedgerAggregateFilter = {}): Promise<ReadonlyMap<string, Money>> {
+    const { sql, params } = this.aggregateWhere(filter);
+    const rows = this.sqlite
+      .prepare(
+        `SELECT jl.account_id AS account_id, SUM(jl.debit) - SUM(jl.credit) AS net
+           FROM journal_line jl
+           JOIN journal_entry je ON je.id = jl.entry_id
+          WHERE ${sql}
+          GROUP BY jl.account_id`,
+      )
+      .safeIntegers()
+      .all(...params) as { account_id: string; net: bigint }[];
+    return new Map(rows.map((r) => [r.account_id, Money.fromScaled(r.net)]));
+  }
+
+  async sumLines(filter: LedgerAggregateFilter = {}): Promise<{ debit: Money; credit: Money }> {
+    const { sql, params } = this.aggregateWhere(filter);
+    const row = this.sqlite
+      .prepare(
+        `SELECT COALESCE(SUM(jl.debit), 0) AS debit, COALESCE(SUM(jl.credit), 0) AS credit
+           FROM journal_line jl
+           JOIN journal_entry je ON je.id = jl.entry_id
+          WHERE ${sql}`,
+      )
+      .safeIntegers()
+      .get(...params) as { debit: bigint; credit: bigint };
+    return { debit: Money.fromScaled(row.debit), credit: Money.fromScaled(row.credit) };
   }
 
   async listLines(filter: PostedLineFilter = {}): Promise<readonly PostedLine[]> {

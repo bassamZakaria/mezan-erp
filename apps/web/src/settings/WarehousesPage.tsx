@@ -87,7 +87,7 @@ export function WarehousesPage() {
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t("warehouses.loadFailed")}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("warehouses.loadFailed")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
           {t("warehouses.retry")}
         </Button>

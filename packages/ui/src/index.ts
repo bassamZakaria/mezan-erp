@@ -199,8 +199,8 @@ export {
 } from "./shell/NotificationsPanel";
 export { BrandMark } from "./shell/BrandMark";
 export { Copyright } from "./shell/Copyright";
-export type { NavGroup, NavItem, NavSection, NavTag, ShellUser, CommandItem, UserMenuItem } from "./shell/types";
-export { navGroupItems } from "./shell/types";
+export type { NavGroup, NavItem, NavSection, NavTag, NavVisibility, ShellUser, CommandItem, UserMenuItem } from "./shell/types";
+export { navGroupItems, filterNavGroups, isNavItemVisible, WILDCARD_NAV_PERMISSION } from "./shell/types";
 
 export {
   TrendChart,
@@ -275,9 +275,14 @@ export {
   type PrintTaxBreakdownRow,
   type PrintDocumentTotals,
   type PrintDocumentModel,
+  type PrintLedgerColumn,
+  type PrintLedgerRow,
+  type PrintLedgerFooterRow,
+  type PrintLedgerBody,
 } from "./print/types";
 export { PrintView, type PrintViewProps } from "./print/PrintView";
 export { useElectronPrintToPdf, type PrintToPdfOptions, type UseElectronPrintToPdfResult } from "./print/useElectronPrintToPdf";
+export { useElectronSavePdf, type SavePdfOptions, type SavePdfOutcome, type UseElectronSavePdfResult } from "./print/useElectronSavePdf";
 export { PrintToolbar } from "./print/PrintToolbar";
 export { Barcode128, encodeCode128B, type Barcode128Props } from "./print/Barcode128";
 export {

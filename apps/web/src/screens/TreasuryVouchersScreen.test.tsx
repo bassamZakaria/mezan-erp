@@ -64,7 +64,7 @@ const branches: BranchDTO[] = [
 ];
 
 function voucher(overrides: Partial<VoucherDTO> = {}): VoucherDTO {
-  return {
+  const row: VoucherDTO = {
     id: "cv-1",
     docNo: "CV-000001",
     voucherType: "customer_collection",
@@ -74,6 +74,8 @@ function voucher(overrides: Partial<VoucherDTO> = {}): VoucherDTO {
     memo: "تحصيل من عميل",
     amount: "1000.000000",
     currency: "EGP",
+    fxRate: null,
+    baseAmount: "1000.000000",
     branchId: "MAIN",
     paymentMethod: "cash",
     treasuryAccountId: "ta-cash1",
@@ -92,6 +94,7 @@ function voucher(overrides: Partial<VoucherDTO> = {}): VoucherDTO {
     confirmedAt: "2026-08-07T10:00:00.000Z",
     ...overrides,
   };
+  return { ...row, baseAmount: overrides.baseAmount ?? row.amount };
 }
 
 const seededVouchers: VoucherRowDTO[] = [
@@ -160,7 +163,11 @@ function renderScreen() {
         if (needsAllocation === "payment" && !(v.allocationSummary?.needsAllocation && v.direction === "payment")) return false;
         return true;
       });
-      return { body: rows };
+      // guards Q-9: the list is a SERVER page now — a stub returning the whole
+      // book would let a client-side slice pass unnoticed.
+      const pageSize = Number(params.get("pageSize") ?? 25);
+      const page = Number(params.get("page") ?? 1);
+      return { body: rows.slice((page - 1) * pageSize, page * pageSize) };
     },
     "GET /vouchers/counts": () => ({ body: countsOf(current) }),
     "GET /vouchers/stats": () => ({ body: statsOf(current) }),

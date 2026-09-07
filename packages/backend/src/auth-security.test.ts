@@ -474,3 +474,80 @@ describe("administrative records carry where the act came from (S36)", () => {
     expect(created?.details["origin"]).toBe("host");
   });
 });
+
+/* ================================================================== */
+/* N-15 — /auth/logout revoked without the origin check every other    */
+/*        lookup performs, and it is on the LAN socket's public list   */
+/* ================================================================== */
+
+describe("POST /auth/logout — revoking a session needs to be the machine that holds it (N-15)", () => {
+  /** The shape `requestOrigin` reads: a real socket under the request, never a header. */
+  function fromAddress(address: string | null) {
+    return address === null ? undefined : { incoming: { socket: { remoteAddress: address } } };
+  }
+
+  it("refuses to revoke a token presented from an address it was not minted at", async () => {
+    const app = await newBackend();
+
+    // The counter signs in over the LAN socket, from its own address.
+    const login = await app.fetch(
+      new Request("http://local/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
+      }),
+      fromAddress("192.168.1.40"),
+    );
+    expect(login.status).toBe(200);
+    const { token } = (await login.json()) as SessionDTO & { token: string };
+
+    // Somebody else on the shop wifi, holding a captured token, signs the
+    // counter out. Repeatedly, all afternoon, with no credential of their own.
+    const stranger = await app.fetch(
+      new Request("http://local/auth/logout", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      fromAddress("192.168.1.99"),
+    );
+    // It answers ok either way: a logout that reported whether the token was
+    // real would be a token oracle, and the caller has nothing to do
+    // differently.
+    expect(stranger.status).toBe(200);
+
+    // THE ASSERTION: the counter is still signed in.
+    const stillLive = await app.fetch(
+      new Request("http://local/tenant", { headers: { authorization: `Bearer ${token}` } }),
+      fromAddress("192.168.1.40"),
+    );
+    expect(stillLive.status).toBe(200);
+  });
+
+  it("still ends the session for the machine that actually holds it", async () => {
+    const app = await newBackend();
+    const login = await app.fetch(
+      new Request("http://local/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
+      }),
+      fromAddress("192.168.1.40"),
+    );
+    const { token } = (await login.json()) as SessionDTO & { token: string };
+
+    const out = await app.fetch(
+      new Request("http://local/auth/logout", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      fromAddress("192.168.1.40"),
+    );
+    expect(out.status).toBe(200);
+
+    const after = await app.fetch(
+      new Request("http://local/users", { headers: { authorization: `Bearer ${token}` } }),
+      fromAddress("192.168.1.40"),
+    );
+    expect(after.status).toBe(401);
+  });
+});

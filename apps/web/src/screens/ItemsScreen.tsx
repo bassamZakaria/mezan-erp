@@ -675,6 +675,18 @@ function ItemCostLayersTab({ itemId }: { itemId: string }) {
   );
 }
 
+/**
+ * The sortable columns the ROUTE can order by. The order is applied server-side
+ * because the list is a page now, and sorting a page instead of the set
+ * reorders rows within a page while leaving the pages themselves arbitrary. A
+ * column outside this set falls back to the document code rather than silently
+ * asking for an order the server does not have.
+ */
+const SERVER_SORT_KEYS = ["code", "nameAr", "salePrice", "costPrice"] as const;
+function serverSortKey(key: string): (typeof SERVER_SORT_KEYS)[number] {
+  return SERVER_SORT_KEYS.find((k) => k === key) ?? "code";
+}
+
 export function ItemsScreen() {
   const { t } = useAppTranslation();
   const nameOf = useEntityName();
@@ -748,7 +760,10 @@ export function ItemsScreen() {
     [statusChipKey, categoryFilter, brandFilter, seasonFilter, unitFilter, search],
   );
 
-  const query = useItems(filter);
+  // Only the ROWS query carries the page and the sort (Q-9): the screen used
+  // to fetch the whole catalogue and slice it here, and the chips and the KPI
+  // strip still speak for the whole filtered set.
+  const query = useItems({ ...filter, page, pageSize, sort: serverSortKey(sort.key), sortDir: sort.direction });
   const items = query.data ?? EMPTY;
   const counts = useItemCounts(filter).data ?? {};
   const stats = useItemStats(filter).data ?? {};
@@ -758,19 +773,10 @@ export function ItemsScreen() {
   const lowStockCount = counts.low_stock ?? 0;
   const outOfStockCount = counts.out_of_stock ?? 0;
 
-  const filtered = useMemo(() => {
-    const sorted = [...items].sort((a, b) => {
-      const dir = sort.direction === "asc" ? 1 : -1;
-      if (sort.key === "salePrice") return (Number(a.salePrice ?? 0) - Number(b.salePrice ?? 0)) * dir;
-      if (sort.key === "costPrice") return (Number(a.costPrice ?? 0) - Number(b.costPrice ?? 0)) * dir;
-      if (sort.key === "nameAr") return a.nameAr.localeCompare(b.nameAr) * dir;
-      return a.code.localeCompare(b.code) * dir;
-    });
-    return sorted;
-  }, [items, sort]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  // What the server returned IS the page, already in the requested order.
+  const filtered = items;
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
+  const pageRows = filtered;
 
   const activeFilterCount =
     (statusChipKey !== "all" ? 1 : 0) +

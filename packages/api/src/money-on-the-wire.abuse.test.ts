@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createSqliteUnitOfWork } from "@mezan/persistence";
+import {
+  createSqliteAccountRepository,
+  createSqliteFiscalPeriodRepository,
+  createSqliteLedgerStore,
+  createSqliteUnitOfWork,
+} from "@mezan/persistence";
 import { createApp } from "./app.js";
 
 const handles: { close(): void }[] = [];
@@ -8,18 +13,33 @@ afterEach(() => {
   for (const h of handles.splice(0)) h.close();
 });
 
-function newApp() {
+/**
+ * The legacy `POST /journal-entries` spike is gone (B-6); this exercises the
+ * one real posting engine, `POST /gl/journal-entries`, which is where a
+ * malformed money literal actually reaches `Money.fromMajor` today.
+ */
+async function newApp() {
   const uow = createSqliteUnitOfWork();
-  handles.push(uow);
-  return { app: createApp(uow, {}), uow };
+  const ledger = createSqliteLedgerStore();
+  const accounts = createSqliteAccountRepository();
+  const periods = createSqliteFiscalPeriodRepository();
+  handles.push(uow, ledger, accounts, periods);
+  for (const [id, type, naturalBalance] of [
+    ["1300-1", "asset", "debit"],
+    ["4000", "revenue", "credit"],
+  ] as const) {
+    await accounts.create({ id, code: id, nameAr: id, nameEn: null, type, naturalBalance, parentId: null, isHeader: false, status: "active" });
+  }
+  await periods.create({ id: "fp-2026-01", year: 2026, periodNumber: 1, startDate: "2026-01-01", endDate: "2026-01-31", status: "open" });
+  const app = createApp(uow, { gl: { ledger, accounts, periods, numbering: ledger.numbering } });
+  return { app, ledger };
 }
 
 function post(path: string, body: unknown) {
   return new Request(`http://local${path}`, {
     method: "POST",
-    // The legacy poster is permission-gated as of D99; this file is about the
-    // money literal, so the caller is given the permission and the malformed
-    // amount stays the only thing under test.
+    // This file is about the money literal, so the caller is given the
+    // permission and the malformed amount stays the only thing under test.
     headers: new Headers({ "content-type": "application/json", "x-permissions": "accounting.journal.post" }),
     body: JSON.stringify(body),
   });
@@ -66,11 +86,11 @@ describe("a malformed money literal on the wire (D126)", () => {
     // "the server is broken", and each attempt writes a stack trace to the
     // log. The fix is a decimal-string schema in @mezan/contracts; when it
     // lands, this expectation becomes 400 and the test stays.
-    const { app } = newApp();
+    const { app } = await newApp();
     const statuses: Record<string, number> = {};
 
     for (const literal of MALFORMED) {
-      const res = await app.fetch(post("/journal-entries", entry(literal)));
+      const res = await app.fetch(post("/gl/journal-entries", entry(literal)));
       statuses[literal] = res.status;
     }
 
@@ -89,25 +109,25 @@ describe("a malformed money literal on the wire (D126)", () => {
   });
 
   it("writes nothing for any of them — the failure is loud, but at least it is not partial", async () => {
-    const { app, uow } = newApp();
+    const { app, ledger } = await newApp();
     const written: string[] = [];
 
     for (const literal of MALFORMED) {
       const body = entry(literal);
-      await app.fetch(post("/journal-entries", body));
-      if (await uow.journal.findById(body.id)) written.push(literal);
+      await app.fetch(post("/gl/journal-entries", body));
+      if (await ledger.findById(body.id)) written.push(literal);
     }
 
     expect(written).toEqual([]);
   });
 
   it("accepts the same entry once the amount is well formed, so the tests above are not refusing everything", async () => {
-    const { app, uow } = newApp();
+    const { app, ledger } = await newApp();
     const body = entry("100.00", "JE-MONEY-OK");
-    const res = await app.fetch(post("/journal-entries", body));
+    const res = await app.fetch(post("/gl/journal-entries", body));
 
     expect(res.status).toBe(201);
-    const stored = await uow.journal.findById("JE-MONEY-OK");
+    const stored = await ledger.findById("JE-MONEY-OK");
     expect(stored?.lines[0]?.debit.toString()).toBe("100.000000");
   });
 
@@ -115,18 +135,18 @@ describe("a malformed money literal on the wire (D126)", () => {
     // Not a defect on its own — it is stated here so that tightening the
     // parser later is a deliberate, visible change rather than a surprise
     // rejection of data some integration is already sending.
-    const { app, uow } = newApp();
+    const { app, ledger } = await newApp();
     const body = entry(" 100.00 ", "JE-MONEY-PADDED");
-    const res = await app.fetch(post("/journal-entries", body));
+    const res = await app.fetch(post("/gl/journal-entries", body));
 
     expect(res.status).toBe(201);
-    expect((await uow.journal.findById("JE-MONEY-PADDED"))?.lines[0]?.debit.toString()).toBe("100.000000");
+    expect((await ledger.findById("JE-MONEY-PADDED"))?.lines[0]?.debit.toString()).toBe("100.000000");
   });
 
   it("keeps the full six decimals of a micro-unit amount rather than rounding it away", async () => {
-    const { app, uow } = newApp();
+    const { app, ledger } = await newApp();
     const res = await app.fetch(
-      post("/journal-entries", {
+      post("/gl/journal-entries", {
         id: "JE-MONEY-MICRO",
         date: "2026-01-01",
         memo: "قيد بوحدات دقيقة",
@@ -138,7 +158,7 @@ describe("a malformed money literal on the wire (D126)", () => {
     );
 
     expect(res.status).toBe(201);
-    const stored = await uow.journal.findById("JE-MONEY-MICRO");
+    const stored = await ledger.findById("JE-MONEY-MICRO");
     expect(stored?.lines[0]?.debit.toString()).toBe("0.000001");
     expect(stored?.lines[1]?.credit.toString()).toBe("0.000001");
   });

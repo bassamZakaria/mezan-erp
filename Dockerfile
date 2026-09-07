@@ -26,8 +26,11 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter web build
 
-# NODE_ENV stays unset: @mezan/backend's resolveSeedAdminSecrets randomises the
-# fallback admin PIN under production, and this demo needs a known login.
+# NODE_ENV=production so @mezan/backend's resolveSeedAdminSecrets randomises the
+# fallback admin PIN. A "known login" on a public origin was the published
+# `123456` company admin (audit S-1); cloud.ts prints the generated PIN once to
+# the deploy log instead, and sets this itself if the platform drops it.
+ENV NODE_ENV=production
 ENV MEZAN_DB=/tmp/mezan-demo.db
 ENV PORT=8080
 EXPOSE 8080

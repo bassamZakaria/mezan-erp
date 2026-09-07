@@ -167,7 +167,7 @@ describe("PurchaseReturnsScreen", () => {
   it("shows a load-failed banner with a retry when the list request fails", async () => {
     const transport = stubTransport({ ...baseHandlers([]), "GET /purchase-returns": () => ({ status: 500, body: { error: "SERVER_ERROR" } }) });
     renderWithProviders(<PurchaseReturnsScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل مرتجعات المشتريات.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل مرتجعات المشتريات. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 

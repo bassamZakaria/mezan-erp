@@ -601,3 +601,86 @@ describe("financial reports routes — malformed and impossible dates", () => {
     expect(body.rows).toEqual([]);
   });
 });
+
+// guards P-7 — the general ledger carries no branch of its own, so a
+// branch-limited statement resolves each entry through the document that
+// posted it, and excludes what it cannot attribute rather than counting it.
+describe("financial reports routes — branch scope (P-7)", () => {
+  const branchOfEntry = async (entries: readonly { readonly id: string }[]) =>
+    new Map(
+      entries.map((e) => [
+        e.id,
+        e.id === "je-sale1" ? "br-1" : e.id === "je-sale2" ? "br-2" : null,
+      ]),
+    );
+
+  function scoped(path: string, branchScope?: string): Request {
+    return new Request(`http://local${path}`, {
+      headers: {
+        "x-permissions": "accounting.reports.view",
+        ...(branchScope ? { "x-branch-scope": branchScope } : {}),
+      },
+    });
+  }
+
+  it("counts only the branch's own entries when the session is scoped to one branch", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts, branchOfEntry });
+    const res = await app.fetch(scoped("/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31", "br-1"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rows: { accountId: string; amount: number }[] };
+    const revenue = body.rows.find((r) => r.accountId === "4100");
+    expect(revenue?.amount).toBe(1000);
+  });
+
+  it("?branchId= narrows an unscoped caller, and can never widen a scoped one", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts, branchOfEntry });
+
+    const narrowed = await app.fetch(scoped("/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31&branchId=br-2"));
+    const narrowedBody = (await narrowed.json()) as { rows: { accountId: string; amount: number }[] };
+    expect(narrowedBody.rows.find((r) => r.accountId === "4100")?.amount).toBe(400);
+
+    const widened = await app.fetch(
+      scoped("/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31&branchId=br-2", "br-1"),
+    );
+    const widenedBody = (await widened.json()) as { rows: { accountId: string; amount: number }[] };
+    expect(widenedBody.rows.find((r) => r.accountId === "4100")?.amount ?? 0).toBe(0);
+  });
+
+  it("leaves the company-wide statement untouched when no branch narrowing is asked for", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts, branchOfEntry });
+    const res = await app.fetch(scoped("/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31"));
+    const body = (await res.json()) as { rows: { accountId: string; amount: number }[] };
+    expect(body.rows.find((r) => r.accountId === "4100")?.amount).toBe(1400);
+  });
+});
+
+/**
+ * Q-6: the trial balance used to fold every posted line in JS to answer one
+ * `GROUP BY`. The SQL-aggregate path and the fold must produce byte-identical
+ * responses, or the ledger has two answers for the same question.
+ */
+describe("financial reports — trial balance: the SQL aggregate equals the JS fold (guards Q-6)", () => {
+  it("returns the same body whether or not the ledger can aggregate", async () => {
+    const { ledger, accounts } = await seed();
+    const aggregating = makeApp({ ledger, accounts });
+    // Same store, with the aggregate hidden: the route then loads the entries
+    // and the report folds them, exactly as it did before Q-6.
+    const folding = makeApp({
+      ledger: { list: (filter) => ledger.list(filter) },
+      accounts,
+    });
+
+    for (const asOfDate of ["2026-07-15", "2026-08-31", "2026-09-30", "2027-01-01"]) {
+      const [a, b] = await Promise.all([
+        aggregating.fetch(req(`/trial-balance?asOfDate=${asOfDate}`, "accounting.reports.view")),
+        folding.fetch(req(`/trial-balance?asOfDate=${asOfDate}`, "accounting.reports.view")),
+      ]);
+      expect(a.status).toBe(200);
+      expect(b.status).toBe(200);
+      expect(await a.json()).toEqual(await b.json());
+    }
+  });
+});

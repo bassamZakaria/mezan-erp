@@ -7,6 +7,7 @@ import { NextNumberService } from "../numbering/index.js";
 import { createJournalEntry, postJournalEntry, type JournalPostingDeps } from "./post.js";
 import { reverseJournalEntry } from "./reverse.js";
 import { PeriodNotOpenForPostingError } from "../fiscal-periods/errors.js";
+import { VatPeriodAlreadyFiledError } from "../tax/vat-filing.js";
 import {
   JournalEntryAlreadyReversedError,
   JournalEntryNotFoundError,
@@ -254,5 +255,65 @@ describe("reverseJournalEntry — every dimension travels with the mirror", () =
       const balance = await ledger.accountBalance(accountId);
       expect(balance.debit.scaled).toBe(balance.credit.scaled);
     }
+  });
+});
+
+/**
+ * guards B-11 — posting checks the filed-VAT lock (post.ts) and reversing did
+ * not, so a filed return could be restated by a reversal dated into it.
+ */
+describe("reverseJournalEntry — the filed-VAT lock", () => {
+  function filings(status: "filed" | "amended") {
+    return {
+      async findCovering(date: string) {
+        return date >= "2026-08-01" && date <= "2026-08-31" ? [{ id: "vat-2026-08", status }] : [];
+      },
+    };
+  }
+
+  const august = {
+    id: "je-aug",
+    date: "2026-08-22",
+    memo: "بيع نقدي",
+    lines: [
+      { accountId: "1300-1", debit: Money.fromMajor("100.00"), credit: Money.zero() },
+      { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("100.00") },
+    ],
+  };
+
+  it("refuses a reversal dated into a period whose VAT return is filed, and writes nothing", async () => {
+    const { deps, ledger } = await harness();
+    await postJournalEntry(august, deps);
+    const before = (await ledger.list()).length;
+
+    await expect(
+      reverseJournalEntry("je-aug", { ...deps, vatFilings: filings("filed") }, { reversalId: "je-aug-rev" }),
+    ).rejects.toBeInstanceOf(VatPeriodAlreadyFiledError);
+
+    expect((await ledger.list()).length).toBe(before);
+    expect((await ledger.findById("je-aug"))!.status).toBe("posted");
+    expect(await ledger.findById("je-aug-rev")).toBeNull();
+  });
+
+  it("allows the reversal once the filing has been amended", async () => {
+    const { deps } = await harness();
+    await postJournalEntry(august, deps);
+    const { reversal } = await reverseJournalEntry(
+      "je-aug",
+      { ...deps, vatFilings: filings("amended") },
+      { reversalId: "je-aug-rev" },
+    );
+    expect(reversal.status).toBe("posted");
+  });
+
+  it("allows a reversal dated OUT of the filed window — September, on an August entry", async () => {
+    const { deps } = await harness();
+    await postJournalEntry(august, deps);
+    const { reversal } = await reverseJournalEntry(
+      "je-aug",
+      { ...deps, vatFilings: filings("filed") },
+      { reversalId: "je-aug-rev", date: "2026-09-01" },
+    );
+    expect(reversal.date).toBe("2026-09-01");
   });
 });

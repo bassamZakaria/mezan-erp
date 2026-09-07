@@ -1,15 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { createEntitlements, SeatSessionRegistry } from "@mezan/domain";
-import { createSqliteUnitOfWork } from "@mezan/persistence";
+import {
+  createSqliteAccountRepository,
+  createSqliteFiscalPeriodRepository,
+  createSqliteLedgerStore,
+  createSqliteUnitOfWork,
+} from "@mezan/persistence";
 import { createApp } from "../app.js";
 
 /**
  * Proves the LAN routes mount onto the SAME shared app `createApp` returns
  * (docs/archive/plan.md §2.2's "one HTTP app, two mount points") — not a separately
- * wired instance — and that /journal-entries keeps working unchanged when
+ * wired instance — and that /gl/journal-entries keeps working unchanged when
  * `/lan` is mounted alongside it.
  */
-describe("createApp({ lan }) — same shared app, /lan mounted alongside /journal-entries", () => {
+describe("createApp({ lan }) — same shared app, /lan mounted alongside /gl", () => {
   it("omits /lan entirely when no lan option is passed (existing callers unaffected)", async () => {
     const uow = createSqliteUnitOfWork(":memory:");
     const app = createApp(uow);
@@ -18,8 +23,18 @@ describe("createApp({ lan }) — same shared app, /lan mounted alongside /journa
     uow.close();
   });
 
-  it("serves both /journal-entries and /lan on the one app instance when lan is configured", async () => {
+  it("serves both /gl/journal-entries and /lan on the one app instance when lan is configured", async () => {
     const uow = createSqliteUnitOfWork(":memory:");
+    const ledger = createSqliteLedgerStore();
+    const accounts = createSqliteAccountRepository();
+    const periods = createSqliteFiscalPeriodRepository();
+    for (const [id, type, naturalBalance] of [
+      ["1300-1", "asset", "debit"],
+      ["4000", "revenue", "credit"],
+    ] as const) {
+      await accounts.create({ id, code: id, nameAr: id, nameEn: null, type, naturalBalance, parentId: null, isHeader: false, status: "active" });
+    }
+    await periods.create({ id: "fp-2026-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
     const entitlements = createEntitlements({
       plan: "ENTERPRISE",
       activeModules: ["sales"],
@@ -30,6 +45,7 @@ describe("createApp({ lan }) — same shared app, /lan mounted alongside /journa
     const registry = new SeatSessionRegistry(entitlements.seats);
     const app = createApp(uow, {
       lan: { resolveEntitlements: () => entitlements, registry },
+      gl: { ledger, accounts, periods, numbering: ledger.numbering },
     });
 
     const statusRes = await app.fetch(new Request("http://local/lan/status"));
@@ -58,7 +74,7 @@ describe("createApp({ lan }) — same shared app, /lan mounted alongside /journa
       ],
     };
     const journalRes = await app.fetch(
-      new Request("http://local/journal-entries", {
+      new Request("http://local/gl/journal-entries", {
         method: "POST",
         headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
         body: JSON.stringify(entry),
@@ -66,6 +82,9 @@ describe("createApp({ lan }) — same shared app, /lan mounted alongside /journa
     );
     expect(journalRes.status).toBe(201);
 
+    ledger.close();
+    accounts.close();
+    periods.close();
     uow.close();
   });
 });

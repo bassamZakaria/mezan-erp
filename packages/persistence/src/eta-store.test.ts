@@ -37,6 +37,7 @@ describe("SqliteEtaSubmissionRepository", () => {
     id: "s1", internalId: "INV-000014", documentType: "invoice", status: "ready", etaUuid: null,
     payload: { totalAmount: "114" }, errors: [], exclusionReason: null,
     createdAt: "2026-08-22T10:00:00.000Z", updatedAt: "2026-08-22T10:00:00.000Z", submittedAt: null,
+    gatewaySubmissionId: null, signature: null, transmitLog: [],
   };
 
   it("round-trips a submission with JSON payload and lists by status", async () => {
@@ -47,5 +48,45 @@ describe("SqliteEtaSubmissionRepository", () => {
     await store.submissions.update({ ...sub, status: "submitted", submittedAt: "2026-08-22T11:00:00.000Z" });
     expect(await store.submissions.list("ready")).toHaveLength(0);
     expect(await store.submissions.list("submitted")).toHaveLength(1);
+  });
+
+  // guards P-1 — the transmit evidence has to survive the round trip, or the
+  // only record of what was filed with the authority is a console line.
+  it("round-trips the transmit log, the gateway submission id and the signature", async () => {
+    store = createSqliteEtaStore();
+    await store.submissions.create(sub);
+    await store.submissions.update({
+      ...sub,
+      status: "submitted",
+      etaUuid: "uuid-1",
+      gatewaySubmissionId: "sub-9",
+      signature: "SIG",
+      transmitLog: [
+        {
+          at: "2026-08-22T11:00:00.000Z",
+          attempt: 1,
+          method: "POST",
+          url: "https://api.preprod.invoicing.eta.gov.eg/api/v1/documentsubmissions",
+          requestBody: "{}",
+          status: 200,
+          responseBody: "{\"submissionId\":\"sub-9\"}",
+          error: null,
+        },
+      ],
+    });
+    const found = await store.submissions.findById("s1");
+    expect(found!.gatewaySubmissionId).toBe("sub-9");
+    expect(found!.signature).toBe("SIG");
+    expect(found!.transmitLog).toHaveLength(1);
+    expect(found!.transmitLog[0]!.status).toBe(200);
+  });
+
+  // guards P-1 — the OAuth token request needs the plaintext secret and nothing else may read it.
+  it("reads the sealed client secret back for the token request only", async () => {
+    store = createSqliteEtaStore();
+    expect(await store.config.getClientSecret()).toBeNull();
+    await store.config.setClientSecret("super-secret");
+    expect(await store.config.getClientSecret()).toBe("super-secret");
+    expect(JSON.stringify(await store.config.get())).not.toContain("super-secret");
   });
 });

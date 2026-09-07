@@ -295,6 +295,18 @@ export class DocumentService<Line> {
         workflowRequestId: null,
         journalEntryId: reversalJournalEntryId,
       };
+
+      // Stock comes back too (B-10). Reversing only the GL credited 1200 and
+      // left the goods on hand, so the sub-ledger and its control account
+      // parted company by the value of every reversed movement.
+      if (this.def.buildStockPlan) {
+        const plan = this.def.buildStockPlan(reversal);
+        if (plan) {
+          if (!this.deps.stock?.reverse) throw new MissingHookError(this.def.code, "stock");
+          await this.deps.stock.reverse(plan, existing.id);
+        }
+      }
+
       await this.deps.repo.save(reversal);
 
       const original: FrameworkDocument<Line> = {
@@ -316,6 +328,26 @@ export class DocumentService<Line> {
 
   async list(filter?: DocumentListFilter): Promise<readonly FrameworkDocument<Line>[]> {
     return this.deps.repo.list(filter);
+  }
+
+  /**
+   * Documents whose lines cite one of `ids` at `field`. Falls back to reading
+   * the type's history when the repository cannot express it, so both paths
+   * answer identically; the point of the SQL path is that a page of invoices
+   * costs one query instead of every return ever raised.
+   */
+  async listByLineRef(
+    field: string,
+    ids: readonly string[],
+    filter?: DocumentListFilter,
+  ): Promise<readonly FrameworkDocument<Line>[]> {
+    if (ids.length === 0) return [];
+    const repo = this.deps.repo;
+    if (repo.listByLineRef) return repo.listByLineRef(field, ids, filter);
+    const wanted = new Set(ids);
+    return (await repo.list(filter)).filter((doc) =>
+      doc.lines.some((line) => wanted.has((line as Record<string, unknown>)[field] as string)),
+    );
   }
 
   private async require(id: string): Promise<FrameworkDocument<Line>> {

@@ -8,7 +8,7 @@ import type {
   ItemUnitDTO,
   UpdateItemSpecificationDTO,
 } from "@mezan/contracts";
-import { ApiError } from "./hooks";
+import { ApiError, readError } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -29,7 +29,7 @@ export function useItemUnits(): UseQueryResult<ItemUnitDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-units");
-      if (!res.ok) throw new ApiError(res.status, t("api.unitsOfMeasureCouldNot"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.unitsOfMeasureCouldNot"), t));
       return res.json<ItemUnitDTO[]>();
     },
   });
@@ -61,7 +61,7 @@ export function useItemCategories(): UseQueryResult<ItemCategoryDTO[], ApiError>
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-categories");
-      if (!res.ok) throw new ApiError(res.status, t("api.itemCategoriesCouldNotBe"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.itemCategoriesCouldNotBe"), t));
       return res.json<ItemCategoryDTO[]>();
     },
   });
@@ -107,7 +107,7 @@ export function useItemSpecifications(): UseQueryResult<ItemSpecificationDTO[], 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-specifications");
-      if (!res.ok) throw new ApiError(res.status, t("specs.specificationsCouldNotBeLoaded"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("specs.specificationsCouldNotBeLoaded"), t));
       return res.json<ItemSpecificationDTO[]>();
     },
   });

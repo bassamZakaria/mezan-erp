@@ -10,6 +10,7 @@ import type {
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
+import { withSupportCode, type AppTranslate } from "./hooks";
 
 /**
  * Data-migration import wizard hooks (docs/archive/catalog/09 "نقل البيانات") — kept
@@ -29,9 +30,14 @@ export class ApiError extends Error {
   }
 }
 
-async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
+async function readError(
+  res: { readonly status: number; json<T>(): Promise<T> },
+  fallback: string,
+  t?: AppTranslate,
+): Promise<string> {
   const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
+  if (body.message !== undefined && body.message !== "") return body.message;
+  return withSupportCode(fallback, res.status, t);
 }
 
 function useImportMutation<TBody>(

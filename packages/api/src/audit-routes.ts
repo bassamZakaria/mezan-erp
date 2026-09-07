@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AuditQueryPort } from "@mezan/domain";
+import type { AuditChainVerifyPort } from "@mezan/persistence";
 import { auditQuerySchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
@@ -20,6 +21,29 @@ export function createAuditRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  /**
+   * «تحقق من سلامة السجل» — walks the hash chain and names the first row that
+   * does not verify.
+   *
+   * Declared BEFORE `/` so the static segment is matched first, and read-only:
+   * it recomputes hashes, it never repairs one. A trail that reports itself
+   * healthy after being "repaired" would be worse than no check at all.
+   *
+   * A store built before the chain existed (any `AuditQueryPort` that is not
+   * also an `AuditChainVerifyPort` — the LAN mount passes one) answers 501
+   * rather than a green tick it cannot justify.
+   */
+  app.get("/verify", gate("audit.logs.view"), async (c) => {
+    const verifier = store as Partial<AuditChainVerifyPort>;
+    if (typeof verifier.verifyChain !== "function") {
+      return c.json(
+        { error: "UNSUPPORTED", message: "لا يمكن التحقق من سلسلة السجل على هذا المصدر." },
+        501,
+      );
+    }
+    return c.json(await verifier.verifyChain());
+  });
 
   app.get("/", gate("audit.logs.view"), async (c) => {
     const parsed = auditQuerySchema.safeParse({

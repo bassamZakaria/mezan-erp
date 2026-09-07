@@ -36,6 +36,24 @@ export interface CustomerReceivablesSource {
   outstandingByCustomer(): Promise<ReadonlyMap<string, Money>>;
 }
 
+/**
+ * Posts a party's رصيد افتتاحي into the general ledger, idempotently.
+ *
+ * The opening balance used to be a number stored on the master record and
+ * nowhere else: never posted, counted in the customer KPI and in the browser
+ * statement, and invisible to `/reconciliation` and the aging ladder — one
+ * fact, three figures, none of them the ledger (B-2). The historical-import
+ * path already posted the identical entry (Dr AR / Cr 3210); this port routes
+ * the master-data field through the same posting.
+ *
+ * Optional because this module owns master data only. Without it nothing is
+ * posted and nothing is counted, which is honest; the figure simply is not a
+ * receivable until the ledger says so.
+ */
+export interface PartyOpeningBalancePoster {
+  post(party: { readonly id: string; readonly code: string; readonly nameAr: string; readonly openingBalance: Money }): Promise<void>;
+}
+
 /** Wire representation of a customer — a plain JSON-safe projection with Money as decimal strings. */
 function serialize(customer: Customer) {
   return {
@@ -83,6 +101,7 @@ export function createCustomersRouter(
   audit?: AuditSink,
   priceLists?: CustomerPriceListLookup,
   receivables?: CustomerReceivablesSource,
+  openingBalances?: PartyOpeningBalancePoster,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -142,9 +161,18 @@ export function createCustomersRouter(
     return (await receivables?.outstandingByCustomer()) ?? new Map<string, Money>();
   }
 
-  /** Opening balance plus what is left on every live invoice — one definition, used by both the filter and the KPI. */
+  /**
+   * What is left on every live invoice — one definition, used by both the
+   * filter and the KPI.
+   *
+   * The opening balance is NOT added here (B-2): it is posted to the ledger
+   * like any other receivable, so `outstandingByCustomer` — which reads the
+   * ledger's own AR — already contains it. Adding the master-data field on top
+   * counted the same money twice and put this screen's total above the aging
+   * ladder by exactly Σ opening balances.
+   */
   function owedBy(customer: Customer, outstanding: ReadonlyMap<string, Money>): Money {
-    return customer.openingBalance.add(outstanding.get(customer.id) ?? Money.zero());
+    return outstanding.get(customer.id) ?? Money.zero();
   }
 
   /**
@@ -266,6 +294,7 @@ export function createCustomersRouter(
         creditLimit: creditLimit !== undefined ? Money.fromMajor(creditLimit) : undefined,
       });
       await repo.save(customer);
+      await openingBalances?.post(customer);
       await record(c, customer, "CREATE");
       return c.json(serialize(customer), 201);
     } catch (err) {
@@ -304,6 +333,9 @@ export function createCustomersRouter(
       };
       const next = updateCustomer(current, patch);
       await repo.save(next);
+      if (next.openingBalance.scaled !== current.openingBalance.scaled) {
+        await openingBalances?.post(next);
+      }
       await record(c, next, "UPDATE", current);
       return c.json(serialize(next));
     } catch (err) {

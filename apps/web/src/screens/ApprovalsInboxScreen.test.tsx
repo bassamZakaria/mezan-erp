@@ -118,8 +118,26 @@ describe("ApprovalsInboxScreen", () => {
       "GET /workflow/requests/pending": () => ({ status: 500, body: { error: "INTERNAL" } }),
     });
     renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل الموافقات المعلّقة.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل الموافقات المعلّقة. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+});
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("ApprovalsInboxScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <ApprovalsInboxScreen />,
+      {
+        transport: stubTransport({
+          "GET /workflow/requests/pending": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل الموافقات المعلّقة.")).not.toBeInTheDocument();
   });
 });

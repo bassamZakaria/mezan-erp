@@ -133,10 +133,10 @@ describe("LeavePoliciesScreen", () => {
       "GET /hr/leave-policies/presets": () => ({ body: presets }),
     });
     renderWithProviders(<LeavePoliciesScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل سياسات الإجازات.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل سياسات الإجازات. (رمز 500)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await findRowText("إجازة سنوية");
-    expect(screen.queryByText("تعذّر تحميل سياسات الإجازات.")).not.toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل سياسات الإجازات. (رمز 500)")).not.toBeInTheDocument();
   });
 
   it("applying a preset posts its code and shows the confirmation banner", async () => {

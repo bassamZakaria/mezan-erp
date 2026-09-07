@@ -52,6 +52,8 @@ describe("voucherSchema", () => {
     memo: "دفعة لمورد",
     amount: "10000.123456",
     currency: "EGP",
+    fxRate: null,
+    baseAmount: "10000.123456",
     branchId: "branch-1",
     paymentMethod: "bank" as const,
     treasuryAccountId: "acc-bank",
@@ -278,5 +280,62 @@ describe("voucherListQuerySchema", () => {
   it("rejects an out-of-enum needsAllocation value", () => {
     const result = voucherListQuerySchema.safeParse({ needsAllocation: "both" });
     expect(result.success).toBe(false);
+  });
+});
+
+/**
+ * guards B-4 — the wire format carried a currency and nothing else, so a
+ * foreign voucher's own figure was indistinguishable from a base one and the
+ * rate it settled at was unrecoverable.
+ */
+describe("voucherSchema — the FX dimensions", () => {
+  const voucher = {
+    id: "v-fx",
+    docNo: "CV-000009",
+    voucherType: "customer_collection" as const,
+    direction: "receipt" as const,
+    status: "posted" as const,
+    date: "2026-08-30",
+    memo: "تحصيل بالدولار",
+    amount: "1000.000000",
+    currency: "USD",
+    fxRate: "49.350000",
+    baseAmount: "49350.000000",
+    branchId: "branch-1",
+    paymentMethod: "bank" as const,
+    treasuryAccountId: "acc-bank",
+    treasuryGlAccountId: "acc-gl-bank",
+    counterpartyGlAccountId: "acc-ar",
+    counterTreasuryAccountId: null,
+    counterTreasuryGlAccountId: null,
+    customerId: "cust-1",
+    supplierId: null,
+    referenceNo: null,
+    costCenterId: null,
+    withholdingAmount: null,
+    withholdingRatePercent: null,
+    netPaidAmount: "49350.000000",
+    journalEntryId: "je-9",
+    confirmedAt: "2026-08-30T10:00:00.000Z",
+  };
+
+  it("carries the rate and the base amount alongside the stated amount", () => {
+    const result = voucherSchema.safeParse({
+      ...voucher,
+      amount: "1000.000000",
+      currency: "USD",
+      fxRate: "49.350000",
+      baseAmount: "49350.000000",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.fxRate).toBe("49.350000");
+      expect(result.data.baseAmount).toBe("49350.000000");
+    }
+  });
+
+  it("rejects a voucher with no baseAmount — the figure the GL and every allocation use", () => {
+    const { baseAmount: _omitted, ...rest } = { ...voucher };
+    expect(voucherSchema.safeParse(rest).success).toBe(false);
   });
 });

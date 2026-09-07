@@ -4,6 +4,7 @@ import type { TenantSettingsDTO, UpdateTenantSettingsDTO } from "@mezan/contract
 import { useSettings, useUpdateSettings, useSendTestEmail } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { MaintenancePanel } from "./MaintenancePanel";
+import { SupportInfoCard } from "./SupportInfoCard";
 import {
   TextField,
   NumberField,
@@ -534,7 +535,7 @@ export function SettingsGeneral() {
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t("settingsGeneral.couldNotLoadTheSettings")}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("settingsGeneral.couldNotLoadTheSettings")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
           {t("common.retry")}
         </Button>
@@ -549,6 +550,15 @@ export function SettingsGeneral() {
       <SettingsForm initial={query.data} />
       {/* Renders nothing in a browser — see MaintenancePanel. */}
       <MaintenancePanel />
+      {/*
+        «معلومات الدعم» — version, licence code, role, host address, seats,
+        paths and the machine fingerprint, with one copy button. It is here as
+        well as on حالة النظام because this is the screen an owner is already on
+        when support asks them for any of it.
+      */}
+      <div className="mt-[16px]">
+        <SupportInfoCard />
+      </div>
     </>
   );
 }

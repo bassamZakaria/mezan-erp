@@ -12,7 +12,7 @@ import type {
   FxRevaluationRequestDTO,
   ReconciliationReportDTO,
 } from "@mezan/contracts";
-import { ApiError } from "./hooks";
+import { ApiError, readError } from "./hooks";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
@@ -34,7 +34,7 @@ export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/exchange-rates");
-      if (!res.ok) throw new ApiError(res.status, t("fxRates.exchangeRatesCouldNotBe"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("fxRates.exchangeRatesCouldNotBe"), t));
       return res.json<ExchangeRateDTO[]>();
     },
   });
@@ -149,7 +149,7 @@ export function useReconciliationReport(): UseQueryResult<ReconciliationReportDT
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/reconciliation");
-      if (!res.ok) throw new ApiError(res.status, t("accountingApi.theReconciliationReportCouldNot"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("accountingApi.theReconciliationReportCouldNot"), t));
       return res.json<ReconciliationReportDTO>();
     },
   });
@@ -171,7 +171,7 @@ export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResu
       if (toDate) params.set("toDate", toDate);
       const qs = params.toString();
       const res = await request(`/cost-center-pl${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.costCentreProfitabilityCouldNot"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.costCentreProfitabilityCouldNot"), t));
       return res.json<CostCenterPnLReportDTO>();
     },
   });
@@ -194,7 +194,7 @@ export function useEtaConfig(): UseQueryResult<EtaConfigWithReadinessDTO, ApiErr
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/config");
-      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot"), t));
       return res.json<EtaConfigWithReadinessDTO>();
     },
   });
@@ -209,7 +209,7 @@ export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResu
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/eta/submissions${qs}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theSubmissionQueueCouldNot"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSubmissionQueueCouldNot"), t));
       return res.json<EtaSubmissionDTO[]>();
     },
   });

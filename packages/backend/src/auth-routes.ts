@@ -261,10 +261,29 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     return c.json(await toSession(user, deps, requestOrigin(c)));
   });
 
-  /** Ends the session server-side. Without this a token stayed valid until it idled out. */
+  /**
+   * Ends the session server-side. Without this a token stayed valid until it
+   * idled out.
+   *
+   * THE ORIGIN IS CHECKED, exactly as every other lookup in the product checks
+   * it. This route is on the LAN socket's public list — it has to be, a till
+   * signs out over the same socket it signed in on — and it was the ONE place a
+   * token was acted on without asking `find()` whether the caller was where the
+   * token was minted. A captured token is worth an admin session for twelve
+   * hours, but a token that only ever appears in a `POST /auth/logout` is worth
+   * something quieter and just as useful to an attacker: signing the owner out
+   * of the counter, repeatedly, from anywhere on the wifi. `find()` with the
+   * origin is what makes revoking a session require being the machine that
+   * holds it.
+   *
+   * It still answers `{ ok: true }` either way. A logout that reports whether
+   * the token it was handed was real would be a token oracle, and the caller
+   * has nothing to do differently: the session it wanted ended is, from its
+   * side, ended.
+   */
   app.post("/auth/logout", (c) => {
     const token = readSessionToken(c);
-    if (token) deps.sessions.revoke(token);
+    if (token && deps.sessions.find(token, requestOrigin(c))) deps.sessions.revoke(token);
     return c.json({ ok: true });
   });
 

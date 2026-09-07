@@ -66,6 +66,11 @@ const uiAr = {
   "ui.documentDetail.effects": "تأثيرات هذا المستند",
   "ui.report.run": "عرض التقرير",
   "ui.report.loading": "جارٍ التحميل…",
+  // print-nav
+  "ui.report.print": "طباعة",
+  "ui.report.savePdf": "حفظ PDF",
+  "ui.report.savingPdf": "جارٍ الحفظ…",
+  "ui.report.pdfSaved": "حُفظ الملف في: {path}",
   "ui.report.exporting": "جارٍ التصدير…",
   "ui.report.exportCsv": "تصدير CSV",
   "ui.report.exportExcel": "تصدير Excel",
@@ -140,6 +145,12 @@ const uiAr = {
   "print.totals.grandTotal": "الإجمالي",
   "print.notes": "ملاحظات: {value}",
   "print.etaUuid": "رقم الفاتورة الإلكترونية لدى مصلحة الضرائب:",
+
+  // print-nav
+  "print.etaQrPlaceholder": "رمز QR للفاتورة الإلكترونية",
+  "print.ledger.debit": "مدين",
+  "print.ledger.credit": "دائن",
+  "print.ledger.balance": "الرصيد",
 
   // spreadsheet import
   "import.noSheet": "الملف لا يحتوي على أي ورقة بيانات",
@@ -297,6 +308,11 @@ const uiEn: Record<UiTranslationKey, string> = {
   "ui.documentDetail.effects": "What this document affects",
   "ui.report.run": "Run report",
   "ui.report.loading": "Loading…",
+  // print-nav
+  "ui.report.print": "Print",
+  "ui.report.savePdf": "Save as PDF",
+  "ui.report.savingPdf": "Saving…",
+  "ui.report.pdfSaved": "Saved to: {path}",
   "ui.report.exporting": "Exporting…",
   "ui.report.exportCsv": "Export CSV",
   "ui.report.exportExcel": "Export Excel",
@@ -371,6 +387,12 @@ const uiEn: Record<UiTranslationKey, string> = {
   "print.totals.grandTotal": "Total",
   "print.notes": "Notes: {value}",
   "print.etaUuid": "ETA e-invoice identifier:",
+
+  // print-nav
+  "print.etaQrPlaceholder": "E-invoice QR code",
+  "print.ledger.debit": "Debit",
+  "print.ledger.credit": "Credit",
+  "print.ledger.balance": "Balance",
 
   // spreadsheet import
   "import.noSheet": "The file contains no data sheet",

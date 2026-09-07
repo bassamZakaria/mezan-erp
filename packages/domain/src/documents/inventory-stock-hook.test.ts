@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Qty } from "../money/index.js";
+import { Money, Qty } from "../money/index.js";
 import { createInventoryStockHook } from "./inventory-stock-hook.js";
 import type { StockLedgerService } from "../inventory/index.js";
 import type { DocumentStockPlan } from "./hooks.js";
@@ -44,5 +44,66 @@ describe("createInventoryStockHook", () => {
         lines: [{ itemId: "I1", direction: "OUT", qty: Qty.fromMajor("999") }],
       }),
     ).rejects.toThrow("NEGATIVE_STOCK");
+  });
+});
+
+/** guards B-10 — a reversed document's goods stayed on hand while the GL had been credited. */
+describe("createInventoryStockHook.reverse", () => {
+  const plan: DocumentStockPlan = {
+    sourceDocType: "SALES_RETURN",
+    sourceDocId: "SR1-REV",
+    sourceDocNumber: "SR-000002",
+    warehouseId: "WH1",
+    lines: [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("5") }],
+    date: "2026-08-22",
+  };
+
+  it("mirrors every movement of the original at the cost it was recorded at", async () => {
+    const applyDocumentStockPlan = vi.fn().mockResolvedValue({ valueMoved: Money.zero() });
+    const getMovementsOfDocument = vi.fn().mockResolvedValue([
+      { itemId: "I1", warehouseId: "WH9", direction: "OUT", qty: Qty.fromMajor("3"), unitCost: Money.fromMajor("40.00") },
+      { itemId: "I2", warehouseId: "WH9", direction: "IN", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("15.50") },
+      // A landed cost: value with no quantity. Nothing to give back.
+      { itemId: "I3", warehouseId: "WH9", direction: "IN", qty: Qty.fromMajor("0"), unitCost: Money.zero() },
+    ]);
+    const service = { applyDocumentStockPlan, getMovementsOfDocument } as unknown as StockLedgerService;
+
+    await createInventoryStockHook(service).reverse!(plan, "SR1");
+
+    expect(getMovementsOfDocument).toHaveBeenCalledWith("SR1");
+    const applied = applyDocumentStockPlan.mock.calls[0]![0];
+    // Keyed to the REVERSING document, in the warehouse the goods actually moved in.
+    expect(applied.sourceDocId).toBe("SR1-REV");
+    expect(applied.warehouseId).toBe("WH9");
+    expect(applied.lines).toHaveLength(2);
+    expect(applied.lines[0].direction).toBe("IN");
+    expect(applied.lines[0].unitCost.toString()).toBe("40.000000");
+    expect(applied.lines[1].direction).toBe("OUT");
+  });
+
+  it("moves nothing when the original never moved stock", async () => {
+    const applyDocumentStockPlan = vi.fn();
+    const service = {
+      applyDocumentStockPlan,
+      getMovementsOfDocument: vi.fn().mockResolvedValue([]),
+    } as unknown as StockLedgerService;
+
+    const result = await createInventoryStockHook(service).reverse!(plan, "SR1");
+    expect(applyDocumentStockPlan).not.toHaveBeenCalled();
+    expect(result.valueMoved.toString()).toBe("0.000000");
+  });
+
+  it("refuses rather than guess when the original spanned two warehouses", async () => {
+    const service = {
+      applyDocumentStockPlan: vi.fn(),
+      getMovementsOfDocument: vi.fn().mockResolvedValue([
+        { itemId: "I1", warehouseId: "WH1", direction: "OUT", qty: Qty.fromMajor("3"), unitCost: Money.fromMajor("40.00") },
+        { itemId: "I1", warehouseId: "WH2", direction: "IN", qty: Qty.fromMajor("3"), unitCost: Money.fromMajor("40.00") },
+      ]),
+    } as unknown as StockLedgerService;
+
+    await expect(createInventoryStockHook(service).reverse!(plan, "TR1")).rejects.toThrow(
+      "لا يمكن عكس حركة مخزنية موزّعة على أكثر من مستودع",
+    );
   });
 });

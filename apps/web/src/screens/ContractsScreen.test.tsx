@@ -166,7 +166,7 @@ describe("ContractsScreen", () => {
       "GET /hr/employees": () => ({ body: sampleEmployees }),
     });
     renderWithProviders(<ContractsScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل العقود.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل العقود. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 });

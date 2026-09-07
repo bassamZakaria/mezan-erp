@@ -207,7 +207,7 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
     return (itemId: string) => byId.get(itemId)?.code ?? "—";
   }, [itemsQuery.data]);
 
-  if (warehousesQuery.isError) return <TabError message={t("branches.couldNotLoadTheBranch")} onRetry={() => warehousesQuery.refetch()} />;
+  if (warehousesQuery.isError) return <TabError message={warehousesQuery.error?.message ?? t("branches.couldNotLoadTheBranch")} onRetry={() => warehousesQuery.refetch()} />;
   if (warehouses.length === 0) {
     return (
       <EmptyTab
@@ -216,7 +216,7 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
       />
     );
   }
-  if (stockQuery.isError) return <TabError message={t("branches.couldNotLoadTheBranch2")} onRetry={() => stockQuery.refetch()} />;
+  if (stockQuery.isError) return <TabError message={stockQuery.error?.message ?? t("branches.couldNotLoadTheBranch2")} onRetry={() => stockQuery.refetch()} />;
   if (stockQuery.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("branches.loadingStock")}</p>;
 
   const rows = [...(stockQuery.data ?? [])].sort((a, b) => {
@@ -285,7 +285,7 @@ function BranchEmployeesTab({ branch }: { branch: BranchDTO }) {
     [query.data, branch.id],
   );
 
-  if (query.isError) return <TabError message={t("branches.couldNotLoadTheBranch3")} onRetry={() => query.refetch()} />;
+  if (query.isError) return <TabError message={query.error?.message ?? t("branches.couldNotLoadTheBranch3")} onRetry={() => query.refetch()} />;
   if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("branches.loadingEmployees")}</p>;
   if (employees.length === 0) {
     return (
@@ -349,7 +349,7 @@ function BranchAssetsTab({ branch }: { branch: BranchDTO }) {
     return (categoryId: string) => byId.get(categoryId) ?? categoryId;
   }, [categoriesQuery.data]);
 
-  if (query.isError) return <TabError message={t("branches.couldNotLoadTheBranch4")} onRetry={() => query.refetch()} />;
+  if (query.isError) return <TabError message={query.error?.message ?? t("branches.couldNotLoadTheBranch4")} onRetry={() => query.refetch()} />;
   if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("branches.loadingAssets")}</p>;
   if (assets.length === 0) {
     return (
@@ -472,7 +472,7 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
   if (salesQuery.isError || purchasesQuery.isError || vouchersQuery.isError) {
     return (
       <TabError
-        message={t("branches.couldNotLoadTheBranch5")}
+        message={salesQuery.error?.message ?? purchasesQuery.error?.message ?? vouchersQuery.error?.message ?? t("branches.couldNotLoadTheBranch5")}
         onRetry={() => {
           salesQuery.refetch();
           purchasesQuery.refetch();
@@ -751,7 +751,7 @@ export function BranchesPage() {
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t("branches.couldNotLoadTheBranches")}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("branches.couldNotLoadTheBranches")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
           {t("common.retry")}
         </Button>

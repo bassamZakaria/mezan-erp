@@ -1,5 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { countMatching, FilterClauses, selectPage } from "./list-query.js";
+import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import {
   Money,
   Qty,
@@ -14,6 +16,7 @@ import {
   type PurchaseInvoice,
   type PurchaseInvoiceLine,
   type PurchaseInvoiceLineKind,
+  type PurchaseInvoiceListFilter,
   type PurchaseInvoiceRepository,
   type PurchaseInvoiceStatus,
 } from "@mezan/domain";
@@ -99,7 +102,7 @@ class SqlitePurchaseOrderStore implements PurchaseOrderRepository {
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
+  constructor(sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
     this.upsert = sqlite.prepare(`
       INSERT INTO purchase_order (id, number, supplier_id, date, expected_delivery_date, branch_id, warehouse_id, currency, notes, lines, status, created_by, created_at)
       VALUES (@id, @number, @supplier_id, @date, @expected_delivery_date, @branch_id, @warehouse_id, @currency, @notes, @lines, @status, @created_by, @created_at)
@@ -125,6 +128,8 @@ class SqlitePurchaseOrderStore implements PurchaseOrderRepository {
   }
   async update(order: PurchaseOrder): Promise<void> {
     this.write(order);
+    // N-9: any write moves the version, whichever path made the change.
+    this.versions?.bump(order.id);
   }
   private write(o: PurchaseOrder): void {
     this.upsert.run({
@@ -304,6 +309,10 @@ CREATE TABLE IF NOT EXISTS purchase_invoice (
   created_at              TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pi_supplier ON purchase_invoice(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_pi_status ON purchase_invoice(status);
+-- The list and every aging/report read order by date; without this the only
+-- plan was a full scan and a sort of the table (Q-8).
+CREATE INDEX IF NOT EXISTS idx_pi_date ON purchase_invoice(date);
 `;
 
 interface PiRow {
@@ -368,9 +377,8 @@ function piToDomain(row: PiRow): PurchaseInvoice {
 class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
   private readonly upsert: Database.Statement;
   private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
+  constructor(private readonly sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
     this.upsert = sqlite.prepare(`
       INSERT INTO purchase_invoice (id, number, supplier_id, date, due_date, supplier_invoice_number, branch_id, warehouse_id, currency, notes, receipt_id, lines, status, fx_rate, created_by, created_at)
       VALUES (@id, @number, @supplier_id, @date, @due_date, @supplier_invoice_number, @branch_id, @warehouse_id, @currency, @notes, @receipt_id, @lines, @status, @fx_rate, @created_by, @created_at)
@@ -382,21 +390,55 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
         fx_rate = excluded.fx_rate
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM purchase_invoice WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM purchase_invoice`);
   }
 
   async findById(id: string): Promise<PurchaseInvoice | null> {
     const row = this.selectById.get(id) as PiRow | undefined;
     return row ? piToDomain(row) : null;
   }
-  async list(): Promise<PurchaseInvoice[]> {
-    return (this.selectAll.all() as PiRow[]).map(piToDomain);
+
+  private clausesFor(filter: PurchaseInvoiceListFilter): FilterClauses {
+    const where = new FilterClauses()
+      .eq("status", filter.status)
+      .eq("supplier_id", filter.supplierId)
+      .gte("date", filter.fromDate)
+      .lte("date", filter.toDate)
+      .eq("branch_id", filter.branchId)
+      .eq("warehouse_id", filter.warehouseId);
+    if (filter.statusIn) {
+      // An empty set matches nothing, exactly as asked — dropping the clause
+      // would widen it to every status.
+      if (filter.statusIn.length === 0) where.raw("0 = 1");
+      else where.raw(`status IN (${filter.statusIn.map(() => "?").join(",")})`, ...filter.statusIn);
+    }
+    const term = filter.search?.trim();
+    if (term) {
+      const like = `%${term.toLowerCase()}%`;
+      where.raw("(LOWER(number) LIKE ? OR LOWER(COALESCE(supplier_invoice_number, '')) LIKE ?)", like, like);
+    }
+    return where;
+  }
+
+  async list(filter: PurchaseInvoiceListFilter = {}): Promise<PurchaseInvoice[]> {
+    const rows = selectPage<PiRow>(this.sqlite, {
+      table: "purchase_invoice",
+      where: this.clausesFor(filter),
+      orderBy: "date, id",
+      page: { limit: filter.limit, offset: filter.offset },
+    });
+    return rows.map(piToDomain);
+  }
+
+  async count(filter: PurchaseInvoiceListFilter = {}): Promise<number> {
+    return countMatching(this.sqlite, "purchase_invoice", this.clausesFor(filter));
   }
   async create(invoice: PurchaseInvoice): Promise<void> {
     this.write(invoice);
   }
   async update(invoice: PurchaseInvoice): Promise<void> {
     this.write(invoice);
+    // N-9: any write moves the version, whichever path made the change.
+    this.versions?.bump(invoice.id);
   }
   private write(inv: PurchaseInvoice): void {
     this.upsert.run({
@@ -434,12 +476,16 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
 // --- Factories -------------------------------------------------------------
 
 export interface SqlitePurchaseOrderStoreHandle extends PurchaseOrderRepository {
+  /** N-9 — the row version an optimistic update compares against. */
+  readonly versions: DocumentVersionStore;
   close(): void;
 }
 export interface SqliteGoodsReceiptStoreHandle extends GoodsReceiptRepository {
   close(): void;
 }
 export interface SqlitePurchaseInvoiceStoreHandle extends PurchaseInvoiceRepository {
+  /** N-9 — the row version an optimistic update compares against. */
+  readonly versions: DocumentVersionStore;
   close(): void;
 }
 
@@ -447,7 +493,9 @@ export interface SqlitePurchaseInvoiceStoreHandle extends PurchaseInvoiceReposit
 export function createSqlitePurchaseOrderStore(path: SqliteConnectionInput = ":memory:"): SqlitePurchaseOrderStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_PO);
-  return Object.assign(new SqlitePurchaseOrderStore(sqlite), { close: () => { if (owned) sqlite.close(); } });
+  addVersionColumns(sqlite, "purchase_order");
+  const versions = createDocumentVersionStore(sqlite, "purchase_order");
+  return Object.assign(new SqlitePurchaseOrderStore(sqlite, versions), { versions, close: () => { if (owned) sqlite.close(); } });
 }
 
 /** Open a SQLite-backed GoodsReceiptRepository. */
@@ -467,7 +515,9 @@ export function createSqlitePurchaseInvoiceStore(path: SqliteConnectionInput = "
   if (!piColumns.some((c) => c.name === "fx_rate")) {
     sqlite.exec(`ALTER TABLE purchase_invoice ADD COLUMN fx_rate TEXT`);
   }
-  return Object.assign(new SqlitePurchaseInvoiceStore(sqlite), { close: () => { if (owned) sqlite.close(); } });
+  addVersionColumns(sqlite, "purchase_invoice");
+  const versions = createDocumentVersionStore(sqlite, "purchase_invoice");
+  return Object.assign(new SqlitePurchaseInvoiceStore(sqlite, versions), { versions, close: () => { if (owned) sqlite.close(); } });
 }
 
 /**

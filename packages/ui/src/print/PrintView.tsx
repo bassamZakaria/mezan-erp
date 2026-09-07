@@ -160,6 +160,61 @@ export function PrintView({ config, document, showToolbar = true, className }: P
             <p className="text-[11px] text-ink-muted">{t("print.paymentTerms", { value: document.paymentTerms })}</p>
           ) : null}
 
+          {document.ledger ? (
+            <>
+              {document.ledger.periodLabel ? (
+                <p className="text-[11px] font-semibold text-ink-muted">{document.ledger.periodLabel}</p>
+              ) : null}
+              <table className="w-full border-collapse text-[11px]">
+                <thead>
+                  <tr className="border-y-2 text-start" style={{ borderColor: identity.primaryColor }}>
+                    {document.ledger.columns.map((col) => (
+                      <th key={col.key} className={cn("p-[6px_8px] font-semibold", col.align === "end" ? "text-end" : "text-start")}>
+                        {col.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {document.ledger.rows.map((row) => (
+                    <tr key={row.key} className="border-b border-border">
+                      {document.ledger!.columns.map((col) => {
+                        const value = row.cells[col.key];
+                        return (
+                          <td
+                            key={col.key}
+                            className={cn("p-[6px_8px]", col.align === "end" && "text-end", (col.money || col.align === "end") && "mz-num")}
+                          >
+                            {value === null || value === undefined
+                              ? ""
+                              : col.money && typeof value === "number"
+                                ? formatNumber(value, { minimumFractionDigits: 2 })
+                                : String(value)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="flex justify-end">
+                <div className="flex w-full max-w-[280px] flex-col gap-[4px] text-[11.5px]">
+                  {document.ledger.footer.map((row) => (
+                    <div
+                      key={row.label}
+                      className={cn("flex justify-between", row.emphasis && "border-t pt-[6px] text-[13.5px] font-bold")}
+                      style={row.emphasis ? { borderColor: identity.primaryColor } : undefined}
+                    >
+                      <span className={row.emphasis ? undefined : "text-ink-muted"}>{row.label}</span>
+                      <Money value={row.value} currencyLabel={currencyLabel} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
           <table className="w-full border-collapse text-[11px]">
             <thead>
               <tr className="border-y-2 text-start" style={{ borderColor: identity.primaryColor }}>
@@ -228,6 +283,8 @@ export function PrintView({ config, document, showToolbar = true, className }: P
               </div>
             </div>
           </div>
+            </>
+          )}
 
           {totalsConfig.showAmountInWords && document.totals.amountInWords ? (
             <p className="rounded-md bg-surface-2 p-[8px_10px] text-[11px] font-semibold text-ink">
@@ -247,13 +304,26 @@ export function PrintView({ config, document, showToolbar = true, className }: P
             </div>
           ) : null}
 
+          {/*
+            The authority's block, and ONLY on a document the authority has
+            accepted. The square is a stated placeholder, not a drawn code:
+            the ETA QR encodes the signed submission, which this build cannot
+            produce (P-1), and printing an invented pattern beside a real UUID
+            would put a scannable-looking mark on a tax document that decodes
+            to nothing.
+          */}
           {document.etaUuid ? (
-            <p className="mt-[8px] border-t border-border pt-[6px] text-center text-[10px] text-ink-muted">
-              <span>{t("print.etaUuid")}</span>{" "}
-              <span className="mz-num" dir="ltr">
-                {document.etaUuid}
-              </span>
-            </p>
+            <div className="mt-[8px] flex items-center justify-center gap-[10px] border-t border-border pt-[8px]">
+              <div className="flex h-[54px] w-[54px] flex-none items-center justify-center rounded-sm border border-dashed border-border p-[4px] text-center text-[7.5px] leading-[1.15] text-ink-faint">
+                {t("print.etaQrPlaceholder")}
+              </div>
+              <p className="text-[10px] text-ink-muted">
+                <span>{t("print.etaUuid")}</span>{" "}
+                <span className="mz-num" dir="ltr">
+                  {document.etaUuid}
+                </span>
+              </p>
+            </div>
           ) : null}
 
           {footer.text ? <p className="mt-[6px] text-center text-[10px] text-ink-faint">{footer.text}</p> : null}

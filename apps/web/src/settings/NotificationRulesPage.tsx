@@ -146,13 +146,30 @@ export function NotificationRulesPage() {
     }));
   }, [triggerCatalog.data, t]);
 
-  const channelOptions = useMemo(() => {
-    const implemented = triggerCatalog.data?.implementedChannels;
-    return NOTIFICATION_CHANNELS.map((c) => ({
-      value: c,
-      label: !implemented || implemented.includes(c) ? t(CHANNEL_KEY[c]) : `${t(CHANNEL_KEY[c])}${t("notifRules.channelQueuedSuffix")}`,
-    }));
-  }, [triggerCatalog.data, t]);
+  /**
+   * Which channels this build can actually DELIVER on. Until the triggers
+   * endpoint answers, nothing is marked undeliverable — labelling a working
+   * channel "not enabled" is the same lie in the other direction.
+   */
+  const implementedChannels = triggerCatalog.data?.implementedChannels;
+  const hasTransport = (c: NotificationChannel) => !implementedChannels || implementedChannels.includes(c);
+
+  const channelLabel = (c: NotificationChannel) =>
+    hasTransport(c) ? t(CHANNEL_KEY[c]) : `${t(CHANNEL_KEY[c])}${t("notifRules.channelNoTransport")}`;
+
+  const channelOptions = useMemo(
+    () =>
+      NOTIFICATION_CHANNELS.map((c) => ({
+        value: c,
+        label: channelLabel(c),
+        // Not merely labelled: a rule cannot be SAVED against a channel with no
+        // transport. «قيد الإرسال» read as "on its way" and the operator went
+        // back to the screen for a message that was never going to arrive.
+        disabled: !hasTransport(c),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [implementedChannels, t],
+  );
 
   const filtered = rules.filter((r) => {
     if (statusFilter === "active") return r.active;
@@ -235,7 +252,18 @@ export function NotificationRulesPage() {
     {
       key: "channels",
       header: t("notifRules.col.channels"),
-      render: (r) => <span className="text-[12.5px] text-ink-muted">{r.channels.map((c) => t(CHANNEL_KEY[c])).join(t("notifRules.channelSeparator"))}</span>,
+      // The SAME caveat the form carries. The table dropped it, so a rule saved
+      // on «البريد» read as working the moment the panel closed.
+      render: (r) => (
+        <span className="text-[12.5px] text-ink-muted">
+          {r.channels.map((c, i) => (
+            <span key={c} className={hasTransport(c) ? undefined : "text-warning-ink"}>
+              {i > 0 ? t("notifRules.channelSeparator") : null}
+              {channelLabel(c)}
+            </span>
+          ))}
+        </span>
+      ),
     },
     {
       key: "status",

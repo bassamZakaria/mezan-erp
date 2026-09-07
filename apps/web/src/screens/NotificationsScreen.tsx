@@ -161,7 +161,7 @@ export function NotificationsScreen() {
     <>
       {listQuery.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("notifications.screen.couldNotLoad")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{listQuery.error?.message ?? t("notifications.screen.couldNotLoad")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => listQuery.refetch()}>
             {t("common.retry")}
           </Button>

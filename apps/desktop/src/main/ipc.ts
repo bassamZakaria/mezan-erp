@@ -1,11 +1,17 @@
-import { ipcMain } from "electron";
+import { writeFile } from "node:fs/promises";
+import { BrowserWindow, dialog } from "electron";
+import { handleGuarded } from "./ipc-guard.js";
 import type { App } from "@mezan/api";
+import { LanClientError, MAX_RESPONSE_BYTES, tooLargeResponse } from "./lan-client.js";
 import {
   MEZAN_FETCH_CHANNEL,
   MEZAN_PRINT_TO_PDF_CHANNEL,
+  MEZAN_SAVE_PDF_CHANNEL,
   type IpcFetchRequest,
   type IpcFetchResponse,
   type PrintToPdfOptions,
+  type SavePdfOptions,
+  type SavePdfResult,
 } from "../shared/ipc-contract.js";
 
 /**
@@ -16,7 +22,7 @@ import {
  * the response as a structured-clone-safe plain object.
  */
 export function registerHonoOverIpc(honoApp: App): void {
-  ipcMain.handle(
+  handleGuarded(
     MEZAN_FETCH_CHANNEL,
     async (_event, req: IpcFetchRequest): Promise<IpcFetchResponse> => {
       const response = await honoApp.fetch(
@@ -51,10 +57,21 @@ export function registerHonoOverIpc(honoApp: App): void {
             (authenticated ? "" : " (no-token)"),
         );
       }
+      // Sized before it is decoded, so an over-limit body is never turned into
+      // a JS string just to be thrown away — that string, once materialised,
+      // would be copied again crossing structured-clone into the renderer.
+      const encodedBody = new Uint8Array(await response.arrayBuffer());
+      if (encodedBody.byteLength > MAX_RESPONSE_BYTES) {
+        console.warn(
+          `[ipc] ${req.method ?? "GET"} ${new URL(req.url).pathname} refused: ` +
+            `${encodedBody.byteLength} bytes exceeds the ${MAX_RESPONSE_BYTES}-byte transfer limit`,
+        );
+        return tooLargeResponse();
+      }
       return {
         status: response.status,
         headers,
-        body: await response.text(),
+        body: new TextDecoder().decode(encodedBody),
       };
     },
   );
@@ -82,8 +99,12 @@ export function registerHonoOverLanClient(
     headers: Record<string, string>;
     body: string;
   }>,
+  /** The paired host, for the `{host}` parameter every LAN failure message takes. */
+  hostUrl?: string,
+  /** The pinned fingerprint, so a mismatch screen can show expected beside presented. */
+  expectedFingerprint?: string,
 ): void {
-  ipcMain.handle(
+  handleGuarded(
     MEZAN_FETCH_CHANNEL,
     async (_event, req: IpcFetchRequest): Promise<IpcFetchResponse> => {
       // The renderer addresses `http://mezan.local/sales-invoices` (see
@@ -107,14 +128,30 @@ export function registerHonoOverLanClient(
         }
         return response;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
         console.error("[client] request to the host failed", err);
+        // A CODE AND THE HOST, NEVER THE ENGLISH SENTENCE.
+        //
+        // This used to interpolate the transport's own message — "No answer
+        // from https://192.168.1.7:4173 within 30000ms" — into an Arabic
+        // wrapper, so a sleeping host, a closed app, a changed IP, a firewall
+        // and a certificate mismatch all reached the shop as the same
+        // bilingual paragraph with a URL and a millisecond count in it. The
+        // renderer holds five distinct Arabic messages keyed on `code`
+        // (`lan.error.*`); what it cannot do is invent the code, so the pair
+        // travels and the prose does not.
+        const lan = err instanceof LanClientError ? err : null;
         return {
           status: 502,
           headers: { "content-type": "application/json; charset=UTF-8" },
           body: JSON.stringify({
             error: "HOST_UNREACHABLE",
-            message: `تعذّر الوصول إلى الجهاز الرئيسي. Could not reach the main machine. ${message}`,
+            code: lan?.code ?? "UNREACHABLE",
+            host: lan?.host ?? hostUrl,
+            ...(lan?.presentedFingerprint ? { presentedFingerprint: lan.presentedFingerprint } : {}),
+            ...(expectedFingerprint ? { expectedFingerprint } : {}),
+            // Kept for a log and for a screen that has no catalog entry yet;
+            // the renderer prefers `code` and only falls back to this.
+            message: err instanceof Error ? err.message : String(err),
           }),
         };
       }
@@ -130,7 +167,7 @@ export function registerHonoOverLanClient(
  * `window.print()`.
  */
 export function registerPrintToPdfOverIpc(): void {
-  ipcMain.handle(
+  handleGuarded(
     MEZAN_PRINT_TO_PDF_CHANNEL,
     async (event, options?: PrintToPdfOptions): Promise<Uint8Array> => {
       const pdf = await event.sender.printToPDF({
@@ -138,6 +175,48 @@ export function registerPrintToPdfOverIpc(): void {
         pageSize: options?.pageSize ?? "A4",
       });
       return new Uint8Array(pdf);
+    },
+  );
+}
+
+/**
+ * `mezan:print:pdf` — render the calling page to PDF and WRITE it where the
+ * operator says (P-6).
+ *
+ * `mezan:printToPdf` returns bytes, and the renderer can do nothing with
+ * them: an `<a download>` is inert inside the app's sandbox, so every report's
+ * «PDF» button either did nothing or opened a print dialog. The save dialog
+ * and the write both belong to the main process, which is the only side that
+ * may touch the filesystem.
+ *
+ * A dismissed dialog is `cancelled`, not an error — the caller must not show
+ * a failure for a decision the operator made.
+ */
+export function registerSavePdfOverIpc(): void {
+  handleGuarded(
+    MEZAN_SAVE_PDF_CHANNEL,
+    async (event, options?: SavePdfOptions): Promise<SavePdfResult> => {
+      try {
+        const pdf = await event.sender.printToPDF({
+          landscape: options?.landscape ?? false,
+          pageSize: options?.pageSize ?? "A4",
+        });
+        const owner = BrowserWindow.fromWebContents(event.sender);
+        const defaultPath = `${(options?.defaultFileName ?? "mezan").replace(/[/\\:*?"<>|]/g, "-")}.pdf`;
+        const choice = await (owner
+          ? dialog.showSaveDialog(owner, { defaultPath, filters: [{ name: "PDF", extensions: ["pdf"] }] })
+          : dialog.showSaveDialog({ defaultPath, filters: [{ name: "PDF", extensions: ["pdf"] }] }));
+        if (choice.canceled || !choice.filePath) return { ok: false, cancelled: true };
+        await writeFile(choice.filePath, pdf);
+        return { ok: true, path: choice.filePath };
+      } catch (err) {
+        return {
+          ok: false,
+          cancelled: false,
+          // Arabic-first: the operator reads this, not the stack behind it.
+          message: `تعذّر حفظ ملف PDF. ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
     },
   );
 }

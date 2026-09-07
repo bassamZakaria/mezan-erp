@@ -101,7 +101,10 @@ describe("SequencesPage — edit panel", () => {
     expect(called).toBe(false);
   });
 
-  it("DEFECT: a save the backend refuses shows only the generic Arabic fallback, not the server's specific reason — useUpdateSequence (platform-hooks.ts) never reads the response body's message field", async () => {
+  // guards §4.5 #13 — this test used to pin the DEFECT: every failed save
+  // showed one fixed sentence whatever the backend said. `readError` now
+  // carries the server's own reason to the screen.
+  it("shows the server's own reason for a refused save, not the generic fallback", async () => {
     const transport = stubTransport({
       "GET /sequences": () => ({ body: [sequenceOne] }),
       "PATCH /sequences/*": () => ({ status: 409, body: { message: "البادئة مستخدمة في تسلسل آخر" } }),
@@ -112,12 +115,8 @@ describe("SequencesPage — edit panel", () => {
     fireEvent.change(screen.getByDisplayValue("TS-"), { target: { value: "DUP-" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
 
-    // Pinning the CURRENT behavior: the specific server reason never reaches
-    // the screen — every failed save shows this one fixed sentence, whatever
-    // the backend actually said. See the report for the fix (read `res.json()`
-    // and surface `body.message`, as barcode-config-hooks.ts's readError does).
-    expect(await screen.findByText("تعذّر حفظ إعدادات التسلسل.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText("البادئة مستخدمة في تسلسل آخر")).not.toBeInTheDocument());
+    expect(await screen.findByText("البادئة مستخدمة في تسلسل آخر")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("تعذّر حفظ إعدادات التسلسل.")).not.toBeInTheDocument());
   });
 
   it("closing and reopening the panel for a DIFFERENT row shows that row's own current/next figures, not the previous row's", async () => {

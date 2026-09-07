@@ -101,25 +101,27 @@ export function createBalanceSheetReport(
     run: (params, ctx) => {
       const balances = netBalancesByAccount(ctx.journalEntries, { to: params.asOfDate });
       const rows: BalanceSheetRow[] = [];
-      let retainedEarnings = 0;
+      // Retained earnings accumulates across every P&L account in the chart, so
+      // it is the figure most exposed to float drift — kept in `Money` (C-10).
+      let retainedEarnings = Money.zero();
 
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
         const section = classifyAccount(account, ctx.cashAccountIds);
-        const net = moneyToNumber(balances.get(account.id) ?? Money.zero());
+        const net = balances.get(account.id) ?? Money.zero();
 
         // Revenue/expense don't appear on the balance sheet — they accumulate
         // into retained earnings (net income to date), added under equity below.
         if (section === "revenue" || section === "expense") {
-          retainedEarnings += -net;
+          retainedEarnings = retainedEarnings.add(net.negate());
           continue;
         }
-        if (net === 0) continue;
+        if (net.scaled === 0n) continue;
 
         const isAsset = ASSET_SECTIONS.includes(section);
         // Assets are debit-normal (net>0); liabilities/equity credit-normal
         // (net<0) — present every section as a positive natural balance.
-        const amount = isAsset ? net : -net;
+        const amount = moneyToNumber(isAsset ? net : net.negate());
         rows.push({
           rowId: account.id,
           code: account.code,
@@ -132,7 +134,7 @@ export function createBalanceSheetReport(
         });
       }
 
-      if (retainedEarnings !== 0) {
+      if (retainedEarnings.scaled !== 0n) {
         rows.push({
           rowId: "_retained-earnings",
           code: "",
@@ -140,7 +142,7 @@ export function createBalanceSheetReport(
           nameEn: "Retained earnings (net income for the period)",
           sectionKey: "equity",
           sectionLabel: ACCOUNT_SECTION_LABELS.equity,
-          amount: retainedEarnings,
+          amount: moneyToNumber(retainedEarnings),
           side: "liability-equity",
         });
       }

@@ -31,7 +31,23 @@ export const manifestSchema = z.object({
   /** Row count per user table, for a cheap post-restore sanity display. */
   tables: z.record(z.string(), z.number().int().nonnegative()),
   /** Reason this backup was taken — surfaced in the restore picker. */
-  reason: z.enum(["manual", "scheduled", "pre-migration", "on-close"]),
+  reason: z.enum(["manual", "scheduled", "pre-migration", "on-close", "pre-update"]),
+  /**
+   * ISO timestamp of the last successful FULL `PRAGMA integrity_check` this
+   * install ran, carried forward on a backup that only re-proved itself the
+   * cheaper way (checksum + extract + header) under the weekly cadence.
+   * Absent/`null` means never run — always due. Absent entirely on an archive
+   * from before this field existed, which restore treats the same as `null`.
+   */
+  lastIntegrityCheckAt: z.string().datetime().nullable().optional(),
+  /**
+   * Attachment archive members stored beside the archive, uncompressed,
+   * because their file type already is (jpg, mp4, zip, ...) — skipped from
+   * the gzip'd tar rather than compressed twice for nothing. Absent/empty on
+   * every archive with no attachments, which is every archive so far: the
+   * attachments feature itself has not shipped yet.
+   */
+  looseAttachments: z.array(z.string()).optional(),
 });
 
 export type BackupManifest = z.infer<typeof manifestSchema>;
@@ -65,6 +81,8 @@ export function buildManifest(params: {
   reason: BackupReason;
   schemaVersion?: number;
   createdAt?: Date;
+  lastIntegrityCheckAt?: string | null;
+  looseAttachments?: readonly string[];
 }): BackupManifest {
   return {
     manifestFormat: MANIFEST_FORMAT,
@@ -74,6 +92,10 @@ export function buildManifest(params: {
     checksum: params.checksum,
     tables: params.tables,
     reason: params.reason,
+    ...(params.lastIntegrityCheckAt !== undefined ? { lastIntegrityCheckAt: params.lastIntegrityCheckAt } : {}),
+    ...(params.looseAttachments && params.looseAttachments.length > 0
+      ? { looseAttachments: [...params.looseAttachments] }
+      : {}),
   };
 }
 

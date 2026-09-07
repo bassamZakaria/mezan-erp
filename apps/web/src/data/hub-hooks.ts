@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useApi } from "./ApiContext";
-import { ApiError, useBranches, useWarehouses } from "./hooks";
+import { ApiError, readError, useBranches, useWarehouses } from "./hooks";
 import type { ScopeSelection } from "./session";
 import webPackageJson from "../../package.json";
 import { useAppTranslation } from "../i18n";
@@ -74,7 +74,7 @@ export function useManufacturingDashboard(): UseQueryResult<ProductionDashboardD
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/dashboard");
-      if (!res.ok) throw new ApiError(res.status, t("production.couldNotLoadTheProduction"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("production.couldNotLoadTheProduction"), t));
       return res.json<ProductionDashboardDTO>();
     },
     refetchInterval: 30_000,
@@ -124,9 +124,47 @@ export interface SystemStatusDTO {
  * is reported only as implied by every other successful mutation in the app,
  * not asserted here.
  */
+/**
+ * THE ONE VERSION SOURCE. «ما هي نسختك؟» is a support question this build gave
+ * three different answers to: the login screen carried the literal
+ * `Mezan 2026.8`, System Status printed the web package's version, and the
+ * backup table printed each archive's manifest. On the desktop edition the
+ * truth is `app.getVersion()` in the main process, so that is asked for over
+ * IPC; on the browser build the bundle's own package version IS the build.
+ *
+ * The web version is the synchronous starting value rather than a placeholder,
+ * so the login screen never paints a blank where a version belongs while the
+ * IPC round trip is in flight.
+ */
+const WEB_VERSION = (webPackageJson as { version: string }).version;
+
+export function useAppVersion(): string {
+  const [version, setVersion] = useState(WEB_VERSION);
+  useEffect(() => {
+    const bridge = (globalThis as { mezan?: { appVersion?: () => Promise<string> } }).mezan;
+    if (!bridge?.appVersion) return;
+    let live = true;
+    void bridge
+      .appVersion()
+      .then((reported) => {
+        if (live && typeof reported === "string" && reported !== "") setVersion(reported);
+      })
+      .catch(() => {
+        // The desktop build that answers this channel is the one that shipped
+        // this bundle; an older one that does not simply leaves the web version
+        // standing, which is the same number.
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return version;
+}
+
 export function useSystemStatus(): UseQueryResult<SystemStatusDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const appVersion = useAppVersion();
   return useQuery<SystemStatusDTO, ApiError>({
     queryKey: ["system-status"],
     enabled: session !== null,
@@ -152,7 +190,7 @@ export function useSystemStatus(): UseQueryResult<SystemStatusDTO, ApiError> {
           latencyMs: db.ok ? db.ms : null,
         },
       ];
-      return { services, checkedAt: new Date().toISOString(), appVersion: (webPackageJson as { version: string }).version };
+      return { services, checkedAt: new Date().toISOString(), appVersion };
     },
   });
 }

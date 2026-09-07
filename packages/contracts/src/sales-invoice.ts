@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 
 /**
  * Wire contracts for Sales Invoices (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
@@ -80,6 +81,13 @@ export const createSalesInvoiceSchema = z.object({
 /** Confirm a draft invoice (posts stock + the AR/revenue/COGS journal entry). */
 export const confirmSalesInvoiceSchema = z.object({
   requestId: z.string().min(1).optional(),
+  /**
+   * N-9 — the `version` the screen was served. Sent back on the act so a second
+   * till acting on a document that has already moved is refused with 409 rather
+   * than silently winning. Optional on the wire so an older client keeps
+   * working; enforced whenever it is present.
+   */
+  expectedVersion: z.number().int().positive().optional(),
 });
 
 /** Record a collection against a live invoice. */
@@ -128,9 +136,13 @@ export const salesInvoiceListQuerySchema = z.object({
    * One page of rows, 1-based. The list route answers with that page only —
    * the totals every screen needs already come from `/counts` and `/stats`,
    * which are computed over the WHOLE filtered set and are unaffected by it.
+   *
+   * BOTH CARRY A DEFAULT (Q-8). Omitting `pageSize` used to mean "every
+   * invoice in the table"; a default is what makes the unbounded read
+   * unreachable by omission rather than merely discouraged.
    */
-  page: z.coerce.number().int().min(1).optional(),
-  pageSize: z.coerce.number().int().min(1).max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
 });
 
 

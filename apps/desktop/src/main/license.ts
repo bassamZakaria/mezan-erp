@@ -8,6 +8,11 @@ import type {
 } from "@mezan/domain";
 import type { LicenseStateView } from "@mezan/api";
 import { defaultMachineIdReader, type MachineIdReader } from "./machine-fingerprint.js";
+import {
+  checkinMessageAr,
+  type CheckinDecision,
+  type LicenseGuardStore,
+} from "./license-checkin.js";
 
 /**
  * Wires the Ed25519 offline license (docs/archive/plan.md §2.5) into the desktop
@@ -50,9 +55,49 @@ const DEV_WRITABLE_STATE: LicenseStateView = {
   usable: true,
 };
 
+/**
+ * A BUILD PROBLEM, NOT A CUSTOMER PROBLEM — and the two must not read alike.
+ *
+ * `NO_PUBLIC_KEY` means this binary was produced without the vendor key baked
+ * into it, so it cannot verify any licence, including a correct one the shop
+ * has paid for and installed. Showing «لا يوجد ترخيص مُفعّل» there blames the
+ * shop for something only the vendor's release pipeline can fix, and sends them
+ * to buy a second copy of what they already own.
+ */
+export const NO_PUBLIC_KEY_MESSAGE_AR =
+  "هذه النسخة من ميزان بُنيت بدون مفتاح المورّد، ولا يمكنها التحقق من أي ملف ترخيص. " +
+  "المشكلة في النسخة نفسها وليست في ترخيصك. تواصل مع الدعم للحصول على نسخة صحيحة.";
+
+/** Facts about the licence the rest of the process needs, beyond the gate view. */
+export interface LicenseIdentity {
+  /** `payload.licenseId` — what the check-in must send, not the state enum. */
+  readonly licenseId: string | null;
+  /** This machine's SALTED fingerprint hash. Support reads it for a rebind. */
+  readonly fingerprint: string | null;
+  /** The licence's signed start date — the check-in clock's origin. */
+  readonly notBefore: string | null;
+  readonly expiresAt: string | null;
+  readonly graceDays: number | null;
+}
+
+export const UNKNOWN_IDENTITY: LicenseIdentity = {
+  licenseId: null,
+  fingerprint: null,
+  notBefore: null,
+  expiresAt: null,
+  graceDays: null,
+};
+
 export interface DesktopLicense {
   readonly entitlements: EntitlementsView;
   readonly state: LicenseStateView;
+  /**
+   * True ONLY when a signed licence file produced this decision. A dev build
+   * with nothing configured is writable but not verified, and must not have its
+   * (empty) module list gate anything.
+   */
+  readonly verified: boolean;
+  readonly identity: LicenseIdentity;
 }
 
 /** Maps the domain's verify result to the transport-facing state view. */
@@ -64,6 +109,7 @@ export function mapVerifyResult(result: LicenseVerifyResult): LicenseStateView {
       canWrite: result.canWrite,
       usable: result.usable,
       reason: result.reason,
+      fingerprint: result.fingerprint ?? null,
     };
   }
   const expiresAtMs = Date.parse(payload.expiresAt);
@@ -77,6 +123,7 @@ export function mapVerifyResult(result: LicenseVerifyResult): LicenseStateView {
     usable: result.usable,
     licensee: payload.licensee,
     expiresAt: payload.expiresAt,
+    fingerprint: result.fingerprint ?? null,
     ...(graceEndsAt ? { graceEndsAt } : {}),
     ...(result.reason ? { reason: result.reason } : {}),
   };
@@ -108,10 +155,16 @@ export async function decideLicense(input: DecideLicenseInput): Promise<DesktopL
   if (input.licenseRaw) {
     if (!input.publicKey) {
       // A license exists but we cannot verify it — treat as unusable-for-writes
-      // rather than trusting it.
+      // rather than trusting it. The message says whose fault it is.
       return {
         entitlements: UNLICENSED_ENTITLEMENTS,
-        state: { ...UNLICENSED_STATE, reason: "NO_PUBLIC_KEY" },
+        state: {
+          ...UNLICENSED_STATE,
+          reason: "NO_PUBLIC_KEY",
+          messageAr: NO_PUBLIC_KEY_MESSAGE_AR,
+        },
+        verified: false,
+        identity: UNKNOWN_IDENTITY,
       };
     }
     const result = await verifyLicense(input.licenseRaw, {
@@ -124,12 +177,25 @@ export async function decideLicense(input: DecideLicenseInput): Promise<DesktopL
     return {
       entitlements: result.entitlements ?? UNLICENSED_ENTITLEMENTS,
       state: mapVerifyResult(result),
+      verified: result.entitlements !== null,
+      identity: {
+        licenseId: result.payload?.licenseId ?? null,
+        fingerprint: result.fingerprint ?? null,
+        notBefore: result.payload?.notBefore ?? null,
+        expiresAt: result.payload?.expiresAt ?? null,
+        graceDays: result.payload?.graceDays ?? null,
+      },
     };
   }
 
   // No license file. Dev entitlements are a developer convenience only.
   if (input.devEntitlements && !input.packaged) {
-    return { entitlements: input.devEntitlements, state: DEV_WRITABLE_STATE };
+    return {
+      entitlements: input.devEntitlements,
+      state: DEV_WRITABLE_STATE,
+      verified: false,
+      identity: UNKNOWN_IDENTITY,
+    };
   }
 
   // Unpackaged with nothing configured: stay writable so `pnpm start` works.
@@ -143,11 +209,108 @@ export async function decideLicense(input: DecideLicenseInput): Promise<DesktopL
         expiresAt: null,
       }),
       state: DEV_WRITABLE_STATE,
+      verified: false,
+      identity: UNKNOWN_IDENTITY,
     };
   }
 
   // Packaged, no license: fully closed, read-only, awaiting activation.
-  return { entitlements: UNLICENSED_ENTITLEMENTS, state: UNLICENSED_STATE };
+  return {
+    entitlements: UNLICENSED_ENTITLEMENTS,
+    state: UNLICENSED_STATE,
+    verified: false,
+    identity: UNKNOWN_IDENTITY,
+  };
+}
+
+/**
+ * THE PER-REQUEST VERDICT (L-3, L-7).
+ *
+ * The write gate used to close over one `const verdict` computed at startup, so
+ * two things could not happen: pressing «تحقق الآن» could not lift read-only
+ * without a restart — the handler wrote the file and nothing re-read it — and a
+ * licence that expired during a session left open for weeks was never noticed.
+ *
+ * This is what `resolveLicenseState` calls on every mutating request: a small
+ * file read plus arithmetic, no signature check (the signature was verified at
+ * startup and the payload cannot change under us), so it is cheap enough to run
+ * per request and honest enough to change its mind mid-session.
+ */
+export function reevaluateLicenseState(
+  base: DesktopLicense,
+  params: { readonly now: number; readonly checkin: CheckinDecision },
+): LicenseStateView {
+  let state = base.state;
+
+  // 1. The licence's own clock, re-read now rather than at startup.
+  if (base.verified && base.identity.expiresAt !== null && state.usable) {
+    const expiresAt = Date.parse(base.identity.expiresAt);
+    const graceDays = base.identity.graceDays ?? 0;
+    if (!Number.isNaN(expiresAt)) {
+      const graceEnd = expiresAt + graceDays * 86_400_000;
+      if (params.now <= expiresAt) {
+        state = { ...state, state: "ACTIVE", canWrite: true, usable: true };
+      } else if (params.now <= graceEnd) {
+        state = {
+          ...state,
+          state: "GRACE",
+          canWrite: true,
+          usable: true,
+          graceEndsAt: new Date(graceEnd).toISOString(),
+        };
+      } else {
+        state = {
+          ...state,
+          state: "READ_ONLY",
+          canWrite: false,
+          usable: true,
+          reason: "EXPIRED_PAST_GRACE",
+        };
+      }
+    }
+  }
+
+  // 2. The check-in verdict, folded in only for an AUTHENTIC licence. An
+  //    install with no licence at all must keep saying so — "your check-in is
+  //    overdue" would be a wrong answer to "you never had one".
+  if (!base.verified) return state;
+
+  const { verdict, daysSince, blocking } = params.checkin;
+  if (verdict === "revoked") {
+    return {
+      ...state,
+      state: "REVOKED",
+      canWrite: false,
+      usable: true,
+      reason: "REVOKED",
+      messageAr: checkinMessageAr("revoked", 0),
+      blocking: true,
+    };
+  }
+  if (verdict === "tampered") {
+    return {
+      ...state,
+      state: "TAMPERED",
+      canWrite: false,
+      usable: true,
+      reason: "GUARD_TAMPERED",
+      messageAr: checkinMessageAr("tampered", 0),
+      blocking: true,
+    };
+  }
+  if (verdict === "read-only" || verdict === "blocked") {
+    return {
+      ...state,
+      state: "READ_ONLY",
+      canWrite: false,
+      usable: true,
+      reason: "CHECKIN_OVERDUE",
+      messageAr: checkinMessageAr(verdict, daysSince),
+      daysSince,
+      blocking,
+    };
+  }
+  return state;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,32 +328,34 @@ export function createFingerprintSource(
 }
 
 /**
- * File-backed monotonic-clock guard: the greatest wall-clock value ever seen,
- * persisted so a clock rollback between runs (a common offline-license bypass)
- * is caught. Writes are best-effort; a persistence failure must never brick a
- * legitimately-licensed install, so it degrades to "no high-water recorded".
+ * Monotonic-clock guard over the MAC'd guard record: the greatest wall-clock
+ * value ever seen, so a clock rollback between runs (a common offline-license
+ * bypass) is caught.
+ *
+ * It shares ONE record with `lastVerifiedAt` and the install stamp rather than
+ * living in its own `license-clock.json`, because those three facts have to be
+ * consistent with each other to mean anything — the cross-check
+ * `decideCheckin` performs — and because a separate unsigned file was simply
+ * deletable. Writes are best-effort; a persistence failure must never brick a
+ * legitimately-licensed install.
  */
-export function createMonotonicClockStore(
-  filePath: string,
-  fs: {
-    readFile(p: string): string | null;
-    writeFile(p: string, data: string): void;
-  },
-): MonotonicClockStore {
+export function createGuardMonotonicStore(store: LicenseGuardStore): MonotonicClockStore {
   return {
     async getHighWaterMark() {
-      const raw = fs.readFile(filePath);
-      if (!raw) return null;
-      try {
-        const parsed = JSON.parse(raw) as { highWater?: unknown };
-        return typeof parsed.highWater === "number" ? parsed.highWater : null;
-      } catch {
-        return null;
-      }
+      const read = store.read();
+      // A record we cannot vouch for must not be allowed to LOWER the bar: it
+      // is reported as no history here, and `decideCheckin` refuses it
+      // separately with TAMPERED, so nothing is granted by the ambiguity.
+      return read.integrity === "ok" ? read.record.highWater : null;
     },
     async record(epochMs: number) {
       try {
-        fs.writeFile(filePath, JSON.stringify({ highWater: epochMs }));
+        const read = store.read();
+        if (read.integrity === "tampered") return;
+        store.write({
+          ...read.record,
+          highWater: Math.max(read.record.highWater ?? 0, epochMs),
+        });
       } catch {
         // Best-effort; never fatal.
       }

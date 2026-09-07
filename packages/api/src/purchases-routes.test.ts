@@ -6,6 +6,7 @@ import {
   createSqliteAccountRepository,
   createSqliteFiscalPeriodRepository,
   createSqlitePurchasingStores,
+  createSqlitePurchaseOrderStore,
   createSqliteStockLedgerStore,
 } from "@mezan/persistence";
 import { createApp } from "./app.js";
@@ -30,7 +31,7 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   };
 }
 
-async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy } = {}) {
+async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy; withVersions?: boolean } = {}) {
   const uow = createSqliteUnitOfWork();
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
@@ -60,9 +61,14 @@ async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy } = 
     clock: () => "2026-08-21T00:00:00.000Z",
   });
 
+  // N-9 — the version store only exists on the standalone order store handle.
+  const versionedOrders = opts.withVersions ? createSqlitePurchaseOrderStore() : null;
+  if (versionedOrders) closers.push(versionedOrders);
+
   const app = createApp(uow, {
     purchases: {
-      orders: purchasing.orders,
+      orderVersions: versionedOrders ? { versions: versionedOrders.versions } : undefined,
+      orders: versionedOrders ?? purchasing.orders,
       receipts: purchasing.receipts,
       invoices: purchasing.invoices,
       numbering: ledger.numbering,
@@ -538,5 +544,60 @@ describe("purchases-routes — the list surfaces the screens actually read", () 
     await invoiceFromReceipt(app);
     const res = await app.fetch(req("/purchases/invoices/pi-1/fulfilment", { permissions: ADMIN }));
     expect(res.status).toBe(200);
+  });
+});
+
+/**
+ * guards N-9 — the purchase screens act from a LIST row, never from a fresh
+ * detail read. A list that omits `version` leaves the row with nothing to send
+ * back as `expectedVersion`, and the optimistic guard silently never fires.
+ */
+describe("purchases-routes — the list row carries the version the screen acts on", () => {
+  it("serves a version on every order row, and refuses a stale one with 409", async () => {
+    const { app } = await newApp({ withVersions: true });
+
+    await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(orderBody) }));
+
+    const listed = (await (await app.fetch(req("/purchases/orders", { permissions: ADMIN }))).json()) as {
+      id: string;
+      version: number;
+    }[];
+    expect(listed).toHaveLength(1);
+    expect(listed[0]!.version).toBe(1);
+    const staleVersion = listed[0]!.version;
+
+    // A second till gets there first and moves the row.
+    const won = await app.fetch(req("/purchases/orders/po-1/confirm", { method: "POST", permissions: ADMIN }));
+    expect(won.status).toBe(200);
+
+    const refused = await app.fetch(
+      req("/purchases/orders/po-1/cancel", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ expectedVersion: staleVersion }),
+      }),
+    );
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as { error: string; currentVersion: number };
+    expect(body.error).toBe("DOCUMENT_VERSION_CONFLICT");
+    expect(body.currentVersion).toBeGreaterThan(staleVersion);
+  });
+
+  it("lets the act through when the list row's version is still the current one", async () => {
+    const { app } = await newApp({ withVersions: true });
+    await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(orderBody) }));
+
+    const listed = (await (await app.fetch(req("/purchases/orders", { permissions: ADMIN }))).json()) as {
+      version: number;
+    }[];
+    const res = await app.fetch(
+      req("/purchases/orders/po-1/confirm", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ expectedVersion: listed[0]!.version }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe("sent");
   });
 });

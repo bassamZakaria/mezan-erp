@@ -643,7 +643,7 @@ describe("WorkOrdersScreen — list error and navigation", () => {
     });
     renderWithProviders(<WorkOrdersScreen />, { transport, initialSession: testAdminSession });
 
-    expect(await screen.findByText("تعذّر تحميل أوامر التصنيع.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل أوامر التصنيع. (رمز 500)")).toBeInTheDocument();
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
 

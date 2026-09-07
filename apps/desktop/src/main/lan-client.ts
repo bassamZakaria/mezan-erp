@@ -1,6 +1,8 @@
-import { request as httpsRequest, type RequestOptions } from "node:https";
+import type { ClientRequestArgs } from "node:http";
+import { Agent, request as httpsRequest, type RequestOptions } from "node:https";
 import { isIP } from "node:net";
-import { connect as tlsConnect, type TLSSocket } from "node:tls";
+import type { Duplex } from "node:stream";
+import { connect as tlsConnect, type PeerCertificate, type TLSSocket } from "node:tls";
 import type { ClientConfig } from "./client-config.js";
 
 /**
@@ -37,10 +39,15 @@ import type { ClientConfig } from "./client-config.js";
  * (`/auth/login`) or a bearer token in its headers, so "sent it, then decided
  * it was the wrong machine" is indistinguishable from having no pin at all.
  *
- * The cost is one handshake per request: there is no connection reuse here yet.
- * On a shop LAN that is a sub-millisecond round trip, and it buys an ordering
- * that is obviously correct rather than one that depends on the order Node
- * attaches its own listeners in.
+ * THE VERIFIED SOCKET IS THEN POOLED, and that is the whole of the keep-alive
+ * story here. Every request used to open its own handshake: one screen mount is
+ * about ten of them, and the shell's two pollers across five idle tills are
+ * roughly twenty a minute, each an RSA operation on the host's single-threaded
+ * main process. `PinnedAgent` below hands `https.Agent` an ALREADY-VERIFIED
+ * socket through the asynchronous `createConnection(options, callback)` form, so
+ * the agent's own pooling applies to sockets whose identity was settled before
+ * the agent ever saw them — the ordering above is unchanged, and the handshake
+ * is now paid once per connection rather than once per request.
  */
 export interface LanClientResponse {
   readonly status: number;
@@ -48,10 +55,59 @@ export interface LanClientResponse {
   readonly body: string;
 }
 
+/**
+ * 8 MB, HARD, COMPILED IN — never derived from a header or a request the
+ * caller controls (Q-7; "never trust a number the caller supplied"). A
+ * refused transfer is cheap; a 37–51 MB string materialised twice (once past
+ * the socket, once past structured-clone into the renderer) is not.
+ */
+export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+const RESPONSE_TOO_LARGE_MESSAGE =
+  "النتيجة كبيرة جداً على النقل. ضيّق نطاق التاريخ أو الفلتر ثم أعد المحاولة.";
+
+/** guards Q-7 — the one refusal shape both the host's own IPC path and the LAN-client path return. */
+export function tooLargeResponse(): LanClientResponse {
+  return {
+    status: 413,
+    headers: { "content-type": "application/json; charset=UTF-8" },
+    body: JSON.stringify({ error: "RESPONSE_TOO_LARGE", message: RESPONSE_TOO_LARGE_MESSAGE }),
+  };
+}
+
+/**
+ * EVERY WAY REACHING THE HOST CAN FAIL, AS A CODE.
+ *
+ * The message on this error is for a log, not for a shop: it names an origin
+ * and a millisecond count in English. The renderer renders `code` through the
+ * Arabic catalog instead (`lan.error.*`, with `{host}` as the only parameter),
+ * so «الجهاز الرئيسي مطفأ» and «هذه ليست الشهادة المسجَّلة» stop being the same
+ * sentence. main/ipc.ts is what carries the pair across the bridge — it must
+ * send `{code, host}` and never this string.
+ *
+ * `NO_SEAT` and `VERSION_MISMATCH` are produced above the transport (a seat
+ * refusal at login; a host on a different build) and share the union so there
+ * is ONE place a screen has to look to know what went wrong with the host.
+ */
+export type LanClientErrorCode =
+  | "PIN_MISMATCH"
+  | "UNREACHABLE"
+  | "TIMEOUT"
+  | "NO_SEAT"
+  | "VERSION_MISMATCH";
+
 export class LanClientError extends Error {
   constructor(
     message: string,
-    readonly code: "PIN_MISMATCH" | "UNREACHABLE" | "TIMEOUT",
+    readonly code: LanClientErrorCode,
+    /** The paired host's origin, for the `{host}` parameter in the Arabic message. */
+    readonly host?: string,
+    /**
+     * Present on PIN_MISMATCH only: what the peer actually presented, so the
+     * re-pair screen can show the two fingerprints side by side rather than
+     * asking the operator to find one of them in a log.
+     */
+    readonly presentedFingerprint?: string,
   ) {
     super(message);
     this.name = "LanClientError";
@@ -62,9 +118,21 @@ export interface LanClientOptions {
   readonly config: ClientConfig;
   /** How long to wait for the host before giving up. Default 30s. */
   readonly timeoutMs?: number;
+  /**
+   * The cap on the SIGN-IN path specifically. Default 5s.
+   *
+   * A person standing in front of a login screen has to be told something
+   * quickly; thirty seconds of a frozen button is indistinguishable from a
+   * crashed app, and it is the one moment when "the host is off" is both the
+   * likeliest answer and the easiest to act on. Data requests keep the long
+   * budget: a report the host is genuinely computing must not be abandoned
+   * because it took six seconds.
+   */
+  readonly loginTimeoutMs?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_LOGIN_TIMEOUT_MS = 5_000;
 
 function normalizeFingerprint(value: string): string {
   return value.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
@@ -121,6 +189,8 @@ function connectPinned(
                 `Expected certificate ${expectedFingerprint}, got ${presented || "none"}. ` +
                 `Nothing was sent. If the host was reinstalled, re-pair this client; otherwise somebody else is answering on that address.`,
               "PIN_MISMATCH",
+              host.origin,
+              presented || undefined,
             ),
           );
           return;
@@ -136,35 +206,118 @@ function connectPinned(
         new LanClientError(
           `No answer from ${host.origin} within ${timeoutMs}ms. Is the host machine on, and on this network?`,
           "TIMEOUT",
+          host.origin,
         ),
       );
     });
 
-    socket.on("error", (err) => {
+    socket.on("error", (err: NodeJS.ErrnoException) => {
       reject(
-        new LanClientError(`Could not reach the Mezan host at ${host.origin}: ${err.message}`, "UNREACHABLE"),
+        new LanClientError(
+          `Could not reach the Mezan host at ${host.origin}: ${err.message}`,
+          // ECONNREFUSED IS NOT A TIMEOUT, and the shop's next step differs.
+          // A refusal means a machine answered and nothing is listening on the
+          // port: Mezan is not running on the host. Silence means nothing
+          // answered at all: a firewall dropped the packet, or the machine is
+          // asleep or off this network. `INSTALL.md §7A.3` calls the second the
+          // most likely LAN failure there is, and reporting both as
+          // "unreachable" is what made it undiagnosable from either side.
+          err.code === "ETIMEDOUT" ? "TIMEOUT" : "UNREACHABLE",
+          host.origin,
+        ),
       );
     });
   });
 }
 
+/**
+ * `https.Agent` over sockets this module has ALREADY pinned.
+ *
+ * The obvious construction — an ordinary agent with `checkServerIdentity` doing
+ * the fingerprint compare — does not work here and would be a silent downgrade:
+ * Node only calls `checkServerIdentity` when chain verification SUCCEEDED, and
+ * the host's certificate is self-signed, so on this transport it is never
+ * called at all. It is still passed below, because it costs nothing and is the
+ * check that would apply the day a host is issued a real certificate.
+ *
+ * What actually enforces the pin is `connectPinned`, run to completion here
+ * before the socket is handed back. `http.Agent` supports the asynchronous
+ * `createConnection(options, callback)` form, so a verified socket can be
+ * produced out of band and then pooled like any other — which is what lets the
+ * ordering guarantee (nothing is written to an unverified peer) and connection
+ * reuse hold at the same time.
+ */
+function pinnedCheckServerIdentity(expected: string) {
+  return (_hostname: string, cert: PeerCertificate): Error | undefined =>
+    fingerprintMatches(expected, cert.fingerprint256 ?? "")
+      ? undefined
+      : new Error("certificate fingerprint does not match the pinned host");
+}
+
+class PinnedAgent extends Agent {
+  constructor(
+    private readonly host: URL,
+    private readonly expectedFingerprint: string,
+    private readonly timeoutMs: number,
+  ) {
+    super({
+      keepAlive: true,
+      // One till talks to one host; more than a couple of live sockets is a
+      // burst of parallel screen loads, not steady state.
+      maxSockets: 6,
+      keepAliveMsecs: 10_000,
+      checkServerIdentity: pinnedCheckServerIdentity(expectedFingerprint),
+    });
+  }
+
+  override createConnection(
+    options: ClientRequestArgs,
+    callback?: (err: Error | null, stream: Duplex) => void,
+  ): undefined {
+    // THE CONNECT BUDGET TRAVELS ON THE REQUEST, not on the agent, and that is
+    // what makes the short sign-in timeout real. `req.timeout` only starts once
+    // a socket has been ASSIGNED, so a host that accepts the TCP connection and
+    // never completes a handshake — which is exactly what a firewall that drops
+    // rather than refuses looks like — was governed solely by the agent's own
+    // 30s, and the login button froze for half a minute.
+    const budget = (options as { mezanConnectTimeoutMs?: number }).mezanConnectTimeoutMs ?? this.timeoutMs;
+    connectPinned(this.host, this.expectedFingerprint, budget).then(
+      (socket) => callback?.(null, socket),
+      // `http.Agent` never reads the stream argument on the error path, and
+      // there is no socket to give it — the peer was refused before one
+      // existed. The cast is the only way to satisfy a signature that does not
+      // model that; passing a real dangling socket instead would leak one per
+      // failed request.
+      (err: unknown) =>
+        callback?.(err instanceof Error ? err : new Error(String(err)), undefined as unknown as Duplex),
+    );
+    return undefined;
+  }
+}
+
 export function createLanClient(options: LanClientOptions) {
   const host = new URL(options.config.hostUrl);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const loginTimeoutMs = options.loginTimeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS;
+  // ONE agent for the life of the client, so its pool is a pool. Building one
+  // per request would keep-alive nothing and cost an object per call.
+  const agent = new PinnedAgent(host, options.config.fingerprintSha256, timeoutMs);
 
   return async function forward(
     pathAndQuery: string,
     init: { method?: string; headers?: Record<string, string>; body?: string } = {},
   ): Promise<LanClientResponse> {
-    // Rejects before a byte is written when the peer is not the pinned host.
-    const socket = await connectPinned(host, options.config.fingerprintSha256, timeoutMs);
+    const target = new URL(pathAndQuery, host);
+    // The short budget covers the calls a person is WAITING ON with nothing on
+    // screen yet — sign-in, and the two pre-login reads the login screen makes.
+    const budgetMs = connectBudgetMs(target.pathname, timeoutMs, loginTimeoutMs);
 
     return new Promise((resolve, reject) => {
-      const target = new URL(pathAndQuery, host);
-      const requestOptions: RequestOptions = {
-        // The socket is already connected AND already verified; `createConnection`
-        // hands it to the HTTP client rather than letting it open its own.
-        createConnection: () => socket,
+      const requestOptions: RequestOptions & { mezanConnectTimeoutMs: number } = {
+        // The agent produces a socket that is already connected AND already
+        // verified (see PinnedAgent), and pools it between requests.
+        agent,
+        mezanConnectTimeoutMs: budgetMs,
         protocol: "https:",
         hostname: host.hostname,
         port: host.port,
@@ -176,13 +329,28 @@ export function createLanClient(options: LanClientOptions) {
           // never see a Host header naming something else.
           host: host.host,
         },
-        timeout: timeoutMs,
+        timeout: budgetMs,
       };
 
       const req = httpsRequest(requestOptions, (res) => {
         const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        let receivedBytes = 0;
+        let refused = false;
+        res.on("data", (chunk: Buffer) => {
+          if (refused) return;
+          receivedBytes += chunk.byteLength;
+          // Stop pulling bytes off the socket the moment the limit is crossed,
+          // rather than buffering the rest of a 50 MB body just to reject it.
+          if (receivedBytes > MAX_RESPONSE_BYTES) {
+            refused = true;
+            res.destroy();
+            resolve(tooLargeResponse());
+            return;
+          }
+          chunks.push(chunk);
+        });
         res.on("end", () => {
+          if (refused) return;
           const headers: Record<string, string> = {};
           for (const [key, value] of Object.entries(res.headers)) {
             if (typeof value === "string") headers[key] = value;
@@ -200,8 +368,9 @@ export function createLanClient(options: LanClientOptions) {
         req.destroy();
         reject(
           new LanClientError(
-            `No answer from ${options.config.hostUrl} within ${timeoutMs}ms. Is the host machine on, and on this network?`,
+            `No answer from ${options.config.hostUrl} within ${budgetMs}ms. Is the host machine on, and on this network?`,
             "TIMEOUT",
+            host.origin,
           ),
         );
       });
@@ -216,7 +385,8 @@ export function createLanClient(options: LanClientOptions) {
             ? err
             : new LanClientError(
                 `Could not reach the Mezan host at ${options.config.hostUrl}: ${err.message}`,
-                "UNREACHABLE",
+                (err as NodeJS.ErrnoException).code === "ETIMEDOUT" ? "TIMEOUT" : "UNREACHABLE",
+                host.origin,
               ),
         );
       });
@@ -225,6 +395,30 @@ export function createLanClient(options: LanClientOptions) {
       req.end();
     });
   };
+}
+
+/**
+ * The calls a person is waiting on with a blank screen in front of them, and
+ * therefore the ones that get the short timeout. `/health` is how the client
+ * tells "host off" from "host refused me" and must answer fast or it answers
+ * nothing useful.
+ */
+const PRE_LOGIN_PATHS = new Set(["/auth/login", "/tenant", "/health"]);
+
+/**
+ * How long this path may wait for the host.
+ *
+ * Exported because it is the whole of the decision and it is not otherwise
+ * observable: a socket timeout cannot be driven in this repo's vitest
+ * environment (Node's `socket.setTimeout` does not fire there), so a test that
+ * waited on one would assert the environment rather than the rule.
+ */
+export function connectBudgetMs(
+  pathname: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  loginTimeoutMs = DEFAULT_LOGIN_TIMEOUT_MS,
+): number {
+  return PRE_LOGIN_PATHS.has(pathname) ? loginTimeoutMs : timeoutMs;
 }
 
 export type LanForward = ReturnType<typeof createLanClient>;
@@ -267,7 +461,51 @@ const LOGOUT_PATH = "/auth/logout";
  */
 const SEAT_HEARTBEAT_MS = 15_000;
 
+/**
+ * HOST AND CLIENT MUST BE THE SAME BUILD, and until now that was a comment.
+ *
+ * `GET /health` answers `{ok, version, schemaVersion}` (packages/backend's
+ * create-backend.ts — external contract, do not rename those fields). A till
+ * left on an old build after the host was updated used to keep working against
+ * a schema it did not match, and the first thing anybody noticed was wrong
+ * data. Now the first request the client makes proves the two agree, once per
+ * launch, and a mismatch is a distinct `VERSION_MISMATCH` refusal the client
+ * error screen renders instead of a page of data.
+ *
+ * Skipped, deliberately, when this process does not know its own version
+ * (`MEZAN_APP_VERSION` / `MEZAN_SCHEMA_VERSION` are set by main/index.ts before
+ * the role is decided): an unknown local version cannot prove a mismatch, and
+ * blocking on "I do not know" would brick every dev run.
+ */
+async function assertHostMatchesThisBuild(forward: LanForward, hostUrl: string): Promise<void> {
+  const localVersion = process.env["MEZAN_APP_VERSION"] ?? "";
+  const localSchema = Number(process.env["MEZAN_SCHEMA_VERSION"] ?? "0");
+  if (!localVersion || !Number.isFinite(localSchema) || localSchema <= 0) return;
+
+  const response = await forward("/health", {});
+  if (response.status !== 200) return;
+  let health: { version?: string; schemaVersion?: number };
+  try {
+    health = JSON.parse(response.body) as { version?: string; schemaVersion?: number };
+  } catch {
+    return;
+  }
+  const hostVersion = health.version ?? "";
+  const hostSchema = typeof health.schemaVersion === "number" ? health.schemaVersion : 0;
+  // An older host that answers `{ok:true}` and nothing else cannot be compared
+  // against; that IS a skew, but "0.0.0" would name the wrong culprit.
+  if (!hostVersion || hostSchema <= 0) return;
+  if (hostVersion === localVersion && hostSchema === localSchema) return;
+
+  throw new LanClientError(
+    `Host ${hostUrl} runs Mezan ${hostVersion} (schema ${hostSchema}); this machine runs ${localVersion} (schema ${localSchema}).`,
+    "VERSION_MISMATCH",
+    hostUrl,
+  );
+}
+
 export function withSeatClaim(forward: LanForward, config: ClientConfig): LanForward {
+  let versionChecked = false;
   let heldSessionId: string | null = null;
   let heartbeat: NodeJS.Timeout | undefined;
   let lastToken: string | null = null;
@@ -333,6 +571,16 @@ export function withSeatClaim(forward: LanForward, config: ClientConfig): LanFor
   return async (pathAndQuery, init = {}) => {
     const pathname = pathAndQuery.split("?")[0];
 
+    // Once per launch, before the first thing the renderer asks for reaches a
+    // host that may not be this build.
+    if (!versionChecked && pathname !== "/health") {
+      // Marked only once it has actually been answered: a host that was asleep
+      // for the first request must still be checked when it wakes up, and a
+      // mismatch must keep refusing rather than pass on the second try.
+      await assertHostMatchesThisBuild(forward, config.hostUrl);
+      versionChecked = true;
+    }
+
     if (pathname === LOGOUT_PATH && heldSessionId) {
       // Free the seat before the token dies, not after: once the session is
       // revoked the host has no way to attribute the disconnect, and the seat
@@ -364,6 +612,10 @@ export function withSeatClaim(forward: LanForward, config: ClientConfig): LanFor
           headers: { "content-type": "application/json; charset=UTF-8" },
           body: JSON.stringify({
             error: "NO_SEAT",
+            // The same `code` the transport's own failures carry, so a screen
+            // has ONE field to branch on for "what went wrong with the host".
+            code: "NO_SEAT" satisfies LanClientErrorCode,
+            host: config.hostUrl,
             message:
               "لا توجد مقاعد شاغرة في ترخيص الجهاز الرئيسي. افصل جهازاً آخر من شاشة «الأجهزة المتصلة» أو زد عدد المقاعد.",
           }),

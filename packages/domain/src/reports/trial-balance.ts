@@ -17,7 +17,18 @@ import { sumRows } from "./kpi.js";
 
 export interface TrialBalanceContext {
   readonly accounts: readonly Account[];
-  readonly journalEntries: readonly JournalEntry[];
+  /** Absent only when `balances` is supplied instead. */
+  readonly journalEntries?: readonly JournalEntry[];
+  /**
+   * Net (debit − credit) per account, already aggregated by the ledger — see
+   * `LedgerRepository.accountBalances`. Folding 120k lines in JS to answer one
+   * `GROUP BY` is what this exists to avoid (Q-6).
+   *
+   * THE CALLER OWNS THE DATE BOUND. `asOfDate` cannot be re-applied to an
+   * aggregate, so a supplied map must already have been computed with
+   * `toDate = asOfDate`; passing a wider one silently reports future movement.
+   */
+  readonly balances?: ReadonlyMap<string, Money>;
 }
 
 export interface TrialBalanceParams {
@@ -105,7 +116,7 @@ export function createTrialBalanceReport(
       captionAr: "إجمالي الأرصدة المدينة في كل نوع حساب — نفس المجاميع الفرعية المطبوعة في الجدول.",
     },
     run: (params, ctx) => {
-      const balances = computeAccountBalances(ctx.journalEntries, params.asOfDate);
+      const balances = ctx.balances ?? computeAccountBalances(ctx.journalEntries ?? [], params.asOfDate);
       const rows: TrialBalanceRow[] = [];
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;

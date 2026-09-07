@@ -9,6 +9,7 @@ import {
   UserSeatLimitExceededError,
   DeviceSessionNotFoundError,
   SeatSessionRegistry,
+  DEFAULT_MAX_SEATS_PER_USER,
 } from "./session-registry.js";
 
 describe("connectDevice / disconnectDevice (pure transitions)", () => {
@@ -221,5 +222,28 @@ describe("SeatSessionRegistry (stateful convenience wrapper)", () => {
     now = 50_000;
     expect(registry.list()).toHaveLength(0);
     expect(registry.connectedCount).toBe(0);
+  });
+  /**
+   * guards N-12: ONE seat per account by default, not two.
+   *
+   * At two, a single cashier account holds BOTH seats of the two-seat licence
+   * every small shop buys — so one person signing in on a till and on the back
+   * office locks the owner out of their own system, and an attacker holding one
+   * account needs no second one to do it deliberately. The legitimate "same
+   * person, two machines" case is what the seat count is SOLD for, so allowing
+   * it by default handed the shop a seat it had not bought.
+   */
+  it("gives one account a single concurrent seat unless the shop says otherwise", () => {
+    expect(DEFAULT_MAX_SEATS_PER_USER).toBe(1);
+
+    const registry = new SeatSessionRegistry(4);
+    registry.connect({ userId: "cashier", deviceId: "till-1" });
+
+    expect(() => registry.connect({ userId: "cashier", deviceId: "till-2" })).toThrow(
+      UserSeatLimitExceededError,
+    );
+    // The tenant still has three free seats — they are simply for other people.
+    expect(registry.connectedCount).toBe(1);
+    expect(() => registry.connect({ userId: "storekeeper", deviceId: "till-2" })).not.toThrow();
   });
 });

@@ -1,4 +1,4 @@
-import { isRouteErrorResponse, useNavigate, useRouteError } from "react-router";
+import { isRouteErrorResponse, useLocation, useNavigate, useRouteError } from "react-router";
 import { Button } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 
@@ -18,6 +18,7 @@ import { useAppTranslation } from "../i18n";
 export function RouteErrorBoundary() {
   const error = useRouteError();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useAppTranslation();
 
   const status = isRouteErrorResponse(error) ? error.status : null;
@@ -37,7 +38,12 @@ export function RouteErrorBoundary() {
         {status === 404 ? t("routeError.notFoundTitle") : t("routeError.title")}
       </h2>
       <p className="text-sm text-ink-muted">
-        {status === 404 ? t("routeError.notFoundBody") : t("routeError.body")}
+        {status === 404
+          ? t("routeError.notFoundBody")
+          : /* The path is the screen's support code: «تعذّر عرض هذه الشاشة» is
+               the same sentence on all 118 of them, so a ticket that quotes it
+               names no screen at all. */
+            t("routeError.body", { screen: location.pathname })}
       </p>
       {/*
         The raw message is shown, not swallowed. A support call that can quote

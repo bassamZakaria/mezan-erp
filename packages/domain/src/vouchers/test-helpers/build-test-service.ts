@@ -65,7 +65,14 @@ let seedSeq = 0;
  * engine, numbering engine, workflow gate and document framework all real, only
  * persistence faked. Mirrors how the GL/document tests wire their harnesses.
  */
-export function buildTestService(opts: { preventNegativeCashBalance?: boolean; invoices?: readonly AllocatableInvoice[] } = {}): TestHarness {
+export function buildTestService(
+  opts: {
+    preventNegativeCashBalance?: boolean;
+    invoices?: readonly AllocatableInvoice[];
+    /** Approved rates by currency, so a foreign-currency voucher can confirm (B-4). */
+    rates?: Readonly<Record<string, string>>;
+  } = {},
+): TestHarness {
   const ledger = new InMemoryLedgerRepository();
   const documents = new InMemoryDocumentRepository<VoucherLine>();
   const allocations = new InMemoryAllocationRepository();
@@ -105,6 +112,13 @@ export function buildTestService(opts: { preventNegativeCashBalance?: boolean; i
       },
       async save() {},
     },
+    exchangeRates: {
+      async findRate(currency) {
+        const rate = opts.rates?.[currency];
+        return rate ? { rate } : null;
+      },
+    },
+    baseCurrency: "EGP",
     now: () => "2026-08-22T10:00:00.000Z",
     actor: "tester",
     actorRoles: ["*"],

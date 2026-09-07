@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteCustomerRepository, type SqliteCustomerRepositoryHandle } from "@mezan/persistence";
+import { Money } from "@mezan/domain";
 import { createCustomersRouter } from "./customers-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
@@ -191,5 +192,79 @@ describe("customers router — CRUD", () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * guards B-2 — the opening balance was stored master data and nothing else:
+ * never posted, added into this KPI and the browser statement, invisible to
+ * `/reconciliation` and to the aging ladder. One fact, three figures.
+ */
+describe("customers router — the opening balance is posted, not counted twice", () => {
+  function newAppWithPoster(outstanding: ReadonlyMap<string, string> = new Map()) {
+    const repo = createSqliteCustomerRepository();
+    handles.push(repo);
+    const posted: { id: string; openingBalance: string }[] = [];
+    const app = createCustomersRouter(
+      repo,
+      insecureHeaderAuthContextResolver,
+      undefined,
+      undefined,
+      {
+        outstandingByCustomer: async () =>
+          new Map([...outstanding].map(([id, amount]) => [id, Money.fromMajor(amount)])),
+      },
+      { post: async (party) => void posted.push({ id: party.id, openingBalance: party.openingBalance.toString() }) },
+    );
+    return { app, repo, posted };
+  }
+
+  const create = (app: ReturnType<typeof newAppWithPoster>["app"], body: unknown) =>
+    app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.customer.create",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  it("posts the opening balance to the ledger when a customer is created", async () => {
+    const { app, posted } = newAppWithPoster();
+    expect((await create(app, { ...VALID_PAYLOAD, openingBalance: "5000.00" })).status).toBe(201);
+    expect(posted).toEqual([{ id: "c1", openingBalance: "5000.000000" }]);
+  });
+
+  it("re-posts only when the opening balance actually changes", async () => {
+    const { app, posted } = newAppWithPoster();
+    await create(app, { ...VALID_PAYLOAD, openingBalance: "5000.00" });
+
+    const patch = (body: unknown) =>
+      app.fetch(
+        req("/c1", {
+          method: "PATCH",
+          permissions: "sales.customer.edit",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    expect((await patch({ nameAr: "اسم آخر" })).status).toBe(200);
+    expect(posted).toHaveLength(1);
+
+    expect((await patch({ openingBalance: "7500.00" })).status).toBe(200);
+    expect(posted).toHaveLength(2);
+    expect(posted[1]!.openingBalance).toBe("7500.000000");
+  });
+
+  it("no longer adds the opening balance on top of the ledger's own receivable", async () => {
+    const { app } = newAppWithPoster(new Map([["c1", "1200.00"]]));
+    await create(app, { ...VALID_PAYLOAD, openingBalance: "5000.00" });
+
+    const res = await app.fetch(req("/stats", { permissions: "sales.customer.view" }));
+    expect(res.status).toBe(200);
+    // 1,200.00 of live invoices — NOT 6,200.00. The 5,000 is in the ledger
+    // already; counting it here too is what put this tile above the aging
+    // ladder by Σ opening balances.
+    expect((await res.json()) as { toCollect: string }).toMatchObject({ toCollect: "1200.000000" });
   });
 });

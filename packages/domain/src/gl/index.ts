@@ -11,6 +11,7 @@ export type {
   JournalListFilter,
   AccountBalance,
   AccountLedgerLine,
+  LedgerAggregateFilter,
   PostedLineFilter,
   PostedLine,
 } from "./ledger.js";

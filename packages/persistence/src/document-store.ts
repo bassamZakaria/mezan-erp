@@ -43,6 +43,9 @@ CREATE INDEX IF NOT EXISTS idx_framework_document_status ON framework_document(d
 CREATE UNIQUE INDEX IF NOT EXISTS idx_framework_document_no ON framework_document(doc_type, doc_no) WHERE doc_no IS NOT NULL;
 `;
 
+/** SQLite's compiled-in ceiling on bound parameters is 999; `IN (...)` stays under it. */
+const MAX_BOUND_IDS = 900;
+
 interface DocumentRow {
   id: string;
   doc_type: string;
@@ -153,6 +156,29 @@ export function createSqliteDocumentStore<Line>(
         .filter((r) => (filter.fromDate ? r.date >= filter.fromDate : true))
         .filter((r) => (filter.toDate ? r.date <= filter.toDate : true))
         .map(fromRow);
+    },
+    async listByLineRef(field: string, ids: readonly string[], filter: DocumentListFilter = {}) {
+      if (ids.length === 0) return [];
+      const path = `$.${field}`;
+      const out: FrameworkDocument<Line>[] = [];
+      for (let start = 0; start < ids.length; start += MAX_BOUND_IDS) {
+        const chunk = ids.slice(start, start + MAX_BOUND_IDS);
+        const clauses = ["d.doc_type = ?"];
+        const params: unknown[] = [docType];
+        if (filter.status) { clauses.push("d.status = ?"); params.push(filter.status); }
+        if (filter.fromDate) { clauses.push("d.date >= ?"); params.push(filter.fromDate); }
+        if (filter.toDate) { clauses.push("d.date <= ?"); params.push(filter.toDate); }
+        clauses.push(`json_extract(l.value, ?) IN (${chunk.map(() => "?").join(",")})`);
+        params.push(path, ...chunk);
+        const rows = sqlite
+          .prepare(
+            `SELECT DISTINCT d.* FROM framework_document d, json_each(d.lines_json) l
+              WHERE ${clauses.join(" AND ")} ORDER BY d.date, d.created_at`,
+          )
+          .all(...params) as DocumentRow[];
+        for (const row of rows) out.push(fromRow(row));
+      }
+      return out;
     },
     async transaction(fn) {
       return withSqliteTransaction(sqlite, fn);

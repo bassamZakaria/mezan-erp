@@ -15,23 +15,48 @@ Electron desktop app and (later) a multi-tenant cloud web app.
 
 - **v1 = Electron desktop only, SQLite.** LAN multi-till stays (one license,
   several tills on a shop's local network).
-- **Descoped for now:** the HR module, the POS module including the net-new
-  `/pos/sell` selling screen, and the entire cloud/SaaS website edition.
+- **Descoped for now:** the POS module including the net-new `/pos/sell` selling
+  screen, and the entire cloud/SaaS website edition. **HR is only partly
+  descoped** — employees, contracts, attendance, leave, payroll runs, payslips
+  and advances are built and routable; what is deliberately absent is *statutory
+  payroll computation* (social insurance, income-tax brackets, end-of-service).
+  Judge the HR screens that exist; do not judge the numbers they would produce.
 - The `apps/web` Vite dev server renders the *same* React UI the desktop shell
   wraps. Reviewing it in a browser is reviewing the desktop app's UI, not a
   separate website product.
 
 ## What is actually built today
 
-Routable screens (`apps/web/src/App.tsx`): login gate, first-run wizard,
-dashboard (لوحة التحكم), chart of accounts (دليل الحسابات), customers
-(العملاء), suppliers (الموردون), sales invoices, settings → general / branches
-(الفروع) / warehouses (المستودعات), and the LAN multi-till surface.
+**Do not review this as a Phase-1 slice. It is a whole product.** As of
+2026-09-07 there are **123 routable screens** (`apps/web/src/router/screens.ts`,
+plus three addresses `AppLayout` mounts itself) reached from **123 nav
+destinations**, each gated by a permission and a licensed module. Every screen
+reads and writes a **real backend** over HTTP — double-entry GL, weighted-average
+costing, treasury, sales, purchases, inventory, manufacturing, CRM, projects,
+assets, instalments, HR (minus statutory payroll), 23 operational reports and 8
+financial statements, and the ~286-permission matrix behind all of it.
 
-Every other nav item is a placeholder tagged **قريباً** (coming soon). Flagging
-"module X is missing" is not a finding unless the catalog says it belongs in a
-phase that is already claimed done. Check `docs/archive/plan.md` §4 before calling
-something a gap.
+**There are no «قريباً» placeholders left.** The three `قريباً` strings in the
+i18n catalog are "due soon" date labels, not stubs. There is also **no mocked
+data anywhere in `apps/web`** — no sample-data modules, no in-browser store; the
+demo tenant lives in `packages/backend/src/demo-seed.ts` and reaches the UI
+through the API like everything else.
+
+So "module X is missing" is only a finding when the module is genuinely absent —
+check `docs/ROADMAP.md` §2 (what exists) and §4 (descoped by decision) before
+calling something a gap, and drive the running app before calling something
+broken.
+
+**Licensing and the LAN, as they now are.** The install verifies a signed
+`license.mezan` (Ed25519, machine-bound, expiry + grace) against a vendor public
+key **compiled into the build**; that verdict is the single source of both write
+permission and module entitlements, and it is re-read on every request. A lapse
+never withholds data: past grace, and past 7 days without an online check-in, the
+install goes read-only — every record still viewable, printable and exportable —
+and past 30 days it adds a blocking notice. **It never refuses to start.** The
+LAN multi-till socket is HTTPS-only with a pinned self-signed certificate; a till
+pairs from its own login screen by comparing that fingerprint on screen, and one
+machine holds the books with no synchronisation anywhere.
 
 ## Non-negotiable invariants
 
@@ -43,53 +68,73 @@ something a gap.
 - **Arabic is the primary language**, English is secondary (ar/en i18n). Arabic
   copy must read as native accounting Arabic, not as translated English.
 - **Offline is the differentiator.** Nothing in the desktop edition may require
-  connectivity.
-- **Design identity:** light-first, deep teal `#0e5049` + gold `#ae7c24`, Cairo
-  for display, IBM Plex Sans Arabic for UI, IBM Plex Mono for figures. Tokens
-  live in `packages/ui/src/tokens/tokens.css`; dark mode is supported both via
-  `prefers-color-scheme` and an explicit `[data-theme]`.
+  connectivity **to do the work** — every screen, posting, report and print runs
+  with the network unplugged. The one exception is the periodic licence check-in,
+  which degrades to read-only rather than blocking, and whether that is
+  compatible with the sales promise is an open owner decision, not a settled
+  fact.
+- **Design identity:** light-first, **Cyag blue** `#003ce1` (`--brand`, the
+  primary action) on a slate `#1e293b` chrome rail, with `#0099f3` as the
+  non-text accent. Any note describing a teal-and-gold identity is stale — teal
+  and gold survive only inside `--chart-*`, which is a categorical data scale and
+  not identity. Type is Zain for display, IBM Plex Sans for Latin, IBM Plex Mono
+  for figures. Tokens live in `packages/ui/src/tokens/tokens.css`; dark mode is
+  supported both via `prefers-color-scheme` and an explicit `[data-theme]`.
 
 ## Where to look
 
 | Question | File |
 |---|---|
-| Build plan, phasing, risks, open decisions | `docs/archive/plan.md` |
+| What is built, what is open, defects, decisions | `docs/ROADMAP.md` (§2 built, §3 open, §4 descoped, §5 defects, §6 decisions) |
+| Install, rollout, licensing, LAN, release | `docs/INSTALL.md` |
+| Testing policy and every scenario | `docs/TESTING.md` |
 | Per-domain feature catalog (parity target) | `docs/archive/catalog/*.md` |
-| Backlog | `docs/ROADMAP.md` |
-| Approved visual direction | `docs/archive/mezan-ui-mockups.html` |
-| Shared UI primitives | `packages/ui/src/` |
-| Screens under review | `apps/web/src/` |
+| Architecture and the deferred HR/POS/cloud plans | `docs/archive/plan.md` |
+| Approved visual direction | `docs/artifacts/mezan-enhanced-mockups.html` — the design source of truth |
+| Shared UI primitives and tokens | `packages/ui/src/` |
+| Screens under review | `apps/web/src/screens/`, `apps/web/src/settings/` |
 
 ## How to run it
 
 ```
-pnpm --filter web dev
+MEZAN_SEED_DEMO=1 MEZAN_DB=./dev.db PORT=3187 pnpm exec tsx apps/server/src/index.ts
+cd apps/web && MEZAN_API_URL=http://127.0.0.1:3187 pnpm exec vite --port 5183
 ```
 
+Sign in as `admin@cyag.example`, PIN `123456` — the login field is the email and
+only the email. `pnpm --filter web dev` alone gives a UI with no backend behind
+it, which will read as a hundred broken screens.
+
 Run the app and read the screens directly. Reviews are done against the running
-app, not against captures — a screenshot goes stale the day after it is taken.
+app, not against captures — a screenshot goes stale the day after it is taken —
+and **reload the page to confirm a save actually persisted**.
 
 ## What this review must decide
 
 > Working bar set by the reviewer running this session, not yet confirmed by the
 > owner. If it is wrong, correct it here and re-run the panel.
 
-**The question:** is Mezan's Phase-1 desktop slice simpler to work in — fewer
-steps, fewer decisions, less to learn — than what an Egyptian SMB uses today? Not "is it complete" — it is not, and
-that is known.
+**The question:** is Mezan simpler to work in — fewer steps, fewer decisions,
+less to learn — than what an Egyptian SMB uses today, and can its books be
+signed? Completeness is no longer the question it was: the shell and the engine
+are built, so "X is missing" is now the exception rather than the expected
+finding.
 
 **Blocker for this review** = anything that makes a daily task slower, more
-confusing or less trustworthy than the same task on a competitor, or that a
-buyer would reject in a demo. **Not a blocker** = a module that belongs to a
-later phase and is honestly marked قريباً.
+confusing or less trustworthy than the same task on a competitor, that produces
+a wrong number, or that a buyer would reject in a demo. **Not a blocker** = a
+module descoped by decision (§4 of the roadmap).
 
 **Demo audience:** an Egyptian SMB owner and their accountant, evaluating a
 switch. Buyer and user in the same room.
 
 **Known and already reported — do not re-report:**
-- Modules outside Phase 1 are unbuilt and marked قريباً.
-- POS, HR and the cloud/web edition are descoped from v1.
-- Sample data is fixed demo data; there is no backend wired.
+- POS, statutory payroll computation, HR depth and the cloud/web edition are
+  descoped from v1 by decision (`docs/ROADMAP.md` §4).
+- No installer has ever been code-signed: the certificates are a business
+  purchase nobody has made (`docs/INSTALL.md` §8.1).
+- Everything already filed in `docs/ROADMAP.md` §5 (D66–D176) and in
+  `docs/artifacts/audit-2026-09-07.md`. Read both before filing anything.
 
 **What every finding must carry:** the screen or `file:line`, what it costs the
 user, and a concrete simpler alternative. A complaint without a proposed
@@ -97,10 +142,18 @@ simplification does not count for this review.
 
 ## Observed in the app (verified, use freely)
 
-- Clicking an invoice row opens nothing — the list has no detail view.
-- Nav items مراكز التكلفة / القيود المحاسبية / الفترات المالية are clickable,
-  carry no قريباً tag, and do nothing when clicked.
-- The app rendered in **dark** theme by default because the OS preferred dark,
-  although the approved direction is light-first.
-- Login PIN entry ignores a pasted/typed 4-digit string; digits must be entered
-  as individual key events.
+The four readings that used to sit here — an invoice row that opened nothing,
+three dead accounting nav items, a dark-by-default shell, and a PIN box that
+ignored a pasted string — are **all closed**, and re-reporting any of them is a
+false finding. Documents open as pages, accounting is fully wired,
+`apps/web/index.html` ships `data-theme="light"` so the OS preference cannot
+override the light-first direction, and the PIN boxes accept a paste.
+
+Two things worth knowing before you drive the app:
+
+- **The PIN boxes are one input per digit, in RTL order.** Automation that types
+  into "the PIN field" lands in the wrong box; click each one.
+- **Documents are pages, not drawers.** Only short master-data forms stay as
+  overlays. A document that opens in a drawer is a finding.
+
+Add a reading here only after driving it in the running app, and date it.

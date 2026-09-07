@@ -95,10 +95,10 @@ describe("ReconciliationScreen", () => {
       },
     });
     renderWithProviders(<ReconciliationScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل مطابقة الأرصدة.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل مطابقة الأرصدة. (رمز 500)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("العملاء");
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل مطابقة الأرصدة.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل مطابقة الأرصدة. (رمز 500)")).not.toBeInTheDocument());
   });
 
   it("the empty state renders honestly when there are no control-account rows", async () => {

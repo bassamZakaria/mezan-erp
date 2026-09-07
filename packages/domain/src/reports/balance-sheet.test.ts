@@ -149,3 +149,40 @@ describe("createBalanceSheetReport", () => {
     expect(outcome.ok).toBe(false);
   });
 });
+
+/**
+ * guards C-10 — retained earnings accumulated across every P&L account in
+ * IEEE-754. 0.1 + 0.2 is 0.30000000000000004 there, and this is a statutory
+ * financial statement.
+ */
+describe("createBalanceSheetReport — exact arithmetic", () => {
+  it("accumulates retained earnings without float drift", () => {
+    const entries = [
+      je({ id: "s1", date: "2026-02-01", lines: [dr("1100", "0.10"), cr("4100", "0.10")] }),
+      je({ id: "s2", date: "2026-02-02", lines: [dr("1100", "0.20"), cr("4100", "0.20")] }),
+      je({ id: "s3", date: "2026-02-03", lines: [dr("1100", "0.10"), cr("4100", "0.10")] }),
+      je({ id: "e1", date: "2026-02-04", lines: [dr("5100", "0.10"), cr("1100", "0.10")] }),
+    ];
+    const definition = createBalanceSheetReport("2026-12-31");
+    const outcome = runReport(definition, { asOfDate: "2026-12-31" }, { accounts, journalEntries: entries });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const retained = outcome.rows.find((r) => r.rowId === "_retained-earnings");
+    expect(retained).toBeDefined();
+    // 0.10 + 0.20 + 0.10 − 0.10 = 0.30, exactly.
+    expect(retained!.amount).toBe(0.3);
+  });
+
+  it("still ties assets to liabilities + equity on fractional amounts", () => {
+    const entries = [
+      je({ id: "cap", date: "2026-01-01", lines: [dr("1100", "0.30"), cr("3100", "0.30")] }),
+      je({ id: "s1", date: "2026-02-01", lines: [dr("1100", "0.10"), cr("4100", "0.10")] }),
+      je({ id: "s2", date: "2026-02-02", lines: [dr("1100", "0.20"), cr("4100", "0.20")] }),
+    ];
+    const definition = createBalanceSheetReport("2026-12-31");
+    const outcome = runReport(definition, { asOfDate: "2026-12-31" }, { accounts, journalEntries: entries });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(balanceSheetTotalAssets(outcome.rows)).toBe(balanceSheetTotalLiabilitiesEquity(outcome.rows));
+  });
+});

@@ -10,6 +10,8 @@ import {
   DuplicateEtaSubmissionError,
   EtaExclusionReasonRequiredError,
   EtaOfflineError,
+  EtaSignerNotConfiguredError,
+  EtaSigningFailedError,
   EtaSubmissionNotFoundError,
   InvalidEtaTransitionError,
   type EtaBranchCodeRepository,
@@ -90,6 +92,12 @@ function serializeConfig(config: EtaConfig, counts?: EtaReadinessCounts) {
       signingMethod: config.signingMethod,
       clientId: config.clientId,
       hasClientSecret: config.hasClientSecret,
+      preproductionIdentityUrl: config.preproductionIdentityUrl,
+      preproductionApiUrl: config.preproductionApiUrl,
+      productionIdentityUrl: config.productionIdentityUrl,
+      productionApiUrl: config.productionApiUrl,
+      signingCommand: config.signingCommand,
+      signingCommandArgs: config.signingCommandArgs,
     },
     readiness: computeEtaReadiness(config, counts),
   };
@@ -104,7 +112,7 @@ function serializeConfig(config: EtaConfig, counts?: EtaReadinessCounts) {
  */
 function serializeSubmission(s: EtaSubmission, opts: { payload?: boolean } = {}) {
   return {
-    ...(opts.payload ? { payload: s.payload } : {}),
+    ...(opts.payload ? { payload: s.payload, transmitLog: s.transmitLog } : {}),
     id: s.id,
     internalId: s.internalId,
     documentType: s.documentType,
@@ -115,6 +123,8 @@ function serializeSubmission(s: EtaSubmission, opts: { payload?: boolean } = {})
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
     submittedAt: s.submittedAt,
+    gatewaySubmissionId: s.gatewaySubmissionId,
+    signed: s.signature !== null,
   };
 }
 
@@ -123,8 +133,11 @@ function handleError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateEtaSubmissionError) return c.json({ error: err.code, message: err.message }, 409);
   if (err instanceof InvalidEtaTransitionError) return c.json({ error: err.code, message: err.message }, 422);
   if (err instanceof EtaExclusionReasonRequiredError) return c.json({ error: err.code, message: err.message }, 400);
-  // The stubbed online transmit refusing offline is an expected, non-fatal state.
+  // Not configured for the network yet: the document stays queued, which is a
+  // state, not a failure.
   if (err instanceof EtaOfflineError) return c.json({ error: err.code, message: err.message }, 202);
+  if (err instanceof EtaSignerNotConfiguredError) return c.json({ error: err.code, message: err.message }, 422);
+  if (err instanceof EtaSigningFailedError) return c.json({ error: err.code, message: err.message }, 422);
   throw err;
 }
 
@@ -133,13 +146,15 @@ function handleError(c: Context, err: unknown): Response {
  *   GET  /config                       config + readiness
  *   PUT  /config                       update config (clientSecret stored, never returned)
  *   GET  /submissions[?status=]        the submission queue
- *   POST /submissions/:id/submit       submit one (online transmit is STUBBED)
+ *   POST /submissions/:id/submit       submit one (signs when required, then transmits)
  *   POST /submissions/submit-all       إرسال كل الجاهز
+ *   POST /submissions/process          معالجة القائمة: توقيع وإرسال ثم متابعة الحالة
+ *   POST /submissions/:id/refresh-status  تحديث حالة مستند مرسل من المصلحة
  *   POST /submissions/:id/accept       authority acceptance callback (demo/testing)
  *   POST /submissions/:id/exclude      مستبعد (reason required)
  *   GET  /activity-codes[?q=]          كود النشاط lookup
  *   GET  /unit-codes                   the authority's unit-of-measure codes
- *   POST /test-connection              اختبار الاتصال (credentials check; transmit is STUBBED)
+ *   POST /test-connection              اختبار الاتصال (real token request)
  *   GET  /branch-codes                 أكواد الفروع لدى المصلحة
  *   PUT  /branch-codes/:branchId       register one branch's code
  *   GET  /item-mappings[?unmapped=1&q=] ربط الأصناف
@@ -186,18 +201,12 @@ export function createEtaRoutes(
   app.get("/unit-codes", gate("accounting.eta.view"), (c) => c.json(ETA_UNIT_CODES));
 
   /**
-   * اختبار الاتصال — the credentials check. Transmission itself is stubbed
-   * (see stubOnlineTransmitPort), so this reports honestly that the credentials
-   * are on file and the gateway unreachable rather than faking a handshake.
+   * اختبار الاتصال — a REAL OAuth2 client-credentials request against the
+   * authority's identity server. It opens no socket when no credentials are
+   * stored, and reports what actually came back rather than a fixed answer.
    */
   app.post("/test-connection", gate("accounting.eta.submit"), async (c) => {
-    const config = await service.getConfig();
-    const hasCredentials = !!config.clientId && config.hasClientSecret;
-    return c.json({
-      ok: false,
-      reason: hasCredentials ? "offline" : "missing_credentials",
-      checkedAt: new Date().toISOString(),
-    });
+    return c.json(await service.testConnection());
   });
 
   app.get("/branch-codes", gate("accounting.eta.view"), async (c) => {
@@ -382,6 +391,30 @@ export function createEtaRoutes(
   app.post("/submissions/:id/submit", gate("accounting.eta.submit"), async (c) => {
     try {
       return c.json(serializeSubmission(await service.submit(c.req.param("id"))));
+    } catch (err) {
+      return handleError(c, err);
+    }
+  });
+
+  /**
+   * معالجة قائمة الإرسال — one pass over the whole queue: sign and transmit
+   * everything pending, then poll everything already transmitted for its
+   * clearance or rejection. This is what a scheduler calls.
+   */
+  app.post("/submissions/process", gate("accounting.eta.submit"), async (c) => {
+    const result = await service.processQueue();
+    return c.json({
+      submitted: result.submitted.map((s) => serializeSubmission(s)),
+      accepted: result.accepted.map((s) => serializeSubmission(s)),
+      rejected: result.rejected.map((s) => serializeSubmission(s)),
+      queued: result.queued,
+      unsigned: result.unsigned,
+    });
+  });
+
+  app.post("/submissions/:id/refresh-status", gate("accounting.eta.submit"), async (c) => {
+    try {
+      return c.json(serializeSubmission(await service.refreshStatus(c.req.param("id"))));
     } catch (err) {
       return handleError(c, err);
     }

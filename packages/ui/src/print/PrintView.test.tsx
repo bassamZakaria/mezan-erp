@@ -107,3 +107,66 @@ describe("PrintView", () => {
     expect(container.firstChild).toMatchSnapshot();
   });
 });
+
+/** guards P-6 — a journal entry, a voucher and a statement have no goods lines. */
+describe("PrintView — the ledger body", () => {
+  const ledgerDoc = {
+    ...createSampleInvoiceDocument(),
+    documentType: "CUSTOMER_STATEMENT",
+    documentTypeLabel: "كشف حساب عميل",
+    lines: [],
+    ledger: {
+      periodLabel: "عن الفترة من 2026-03-01 إلى 2026-03-31",
+      columns: [
+        { key: "date", label: "التاريخ" },
+        { key: "reference", label: "المرجع" },
+        { key: "description", label: "البيان" },
+        { key: "debit", label: "مدين", align: "end" as const, money: true },
+        { key: "credit", label: "دائن", align: "end" as const, money: true },
+        { key: "balance", label: "الرصيد", align: "end" as const, money: true },
+      ],
+      rows: [
+        { key: "a", cells: { date: "2026-03-01", reference: "INV-1", description: "فاتورة", debit: 300, credit: null, balance: 300 } },
+        { key: "b", cells: { date: "2026-03-10", reference: "CV-1", description: "سند قبض", debit: null, credit: 100, balance: 200 } },
+      ],
+      footer: [
+        { label: "مدين", value: 300 },
+        { label: "دائن", value: 100 },
+        { label: "الرصيد الختامي", value: 200, emphasis: true },
+      ],
+    },
+  };
+
+  it("renders debit/credit/balance instead of the qty × price table", () => {
+    render(<PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={ledgerDoc} showToolbar={false} />);
+    expect(screen.getAllByText("مدين").length).toBeGreaterThan(0);
+    expect(screen.getByText("الرصيد")).toBeInTheDocument();
+    expect(screen.getByText("عن الفترة من 2026-03-01 إلى 2026-03-31")).toBeInTheDocument();
+    expect(screen.getByText("فاتورة")).toBeInTheDocument();
+    // The goods table's own headers are gone — no quantity, no unit price.
+    expect(screen.queryByText("الكمية")).not.toBeInTheDocument();
+    expect(screen.queryByText("السعر")).not.toBeInTheDocument();
+  });
+
+  it("still carries the company's legal header — a statement is a company document too", () => {
+    render(<PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={ledgerDoc} showToolbar={false} />);
+    expect(screen.getByText("شركة سياج للتجارة والتوزيع")).toBeInTheDocument();
+    expect(screen.getByText("كشف حساب عميل")).toBeInTheDocument();
+  });
+});
+
+/** guards P-6 — the QR square appears only where the authority returned a UUID. */
+describe("PrintView — the ETA block", () => {
+  it("prints nothing about e-invoicing on a document the authority has not accepted", () => {
+    render(<PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={{ ...createSampleInvoiceDocument(), etaUuid: undefined }} showToolbar={false} />);
+    expect(screen.queryByText("رمز QR للفاتورة الإلكترونية")).not.toBeInTheDocument();
+  });
+
+  it("shows a STATED placeholder beside a real UUID rather than an invented code", () => {
+    render(<PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={{ ...createSampleInvoiceDocument(), etaUuid: "ETA-UUID-1" }} showToolbar={false} />);
+    expect(screen.getByText("رمز QR للفاتورة الإلكترونية")).toBeInTheDocument();
+    expect(screen.getByText("ETA-UUID-1")).toBeInTheDocument();
+    // Nothing scannable is drawn: the submission this would encode does not exist (P-1).
+    expect(document.querySelector("svg[data-qr]")).toBeNull();
+  });
+});

@@ -9,9 +9,23 @@ import path from "node:path";
  * hook under test here never touches it, but the module-level import would
  * still fail outside an Electron runtime.
  */
-vi.mock("electron", () => ({ app: { on: vi.fn(), removeListener: vi.fn() } }));
+const electronApp = {
+  listeners: new Map<string, (event: { preventDefault: () => void }) => void>(),
+  quitCalls: 0,
+  on(event: string, listener: (event: { preventDefault: () => void }) => void) {
+    electronApp.listeners.set(event, listener);
+  },
+  removeListener(event: string) {
+    electronApp.listeners.delete(event);
+  },
+  quit() {
+    electronApp.quitCalls += 1;
+  },
+};
 
-const { backupThenMigrate } = await import("./backup-hooks.js");
+vi.mock("electron", () => ({ app: electronApp }));
+
+const { backupThenMigrate, isMigrationPending, scheduleBackups } = await import("./backup-hooks.js");
 const { extractArchive } = await import("../backup/archive.js");
 const { parseManifest } = await import("../backup/manifest.js");
 
@@ -137,9 +151,124 @@ describe("backupThenMigrate — the books are safe before the schema moves", () 
 
   it("runs with no migration step at all, which is what the desktop ships today", async () => {
     const { db, backupsDir } = await seededDb();
-    await expect(backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3" })).resolves.toBeUndefined();
+    await expect(backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3" })).resolves.toEqual({
+      skipped: false,
+      archivePath: expect.stringContaining(".mezanbak"),
+    });
     expect(await archives(backupsDir)).toHaveLength(1);
   });
+
+  /**
+   * GUARDS Q-3. The launch backup was unconditional and ran before the window
+   * existed: a cold start copied, hashed, tarred, extracted and integrity-
+   * checked the whole database against a dock icon — minutes at 2 GB, which is
+   * a force-quit, on every launch, to protect a migration that was not
+   * happening.
+   */
+  it("takes NO backup when the database is already at this build's schema", async () => {
+    const { db, backupsDir } = await seededDb();
+    db.pragma("user_version = 1");
+
+    const result = await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3" });
+
+    expect(result).toEqual({ skipped: true, archivePath: null });
+    expect(await archives(backupsDir)).toHaveLength(0);
+  });
+
+  it("still runs the migration step on a launch that skips the backup", async () => {
+    const { db, backupsDir } = await seededDb();
+    db.pragma("user_version = 1");
+    const migrate = vi.fn(async () => {});
+
+    await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3", migrate });
+
+    expect(migrate).toHaveBeenCalledTimes(1);
+  });
+
+  it("backs up when the stored schema is older than this build's", async () => {
+    const { db, backupsDir } = await seededDb();
+    db.pragma("user_version = 0");
+    expect(isMigrationPending(db)).toBe(true);
+
+    await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3" });
+
+    expect(await archives(backupsDir)).toHaveLength(1);
+  });
+
+  /** GUARDS U-9: the archive has to be findable by the revert button. */
+  it("names the archive after the version it was taken before", async () => {
+    const { db, backupsDir } = await seededDb();
+    await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.4.0" });
+
+    const [archive] = await archives(backupsDir);
+    expect(archive).toContain("pre-update-1.4.0");
+  });
+});
+
+/**
+ * GUARDS Q-4. `void run("on-close")` on `will-quit` was not awaited and did not
+ * prevent the quit, so the process exited while the copy was still being
+ * written: the nightly close backup effectively never completed.
+ */
+describe("scheduleBackups — the on-close backup actually completes", () => {
+  it("holds the quit until the backup is written, then quits", async () => {
+    const { db, backupsDir } = await seededDb();
+    electronApp.listeners.clear();
+    electronApp.quitCalls = 0;
+
+    const dispose = scheduleBackups({ sqlite: db, backupsDir, appVersion: "1.2.3" });
+    const onBeforeQuit = electronApp.listeners.get("before-quit");
+    expect(onBeforeQuit).toBeDefined();
+
+    let prevented = false;
+    onBeforeQuit?.({ preventDefault: () => { prevented = true; } });
+    expect(prevented).toBe(true);
+    // Nothing has quit yet, and no archive exists yet either.
+    expect(electronApp.quitCalls).toBe(0);
+
+    // Let the awaited backup finish.
+    for (let i = 0; i < 200 && electronApp.quitCalls === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(electronApp.quitCalls).toBe(1);
+    expect(await archives(backupsDir)).toHaveLength(1);
+    dispose();
+  });
+
+  it("quits anyway, loudly, when the backup outruns its bound", async () => {
+    const { db, backupsDir } = await seededDb();
+    electronApp.listeners.clear();
+    electronApp.quitCalls = 0;
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      errors.push(String(args[0]));
+    });
+
+    const dispose = scheduleBackups({
+      sqlite: db,
+      backupsDir,
+      appVersion: "1.2.3",
+      onCloseTimeoutMs: 0,
+    });
+    electronApp.listeners.get("before-quit")?.({ preventDefault: () => {} });
+
+    for (let i = 0; i < 200 && electronApp.quitCalls === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(electronApp.quitCalls).toBe(1);
+    // An app that will not close is worse than a missed archive, but a machine
+    // that keeps hitting the bound has to be diagnosable.
+    expect(errors.join("\n")).toContain("did not finish within");
+    dispose();
+    // The abandoned copy is still running; let it land before the temp
+    // directory is torn down under it.
+    for (let i = 0; i < 200 && (await archives(backupsDir)).length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  });
+
 
   it("backs up the live rows, not an empty file", async () => {
     const { db, backupsDir } = await seededDb();

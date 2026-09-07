@@ -33,9 +33,10 @@ const accounts: TreasuryAccountDTO[] = [
 ];
 
 function voucher(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {
-  return {
+  const row: VoucherRowDTO = {
     id: "cv-1", docNo: "CV-000001", voucherType: "customer_collection", direction: "receipt", status: "confirmed",
-    date: "2026-08-07", memo: "تحصيل من عميل", amount: "3500.500000", currency: "EGP", branchId: "MAIN", paymentMethod: "cash",
+    date: "2026-08-07", memo: "تحصيل من عميل", amount: "3500.500000", currency: "EGP", fxRate: null,
+    baseAmount: "3500.500000", branchId: "MAIN", paymentMethod: "cash",
     treasuryAccountId: "ta-1", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", counterTreasuryAccountId: null,
     counterTreasuryGlAccountId: null, customerId: null, supplierId: null, referenceNo: null, costCenterId: null,
     withholdingAmount: null, withholdingRatePercent: null, netPaidAmount: "3500.500000", journalEntryId: "je-1",
@@ -44,6 +45,7 @@ function voucher(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {
     allocationSummary: { voucherAmount: "3500.500000", allocated: "0", unallocated: "3500.500000", fullyAllocated: false, needsAllocation: false },
     ...overrides,
   };
+  return { ...row, baseAmount: overrides.baseAmount ?? row.amount };
 }
 
 function cheque(overrides: Partial<ChequeDTO> = {}): ChequeDTO {

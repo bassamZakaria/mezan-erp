@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import { childRowsByParent, countMatching, FilterClauses, selectPage } from "./list-query.js";
 import {
   Money,
@@ -336,7 +337,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
   private readonly selectInvoiceByDocNo: Database.Statement;
   private readonly selectLines: Database.Statement;
 
-  constructor(private readonly sqlite: Database.Database) {
+  constructor(private readonly sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
     this.insertInvoice = sqlite.prepare(`
       INSERT INTO sales_invoice (
         id, doc_type, doc_no, status, date, due_date, customer_id, customer_name_ar,
@@ -436,6 +437,9 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     this.updateInvoice.run(invoiceParams(invoice));
     this.deleteLines.run(invoice.id);
     this.insertLines(invoice);
+    // N-9: EVERY write moves the version, so a caller holding an older one is
+    // detectable whichever path made the change.
+    this.versions?.bump(invoice.id);
   }
 
   async findById(id: string): Promise<SalesInvoice | null> {
@@ -462,6 +466,12 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       .eq("branch_id", filter.branchId)
       .eq("warehouse_id", filter.warehouseId)
       .eq("salesperson_id", filter.salespersonId);
+    if (filter.statusIn) {
+      // An empty set matches nothing, exactly as the caller asked — falling
+      // through to "no clause" would widen it to every status.
+      if (filter.statusIn.length === 0) where.raw("0 = 1");
+      else where.raw(`status IN (${filter.statusIn.map(() => "?").join(",")})`, ...filter.statusIn);
+    }
     // SCOPE, not a filter. An empty array means the caller may see nothing, so
     // it must narrow to the unattributable rows rather than fall through to
     // "no clause" — treating an empty scope as unfiltered is how a scope stops
@@ -507,6 +517,21 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
 
   async count(filter: SalesInvoiceListFilter = {}): Promise<number> {
     return countMatching(this.sqlite, "sales_invoice", this.clausesFor(filter));
+  }
+
+  /**
+   * One `GROUP BY` for every status chip. The status filters are stripped
+   * first: a chip has to report how many rows it WOULD show, so counting the
+   * already status-filtered set would render every chip but the active one as
+   * zero.
+   */
+  async countByStatus(filter: SalesInvoiceListFilter = {}): Promise<ReadonlyMap<SalesInvoiceStatus, number>> {
+    const { status: _status, statusIn: _statusIn, limit: _limit, offset: _offset, ...rest } = filter;
+    const where = this.clausesFor(rest);
+    const rows = this.sqlite
+      .prepare(`SELECT status, COUNT(*) AS n FROM sales_invoice ${where.sql} GROUP BY status`)
+      .all(...where.values) as { status: string; n: number | bigint }[];
+    return new Map(rows.map((row) => [row.status as SalesInvoiceStatus, Number(row.n)]));
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
@@ -578,6 +603,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
 }
 
 export interface SqliteSalesInvoiceStoreHandle extends SalesInvoiceRepository {
+  /** N-9 — the row version an optimistic update compares against. */
+  readonly versions: DocumentVersionStore;
   close(): void;
 }
 
@@ -588,8 +615,11 @@ export function createSqliteSalesInvoiceStore(path: SqliteConnectionInput = ":me
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
   sqlite.exec(CREATE_INDEXES);
-  const repo = new SqliteSalesInvoiceRepository(sqlite);
+  addVersionColumns(sqlite, "sales_invoice");
+  const versions = createDocumentVersionStore(sqlite, "sales_invoice");
+  const repo = new SqliteSalesInvoiceRepository(sqlite, versions);
   return Object.assign(repo, {
+    versions,
     close: () => { if (owned) sqlite.close(); },
   }) as SqliteSalesInvoiceStoreHandle;
 }

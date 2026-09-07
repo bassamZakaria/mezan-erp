@@ -1,5 +1,6 @@
 import { Navigate, type RouteObject } from "react-router";
 import { AppLayout } from "../AppLayout";
+import { LanHostGate } from "../lan/LanHostGate";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import { HydrateFallback } from "./HydrateFallback";
 import { SCREEN_MODULES, type RoutableKey } from "./screens";
@@ -47,10 +48,41 @@ function screenRoute(key: string): RouteObject {
   };
 }
 
+/**
+ * The shell, behind the "can this machine reach its host" check.
+ *
+ * Module-level and named, not an inline arrow in the route object: a component
+ * identity that changes on every render remounts the entire application tree
+ * under it on every navigation.
+ *
+ * On a host build `LanHostGate` renders its children and does nothing else; on
+ * a client it replaces them with a named failure screen when the host is not
+ * answering, instead of a login form that will freeze and then produce one
+ * bilingual sentence for five unrelated faults.
+ */
+function GatedAppLayout() {
+  return (
+    <LanHostGate>
+      <AppLayout />
+    </LanHostGate>
+  );
+}
+
 export const routes: RouteObject[] = [
+  /**
+   * PAIRING SITS OUTSIDE THE SHELL, and outside the gate, deliberately: it is
+   * the screen you reach BECAUSE there is no session and no reachable host, so
+   * mounting it under a layout that requires either would make it unreachable
+   * in every state it exists for.
+   */
+  {
+    path: "/pair-host",
+    lazy: async () => ({ Component: (await import("../login/PairHostScreen")).PairHostScreen }),
+    ErrorBoundary: RouteErrorBoundary,
+  },
   {
     path: "/",
-    Component: AppLayout,
+    Component: GatedAppLayout,
     HydrateFallback,
     ErrorBoundary: RouteErrorBoundary,
     children: [

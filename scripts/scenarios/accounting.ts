@@ -690,7 +690,14 @@ export async function accountRoutingDecidesWherePostingsLand_R61(ctx: Ctx): Prom
     // Every slot is listed and resolved, not just the overridden ones — a
     // screen showing only what you changed cannot tell you where things post.
     ctx.check("every slot is listed with a resolved account", slots.length > 0 && slots.every((s) => s.accountId !== ""), `${slots.length} slots`);
-    ctx.check("and the sections cover the documented set", new Set(slots.map((s: any) => s.section)).size === 7, JSON.stringify([...new Set(slots.map((s: any) => s.section))]));
+    // 8 since B-8 added the `control` section (AR/AP/inventory control accounts),
+    // which the sub-ledger↔GL reconciliation now reads instead of "1105"/"2100"/"1200".
+    ctx.check("and the sections cover the documented set", new Set(slots.map((s: any) => s.section)).size === 8, JSON.stringify([...new Set(slots.map((s: any) => s.section))]));
+    ctx.check(
+      "including the three control-account slots the reconciliation reads (B-8)",
+      ["control.receivable", "control.payable", "control.inventory"].every((k) => slots.some((s) => s.key === k)),
+      JSON.stringify(slots.filter((s) => s.key.startsWith("control.")).map((s) => `${s.key}=${s.accountId}`)),
+    );
 
     const damage = slots.find((s) => s.key === "inventory_adjustment.DAMAGE");
     ctx.check("the damage-adjustment slot exists", damage !== undefined, JSON.stringify(slots.map((s) => s.key)).slice(0, 200));
@@ -1156,17 +1163,26 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
       JSON.stringify(listed).slice(0, 220),
     );
 
+    // guards B-2 — the opening balance used to be held on the customer record
+    // only, so the AR sub-ledger exceeded its control account by exactly the
+    // opening balances typed in at go-live and nothing ever closed the gap.
     const arAfter = await accountBalance(ctx, "1105");
     ctx.check(
-      "FINDING: GL 1105 did not move — the opening balance is held on the customer record only, so the AR sub-ledger " +
-        "exceeds its control account by exactly the opening balances typed in at go-live, and nothing in the product " +
-        "ever closes that gap",
-      arAfter === arBefore,
+      "GL 1105 moves by exactly the opening balance — it is a posted receivable, not a stored number",
+      Math.abs(arAfter - arBefore - opening) < 0.000001,
       `1105 before ${arBefore} after ${arAfter} (opening ${opening})`,
     );
+    const openingEntry = await ctx.req("GET", `/gl/journal-entries/OB-CUST-JE:${id}`);
+    ctx.check(
+      "and the entry behind it is Dr 1105 / Cr 3210, keyed deterministically so it posts once",
+      openingEntry.status === 200 &&
+        (openingEntry.body?.lines ?? []).some((l: any) => l.accountId === "1105" && ctx.n(l.debit) === opening) &&
+        (openingEntry.body?.lines ?? []).some((l: any) => l.accountId === "3210" && ctx.n(l.credit) === opening),
+      `status ${openingEntry.status} body ${JSON.stringify(openingEntry.body).slice(0, 240)}`,
+    );
 
-    // Put it back, or every reconciliation scenario after this one inherits
-    // the gap this one just demonstrated.
+    // Put it back — the standing entry is reversed and 1105 returns to where
+    // it started, or every reconciliation scenario after this one inherits it.
     const cleared = await ctx.req("PATCH", `/customers/${id}`, { openingBalance: "0.00" });
     ctx.check(
       "the opening balance is cleared again so later scenarios start level",

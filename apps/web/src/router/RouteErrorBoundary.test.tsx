@@ -38,8 +38,12 @@ describe("RouteErrorBoundary", () => {
     renderRouter(["/boom"]);
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByText("تعذّر عرض هذه الشاشة")).toBeInTheDocument();
+    // guards §4.5 #13 — «تعذّر عرض هذه الشاشة» is the same sentence on all 118
+    // screens, so the route the boundary caught is appended as a support code.
     expect(
-      screen.getByText("حدث خطأ أثناء تحميل الشاشة. بقية البرنامج ما زالت تعمل — يمكنك إعادة المحاولة أو الرجوع إلى لوحة التحكم."),
+      screen.getByText(
+        "حدث خطأ أثناء تحميل الشاشة. بقية البرنامج ما زالت تعمل — يمكنك إعادة المحاولة أو الرجوع إلى لوحة التحكم. رمز الشاشة للدعم: /boom",
+      ),
     ).toBeInTheDocument();
     // The raw detail is shown too — intentional, not a stack trace substitute for the Arabic copy.
     expect(screen.getByText("قيد غير متوازن")).toBeInTheDocument();

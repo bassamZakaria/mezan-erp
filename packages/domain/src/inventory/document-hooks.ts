@@ -15,6 +15,7 @@
  */
 
 import { postJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import { mirrorStockPlan } from "../documents/hooks.js";
 import type { DocumentStockHook, DocumentStockPlan, DocumentStockResult } from "../documents/hooks.js";
 import type { InventoryGlPosting, InventoryGlPostingPort } from "./ports.js";
 import { occurredAtFromDocumentDate } from "./movement.js";
@@ -76,6 +77,24 @@ export function createInventoryOpsStockHook(
       // postAdjustment posts its own balanced entry, so the caller has nothing
       // further to book.
       return { valueMoved: Money.zero() };
+    },
+
+    /**
+     * Movements only — never a second GL entry. `DocumentService.reverse` posts
+     * the mirror-image journal entry itself, so an adjustment reversal that
+     * also went through `postAdjustment` would book the correction twice.
+     */
+    async reverse(plan: DocumentStockPlan, reversesDocId: string): Promise<DocumentStockResult> {
+      const mirrored = mirrorStockPlan(plan, await service.getMovementsOfDocument(reversesDocId));
+      if (!mirrored) return { valueMoved: Money.zero() };
+      return await service.applyDocumentStockPlan({
+        sourceDocType: mirrored.sourceDocType as Parameters<StockLedgerService["applyDocumentStockPlan"]>[0]["sourceDocType"],
+        sourceDocId: mirrored.sourceDocId,
+        sourceDocNumber: mirrored.sourceDocNumber,
+        warehouseId: mirrored.warehouseId,
+        lines: mirrored.lines,
+        occurredAt: mirrored.date ? occurredAtFromDocumentDate(mirrored.date) : undefined,
+      });
     },
   };
 }

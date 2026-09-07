@@ -63,6 +63,18 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           WINDOWS_CERTIFICATE_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          # The Ed25519 pair the UPDATE channel is built on: the secret signs
+          # each artifact's release tuple, the public half is compiled into the
+          # app. Without both, `sign-release.mjs` writes nothing and every
+          # install refuses every update — which is the correct behaviour and a
+          # terrible way to find out, so the run stops here instead.
+          MEZAN_UPDATE_SIGNING_KEY: ${{ secrets.MEZAN_UPDATE_SIGNING_KEY }}
+          MEZAN_UPDATE_PUBLIC_KEY: ${{ secrets.MEZAN_UPDATE_PUBLIC_KEY }}
+          # The licence half of the same story: a build with no baked licence key
+          # cannot verify a licence file, and one with no check-in URL can never
+          # confirm itself online.
+          MEZAN_LICENSE_PUBLIC_KEY: ${{ secrets.MEZAN_LICENSE_PUBLIC_KEY }}
+          MEZAN_LICENSE_CHECKIN_URL: ${{ vars.MEZAN_LICENSE_CHECKIN_URL }}
           MEZAN_UPDATE_FEED_URL: ${{ vars.MEZAN_UPDATE_FEED_URL }}
         run: |
           set -euo pipefail
@@ -75,6 +87,10 @@ jobs:
             APPLE_API_ISSUER \
             WINDOWS_CERTIFICATE_PFX \
             WINDOWS_CERTIFICATE_PASSWORD \
+            MEZAN_UPDATE_SIGNING_KEY \
+            MEZAN_UPDATE_PUBLIC_KEY \
+            MEZAN_LICENSE_PUBLIC_KEY \
+            MEZAN_LICENSE_CHECKIN_URL \
             MEZAN_UPDATE_FEED_URL
           do
             if [ -z "${!name:-}" ]; then missing+=("$name"); fi
@@ -102,7 +118,34 @@ jobs:
               ;;
           esac
 
-          echo "All signing secrets are present and the feed URL is HTTPS."
+          case "$MEZAN_LICENSE_CHECKIN_URL" in
+            https://*) ;;
+            *)
+              echo "::error::MEZAN_LICENSE_CHECKIN_URL must be https:// — a plain-HTTP check-in"
+              echo "endpoint lets anyone on the path answer for the licensing service."
+              exit 1
+              ;;
+          esac
+
+          # Shape only; the value is never printed. A truncated or pasted-with-
+          # newline key produces a build that refuses every update in the field,
+          # and the only place that is cheap to catch is here.
+          case "${#MEZAN_UPDATE_PUBLIC_KEY}" in
+            64) ;;
+            *)
+              echo "::error::MEZAN_UPDATE_PUBLIC_KEY must be 64 hex characters (a 32-byte Ed25519 public key)."
+              exit 1
+              ;;
+          esac
+          case "${#MEZAN_UPDATE_SIGNING_KEY}" in
+            64) ;;
+            *)
+              echo "::error::MEZAN_UPDATE_SIGNING_KEY must be 64 hex characters (a 32-byte Ed25519 seed)."
+              exit 1
+              ;;
+          esac
+
+          echo "All signing secrets are present, both feed URLs are HTTPS, and the update keys are the right shape."
 
   # ---------------------------------------------------------------------------
   macos:
@@ -161,7 +204,16 @@ jobs:
       - name: Build the web bundle
         run: pnpm --filter web build
 
+      # THE KEYS ARE BAKED HERE, not read from the environment at runtime.
+      # scripts/build.mjs substitutes them as esbuild `define`s, so the packaged
+      # app carries the vendor public keys as string literals and ignores
+      # whatever the launching environment says (main/updater.ts, main/license.ts).
       - name: Build the main/preload bundles
+        env:
+          MEZAN_UPDATE_PUBLIC_KEY: ${{ secrets.MEZAN_UPDATE_PUBLIC_KEY }}
+          MEZAN_LICENSE_PUBLIC_KEY: ${{ secrets.MEZAN_LICENSE_PUBLIC_KEY }}
+          MEZAN_LICENSE_CHECKIN_URL: ${{ vars.MEZAN_LICENSE_CHECKIN_URL }}
+          MEZAN_LICENSE_FINGERPRINT_SALT: ${{ secrets.MEZAN_LICENSE_FINGERPRINT_SALT }}
         run: pnpm --filter desktop run build:main
 
       # @electron/notarize@2.5.0 reads APPLE_API_KEY as a FILE SYSTEM PATH to
@@ -212,6 +264,19 @@ jobs:
       - name: Verify the artifacts are signed AND notarized
         run: node apps/desktop/scripts/check-signed.mjs --release-dir apps/desktop/release
 
+
+      # LAYER TWO, and the release is not shippable without it. electron-builder
+      # proved the OS accepts these bytes; this proves they are OURS, to an app
+      # that cannot ask the OS anything — `version || channel || arch || sha512`
+      # signed with the vendor Ed25519 key, one detached signature per artifact
+      # the updater will actually download. Before this existed the app fetched
+      # `<feed>/<version>.sig` and got a 404 on every real release.
+      - name: Sign the release artifacts (Ed25519)
+        env:
+          MEZAN_UPDATE_SIGNING_KEY: ${{ secrets.MEZAN_UPDATE_SIGNING_KEY }}
+          MEZAN_UPDATE_PUBLIC_KEY: ${{ secrets.MEZAN_UPDATE_PUBLIC_KEY }}
+        run: node apps/desktop/scripts/sign-release.mjs --release-dir apps/desktop/release
+
       - name: Upload the verified macOS artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -220,6 +285,7 @@ jobs:
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip
             apps/desktop/release/latest-mac.yml
+            apps/desktop/release/*.sig
           retention-days: 14
           if-no-files-found: error
 
@@ -266,7 +332,16 @@ jobs:
       - name: Build the web bundle
         run: pnpm --filter web build
 
+      # THE KEYS ARE BAKED HERE, not read from the environment at runtime.
+      # scripts/build.mjs substitutes them as esbuild `define`s, so the packaged
+      # app carries the vendor public keys as string literals and ignores
+      # whatever the launching environment says (main/updater.ts, main/license.ts).
       - name: Build the main/preload bundles
+        env:
+          MEZAN_UPDATE_PUBLIC_KEY: ${{ secrets.MEZAN_UPDATE_PUBLIC_KEY }}
+          MEZAN_LICENSE_PUBLIC_KEY: ${{ secrets.MEZAN_LICENSE_PUBLIC_KEY }}
+          MEZAN_LICENSE_CHECKIN_URL: ${{ vars.MEZAN_LICENSE_CHECKIN_URL }}
+          MEZAN_LICENSE_FINGERPRINT_SALT: ${{ secrets.MEZAN_LICENSE_FINGERPRINT_SALT }}
         run: pnpm --filter desktop run build:main
 
       - name: Package (electron-builder signs with signtool)
@@ -299,6 +374,19 @@ jobs:
         shell: bash
         run: node apps/desktop/scripts/check-signed.mjs --release-dir apps/desktop/release
 
+
+      # LAYER TWO, and the release is not shippable without it. electron-builder
+      # proved the OS accepts these bytes; this proves they are OURS, to an app
+      # that cannot ask the OS anything — `version || channel || arch || sha512`
+      # signed with the vendor Ed25519 key, one detached signature per artifact
+      # the updater will actually download. Before this existed the app fetched
+      # `<feed>/<version>.sig` and got a 404 on every real release.
+      - name: Sign the release artifacts (Ed25519)
+        env:
+          MEZAN_UPDATE_SIGNING_KEY: ${{ secrets.MEZAN_UPDATE_SIGNING_KEY }}
+          MEZAN_UPDATE_PUBLIC_KEY: ${{ secrets.MEZAN_UPDATE_PUBLIC_KEY }}
+        run: node apps/desktop/scripts/sign-release.mjs --release-dir apps/desktop/release
+
       - name: Upload the verified Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -306,6 +394,7 @@ jobs:
           path: |
             apps/desktop/release/*.exe
             apps/desktop/release/latest.yml
+            apps/desktop/release/*.sig
           retention-days: 14
           if-no-files-found: error
 

@@ -122,3 +122,23 @@ describe("createGeneralLedgerReport", () => {
     expect(outcome.ok).toBe(false);
   });
 });
+
+/**
+ * guards C-10 — every figure this report emits is one `Money → number`
+ * conversion of the line itself, never the result of float arithmetic. The
+ * residual float in the totals lives in the shared KPI layer (kpi.ts
+ * `sumRows`), which every one of the 33 reports uses.
+ */
+describe("createGeneralLedgerReport — exact arithmetic", () => {
+  it("emits each line's own exact amount", () => {
+    const entries = [
+      je({ id: "a", entryNo: "JE-1", date: "2026-03-01", lines: [dr("1100", "0.10"), cr("4100", "0.10")] }),
+      je({ id: "b", entryNo: "JE-2", date: "2026-03-02", lines: [dr("1100", "0.20"), cr("4100", "0.20")] }),
+    ];
+    const params = { periodFrom: "2026-03-01", periodTo: "2026-03-31" };
+    const outcome = runReport(createGeneralLedgerReport(params), params, { accounts, journalEntries: entries });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows.map((r) => r.debit + r.credit).sort()).toEqual([0.1, 0.1, 0.2, 0.2]);
+  });
+});

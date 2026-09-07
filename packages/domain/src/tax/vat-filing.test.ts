@@ -15,13 +15,13 @@ import { Money } from "../money/index.js";
 import {
   recordVatFiling,
   amendVatFiling,
-  assertVatPeriodOpen,
   DuplicateVatFilingError,
   VatFilingNotFoundError,
   VatPeriodAlreadyFiledError,
   type VatFiling,
   type VatFilingRepository,
 } from "./vat-filing.js";
+import { assertVatNotFiled } from "../gl/post.js";
 
 interface FakeRepo extends VatFilingRepository {
   readonly rows: Map<string, VatFiling>;
@@ -201,11 +201,12 @@ describe("amendVatFiling — reopening a filed period is a decision, with a reas
   });
 });
 
-describe("assertVatPeriodOpen — the lock a backdated document must hit", () => {
+// guards B-11: the one lock lives in gl/post.ts; the tax module's duplicate copy is gone.
+describe("assertVatNotFiled — the lock a backdated document must hit", () => {
   it("refuses a posting dated anywhere inside a FILED window, including both boundary days", async () => {
     const repo = repository([filedRow()]);
     for (const date of ["2026-07-01", "2026-07-16", "2026-07-31"]) {
-      const err = await assertVatPeriodOpen(date, { filings: repo }).then(
+      const err = await assertVatNotFiled(date, repo).then(
         () => null,
         (e: unknown) => e as VatPeriodAlreadyFiledError,
       );
@@ -218,17 +219,17 @@ describe("assertVatPeriodOpen — the lock a backdated document must hit", () =>
 
   it("allows the day either side of the window — the guard must not refuse everything", async () => {
     const repo = repository([filedRow()]);
-    await expect(assertVatPeriodOpen("2026-06-30", { filings: repo })).resolves.toBeUndefined();
-    await expect(assertVatPeriodOpen("2026-08-01", { filings: repo })).resolves.toBeUndefined();
+    await expect(assertVatNotFiled("2026-06-30", repo)).resolves.toBeUndefined();
+    await expect(assertVatNotFiled("2026-08-01", repo)).resolves.toBeUndefined();
   });
 
   it("allows the period again once the filing has been amended", async () => {
     const repo = repository([filedRow()]);
-    await expect(assertVatPeriodOpen("2026-07-16", { filings: repo })).rejects.toBeInstanceOf(
+    await expect(assertVatNotFiled("2026-07-16", repo)).rejects.toBeInstanceOf(
       VatPeriodAlreadyFiledError,
     );
     await amendVatFiling("VF-2026-07", "تعديل", { filings: repo });
-    await expect(assertVatPeriodOpen("2026-07-16", { filings: repo })).resolves.toBeUndefined();
+    await expect(assertVatNotFiled("2026-07-16", repo)).resolves.toBeUndefined();
   });
 });
 
@@ -246,7 +247,7 @@ describe("assertVatPeriodOpen — the lock a backdated document must hit", () =>
 describe("DEFECT: recording a filing under an existing id overwrites the acknowledged return", () => {
   it("erases the filed July record — figure, reference, filer and all — and unlocks the period", async () => {
     const repo = repository([filedRow()]);
-    await expect(assertVatPeriodOpen("2026-07-16", { filings: repo })).rejects.toBeInstanceOf(
+    await expect(assertVatNotFiled("2026-07-16", repo)).rejects.toBeInstanceOf(
       VatPeriodAlreadyFiledError,
     );
 
@@ -267,7 +268,7 @@ describe("DEFECT: recording a filing under an existing id overwrites the acknowl
     expect(survivor.netAmount.toString()).toBe("12.000000");
     expect(survivor.referenceNo).toBeNull();
     expect(survivor.filedBy).toBe("u-junior");
-    await expect(assertVatPeriodOpen("2026-07-16", { filings: repo })).resolves.toBeUndefined();
+    await expect(assertVatNotFiled("2026-07-16", repo)).resolves.toBeUndefined();
   });
 
   it("un-amends an amended filing, discarding the reason the amendment was required to carry", async () => {
@@ -319,7 +320,7 @@ describe("DEFECT: the duplicate guard checks only the first day of the new windo
       { filings: repo },
     );
     await amendVatFiling("VF-MID", "تعديل الإقرار المتداخل", { filings: repo });
-    await expect(assertVatPeriodOpen("2026-07-10", { filings: repo })).rejects.toBeInstanceOf(
+    await expect(assertVatNotFiled("2026-07-10", repo)).rejects.toBeInstanceOf(
       VatPeriodAlreadyFiledError,
     );
   });

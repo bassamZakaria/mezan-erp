@@ -163,3 +163,38 @@ describe("SqliteSalesInvoiceStore — update on confirm", () => {
     expect(await repo.findById("inv-txn")).not.toBeNull();
   });
 });
+
+describe("SqliteSalesInvoiceStore — status aggregates (guards Q-5)", () => {
+  it("countByStatus is one GROUP BY over the filter, with the status filters stripped", async () => {
+    const repo = store();
+    await repo.save(invoice({ id: "inv-1", status: "draft", date: "2026-08-01", branchId: "branch-1" }));
+    await repo.save(invoice({ id: "inv-2", status: "confirmed", date: "2026-08-10", branchId: "branch-1" }));
+    await repo.save(invoice({ id: "inv-3", status: "confirmed", date: "2026-08-15", branchId: "branch-1" }));
+    await repo.save(invoice({ id: "inv-4", status: "paid", date: "2026-08-20", branchId: "branch-2" }));
+
+    // A chip has to report what it WOULD show, so its own status must not narrow the count.
+    const counts = await repo.countByStatus({ status: "draft" });
+    expect([...counts.entries()].sort()).toEqual([
+      ["confirmed", 2],
+      ["draft", 1],
+      ["paid", 1],
+    ]);
+
+    const scoped = await repo.countByStatus({ branchId: "branch-1" });
+    expect(scoped.get("paid")).toBeUndefined();
+    expect(scoped.get("confirmed")).toBe(2);
+  });
+
+  it("statusIn narrows to a set, and an empty set matches nothing rather than everything", async () => {
+    const repo = store();
+    await repo.save(invoice({ id: "inv-1", status: "draft" }));
+    await repo.save(invoice({ id: "inv-2", status: "confirmed" }));
+    await repo.save(invoice({ id: "inv-3", status: "partially_paid" }));
+    await repo.save(invoice({ id: "inv-4", status: "cancelled" }));
+
+    const unsettled = await repo.list({ statusIn: ["confirmed", "partially_paid"] });
+    expect(unsettled.map((i) => i.id).sort()).toEqual(["inv-2", "inv-3"]);
+    expect(await repo.count({ statusIn: ["confirmed", "partially_paid"] })).toBe(2);
+    expect(await repo.list({ statusIn: [] })).toEqual([]);
+  });
+});

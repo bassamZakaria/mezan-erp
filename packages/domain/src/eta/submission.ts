@@ -44,6 +44,24 @@ export function getEtaDocumentTypeLabel(type: EtaDocumentType): string {
   return ETA_DOCUMENT_TYPE_LABELS[type];
 }
 
+/**
+ * One HTTP round trip against the authority, kept on the submission itself.
+ *
+ * Filing is a legal act; "the gateway said no" with nothing behind it is not
+ * an audit trail. `requestBody` is what was SENT with secrets redacted — the
+ * token request's client secret never reaches this record.
+ */
+export interface EtaTransmitLogEntry {
+  readonly at: string;
+  readonly attempt: number;
+  readonly method: string;
+  readonly url: string;
+  readonly requestBody: string | null;
+  readonly status: number | null;
+  readonly responseBody: string;
+  readonly error: string | null;
+}
+
 export interface EtaSubmission {
   readonly id: string;
   /** المعرف الداخلي — the source document number, e.g. "INV-000014". */
@@ -61,6 +79,12 @@ export interface EtaSubmission {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly submittedAt: string | null;
+  /** رقم الإرسال لدى المصلحة — the authority's submission id, when it returned one. */
+  readonly gatewaySubmissionId: string | null;
+  /** The CAdES-BES signature attached before transmission, when the e-seal leg ran. */
+  readonly signature: string | null;
+  /** Every request/response of every attempt, oldest first. */
+  readonly transmitLog: readonly EtaTransmitLogEntry[];
 }
 
 /** Persistence port for the submission queue. */

@@ -188,8 +188,7 @@ const NAV_ENDPOINTS: readonly (readonly [string, string])[] = [
   ["settings-sequences", "/sequences"],
   ["settings-barcode", "/barcode-config"],
   ["settings-profile", "/profile"],
-  ["settings-api-keys", "/api-keys"],
-  ["settings-webhooks", "/webhooks"],
+  // settings-api-keys / settings-webhooks: unmounted (DEC-17, packages/api/src/app.ts).
   ["audit", "/audit"],
   ["users", "/users"],
   ["roles", "/roles"],

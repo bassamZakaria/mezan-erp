@@ -275,7 +275,7 @@ describe("PriceListsScreen", () => {
       }),
     });
 
-    expect(await screen.findByText("تعذّر تحميل قوائم الأسعار.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل قوائم الأسعار. (رمز 500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("لا توجد قوائم أسعار — أنشئ قائمة جديدة")).not.toBeInTheDocument());
   });
 });

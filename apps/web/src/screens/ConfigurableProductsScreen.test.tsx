@@ -248,7 +248,7 @@ describe("ConfigurableProductsScreen", () => {
       </TestNavigation>,
       { transport, initialSession: testAdminSession },
     );
-    expect(await screen.findByText("تعذّر تحميل المنتجات القابلة للتهيئة.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل المنتجات القابلة للتهيئة. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));

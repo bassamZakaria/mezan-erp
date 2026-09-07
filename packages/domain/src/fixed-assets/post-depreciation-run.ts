@@ -92,38 +92,45 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
   const [yearStr, monthStr] = run.period.split("-");
   const { end } = periodBounds({ year: Number(yearStr), month: Number(monthStr) });
 
-  const entry = await postJournalEntry(
-    {
-      id: `DEP-JE:${run.id}`,
-      date: end,
-      memo: `Depreciation run ${run.period}`,
-      source: "system",
-      sourceDocType: "DEPRECIATION_RUN",
-      sourceDocId: run.id,
-      sourceDocNumber: run.period,
-      lines: journalLines,
-    },
-    deps.gl,
-  );
+  // ONE TRANSACTION for the entry, every asset write and the run's own status
+  // (B-9). A failure part-way used to leave the GL entry posted against assets
+  // whose accumulated depreciation had not moved, and the run still `draft` —
+  // so re-posting threw DuplicateJournalEntryError and the period could never
+  // be closed.
+  return deps.gl.ledger.transaction(async () => {
+    const entry = await postJournalEntry(
+      {
+        id: `DEP-JE:${run.id}`,
+        date: end,
+        memo: `إهلاك الفترة ${run.period}`,
+        source: "system",
+        sourceDocType: "DEPRECIATION_RUN",
+        sourceDocId: run.id,
+        sourceDocNumber: run.period,
+        lines: journalLines,
+      },
+      deps.gl,
+    );
 
-  for (const line of run.lines) {
-    const asset = assetsById.get(line.assetId)!;
-    const newAccumulated = asset.accumulatedDepreciation.add(line.amount);
-    const fullyDepreciated = newAccumulated.scaled >= depreciableBase(asset).scaled;
-    const updated: Asset = {
-      ...asset,
-      accumulatedDepreciation: newAccumulated,
-      status: fullyDepreciated ? "fully_depreciated" : asset.status,
+    for (const line of run.lines) {
+      const asset = assetsById.get(line.assetId)!;
+      const newAccumulated = asset.accumulatedDepreciation.add(line.amount);
+      const fullyDepreciated = newAccumulated.scaled >= depreciableBase(asset).scaled;
+      const updated: Asset = {
+        ...asset,
+        accumulatedDepreciation: newAccumulated,
+        status: fullyDepreciated ? "fully_depreciated" : asset.status,
+      };
+      await deps.assets.update(updated);
+    }
+
+    const postedRun: DepreciationRun = {
+      ...run,
+      status: "posted",
+      journalEntryId: entry.id,
+      postedAt: deps.now?.() ?? new Date().toISOString(),
     };
-    await deps.assets.update(updated);
-  }
-
-  const postedRun: DepreciationRun = {
-    ...run,
-    status: "posted",
-    journalEntryId: entry.id,
-    postedAt: deps.now?.() ?? new Date().toISOString(),
-  };
-  await deps.runs.update(postedRun);
-  return postedRun;
+    await deps.runs.update(postedRun);
+    return postedRun;
+  });
 }

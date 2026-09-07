@@ -65,7 +65,7 @@ import {
   type AllocationRepository,
   type VoucherLine,
 } from "@mezan/domain";
-import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createAnyPermissionGate, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * التقارير — operational reports (docs/archive/catalog/08-reports.md), mounted under
@@ -81,7 +81,7 @@ export interface ReportsRoutesDeps {
   /** Allocation sub-ledger — lets the aging reports deduct what has actually been settled. */
   readonly allocatable?: AllocatableInvoiceRepository;
   /** Confirmed sales returns, so the customer aging ladder nets the credits the GL already posted. */
-  readonly salesReturnDocs?: { list(): Promise<readonly SalesReturnDocument[]> };
+  readonly salesReturnDocs?: { list(filter?: { status?: "confirmed" }): Promise<readonly SalesReturnDocument[]> };
   /** Cheques, whose creation already reclassified a customer's receivable. */
   readonly cheques?: Pick<ChequeRepository, "list">;
   /** Confirmed vouchers, for collections that named no invoice. */
@@ -120,6 +120,12 @@ export interface ReportsRoutesDeps {
   readonly vanTrips?: VanTripRepository;
   /** Resolves van-trip crew ids to employee names; ids are shown verbatim when absent. */
   readonly employees?: EmployeeRepository;
+  /**
+   * العروض master data, for a campaign's TYPE and English name. Optional: the
+   * report still runs without it — every figure comes off the invoice's own
+   * recorded promotion — and the type column is simply blank.
+   */
+  readonly promotions?: { list(): Promise<readonly { readonly id: string; readonly nameEn: string | null; readonly type: string }[]> };
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
   readonly today?: () => string;
 }
@@ -139,6 +145,8 @@ const INVENTORY_ACCOUNT_IDS = ["1200"] as const;
  * told the true total separately so it can say what it is not showing.
  */
 const DRILL_DOWN_LIMIT = 25;
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function todayIso(deps: ReportsRoutesDeps): string {
   if (deps.today) return deps.today();
@@ -208,6 +216,18 @@ async function postedGross(
    */
   sourceDocTypes?: readonly string[],
 ): Promise<number> {
+  // One SQL aggregate where the ledger can answer it (Q-6); the fold survives
+  // for in-memory ledgers and must produce the same figure.
+  if (deps.ledger.sumLines) {
+    const sums = await deps.ledger.sumLines({
+      statuses: ["posted"],
+      fromDate: range.dateFrom,
+      toDate: range.dateTo,
+      accountIds,
+      ...(sourceDocTypes ? { sourceDocTypes } : {}),
+    });
+    return Number(sums[side].toString());
+  }
   const entries = await deps.ledger.list({ status: "posted" });
   const allowed = new Set(accountIds);
   let total = 0;
@@ -237,8 +257,17 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
   });
 }
 
-/** Every stock movement across every position — the shared ledger the inventory reports slice differently. */
+/**
+ * Every stock movement across every position — the shared ledger the inventory
+ * reports slice differently.
+ *
+ * ONE query when the store can answer it (Q-6: this was a synchronous SQLite
+ * round trip per position, 12,001 of them on the reference database). The
+ * per-position fallback survives for stores without `listAll`, and returns the
+ * array in the SAME order, which `listAll`'s contract exists to guarantee.
+ */
 async function loadAllMovements(deps: ReportsRoutesDeps) {
+  if (deps.stockLedger.listAll) return deps.stockLedger.listAll();
   const positions = await deps.stockLedger.listPositions();
   const lists = await Promise.all(positions.map((p) => deps.stockLedger.listByPosition(p.itemId, p.warehouseId)));
   return lists.flat();
@@ -246,6 +275,7 @@ async function loadAllMovements(deps: ReportsRoutesDeps) {
 
 /** Every cost layer across every position (aging + drift both need the full set). */
 async function loadAllLayers(deps: ReportsRoutesDeps) {
+  if (deps.costLayers.listAll) return deps.costLayers.listAll();
   const positions = await deps.stockLedger.listPositions();
   const lists = await Promise.all(positions.map((p) => deps.costLayers.listByPosition(p.itemId, p.warehouseId)));
   return lists.flat();
@@ -264,7 +294,7 @@ async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<Readon
     out.set(partyId, (out.get(partyId) ?? 0n) + scaled);
   };
 
-  for (const cheque of (await deps.cheques?.list()) ?? []) {
+  for (const cheque of (await deps.cheques?.list({ direction: "incoming" })) ?? []) {
     if (cheque.direction !== "incoming") continue;
     // A bounced or replaced cheque credited nothing that still stands: bouncing
     // reclassifies GL 1320 → 1360 and deliberately leaves AR where it is. Counting
@@ -289,7 +319,7 @@ async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<Readon
 /** Confirmed sales-return credit per source invoice. */
 async function returnsByInvoiceId(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
   const out = new Map<string, bigint>();
-  for (const doc of (await deps.salesReturnDocs?.list()) ?? []) {
+  for (const doc of (await deps.salesReturnDocs?.list({ status: "confirmed" })) ?? []) {
     if (doc.status !== "confirmed") continue;
     const invoiceId = doc.lines[0]?.sourceInvoiceId;
     if (!invoiceId) continue;
@@ -317,12 +347,61 @@ async function settledByInvoiceId(
   return deps.allocatable.allocatedByIds(invoices.map((invoice) => invoice.id));
 }
 
+/**
+ * The branches a report may cover (P-7).
+ *
+ * `branchScopeOf` is the SCOPE — what this session is allowed to see at all —
+ * and `?branchId=` is a presentation filter that may only narrow it. A
+ * `branchId` the session may not see resolves to no branches rather than
+ * widening the scope, which is the whole point of a scope.
+ */
+function reportBranches(c: Context): readonly string[] | undefined {
+  const scope = branchScopeOf(c);
+  const requested = (c.req.query("branchId") ?? "").trim();
+  if (requested === "" || requested === "*") return scope;
+  if (scope && !scope.includes(requested)) return [];
+  return [requested];
+}
+
 export function createReportsRoutes(
   deps: ReportsRoutesDeps,
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
+
+  /** The warehouses inside the report's branch scope, for the stock reports the branch reaches only through them. */
+  async function warehousesInBranchScope(c: Context): Promise<readonly string[] | undefined> {
+    const branches = reportBranches(c);
+    if (!branches) return warehouseScopeOf(c);
+    const allowed = new Set(branches);
+    const inBranch = (await deps.warehouses.findAll()).filter((w) => allowed.has(w.branchId)).map((w) => w.id);
+    const byWarehouse = warehouseScopeOf(c);
+    return byWarehouse ? inBranch.filter((id) => byWarehouse.includes(id)) : inBranch;
+  }
+
+  function scopedSalesInvoices<T extends { readonly branchId?: string | null }>(c: Context, rows: readonly T[]): readonly T[] {
+    return withinScope(rows, reportBranches(c), (r) => r.branchId);
+  }
+
+  /**
+   * An instalment plan carries no branch of its own; its branch is the branch
+   * of the sales invoice it was raised against, which is a resolution, not a
+   * guess. A plan whose source invoice is gone stays unattributed.
+   */
+  async function scopedPlans<T extends { readonly lines: readonly { readonly sourceInvoiceId: string }[] }>(
+    c: Context,
+    plans: readonly T[],
+  ): Promise<readonly T[]> {
+    const branches = reportBranches(c);
+    if (!branches) return plans;
+    const branchByInvoiceId = new Map((await deps.salesInvoices.list()).map((i) => [i.id, i.branchId]));
+    return withinScope(plans, branches, (p) => {
+      const sourceId = p.lines[0]?.sourceInvoiceId;
+      return sourceId ? branchByInvoiceId.get(sourceId) ?? null : null;
+    });
+  }
 
   function queryParams(c: Context): Record<string, string> {
     const out: Record<string, string> = {};
@@ -335,7 +414,7 @@ export function createReportsRoutes(
   app.get("/sales/by-period", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByPeriodReport(firstOfMonth(today), today);
-    const invoices = await deps.salesInvoices.list();
+    const invoices = scopedSalesInvoices(c, await deps.salesInvoices.list());
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     return respond(
       c,
@@ -346,7 +425,8 @@ export function createReportsRoutes(
   app.get("/sales/by-item", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByItemReport(firstOfMonth(today), today);
-    const [invoices, items] = await Promise.all([deps.salesInvoices.list(), deps.items.list()]);
+    const [allInvoices, items] = await Promise.all([deps.salesInvoices.list(), deps.items.list()]);
+    const invoices = scopedSalesInvoices(c, allInvoices);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     const params = { ...definition.defaultParams, ...queryParams(c) };
     const postedRevenue = await postedGross(deps, REVENUE_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "credit", ["SALES_INVOICE"]);
@@ -356,22 +436,161 @@ export function createReportsRoutes(
   app.get("/sales/by-customer", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByCustomerReport(firstOfMonth(today), today);
-    const [invoices, customers] = await Promise.all([deps.salesInvoices.list(), deps.customers.findAll()]);
+    const [allInvoices, customers] = await Promise.all([deps.salesInvoices.list(), deps.customers.findAll()]);
+    const invoices = scopedSalesInvoices(c, allInvoices);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, customers }));
   });
 
   app.get("/sales/by-salesperson", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesBySalespersonReport(firstOfMonth(today), today);
-    const invoices = await deps.salesInvoices.list();
+    const invoices = scopedSalesInvoices(c, await deps.salesInvoices.list());
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
   });
 
   app.get("/sales/top-products", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createTopProductsReport(firstOfMonth(today), today);
-    const [invoices, items] = await Promise.all([deps.salesInvoices.list(), deps.items.list()]);
+    const [allInvoices, items] = await Promise.all([deps.salesInvoices.list(), deps.items.list()]);
+    const invoices = scopedSalesInvoices(c, allInvoices);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, items }));
+  });
+
+  /**
+   * تقرير العروض — the promotions report (docs/archive/catalog/08-reports.md:87,
+   * fully specified in 01-sales.md §"تقرير العروض"). The one catalogue report
+   * with no route at all (P-8).
+   *
+   * What it answers: how much was given away through promotions in a period,
+   * per campaign, net of what the returns handed back. Every figure comes off
+   * documents that were actually posted — the promotion the invoice RECORDED
+   * (`appliedPromotion`, stamped at confirm), never a re-evaluation of today's
+   * campaign rules against yesterday's invoice, which would restate history
+   * every time someone edits a promotion.
+   *
+   * «خصم معكوس» is pro-rated per returned line: a return of 3 of the 10 units
+   * a promotion discounted reverses three tenths of that line's discount. The
+   * alternative — reversing a campaign's whole discount on any return against
+   * the invoice — overstates the reversal and can drive the net negative.
+   *
+   * Money is summed in `Money` and converted once per emitted figure, at the
+   * response boundary.
+   */
+  app.get("/sales/offers", gateAny("sales.promotion.view", "sales.invoice.view"), async (c) => {
+    const today = todayIso(deps);
+    const params = { dateFrom: firstOfMonth(today), dateTo: today, ...queryParams(c) };
+    if (!ISO_DATE.test(params.dateFrom) || !ISO_DATE.test(params.dateTo)) {
+      return c.json(
+        {
+          error: "VALIDATION_ERROR",
+          errors: [
+            ...(ISO_DATE.test(params.dateFrom) ? [] : [{ path: "dateFrom", messageAr: "تاريخ غير صالح" }]),
+            ...(ISO_DATE.test(params.dateTo) ? [] : [{ path: "dateTo", messageAr: "تاريخ غير صالح" }]),
+          ],
+        },
+        400,
+      );
+    }
+
+    const [allInvoices, promotions, returns] = await Promise.all([
+      deps.salesInvoices.list(),
+      deps.promotions?.list() ?? Promise.resolve([]),
+      deps.salesReturnDocs?.list() ?? Promise.resolve([]),
+    ]);
+    const invoices = scopedSalesInvoices(c, allInvoices);
+
+    const promotionById = new Map(promotions.map((promotion) => [promotion.id, promotion]));
+
+    interface Agg {
+      code: string;
+      nameAr: string;
+      nameEn: string | null;
+      type: string;
+      uses: number;
+      granted: Money;
+      reversed: Money;
+    }
+    const byPromotion = new Map<string, Agg>();
+    /** Invoices in range that carry a promotion — the only ones a return can reverse against. */
+    const inRange = new Map<string, (typeof invoices)[number]>();
+
+    for (const invoice of invoices) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
+      if (invoice.date < params.dateFrom || invoice.date > params.dateTo) continue;
+      const applied = invoice.appliedPromotion;
+      if (!applied) continue;
+      inRange.set(invoice.id, invoice);
+      const master = promotionById.get(applied.promotionId);
+      const existing = byPromotion.get(applied.promotionId) ?? {
+        code: applied.code,
+        nameAr: applied.nameAr,
+        nameEn: master?.nameEn ?? null,
+        type: master?.type ?? "",
+        uses: 0,
+        granted: Money.zero(),
+        reversed: Money.zero(),
+      };
+      existing.uses += 1;
+      existing.granted = existing.granted.add(applied.discountTotal);
+      byPromotion.set(applied.promotionId, existing);
+    }
+
+    for (const doc of returns) {
+      if (doc.status !== "confirmed") continue;
+      if (doc.date < params.dateFrom || doc.date > params.dateTo) continue;
+      for (const line of doc.lines) {
+        const invoice = inRange.get(line.sourceInvoiceId);
+        const applied = invoice?.appliedPromotion;
+        if (!invoice || !applied) continue;
+        const agg = byPromotion.get(applied.promotionId);
+        if (!agg) continue;
+        const discountedForItem = Money.sum(
+          applied.lineDiscounts.filter((d) => d.itemId === line.itemId).map((d) => d.amount),
+        );
+        if (discountedForItem.scaled === 0n) continue;
+        const invoicedQty = invoice.lines
+          .filter((l) => l.itemId === line.itemId)
+          .reduce<bigint>((total, l) => total + l.qty.scaled, 0n);
+        if (invoicedQty === 0n) continue;
+        const share = (discountedForItem.scaled * line.qty.scaled) / invoicedQty;
+        agg.reversed = agg.reversed.add(Money.fromScaled(share));
+      }
+    }
+
+    const rows = [...byPromotion.entries()]
+      .map(([promotionId, agg]) => ({
+        promotionId,
+        code: agg.code,
+        nameAr: agg.nameAr,
+        nameEn: agg.nameEn,
+        type: agg.type,
+        uses: agg.uses,
+        granted: moneyToNumber(agg.granted),
+        reversed: moneyToNumber(agg.reversed),
+        net: moneyToNumber(Money.fromScaled(agg.granted.scaled - agg.reversed.scaled)),
+      }))
+      .sort((a, b) => b.net - a.net);
+
+    const sum = (pick: (row: (typeof rows)[number]) => number): number => rows.reduce((total, row) => total + pick(row), 0);
+
+    return c.json({
+      params,
+      rows,
+      groups: [],
+      grandTotals: {
+        uses: sum((r) => r.uses),
+        granted: sum((r) => r.granted),
+        reversed: sum((r) => r.reversed),
+        net: sum((r) => r.net),
+      },
+      reconciliation: null,
+      kpis: [
+        { key: "promotionsUsed", labelAr: "عروض مستخدمة", format: "qty" as const, value: rows.length },
+        { key: "uses", labelAr: "عدد مرات الاستخدام", format: "qty" as const, value: sum((r) => r.uses) },
+        { key: "granted", labelAr: "إجمالي الخصم الممنوح", format: "money" as const, value: sum((r) => r.granted) },
+        { key: "net", labelAr: "صافي الخصم", format: "money" as const, value: sum((r) => r.net) },
+      ],
+    });
   });
 
   // --- المشتريات -----------------------------------------------------
@@ -379,14 +598,15 @@ export function createReportsRoutes(
   app.get("/purchases/by-period", gate("purchases.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createPurchasesByPeriodReport(firstOfMonth(today), today);
-    const invoices = await deps.purchaseInvoices.list();
+    const invoices = scopedSalesInvoices(c, await deps.purchaseInvoices.list());
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
   });
 
   app.get("/purchases/by-supplier", gate("purchases.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createPurchasesBySupplierReport(firstOfMonth(today), today);
-    const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
+    const [allInvoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
+    const invoices = scopedSalesInvoices(c, allInvoices);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     return respond(
       c,
@@ -397,7 +617,8 @@ export function createReportsRoutes(
   app.get("/purchases/by-item", gate("purchases.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createPurchasesByItemReport(firstOfMonth(today), today);
-    const [invoices, items] = await Promise.all([deps.purchaseInvoices.list(), deps.items.list()]);
+    const [allInvoices, items] = await Promise.all([deps.purchaseInvoices.list(), deps.items.list()]);
+    const invoices = scopedSalesInvoices(c, allInvoices);
     const params = { ...definition.defaultParams, ...queryParams(c) };
     const postedInventory = await postedGross(deps, INVENTORY_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "debit", ["PURCHASE_INVOICE", "PURCHASE_RECEIPT"]);
     return respond(c, runReport(definition, params, { invoices, items, postedInventory: () => postedInventory }));
@@ -408,56 +629,66 @@ export function createReportsRoutes(
   app.get("/inventory/stock-levels", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryStockLevelsReport();
     const [items, allSnapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
-    const snapshots = withinScope(allSnapshots, warehouseScopeOf(c), (s) => s.warehouseId);
+    const snapshots = withinScope(allSnapshots, await warehousesInBranchScope(c), (s) => s.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots }));
   });
 
   app.get("/inventory/movement", gate("inventory.stock.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createInventoryMovementReport(firstOfMonth(today), today);
-    const [movements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
+    const [allMovements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
+    const movements = withinScope(allMovements, await warehousesInBranchScope(c), (m) => m.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { movements, items, warehouses }));
   });
 
   app.get("/inventory/ledger", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryLedgerReport();
-    const [movements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
+    const [allMovements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
+    const movements = withinScope(allMovements, await warehousesInBranchScope(c), (m) => m.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { movements, items, warehouses }));
   });
 
   app.get("/inventory/valuation", gate("inventory.valuation.view"), async (c) => {
     const definition = createInventoryValuationReport();
     const [items, allSnapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
-    const snapshots = withinScope(allSnapshots, warehouseScopeOf(c), (s) => s.warehouseId);
+    const snapshots = withinScope(allSnapshots, await warehousesInBranchScope(c), (s) => s.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots }));
   });
 
   app.get("/inventory/aging", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryAgingReport(todayIso(deps));
-    const [items, warehouses, layers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
+    const [items, warehouses, allLayers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
+    const layers = withinScope(allLayers, await warehousesInBranchScope(c), (l) => l.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
   });
 
   app.get("/inventory/expiring", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryExpiringReport(todayIso(deps));
-    const [items, warehouses, layers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
+    const [items, warehouses, allLayers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
+    const layers = withinScope(allLayers, await warehousesInBranchScope(c), (l) => l.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
   });
 
   app.get("/inventory/slow-moving", gate("inventory.stock.view"), async (c) => {
     const definition = createInventorySlowMovingReport(todayIso(deps));
-    const [items, snapshots, invoices] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.salesInvoices.list()]);
+    const [items, allSnapshots, allInvoices] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.salesInvoices.list()]);
+    const warehouseScope = await warehousesInBranchScope(c);
+    const snapshots = withinScope(allSnapshots, warehouseScope, (s) => s.warehouseId);
+    const invoices = scopedSalesInvoices(c, allInvoices);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, invoices }));
   });
 
   app.get("/inventory/drift", gate("inventory.valuation.view"), async (c) => {
     const definition = createInventoryDriftReport();
-    const [snapshots, movements, items, warehouses] = await Promise.all([
+    const [allSnapshots, allMovements, items, warehouses] = await Promise.all([
       deps.wacSnapshots.list(),
       loadAllMovements(deps),
       deps.items.list(),
       deps.warehouses.findAll(),
     ]);
+    const warehouseScope = await warehousesInBranchScope(c);
+    const snapshots = withinScope(allSnapshots, warehouseScope, (s) => s.warehouseId);
+    const movements = withinScope(allMovements, warehouseScope, (m) => m.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { snapshots, movements, items, warehouses }));
   });
 
@@ -467,7 +698,8 @@ export function createReportsRoutes(
     const boms = deps.boms;
     app.get("/manufacturing/make-vs-buy", gate("manufacturing.bom.view"), async (c) => {
       const definition = createMakeVsBuyReport();
-      const [items, bomList, invoices] = await Promise.all([deps.items.list(), boms.list(), deps.purchaseInvoices.list()]);
+      const [items, bomList, allInvoices] = await Promise.all([deps.items.list(), boms.list(), deps.purchaseInvoices.list()]);
+      const invoices = scopedSalesInvoices(c, allInvoices);
       return respond(
         c,
         runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, boms: bomList, purchaseInvoices: invoices }),
@@ -479,16 +711,25 @@ export function createReportsRoutes(
 
   app.get("/aging/customers", gate("sales.invoice.view"), async (c) => {
     const definition = createAgingCustomersReport(todayIso(deps));
-    const [invoices, returns, credits, customers] = await Promise.all([
-      deps.salesInvoices.list(),
+    const params = { ...definition.defaultParams, ...queryParams(c) };
+    // The ladder drops every invoice that is not live and every one dated after
+    // the snapshot, so both bounds belong in SQL rather than in a fold over the
+    // whole table (Q-6). The set here must stay exactly the report's own.
+    const bounds = {
+      statusIn: [...SALES_INVOICE_ACTIVE_STATUSES],
+      ...(ISO_DATE.test(String(params.asOfDate)) ? { toDate: String(params.asOfDate) } : {}),
+    };
+    const [allInvoices, returns, credits, customers] = await Promise.all([
+      deps.salesInvoices.list(bounds),
       returnsByInvoiceId(deps),
       unappliedCustomerCredits(deps),
       deps.customers.findAll(),
     ]);
+    const invoices = scopedSalesInvoices(c, allInvoices);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     return respond(
       c,
-      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, {
+      runReport(definition, params, {
         invoices,
         customers,
         allocatedByInvoiceId,
@@ -500,25 +741,32 @@ export function createReportsRoutes(
 
   app.get("/aging/suppliers", gate("purchases.invoice.view"), async (c) => {
     const definition = createAgingSuppliersReport(todayIso(deps));
-    const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
+    const params = { ...definition.defaultParams, ...queryParams(c) };
+    // Same two bounds as the customer ladder, and the same rule: the SQL set
+    // must be exactly what the report itself would have kept (Q-6).
+    const bounds = {
+      status: "confirmed" as const,
+      ...(ISO_DATE.test(String(params.asOfDate)) ? { toDate: String(params.asOfDate) } : {}),
+    };
+    const [allInvoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(bounds), deps.suppliers.findAll()]);
+    const invoices = scopedSalesInvoices(c, allInvoices);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
-    return respond(
-      c,
-      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId }),
-    );
+    return respond(c, runReport(definition, params, { invoices, suppliers, allocatedByInvoiceId }));
   });
 
   // --- الأقساط ---------------------------------------------------------
 
   app.get("/installments/overview", gate("installments.plan.view"), async (c) => {
     const definition = createInstallmentsOverviewReport(todayIso(deps));
-    const [plans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
+    const [allPlans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
+    const plans = await scopedPlans(c, allPlans);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { plans, customers }));
   });
 
   app.get("/installments/overdue", gate("installments.plan.view"), async (c) => {
     const definition = createInstallmentsOverdueReport(todayIso(deps));
-    const [plans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
+    const [allPlans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
+    const plans = await scopedPlans(c, allPlans);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { plans, customers }));
   });
 
@@ -529,7 +777,8 @@ export function createReportsRoutes(
     app.get("/field/van-sales", gate("field.van_trip.view"), async (c) => {
       const today = todayIso(deps);
       const definition = createVanSalesReport(firstOfMonth(today), today);
-      const [trips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
+      const [allTrips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
+      const trips = withinScope(allTrips, reportBranches(c), (t) => t.branchId);
       return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { trips, employees }));
     });
   }
@@ -542,10 +791,11 @@ export function createReportsRoutes(
   app.get("/tax/withholding", gate("accounting.reports.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createWithholdingTaxReport(firstOfYear(today), today);
-    const [vouchers, suppliers] = await Promise.all([
+    const [allVouchers, suppliers] = await Promise.all([
       deps.voucherDocuments?.list({ status: "confirmed" }) ?? Promise.resolve([]),
       deps.suppliers.findAll(),
     ]);
+    const vouchers = withinScope(allVouchers, reportBranches(c), (v) => v.lines[0]?.branchId);
     const supplierName = new Map(suppliers.map((s) => [s.id, s.nameAr]));
     const rows = vouchers.flatMap((doc) => {
       const line = doc.lines[0];

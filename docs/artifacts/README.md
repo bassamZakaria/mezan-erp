@@ -29,14 +29,14 @@ The earlier mockups and the six-directions comparison page are in `../archive/`:
 | `best-erp-in-egypt.html` | **Every module Mezan ships, audited against the field** — 23 modules against QuickBooks, Odoo and 24 other products, plus the fourteen Egyptian statutory obligations that decide whether any of it is sellable. Five modules ahead of the field, nine at par, seven behind, two absent. Supersedes the 28-Aug scope brief, which is `../archive/egypt-scope-and-compliance-rev1.html` |
 | `audit-2026-09-07.md` / `.html` | **The 7 September 2026 full audit.** Six specialist passes (sysadmin, security, product, accountant, performance, support) over `ab699559`, every claim verified in code. Nine blockers on licence and updates, the LAN operator gaps, eleven book-breaking defects, the performance floor at year-three volume, a support-ticket forecast, the doc drift table and a six-slice order. The `.md` is the source; the `.html` is generated from it by the session's `md2html` script |
 
-Both are point-in-time and say so. Where either disagrees with `../ROADMAP.md`, the roadmap is
-what is maintained — but check which is actually newer before assuming.
+All three are point-in-time and say so. Where any disagrees with `../ROADMAP.md`, the roadmap
+is what is maintained — but check which is actually newer before assuming.
 
 They also name documents that no longer exist under those names: a defect register, a status
 file, a task list, a `scenarios/` directory and a `plan.md` at the top of `docs/`. Those are
 now `../ROADMAP.md`, `../TESTING.md` and `../archive/`, and the review's own finding — that
 four documents described this system and three of them disagreed — is what caused that merge.
-Neither file is edited to keep its links current: editing a point-in-time record is how it
+None of them is edited to keep its links current: editing a point-in-time record is how it
 stops being one.
 
 ## Generated

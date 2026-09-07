@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { createLanClient, LanClientError } from "./lan-client.js";
+import { connectBudgetMs, createLanClient, LanClientError, MAX_RESPONSE_BYTES } from "./lan-client.js";
 import { loadOrCreateLanTlsIdentity, type LanTlsIdentity } from "./lan-tls.js";
 import type { ClientConfig } from "./client-config.js";
 
@@ -119,5 +119,105 @@ describe("the client only talks to the machine it was paired with", () => {
 
     expect(failure).toBeInstanceOf(LanClientError);
     expect((failure as LanClientError).code).toBe("UNREACHABLE");
+  });
+
+  // guards N-3: the renderer renders `code`, keyed into the Arabic catalog with
+  // `{host}` — not the English sentence, which names a millisecond count.
+  it("carries the code and the host on every failure, and the presented certificate on a mismatch", async () => {
+    const real = await identityIn("codes-real");
+    const impostor = await identityIn("codes-impostor");
+    const { port } = await startServer(impostor);
+    const forward = createLanClient({ config: configFor(port, real.fingerprintSha256) });
+
+    const failure = (await forward("/health", {}).catch((err: unknown) => err)) as LanClientError;
+
+    expect(failure.code).toBe("PIN_MISMATCH");
+    expect(failure.host).toBe(`https://127.0.0.1:${port}`);
+    // The value a human has to compare against the host's own screen. Without
+    // it the re-pair screen can only show one of the two fingerprints.
+    expect(failure.presentedFingerprint).toBe(impostor.fingerprintSha256);
+    expect(failure.presentedFingerprint).not.toBe(real.fingerprintSha256);
+  });
+
+  // guards N-10: one handshake per CONNECTION, not per request. Ten requests
+  // used to be ten RSA handshakes on the host's single-threaded main process.
+  it("reuses one TLS connection across requests", async () => {
+    const tls = await identityIn("keepalive");
+    let handshakes = 0;
+    const server = createServer({ key: tls.key, cert: tls.cert }, (req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ saw: req.url }));
+    });
+    server.on("secureConnection", () => {
+      handshakes += 1;
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+
+    const forward = createLanClient({ config: configFor(port, tls.fingerprintSha256) });
+    for (let i = 0; i < 5; i += 1) {
+      const res = await forward(`/health?n=${i}`, {});
+      expect(res.status).toBe(200);
+    }
+
+    expect(handshakes).toBe(1);
+  });
+
+  // guards N-3: a person in front of a login screen must be told something in
+  // seconds. Thirty seconds of a frozen button reads as a crashed app, and it
+  // is the one moment when "the host is off" is both the likeliest answer and
+  // the easiest to act on.
+  //
+  // Asserted on the RULE rather than on a stopwatch: Node's `socket.setTimeout`
+  // does not fire in this repo's vitest environment, so a test that waited on a
+  // stalled handshake would be asserting the environment.
+  it("gives the sign-in path a far shorter budget than a data request", () => {
+    expect(connectBudgetMs("/auth/login")).toBe(5_000);
+    // The two reads the login screen makes before anybody has signed in.
+    expect(connectBudgetMs("/tenant")).toBe(5_000);
+    expect(connectBudgetMs("/health")).toBe(5_000);
+    // A report the host is genuinely computing must not be abandoned because
+    // it took six seconds.
+    expect(connectBudgetMs("/reports/trial-balance")).toBe(30_000);
+    expect(connectBudgetMs("/sales-invoices")).toBe(30_000);
+  });
+
+  // guards Q-7 — a 37–51 MB response used to be buffered whole, decoded to a
+  // JS string and copied again crossing IPC. The host answering here writes
+  // MORE than the 8 MB limit; the client must stop pulling bytes off the
+  // socket and refuse rather than build that string.
+  it("refuses a response over the 8 MB limit instead of buffering and forwarding it", async () => {
+    const tls = await identityIn("oversized");
+    const chunk = "a".repeat(1024 * 1024);
+    const server = createServer({ key: tls.key, cert: tls.cert }, (req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      const bytesToSend = MAX_RESPONSE_BYTES + chunk.length;
+      let sent = 0;
+      const pump = (): void => {
+        while (sent < bytesToSend) {
+          if (!res.write(chunk)) {
+            res.once("drain", pump);
+            return;
+          }
+          sent += chunk.length;
+        }
+        res.end();
+      };
+      pump();
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+
+    const forward = createLanClient({ config: configFor(port, tls.fingerprintSha256) });
+    const response = await forward("/inventory/ledger", {});
+
+    expect(response.status).toBe(413);
+    const body = JSON.parse(response.body) as Record<string, unknown>;
+    expect(body["error"]).toBe("RESPONSE_TOO_LARGE");
+    expect(body["message"]).toBe(
+      "النتيجة كبيرة جداً على النقل. ضيّق نطاق التاريخ أو الفلتر ثم أعد المحاولة.",
+    );
   });
 });

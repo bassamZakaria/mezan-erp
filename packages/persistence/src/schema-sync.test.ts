@@ -3,7 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { installSchemaSync } from "./schema-sync.js";
+import {
+  CURRENT_SCHEMA_VERSION,
+  SchemaTooNewError,
+  installSchemaSync,
+  readSchemaVersion,
+  stampSchemaVersion,
+} from "./schema-sync.js";
 
 describe("installSchemaSync", () => {
   it("adds a column a store's CREATE TABLE declares that an existing table is missing, keeping existing rows", () => {
@@ -204,6 +210,82 @@ describe("installSchemaSync", () => {
       expect(row.name).toBe("Widget One");
       expect(row.color).toBeNull();
       expect(row.weight).toBe(0);
+    } finally {
+      reader.close();
+    }
+  });
+});
+
+/**
+ * GUARDS U-9. Nothing wrote `PRAGMA user_version`, so an older build opened a
+ * database a newer build had written, read the columns it knew, ignored the
+ * rest, and posted into it. The books looked fine the whole time.
+ */
+describe("the schema version stamp", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("stamps the file with this build's schema version on open", () => {
+    const db = new Database(":memory:");
+    try {
+      expect(readSchemaVersion(db)).toBe(0);
+      installSchemaSync(db);
+      expect(readSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("records the app version beside it, so a refusal can name the build that wrote the file", () => {
+    const db = new Database(":memory:");
+    try {
+      stampSchemaVersion(db, "1.4.0");
+      const row = db
+        .prepare(`SELECT value FROM schema_meta WHERE key = 'app_version'`)
+        .get() as { value: string } | undefined;
+      expect(row?.value).toBe("1.4.0");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("REFUSES a database written by a newer schema, in Arabic, before touching it", () => {
+    const db = new Database(":memory:");
+    try {
+      db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION + 1}`);
+      db.exec(`CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+      db.prepare(`INSERT INTO schema_meta (key, value) VALUES ('app_version', '9.9.9')`).run();
+
+      expect(() => installSchemaSync(db)).toThrow(SchemaTooNewError);
+      try {
+        stampSchemaVersion(db);
+      } catch (err) {
+        // The person reading this is a shop owner, not a developer.
+        expect((err as Error).message).toContain("قاعدة البيانات هذه كُتبت بإصدار أحدث");
+        expect((err as Error).message).toContain("9.9.9");
+      }
+      // And it did not quietly downgrade the stamp on the way out.
+      expect(readSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION + 1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("opens a database written by an OLDER schema — that is the additive path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mezan-schema-stamp-"));
+    dirs.push(dir);
+    const file = join(dir, "old.db");
+    const writer = new Database(file);
+    writer.pragma("user_version = 0");
+    writer.exec(`CREATE TABLE widget (id TEXT PRIMARY KEY)`);
+    writer.close();
+
+    const reader = new Database(file);
+    try {
+      expect(() => installSchemaSync(reader)).not.toThrow();
+      expect(readSchemaVersion(reader)).toBe(CURRENT_SCHEMA_VERSION);
     } finally {
       reader.close();
     }

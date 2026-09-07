@@ -232,6 +232,43 @@ export interface PrintDocumentTotals {
   amountInWords?: string;
 }
 
+/**
+ * A ledger-style body — debit/credit/balance columns instead of qty × price.
+ *
+ * A journal entry, a treasury voucher and a customer statement are printable
+ * documents that have no quantities and no unit prices; forcing them through
+ * the goods table printed a column of 1s beside a column of totals. When a
+ * document carries `ledger`, `PrintView` renders THAT table and its own
+ * footer figures instead of the goods table and the invoice totals block.
+ */
+export interface PrintLedgerColumn {
+  key: string;
+  label: string;
+  align?: "start" | "end";
+  /** Rendered through the money formatter rather than as text. */
+  money?: boolean;
+}
+
+export interface PrintLedgerRow {
+  key: string;
+  cells: Record<string, string | number | null>;
+}
+
+export interface PrintLedgerFooterRow {
+  label: string;
+  value: number;
+  emphasis?: boolean;
+}
+
+export interface PrintLedgerBody {
+  columns: PrintLedgerColumn[];
+  rows: PrintLedgerRow[];
+  /** The figures under the table — totals, a closing balance, a net movement. */
+  footer: PrintLedgerFooterRow[];
+  /** Stated above the table when the document covers a period rather than a day. */
+  periodLabel?: string;
+}
+
 export interface PrintDocumentModel {
   /** Document-type code, e.g. "SALES_INVOICE" — used to resolve per-document overrides. */
   documentType: string;
@@ -258,4 +295,6 @@ export interface PrintDocumentModel {
   etaUuid?: string;
   lines: PrintDocumentLine[];
   totals: PrintDocumentTotals;
+  /** Present on a document with no goods lines — see `PrintLedgerBody`. */
+  ledger?: PrintLedgerBody;
 }

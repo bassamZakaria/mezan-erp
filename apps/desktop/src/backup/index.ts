@@ -4,8 +4,20 @@ export {
   backupFileName,
   parseCreatedAtFromFileName,
   BACKUP_FILE_EXTENSION,
+  PRE_UPDATE_LABEL_PREFIX,
+  isPreUpdateArchive,
+  preUpdateLabel,
   type BackupResult,
 } from "./backup-service.js";
+export {
+  exportPortableBackup,
+  encryptFile,
+  decryptFile,
+  portableFileName,
+  WeakPassphraseError,
+  MIN_PASSPHRASE_LENGTH,
+  PORTABLE_FILE_EXTENSION,
+} from "./portable-export.js";
 export { restoreBackup, type RestoreResult, type RestoreCipher } from "./restore-service.js";
 export { runPreMigrationBackup } from "./pre-migration-hook.js";
 export {

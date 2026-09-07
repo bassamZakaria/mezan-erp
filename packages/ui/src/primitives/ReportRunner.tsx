@@ -7,6 +7,7 @@ import { VarianceBeam } from "./beams";
 import { Select } from "./Select";
 import { TextInput } from "./form";
 import { useUiTranslation } from "../i18n";
+import { useElectronSavePdf } from "../print/useElectronSavePdf";
 
 /**
  * `<ReportRunner>` — the generic report UI shell (docs/archive/plan.md §2.4): renders
@@ -341,12 +342,46 @@ export function ReportRunner<Row>({
   const { t } = useUiTranslation();
   const fmt = useFormat(formatOptions);
   const [exporting, setExporting] = useState<ReportExportFormat | null>(null);
+  const savePdf = useElectronSavePdf();
+  const [savingPdf, setSavingPdf] = useState(false);
+  const [pdfNotice, setPdfNotice] = useState<string | null>(null);
   // Expanded by default: the KPIs are the answer, and hiding them behind a
   // click would make the strip a decoration rather than the summary.
   const [summaryOpen, setSummaryOpen] = useState(true);
   const dateRangeField = paramFields.find((field) => field.kind === "dateRange");
   const totalColumns = new Set(columns.filter((c) => c.total).map((c) => c.key));
   const hasResult = result !== null;
+
+  /**
+   * P-6: no report or financial statement could be printed or saved as a PDF
+   * — the two things every accountant does with one before it leaves the
+   * building. The printed page is THIS page: `print:hidden` strips the param
+   * bar, the buttons and the chrome, and the `@page` rule below turns a wide
+   * report on its side so its columns fit rather than being cut off.
+   *
+   * Two output paths, one DOM: `window.print()` in the browser,
+   * `webContents.printToPDF` + a save dialog on the desktop. The browser build
+   * offers only «طباعة» — its own dialog already has "Save as PDF" in it, and
+   * a second button that opened the same dialog would be a lie about what it
+   * does.
+   */
+  const landscape = columns.length > 6;
+
+  async function handleSavePdf() {
+    setPdfNotice(null);
+    setSavingPdf(true);
+    try {
+      const outcome = await savePdf.savePdf({
+        landscape,
+        defaultFileName: exportBaseFilename ?? title,
+      });
+      // A dismissed dialog is a decision, not a failure — say nothing.
+      if (!outcome.ok && !outcome.cancelled) setPdfNotice(outcome.message);
+      else if (outcome.ok) setPdfNotice(t("ui.report.pdfSaved", { path: outcome.path }));
+    } finally {
+      setSavingPdf(false);
+    }
+  }
 
   async function handleExport(format: ReportExportFormat) {
     if (!result) return;
@@ -364,13 +399,22 @@ export function ReportRunner<Row>({
   }
 
   return (
-    <div className={cn("w-full", className)}>
+    <div className={cn("mz-report-print w-full", className)}>
+      <style>{`@media print { @page { size: A4 ${landscape ? "landscape" : "portrait"}; margin: 12mm 10mm; } }`}</style>
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1>
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>
-        <div className="flex flex-wrap items-center gap-[9px]">
+        <div className="flex flex-wrap items-center gap-[9px] print:hidden">
+          <Button onClick={() => window.print()} disabled={!hasResult}>
+            {t("ui.report.print")}
+          </Button>
+          {savePdf.isAvailable ? (
+            <Button onClick={() => void handleSavePdf()} disabled={!hasResult || savingPdf}>
+              {savingPdf ? t("ui.report.savingPdf") : t("ui.report.savePdf")}
+            </Button>
+          ) : null}
           <Button onClick={() => handleExport("csv")} disabled={!hasResult || result.rows.length === 0 || exporting !== null}>
             {exporting === "csv" ? t("ui.report.exporting") : t("ui.report.exportCsv")}
           </Button>
@@ -379,6 +423,12 @@ export function ReportRunner<Row>({
           </Button>
         </div>
       </div>
+
+      {pdfNotice ? (
+        <p role="status" className="mb-[12px] text-[12px] text-ink-muted print:hidden">
+          {pdfNotice}
+        </p>
+      ) : null}
 
       {/*
         A server-side 400 names no single param, so it arrives under `_root`.
@@ -392,7 +442,7 @@ export function ReportRunner<Row>({
       ) : null}
 
       {paramFields.length > 0 ? (
-        <Card className="mb-[16px] flex flex-wrap items-end gap-[16px] p-[14px_16px]">
+        <Card className="mb-[16px] flex flex-wrap items-end gap-[16px] p-[14px_16px] print:hidden">
           {/*
             Quick period chips (A3). Rendered only where the report actually
             has a date range to set — a chip that silently set nothing would be

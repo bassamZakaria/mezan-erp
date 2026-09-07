@@ -20,7 +20,7 @@ import {
 import { createPurchaseOrder, confirmPurchaseOrder } from "./purchase-order.js";
 import { createGoodsReceipt, confirmGoodsReceipt } from "./goods-receipt.js";
 import type { AllocatableInvoiceRepository, AllocatableInvoice } from "../vouchers/allocation.js";
-import type { PurchaseGlAccounts } from "./types.js";
+import type { PurchaseGlAccounts, PurchaseGlPosting } from "./types.js";
 import {
   DuplicatePurchaseDocumentError,
   GoodsReceiptAlreadyInvoicedError,
@@ -397,6 +397,96 @@ describe("confirmPurchaseInvoice — sub-ledger (AP) and GL control account both
     await expect(confirmPurchaseInvoice("nope", { invoices, stock, gl, accounts: ACCOUNTS, now })).rejects.toThrow(
       PurchaseInvoiceNotFoundError,
     );
+  });
+});
+
+/**
+ * guards B-7 — the GL posted first with a deterministic id (`PI-JE:<invoiceId>`)
+ * and nothing wrapped the confirm, so a failure after it left the invoice
+ * `draft` beside a live entry and every retry threw DuplicateJournalEntryError.
+ * The invoice could never be confirmed again.
+ */
+describe("confirmPurchaseInvoice — one transaction", () => {
+  /** A ledger-shaped transactor: a throw inside rolls every recorded write back. */
+  function atomicGl() {
+    const postings: PurchaseGlPosting[] = [];
+    let failNext = false;
+    return {
+      postings,
+      failAfterPost() {
+        failNext = true;
+      },
+      async post(posting: PurchaseGlPosting) {
+        postings.push(posting);
+      },
+      async transaction<T>(fn: () => Promise<T>): Promise<T> {
+        const mark = postings.length;
+        try {
+          return await fn();
+        } catch (err) {
+          postings.length = mark;
+          throw err;
+        }
+      },
+      stockPort: {
+        async postReceipt() {
+          if (failNext) throw new Error("stock store went away mid-confirm");
+        },
+      },
+    };
+  }
+
+  async function draftInvoice() {
+    const invoices = new InMemoryPurchaseInvoices();
+    const numbering = makeNumbering();
+    await createPurchaseInvoice(
+      {
+        id: "pi-tx",
+        supplierId: "sup-9",
+        date: "2026-08-23",
+        branchId: "MAIN",
+        warehouseId: WH,
+        lines: [{ itemId: "item-C", kind: "inventory", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("100.00"), taxRatePercent: 14 }],
+      },
+      { invoices, numbering },
+    );
+    return invoices;
+  }
+
+  it("a failure after the GL post leaves NO entry and NO confirmed invoice", async () => {
+    const invoices = await draftInvoice();
+    const gl = atomicGl();
+    gl.failAfterPost();
+
+    await expect(
+      confirmPurchaseInvoice("pi-tx", { invoices, stock: gl.stockPort as never, gl, accounts: ACCOUNTS, now }),
+    ).rejects.toThrow("stock store went away mid-confirm");
+
+    expect(gl.postings).toHaveLength(0);
+    expect((await invoices.findById("pi-tx"))?.status).toBe("draft");
+  });
+
+  it("and the invoice retries cleanly afterwards — one entry, one confirm", async () => {
+    const invoices = await draftInvoice();
+    const gl = atomicGl();
+    gl.failAfterPost();
+    await expect(
+      confirmPurchaseInvoice("pi-tx", { invoices, stock: gl.stockPort as never, gl, accounts: ACCOUNTS, now }),
+    ).rejects.toThrow();
+
+    const stock = makeStockService();
+    const { invoice } = await confirmPurchaseInvoice("pi-tx", { invoices, stock, gl, accounts: ACCOUNTS, now });
+    expect(invoice.status).toBe("confirmed");
+    expect(gl.postings).toHaveLength(1);
+  });
+
+  it("still confirms when no transactor is wired (the port's transaction is optional)", async () => {
+    const invoices = await draftInvoice();
+    const stock = makeStockService();
+    const gl = new RecordingGlPort();
+    const { invoice } = await confirmPurchaseInvoice("pi-tx", { invoices, stock, gl, accounts: ACCOUNTS, now });
+    expect(invoice.status).toBe("confirmed");
+    expect(gl.postings).toHaveLength(1);
   });
 });
 

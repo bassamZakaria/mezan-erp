@@ -29,11 +29,14 @@ import {
 } from "../documents/index.js";
 import { createDocumentWorkflowGate } from "../documents/journal-document.js";
 import {
+  voucherBaseAmount,
   voucherDocumentType,
   voucherLine,
   type VoucherDocument,
   type VoucherLine,
 } from "./voucher-document.js";
+import { InvalidDocumentError } from "../documents/errors.js";
+import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
 import {
   getVoucherTypeDefinition,
   type AllocationInvoiceKind,
@@ -71,6 +74,11 @@ export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
             credit: l.credit,
             memo: l.memo ?? null,
             costCenterId: l.costCenterId ?? null,
+            // Dropped here, a foreign settlement is invisible to FX
+            // revaluation: the invoice stays in the open position and every
+            // month-end books a phantom gain against 4900/5900 (B-5).
+            currency: l.currency ?? null,
+            fxRate: l.fxRate ?? null,
           })),
         },
         deps,
@@ -99,6 +107,15 @@ export interface VoucherServiceDeps {
   readonly invoices: AllocatableInvoiceRepository;
   /** Tenant settings source for the treasury-negative policies; absent means cash guarded, bank not. */
   readonly settings?: SettingsRepository;
+  /**
+   * Approved exchange rates, so a foreign-currency voucher converts to base at
+   * the rate of its own date and carries that rate onto the counterparty GL
+   * line (B-4/B-5). Omit it and a non-base currency is REFUSED rather than
+   * posted at 1:1 — the same strict policy `confirmPurchaseInvoice` applies.
+   */
+  readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
+  /** The tenant's own currency; anything else on a voucher needs an approved rate. */
+  readonly baseCurrency?: string;
   /**
    * Projects an allocation back onto the source invoice document, so the
    * document and the allocation sub-ledger stay one fact rather than two (D1).
@@ -240,14 +257,42 @@ export class VoucherService {
   async confirmVoucher(id: string, opts: ConfirmVoucherOptions = {}) {
     const existing = await this.service.findById(id);
     if (existing) {
-      const line = voucherLine(existing);
-      await assertCashBalanceAllows(line, {
+      // The rate is resolved and STAMPED before anything is posted, exactly as
+      // `confirmPurchaseInvoice` does it, so the GL amount, the treasury guard
+      // and every allocation all read one base figure (B-4).
+      const stamped = await this.stampFxRate(existing);
+      await assertCashBalanceAllows(voucherLine(stamped), {
         treasuryAccounts: this.deps.treasuryAccounts,
         ledger: this.deps.ledger,
         ...(await this.cashPolicy()),
-      }, existing.date);
+      }, stamped.date);
     }
     return this.service.confirm(id, opts);
+  }
+
+  /**
+   * Resolve the approved rate for a foreign-currency voucher and persist it on
+   * the line. A currency with no approved rate on its date is REFUSED: posting
+   * foreign digits as base silently mis-states cash, a debt and a settlement at
+   * once.
+   */
+  private async stampFxRate(doc: VoucherDocument): Promise<VoucherDocument> {
+    const line = voucherLine(doc);
+    const base = this.deps.baseCurrency ?? BASE_CURRENCY;
+    if (!line.currency || line.currency === base) return doc;
+    if (line.fxRate) return doc;
+
+    const found = await this.deps.exchangeRates?.findRate(line.currency, doc.date);
+    if (!found) {
+      throw new InvalidDocumentError(
+        doc.docType,
+        doc.id,
+        `لا يوجد سعر صرف معتمد للعملة ${line.currency} بتاريخ ${doc.date}؛ لا يمكن ترحيل السند.`,
+      );
+    }
+    const stamped: VoucherDocument = { ...doc, lines: [{ ...line, fxRate: found.rate }] };
+    await this.deps.documents.update(stamped);
+    return stamped;
   }
 
   /** Hand a voucher held بانتظار الموافقة back to its submitter as a draft. */
@@ -298,7 +343,9 @@ export class VoucherService {
       {
         allocationId: input.allocationId,
         voucherId,
-        voucherAmount: line.amount,
+        // BASE, like the invoice totals it is compared against (B-4): a
+        // USD 1,000 receipt used to settle 1,000 EGP of a 49,350 EGP invoice.
+        voucherAmount: voucherBaseAmount(line),
         voucherPartyId: partyId,
         expectedKind: def.allocationKind!,
         invoiceId: input.invoiceId,
@@ -337,7 +384,7 @@ export class VoucherService {
     const line = voucherLine(doc);
     const def = getVoucherTypeDefinition(line.voucherType);
     const allocations = await this.deps.allocations.listByVoucher(doc.id);
-    return summarize(line.amount, allocations, def.allocatable);
+    return summarize(voucherBaseAmount(line), allocations, def.allocatable);
   }
 
   async findById(id: string): Promise<VoucherDocument | null> {

@@ -13,10 +13,16 @@ services:
       # around 375 MB; without a heap ceiling V8 grows into the OOM killer.
       - key: NODE_OPTIONS
         value: --max-old-space-size=400
-      # The demo tenant's own users are seeded on a published PIN, so this only
-      # keeps the fallback admin predictable — it is not a secret.
-      - key: MEZAN_SEED_ADMIN_PIN
-        value: "123456"
-      # MEZAN_DEMO_PASSWORD is deliberately NOT declared here: a `sync: false`
-      # var makes the blueprint stop and ask for a value before it will deploy.
-      # Add it in the dashboard afterwards to put the demo behind basic auth.
+      # REQUIRED, and deliberately without a value: `sync: false` makes the
+      # blueprint STOP and ask for one before it will deploy, and cloud.ts
+      # refuses to start without it. The demo serves a writable ERP on the open
+      # internet — the shared credential is the only thing in front of it.
+      # Minimum 12 characters.
+      - key: MEZAN_DEMO_PASSWORD
+        sync: false
+      # The fallback admin's PIN is GENERATED per deploy and printed once to the
+      # deploy log. MEZAN_SEED_ADMIN_PIN is deliberately absent: it used to pin
+      # the published `123456` here, and cloud.ts now refuses to start if it is
+      # set at all.
+      - key: NODE_ENV
+        value: production

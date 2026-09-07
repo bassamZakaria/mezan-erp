@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 
 /**
  * Wire contracts for the GL posting engine (docs/archive/catalog/04 §القيود المحاسبية).
@@ -121,6 +122,14 @@ export const glJournalListQuerySchema = z.object({
   sourceModule: journalSourceModuleSchema.optional(),
   fromDate: z.string().optional(),
   toDate: z.string().optional(),
+  /** Free text over the entry number, the memo and the source document number. */
+  search: z.string().optional(),
+  /**
+   * One page of the register. Both carry a DEFAULT, so an omitted page can
+   * never mean "every entry ever posted" (Q-8).
+   */
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
 });
 
 export type JournalEntrySourceDTO = z.infer<typeof journalEntrySourceSchema>;

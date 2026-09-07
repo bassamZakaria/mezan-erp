@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, type WebhookHttpRequest } from "@mezan/domain";
+import { ALL_SCOPE, Money, createCustomer as buildCustomer } from "@mezan/domain";
+import { createSqliteCustomerRepository } from "@mezan/persistence";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -76,6 +76,22 @@ describe("createBackend — seeded app", () => {
     expect(session.isCompanyAdmin).toBe(true);
     expect(session.permissions).toContain("*");
     expect(session.tenantName).toBe("Cyag");
+  });
+
+  /**
+   * GUARDS U-10. `/health` answered `{ok:true}` and nothing else, so host and
+   * client version skew was undetectable from either side: a till on an old
+   * build kept talking to a host it no longer matched, and the first symptom
+   * was wrong data. main/lan-client.ts reads both fields at startup.
+   */
+  it("reports the app and schema version on /health, not merely that it is up", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/health"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; version: string; schemaVersion: number };
+    expect(body.ok).toBe(true);
+    expect(typeof body.version).toBe("string");
+    expect(body.schemaVersion).toBeGreaterThan(0);
   });
 
   it("rejects a wrong PIN", async () => {
@@ -825,6 +841,257 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
 });
 
 /**
+ * guards B-2 — a partner opening balance was one fact with three figures and
+ * none of them the ledger: stored on the master record, counted in the KPI,
+ * never posted, invisible to `/reconciliation`.
+ */
+describe("createBackend — partner opening balances reach the ledger (B-2)", () => {
+  async function entry(app: App, id: string) {
+    const res = await app.fetch(new Request(`http://local/gl/journal-entries/${id}`, { headers: admin(app) }));
+    if (res.status !== 200) return null;
+    return (await res.json()) as { status: string; lines: { accountId: string; debit: string; credit: string }[] };
+  }
+
+  it("posts Dr 1105 / Cr 3210 for a customer and Cr 2100 / Dr 3210 for a supplier", async () => {
+    const app = await newBackend();
+    // createCustomer() passes openingBalance "0", so nothing is posted.
+    await createCustomer(app, "cust-ob", "0");
+    expect(await entry(app, "OB-CUST-JE:cust-ob")).toBeNull();
+
+    const withBalance = await authedPost(app, "/customers", {
+      id: "cust-ob2",
+      code: "cust-ob2",
+      nameAr: "عميل برصيد افتتاحي",
+      paymentTermsDays: 30,
+      currency: "EGP",
+      openingBalance: "5000.00",
+      active: true,
+      creditLimit: "0",
+      taxExempt: false,
+      etaBuyerType: "auto",
+    });
+    expect(withBalance.status).toBe(201);
+
+    const posted = await entry(app, "OB-CUST-JE:cust-ob2");
+    expect(posted, "a customer opening balance must post").not.toBeNull();
+    expect(posted!.status).toBe("posted");
+    expect(posted!.lines.find((l) => l.accountId === "1105")!.debit).toBe("5000.000000");
+    expect(posted!.lines.find((l) => l.accountId === "3210")!.credit).toBe("5000.000000");
+
+    const supplier = await post(app, "/suppliers", {
+      id: "supp-ob",
+      code: "supp-ob",
+      nameAr: "مورد برصيد افتتاحي",
+      openingBalance: "1250.50",
+    }, admin(app));
+    expect(supplier.status).toBe(201);
+    const supEntry = await entry(app, "OB-SUPP-JE:supp-ob");
+    expect(supEntry).not.toBeNull();
+    expect(supEntry!.lines.find((l) => l.accountId === "2100")!.credit).toBe("1250.500000");
+    expect(supEntry!.lines.find((l) => l.accountId === "3210")!.debit).toBe("1250.500000");
+  });
+
+  it("keeps the sub-ledger and its control account in step", async () => {
+    const app = await newBackend();
+    await authedPost(app, "/customers", {
+      id: "cust-rec",
+      code: "cust-rec",
+      nameAr: "عميل",
+      paymentTermsDays: 30,
+      currency: "EGP",
+      openingBalance: "5000.00",
+      active: true,
+      creditLimit: "0",
+      taxExempt: false,
+      etaBuyerType: "auto",
+    });
+    await post(app, "/suppliers", { id: "supp-rec", code: "supp-rec", nameAr: "مورد", openingBalance: "1250.50" }, admin(app));
+
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const { rows } = (await res.json()) as {
+      rows: { key: string; subLedgerBalance: string; glBalance: string; matched: boolean }[];
+    };
+    const ar = rows.find((r) => r.key === "ar")!;
+    const ap = rows.find((r) => r.key === "ap")!;
+    expect(ar.glBalance).toBe("5000.000000");
+    expect(ar.subLedgerBalance).toBe("5000.000000");
+    expect(ar.matched).toBe(true);
+    expect(ap.glBalance).toBe("1250.500000");
+    expect(ap.subLedgerBalance).toBe("1250.500000");
+    expect(ap.matched).toBe(true);
+  });
+
+  it("corrects a changed opening balance by reversal, never by editing the posted entry", async () => {
+    const app = await newBackend();
+    await authedPost(app, "/customers", {
+      id: "cust-chg",
+      code: "cust-chg",
+      nameAr: "عميل",
+      paymentTermsDays: 30,
+      currency: "EGP",
+      openingBalance: "5000.00",
+      active: true,
+      creditLimit: "0",
+      taxExempt: false,
+      etaBuyerType: "auto",
+    });
+
+    const patch = await app.fetch(
+      new Request("http://local/customers/cust-chg", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify({ openingBalance: "7500.00" }),
+      }),
+    );
+    expect(patch.status).toBe(200);
+
+    expect((await entry(app, "OB-CUST-JE:cust-chg"))!.status).toBe("reversed");
+    const corrected = await entry(app, "OB-CUST-JE:cust-chg:v1");
+    expect(corrected!.status).toBe("posted");
+    expect(corrected!.lines.find((l) => l.accountId === "1105")!.debit).toBe("7500.000000");
+
+    // And AR nets to the new figure, not to 12,500.
+    const rec = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const { rows } = (await rec.json()) as { rows: { key: string; glBalance: string; matched: boolean }[] };
+    expect(rows.find((r) => r.key === "ar")!.glBalance).toBe("7500.000000");
+    expect(rows.find((r) => r.key === "ar")!.matched).toBe(true);
+  });
+
+  it("backfills a migrated tenant whose opening balances were saved before the posting existed", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-ob-"));
+    const dbPath = path.join(dir, "books.sqlite");
+    try {
+      (await createBackend({ dbPath })).close();
+      // Write the master record straight through the repository, exactly as a
+      // pre-B-2 build did: stored, never posted.
+      const repo = createSqliteCustomerRepository(dbPath);
+      await repo.save(
+        buildCustomer({
+          id: "cust-legacy",
+          code: "cust-legacy",
+          nameAr: "عميل مهاجَر",
+          openingBalance: Money.fromMajor("4321.00"),
+        }),
+      );
+      repo.close();
+
+      const second = keep(await createBackend({ dbPath }));
+      const res = await second.fetch(
+        new Request("http://local/gl/journal-entries/OB-CUST-JE:cust-legacy", { headers: admin(second) }),
+      );
+      expect(res.status, "the backfill must post the unposted opening balance on the next start").toBe(200);
+      const posted = (await res.json()) as { lines: { accountId: string; debit: string }[] };
+      expect(posted.lines.find((l) => l.accountId === "1105")!.debit).toBe("4321.000000");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * guards B-8 — the reconciliation compared the sub-ledger against "1105",
+ * "2100" and "1200" compiled into the composition root, so a tenant on a
+ * recoded chart of accounts read a mismatch equal to every collection made.
+ */
+describe("createBackend — the reconciliation reads the tenant's control accounts (B-8)", () => {
+  it("reports the shipped defaults with no routing table", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    const { rows } = (await res.json()) as { rows: { key: string; controlAccountId: string }[] };
+    expect(rows.find((r) => r.key === "ar")!.controlAccountId).toBe("1105");
+    expect(rows.find((r) => r.key === "ap")!.controlAccountId).toBe("2100");
+    expect(rows.find((r) => r.key === "inventory")!.controlAccountId).toBe("1200");
+  });
+
+  it("follows an override to the recoded accounts", async () => {
+    const app = await newBackend();
+    const put = await app.fetch(
+      new Request("http://local/accounting/account-routing", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify({
+          overrides: { "control.receivable": "1100", "control.payable": "2110", "control.inventory": "1210" },
+        }),
+      }),
+    );
+    expect(put.status).toBe(200);
+
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const { rows } = (await res.json()) as { rows: { key: string; controlAccountId: string }[] };
+    expect(rows.find((r) => r.key === "ar")!.controlAccountId).toBe("1100");
+    expect(rows.find((r) => r.key === "ap")!.controlAccountId).toBe("2110");
+    expect(rows.find((r) => r.key === "inventory")!.controlAccountId).toBe("1210");
+  });
+});
+
+/**
+ * guards B-3 — both return adapters passed `taxAmount: Money.zero()` into the
+ * lookup port, so «مرتجع من فاتورة» pro-rated nothing: GL 2200 kept the VAT of
+ * every returned good forever and the VAT return overstated output tax.
+ */
+describe("createBackend — a return of a VAT invoice credits the VAT (B-3)", () => {
+  function taxedInvoiceBody(id: string, customerId: string) {
+    return {
+      ...invoiceBody(id, customerId, "100"),
+      lines: [
+        {
+          lineId: "L1",
+          itemId: "SVC-1",
+          itemNameAr: "خدمة",
+          isStock: false,
+          qty: "2",
+          unitPrice: "100",
+          taxRatePercent: 14,
+          revenueAccountId: "4100",
+        },
+      ],
+    };
+  }
+
+  it("pro-rates the source invoice's VAT onto the return and moves GL 2200", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await createCustomer(app, "cust-vat-1", "0");
+    expect((await authedPost(app, "/sales-invoices", taxedInvoiceBody("inv-vat-1", "cust-vat-1"))).status).toBe(201);
+    const confirmed = await authedPost(app, "/sales-invoices/inv-vat-1/confirm", {});
+    expect(confirmed.status).toBe(200);
+
+    const draft = await post(app, "/sales-returns/from-invoice", {
+      id: "sr-vat-1",
+      date: "2026-08-23",
+      memo: "مرتجع بضاعة",
+      warehouseId: "WH1",
+      sourceInvoiceId: "inv-vat-1",
+      reason: "OTHER",
+      requested: [{ itemId: "SVC-1", qty: "1" }],
+    }, admin(app));
+    expect(draft.status).toBe(201);
+    const draftDoc = (await draft.json()) as { lines: { taxAmount: string; taxRatePercent: number | null }[] };
+    // Half the quantity returned → half the invoice's 28.00 VAT.
+    expect(draftDoc.lines[0]!.taxAmount).toBe("14.000000");
+    expect(draftDoc.lines[0]!.taxRatePercent).toBe(14);
+
+    const confirmRes = await post(app, "/sales-returns/sr-vat-1/confirm", {}, admin(app));
+    expect(confirmRes.status).toBe(200);
+    const returned = (await confirmRes.json()) as { document: { journalEntryId: string | null } };
+    const entryId = returned.document.journalEntryId;
+    expect(entryId).toBeTruthy();
+
+    const entryRes = await app.fetch(
+      new Request(`http://local/gl/journal-entries/${entryId}`, { headers: admin(app) }),
+    );
+    expect(entryRes.status).toBe(200);
+    const entry = (await entryRes.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
+    const vat = entry.lines.find((l) => l.accountId === "2200");
+    expect(vat, "the return must move output VAT 2200").toBeDefined();
+    expect(vat!.debit).toBe("14.000000");
+    // And the receivable is credited with the tax-inclusive total.
+    expect(entry.lines.find((l) => l.accountId === "1105")!.credit).toBe("114.000000");
+  });
+});
+
+/**
  * The ETA enqueue bridge (`createEtaEnqueueBridge`) is fanned into the
  * SALES_INVOICE document type's own events (`salesInvoiceEvents`) but NOT
  * into `returnsEventBridge`, which is all `salesReturns`/`purchaseReturns`
@@ -916,108 +1183,53 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
 });
 
 /**
- * WebhookDispatcher is the SECOND subscriber on the shared EventBus
- * (create-backend.ts, right after the notification-rules engine) — this
- * proves it is actually wired end to end: a real subscription, a real
- * confirm, a real signed HTTP call (through the injected transport), and a
- * real delivery-attempt record, not just that the class exists.
+ * guards DEC-17 — `/api-keys` and `/webhooks` are complete server-side and had
+ * no verifier on the other end: no screen, no consumer, no signature scheme a
+ * caller could check. They are unmounted rather than deleted, so this asserts
+ * the ABSENCE of the surface. The webhook dispatcher that used to subscribe to
+ * the shared EventBus is gone with it, so a confirm now makes no outbound HTTP
+ * call at all — this asserts that with a spy on the global `fetch`.
  */
-describe("createBackend — webhook dispatcher wiring", () => {
-  it("a subscribed webhook receives a real HMAC-signed delivery when a sales invoice confirms, and the attempt is recorded", async () => {
-    const calls: WebhookHttpRequest[] = [];
-    const app = keep(
-      await createBackend({
-        dbPath: ":memory:",
-        webhookTransport: {
-          async send(request) {
-            calls.push(request);
-            return { statusCode: 200, errorMessage: null };
-          },
-        },
-      }),
-    );
+describe("createBackend — DEC-17: no integration surface is mounted", () => {
+  it("answers 404 on /api-keys and /webhooks, and dispatches nothing off a confirm", async () => {
+    const calls: unknown[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
+      calls.push(args[0]);
+      return realFetch(...args);
+    }) as typeof fetch;
+    const app = keep(await createBackend({ dbPath: ":memory:" }));
 
-    const createHook = await post(
-      app,
-      "/webhooks",
-      { name: "ERP sync", targetUrl: "https://example.test/hooks/mezan", events: ["SALES_INVOICE_CONFIRMED"] },
-      admin(app),
-    );
-    expect(createHook.status).toBe(201);
-    const webhook = (await createHook.json()) as { id: string; secret: string };
+    try {
+      // The routers still exist and are still tested in @mezan/api; what is gone
+      // is the mount, and with it the dispatcher. Nothing in the product can
+      // register a subscription, so no shop can be made to call an attacker's URL.
+      for (const path of ["/api-keys", "/webhooks", "/webhooks/events"]) {
+        const res = await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }));
+        expect(res.status, path).toBe(404);
+      }
+      const createHook = await post(
+        app,
+        "/webhooks",
+        { name: "ERP sync", targetUrl: "https://example.test/hooks/mezan", events: ["SALES_INVOICE_CONFIRMED"] },
+        admin(app),
+      );
+      expect(createHook.status).toBe(404);
 
-    await createCustomer(app, "cust-wh-1", "0");
-    await createServiceItem(app);
-    const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-wh-1", "cust-wh-1", "250.00"));
-    expect(create.status).toBe(201);
-    const confirm = await authedPost(app, "/sales-invoices/inv-wh-1/confirm", {});
-    expect(confirm.status).toBe(200);
+      await createCustomer(app, "cust-wh-1", "0");
+      await createServiceItem(app);
+      const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-wh-1", "cust-wh-1", "250.00"));
+      expect(create.status).toBe(201);
+      const confirm = await authedPost(app, "/sales-invoices/inv-wh-1/confirm", {});
+      expect(confirm.status).toBe(200);
 
-    // The dispatcher is fired detached from the confirm response, exactly like
-    // the notification engine — give its own async chain (webhooks.list ->
-    // transport.send -> recordWebhookDelivery) room to actually run.
-    for (let i = 0; i < 40 && calls.length === 0; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      // A dispatcher would have fired detached from the confirm response — give
+      // the same room the previous test gave it before asserting silence.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(calls).toHaveLength(0);
+    } finally {
+      globalThis.fetch = realFetch;
     }
-
-    expect(calls).toHaveLength(1);
-    const sent = calls[0]!;
-    expect(sent.url).toBe("https://example.test/hooks/mezan");
-    expect(sent.headers["x-mezan-event"]).toBe("SALES_INVOICE_CONFIRMED");
-    const payload = JSON.parse(sent.body) as { event: string; webhookId: string; data: { documentNumber: string } };
-    expect(payload.event).toBe("SALES_INVOICE_CONFIRMED");
-    expect(payload.webhookId).toBe(webhook.id);
-    expect(payload.data.documentNumber).toBeTruthy();
-
-    // The signature must verify against the SAME plaintext secret the create
-    // response returned — a webhook whose signature a receiver cannot check is
-    // useless no matter how many bytes arrive.
-    const [tsField, sigField] = sent.headers["x-mezan-signature"]!.split(",");
-    const timestamp = tsField!.slice("t=".length);
-    expect(sent.headers["x-mezan-timestamp"]).toBe(timestamp);
-    const expectedDigest = createHmac("sha256", webhook.secret).update(`${timestamp}.${sent.body}`).digest("hex");
-    expect(sigField).toBe(`v1=${expectedDigest}`);
-
-    let deliveries: { success: boolean; statusCode: number | null; eventCode: string }[] = [];
-    for (let i = 0; i < 40 && deliveries.length === 0; i += 1) {
-      const res = await app.fetch(new Request(`http://local/webhooks/${webhook.id}/deliveries`, { headers: admin(app) }));
-      expect(res.status).toBe(200);
-      deliveries = (await res.json()) as typeof deliveries;
-      if (deliveries.length === 0) await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]).toMatchObject({ success: true, statusCode: 200, eventCode: "SALES_INVOICE_CONFIRMED" });
-  });
-
-  it("a webhook NOT subscribed to the fired event never gets called", async () => {
-    const calls: WebhookHttpRequest[] = [];
-    const app = keep(
-      await createBackend({
-        dbPath: ":memory:",
-        webhookTransport: {
-          async send(request) {
-            calls.push(request);
-            return { statusCode: 200, errorMessage: null };
-          },
-        },
-      }),
-    );
-    const createHook = await post(
-      app,
-      "/webhooks",
-      { name: "Unrelated", targetUrl: "https://example.test/hooks/other", events: ["PURCHASE_RETURN_CONFIRMED"] },
-      admin(app),
-    );
-    expect(createHook.status).toBe(201);
-
-    await createCustomer(app, "cust-wh-2", "0");
-    await createServiceItem(app);
-    await authedPost(app, "/sales-invoices", invoiceBody("inv-wh-2", "cust-wh-2", "100"));
-    const confirm = await authedPost(app, "/sales-invoices/inv-wh-2/confirm", {});
-    expect(confirm.status).toBe(200);
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(calls).toHaveLength(0);
   });
 });
 

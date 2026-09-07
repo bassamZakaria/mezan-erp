@@ -127,17 +127,3 @@ export async function amendVatFiling(
   return amended;
 }
 
-/**
- * Refuse a posting dated inside a period whose return has been filed. Called by
- * the GL posting path alongside the fiscal-period gate — the two are separate
- * locks answering separate questions, and a tenant can legitimately have an
- * open accounting period whose VAT has already gone in.
- */
-export async function assertVatPeriodOpen(
-  date: string,
-  deps: { readonly filings: VatFilingRepository },
-): Promise<void> {
-  const covering = await deps.filings.findCovering(date);
-  const live = covering.find((f) => f.status === "filed");
-  if (live) throw new VatPeriodAlreadyFiledError(live.id, date);
-}

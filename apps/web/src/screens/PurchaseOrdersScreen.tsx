@@ -34,6 +34,7 @@ import {
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
+import { PurchaseOrderPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { majorOf } from "../lib/money";
@@ -74,12 +75,14 @@ function OrderDetail({
   itemName,
   onBack,
   onConfirm,
+  onPrint,
 }: {
   order: PurchaseOrderDTO;
   supplierName: (id: string) => string;
   itemName: (id: string) => string;
   onBack: () => void;
   onConfirm: () => void;
+  onPrint: () => void;
 }) {
   const { t } = useAppTranslation();
   return (
@@ -95,6 +98,7 @@ function OrderDetail({
               {t("purchaseOrders.confirmSend")}
             </Button>
           ) : null}
+          <Button onClick={onPrint}>{t("print.action.print")}</Button>
         </>
       }
       summary={[
@@ -287,11 +291,14 @@ export function PurchaseOrdersScreen() {
     subPage.open(...(supplierId ? ["new", supplierId] : ["new"]));
   }
 
-  async function confirmSelected(id: string) {
+  async function confirmSelected(id: string, expectedVersion?: number) {
+    setFormError(null);
     try {
-      await confirmOrder.mutateAsync(id);
-    } catch {
-      // The list/detail re-render from the failed mutation's settled cache; nothing further to do here.
+      await confirmOrder.mutateAsync({ id, expectedVersion });
+    } catch (err) {
+      // N-9: a refusal because another till already moved this order names that
+      // till's operator. Swallowing it left the button doing nothing at all.
+      setFormError(err instanceof Error ? err.message : t("purchaseOrders.error.saveFailed"));
     }
   }
 
@@ -389,10 +396,20 @@ export function PurchaseOrdersScreen() {
 
   if (firstSegment === "new") return createPage;
 
+  // `#/buy/purchase-orders/<number>/print` — a destination, not an overlay (P-6).
+  if (selected && subPage.segments[1] === "print") return <PurchaseOrderPrintPage order={selected} />;
+
   if (selected) {
     return (
       <>
-        <OrderDetail order={selected} supplierName={supplierName} itemName={itemName} onBack={() => subPage.close()} onConfirm={() => confirmSelected(selected.id)} />
+        <OrderDetail
+          order={selected}
+          supplierName={supplierName}
+          itemName={itemName}
+          onBack={() => subPage.close()}
+          onConfirm={() => confirmSelected(selected.id, selected.version)}
+          onPrint={() => subPage.open(selected.number ?? selected.id, "print")}
+        />
       </>
     );
   }
@@ -401,7 +418,7 @@ export function PurchaseOrdersScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("purchaseOrders.loadFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("purchaseOrders.loadFailed")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>
@@ -463,6 +480,7 @@ export function PurchaseOrdersScreen() {
           const receivable = o.status === "sent" || o.status === "partially_received";
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(o.number ?? o.id) },
+            { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(o.number ?? o.id, "print") },
             ...(o.status === "draft"
               ? [{ key: "confirm", label: t("purchaseOrders.confirmSend"), onSelect: () => void confirmSelected(o.id) }]
               : []),

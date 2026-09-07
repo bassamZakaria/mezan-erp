@@ -1,32 +1,38 @@
-import { app, BrowserWindow, safeStorage } from "electron";
+import { hostname } from "node:os";
+import { app, BrowserWindow, dialog, safeStorage } from "electron";
 import Database from "better-sqlite3";
 import { createBackend, takeSeededAdminSecrets, type BackendHandle } from "@mezan/backend";
 import { SeatSessionRegistry } from "@mezan/domain";
-import { registerHonoOverIpc, registerHonoOverLanClient, registerPrintToPdfOverIpc } from "./ipc.js";
+import { registerHonoOverIpc, registerHonoOverLanClient, registerPrintToPdfOverIpc, registerSavePdfOverIpc } from "./ipc.js";
 import { readClientConfig, readPairingRequest, writeClientConfig, type ClientConfig } from "./client-config.js";
 import { createLanClient, withSeatClaim } from "./lan-client.js";
 import { registerClientBackupRefusalsOverIpc, registerRestoreOverIpc } from "./restore-ipc.js";
 import { createWindow, hardenWebContents } from "./window.js";
 import { registerAutoUpdater } from "./updater.js";
-import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
+import { backupThenMigrate, isMigrationPending, scheduleBackups } from "./backup-hooks.js";
+import { registerStartupBusy, unregisterStartupBusy } from "./startup-busy.js";
+import { CURRENT_SCHEMA_VERSION } from "@mezan/persistence";
+import { MEZAN_UPDATE_EVENT_CHANNEL, type UpdateStatus } from "../shared/ipc-contract.js";
 import { defaultBackupsDir, defaultDbPath, isDev, rendererEntry, rendererRoot } from "./env.js";
 import { registerRendererScheme, serveRenderer, shouldServeRenderer } from "./renderer-protocol.js";
-import { diagnoseDesktopEntitlements } from "./entitlements.js";
 import {
   registerClientLicenceStatusOverIpc,
   registerLicenceCheckinOverIpc,
   registerLicenceStatusOverIpc,
 } from "./licence-ipc.js";
-import { loadDesktopLicense } from "./license-runtime.js";
+import { loadDesktopLicense, printableMachineFingerprint } from "./license-runtime.js";
 import {
+  applyCheckinAttempt,
   attemptCheckin,
   checkinMessageAr,
   decideCheckin,
-  readCheckinState,
-  recordSuccessfulCheckin,
-  REFUSE_TO_START_AFTER_DAYS,
 } from "./license-checkin.js";
+import { reevaluateLicenseState } from "./license.js";
+import { createFileLogger } from "./log.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
+import { advertiseLanHost } from "./lan-discovery.js";
+import { registerPairingOverIpc } from "./pairing-ipc.js";
+import { registerClientMaintenanceRefusalsOverIpc } from "./client-refusals.js";
 import { createLanClientAuthorizer } from "./lan-authorization.js";
 import { loadOrCreateLanTlsIdentity } from "./lan-tls.js";
 import {
@@ -71,6 +77,22 @@ let backupConn: Database.Database | undefined;
 let cipher: TenantCipher | undefined;
 let disposeBackupSchedule: (() => void) | undefined;
 let lanHost: LanHostHandle | undefined;
+/**
+ * Created BEFORE the pre-update backup when this launch brings a schema change,
+ * so the machine shows an app rather than a dock icon for the minutes that copy
+ * takes, and reused at the end instead of opening a second window.
+ */
+let mainWindow: BrowserWindow | undefined;
+/** Stops the `_mezan._tcp` advertisement. Undefined until the socket has bound. */
+let stopAdvertising: (() => Promise<void>) | undefined;
+/**
+ * The unencrypted copy of the whole database taken before this install was
+ * converted to encrypted storage, while it is still on disk. It was reported
+ * once, to a console, on the launch that made it — so the shop never learned
+ * that the books were sitting in a folder in the clear. `mezan:licence:status`
+ * carries it to a screen that can offer to delete it.
+ */
+let plaintextArchivePath: string | null = null;
 
 // Before whenReady, not inside it: Chromium reads the scheme registry once
 // during startup, and `app://` registered later would have no origin — the
@@ -116,10 +138,37 @@ async function startAsLanClient(config: ClientConfig): Promise<void> {
   // "Error invoking remote method 'mezan:licence:status': No handler registered"
   // in English above an Arabic shell. A refusal with a reason is a screen; a
   // missing handler is a bug report shown to the shop.
-  registerHonoOverLanClient(withSeatClaim(createLanClient({ config }), config));
+  registerHonoOverLanClient(
+    withSeatClaim(createLanClient({ config }), config),
+    config.hostUrl,
+    config.fingerprintSha256,
+  );
   registerPrintToPdfOverIpc();
+  registerSavePdfOverIpc();
   registerClientLicenceStatusOverIpc(config);
   registerClientBackupRefusalsOverIpc(config.hostUrl);
+  // EVERY REMAINING BRIDGED CHANNEL, refused in Arabic rather than left
+  // unregistered. `mezan:licence:checkin` and `mezan:update:invoke` had no
+  // handler at all on a client, so two of the three maintenance buttons
+  // rejected with "No handler registered" — which the panel's hooks did not
+  // catch, so the operator's whole experience of pressing them was nothing
+  // happening. A client genuinely cannot do either (the licence is the host's,
+  // and a client that updated itself would be talking to a host it no longer
+  // matches), and saying so is a screen.
+  registerClientMaintenanceRefusalsOverIpc(config.hostUrl);
+  // The recovery half of pairing: a paired till whose host moved can find it
+  // again by its pinned certificate, with no session — which is the only
+  // credential it could offer, and the host it would get one from is exactly
+  // what it cannot reach.
+  registerPairingOverIpc({
+    dbPath: defaultDbPath(),
+    tenantIsClaimed: async () => true,
+    relaunch: () => {
+      app.relaunch();
+      app.exit(0);
+    },
+    client: config,
+  });
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -131,6 +180,66 @@ app.whenReady().then(async () => {
   // Tells the seed whether this is a real install: a packaged build must not
   // create its fallback admin with the published demo PIN (see seed.ts).
   process.env["MEZAN_PACKAGED"] = app.isPackaged ? "1" : "0";
+  // EXTERNAL CONTRACT, and it is read on BOTH sides of the LAN: `GET /health`
+  // reports these two (packages/backend/src/create-backend.ts) and a client
+  // compares them against its own before it renders a single screen
+  // (main/lan-client.ts). Set before the host/client role is decided, because
+  // the client path returns long before any of the host setup below.
+  process.env["MEZAN_APP_VERSION"] = app.getVersion();
+  process.env["MEZAN_SCHEMA_VERSION"] = String(CURRENT_SCHEMA_VERSION);
+
+  /**
+   * EVERY FAILURE FROM HERE ON IS WRITTEN DOWN AND SHOWN.
+   *
+   * `grep` for `dialog.`/`showErrorBox` across this app used to find nothing,
+   * and there was no log file either: every startup failure — no OS keyring, a
+   * damaged `client.json`, an unopenable database, a licence that would not
+   * verify — was `console.error` followed by `app.exit(1)`, which from the Dock
+   * or the Start menu is a program that does not open, silently. The correct
+   * Arabic sentence existed in nearly every one of those branches and was
+   * routed to nobody. `log` puts it in a file the shop can send; `fatal` also
+   * puts it on the screen before the process ends.
+   */
+  const log = createFileLogger(app.getPath("logs"));
+  const fatal = (messageAr: string, detail: string): void => {
+    log(`FATAL ${detail}`);
+    try {
+      dialog.showErrorBox("ميزان", `${messageAr}\n\nسجل الأخطاء: ${log.filePath}`);
+    } catch {
+      // A headless or very early failure. The log file is still written.
+    }
+    app.exit(1);
+  };
+
+  /**
+   * `--print-machine-fingerprint`, and it runs before anything opens a file.
+   *
+   * A shop whose PC died restores its backup onto new hardware, meets
+   * `MACHINE_NOT_BOUND`, and neither the owner nor support could obtain the
+   * string a replacement licence has to be bound to: there was no flag, no
+   * panel and no log line carrying it. It is safe to print — a salted hash,
+   * never the raw machine identity.
+   */
+  if (process.argv.includes("--print-machine-fingerprint")) {
+    try {
+      const fingerprint = await printableMachineFingerprint({
+        userDataDir: app.getPath("userData"),
+        packaged: app.isPackaged,
+      });
+      console.log(
+        `\nبصمة هذا الجهاز / Machine fingerprint:\n${fingerprint}\n\n` +
+          "أرسل هذا السطر إلى الدعم لإصدار ترخيص لهذا الجهاز. / " +
+          "Send this line to support to have a licence issued for this machine.\n",
+      );
+      app.exit(0);
+    } catch (err) {
+      fatal(
+        "تعذّرت قراءة بصمة هذا الجهاز.",
+        `[fingerprint] ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return;
+  }
 
   /**
    * HOST OR CLIENT, and it is decided before anything opens, creates or seeds a
@@ -151,25 +260,31 @@ app.whenReady().then(async () => {
     try {
       pairing = readPairingRequest();
     } catch (err) {
-      console.error(`[pair] ${err instanceof Error ? err.message : String(err)}`);
-      app.exit(1);
+      fatal(
+        "بيانات الاقتران غير صالحة، ولم يتم ربط هذا الجهاز بأي جهاز رئيسي.",
+        `[pair] ${err instanceof Error ? err.message : String(err)}`,
+      );
       return;
     }
     if (pairing) {
       if ((await readDatabaseFileState(dbPath)) !== "absent") {
-        console.error(
-          `[pair] ${dbPath} already exists. A client holds no books of its own, so pairing this machine ` +
-            "would leave that database orphaned. Move or delete it first if this machine really is to become a client.",
+        fatal(
+          "يوجد على هذا الجهاز قاعدة بيانات خاصة به. المحطة المتصلة لا تحتفظ بدفاتر خاصة، " +
+            "وربط هذا الجهاز سيترك تلك البيانات معزولة. انقل قاعدة البيانات أو احذفها أولاً " +
+            "إذا كان هذا الجهاز سيصبح محطة متصلة بالفعل.",
+          `[pair] ${dbPath} already exists; refusing to pair and orphan it.`,
         );
-        app.exit(1);
         return;
       }
       const config = await writeClientConfig(dbPath, pairing).catch((err: unknown) => {
-        console.error("[pair] could not write the pairing", err);
+        log(`[pair] could not write the pairing: ${err instanceof Error ? err.message : String(err)}`);
         return null;
       });
       if (!config) {
-        app.exit(1);
+        fatal(
+          "تعذّر حفظ بيانات الاقتران على هذا الجهاز. تأكد من صلاحيات الكتابة ثم أعد المحاولة.",
+          "[pair] could not write client.json",
+        );
         return;
       }
       console.log(
@@ -184,12 +299,12 @@ app.whenReady().then(async () => {
 
     const role = await readClientConfig(dbPath);
     if (role.role === "unusable") {
-      console.error(`[client] ${role.reason}`);
-      console.error(
-        "[client] Mezan will not start. Fix or delete client.json — deleting it makes this machine a HOST " +
-          "with its own separate books, which is almost certainly not what you want on a machine that was a client.",
+      fatal(
+        "ملف إعدادات المحطة المتصلة (client.json) تالف، ولا يمكن تشغيل ميزان بدونه. " +
+          "تواصل مع الدعم: حذف الملف يحوّل هذا الجهاز إلى جهاز رئيسي بدفاتر منفصلة، " +
+          "وهو غالباً ليس المطلوب على جهاز كان محطة متصلة.",
+        `[client] ${role.reason}`,
       );
-      app.exit(1);
       return;
     }
     if (role.role === "client") {
@@ -216,15 +331,14 @@ app.whenReady().then(async () => {
       // letting it try would surface as "file is not a database" — a corruption
       // message for an intact file, which is how books get thrown away.
       if ((await readDatabaseFileState(dbPath)) === "encrypted") {
-        console.error(
-          "[crypto] --allow-unencrypted-database was passed, but this database is already " +
-            "encrypted. It can only be opened with its key; remove the flag, or restore a backup " +
-            "taken before encryption was enabled.",
+        fatal(
+          "قاعدة البيانات على هذا الجهاز مُشفّرة بالفعل، ولا يمكن فتحها إلا بمفتاحها. " +
+            "أزل الخيار ‎--allow-unencrypted-database، أو استعد نسخة احتياطية أُخذت قبل تفعيل التشفير.",
+          "[crypto] --allow-unencrypted-database passed against an already-encrypted database",
         );
-        app.exit(1);
         return;
       }
-      console.warn(
+      log(
         "[crypto] --allow-unencrypted-database: the tenant database and every backup archive " +
           "will be written in plaintext. Anyone who copies mezan.db or the backups folder reads " +
           "your entire books.",
@@ -248,31 +362,48 @@ app.whenReady().then(async () => {
         });
         cipher = opened.connection;
         if (opened.converted) {
-          console.log(
+          plaintextArchivePath = opened.backupArchivePath ?? null;
+          log(
             "[crypto] converted the existing plaintext database to encrypted storage. " +
               `Pre-conversion safety copy (UNENCRYPTED — delete it once you trust this build): ${opened.backupArchivePath}`,
           );
         }
         if (opened.keyCardPath) {
-          console.log(`[crypto] database encryption key written to ${opened.keyCardPath}`);
+          log(`[crypto] database encryption key written to ${opened.keyCardPath}`);
         }
         if (opened.keyCardPresent) {
-          console.warn(
-            `[crypto] ${keyCardFilePath(dbPath)} still holds this database's key in plain text. ` +
+          // The key card is a BEARER SECRET sitting beside the books, and this
+          // warning used to go to a console nobody opens: the failure surfaces
+          // years later as "the books are gone". It is shown, not just logged.
+          const keyCard = keyCardFilePath(dbPath);
+          log(
+            `[crypto] ${keyCard} still holds this database's key in plain text. ` +
               "Copy it somewhere safe off this machine and delete the file — it is the only way to " +
               "open a backup on replacement hardware, and the only plaintext copy of the key anywhere.",
           );
+          void dialog
+            .showMessageBox({
+              type: "warning",
+              title: "ميزان — مفتاح قاعدة البيانات",
+              message: "مفتاح تشفير قاعدة البيانات ما زال محفوظاً كنص عادي على هذا الجهاز.",
+              detail:
+                `الملف: ${keyCard}\n\n` +
+                "انسخه إلى مكان آمن خارج هذا الجهاز ثم احذفه. هو الوسيلة الوحيدة لفتح نسخة احتياطية " +
+                "على جهاز بديل، وهو أيضاً النسخة الوحيدة غير المشفّرة من المفتاح.",
+              buttons: ["حسناً"],
+            })
+            .catch(() => undefined);
         }
         if (wantsKeyExport()) {
           app.exit(0);
           return;
         }
       } catch (err) {
-        console.error(
-          "[crypto] the tenant database cannot be opened securely, so Mezan will not start.",
-          err,
+        fatal(
+          "تعذّر فتح قاعدة بيانات ميزان بشكل آمن على هذا الجهاز، ولن يبدأ البرنامج. " +
+            "الغالب أن نظام التشغيل لا يوفّر خزنة مفاتيح (Keychain / DPAPI / libsecret). تواصل مع الدعم.",
+          `[crypto] ${err instanceof Error ? err.message : String(err)}`,
         );
-        app.exit(1);
         return;
       }
     }
@@ -289,8 +420,10 @@ app.whenReady().then(async () => {
    */
   if (wantsAdminReset()) {
     if (isDev()) {
-      console.error("[recovery] --reset-admin needs a packaged build with a database on disk.");
-      app.exit(1);
+      fatal(
+        "الخيار ‎--reset-admin يحتاج نسخة مثبّتة وقاعدة بيانات على القرص.",
+        "[recovery] --reset-admin needs a packaged build with a database on disk.",
+      );
       return;
     }
     // Through the keyed connection, not the path: `resetSeedAdminPin` would
@@ -298,13 +431,15 @@ app.whenReady().then(async () => {
     // seeded administrator account found" on an install that has one.
     const resetConn = cipher ? openTenantConnection(dbPath, cipher) : undefined;
     const reset = await resetSeedAdminPin(dbPath, resetConn ?? dbPath).catch((err: unknown) => {
-      console.error("[recovery] --reset-admin failed", err);
+      log(`[recovery] --reset-admin failed: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     });
     resetConn?.close();
     if (!reset) {
-      console.error(`[recovery] no seeded administrator account found in ${dbPath}.`);
-      app.exit(1);
+      fatal(
+        "لم يُعثر على حساب مدير مُهيّأ في قاعدة البيانات على هذا الجهاز، فلم يتغيّر أي رمز دخول.",
+        `[recovery] no seeded administrator account found in ${dbPath}.`,
+      );
       return;
     }
     console.log(
@@ -334,17 +469,62 @@ app.whenReady().then(async () => {
     backupConn = cipher ? openTenantConnection(dbPath, cipher) : new Database(dbPath);
     backupConn.pragma("busy_timeout = 5000");
 
-    // Pre-migration auto-backup (docs/archive/plan.md §2.3/§3.7). No real migration
-    // runner exists yet, so `migrate` is a no-op today — see backup-hooks.ts.
+    /**
+     * THE PRE-UPDATE BACKUP, AND WHY IT NO LONGER RUNS ON EVERY LAUNCH.
+     *
+     * It was unconditional and it happened here, before a window existed: every
+     * cold start copied, hashed, tarred, extracted and integrity-checked the
+     * whole database against a dock icon that did nothing — measured at ~1.1s
+     * per 88 MB, i.e. minutes at 2 GB, which is a force-quit and a support call.
+     * The backup exists to protect a SCHEMA CHANGE, so it runs when the file's
+     * stamp says this build brings one.
+     *
+     * The decision is taken HERE, before `createBackend` opens the database and
+     * stamps it: after that, every launch looks like a matching schema.
+     */
     const encrypted = cipher !== undefined;
-    await backupThenMigrate({ sqlite: backupConn, appVersion: app.getVersion(), encrypted });
+    const migrationPending = isMigrationPending(backupConn);
+    if (migrationPending) {
+      // The window FIRST. Until the backend below is composed there is nothing
+      // to answer a renderer request with, so `mezan:fetch` is answered by a
+      // refusal that says what is happening — an unregistered channel would
+      // reject with an English Electron internal instead.
+      mainWindow = createWindow();
+      registerStartupBusy();
+      const notifyMigrating = () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.webContents.send(MEZAN_UPDATE_EVENT_CHANNEL, {
+          phase: "migrating",
+          version: app.getVersion(),
+        } satisfies UpdateStatus);
+      };
+      // Sent twice on purpose: the renderer is still loading, and a status
+      // pushed before it subscribed reaches nobody.
+      notifyMigrating();
+      mainWindow.webContents.once("did-finish-load", notifyMigrating);
+
+      try {
+        await backupThenMigrate({
+          sqlite: backupConn,
+          appVersion: app.getVersion(),
+          encrypted,
+          cipher: cipher ? { key: cipher.key } : undefined,
+          migrationPending: true,
+        });
+      } finally {
+        // In `finally` because Electron throws on a second handler for one
+        // channel: a failed backup that left this registered would turn into
+        // "Attempted to register a second handler for 'mezan:fetch'" further
+        // down, which says nothing about what actually went wrong.
+        unregisterStartupBusy();
+      }
+    }
+
     disposeBackupSchedule = scheduleBackups({
       sqlite: backupConn,
       appVersion: app.getVersion(),
       encrypted,
-      // Portable archives need the key to decrypt the copy with; on an install
-      // with no cipher there is nothing to decrypt and nothing changes.
-      ...(cipher ? { portable: { key: cipher.key, open: (file: string, key: string) => openTenantConnection(file, { ...cipher!, key }) } } : {}),
+      cipher: cipher ? { key: cipher.key } : undefined,
     });
   }
 
@@ -357,11 +537,22 @@ app.whenReady().then(async () => {
   // write permission (docs/archive/plan.md §2.5). Past its grace window it
   // resolves to READ_ONLY: data stays viewable, new postings are refused by
   // the write-gate below — closes D115, where an unsigned env var decided this.
-  const license = await loadDesktopLicense({
+  const loaded = await loadDesktopLicense({
     userDataDir: app.getPath("userData"),
     packaged: app.isPackaged,
+    // What the anti-rollback record is MAC'd with. A guard file the owner can
+    // delete to reset the anti-piracy clock is not a guard; sealing it to the
+    // database key means the one secret protecting the books also protects
+    // this. `null` on an unencrypted/dev install, where no such secret exists.
+    databaseKey: cipher?.key ?? null,
   });
+  const license = loaded.license;
+  const guard = loaded.guard;
   const entitlements = license.entitlements;
+  // Replaced in place when an operator imports a licence file over IPC, so the
+  // status channel reports what is on disk now rather than what was on disk at
+  // launch. The write gate's own re-read is licence-ipc's `onLicenceReplaced`.
+  let liveLicence = license;
 
   /**
    * THE ONLINE CHECK-IN, and the two thresholds it enforces.
@@ -374,49 +565,64 @@ app.whenReady().then(async () => {
    *
    * The attempt is fire-and-forget on purpose: a shop must not wait on a network
    * round trip to open its till, and a vendor outage must never delay a launch.
-   * Only a SUCCESSFUL answer moves the clock; a failure leaves the day counter
-   * to degrade gently on its own.
+   * Only a SUCCESSFUL, SIGNED answer moves the clock; a failure leaves the day
+   * counter to degrade gently on its own.
+   *
+   * NOTHING HERE EXITS. This block used to `app.exit(1)` past thirty days,
+   * before a window existed: a shop one month past a router fault double-clicked
+   * the icon and nothing happened — no dialog, no log, and their books inside a
+   * file the app would not open. The window opens now, the state carries
+   * `CHECKIN_OVERDUE` and a day count, and the shell renders the blocking notice
+   * over an app whose data is still readable, printable and exportable.
    */
-  const checkin = await readCheckinState(dbPath);
-  const installedAt = license.state.expiresAt ?? new Date().toISOString();
-  const verdict = decideCheckin({ ...checkin, installedAt, now: new Date() });
+  const installStamp = () => {
+    const read = guard.read();
+    if (read.integrity === "ok" && read.record.installedAt !== null) return read.record.installedAt;
+    // The licence's SIGNED start date, not "now": a stamp the machine writes for
+    // itself is a stamp deleting the file resets, which is exactly the bypass.
+    const stamp = license.identity.notBefore ?? new Date().toISOString();
+    if (read.integrity !== "tampered") {
+      try {
+        guard.write({ ...read.record, installedAt: stamp });
+      } catch (err) {
+        log(`[licence] could not stamp the guard record: ${String(err)}`);
+      }
+    }
+    return stamp;
+  };
+  const installedAt = installStamp();
 
-  if (verdict.verdict === "refuse-to-start") {
-    console.error(`[licence] ${checkinMessageAr(verdict.verdict, verdict.daysSince)}`);
-    console.error(
-      "[licence] REFUSING TO START: the licence has not been confirmed online for " +
-        `${verdict.daysSince} days (limit ${REFUSE_TO_START_AFTER_DAYS}). Connect this machine to ` +
-        "the internet and restart, or install a fresh licence file from support.",
-    );
-    app.exit(1);
-    return;
-  }
-  if (verdict.verdict === "read-only") {
-    console.warn(`[licence] ${checkinMessageAr(verdict.verdict, verdict.daysSince)}`);
+  /** Re-read per request: a file read and arithmetic, no signature check. */
+  const currentVerdict = () => {
+    const read = guard.read();
+    return decideCheckin({
+      record: read.record,
+      integrity: read.integrity,
+      installedAtFallback: installedAt,
+      now: new Date(),
+    });
+  };
+
+  const startupVerdict = currentVerdict();
+  if (startupVerdict.verdict !== "ok") {
+    log(`[licence] ${checkinMessageAr(startupVerdict.verdict, startupVerdict.daysSince)}`);
   }
 
   void attemptCheckin({
-    endpoint: process.env["MEZAN_LICENSE_CHECKIN_URL"],
-    licenseId: license.state.state,
-    fingerprint: app.getPath("userData"),
-  }).then(async (attempt) => {
-    if (attempt.revoked) {
-      console.error("[licence] the licensing service reports this licence as REVOKED.");
-      return;
+    endpoint: loaded.config.checkinUrl,
+    licenseId: license.identity.licenseId,
+    fingerprint: license.identity.fingerprint,
+    publicKey: loaded.config.publicKey,
+    lastVerifiedAt: guard.read().record.lastVerifiedAt,
+  }).then((attempt) => {
+    if (attempt.reachedServer) {
+      applyCheckinAttempt(guard, attempt, new Date());
+      if (attempt.revoked) log("[licence] the licensing service reports this licence as REVOKED.");
+    } else {
+      log(`[licence] check-in did not reach the service: ${attempt.detail ?? "unknown"}`);
     }
-    if (attempt.reachedServer) await recordSuccessfulCheckin(dbPath, new Date());
-    else console.warn(`[licence] check-in did not reach the service: ${attempt.error ?? "unknown"}`);
   });
 
-  // The support-code reading for `mezan:licence:status`, which also carries the
-  // LAN address and certificate fingerprint. It reports on the DEV env seam
-  // only and grants nothing — `license` above is what every gate is built from.
-  // See the note on `diagnoseDesktopEntitlements`; the two collapse once that
-  // channel reports the verified state directly.
-  const licence = diagnoseDesktopEntitlements();
-  if (licence.status !== "licensed") {
-    console.warn(`[licence] ${licence.code} — ${licence.detailAr}`);
-  }
   const seatRegistry = new SeatSessionRegistry(entitlements.seats);
   // `createBackend`, NOT `createApp`. This is the composition that carries the
   // session resolver, the seeded tenant and the real `/auth` routes; building
@@ -428,23 +634,23 @@ app.whenReady().then(async () => {
     connection: cipher,
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
     /*
-     * The check-in verdict is folded in HERE, at the one place the write gate
-     * reads. Enforcing it only at startup would make it a message rather than a
-     * rule: the app would print a warning and then happily post invoices for the
-     * rest of the day. Past the window the state becomes READ_ONLY, which the
-     * gate in packages/api/src/license-gate.ts already refuses every mutating
-     * method against while leaving reads, printing and export open.
+     * MODULE gating, from the VERIFIED licence and only from it. Passed only
+     * when a signed licence actually produced the capability set: an unpackaged
+     * dev run and a packaged install awaiting activation both omit it, so the
+     * API keeps its own all-modules default and an ABSENCE of a licence never
+     * withholds a shop's own data — the write gate is what a lapse closes.
+     */
+    ...(license.verified ? { entitlements } : {}),
+    /*
+     * The verdict is resolved PER REQUEST, not closed over at startup. Enforcing
+     * a startup constant made two things impossible: pressing «تحقق الآن» could
+     * not lift read-only without a restart (the handler wrote the file and
+     * nothing re-read it), and a licence that expired during a session left open
+     * for weeks was never noticed. This is a small file read plus arithmetic —
+     * cheap enough per request, and honest enough to change its mind.
      */
     resolveLicenseState: () =>
-      verdict.verdict === "read-only"
-        ? {
-            ...license.state,
-            state: "READ_ONLY" as const,
-            canWrite: false,
-            usable: true,
-            reason: "CHECKIN_OVERDUE",
-          }
-        : license.state,
+      reevaluateLicenseState(liveLicence, { now: Date.now(), checkin: currentVerdict() }),
   });
 
   if (!isDev()) {
@@ -463,7 +669,9 @@ app.whenReady().then(async () => {
     if (seeded?.generated) {
       const target = await writeRecoveryPin(dbPath, seeded.pin, "first-run").catch(
         (err: unknown) => {
-          console.error("[recovery] could not write the recovery file", err);
+          log(
+            `[recovery] could not write the recovery file: ${err instanceof Error ? err.message : String(err)}`,
+          );
           return null;
         },
       );
@@ -486,6 +694,7 @@ app.whenReady().then(async () => {
 
   registerHonoOverIpc(backend.app);
   registerPrintToPdfOverIpc();
+  registerSavePdfOverIpc();
   // The verified restore in backup/restore-service.ts had no caller at all —
   // no IPC, no menu, no screen — so the product shipped backups nobody could
   // put back. These three channels are what the settings screen drives.
@@ -495,6 +704,18 @@ app.whenReady().then(async () => {
     appVersion: app.getVersion(),
     sqlite: () => backupConn,
     cipher,
+    // ONLY «تصدير نسخة قابلة للنقل» uses this, and the archive it produces is
+    // re-encrypted under the operator's own passphrase before it is written.
+    // It used to be handed to `scheduleBackups`, where every daily archive came
+    // out in the clear.
+    ...(cipher
+      ? {
+          portable: {
+            key: cipher.key,
+            open: (file: string, key: string) => openTenantConnection(file, { ...cipher!, key }),
+          },
+        }
+      : {}),
     closeLiveConnections: () => {
       disposeBackupSchedule?.();
       disposeBackupSchedule = undefined;
@@ -513,17 +734,65 @@ app.whenReady().then(async () => {
   // getter: the bind is asynchronous (lan-host.ts), so the address is null
   // until it completes and the screen must be told null rather than a guess.
   registerLicenceCheckinOverIpc({
-    dbPath,
-    installedAt,
-    endpoint: process.env["MEZAN_LICENSE_CHECKIN_URL"],
-    licenseId: license.state.state,
-    fingerprint: app.getPath("userData"),
+    guard,
+    installedAtFallback: installedAt,
+    endpoint: loaded.config.checkinUrl,
+    // `payload.licenseId` and the real salted fingerprint. It used to send the
+    // state enum ("ACTIVE") and the userData PATH, so the one thing check-in
+    // exists to catch — the same licence file running on a second machine —
+    // was invisible to it, and revocation could never target one shop.
+    licenseId: license.identity.licenseId,
+    fingerprint: license.identity.fingerprint,
+    publicKey: loaded.config.publicKey,
     sessions: backend.sessions,
+    log,
   });
   registerLicenceStatusOverIpc({
-    diagnosis: () => licence,
+    // The VERIFIED licence, not `diagnoseDesktopEntitlements()`: that reads the
+    // dev-only `MEZAN_ENTITLEMENTS_JSON` seam, so the panel and the write gate
+    // used to answer two different verdicts on one install.
+    licence: () => liveLicence,
+    reloadLicence: async () => {
+      const reloaded = await loadDesktopLicense({
+        userDataDir: app.getPath("userData"),
+        packaged: app.isPackaged,
+        // The SAME key the startup load used, or the re-read would open the
+        // guard record with no MAC to check and resolve its own history to
+        // TAMPERED — an imported licence would land the install in read-only.
+        databaseKey: cipher?.key ?? null,
+        guardStore: guard,
+      });
+      liveLicence = reloaded.license;
+      return liveLicence;
+    },
+    // The SALTED hash, under the salt this build was made with — the exact
+    // string `machineBinding` is compared against, so a licence support issues
+    // from it is right for the binary in front of the user.
+    fingerprint: async () => {
+      try {
+        return await printableMachineFingerprint({
+          userDataDir: app.getPath("userData"),
+          packaged: app.isPackaged,
+        });
+      } catch {
+        return null;
+      }
+    },
+    daysSinceCheckin: () => currentVerdict().daysSince,
+    dbPath,
+    backupsDir: defaultBackupsDir(),
+    plaintextArchivePath: () => plaintextArchivePath,
+    seatsUsed: () => seatRegistry.connectedCount,
     lanHost: () => lanHost,
     sessions: backend.sessions,
+    // Only the IMPORT channel consults this, and only to let the first-run
+    // wizard install a licence before any account exists to sign in with.
+    tenantIsClaimed: async () => {
+      const res = await backend!.app.fetch(new Request("http://mezan.local/bootstrap/status"));
+      if (!res.ok) return true;
+      const body = (await res.json()) as { claimed?: boolean };
+      return body.claimed !== false;
+    },
   });
   // The identity is a thunk, and it lives BESIDE the database rather than in
   // it: the socket must present the same certificate on every launch or no
@@ -544,8 +813,53 @@ app.whenReady().then(async () => {
     }),
   });
 
-  const mainWindow = createWindow();
-  registerAutoUpdater(mainWindow);
+  /**
+   * BEING FINDABLE, so adding a till is not a consultant reading an IP off a
+   * router. The advertisement carries the certificate fingerprint, and it is a
+   * CONVENIENCE ONLY: mDNS is unauthenticated, so the till still pins what the
+   * handshake presented and a human still compares it once. Started after the
+   * bind because there is nothing to advertise until there is a port.
+   */
+  void lanHost.ready.then((info) => {
+    const fingerprint = lanHost?.fingerprint();
+    if (!info || !fingerprint || lanHost?.closedReason() !== null) return;
+    stopAdvertising = advertiseLanHost({
+      port: info.port,
+      fingerprintSha256: fingerprint,
+      name: `Mezan — ${hostname()}`,
+    });
+  });
+
+  /**
+   * The HOST side of in-app pairing. A machine that has just been installed and
+   * not yet claimed can still choose to become a till instead, which is the
+   * whole of «الاتصال بجهاز رئيسي» on the first-run screen. `tenantIsClaimed`
+   * is asked of the running backend, not of the file system: by the time a
+   * window exists this launch has already created and seeded an empty database.
+   */
+  registerPairingOverIpc({
+    dbPath,
+    tenantIsClaimed: async () => {
+      const res = await backend!.app.fetch(new Request("http://mezan.local/bootstrap/status"));
+      if (!res.ok) return true;
+      const body = (await res.json()) as { claimed?: boolean };
+      return body.claimed !== false;
+    },
+    relaunch: () => {
+      app.relaunch();
+      app.exit(0);
+    },
+    lanHost: () => lanHost,
+  });
+
+  // Reused, not re-created: a schema-changing launch already opened one above
+  // to show the pre-update backup's progress.
+  mainWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow();
+  registerAutoUpdater(mainWindow, process.env, new Date(), undefined, {
+    // Read at the moment the operator presses install, from the live registry —
+    // the confirmation names the tills that are about to lose their host.
+    connectedDevices: () => seatRegistry.list().map((session) => session.deviceLabel),
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -557,6 +871,9 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  // Withdrawn before the socket closes, so a till browsing for hosts is not
+  // offered an address that has already stopped answering.
+  void stopAdvertising?.();
   void lanHost?.close();
   disposeBackupSchedule?.();
   backupConn?.close();

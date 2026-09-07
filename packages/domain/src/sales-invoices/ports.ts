@@ -24,12 +24,27 @@ export interface SalesInvoiceRepository {
   list(filter?: SalesInvoiceListFilter): Promise<readonly SalesInvoice[]>;
   /** How many invoices the same filter matches, ignoring `limit`/`offset`. */
   count(filter?: SalesInvoiceListFilter): Promise<number>;
+  /**
+   * Row count per stored status for the same filter, ignoring `limit`/`offset`
+   * and ignoring `status`/`statusIn` — the status chips each have to say how
+   * many rows they WOULD show. A status with no rows is absent from the map.
+   * Exists so the chips cost one aggregate rather than hydrating the table.
+   */
+  countByStatus(filter?: SalesInvoiceListFilter): Promise<ReadonlyMap<SalesInvoice["status"], number>>;
   /** Run `fn` in one atomic transaction. In-memory implementations may just call `fn`. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 export interface SalesInvoiceListFilter {
   readonly status?: SalesInvoice["status"];
+  /**
+   * Narrows to a SET of stored statuses, ANDed with `status`. The derived
+   * `open`/`overdue` chips are a function of the remaining balance, which no
+   * column holds — but only a confirmed or partially-paid invoice can ever be
+   * either, so this is what keeps those two chips from hydrating the whole
+   * table to answer a question about the open receivable.
+   */
+  readonly statusIn?: readonly SalesInvoice["status"][];
   readonly customerId?: string;
   readonly fromDate?: string;
   readonly toDate?: string;

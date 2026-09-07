@@ -68,7 +68,36 @@ describe("the permission catalogue against the routes that check it", () => {
     // the number rather than special-cased, because a scanner with exceptions
     // is a scanner nobody trusts.
     expect(UNGATED.length).toBeGreaterThan(0);
+    // Unchanged at 92 by the D116 fix, and that is the finding: wiring
+    // `installments.collection.create` onto the collection route took
+    // `sales.invoice.edit` off it, and nothing else edits a sales invoice.
     expect(UNGATED.length).toBeLessThanOrEqual(92);
+  });
+
+  /**
+   * guards D116/P-8. Recording a collection was gated on `sales.invoice.edit`
+   * — the same authority that changes a price — while the two codes the
+   * catalogue offers for taking money gated nothing. `POST
+   * /sales-invoices/:id/payments` now names the treasury act it performs.
+   *
+   * `sales.invoice.edit` then gates nothing, and that is the honest reading:
+   * the product has no route that edits a sales invoice at all.
+   */
+  it("a collection is gated as a treasury act, not as an invoice edit", () => {
+    expect(GATED.has("installments.collection.create")).toBe(true);
+    expect(GATED.has("treasury.cash_voucher.create")).toBe(true);
+    expect(GATED.has("sales.invoice.edit")).toBe(false);
+  });
+
+  /**
+   * Codes whose gate cannot be wired without a route that does not exist yet.
+   * Listed by name so the next reader knows these are WAITING on a route, not
+   * overlooked: the void and instalment-collect routes are C-9's work.
+   */
+  it("names the codes that are waiting on a route rather than on a gate", () => {
+    for (const code of ["sales.invoice.void", "installments.collect", "assets.depreciation.void"]) {
+      expect(UNGATED, `${code} still has no route to gate`).toContain(code);
+    }
   });
 
   it("LIMITATION (D116): the whole POS module is catalogued and has no route at all", () => {

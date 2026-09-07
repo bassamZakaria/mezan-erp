@@ -128,6 +128,9 @@ describe("AuditLogScreen — list", () => {
     expect(await screen.findByText("لا توجد أحداث مطابقة")).toBeInTheDocument();
   });
 
+  // guards §4.5 #13: the Arabic sentence still stands in when the body carries
+  // no reason of its own — but it now carries the status as a support code, so
+  // a ticket quoting it names the failure.
   it("shows the Arabic load error instead of a raw failure when the audit request fails", async () => {
     renderWithProviders(<AuditLogScreen />, {
       initialSession: testAdminSession,
@@ -136,7 +139,7 @@ describe("AuditLogScreen — list", () => {
         "GET /branches": () => ({ body: [BRANCH] }),
       }),
     });
-    expect(await screen.findByText("تعذّر تحميل سجل المراجعة.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل سجل المراجعة. (رمز 500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
@@ -300,5 +303,79 @@ describe("AuditLogScreen — filters", () => {
     await user.click(screen.getByRole("button", { name: "مسح الفلاتر" }));
     expect(await screen.findByText("reverse")).toBeInTheDocument();
     expect(textFieldInput(document.body, "الوحدة")).toHaveValue("");
+  });
+});
+
+/** guards §4.5 #13 — 198 GET error paths discarded the server's reason. */
+describe("AuditLogScreen — the server's reason reaches the screen", () => {
+  it("shows a 502's own message, not the screen's fixed sentence", async () => {
+    renderWithProviders(<AuditLogScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        "GET /branches": () => ({ body: [BRANCH] }),
+        "GET /audit": () => ({
+          status: 502,
+          body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." },
+        }),
+      }),
+    });
+
+    expect(
+      await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل سجل المراجعة.")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the sentence PLUS a support code when the body carries no reason", async () => {
+    renderWithProviders(<AuditLogScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        "GET /branches": () => ({ body: [BRANCH] }),
+        "GET /audit": () => ({ status: 502, body: {} }),
+      }),
+    });
+
+    expect(await screen.findByText(/\(رمز 502\)/)).toBeInTheDocument();
+  });
+});
+
+/** guards S-3 — the trail was append-only against the app's SQL, not against the file. */
+describe("AuditLogScreen — «تحقق من سلامة السجل»", () => {
+  it("runs only when asked, and names the first broken row", async () => {
+    const user = userEvent.setup();
+    const calls: string[] = [];
+    renderWithProviders(<AuditLogScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        ...baseHandlers(),
+        "GET /audit/verify": (_init, path) => {
+          calls.push(path);
+          return { body: { ok: false, checked: 4, unchained: 2, brokenRowId: 5, reason: "ROW_ALTERED" } };
+        },
+      }),
+    });
+
+    await screen.findByText("login_failed");
+    expect(calls).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "تحقق من سلامة السجل" }));
+    expect(await screen.findByText(/أول صف مشبوه رقم 5/)).toBeInTheDocument();
+    expect(screen.getByText(/عُدِّل محتوى الصف بعد تسجيله/)).toBeInTheDocument();
+    expect(screen.getByText(/2 صفاً كُتبت قبل تفعيل التوقيع/)).toBeInTheDocument();
+    expect(calls).toHaveLength(1);
+  });
+
+  it("reports an intact trail", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AuditLogScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        ...baseHandlers(),
+        "GET /audit/verify": () => ({ body: { ok: true, checked: 12, unchained: 0, brokenRowId: null, reason: "OK" } }),
+      }),
+    });
+    await screen.findByText("login_failed");
+    await user.click(screen.getByRole("button", { name: "تحقق من سلامة السجل" }));
+    expect(await screen.findByText("السجل سليم. تم التحقق من 12 صفاً.")).toBeInTheDocument();
   });
 });

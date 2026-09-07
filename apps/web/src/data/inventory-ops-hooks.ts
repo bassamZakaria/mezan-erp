@@ -12,7 +12,7 @@ import type {
   StockBalanceRowDTO,
   StockTransferDocumentDTO,
 } from "@mezan/contracts";
-import { ApiError, type JournalEntryDTO } from "./hooks";
+import { ApiError, readError, type JournalEntryDTO } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -34,7 +34,7 @@ export function useStockBalance(warehouseId?: string): UseQueryResult<StockBalan
     queryFn: async () => {
       const qs = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
       const res = await request(`/inventory/stock-balance${qs}`);
-      if (!res.ok) throw new ApiError(res.status, t("stockBalance.loadFailed"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("stockBalance.loadFailed"), t));
       const body = await res.json<{ rows: StockBalanceRowDTO[] }>();
       return body.rows;
     },
@@ -54,7 +54,7 @@ export function useStockAdjustments(status?: DocumentStatusDTO): UseQueryResult<
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/inventory/stock-adjustments${qs}`);
-      if (!res.ok) throw new ApiError(res.status, t("stockAdj.stockAdjustmentsCouldNotBe"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("stockAdj.stockAdjustmentsCouldNotBe"), t));
       return res.json<StockAdjustmentDocumentDTO[]>();
     },
   });
@@ -92,7 +92,7 @@ export function useAdjustmentJournalEntry(docId: string | null): UseQueryResult<
     queryFn: async () => {
       const res = await request(`/gl/journal-entries/${docId}`);
       if (res.status === 404) return null;
-      if (!res.ok) throw new ApiError(res.status, t("stockAdj.theJournalEntryCouldNot"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("stockAdj.theJournalEntryCouldNot"), t));
       return res.json<JournalEntryDTO>();
     },
   });
@@ -111,7 +111,7 @@ export function useStockTransfers(status?: DocumentStatusDTO): UseQueryResult<St
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/inventory/stock-transfers${qs}`);
-      if (!res.ok) throw new ApiError(res.status, t("stockXfer.stockTransfersCouldNotBe"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("stockXfer.stockTransfersCouldNotBe"), t));
       return res.json<StockTransferDocumentDTO[]>();
     },
   });
@@ -164,7 +164,7 @@ export function usePhysicalCounts(filters: PhysicalCountListFilters = {}): UseQu
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/inventory/physical-counts${countQueryString(filters)}`);
-      if (!res.ok) throw new ApiError(res.status, t("counts.physicalCountsCouldNotBe"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("counts.physicalCountsCouldNotBe"), t));
       return res.json<PhysicalCountDTO[]>();
     },
   });

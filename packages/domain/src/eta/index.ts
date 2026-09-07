@@ -1,6 +1,9 @@
 export {
   DEFAULT_ETA_CONFIG,
+  ETA_DEFAULT_ENDPOINTS,
   computeEtaReadiness,
+  resolveEtaEndpoints,
+  type EtaEndpoints,
   type EtaEnvironment,
   type EtaDocumentVersion,
   type EtaSigningMethod,
@@ -20,6 +23,7 @@ export {
   type EtaSubmissionStatusDefinition,
   type EtaSubmission,
   type EtaSubmissionRepository,
+  type EtaTransmitLogEntry,
 } from "./submission.js";
 export {
   buildEtaPayload,
@@ -31,16 +35,41 @@ export {
   EtaService,
   stubOnlineTransmitPort,
   type EtaTransmitResult,
+  type EtaStatusResult,
+  type EtaConnectionCheck,
   type EtaTransmitPort,
   type EtaServiceDeps,
   type EtaEnqueueInput,
 } from "./service.js";
+export {
+  DEFAULT_ETA_RETRY,
+  createEtaHttpTransmitPort,
+  fetchEtaHttpClient,
+  type EtaCredentials,
+  type EtaCredentialsPort,
+  type EtaHttpClient,
+  type EtaHttpRequest,
+  type EtaHttpResponse,
+  type EtaHttpTransmitDeps,
+  type EtaRetryPolicy,
+} from "./transmit.js";
+export {
+  canonicalEtaJson,
+  createExternalCommandSigner,
+  unconfiguredEtaSigner,
+  type EtaCommandResult,
+  type EtaCommandRunner,
+  type EtaSignerPort,
+  type ExternalCommandSignerDeps,
+} from "./signer.js";
 export {
   EtaSubmissionNotFoundError,
   DuplicateEtaSubmissionError,
   InvalidEtaTransitionError,
   EtaOfflineError,
   EtaExclusionReasonRequiredError,
+  EtaSignerNotConfiguredError,
+  EtaSigningFailedError,
 } from "./errors.js";
 export {
   ETA_UNIT_CODES,

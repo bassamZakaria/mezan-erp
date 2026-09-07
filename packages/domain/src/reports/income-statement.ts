@@ -122,16 +122,18 @@ export function createIncomeStatementReport(
         if (account.isHeader) continue;
         const section = classifyAccount(account, ctx.cashAccountIds);
         if (section !== "revenue" && section !== "expense") continue;
-        const currentNet = moneyToNumber(current.get(account.id) ?? Money.zero());
-        const priorNet = moneyToNumber(previous.get(account.id) ?? Money.zero());
+        // Kept in `Money` through the sign flip and the variance, converted at
+        // the row boundary only (C-10).
+        const currentNet = current.get(account.id) ?? Money.zero();
+        const priorNet = previous.get(account.id) ?? Money.zero();
         // An account active in only one of the two windows still belongs in a
         // comparison — dropping it would hide exactly the change being looked for.
-        if (currentNet === 0 && priorNet === 0) continue;
+        if (currentNet.scaled === 0n && priorNet.scaled === 0n) continue;
         // Revenue is credit-normal (net<0) → positive earned; expense is
         // debit-normal (net>0) → negative, so the grand total is net income.
         const isRevenue = section === "revenue";
-        const amount = -currentNet;
-        const priorAmount = -priorNet;
+        const amountMoney = currentNet.negate();
+        const priorAmountMoney = priorNet.negate();
         const sectionKey = isRevenue ? "revenue" : account.code.startsWith("51") ? "cogs" : "opex";
         rows.push({
           accountId: account.id,
@@ -140,9 +142,9 @@ export function createIncomeStatementReport(
           nameEn: account.nameEn ?? null,
           sectionKey,
           sectionLabel: SECTIONS[sectionKey] ?? account.nameAr,
-          amount,
-          priorAmount,
-          variance: amount - priorAmount,
+          amount: moneyToNumber(amountMoney),
+          priorAmount: moneyToNumber(priorAmountMoney),
+          variance: moneyToNumber(amountMoney.add(priorAmountMoney.negate())),
         });
       }
       // Stable section order: revenue → cogs → opex.

@@ -392,9 +392,6 @@ export async function run(ctx: Ctx): Promise<void> {
     const usersList = await req("GET", "/users", undefined, noPerm);
     check("GET /users refused without admin.users.view", usersList.status === 403, `${usersList.status}: ${JSON.stringify(usersList.body)}`);
 
-    const webhooksCreate = await req("POST", "/webhooks", { name: "SCN-should-be-refused", targetUrl: "http://127.0.0.1:39298/x", events: ["SALES_INVOICE_CONFIRMED"] }, noPerm);
-    check("POST /webhooks refused without admin.settings.edit", webhooksCreate.status === 403, `${webhooksCreate.status}: ${JSON.stringify(webhooksCreate.body)}`);
-
     const auditList = await req("GET", "/audit", undefined, noPerm);
     check("GET /audit refused without audit.logs.view", auditList.status === 403, `${auditList.status}: ${JSON.stringify(auditList.body)}`);
 
@@ -406,60 +403,11 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   // ---------------------------------------------------------------------
-  // Webhooks
+  // Webhooks — REMOVED with the mount (DEC-17, packages/api/src/app.ts). The
+  // dispatcher, its HMAC signing and its bounded retries are still covered by
+  // @mezan/api's own route tests; what no longer exists is a way for a user of
+  // this product to register a target for them.
   // ---------------------------------------------------------------------
-  await ctx.scenario("platform / webhooks — only emitted events may be subscribed", async () => {
-    const events = await req("GET", "/webhooks/events", undefined, {});
-    const codes = new Set((events.body?.events ?? []).map((e: any) => e.code));
-    check("exactly 5 events are offered as deliverable", codes.size === 5, [...codes].join(","));
-    for (const c of ["SALES_INVOICE_CONFIRMED", "SALES_INVOICE_VOIDED", "SALES_RETURN_CONFIRMED", "PURCHASE_RETURN_CONFIRMED", "PURCHASE_RETURN_VOIDED"]) {
-      check(`"${c}" is offered as deliverable`, codes.has(c), [...codes].join(","));
-    }
-
-    const refused = await req("POST", "/webhooks", {
-      name: "SCN-non-emitted", targetUrl: "http://127.0.0.1:39298/x", events: ["CHEQUE_BOUNCED"],
-    }, {});
-    check("subscribing to a catalogued-but-never-emitted event is refused with 422 INVALID_WEBHOOK", refused.status === 422 && refused.body?.error === "INVALID_WEBHOOK", `${refused.status}: ${JSON.stringify(refused.body)}`);
-  });
-
-  await ctx.scenario("platform / webhooks — bounded retries, no rollback on the triggering document", async () => {
-    const webhook = await req("POST", "/webhooks", {
-      name: "SCN-loopback-unreachable", targetUrl: "http://127.0.0.1:39298/scn/probe", events: ["PURCHASE_RETURN_CONFIRMED"],
-    }, {});
-    check("create a webhook targeting an unreachable loopback port", webhook.status === 201, `${webhook.status}: ${JSON.stringify(webhook.body)}`);
-    const webhookId = webhook.body?.id;
-
-    const sourceInvoice = await req("GET", "/purchases/invoices/PI-DEMO-2", undefined, {});
-    const sourceLine = sourceInvoice.body.lines[0];
-    const create = await req("POST", "/purchase-returns", {
-      id: "SCN-PRET-WEBHOOK", date: "2026-08-22", memo: "SCN webhook bounded-retry probe",
-      lines: [{
-        itemId: sourceLine.itemId, warehouseId: sourceInvoice.body.warehouseId, supplierId: sourceInvoice.body.supplierId,
-        sourceInvoiceId: sourceInvoice.body.id, sourceInvoiceNumber: sourceInvoice.body.number,
-        reason: "DEFECTIVE", availableQty: "1", qty: "1", unitCost: sourceLine.unitCost, taxAmount: "0",
-      }],
-    }, {});
-    check("create the triggering purchase return", create.status === 201, `${create.status}: ${JSON.stringify(create.body)}`);
-
-    const confirm = await req("POST", "/purchase-returns/SCN-PRET-WEBHOOK/confirm", {}, {});
-    check("the triggering document confirms even though its webhook target is unreachable", confirm.status === 200 && confirm.body?.document?.status === "confirmed", `${confirm.status}: ${JSON.stringify(confirm.body)}`);
-
-    let deliveries: any[] = [];
-    for (let i = 0; i < 20; i++) {
-      await sleep(400);
-      const d = await req("GET", `/webhooks/${webhookId}/deliveries`, undefined, {});
-      deliveries = rows(d.body).filter((x: any) => x.eventCode === "PURCHASE_RETURN_CONFIRMED");
-      if (deliveries.length >= 3) break;
-    }
-    check("delivery retries are bounded at exactly 3 attempts", deliveries.length === 3, `${deliveries.length} rows`);
-    check("every attempt failed against the unreachable loopback target", deliveries.every((d: any) => d.success === false && d.statusCode === null), JSON.stringify(deliveries.map((d: any) => ({ success: d.success, statusCode: d.statusCode }))));
-    const finalAttempt = deliveries.find((d: any) => (d.errorMessage ?? "").includes("attempt 3/3"));
-    check("the final attempt's error message says it gave up", !!finalAttempt && (finalAttempt.errorMessage ?? "").includes("giving up"), finalAttempt?.errorMessage);
-
-    const docAfter = await req("GET", "/purchase-returns/SCN-PRET-WEBHOOK", undefined, {});
-    check("the confirmed document is still confirmed after retries exhaust — no rollback from a failing webhook", docAfter.body?.status === "confirmed", docAfter.body?.status);
-  });
-
   // ---------------------------------------------------------------------
   // Numbering sequences — a prefix change affects the next document only,
   // never renumbers history.
@@ -517,16 +465,28 @@ export async function run(ctx: Ctx): Promise<void> {
   // visible only unfiltered.
   // ---------------------------------------------------------------------
   await ctx.scenario("platform / audit — actor, branch, and the branch filter", async () => {
-    const whMain = await req("POST", "/webhooks", { name: "SCN-audit-branch-main", targetUrl: "http://127.0.0.1:39298/a", events: ["SALES_INVOICE_VOIDED"] }, branchScoped("BR-MAIN"));
-    check("register webhook A scoped to BR-MAIN", whMain.status === 201, whMain.status);
+    // Notification rules, not webhooks: the webhook mount is gone (DEC-17) and
+    // this scenario is about the AUDIT row's actor/branch, not about what wrote
+    // it. Rule creation is audited through the same `recordSensitiveEvent`.
+    async function rule(id: string, name: string, headers: Record<string, string>) {
+      return req("POST", "/notification-rules", {
+        id, name, eventCode: "SALES_INVOICE_VOIDED", recipientType: "permission",
+        recipientValue: "sales.invoice.view", priority: "normal", channels: ["in_app"],
+        titleAr: null, bodyAr: null, active: true,
+      }, headers);
+    }
 
-    const whOther = await req("POST", "/webhooks", { name: "SCN-audit-branch-other", targetUrl: "http://127.0.0.1:39298/b", events: ["SALES_INVOICE_VOIDED"] }, branchScoped("SCN-BR-OTHER"));
-    check("register webhook B scoped to SCN-BR-OTHER", whOther.status === 201, whOther.status);
+    const whMain = await rule("SCN-AUD-A", "SCN-audit-branch-main", branchScoped("BR-MAIN"));
+    check("register rule A scoped to BR-MAIN", whMain.status === 201, `${whMain.status}: ${JSON.stringify(whMain.body)}`);
 
-    const whUnscoped = await req("POST", "/webhooks", { name: "SCN-audit-branchless", targetUrl: "http://127.0.0.1:39298/c", events: ["SALES_INVOICE_VOIDED"] }, {});
-    check("register webhook C with no branch scope (ALL_SCOPE → branchId null)", whUnscoped.status === 201, whUnscoped.status);
+    const whOther = await rule("SCN-AUD-B", "SCN-audit-branch-other", branchScoped("SCN-BR-OTHER"));
+    check("register rule B scoped to SCN-BR-OTHER", whOther.status === 201, `${whOther.status}: ${JSON.stringify(whOther.body)}`);
 
-    const filteredMain = await req("GET", "/audit?module=webhooks&action=REGISTERED&branchId=BR-MAIN", undefined, {});
+    const whUnscoped = await rule("SCN-AUD-C", "SCN-audit-branchless", {});
+    check("register rule C with no branch scope (ALL_SCOPE → branchId null)", whUnscoped.status === 201, `${whUnscoped.status}: ${JSON.stringify(whUnscoped.body)}`);
+
+    const q = "module=notification-rules&action=CREATE";
+    const filteredMain = await req("GET", `/audit?${q}&branchId=BR-MAIN`, undefined, {});
     const namesMain = filteredMain.body.events.map((e: any) => e.details?.name);
     check("branch filter BR-MAIN includes A", namesMain.includes("SCN-audit-branch-main"), namesMain.join(","));
     check("the right actor is recorded on A's row", filteredMain.body.events.find((e: any) => e.details?.name === "SCN-audit-branch-main")?.actor === "USER-ADMIN", JSON.stringify(filteredMain.body.events[0]));
@@ -534,17 +494,30 @@ export async function run(ctx: Ctx): Promise<void> {
     check("branch filter BR-MAIN excludes B (a different branch)", !namesMain.includes("SCN-audit-branch-other"), namesMain.join(","));
     check("branch filter BR-MAIN excludes C (no branch at all)", !namesMain.includes("SCN-audit-branchless"), namesMain.join(","));
 
-    const filteredOther = await req("GET", "/audit?module=webhooks&action=REGISTERED&branchId=SCN-BR-OTHER", undefined, {});
+    const filteredOther = await req("GET", `/audit?${q}&branchId=SCN-BR-OTHER`, undefined, {});
     const namesOther = filteredOther.body.events.map((e: any) => e.details?.name);
     check("branch filter SCN-BR-OTHER includes only B", namesOther.includes("SCN-audit-branch-other") && !namesOther.includes("SCN-audit-branch-main") && !namesOther.includes("SCN-audit-branchless"), namesOther.join(","));
 
-    const unfiltered = await req("GET", "/audit?module=webhooks&action=REGISTERED", undefined, {});
+    const unfiltered = await req("GET", `/audit?${q}`, undefined, {});
     const namesUnfiltered = unfiltered.body.events.map((e: any) => e.details?.name);
     check("unfiltered view includes the branchless row C", namesUnfiltered.includes("SCN-audit-branchless"), namesUnfiltered.join(","));
     check("unfiltered view also includes A and B", namesUnfiltered.includes("SCN-audit-branch-main") && namesUnfiltered.includes("SCN-audit-branch-other"), namesUnfiltered.join(","));
 
-    const anyBranchFilter = await req("GET", "/audit?module=webhooks&action=REGISTERED&branchId=BR-MAIN", undefined, {});
+    const anyBranchFilter = await req("GET", `/audit?${q}&branchId=BR-MAIN`, undefined, {});
     check("a branchless historical row never appears under ANY specific-branch filter", !anyBranchFilter.body.events.some((e: any) => e.branchId === null), JSON.stringify(anyBranchFilter.body.events.map((e: any) => e.branchId)));
+  });
+
+  // ---------------------------------------------------------------------
+  // The audit trail is hash-chained (audit S-3): `/audit/verify` walks it.
+  // ---------------------------------------------------------------------
+  await ctx.scenario("platform / audit — the chain verifies on an untouched trail", async () => {
+    const verified = await req("GET", "/audit/verify", undefined, {});
+    check("GET /audit/verify answers 200", verified.status === 200, `${verified.status}: ${JSON.stringify(verified.body)}`);
+    check("the seeded trail verifies intact", verified.body?.ok === true, JSON.stringify(verified.body));
+    check("every chained row was actually walked", (verified.body?.checked ?? 0) > 0, JSON.stringify(verified.body));
+
+    const refused = await req("GET", "/audit/verify", undefined, nonAdmin("SCN-USER-NOAUDIT", "", "SCN_NONE"));
+    check("GET /audit/verify refused without audit.logs.view", refused.status === 403, `${refused.status}: ${JSON.stringify(refused.body)}`);
   });
 
   // ---------------------------------------------------------------------
@@ -584,7 +557,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------
   await ctx.scenario("platform / seed sanity", async () => {
     const apiKeys = await req("GET", "/api-keys", undefined, {});
-    check("3 seeded API keys, 1 revoked", rows(apiKeys.body).length === 3 && rows(apiKeys.body).filter((k: any) => k.revokedAt).length === 1, JSON.stringify(rows(apiKeys.body).map((k: any) => ({ name: k.name, revoked: !!k.revokedAt }))));
+    check("the API-key surface is unmounted (DEC-17)", apiKeys.status === 404, `${apiKeys.status}: ${JSON.stringify(apiKeys.body)}`);
 
     const notificationRules = await req("GET", "/notification-rules", undefined, {});
     check("4 seeded notification rules, 1 inactive", rows(notificationRules.body).length === 4 && rows(notificationRules.body).filter((r: any) => !r.active).length === 1, JSON.stringify(rows(notificationRules.body).map((r: any) => ({ id: r.id, active: r.active }))));

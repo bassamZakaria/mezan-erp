@@ -70,7 +70,34 @@ const role: RoleDTO = {
 const systemRole: RoleDTO = { ...role, id: "role-admin", code: "ADMIN", name: "مدير", isSystem: true, permissions: [] };
 const entitlements: EntitlementsDTO = {
   plan: "pro",
-  activeModules: ["sales", "purchasing", "inventory", "accounting", "treasury", "hr", "manufacturing", "crm", "assets"],
+  /**
+   * The licence an ENTERPRISE plan actually issues (`DEFAULT_ACTIVE_MODULES`
+   * in packages/api/src/app.ts). It used to be a partial hand-written list
+   * that misspelled `purchases` as `purchasing` and omitted notifications,
+   * installments, financial_papers, field and projects — harmless while the
+   * rail ignored the licence, and wrong the moment it stopped (P-3).
+   */
+  activeModules: [
+    "dashboard",
+    "sales",
+    "purchases",
+    "inventory",
+    "accounting",
+    "treasury",
+    "installments",
+    "financial_papers",
+    "crm",
+    "hr",
+    "manufacturing",
+    "assets",
+    "field",
+    "workflow",
+    "audit",
+    "transactions",
+    "admin",
+    "notifications",
+    "projects",
+  ],
   features: {},
   seats: 10,
   expiresAt: null,
@@ -439,9 +466,9 @@ describe("AppLayout — first-run wizard", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "الإعداد الأولي" }));
 
-    // Step 1 — activate.
-    fireEvent.click(await screen.findByRole("button", { name: "تفعيل" }));
-    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+    // Step 1 — the licence, which is a FILE and never blocks the step
+    // (guards L-5: the old step reported its own success and gated «التالي»).
+    fireEvent.click(await screen.findByRole("button", { name: "التالي" }));
 
     // Step 2 — admin account.
     fireEvent.change(await screen.findByLabelText("الاسم الكامل"), { target: { value: "مدير النظام" } });
@@ -508,5 +535,56 @@ describe("AppLayout — first-run wizard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "الإعداد الأولي" }));
 
     expect(await screen.findByRole("heading", { name: "معالج الإعداد الأولي" })).toBeInTheDocument();
+  });
+});
+
+/** guards P-3 — all 117 destinations used to render for every seat. */
+describe("AppLayout — the rail against the seat's permissions (P-3)", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  const warehouseKeeper: Session = {
+    ...testAdminSession,
+    userId: "USER-WH",
+    nameAr: "أمين المخزن",
+    isCompanyAdmin: false,
+    roleCode: "WAREHOUSE_KEEPER",
+    permissions: [
+      "inventory.stock.view",
+      "inventory.item.view",
+      "inventory.transfer.view",
+      "inventory.adjustment.view",
+      "inventory.count.view",
+    ],
+  };
+
+  function openAllScreens() {
+    fireEvent.click(screen.getByRole("button", { name: /كل الشاشات/ }));
+    return screen.getByRole("dialog", { name: "كل الشاشات" });
+  }
+
+  it("a warehouse keeper is not offered الرواتب or القيود المحاسبية", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, ["/dashboard"], warehouseKeeper);
+
+    await screen.findByRole("button", { name: /كل الشاشات/ });
+    const panel = openAllScreens();
+
+    expect(within(panel).getByText("أرصدة المخزون")).toBeInTheDocument();
+    expect(within(panel).queryByText("الرواتب")).toBeNull();
+    expect(within(panel).queryByText("القيود المحاسبية")).toBeNull();
+    expect(within(panel).queryByText("المستخدمون")).toBeNull();
+  });
+
+  it("the company admin still reaches all of them", async () => {
+    const transport = stubTransport({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+    renderLayout(transport, ["/dashboard"], testAdminSession);
+
+    await screen.findByRole("button", { name: /كل الشاشات/ });
+    const panel = openAllScreens();
+
+    expect(within(panel).getAllByText("الرواتب").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("القيود المحاسبية").length).toBeGreaterThan(0);
   });
 });

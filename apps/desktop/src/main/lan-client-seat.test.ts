@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { withSeatClaim, type LanClientResponse, type LanForward } from "./lan-client.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { LanClientError, withSeatClaim, type LanClientResponse, type LanForward } from "./lan-client.js";
 import type { ClientConfig } from "./client-config.js";
 
 /**
@@ -221,5 +221,98 @@ describe("a client claims its seat as part of signing in", () => {
       order.indexOf("POST /auth/logout"),
     );
     expect(host.isSeated()).toBe(false);
+  });
+});
+
+/**
+ * GUARDS U-10. `/health` answered `{ok:true}` and the client compared nothing,
+ * so a till left on an old build after the host was updated kept working
+ * against a schema it did not match — and the first symptom was wrong data
+ * rather than a refusal. The screen is the LAN error screen; this emits the
+ * distinct `VERSION_MISMATCH` code it renders.
+ */
+describe("the host must be running this build", () => {
+  const localVersion = process.env["MEZAN_APP_VERSION"];
+  const localSchema = process.env["MEZAN_SCHEMA_VERSION"];
+
+  function hostOn(health: unknown): { forward: LanForward; paths: string[] } {
+    const paths: string[] = [];
+    const forward: LanForward = async (pathAndQuery, init = {}) => {
+      const path = pathAndQuery.split("?")[0]!;
+      paths.push(path);
+      if (path === "/health") {
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(health),
+        };
+      }
+      if (path === "/auth/login") {
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: "TOKEN-1" }),
+        };
+      }
+      return { status: 200, headers: { "content-type": "application/json" }, body: "{}" };
+    };
+    return { forward, paths };
+  }
+
+  beforeEach(() => {
+    process.env["MEZAN_APP_VERSION"] = "1.4.0";
+    process.env["MEZAN_SCHEMA_VERSION"] = "1";
+  });
+
+  afterEach(() => {
+    if (localVersion === undefined) delete process.env["MEZAN_APP_VERSION"];
+    else process.env["MEZAN_APP_VERSION"] = localVersion;
+    if (localSchema === undefined) delete process.env["MEZAN_SCHEMA_VERSION"];
+    else process.env["MEZAN_SCHEMA_VERSION"] = localSchema;
+  });
+
+  it("passes through when host and client agree", async () => {
+    const host = hostOn({ ok: true, version: "1.4.0", schemaVersion: 1 });
+    const client = withSeatClaim(host.forward, CONFIG);
+
+    await expect(client("/settings", {})).resolves.toBeTruthy();
+    expect(host.paths[0]).toBe("/health");
+  });
+
+  it("refuses with VERSION_MISMATCH when the host runs a different build", async () => {
+    const host = hostOn({ ok: true, version: "1.5.0", schemaVersion: 2 });
+    const client = withSeatClaim(host.forward, CONFIG);
+
+    const failure = await client("/settings", {}).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(LanClientError);
+    expect((failure as LanClientError).code).toBe("VERSION_MISMATCH");
+    expect((failure as LanClientError).host).toBe(CONFIG.hostUrl);
+  });
+
+  it("checks once per launch, not once per request", async () => {
+    const host = hostOn({ ok: true, version: "1.4.0", schemaVersion: 1 });
+    const client = withSeatClaim(host.forward, CONFIG);
+
+    await client("/settings", {});
+    await client("/branches", {});
+
+    expect(host.paths.filter((p) => p === "/health")).toHaveLength(1);
+  });
+
+  it("does not block against an older host that cannot answer the question", async () => {
+    // `{ok:true}` and nothing else: a real skew, but naming "0.0.0" as the
+    // host's version would send a consultant after the wrong machine.
+    const host = hostOn({ ok: true });
+    const client = withSeatClaim(host.forward, CONFIG);
+
+    await expect(client("/settings", {})).resolves.toBeTruthy();
+  });
+
+  it("does not block when this process does not know its own version", async () => {
+    delete process.env["MEZAN_APP_VERSION"];
+    const host = hostOn({ ok: true, version: "9.9.9", schemaVersion: 7 });
+    const client = withSeatClaim(host.forward, CONFIG);
+
+    await expect(client("/settings", {})).resolves.toBeTruthy();
   });
 });

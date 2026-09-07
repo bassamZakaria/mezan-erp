@@ -169,3 +169,25 @@ describe("createCashFlowReport", () => {
     expect(outcome.ok).toBe(false);
   });
 });
+
+/** guards C-10 — net income, the working-capital rows and opening/closing cash all summed as floats. */
+describe("createCashFlowReport — exact arithmetic", () => {
+  it("sums opening cash and net income exactly across fractional postings", () => {
+    const entries = [
+      je({ id: "o1", date: "2026-01-01", lines: [dr("1100", "0.10"), cr("3100", "0.10")] }),
+      je({ id: "o2", date: "2026-01-02", lines: [dr("1100", "0.20"), cr("3100", "0.20")] }),
+      je({ id: "s1", date: "2026-03-01", lines: [dr("1100", "0.10"), cr("4100", "0.10")] }),
+      je({ id: "s2", date: "2026-03-02", lines: [dr("1100", "0.20"), cr("4100", "0.20")] }),
+      je({ id: "e1", date: "2026-03-03", lines: [dr("5100", "0.10"), cr("1100", "0.10")] }),
+    ];
+    const params = { periodFrom: "2026-03-01", periodTo: "2026-03-31", compareTo: "previous" as const };
+    const outcome = runReport(createCashFlowReport(params), params, { accounts, journalEntries: entries });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // 0.10 + 0.20 = 0.30 opening, and 0.10 + 0.20 − 0.10 = 0.20 of net income.
+    expect(outcome.rows[0]?.openingCash).toBe(0.3);
+    expect(outcome.rows.find((r) => r.rowId === "_net-income")?.amount).toBe(0.2);
+    expect(cashFlowNetChange(outcome.rows)).toBeCloseTo(0.2, 10);
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+});

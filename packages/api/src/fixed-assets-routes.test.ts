@@ -63,7 +63,7 @@ async function newApp() {
     idGen: () => `run-${++idSeq}`,
   };
 
-  return { app: createFixedAssetsRoutes(deps, insecureHeaderAuthContextResolver), categories, assets, runs, ledger };
+  return { app: createFixedAssetsRoutes(deps, insecureHeaderAuthContextResolver), categories, assets, runs, ledger, periods };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -257,6 +257,93 @@ describe("fixed-assets router — depreciation run full flow", () => {
       req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-04" }) }),
     );
     expect(nextRun.status).toBe(422);
+  });
+
+  /**
+   * guards B-9 — a posted run had no reverse at all, so a wrong month stayed
+   * in the books and the asset register could never be corrected.
+   */
+  it("reverses a posted run: mirror entry, accumulated depreciation restored, run cancelled", async () => {
+    const { app, ledger } = await newApp();
+    await app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
+    await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "assets.create",
+        body: JSON.stringify({
+          id: "a1",
+          code: "A-001",
+          nameAr: "سيارة",
+          categoryId: "cat-1",
+          acquisitionDate: "2025-01-01",
+          acquisitionCost: "12000.00",
+          depreciationStartDate: "2025-01-01",
+          usefulLifeMonths: 12,
+          salvageValue: "0",
+        }),
+      }),
+    );
+    const draftRun = (await (
+      await app.fetch(req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-03" }) }))
+    ).json()) as { id: string };
+    const posted = (await (
+      await app.fetch(req(`/depreciation/runs/${draftRun.id}/post`, { method: "POST", permissions: "assets.depreciation.run" }))
+    ).json()) as { journalEntryId: string };
+
+    const reverseRes = await app.fetch(
+      req(`/depreciation/runs/${draftRun.id}/reverse`, { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({}) }),
+    );
+    expect(reverseRes.status).toBe(200);
+    expect((await reverseRes.json()) as { status: string }).toMatchObject({ status: "cancelled" });
+
+    expect((await ledger.findById(posted.journalEntryId))!.status).toBe("reversed");
+    const assetBody = (await (await app.fetch(req("/a1", { permissions: "assets.view" }))).json()) as {
+      accumulatedDepreciation: string;
+    };
+    expect(assetBody.accumulatedDepreciation).toBe("0.000000");
+
+    // Not twice.
+    const again = await app.fetch(
+      req(`/depreciation/runs/${draftRun.id}/reverse`, { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({}) }),
+    );
+    expect(again.status).toBe(409);
+  });
+
+  it("refuses a reversal dated into a closed period with 422, not a 500", async () => {
+    const { app, periods } = await newApp();
+    await app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
+    await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "assets.create",
+        body: JSON.stringify({ id: "a1", code: "A-001", nameAr: "سيارة", categoryId: "cat-1", acquisitionDate: "2025-01-01", acquisitionCost: "12000.00" }),
+      }),
+    );
+    const draftRun = (await (
+      await app.fetch(req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-03" }) }))
+    ).json()) as { id: string };
+    await app.fetch(req(`/depreciation/runs/${draftRun.id}/post`, { method: "POST", permissions: "assets.depreciation.run" }));
+
+    const feb = (await periods.findByDate("2026-02-15"))!;
+    await periods.update({ ...feb, status: "closed" });
+
+    const res = await app.fetch(
+      req(`/depreciation/runs/${draftRun.id}/reverse`, {
+        method: "POST",
+        permissions: "assets.depreciation.run",
+        body: JSON.stringify({ date: "2026-02-15" }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect((await res.json()) as { error: string }).toMatchObject({ error: "PERIOD_NOT_OPEN_FOR_POSTING" });
+  });
+
+  it("rejects POST /depreciation/runs/:id/reverse without assets.depreciation.run", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/depreciation/runs/run-x/reverse", { method: "POST", permissions: "assets.depreciation.view", body: JSON.stringify({}) }),
+    );
+    expect(res.status).toBe(403);
   });
 
   it("GET /depreciation/runs/:id 404s an unknown run", async () => {

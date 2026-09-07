@@ -28,6 +28,17 @@ export interface StockLedgerRepository {
   listBySourceDocType?(sourceDocType: StockSourceDocType): Promise<readonly StockMovement[]>;
   /** Every movement originating from ONE source document. Optional, as above. */
   listBySourceDoc?(sourceDocId: string): Promise<readonly StockMovement[]>;
+  /**
+   * EVERY movement, in position order and then ledger order — the shared slice
+   * the inventory reports each filter differently.
+   *
+   * ORDERING IS PART OF THE CONTRACT: `(itemId, warehouseId, occurredAt, seq)`,
+   * so this is byte-for-byte what `listPositions()` followed by a
+   * `listByPosition` per position produced — which is what it replaces, at one
+   * query instead of one per position (Q-6). Optional on the port; a caller
+   * must keep the per-position fallback for implementations without it.
+   */
+  listAll?(): Promise<readonly StockMovement[]>;
 }
 
 /** Immutable cost-layer store. Layers are created on receipt and drawn down on issue. */
@@ -39,6 +50,12 @@ export interface CostLayerRepository {
   updateRemaining(layerId: string, remainingQty: Qty): Promise<void>;
   /** Remove a fully-consumed layer (remainingQty reached zero). */
   remove(layerId: string): Promise<void>;
+  /**
+   * EVERY layer, ordered `(itemId, warehouseId, seq)` — the same array a
+   * `listByPosition` per position produced, in one query (Q-6). Optional on the
+   * port; callers keep the per-position fallback.
+   */
+  listAll?(): Promise<readonly CostLayer[]>;
 }
 
 /** A cached weighted-average snapshot per position (fast reads without a replay). */

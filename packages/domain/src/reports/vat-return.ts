@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
+import { Money } from "../money/index.js";
 import type { JournalEntry } from "../journal.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
@@ -49,39 +50,54 @@ const SIDE_LABELS: Record<VatSide, string> = {
   input: "ضريبة المدخلات (المشتريات)",
 };
 
+/**
+ * EVERY figure below is accumulated in `Money` (exact bigint at 1e-6) and
+ * converted to a number ONCE, where the row crosses into the report's output
+ * shape (C-10). This is the statutory VAT return: a float sum of a few thousand
+ * lines drifts, and the number that drifts is the one filed with the authority.
+ */
 interface Bucket {
-  base: number;
-  tax: number;
+  base: Money;
+  tax: Money;
 }
 
-function lineNet(entry: JournalEntry, accountId: string): { debit: number; credit: number } {
-  let debit = 0;
-  let credit = 0;
+function lineNet(entry: JournalEntry, accountId: string): { debit: Money; credit: Money } {
+  let debit = Money.zero();
+  let credit = Money.zero();
   for (const line of entry.lines) {
     if (line.accountId !== accountId) continue;
-    debit += moneyToNumber(line.debit);
-    credit += moneyToNumber(line.credit);
+    debit = debit.add(line.debit);
+    credit = credit.add(line.credit);
   }
   return { debit, credit };
 }
 
-function creditsToTypes(entry: JournalEntry, accountsByType: (id: string) => boolean): number {
-  let total = 0;
-  for (const line of entry.lines) if (accountsByType(line.accountId)) total += moneyToNumber(line.credit);
+function creditsToTypes(entry: JournalEntry, accountsByType: (id: string) => boolean): Money {
+  let total = Money.zero();
+  for (const line of entry.lines) if (accountsByType(line.accountId)) total = total.add(line.credit);
   return total;
 }
 
-function debitsToTypes(entry: JournalEntry, accountsByType: (id: string) => boolean): number {
-  let total = 0;
-  for (const line of entry.lines) if (accountsByType(line.accountId)) total += moneyToNumber(line.debit);
+function debitsToTypes(entry: JournalEntry, accountsByType: (id: string) => boolean): Money {
+  let total = Money.zero();
+  for (const line of entry.lines) if (accountsByType(line.accountId)) total = total.add(line.debit);
   return total;
 }
 
-function bump(map: Map<number, Bucket>, rate: number, base: number, tax: number): void {
-  const bucket = map.get(rate) ?? { base: 0, tax: 0 };
-  bucket.base += base;
-  bucket.tax += tax;
-  map.set(rate, bucket);
+function bump(map: Map<number, Bucket>, rate: number, base: Money, tax: Money): void {
+  const bucket = map.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
+  map.set(rate, { base: bucket.base.add(base), tax: bucket.tax.add(tax) });
+}
+
+/**
+ * The rate an untagged entry implies: tax ÷ base as a whole percent, rounded
+ * half-up in bigint. Only reached for entries posted before `taxRatePercent`
+ * existed (D28) — a tagged entry reports the rate it recorded.
+ */
+function derivedRatePercent(tax: Money, base: Money): number {
+  if (base.scaled === 0n) return 0;
+  const scaled = (tax.scaled * 200n) / base.scaled; // percent × 2, truncated
+  return Number((scaled + 1n) / 2n);
 }
 
 /** Output tax − input tax = net VAT payable (positive) or refundable (negative). */
@@ -104,30 +120,28 @@ function ratedBuckets(
   vatAccountId: string,
   isBaseAccount: (accountId: string) => boolean,
   side: "debit" | "credit",
-): { rate: number; base: number; tax: number }[] {
-  const byRate = new Map<number, { base: number; tax: number }>();
+): { rate: number; base: Money; tax: Money }[] {
+  const byRate = new Map<number, { base: Money; tax: Money }>();
   let sawRate = false;
   for (const line of entry.lines) {
     const rate = line.taxRatePercent;
     if (rate === null || rate === undefined) continue;
-    const amount = side === "credit" ? moneyToNumber(line.credit) - moneyToNumber(line.debit) : moneyToNumber(line.debit) - moneyToNumber(line.credit);
-    if (amount === 0) continue;
-    const slot = byRate.get(rate) ?? { base: 0, tax: 0 };
+    const amount =
+      side === "credit" ? line.credit.add(line.debit.negate()) : line.debit.add(line.credit.negate());
+    if (amount.scaled === 0n) continue;
+    const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
     if (line.accountId === vatAccountId) {
       sawRate = true;
-      slot.tax += amount;
+      byRate.set(rate, { base: slot.base, tax: slot.tax.add(amount) });
     } else if (isBaseAccount(line.accountId)) {
       sawRate = true;
-      slot.base += amount;
-    } else {
-      continue;
+      byRate.set(rate, { base: slot.base.add(amount), tax: slot.tax });
     }
-    byRate.set(rate, slot);
   }
   if (!sawRate) return [];
   return [...byRate.entries()]
     .map(([rate, v]) => ({ rate, base: v.base, tax: v.tax }))
-    .filter((b) => b.base !== 0 || b.tax !== 0);
+    .filter((b) => b.base.scaled !== 0n || b.tax.scaled !== 0n);
 }
 
 export function createVatReturnReport(
@@ -193,7 +207,7 @@ export function createVatReturnReport(
         if (entry.date < params.periodFrom || entry.date > params.periodTo) continue;
 
         const outVat = lineNet(entry, ctx.outputVatAccountId);
-        const outputTax = outVat.credit - outVat.debit;
+        const outputTax = outVat.credit.add(outVat.debit.negate());
         const revenueBase = creditsToTypes(entry, isRevenue);
 
         // The rates the LINES recorded, when they recorded any. Dividing tax by
@@ -205,20 +219,20 @@ export function createVatReturnReport(
         const outputTagged = ratedBuckets(entry, ctx.outputVatAccountId, isRevenue, "credit");
         if (outputTagged.length > 0) {
           for (const b of outputTagged) bump(outputBuckets, b.rate, b.base, b.tax);
-        } else if (revenueBase > 0) {
-          const rate = outputTax > 0 ? Math.round((outputTax / revenueBase) * 100) : 0;
-          bump(outputBuckets, rate, revenueBase, outputTax > 0 ? outputTax : 0);
+        } else if (revenueBase.scaled > 0n) {
+          const rate = outputTax.scaled > 0n ? derivedRatePercent(outputTax, revenueBase) : 0;
+          bump(outputBuckets, rate, revenueBase, outputTax.scaled > 0n ? outputTax : Money.zero());
         }
 
         const inVat = lineNet(entry, ctx.inputVatAccountId);
-        const inputTax = inVat.debit - inVat.credit;
+        const inputTax = inVat.debit.add(inVat.credit.negate());
         const inputTagged = ratedBuckets(entry, ctx.inputVatAccountId, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id), "debit");
         if (inputTagged.length > 0) {
           for (const b of inputTagged) bump(inputBuckets, b.rate, b.base, b.tax);
-        } else if (inputTax > 0) {
+        } else if (inputTax.scaled > 0n) {
           // Exclude the input-VAT account itself from the base (it's an asset too).
           const purchaseBase = debitsToTypes(entry, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id));
-          const rate = purchaseBase > 0 ? Math.round((inputTax / purchaseBase) * 100) : 0;
+          const rate = purchaseBase.scaled > 0n ? derivedRatePercent(inputTax, purchaseBase) : 0;
           bump(inputBuckets, rate, purchaseBase, inputTax);
         }
       }
@@ -228,7 +242,15 @@ export function createVatReturnReport(
         for (const rate of [...buckets.keys()].sort((a, b) => b - a)) {
           const bucket = buckets.get(rate);
           if (!bucket) continue;
-          rows.push({ rowId: `${side}-${rate}`, side, sideLabel: SIDE_LABELS[side], rate, base: bucket.base, tax: bucket.tax });
+          // The serialisation boundary — the ONE conversion per figure.
+          rows.push({
+            rowId: `${side}-${rate}`,
+            side,
+            sideLabel: SIDE_LABELS[side],
+            rate,
+            base: moneyToNumber(bucket.base),
+            tax: moneyToNumber(bucket.tax),
+          });
         }
       };
       emit("output", outputBuckets);

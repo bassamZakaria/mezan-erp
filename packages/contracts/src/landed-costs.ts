@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 
 /** Wire contracts for Landed Costs (التكاليف الإضافية، docs/archive/catalog/02). */
 
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const landedCostTypeSchema = z.enum(["SHIPPING", "CUSTOMS", "INSURANCE", "CLEARANCE", "OTHER"]);
 export const landedCostDistributionMethodSchema = z.enum(["BY_VALUE", "BY_QUANTITY", "BY_WEIGHT"]);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for Sales Invoices (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
@@ -41,16 +42,25 @@ export const createSalesInvoiceLineSchema = z.object({
    * item's unit setup later cannot restate a document already in the books.
    */
   unitFactor: z.number().positive().nullish(),
-  unitPrice: z.string(),
+  unitPrice: moneyString,
   /** Whether `discountPercent` or `discountAmount` is the live field. */
   discountType: z.enum(["percent", "amount"]).optional(),
   discountPercent: z.number().min(0).max(100).optional(),
   /** Fixed line discount as an exact decimal string; capped at the line's gross. */
-  discountAmount: z.string().optional(),
+  discountAmount: moneyString.optional(),
   taxRatePercent: z.number().min(0).optional(),
   revenueAccountId: z.string().min(1),
   cogsAccountId: z.string().min(1).nullish(),
   inventoryAccountId: z.string().min(1).nullish(),
+  /**
+   * Cost centre ("مركز التكلفة") this line's revenue and COGS belong to.
+   *
+   * The line had no such field, so a revenue line could not be attributed at
+   * creation and the Cost Centre P&L saw sales as unattributed no matter how
+   * the cost centres were set up (D97). The GL posting groups by it, so two
+   * lines on one invoice can be booked to two different centres.
+   */
+  costCenterId: z.string().min(1).nullish(),
 });
 
 /** Create a draft sales invoice. */
@@ -90,7 +100,7 @@ export const confirmSalesInvoiceSchema = z.object({
  * The route creates and confirms a real collection voucher and allocates it.
  */
 export const salesInvoicePaymentSchema = z.object({
-  amount: z.string(),
+  amount: moneyString,
   treasuryAccountId: z.string().min(1),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
   date: z.string().min(1).optional(),

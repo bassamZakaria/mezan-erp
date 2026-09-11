@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS sales_invoice_line (
   cogs_account_id      TEXT,
   inventory_account_id TEXT,
   unit_cost            INTEGER,
+  cost_center_id       TEXT,
   PRIMARY KEY (invoice_id, line_no)
 );
 `;
@@ -130,6 +131,7 @@ const ADDED_LINE_COLUMNS: readonly [string, string][] = [
   ["base_qty", "INTEGER"],
   ["line_discount_type", "TEXT"],
   ["line_discount_amount", "INTEGER"],
+  ["cost_center_id", "TEXT"],
 ];
 
 function addMissingColumns(sqlite: Database.Database): void {
@@ -206,6 +208,7 @@ interface LineRow {
   cogs_account_id: string | null;
   inventory_account_id: string | null;
   unit_cost: bigint | null;
+  cost_center_id: string | null;
 }
 
 function toDiscount(row: InvoiceRow): SalesInvoiceDiscount {
@@ -238,6 +241,7 @@ function toLine(row: LineRow): SalesInvoiceLine {
     cogsAccountId: row.cogs_account_id,
     inventoryAccountId: row.inventory_account_id,
     unitCost: row.unit_cost === null ? null : Money.fromScaled(row.unit_cost),
+    costCenterId: row.cost_center_id,
   };
 }
 
@@ -406,13 +410,13 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         unit_code, unit_factor, base_qty, unit_price,
         line_discount_type, line_discount_amount,
         discount_percent, tax_rate_percent, revenue_account_id, cogs_account_id,
-        inventory_account_id, unit_cost
+        inventory_account_id, unit_cost, cost_center_id
       ) VALUES (
         @invoice_id, @line_no, @line_id, @item_id, @item_name_ar, @is_stock, @qty,
         @unit_code, @unit_factor, @base_qty, @unit_price,
         @line_discount_type, @line_discount_amount,
         @discount_percent, @tax_rate_percent, @revenue_account_id, @cogs_account_id,
-        @inventory_account_id, @unit_cost
+        @inventory_account_id, @unit_cost, @cost_center_id
       )
     `);
     this.selectInvoiceById = sqlite.prepare(`SELECT * FROM sales_invoice WHERE id = ?`);
@@ -421,7 +425,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       .prepare(
         `SELECT line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty,
                 unit_price, line_discount_type, line_discount_amount, discount_percent,
-                tax_rate_percent, revenue_account_id, cogs_account_id, inventory_account_id, unit_cost
+                tax_rate_percent, revenue_account_id, cogs_account_id, inventory_account_id, unit_cost,
+                cost_center_id
            FROM sales_invoice_line WHERE invoice_id = ? ORDER BY line_no`,
       )
       .safeIntegers();
@@ -535,6 +540,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         cogs_account_id: line.cogsAccountId,
         inventory_account_id: line.inventoryAccountId,
         unit_cost: line.unitCost === null ? null : line.unitCost.toScaledNumber(),
+        cost_center_id: line.costCenterId,
       });
     });
   }

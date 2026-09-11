@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the historical sales-document import (docs/archive/catalog/01
@@ -6,8 +7,10 @@ import { z } from "zod";
  * wire as EXACT decimal strings, same convention as sales.ts.
  */
 
-const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see moneyString — one guard for every exact-decimal field on the wire (D126). */
+const decimalString = moneyString;
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const historicalSalesDocTypeSchema = z.enum(["SALES_INVOICE", "SALES_RETURN"]);
 

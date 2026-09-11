@@ -95,7 +95,7 @@ export function createProjectsRoutes(
       const project = await createProject(
         {
           ...rest,
-          costCenterId: `cc-prj-${parsed.data.id}`,
+          costCenterId: parsed.data.costCenterId ?? `cc-prj-${parsed.data.id}`,
           budget: budget !== undefined ? Money.fromMajor(budget) : undefined,
         },
         { projects: deps.projects, costCenters: deps.costCenters },

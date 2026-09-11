@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 
 /** Wire contracts for Purchase Returns (مرتجعات المشتريات، docs/archive/catalog/02). Mirrors sales-returns.ts. */
 
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const purchaseReturnReasonSchema = z.enum([
   "DEFECTIVE",

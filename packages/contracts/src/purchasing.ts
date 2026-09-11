@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the purchase chain (docs/archive/catalog/02): أوامر الشراء →
@@ -6,8 +7,10 @@ import { z } from "zod";
  * decimal strings (same convention as journal.ts / inventory.ts) — never floats.
  */
 
-const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see moneyString — one guard for every exact-decimal field on the wire (D126). */
+const decimalString = moneyString;
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 const isoDate = z.string().min(1);
 
 export const purchaseOrderStatusSchema = z.enum([
@@ -142,7 +145,7 @@ export const purchaseInvoiceSchema = z.object({
   warehouseId: z.string().min(1),
   currency: z.string().min(1),
   /** The rate the invoice CONFIRMED at; null for a base-currency invoice (D24). */
-  fxRate: z.string().nullable().optional(),
+  fxRate: moneyString.nullable().optional(),
   notes: z.string().nullable(),
   receiptId: z.string().nullable(),
   lines: z.array(purchaseInvoiceLineSchema),
@@ -194,7 +197,7 @@ export const purchaseInvoiceFulfilmentSchema = z.object({
 
 /** `POST /purchases/invoices/:id/payments` — pay a supplier straight off the invoice. */
 export const purchaseInvoicePaymentSchema = z.object({
-  amount: z.string(),
+  amount: moneyString,
   treasuryAccountId: z.string().min(1),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
   date: z.string().min(1).optional(),

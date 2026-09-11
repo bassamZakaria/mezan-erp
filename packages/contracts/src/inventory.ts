@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the costing + stock-ledger engine (docs/archive/catalog/03).
@@ -6,12 +7,10 @@ import { z } from "zod";
  * journal.ts) — never floats — so JSON is byte-identical on every edition.
  */
 
-const decimalString = z
-  .string()
-  .regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z
-  .string()
-  .regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see moneyString — one guard for every exact-decimal field on the wire (D126). */
+const decimalString = moneyString;
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const stockMovementDirectionSchema = z.enum(["IN", "OUT"]);
 

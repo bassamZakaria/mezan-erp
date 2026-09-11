@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 
 /**
@@ -7,7 +8,8 @@ import { documentStatusSchema } from "./documents.js";
  * strings (same convention as journal.ts/inventory.ts) — never floats.
  */
 
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const salesReturnReasonSchema = z.enum([
   "DEFECTIVE",
@@ -82,7 +84,7 @@ export const salesReturnDocumentSchema = z.object({
       voucherId: z.string(),
       voucherNo: z.string().nullable(),
       date: z.string(),
-      amount: z.string(),
+      amount: moneyString,
     }),
   ),
 });

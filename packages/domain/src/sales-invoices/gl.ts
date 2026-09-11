@@ -59,18 +59,25 @@ export function buildSalesInvoiceGlPosting(
   // 14% / 5% / zero-rated invoice posts one base line per rate instead of one
   // blended line. The VAT return reports the rates actually charged, and it can
   // only do that if the ledger recorded them (D28).
-  const revenueByAccountAndRate = new Map<string, { accountId: string; rate: number; amount: Money }>();
+  const revenueByAccountAndRate = new Map<
+    string,
+    { accountId: string; rate: number; costCenterId: string | null; amount: Money }
+  >();
   const taxByRate = new Map<number, Money>();
   for (let i = 0; i < invoice.lines.length; i++) {
     const line = invoice.lines[i];
     const lineTotals = totals.lines[i];
     if (!line || !lineTotals) continue;
     const rate = line.taxRatePercent;
-    const key = `${line.revenueAccountId}|${rate}`;
+    // Grouped by cost centre as well as account and rate: two lines on one
+    // invoice can belong to two centres, and a blended credit would attribute
+    // both to whichever one happened to come first (D97).
+    const costCenterId = line.costCenterId ?? null;
+    const key = `${line.revenueAccountId}|${rate}|${costCenterId ?? ""}`;
     const bucket = revenueByAccountAndRate.get(key);
     const base = convert(lineTotals.taxableBase);
     if (bucket) revenueByAccountAndRate.set(key, { ...bucket, amount: bucket.amount.add(base) });
-    else revenueByAccountAndRate.set(key, { accountId: line.revenueAccountId, rate, amount: base });
+    else revenueByAccountAndRate.set(key, { accountId: line.revenueAccountId, rate, costCenterId, amount: base });
     const lineTax = convert(lineTotals.tax);
     if (lineTax.scaled !== 0n) taxByRate.set(rate, (taxByRate.get(rate) ?? Money.zero()).add(lineTax));
   }
@@ -82,9 +89,9 @@ export function buildSalesInvoiceGlPosting(
   for (const bucket of revenueByAccountAndRate.values()) receivable = receivable.add(bucket.amount);
   debits.push({ accountId: invoice.arAccountId, debit: receivable, credit: Money.zero(), ...fxTag });
 
-  for (const { accountId, rate, amount } of revenueByAccountAndRate.values()) {
+  for (const { accountId, rate, costCenterId, amount } of revenueByAccountAndRate.values()) {
     if (amount.scaled === 0n) continue;
-    credits.push({ accountId, debit: Money.zero(), credit: amount, taxRatePercent: rate });
+    credits.push({ accountId, debit: Money.zero(), credit: amount, taxRatePercent: rate, costCenterId });
   }
 
   for (const [rate, amount] of taxByRate) {

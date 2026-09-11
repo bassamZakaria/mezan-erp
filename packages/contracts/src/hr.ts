@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for HR master data (docs/archive/catalog/06-crm-hr.md "الموارد
@@ -174,7 +175,7 @@ export const contractStatusSchema = z.enum(["active", "terminated"]);
 export const contractLineItemSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
   /** The payroll component this line binds to; drives the GL account the line posts to (R10.7). */
   componentId: z.string().nullable(),
 });
@@ -209,7 +210,7 @@ export const contractSchema = z.object({
 export const createContractLineItemSchema = z.object({
   id: z.string().min(1).optional(),
   name: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
   componentId: z.string().nullable().optional(),
 });
 

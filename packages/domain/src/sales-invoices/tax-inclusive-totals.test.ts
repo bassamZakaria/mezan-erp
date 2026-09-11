@@ -32,6 +32,7 @@ function line(lineId: string, qty: string, unitPrice: string, taxRatePercent = 1
     revenueAccountId: "4000",
     cogsAccountId: null,
     inventoryAccountId: null,
+    costCenterId: null,
     unitCost: null,
   };
 }

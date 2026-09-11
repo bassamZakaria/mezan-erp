@@ -170,6 +170,8 @@ export interface CreateSalesInvoiceLine {
   readonly revenueAccountId: string;
   readonly cogsAccountId?: string | null;
   readonly inventoryAccountId?: string | null;
+  /** Cost centre this line is booked to; null leaves it unattributed, as before (D97). */
+  readonly costCenterId?: string | null;
 }
 
 export interface CreateSalesInvoiceCommand {
@@ -549,6 +551,7 @@ export class SalesInvoiceService {
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId ?? null,
       inventoryAccountId: l.inventoryAccountId ?? null,
+      costCenterId: l.costCenterId ?? null,
       unitCost: null,
       };
     });

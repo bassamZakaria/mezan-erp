@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 
 /**
  * Wire contract for the Field/Van Sales module (docs/archive/catalog/07-mfg-projects-assets.md
@@ -6,12 +7,10 @@ import { z } from "zod";
  * never floats — the domain re-parses them via `Money.fromMajor` / `Qty.fromMajor`.
  */
 
-const decimalString = z
-  .string()
-  .regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z
-  .string()
-  .regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see moneyString — one guard for every exact-decimal field on the wire (D126). */
+const decimalString = moneyString;
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const vanTripStatusSchema = z.enum(["ongoing", "settled", "cancelled"]);
 export const vanTripCrewRoleSchema = z.enum(["driver", "rep", "assistant"]);

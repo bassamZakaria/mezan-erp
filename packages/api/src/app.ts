@@ -106,7 +106,6 @@ import {
   type GateableActionType,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
-import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import { sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
@@ -1641,68 +1640,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       ),
     );
   }
-
-  /**
-   * DEPRECATED — the spike's original poster; `POST /gl/journal-entries`
-   * supersedes it and is the route the product uses.
-   *
-   * Gated as of D99: it was mounted with no permission check at all, so anyone
-   * who could reach the API could post into the books. The gate closes WHO may
-   * post. It does NOT give this route the fiscal-period check, the account
-   * validation, the numbering, the audit event or the cost-centre / currency /
-   * rate line fields the gl route has — the remaining fix is to delete it once
-   * its last two callers are moved onto a gl-mounted composition.
-   */
-  const legacyJournalGate = createPermissionGate(resolveAuth);
-
-  app.post("/journal-entries", legacyJournalGate("accounting.journal.post"), async (c) => {
-    const parsed = createJournalEntrySchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json(
-        { error: "VALIDATION_ERROR", details: parsed.error.flatten() },
-        400,
-      );
-    }
-
-    try {
-      const entry = await postJournalEntrySpike(
-        {
-          id: parsed.data.id,
-          date: parsed.data.date,
-          memo: parsed.data.memo,
-          lines: parsed.data.lines.map((l) => ({
-            accountId: l.accountId,
-            debit: Money.fromMajor(l.debit),
-            credit: Money.fromMajor(l.credit),
-          })),
-        },
-        uow,
-      );
-      return c.json(serialize(entry), 201);
-    } catch (err) {
-      if (err instanceof UnbalancedEntryError) {
-        return c.json(
-          {
-            error: err.code,
-            message: err.message,
-            totalDebit: err.totalDebit.toString(),
-            totalCredit: err.totalCredit.toString(),
-          },
-          422,
-        );
-      }
-      if (err instanceof InvalidJournalEntryError) {
-        return c.json({ error: err.code, message: err.message }, 400);
-      }
-      throw err;
-    }
-  });
-
-  app.get("/journal-entries/:id", legacyJournalGate("accounting.journal.view"), async (c) => {
-    const entry = await uow.journal.findById(c.req.param("id"));
-    if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(entry));
-  });
 
   if (options.printTemplateConfig) {
     app.route(

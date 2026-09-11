@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for Fixed Assets (docs/archive/catalog/07-mfg-projects-assets.md
@@ -90,7 +91,7 @@ export const depreciationRunStatusSchema = z.enum(["draft", "posted", "cancelled
 
 export const depreciationRunLineSchema = z.object({
   assetId: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
 });
 
 export const depreciationRunSchema = z.object({
@@ -99,7 +100,7 @@ export const depreciationRunSchema = z.object({
   branchId: z.string().nullable(),
   status: depreciationRunStatusSchema,
   lines: z.array(depreciationRunLineSchema),
-  totalAmount: z.string(),
+  totalAmount: moneyString,
   journalEntryId: z.string().nullable(),
   createdAt: z.string(),
   postedAt: z.string().nullable(),

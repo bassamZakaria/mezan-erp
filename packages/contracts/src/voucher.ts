@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for Treasury Vouchers (docs/archive/catalog/04 §"السندات النقدية") —
@@ -36,7 +37,7 @@ export const voucherSchema = z.object({
   status: voucherStatusSchema,
   date: z.string().min(1),
   memo: z.string(),
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string(),
   branchId: z.string(),
   paymentMethod: voucherPaymentMethodSchema,
@@ -49,7 +50,7 @@ export const voucherSchema = z.object({
   supplierId: z.string().nullable(),
   referenceNo: z.string().nullable(),
   costCenterId: z.string().nullable(),
-  withholdingAmount: z.string().nullable(),
+  withholdingAmount: moneyString.nullable(),
   withholdingRatePercent: z.number().nullable(),
   /** What actually leaves the treasury: amount − withholdingAmount. */
   netPaidAmount: z.string(),
@@ -63,7 +64,7 @@ export const createVoucherSchema = z.object({
   date: z.string().min(1),
   memo: z.string().optional(),
   voucherType: voucherTypeSchema,
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string().optional(),
   branchId: z.string().min(1),
   paymentMethod: voucherPaymentMethodSchema,
@@ -77,7 +78,7 @@ export const createVoucherSchema = z.object({
   referenceNo: z.string().nullish(),
   costCenterId: z.string().nullish(),
   /** Tax withheld from this payment and owed to the authority instead of to the payee. */
-  withholdingAmount: z.string().nullish(),
+  withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
 });
@@ -101,7 +102,7 @@ export const openInvoiceSchema = z.object({
   kind: allocationInvoiceKindSchema,
   partyId: z.string(),
   date: z.string(),
-  total: z.string(),
+  total: moneyString,
   allocated: z.string(),
   outstanding: z.string(),
 });
@@ -111,7 +112,7 @@ export const voucherAllocationSchema = z.object({
   id: z.string(),
   voucherId: z.string(),
   invoiceId: z.string(),
-  amount: z.string(),
+  amount: moneyString,
   status: allocationStatusSchema,
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
@@ -121,7 +122,7 @@ export const voucherAllocationSchema = z.object({
 export const createAllocationSchema = z.object({
   allocationId: z.string().min(1).optional(),
   invoiceId: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
 });
 
 /** The allocation summary returned alongside a voucher. */

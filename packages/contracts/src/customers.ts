@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contract for a Customer (docs/archive/catalog/01-sales.md "العملاء"). Money
@@ -20,7 +21,7 @@ export const customerSchema = z.object({
   notes: z.string().nullable(),
   paymentTermsDays: z.number().int().nonnegative(),
   currency: z.string().min(1),
-  openingBalance: z.string(),
+  openingBalance: moneyString,
   active: z.boolean(),
   priceListId: z.string().nullable(),
   creditLimit: z.string(),
@@ -46,7 +47,7 @@ export const createCustomerSchema = z.object({
   notes: z.string().nullable().optional(),
   paymentTermsDays: z.number().int().nonnegative().optional(),
   currency: z.string().min(1).optional(),
-  openingBalance: z.string().optional(),
+  openingBalance: moneyString.optional(),
   /**
    * The date the opening balance is posted at — it lands in the GL as a debit
    * to the AR control account against opening-balance equity (D142), so it

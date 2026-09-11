@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the generic document framework (docs/archive/plan.md §3 document
@@ -37,8 +38,8 @@ export const documentEffectsSchema = z.object({
 /** A journal-document line as it crosses the wire. */
 export const journalDocumentLineSchema = z.object({
   accountId: z.string().min(1),
-  debit: z.string(),
-  credit: z.string(),
+  debit: moneyString,
+  credit: moneyString,
   memo: z.string().nullish(),
 });
 

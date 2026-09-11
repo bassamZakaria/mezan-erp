@@ -281,6 +281,7 @@ function serialize(
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,
+      costCenterId: l.costCenterId,
       // Omitted, not nulled: `sales.invoice.view_cost` is ⚠ sensitive in the
       // catalog, and a null would still tell the caller the field exists (D31).
       ...(withCost ? { unitCost: l.unitCost ? l.unitCost.toString() : null } : {}),
@@ -464,6 +465,7 @@ export function createSalesInvoicesRoutes(
         revenueAccountId: l.revenueAccountId,
         cogsAccountId: l.cogsAccountId ?? null,
         inventoryAccountId: l.inventoryAccountId ?? null,
+        costCenterId: l.costCenterId ?? null,
       })),
     };
     const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));

@@ -84,6 +84,7 @@ function invoiceLine(
     revenueAccountId: REVENUE,
     cogsAccountId: null,
     inventoryAccountId: null,
+    costCenterId: null,
     unitCost: null,
   };
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for Promotions (docs/archive/catalog/01-sales.md §"العروض").
@@ -107,7 +108,7 @@ export const evaluatePromotionsQuerySchema = z.object({
       itemId: z.string().min(1),
       categoryId: z.string().nullish(),
       qty: z.string(),
-      unitPrice: z.string(),
+      unitPrice: moneyString,
     }),
   ),
   couponCode: z.string().nullish(),

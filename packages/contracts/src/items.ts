@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contract for Items (docs/archive/catalog/03-inventory.md "الأصناف"). Money
@@ -41,8 +42,8 @@ export const itemSchema = z.object({
   defaultSupplierId: z.string().nullable(),
   specifications: z.array(z.object({ code: z.string(), value: z.string() })),
   costingMethod: costingMethodSchema,
-  salePrice: z.string().nullable(),
-  costPrice: z.string().nullable(),
+  salePrice: moneyString.nullable(),
+  costPrice: moneyString.nullable(),
   taxRatePercent: z.number(),
   trackInventory: z.boolean(),
   trackBatches: z.boolean(),
@@ -83,8 +84,8 @@ export const createItemSchema = z.object({
   defaultSupplierId: z.string().nullable().optional(),
   specifications: z.array(z.object({ code: z.string().min(1), value: z.string() })).optional(),
   costingMethod: costingMethodSchema.optional(),
-  salePrice: z.string().nullable().optional(),
-  costPrice: z.string().nullable().optional(),
+  salePrice: moneyString.nullable().optional(),
+  costPrice: moneyString.nullable().optional(),
   taxRatePercent: z.number().optional(),
   trackInventory: z.boolean().optional(),
   trackBatches: z.boolean().optional(),
@@ -115,8 +116,8 @@ export const updateItemSchema = z.object({
   defaultSupplierId: z.string().nullable().optional(),
   specifications: z.array(z.object({ code: z.string().min(1), value: z.string() })).optional(),
   costingMethod: costingMethodSchema.optional(),
-  salePrice: z.string().nullable().optional(),
-  costPrice: z.string().nullable().optional(),
+  salePrice: moneyString.nullable().optional(),
+  costPrice: moneyString.nullable().optional(),
   taxRatePercent: z.number().optional(),
   trackInventory: z.boolean().optional(),
   trackBatches: z.boolean().optional(),

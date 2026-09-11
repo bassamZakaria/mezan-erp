@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { adjustmentReasonSchema } from "./inventory.js";
 
@@ -12,8 +13,10 @@ import { adjustmentReasonSchema } from "./inventory.js";
  * inventory.ts / journal.ts) — never floats.
  */
 
-const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see moneyString — one guard for every exact-decimal field on the wire (D126). */
+const decimalString = moneyString;
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 // --- Stock Adjustment document ---------------------------------------------
 

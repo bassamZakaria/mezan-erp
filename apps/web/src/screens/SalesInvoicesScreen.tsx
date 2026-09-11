@@ -545,6 +545,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
         revenueAccountId: item.revenueAccountId ?? REVENUE_ACCOUNT_ID,
         cogsAccountId: isStock ? (item.cogsAccountId ?? COGS_ACCOUNT_ID) : null,
         inventoryAccountId: isStock ? (item.inventoryAccountId ?? INVENTORY_ACCOUNT_ID) : null,
+        costCenterId: null,
         unitCost: null,
       });
     }
@@ -1252,6 +1253,7 @@ function InvoiceDetailView({
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,
+      costCenterId: null,
       unitCost: l.unitCost ? Money.fromMajor(l.unitCost) : null,
     }));
     const discount: SalesInvoiceDiscount =

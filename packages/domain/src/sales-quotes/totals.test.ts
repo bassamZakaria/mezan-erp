@@ -67,6 +67,7 @@ describe("computeQuoteTotals — parity with computeInvoiceTotals", () => {
       revenueAccountId: "4000",
       cogsAccountId: null,
       inventoryAccountId: null,
+      costCenterId: null,
       unitCost: null,
     }));
     const qDiscount: SalesQuoteDiscount = { type: "amount", amount: Money.fromMajor("17.77") };

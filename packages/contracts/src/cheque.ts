@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the Cheque Register (docs/archive/catalog/04 §"سجل الشيكات").
@@ -25,7 +26,7 @@ export const chequeSchema = z.object({
   bankName: z.string(),
   bankBranchName: z.string().nullable(),
   bankAccountNumber: z.string().nullable(),
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string(),
   issueDate: z.string(),
   dueDate: z.string(),
@@ -54,7 +55,7 @@ export const createChequeSchema = z.object({
   bankName: z.string().min(1),
   bankBranchName: z.string().nullish(),
   bankAccountNumber: z.string().nullish(),
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string().optional(),
   issueDate: z.string().min(1),
   dueDate: z.string().min(1),

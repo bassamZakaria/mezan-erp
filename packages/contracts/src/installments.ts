@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 
 /** Wire contracts for Installments (خطط الأقساط + متابعة التحصيل، docs/archive/catalog/05). */
 
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const installmentFrequencySchema = z.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY"]);
 export const installmentLineStatusSchema = z.enum(["pending", "paid", "overdue", "cancelled"]);

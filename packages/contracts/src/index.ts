@@ -5,12 +5,6 @@
  * no dependency on domain, persistence, api or any driver, so every layer can
  * import it without pulling in a runtime.
  */
-export {
-  journalLineSchema,
-  createJournalEntrySchema,
-  type JournalLineDTO,
-  type CreateJournalEntryDTO,
-} from "./journal.js";
 
 export {
   sequenceDefinitionSchema,

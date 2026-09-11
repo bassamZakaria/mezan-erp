@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the GL posting engine (docs/archive/catalog/04 §القيود المحاسبية).
@@ -12,15 +13,15 @@ export const journalEntryStatusSchema = z.enum(["draft", "pending", "posted", "r
 
 export const glJournalLineSchema = z.object({
   accountId: z.string().min(1),
-  debit: z.string(),
-  credit: z.string(),
+  debit: moneyString,
+  credit: moneyString,
   memo: z.string().nullish(),
   /** Optional cost-center dimension ("مركز التكلفة") for the Cost Center P&L report. */
   costCenterId: z.string().nullish(),
   /** Original transaction currency of a multi-currency line; debit/credit stay base-currency. */
   currency: z.string().nullish(),
   /** Foreign→base exchange rate applied at confirmation, as an exact decimal string. */
-  fxRate: z.string().nullish(),
+  fxRate: moneyString.nullish(),
   /** VAT rate this line was charged at, so the VAT return reports the rates actually charged (D28). */
   taxRatePercent: z.number().nullish(),
 });
@@ -31,7 +32,7 @@ export const recordVatFilingSchema = z.object({
   id: z.string().min(1),
   periodFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   periodTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  netAmount: z.string(),
+  netAmount: moneyString,
   referenceNo: z.string().nullish(),
 });
 export type RecordVatFilingDTO = z.infer<typeof recordVatFilingSchema>;
@@ -56,8 +57,8 @@ export const yearEndClosePreviewLineSchema = z.object({
   accountCode: z.string(),
   accountNameAr: z.string(),
   accountType: z.enum(["revenue", "expense"]),
-  debit: z.string(),
-  credit: z.string(),
+  debit: moneyString,
+  credit: moneyString,
 });
 
 export const yearEndClosePreviewSchema = z.object({

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import type { Account, AccountType } from "../accounts/account.js";
 import type { JournalEntry } from "../journal.js";
 import { Money } from "../money/index.js";
@@ -43,9 +44,7 @@ const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
 };
 
 const trialBalanceParamsSchema = z.object({
-  asOfDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD"),
+  asOfDate: isoDateParamSchema,
 });
 
 /** Net (debit − credit) balance per account, from every posted line dated on/before `asOfDate`. */

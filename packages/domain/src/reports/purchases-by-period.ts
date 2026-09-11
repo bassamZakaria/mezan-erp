@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { purchaseInvoiceSubtotal, purchaseInvoiceTax, purchaseInvoiceTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
@@ -33,8 +34,8 @@ export interface PurchasesByPeriodRow {
 }
 
 const paramsSchema = z.object({
-  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
-  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  dateFrom: isoDateParamSchema,
+  dateTo: isoDateParamSchema,
   groupBy: z.enum(["day", "week", "month"]),
   branchId: branchIdParamSchema,
 });

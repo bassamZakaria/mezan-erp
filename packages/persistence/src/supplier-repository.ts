@@ -26,9 +26,22 @@ CREATE TABLE IF NOT EXISTS supplier (
   active             INTEGER NOT NULL,
   address_city       TEXT,
   address_district   TEXT,
-  address_street     TEXT
+  address_street     TEXT,
+  branch_id          TEXT
 );
 `;
+
+/** Columns added after the table shipped — an existing database keeps them null. */
+const ADDED_COLUMNS: readonly [string, string][] = [["branch_id", "TEXT"]];
+
+function addMissingColumns(sqlite: Database.Database): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(supplier)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, type] of ADDED_COLUMNS) {
+    if (!existing.has(name)) sqlite.exec(`ALTER TABLE supplier ADD COLUMN ${name} ${type}`);
+  }
+}
 
 interface SupplierRow {
   id: string;
@@ -45,6 +58,7 @@ interface SupplierRow {
   currency: string;
   opening_balance: number;
   active: number;
+  branch_id: string | null;
   address_city: string | null;
   address_district: string | null;
   address_street: string | null;
@@ -66,6 +80,7 @@ function toSupplier(row: SupplierRow): Supplier {
     currency: row.currency,
     openingBalance: Money.fromScaled(row.opening_balance),
     active: row.active === 1,
+    branchId: row.branch_id ?? null,
     addressCity: row.address_city,
     addressDistrict: row.address_district,
     addressStreet: row.address_street,
@@ -82,16 +97,17 @@ class SqliteSupplierRepository implements SupplierRepository {
     this.upsert = sqlite.prepare(`
       INSERT INTO supplier (
         id, code, name_ar, name_en, phone, email, contact_person, tax_number, category, notes,
-        payment_terms_days, currency, opening_balance, active, address_city, address_district, address_street
+        payment_terms_days, currency, opening_balance, active, address_city, address_district, address_street, branch_id
       ) VALUES (
         @id, @code, @nameAr, @nameEn, @phone, @email, @contactPerson, @taxNumber, @category, @notes,
-        @paymentTermsDays, @currency, @openingBalance, @active, @addressCity, @addressDistrict, @addressStreet
+        @paymentTermsDays, @currency, @openingBalance, @active, @addressCity, @addressDistrict, @addressStreet, @branchId
       )
       ON CONFLICT(id) DO UPDATE SET
         code = @code, name_ar = @nameAr, name_en = @nameEn, phone = @phone, email = @email,
         contact_person = @contactPerson, tax_number = @taxNumber, category = @category, notes = @notes,
         payment_terms_days = @paymentTermsDays, currency = @currency, opening_balance = @openingBalance,
-        active = @active, address_city = @addressCity, address_district = @addressDistrict, address_street = @addressStreet
+        active = @active, address_city = @addressCity, address_district = @addressDistrict,
+        address_street = @addressStreet, branch_id = @branchId
     `);
     this.selectAll = sqlite.prepare(`SELECT * FROM supplier ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM supplier WHERE id = ?`);
@@ -128,6 +144,7 @@ class SqliteSupplierRepository implements SupplierRepository {
       currency: supplier.currency,
       openingBalance: supplier.openingBalance.toScaledNumber(),
       active: supplier.active ? 1 : 0,
+      branchId: supplier.branchId,
       addressCity: supplier.addressCity,
       addressDistrict: supplier.addressDistrict,
       addressStreet: supplier.addressStreet,
@@ -143,6 +160,7 @@ export interface SqliteSupplierRepositoryHandle extends SupplierRepository {
 export function createSqliteSupplierRepository(path: SqliteConnectionInput = ":memory:"): SqliteSupplierRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
+  addMissingColumns(sqlite);
   const repo = new SqliteSupplierRepository(sqlite);
   return Object.assign(repo, {
     close: () => { if (owned) sqlite.close(); },

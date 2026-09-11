@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
 import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
@@ -77,7 +78,7 @@ export interface AgingCustomersRow {
 }
 
 const paramsSchema = z.object({
-  asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  asOfDate: isoDateParamSchema,
   branchId: branchIdParamSchema,
 });
 

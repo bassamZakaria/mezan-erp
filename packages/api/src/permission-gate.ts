@@ -237,7 +237,19 @@ export function callerUserId(c: Context): string | undefined {
  * their own payment. A tenant admin (`"*"`) still satisfies every step.
  */
 export function callerRoleCodes(c: Context): string[] {
-  const ctx = getAuthContext(c);
+  return roleCodesOf(getAuthContext(c));
+}
+
+/**
+ * The same answer, from an AuthContext the caller already has.
+ *
+ * `callerRoleCodes` reads the context the GATE stashes, so on an ungated route
+ * it answers `[]` however the caller is signed in — which silently killed the
+ * tenant-admin bypass on `POST /workflow/requests` and held an admin's own
+ * submission بانتظار الموافقة (D69). A route that resolves its own identity
+ * uses this instead.
+ */
+export function roleCodesOf(ctx: AuthContext | undefined): string[] {
   if (!ctx) return [];
   if (ctx.permissions.has("*")) return ["*"];
   return [...ctx.roleCodes];

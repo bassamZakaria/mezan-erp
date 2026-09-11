@@ -302,3 +302,90 @@ describe("customers router — the opening balance reaches the AR control accoun
     expect((await repo.findById("c1"))?.openingBalance.toString()).toBe(Money.fromMajor("4250.00").toString());
   });
 });
+
+describe("the customer book is scoped to the caller's branch (D71)", () => {
+  function scoped(path: string, permissions: string, branchScope?: string, init: RequestInit = {}) {
+    const headers = new Headers({ "x-permissions": permissions, "x-user-id": "u1" });
+    if (branchScope !== undefined) headers.set("x-branch-scope", branchScope);
+    if (init.body) headers.set("content-type", "application/json");
+    return new Request(`http://local${path}`, { ...init, headers });
+  }
+
+  async function seeded() {
+    const { app, repo } = newApp();
+    for (const [id, code, branchId] of [
+      ["c-cairo", "C1", "BR-CAIRO"],
+      ["c-alex", "C2", "BR-ALEX"],
+      ["c-shared", "C3", null],
+    ] as const) {
+      const res = await app.fetch(
+        scoped("/", "sales.customer.create", "*", {
+          method: "POST",
+          body: JSON.stringify({ id, code, nameAr: `عميل ${code}`, branchId }),
+        }),
+      );
+      expect(res.status, `seed ${id}`).toBe(201);
+    }
+    return { app, repo };
+  }
+
+  it("shows a branch-scoped caller their own branch, and never another branch's customers", async () => {
+    const { app } = await seeded();
+    const rows = (await (
+      await app.fetch(scoped("/", "sales.customer.view", "BR-CAIRO"))
+    ).json()) as { id: string }[];
+    const ids = rows.map((r) => r.id).sort();
+    // The unbranched record stays visible: every customer written before the
+    // column existed has no branch, and hiding them would empty the screen.
+    expect(ids).toEqual(["c-cairo", "c-shared"]);
+  });
+
+  it("shows a tenant-wide caller every branch", async () => {
+    const { app } = await seeded();
+    const rows = (await (await app.fetch(scoped("/", "sales.customer.view", "*"))).json()) as { id: string }[];
+    expect(rows.map((r) => r.id).sort()).toEqual(["c-alex", "c-cairo", "c-shared"]);
+  });
+
+  it("404s a customer outside the caller's scope rather than confirming it exists", async () => {
+    const { app } = await seeded();
+    const res = await app.fetch(scoped("/c-alex", "sales.customer.view", "BR-CAIRO"));
+    expect(res.status).toBe(404);
+    // And the same id is readable by someone whose scope covers it.
+    expect((await app.fetch(scoped("/c-alex", "sales.customer.view", "BR-ALEX"))).status).toBe(200);
+  });
+
+  it("stamps a new customer with the creating caller's branch when they have exactly one", async () => {
+    const { app } = newApp();
+    const created = await app.fetch(
+      scoped("/", "sales.customer.create", "BR-CAIRO", {
+        method: "POST",
+        body: JSON.stringify({ id: "c-new", code: "C9", nameAr: "عميل جديد" }),
+      }),
+    );
+    expect(created.status).toBe(201);
+    expect(((await created.json()) as { branchId: string | null }).branchId).toBe("BR-CAIRO");
+  });
+
+  it("leaves a customer created by a tenant-wide caller shared, which is what the all-branch sentinel means", async () => {
+    const { app } = newApp();
+    const created = await app.fetch(
+      scoped("/", "sales.customer.create", "*", {
+        method: "POST",
+        body: JSON.stringify({ id: "c-any", code: "C8", nameAr: "عميل" }),
+      }),
+    );
+    expect(created.status).toBe(201);
+    expect(((await created.json()) as { branchId: string | null }).branchId).toBeNull();
+  });
+
+  it("counts and totals the same set the rows show, so the header cannot disagree with the list", async () => {
+    const { app } = await seeded();
+    const counts = (await (
+      await app.fetch(scoped("/counts", "sales.customer.view", "BR-CAIRO"))
+    ).json()) as Record<string, number>;
+    const rows = (await (
+      await app.fetch(scoped("/", "sales.customer.view", "BR-CAIRO"))
+    ).json()) as unknown[];
+    expect(counts.all).toBe(rows.length);
+  });
+});

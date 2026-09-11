@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { Money, Qty } from "../money/index.js";
 import { fullNameAr, type Employee } from "../hr/employee.js";
 import { getVanTripStatusLabel, type VanTrip, type VanTripStatus } from "../field-sales/van-trip.js";
@@ -50,8 +51,8 @@ export interface VanSalesRow {
 }
 
 const paramsSchema = z.object({
-  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
-  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  dateFrom: isoDateParamSchema,
+  dateTo: isoDateParamSchema,
   status: z.enum(["all", "ongoing", "settled", "cancelled"]),
   branchId: branchIdParamSchema,
 });

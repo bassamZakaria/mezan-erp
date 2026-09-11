@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import type { SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
@@ -45,8 +46,8 @@ export interface SalesByItemRow {
 }
 
 const paramsSchema = z.object({
-  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
-  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  dateFrom: isoDateParamSchema,
+  dateTo: isoDateParamSchema,
   branchId: branchIdParamSchema,
 });
 

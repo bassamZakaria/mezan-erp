@@ -45,6 +45,7 @@ function supplier(overrides: Partial<Supplier> = {}): Supplier {
     paymentTermsDays: 30,
     currency: "EGP",
     openingBalance: Money.zero(),
+    branchId: null,
     active: true,
     addressCity: null,
     addressDistrict: null,

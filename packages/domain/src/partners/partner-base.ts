@@ -25,6 +25,18 @@ export interface PartnerBase {
   readonly currency: string;
   /** Starting balance at onboarding, before any documents post against this partner. */
   readonly openingBalance: Money;
+  /**
+   * The branch that owns this partner record, or null for one the whole tenant
+   * shares.
+   *
+   * A customer carried no branch at all, so the list could not be narrowed and
+   * every rep saw the whole company's customer book — the asset a departing rep
+   * walks out with (D71). Null is deliberate and stays visible to everyone:
+   * every record written before this existed has no branch, and hiding them
+   * would empty the screen for a branch-scoped user rather than protect
+   * anything.
+   */
+  readonly branchId: string | null;
   readonly active: boolean;
 }
 

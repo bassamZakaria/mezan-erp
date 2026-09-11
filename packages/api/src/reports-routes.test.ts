@@ -417,19 +417,30 @@ describe("reports routes — the same invoice seen from four angles", () => {
     expect((await app.fetch(req("/sales/by-period?dateFrom=not-a-date", "sales.invoice.view"))).status).toBe(400);
   });
 
-  it("LIMITATION (D98): a date-shaped impossible date passes validation and silently matches nothing", async () => {
+  it("refuses an impossible date instead of answering with no rows (D98)", async () => {
     const { app } = await seeded();
 
-    // 2026-13-45 has no thirteenth month and no forty-fifth day, but it matches
-    // the shape the parameter is checked against, so both reports accept it and
-    // answer with no rows — which reads on screen as "no sales in that range"
-    // rather than "that is not a date".
+    // 2026-13-45 has no thirteenth month and no forty-fifth day. It used to
+    // match the shape the parameter was checked against, so both reports
+    // accepted it and answered empty — which reads on screen as "no sales in
+    // that range" rather than "that is not a date".
     const aging = await app.fetch(req("/aging/customers?asOfDate=2026-13-45", "sales.invoice.view"));
-    expect(aging.status).toBe(200);
+    expect(aging.status).toBe(400);
 
     const period = await app.fetch(req("/sales/by-period?dateFrom=2026-13-45", "sales.invoice.view"));
-    expect(period.status).toBe(200);
-    expect(((await period.json()) as { rows: unknown[] }).rows).toEqual([]);
+    expect(period.status).toBe(400);
+  });
+
+  it("refuses the 30th of February, which every shape check accepts", async () => {
+    const { app } = await seeded();
+    const res = await app.fetch(req("/aging/customers?asOfDate=2026-02-30", "sales.invoice.view"));
+    expect(res.status).toBe(400);
+  });
+
+  it("still answers a real date, so the check is not refusing everything", async () => {
+    const { app } = await seeded();
+    const res = await app.fetch(req("/aging/customers?asOfDate=2026-06-15", "sales.invoice.view"));
+    expect(res.status).toBe(200);
   });
 });
 
@@ -1585,6 +1596,7 @@ function makeSupplier(overrides: Partial<Supplier> = {}): Supplier {
     paymentTermsDays: 30,
     currency: "EGP",
     openingBalance: Money.zero(),
+    branchId: null,
     active: true,
     addressCity: null,
     addressDistrict: null,

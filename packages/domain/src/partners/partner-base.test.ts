@@ -17,6 +17,7 @@ function base(overrides: Partial<PartnerBase> = {}): PartnerBase {
     paymentTermsDays: 30,
     currency: "EGP",
     openingBalance: Money.zero(),
+    branchId: null,
     active: true,
     ...overrides,
   };

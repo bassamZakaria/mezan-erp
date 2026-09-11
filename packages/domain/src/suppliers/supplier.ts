@@ -27,6 +27,8 @@ export class InvalidSupplierError extends Error {
 
 export interface CreateSupplierInput {
   readonly id: string;
+  /** The branch that owns this record; omitted, the record is tenant-wide (D71). */
+  readonly branchId?: string | null;
   readonly code: string;
   readonly nameAr: string;
   readonly nameEn?: string | null;
@@ -53,6 +55,7 @@ function validate(supplier: Supplier): string[] {
 export function createSupplier(input: CreateSupplierInput): Supplier {
   const supplier: Supplier = {
     id: input.id,
+    branchId: input.branchId ?? null,
     code: input.code,
     nameAr: input.nameAr,
     nameEn: input.nameEn ?? null,

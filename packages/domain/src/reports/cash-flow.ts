@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import {
   type AccountSection,
   type GlReportContext,
@@ -47,7 +48,7 @@ export interface CashFlowRow {
   readonly variance: number;
 }
 
-const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD");
+const DATE = isoDateParamSchema;
 const paramsSchema = z
   .object({ periodFrom: DATE, periodTo: DATE, compareTo: z.enum(["previous", "lastYear"]).default("previous") })
   .refine((p) => p.periodFrom <= p.periodTo, {

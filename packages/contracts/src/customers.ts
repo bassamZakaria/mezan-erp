@@ -37,6 +37,8 @@ export const customerSchema = z.object({
 export const createCustomerSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
+  /** The branch that owns this record; omitted, it is stamped from the creator's own scope (D71). */
+  branchId: z.string().min(1).nullish(),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),

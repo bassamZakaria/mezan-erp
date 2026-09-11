@@ -161,9 +161,44 @@ function buildMessage(settings: TenantSettings, to: string): string {
   ].join("\r\n");
 }
 
+/**
+ * A relay on this same machine, where an unencrypted AUTH has no wire to cross.
+ *
+ * This is the one case D133's refusal must not break: a local postfix or a
+ * corporate relay bound to loopback is an ordinary small-shop setup, and there
+ * is no network segment between the two ends to capture. Anything else — a
+ * hostname, a LAN address, a public MX — is a real wire, and base64 over it is
+ * plaintext.
+ */
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  return normalized === "localhost" || normalized === "::1" || /^127\.\d+\.\d+\.\d+$/.test(normalized);
+}
+
 export async function sendTestEmail(settings: TenantSettings, to: string): Promise<TestEmailResultDTO> {
   if (!settings.smtpEnabled) {
     return { ok: false, stage: "disabled", message: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
+  }
+
+  /*
+   * AUTH LOGIN is base64, which is an encoding and not encryption: on a plain
+   * connection the password goes over the wire in a form anyone watching reads
+   * back in one step. It used to be attempted whenever a username was set,
+   * whatever the transport (D133).
+   *
+   * Checked BEFORE the socket is opened — there is no reason to connect to a
+   * server we are about to refuse — and checked HERE rather than at the
+   * settings screen, because the screen is not the only way these settings
+   * arrive. A relay with no TLS still works; it just cannot be handed a
+   * password to leak.
+   */
+  if (settings.smtpUsername && settings.smtpSecurity === "NONE" && !isLoopbackHost(settings.smtpHost)) {
+    return {
+      ok: false,
+      stage: "auth",
+      message:
+        "لا يمكن إرسال كلمة المرور عبر اتصال غير مُشفَّر. اختر TLS أو STARTTLS، أو امسح اسم المستخدم للإرسال بدون مصادقة.",
+    };
   }
 
   let session: SmtpSession | null = null;

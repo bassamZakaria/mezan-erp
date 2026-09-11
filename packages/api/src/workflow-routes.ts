@@ -23,7 +23,7 @@ import {
   type WorkflowConfigRepository,
 } from "@mezan/domain";
 import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, roleCodesOf } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 
 /**
@@ -289,7 +289,11 @@ export function createWorkflowRoutes(
         requestId: parsed.data.requestId ?? randomUUID(),
         actionType,
         submittedBy: ctx.userId,
-        submitterRoles: actorRoles(c),
+        // From the context THIS route resolved, not the one a gate stashes:
+        // the route is deliberately ungated, so `callerRoleCodes(c)` answered
+        // `[]` for everyone and a tenant admin's own submission was held
+        // بانتظار الموافقة by a bypass that could never fire (D69).
+        submitterRoles: roleCodesOf(ctx),
         entityLabel: parsed.data.entityLabel ?? null,
       },
       config ? { actionType: config.actionType, steps: config.steps } : { actionType, steps: [] },

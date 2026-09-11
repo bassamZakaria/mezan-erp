@@ -586,19 +586,32 @@ describe("financial reports routes — malformed and impossible dates", () => {
     expect(body.errors[0]?.message).toBe("تاريخ البداية يجب أن يسبق تاريخ النهاية");
   });
 
-  it("LIMITATION (D98): a date-shaped impossible date passes validation and silently matches nothing", async () => {
+  it("refuses an impossible date rather than answering with an empty report (D98)", async () => {
     const { ledger, accounts } = await seed();
     const app = makeApp({ ledger, accounts });
 
-    // 2026-13-45 has no thirteenth month and no forty-fifth day, but it matches
-    // the regex the parameter is checked against, so the route accepts it and
-    // answers with an empty report rather than refusing the request.
+    // 2026-13-45 has no thirteenth month and no forty-fifth day. It used to
+    // match the regex the parameter was checked against, so the route accepted
+    // it and answered empty — indistinguishable, on screen, from a period that
+    // genuinely had no entries.
     const res = await app.fetch(
       req("/general-ledger?periodFrom=2026-13-45&periodTo=2026-13-45", "accounting.reports.view"),
     );
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses the 30th of February on a statement too", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts });
+    const res = await app.fetch(req("/trial-balance?asOfDate=2026-02-30", "accounting.reports.view"));
+    expect(res.status).toBe(400);
+  });
+
+  it("still runs on a real date, so the check is not refusing everything", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts });
+    const res = await app.fetch(req("/trial-balance?asOfDate=2026-08-22", "accounting.reports.view"));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { rows: unknown[] };
-    expect(body.rows).toEqual([]);
   });
 });
 

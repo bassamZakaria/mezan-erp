@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import {
   ACCOUNT_SECTION_LABELS,
   type AccountSection,
@@ -37,7 +38,7 @@ export interface BalanceSheetRow {
 }
 
 const paramsSchema = z.object({
-  asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD"),
+  asOfDate: isoDateParamSchema,
 });
 
 const ASSET_SECTIONS: AccountSection[] = ["cash", "current-asset", "non-current-asset"];

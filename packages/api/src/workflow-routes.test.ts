@@ -310,17 +310,15 @@ describe("approval request routes", () => {
   });
 
   /**
-   * KNOWN PRODUCT DEFECT — kept asserting the CORRECT behaviour, expected to fail.
-   *
-   * `POST /workflow/requests` is deliberately ungated, so no permission gate
-   * ever stashes an AuthContext on the request; `actorRoles` (= `callerRoleCodes`,
-   * workflow-routes.ts:104) reads that stash and therefore hands `submitApproval`
-   * an EMPTY `submitterRoles` on this route. `hasAdminRole` never sees `"*"`, so
-   * a tenant admin's submission is held بانتظار الموافقة instead of granted.
-   * Before the session move the helper read the headers directly and this worked.
-   * Delete the `.fails` once workflow-routes.ts resolves the roles itself.
+   * `POST /workflow/requests` is deliberately ungated — submitting is a side
+   * effect of whatever the caller was already allowed to do — so no permission
+   * gate stashes an AuthContext on it, and `callerRoleCodes` (which reads that
+   * stash) answered `[]` for everyone. `hasAdminRole` therefore never saw `"*"`
+   * and a tenant admin's own submission was held بانتظار الموافقة by a bypass
+   * that could not fire (D69). The route now reads the roles off the context it
+   * resolves itself.
    */
-  it.fails("an admin submitter (\"*\") bypasses the gate and is granted immediately", async () => {
+  it("an admin submitter (\"*\") bypasses the gate and is granted immediately", async () => {
     const { app, req } = newApp();
     await app.fetch(
       req("/configs", {

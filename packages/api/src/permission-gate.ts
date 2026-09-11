@@ -167,7 +167,7 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
           {
             error: "PERMISSION_DENIED",
             permission,
-            message: `Missing permission '${permission}'.`,
+            message: `هذا الإجراء يتطلب صلاحية «${permission}» غير المتاحة لحسابك.`,
           },
           403,
         );

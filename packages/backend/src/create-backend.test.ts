@@ -2987,6 +2987,172 @@ describe("createBackend — a landed cost does not touch the AP control account 
   });
 });
 
+/**
+ * D72 filed the three purchasing toggles as reaching no route. They do:
+ * `createApp` derives the policy from the LIVE tenant settings whenever a
+ * settings store is mounted, and `createBackend` mounts one. These tests exist
+ * because nothing measured it end to end, which is why the row could sit open
+ * against working code — and because "configurable but unenforced" is a shape
+ * this codebase has shipped before (DEC-1).
+ */
+describe("createBackend — the purchasing policy toggles are enforced (D72)", () => {
+  async function setToggles(app: Awaited<ReturnType<typeof newBackend>>, patch: Record<string, boolean>) {
+    const res = await app.fetch(
+      new Request("http://local/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify(patch),
+      }),
+    );
+    expect(res.status, "settings PUT").toBe(200);
+  }
+
+  async function seedItem(app: Awaited<ReturnType<typeof newBackend>>, id: string) {
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id, code: id, nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+  }
+
+  function adHocReceipt(id: string, itemId: string) {
+    return {
+      id,
+      supplierId: "SUP-1",
+      date: "2026-08-22",
+      branchId: "BR-MAIN",
+      warehouseId: "WH-MAIN",
+      lines: [{ itemId, qty: "5", unitCost: "10" }],
+    };
+  }
+
+  it("allows an ad-hoc goods receipt while requirePoForGrn is off", async () => {
+    const app = await newBackend();
+    await seedItem(app, "item-d72a");
+    const res = await post(app, "/purchases/receipts", adHocReceipt("grn-d72a", "item-d72a"), admin(app));
+    expect(res.status).toBe(201);
+  });
+
+  it("refuses the same ad-hoc receipt once requirePoForGrn is switched on — no restart", async () => {
+    const app = await newBackend();
+    await seedItem(app, "item-d72b");
+    await setToggles(app, { requirePoForGrn: true });
+
+    const res = await post(app, "/purchases/receipts", adHocReceipt("grn-d72b", "item-d72b"), admin(app));
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("refuses an invoice with no receipt once requireGrnForInvoice is on", async () => {
+    const app = await newBackend();
+    await seedItem(app, "item-d72c");
+    await setToggles(app, { requireGrnForInvoice: true });
+
+    const res = await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-d72c",
+        supplierId: "SUP-1",
+        date: "2026-08-22",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ itemId: "item-d72c", qty: "5", unitCost: "10" }],
+      },
+      admin(app),
+    );
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+/**
+ * The browser fills any unmapped item's GL accounts from constants — 1105 /
+ * 2200 / 4100 / 5100 / 1200, the ids the seed template happens to use — and
+ * nothing checked them against the tenant's own chart (D108). On a tenant whose
+ * chart differs, the invoice posted to whatever those codes meant there.
+ */
+describe("createBackend — an invoice cannot name a GL account the tenant does not have (D108)", () => {
+  async function itemAndCustomer(app: Awaited<ReturnType<typeof newBackend>>, suffix: string) {
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: `item-${suffix}`, code: `item-${suffix}`, nameAr: "منتج", type: "service", baseUnitCode: "PCS" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    await createCustomer(app, `cust-${suffix}`, "0");
+  }
+
+  function invoice(suffix: string, patch: Record<string, unknown> = {}, linePatch: Record<string, unknown> = {}) {
+    return {
+      id: `inv-${suffix}`,
+      date: "2026-08-22",
+      dueDate: "2026-09-21",
+      customerId: `cust-${suffix}`,
+      customerNameAr: "عميل",
+      warehouseId: "WH-MAIN",
+      branchId: "BR-MAIN",
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      ...patch,
+      lines: [
+        {
+          lineId: "L1",
+          itemId: `item-${suffix}`,
+          itemNameAr: "منتج",
+          isStock: false,
+          qty: "1",
+          unitPrice: "100",
+          taxRatePercent: 0,
+          revenueAccountId: "4100",
+          ...linePatch,
+        },
+      ],
+    };
+  }
+
+  it("refuses a revenue account that is not in the chart at all", async () => {
+    const app = await newBackend();
+    await itemAndCustomer(app, "d108a");
+    const res = await post(app, "/sales-invoices", invoice("d108a", {}, { revenueAccountId: "9999" }), admin(app));
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; accounts: string[] };
+    expect(body.error).toBe("GL_ACCOUNT_NOT_POSTABLE");
+    expect(body.accounts).toContain("9999");
+  });
+
+  it("refuses a HEADER account, which is what the account tree exists to prevent", async () => {
+    const app = await newBackend();
+    await itemAndCustomer(app, "d108b");
+    // 4000 is the revenue header in the standard template; its children post.
+    const res = await post(app, "/sales-invoices", invoice("d108b", {}, { revenueAccountId: "4000" }), admin(app));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("GL_ACCOUNT_NOT_POSTABLE");
+  });
+
+  it("refuses a bad AR account on the header, not only on a line", async () => {
+    const app = await newBackend();
+    await itemAndCustomer(app, "d108c");
+    const res = await post(app, "/sales-invoices", invoice("d108c", { arAccountId: "9998" }), admin(app));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { accounts: string[] }).accounts).toContain("9998");
+  });
+
+  it("still accepts the real seeded accounts, so the check is not refusing everything", async () => {
+    const app = await newBackend();
+    await itemAndCustomer(app, "d108d");
+    const res = await post(app, "/sales-invoices", invoice("d108d"), admin(app));
+    expect(res.status).toBe(201);
+  });
+});
+
 describe("createBackend — تحصيل من عميل السعر (D35): pricing variance surfaces on confirm", () => {
   it("charging below the customer's own price list produces an exact pricing variance on confirm", async () => {
     const app = await newBackend();

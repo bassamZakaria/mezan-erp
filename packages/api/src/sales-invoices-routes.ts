@@ -96,6 +96,18 @@ export interface SalesInvoiceRoutesDeps {
   /** Refuses a document currency the tenant has not enabled (settings §"عام"). */
   readonly currencyCheck?: CurrencyCheck;
   /**
+   * The tenant's real chart of accounts, so an invoice cannot name a GL
+   * account the tenant does not have (D108).
+   *
+   * The browser fills any unmapped item's accounts from constants — 1105 /
+   * 2200 / 4100 / 5100 / 1200, the ids the seed template happens to use — and
+   * nothing checked them. On a tenant whose chart differs, the invoice posted
+   * to whatever those codes meant there, or to an account that did not exist.
+   * Omit the port and the check is skipped, the way every other cross-aggregate
+   * check here degrades rather than refusing to mount.
+   */
+  readonly accounts?: { findById(id: string): Promise<{ readonly isHeader: boolean; readonly status: string } | null> };
+  /**
    * Exchange rates, so a foreign-currency invoice posts its base value at the
    * approved rate of its own date and tags the receivable line for revaluation
    * (D24). Omit and a non-base currency is refused rather than posted 1:1.
@@ -423,6 +435,35 @@ export function createSalesInvoicesRoutes(
     return svc.totalsOf(invoice);
   }
 
+  /**
+   * Every GL account an invoice names, checked against the tenant's own chart.
+   *
+   * A header account is refused too: posting to a رئيسي account is what the
+   * account tree exists to prevent, and a caller that names one is as wrong as
+   * one naming an id that does not exist.
+   */
+  async function refuseUnknownAccounts(
+    c: Context,
+    ids: readonly (string | null | undefined)[],
+  ): Promise<Response | null> {
+    if (!deps.accounts) return null;
+    const unique = [...new Set(ids.filter((id): id is string => typeof id === "string" && id !== ""))];
+    const bad: string[] = [];
+    for (const id of unique) {
+      const account = await deps.accounts.findById(id);
+      if (!account || account.isHeader || account.status !== "active") bad.push(id);
+    }
+    if (bad.length === 0) return null;
+    return c.json(
+      {
+        error: "GL_ACCOUNT_NOT_POSTABLE",
+        accounts: bad,
+        message: `حساب دفتري غير صالح للترحيل: ${bad.join("، ")}. راجع دليل الحسابات أو ربط الأصناف بحساباتها.`,
+      },
+      422,
+    );
+  }
+
   app.post("/", gate("sales.invoice.create"), async (c) => {
     const parsed = createSalesInvoiceSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -470,6 +511,12 @@ export function createSalesInvoicesRoutes(
     };
     const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));
     if (refusal) return refusal;
+    const accountRefusal = await refuseUnknownAccounts(c, [
+      cmd.arAccountId,
+      cmd.taxAccountId,
+      ...cmd.lines.flatMap((l) => [l.revenueAccountId, l.cogsAccountId, l.inventoryAccountId]),
+    ]);
+    if (accountRefusal) return accountRefusal;
     const discountRefusal = await refuseUnapprovedDiscount(c, d);
     if (discountRefusal) return discountRefusal;
 

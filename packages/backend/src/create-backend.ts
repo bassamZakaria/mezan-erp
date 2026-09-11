@@ -1658,6 +1658,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       workflow: documentWorkflowGate,
       audit: auditSink,
       events: salesInvoiceEvents,
+      // The tenant's real chart, so an invoice cannot name an account it does
+      // not have — the browser fills any unmapped item from constants (D108).
+      accounts,
       allocatable: vouchers.invoices,
       // The customer's own price list, consulted SERVER-side. The engine
       // (resolvePrice) always existed and no route called it, so the whole

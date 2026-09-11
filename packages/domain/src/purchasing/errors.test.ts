@@ -52,7 +52,7 @@ describe("purchasing errors", () => {
     const err = new InvalidPurchaseDocumentError(["reason A", "reason B"]);
     expect(err.code).toBe("INVALID_PURCHASE_DOCUMENT");
     expect(err.reasons).toEqual(["reason A", "reason B"]);
-    expect(err.message).toBe("Invalid purchase document: reason A; reason B");
+    expect(err.message).toBe("مستند مشتريات غير صالح: reason A، reason B");
   });
 
   it("PurchaseDocumentNotDraftError names both the id and the current status", () => {
@@ -72,7 +72,7 @@ describe("purchasing errors", () => {
   it("ReceiptRequiredError has a fixed, code-only message", () => {
     const err = new ReceiptRequiredError();
     expect(err.code).toBe("PURCHASE_RECEIPT_REQUIRED");
-    expect(err.message).toContain("strictness gate is on");
+    expect(err.message).toContain("إلزام إذن الاستلام قبل الفاتورة");
   });
 
   it("OverReceiptError names the offending item", () => {
@@ -110,7 +110,7 @@ describe("purchasing errors", () => {
   it("InvalidRfqError joins reasons", () => {
     const err = new InvalidRfqError(["missing supplier"]);
     expect(err.code).toBe("INVALID_RFQ");
-    expect(err.message).toBe("Invalid RFQ: missing supplier");
+    expect(err.message).toBe("طلب عرض سعر غير صالح: missing supplier");
   });
 
   it("RfqNotDraftError names id and status", () => {

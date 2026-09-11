@@ -93,4 +93,4 @@ export {
   type EtaSignatureResult,
   type EtaSigningPort,
 } from "./signing.js";
-export { resolveEtaVatSubType } from "./tax-subtype.js";
+export { resolveEtaVatSubType, findLineTaxRate, ZERO_RATED_SUBTYPES } from "./tax-subtype.js";

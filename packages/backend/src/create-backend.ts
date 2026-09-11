@@ -159,6 +159,8 @@ import {
   EtaService,
   DuplicateEtaSubmissionError,
   resolveEtaVatSubType,
+  findLineTaxRate,
+  convertToBase,
   createDefaultSettings,
   type EtaBranchCodeRepository,
   type EtaUnitMappingRepository,
@@ -432,6 +434,12 @@ function createEtaEnqueueBridge(deps: {
             name: invoice.customerNameAr,
             type: customer?.taxNumber ? "B" : "P",
           },
+          // The document's OWN currency and the rate it was booked at. Filing
+          // every line as EGP misstated a foreign invoice to the authority
+          // (D78), and the payload refuses a foreign document with no rate
+          // rather than sending one at par.
+          currency: invoice.currency,
+          exchangeRate: invoice.fxRate ?? null,
           lines: invoice.lines.map((line: SalesInvoiceLine, index: number) => {
             const lt = lineTotals.get(line.lineId);
             const item = lineItems[index] ?? null;
@@ -439,13 +447,18 @@ function createEtaEnqueueBridge(deps: {
             // quantity and unit price below are both per entered unit, so
             // filing the base unit code would misstate the quantity sold.
             const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
-            const taxRate = taxRates.find((r) => r.status === "active" && r.rate === line.taxRatePercent);
+            const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
             return {
               description: line.itemNameAr,
               itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
               quantity: line.qty.toString(),
               unitType: unitByCode.get(unitCode) ?? unitCode,
               unitPrice: line.unitPrice.toString(),
+              // On a foreign document the authority wants the sold amount AND
+              // its pound equivalent; on an EGP one they are the same number.
+              unitPriceEgp: invoice.fxRate
+                ? convertToBase(line.unitPrice, invoice.fxRate).toString()
+                : line.unitPrice.toString(),
               netTotal: (lt?.taxableBase ?? Money.zero()).toString(),
               taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, line.taxRatePercent),
               taxRate: String(line.taxRatePercent),

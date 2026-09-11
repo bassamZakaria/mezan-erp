@@ -1880,7 +1880,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               qty: l.baseQty,
               alreadyReturnedQty: returnedByItem.get(l.itemId) ?? Qty.zero(),
               unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
-              unitCost: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
+              // The line's captured moving-average COST, not its price. This
+              // read `l.unitPrice` — the same expression as the line above —
+              // so «مرتجع من فاتورة», the route the screen uses, restocked
+              // every return at the SELLING price: inventory overstated and
+              // the COGS reversal wrong by the whole margin (D145).
+              unitCost:
+                l.unitCost === null
+                  ? Money.zero()
+                  : unitCostOf(extendQtyByPrice(l.qty, l.unitCost), l.baseQty),
               taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
               taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
             })),

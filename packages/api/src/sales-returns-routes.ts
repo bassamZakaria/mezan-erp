@@ -112,6 +112,63 @@ export function createSalesReturnsRoutes(
     return line.qty.subtract(line.alreadyReturnedQty);
   }
 
+  /**
+   * Every figure a caller stated on a `POST /` line, checked against the
+   * invoice it names (D89, D102).
+   *
+   * The `/from-invoice` route reads price, cost, tax and returnable quantity
+   * off the invoice and cannot be lied to. `POST /` lets the caller state them
+   * all — including `customerId`, which nothing validated, so a confirmed
+   * return's refund could be directed at ANY customer while the goods came
+   * back against someone else's invoice. That is a credit note to a stranger,
+   * and it needed no permission beyond the one that raises an ordinary return.
+   *
+   * Returns an Arabic refusal, or null when the line is consistent. A line
+   * whose invoice cannot be resolved is left alone: editions that mount
+   * returns without an invoices module have no invoice to check against, and
+   * refusing there would break them rather than protect them.
+   */
+  async function refuseInconsistentLine(
+    line: { sourceInvoiceId: string; customerId: string; itemId: string; unitCost?: string },
+  ): Promise<{ error: string; message: string } | null> {
+    if (!invoices) return null;
+    const invoice = await invoices.findConfirmedInvoice(line.sourceInvoiceId);
+    if (!invoice) {
+      return {
+        error: "SOURCE_INVOICE_NOT_FOUND",
+        message: "الفاتورة المصدر غير موجودة أو غير مؤكدة.",
+      };
+    }
+    if (invoice.customerId !== line.customerId) {
+      return {
+        error: "RETURN_CUSTOMER_MISMATCH",
+        message: "عميل المرتجع لا يطابق عميل الفاتورة المصدر.",
+      };
+    }
+    if (!invoice.lines.some((il) => il.itemId === line.itemId)) {
+      return {
+        error: "RETURN_ITEM_NOT_ON_INVOICE",
+        message: "الصنف غير موجود في الفاتورة المصدر.",
+      };
+    }
+    return null;
+  }
+
+  /**
+   * The unit cost the INVOICE recorded, not the one the caller sent (D102).
+   *
+   * Cost decides the COGS reversal and therefore the margin; letting the
+   * caller state it is letting them state their own profit. `/from-invoice`
+   * always derived it, and this makes `POST /` derive it too wherever the
+   * invoice is resolvable, so the two routes cannot disagree.
+   */
+  async function resolveUnitCost(sourceInvoiceId: string, itemId: string, claimed: string): Promise<Money> {
+    if (!invoices) return Money.fromMajor(claimed);
+    const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
+    const line = invoice?.lines.find((il) => il.itemId === itemId);
+    return line ? line.unitCost : Money.fromMajor(claimed);
+  }
+
   interface SalesReturnListFilter {
     readonly status?: string;
     readonly customerId?: string;
@@ -261,6 +318,10 @@ export function createSalesReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    for (const line of parsed.data.lines) {
+      const refusal = await refuseInconsistentLine(line);
+      if (refusal) return c.json(refusal, 422);
+    }
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
@@ -276,7 +337,7 @@ export function createSalesReturnsRoutes(
           availableQty: await resolveAvailableQty(l.sourceInvoiceId, l.itemId, l.availableQty),
           qty: Qty.fromMajor(l.qty),
           unitPrice: Money.fromMajor(l.unitPrice),
-          unitCost: Money.fromMajor(l.unitCost),
+          unitCost: await resolveUnitCost(l.sourceInvoiceId, l.itemId, l.unitCost),
           taxAmount: Money.fromMajor(l.taxAmount),
           taxRatePercent: l.taxRatePercent ?? null,
         }))),

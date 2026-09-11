@@ -2618,6 +2618,116 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
   });
 });
 
+/**
+ * The goods cost 10 and sold for 50. A return puts the GOODS back, so inventory
+ * may only rise by what they cost — restocking at the price would book a 40 per
+ * unit profit on a sale that was undone.
+ */
+describe("createBackend — «مرتجع من فاتورة» restocks at cost, never at the selling price (D145)", () => {
+  it("raises inventory by the returned quantity × its COST, and leaves the sub-ledger tied to the GL", async () => {
+    const app = await newBackend();
+
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-d145", code: "item-d145", nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/adjustments",
+          {
+            adjustmentId: "adj-d145",
+            warehouseId: "WH-MAIN",
+            reason: "INITIAL_STOCK",
+            lines: [{ itemId: "item-d145", direction: "IN", qty: "100", unitCost: "10" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    await createCustomer(app, "cust-d145", "0");
+
+    expect(
+      (
+        await post(
+          app,
+          "/sales-invoices",
+          {
+            id: "inv-d145",
+            date: "2026-08-22",
+            dueDate: "2026-09-21",
+            customerId: "cust-d145",
+            customerNameAr: "عميل",
+            warehouseId: "WH-MAIN",
+            branchId: "BR-MAIN",
+            arAccountId: "1105",
+            taxAccountId: "2200",
+            lines: [
+              {
+                lineId: "L1",
+                itemId: "item-d145",
+                itemNameAr: "منتج",
+                isStock: true,
+                qty: "20",
+                unitPrice: "50",
+                taxRatePercent: 0,
+                revenueAccountId: "4100",
+                cogsAccountId: "5100",
+                inventoryAccountId: "1200",
+              },
+            ],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/sales-invoices/inv-d145/confirm", {}, admin(app))).status).toBe(200);
+
+    // Built through /from-invoice — the route the screen uses, and the one that
+    // reads cost off the invoice rather than taking the caller's word.
+    const built = await post(
+      app,
+      "/sales-returns/from-invoice",
+      {
+        id: "sr-d145",
+        date: "2026-08-23",
+        sourceInvoiceId: "inv-d145",
+        warehouseId: "WH-MAIN",
+        reason: "DEFECTIVE",
+        requested: [{ itemId: "item-d145", qty: "5" }],
+      },
+      admin(app),
+    );
+    expect(built.status).toBe(201);
+    const draft = (await built.json()) as { lines: { unitCost: string; unitPrice: string }[] };
+
+    // The cost the line carries is the item's, not the invoice's price.
+    expect(draft.lines[0]?.unitCost).toBe("10.000000");
+    expect(draft.lines[0]?.unitPrice).toBe("50.000000");
+
+    expect((await post(app, "/sales-returns/sr-d145/confirm", {}, admin(app))).status).toBe(200);
+
+    const recon = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const after = (await recon.json()) as {
+      allMatched: boolean;
+      rows: { key: string; subLedgerBalance: string; glBalance: string }[];
+    };
+    // 100 received @10, 20 sold @10, 5 returned @10 → 850. Restocking at the
+    // price would have read 1050.
+    const inventory = after.rows.find((r) => r.key === "inventory")!;
+    expect(Number(inventory.subLedgerBalance)).toBe(850);
+    expect(Number(inventory.glBalance)).toBe(850);
+    expect(after.allMatched).toBe(true);
+  });
+});
+
 describe("createBackend — تحصيل من عميل السعر (D35): pricing variance surfaces on confirm", () => {
   it("charging below the customer's own price list produces an exact pricing variance on confirm", async () => {
     const app = await newBackend();

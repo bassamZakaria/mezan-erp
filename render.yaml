@@ -4,6 +4,12 @@ services:
     runtime: docker
     plan: free
     region: frankfurt
+    # Without these two keys Render tracks whichever branch was selected in the
+    # dashboard when the blueprint was first created — which is how a merge to
+    # main deployed nothing at all. Naming the branch here keeps the trigger in
+    # the repo instead of in someone's browser session.
+    branch: main
+    autoDeploy: true
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
     envVars:
@@ -20,3 +26,6 @@ services:
       # MEZAN_DEMO_PASSWORD is deliberately NOT declared here: a `sync: false`
       # var makes the blueprint stop and ask for a value before it will deploy.
       # Add it in the dashboard afterwards to put the demo behind basic auth.
+      # MEZAN_ANALYTICS_TOKEN is left out for the same reason. Set it in the
+      # dashboard to a Cloudflare Web Analytics site token and the demo page
+      # starts reporting visitors; leave it unset and no beacon is served.

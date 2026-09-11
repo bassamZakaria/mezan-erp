@@ -36,10 +36,27 @@ if (demoPassword) {
   });
 }
 
+/**
+ * The analytics beacon is injected HERE, at the cloud mount, and never built
+ * into the bundle: the desktop and LAN mounts serve the same dist/ and must
+ * stay free of any outbound call. Unset the env var and the demo ships the
+ * page untouched.
+ */
+const analyticsToken = process.env.MEZAN_ANALYTICS_TOKEN;
+const analyticsTag = analyticsToken
+  ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: analyticsToken })}'></script>`
+  : "";
+
+const rawIndexHtml = await readFile(`${staticRoot}/index.html`, "utf8");
+const indexHtml = analyticsTag
+  ? rawIndexHtml.replace("</body>", `${analyticsTag}</body>`)
+  : rawIndexHtml;
+
 root.route("/api", app);
+root.get("/", (c) => c.html(indexHtml));
+root.get("/index.html", (c) => c.html(indexHtml));
 root.use("/*", serveStatic({ root: staticRoot }));
 
-const indexHtml = await readFile(`${staticRoot}/index.html`, "utf8");
 root.notFound((c) => c.html(indexHtml));
 
 const port = Number(process.env.PORT ?? 8080);

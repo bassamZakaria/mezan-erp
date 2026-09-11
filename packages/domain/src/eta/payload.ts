@@ -68,6 +68,14 @@ export interface EtaDocumentInput {
    * on an EGP document is a contradiction the authority rejects.
    */
   readonly exchangeRate?: string | null;
+  /**
+   * The document this one corrects — the original invoice's internal id.
+   *
+   * A credit or debit note the authority cannot tie back to an invoice is
+   * rejected, so this is required in practice for `credit_note`/`debit_note`
+   * and meaningless on an `invoice`.
+   */
+  readonly referencedDocumentIds?: readonly string[];
   readonly totalNet: string;
   readonly totalTax: string;
   readonly totalAmount: string;
@@ -142,6 +150,9 @@ export function buildEtaPayload(input: EtaDocumentInput, config: EtaConfig): unk
         { taxType: "T1", subType: l.taxSubType, rate: l.taxRate, amount: l.taxAmount },
       ],
     })),
+    // A note with nothing to correct is filed with no references rather than an
+    // empty array, which the authority reads as a malformed document.
+    ...(input.referencedDocumentIds?.length ? { references: [...input.referencedDocumentIds] } : {}),
     totalSalesAmount: input.totalNet,
     totalTaxAmount: input.totalTax,
     totalAmount: input.totalAmount,

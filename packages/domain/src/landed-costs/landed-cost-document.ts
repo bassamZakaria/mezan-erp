@@ -31,7 +31,16 @@ export type LandedCostDocument = FrameworkDocument<LandedCostLine>;
 
 export interface LandedCostGlAccounts {
   readonly inventoryAccountId: string;
-  /** Accrual/clearing account for the freight/customs vendor(s) — settled by a separate treasury voucher, out of this PR's scope. */
+  /**
+   * Accrual account for the freight/customs vendor(s), settled by a separate
+   * treasury voucher.
+   *
+   * It must NOT be the AP control account. It was 2100 — ذمم موردين تجاريين —
+   * and a landed cost therefore credited the control account with no supplier
+   * document behind it, so the AP sub-ledger and GL 2100 diverged by every
+   * landed cost ever posted. That is one of the four zero-invariants the
+   * product is sold on (D75).
+   */
   readonly accruedLandedCostPayableId: string;
 }
 

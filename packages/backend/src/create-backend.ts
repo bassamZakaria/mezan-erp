@@ -165,6 +165,8 @@ import {
   type EtaBranchCodeRepository,
   type EtaUnitMappingRepository,
   type SalesInvoiceRepository,
+  type SalesReturnLine,
+  type DocumentRepository,
   type SalesInvoiceLine,
   type CustomerRepository,
   type ItemRepository,
@@ -317,7 +319,10 @@ function adjustmentGlAccountsForReason(
  */
 const LANDED_COST_GL_ACCOUNTS = {
   inventoryAccountId: "1200",
-  accruedLandedCostPayableId: "2100",
+  // 2130 تكاليف إضافية مستحقة, NOT 2100 ذمم موردين تجاريين. Crediting the AP
+  // CONTROL account with no supplier document behind it made the AP sub-ledger
+  // and GL 2100 disagree by every landed cost posted (D75).
+  accruedLandedCostPayableId: "2130",
   unabsorbedCostAccountId: "5100",
 };
 
@@ -468,6 +473,98 @@ function createEtaEnqueueBridge(deps: {
           totalNet: totals.taxableTotal.toString(),
           totalTax: totals.taxTotal.toString(),
           totalAmount: totals.grandTotal.toString(),
+        });
+      })().catch((error: unknown) => {
+        if (error instanceof DuplicateEtaSubmissionError) return;
+        console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
+      });
+    },
+  };
+}
+
+/**
+ * Queues a confirmed SALES RETURN to the authority as an إشعار دائن (credit
+ * note) — D77/D122.
+ *
+ * The invoice bridge above reacts only to `docType === "SALES_INVOICE"`, so a
+ * confirmed return reached the queue through nothing at all, even though the
+ * queue has always handled `credit_note` correctly when fed directly. A return
+ * that never reaches the authority leaves the customer's filed VAT overstated
+ * by the credit, which is the half of a return that a tax inspection notices.
+ *
+ * ONLY sales returns. A purchase return is a credit note the SUPPLIER issues to
+ * us — their filing obligation, not ours — and filing it here would declare a
+ * document this company never raised.
+ */
+function createReturnEtaEnqueueBridge(deps: {
+  readonly eta: EtaService;
+  readonly returns: Pick<DocumentRepository<SalesReturnLine>, "findById">;
+  readonly customers: Pick<CustomerRepository, "findById">;
+  readonly items: Pick<ItemRepository, "findById">;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly branchCodes: EtaBranchCodeRepository;
+  readonly unitMappings: EtaUnitMappingRepository;
+}): DocumentEventPublisher {
+  return {
+    publish(event) {
+      if (event.type !== "DOCUMENT_CONFIRMED" || event.docType !== "SALES_RETURN") return;
+      void (async () => {
+        const config = await deps.eta.getConfig();
+        if (!config.autoSubmitOnConfirm) return;
+        const doc = await deps.returns.findById(event.docId);
+        if (!doc || doc.lines.length === 0) return;
+
+        const first = doc.lines[0];
+        if (!first) return;
+        const customer = await deps.customers.findById(first.customerId);
+        const [taxRates, branchCodes, unitMappings] = await Promise.all([
+          deps.taxRates.list(),
+          deps.branchCodes.list(),
+          deps.unitMappings.list(),
+        ]);
+        const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
+        const lineItems = await Promise.all(doc.lines.map((line) => deps.items.findById(line.itemId)));
+
+        let totalNet = Money.zero();
+        let totalTax = Money.zero();
+        const lines = doc.lines.map((line, index) => {
+          const item = lineItems[index] ?? null;
+          const net = extendQtyByPrice(line.qty, line.unitPrice);
+          const rate = line.taxRatePercent ?? 0;
+          totalNet = totalNet.add(net);
+          totalTax = totalTax.add(line.taxAmount);
+          return {
+            description: item?.nameAr ?? line.itemId,
+            itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
+            quantity: line.qty.toString(),
+            unitType: unitByCode.get(item?.baseUnitCode ?? "") ?? item?.baseUnitCode ?? "",
+            unitPrice: line.unitPrice.toString(),
+            netTotal: net.toString(),
+            taxSubType: resolveEtaVatSubType(findLineTaxRate(taxRates, rate)?.etaSubType, rate),
+            taxRate: String(rate),
+            taxAmount: line.taxAmount.toString(),
+          };
+        });
+
+        // Every line of a return belongs to one invoice (the document type
+        // enforces it), so the note references exactly that one.
+        const referenced = [...new Set(doc.lines.map((l) => l.sourceInvoiceNumber ?? l.sourceInvoiceId))];
+
+        await deps.eta.enqueue({
+          internalId: doc.docNo ?? doc.id,
+          documentType: "credit_note",
+          issueDateTime: event.occurredAt,
+          branchCode: branchCodes[0]?.etaBranchCode ?? null,
+          receiver: {
+            registrationNumber: customer?.taxNumber ?? null,
+            name: customer?.nameAr ?? first.customerId,
+            type: customer?.taxNumber ? "B" : "P",
+          },
+          referencedDocumentIds: referenced,
+          lines,
+          totalNet: totalNet.toString(),
+          totalTax: totalTax.toString(),
+          totalAmount: totalNet.add(totalTax).toString(),
         });
       })().catch((error: unknown) => {
         if (error instanceof DuplicateEtaSubmissionError) return;
@@ -828,13 +925,25 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }),
   );
 
+  const salesReturnEvents = fanOutDocumentEvents(
+    returnsEventBridge,
+    createReturnEtaEnqueueBridge({
+      eta: etaService,
+      returns: salesReturnStore,
+      customers,
+      items,
+      taxRates,
+      branchCodes: etaStore.branchCodes,
+      unitMappings: etaStore.unitMappings,
+    }),
+  );
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
     numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
-    events: returnsEventBridge,
+    events: salesReturnEvents,
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
@@ -1087,14 +1196,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       if (doc.status !== "confirmed") continue;
       apScaled -= purchaseReturnGrandTotal(doc).scaled;
     }
-    for (const doc of landedCostDocs) {
-      if (doc.status !== "confirmed") continue;
-      // costItems is denormalized onto EVERY target line, so summing per line
-      // multiplies the document's total by its line count. One document, one
-      // credit to AP — take the cost items from any single line.
-      const costItems = doc.lines[0]?.costItems;
-      if (costItems) apScaled += totalLandedCost(costItems).scaled;
-    }
+    // Landed costs are deliberately NOT added here any more. They used to be,
+    // to compensate for the document crediting GL 2100 — so the invariant
+    // "tied" only because the sub-ledger figure was inflated to match a GL
+    // entry that never belonged in AP (D75). The accrual now goes to 2130, and
+    // this figure is again what it claims to be: what real supplier documents
+    // say is owed.
 
     let inventoryScaled = 0n;
     for (const snap of snapshots) {

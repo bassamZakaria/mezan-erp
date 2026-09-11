@@ -26,7 +26,12 @@ function serializeLine(l: LandedCostLine) {
     allocatedAmount: l.allocatedAmount.toString(),
     newUnitCost: l.newUnitCost.toString(),
     distributionMethod: l.distributionMethod,
-    costItems: l.costItems.map((ci) => ({ costType: ci.costType, description: ci.description, amount: ci.amount.toString() })),
+    costItems: l.costItems.map((ci) => ({
+      costType: ci.costType,
+      description: ci.description,
+      amount: ci.amount.toString(),
+      supplierId: ci.supplierId ?? null,
+    })),
   };
 }
 
@@ -85,6 +90,7 @@ export function createLandedCostsRoutes(
         costType: ci.costType,
         description: ci.description,
         amount: Money.fromMajor(ci.amount),
+        supplierId: ci.supplierId ?? null,
       }));
       const targets = parsed.data.targets.map((t) => ({
         itemId: t.itemId,

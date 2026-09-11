@@ -25,6 +25,14 @@ export interface LandedCostItemEntry {
   readonly costType: LandedCostType;
   readonly description: string;
   readonly amount: Money;
+  /**
+   * The freight/customs/clearance vendor this charge is owed to.
+   *
+   * Optional because a landed cost can legitimately be an internal charge with
+   * no third party behind it, and because documents raised before this existed
+   * carry none. Without it the liability sat in the GL against nobody (D75).
+   */
+  readonly supplierId?: string | null;
 }
 
 /** One target item on the linked purchase invoice, before allocation. */

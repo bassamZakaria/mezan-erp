@@ -866,7 +866,7 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
     expect(rows.some((r) => r.internalId === invoice.docNo && r.documentType === "invoice")).toBe(true);
   });
 
-  it("LIMITATION (D122): confirming a sales return against that same invoice never reaches the ETA queue, even though the invoice's own submission proves the queue and the wiring both work", async () => {
+  it("queues a confirmed sales return as its own credit note, alongside the invoice (D77/D122)", async () => {
     const app = await newBackend();
     await createServiceItem(app);
     const invoice = await confirmedInvoice(app, "inv-eta-2", "cust-eta-2");
@@ -900,18 +900,16 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
     const returnDoc = (await confirmReturn.json()) as { document: { docNo: string } };
     expect(returnDoc.document.docNo).toBeTruthy();
 
-    // Give the fire-and-forget bridge every chance it would need if it were wired
-    // to receive the return's event at all.
+    // The bridge queues on a floating promise.
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     const rows = await submissions(app);
-    // What happens today: the return's document number is nowhere in the queue.
-    // What should happen: a confirmed return should be queued for e-invoicing
-    // (or explicitly excluded), not silently dropped by an event bridge it was
-    // never wired into.
-    expect(rows.some((r) => r.internalId === returnDoc.document.docNo)).toBe(false);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.internalId).toBe(invoice.docNo);
+    const note = rows.find((r) => r.internalId === returnDoc.document.docNo);
+    expect(note, `the return is not in the queue: ${JSON.stringify(rows)}`).toBeDefined();
+    // Filed as an إشعار دائن against the invoice, not as a second invoice.
+    expect(note?.documentType).toBe("credit_note");
+    // And the invoice's own submission is still there, untouched.
+    expect(rows.some((r) => r.internalId === invoice.docNo && r.documentType === "invoice")).toBe(true);
   });
 });
 
@@ -2725,6 +2723,267 @@ describe("createBackend — «مرتجع من فاتورة» restocks at cost, n
     expect(Number(inventory.subLedgerBalance)).toBe(850);
     expect(Number(inventory.glBalance)).toBe(850);
     expect(after.allMatched).toBe(true);
+  });
+});
+
+/**
+ * A confirmed sales return is an إشعار دائن to the authority. It reached the
+ * queue through nothing at all — the enqueue bridge matched only
+ * `docType === "SALES_INVOICE"` — so the customer's filed VAT stayed overstated
+ * by the credit (D77/D122).
+ */
+describe("createBackend — a confirmed sales return is queued to ETA as a credit note (D77/D122)", () => {
+  async function soldAndReturned(app: Awaited<ReturnType<typeof newBackend>>) {
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-eta-ret", code: "item-eta-ret", nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/adjustments",
+          {
+            adjustmentId: "adj-eta-ret",
+            warehouseId: "WH-MAIN",
+            reason: "INITIAL_STOCK",
+            lines: [{ itemId: "item-eta-ret", direction: "IN", qty: "50", unitCost: "10" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    await createCustomer(app, "cust-eta-ret", "0");
+    expect(
+      (
+        await post(
+          app,
+          "/sales-invoices",
+          {
+            id: "inv-eta-ret",
+            date: "2026-08-22",
+            dueDate: "2026-09-21",
+            customerId: "cust-eta-ret",
+            customerNameAr: "عميل",
+            warehouseId: "WH-MAIN",
+            branchId: "BR-MAIN",
+            arAccountId: "1105",
+            taxAccountId: "2200",
+            lines: [
+              {
+                lineId: "L1",
+                itemId: "item-eta-ret",
+                itemNameAr: "منتج",
+                isStock: true,
+                qty: "10",
+                unitPrice: "100",
+                taxRatePercent: 14,
+                revenueAccountId: "4100",
+                cogsAccountId: "5100",
+                inventoryAccountId: "1200",
+              },
+            ],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/sales-invoices/inv-eta-ret/confirm", {}, admin(app))).status).toBe(200);
+
+    expect(
+      (
+        await post(
+          app,
+          "/sales-returns/from-invoice",
+          {
+            id: "sr-eta-ret",
+            date: "2026-08-23",
+            sourceInvoiceId: "inv-eta-ret",
+            warehouseId: "WH-MAIN",
+            reason: "DEFECTIVE",
+            requested: [{ itemId: "item-eta-ret", qty: "2" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/sales-returns/sr-eta-ret/confirm", {}, admin(app))).status).toBe(200);
+  }
+
+  async function queue(app: Awaited<ReturnType<typeof newBackend>>) {
+    const res = await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    return (await res.json()) as { internalId: string; documentType: string; status: string }[];
+  }
+
+  it("queues the return as a credit_note once auto-submit is on", async () => {
+    const app = await newBackend();
+    expect(
+      (
+        await app.fetch(
+          new Request("http://local/eta/config", {
+            method: "PUT",
+            headers: { "content-type": "application/json", ...admin(app) },
+            body: JSON.stringify({ autoSubmitOnConfirm: true }),
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    await soldAndReturned(app);
+    // The bridge queues on a floating promise, so let the microtask drain.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const rows = await queue(app);
+    const note = rows.find((r) => r.documentType === "credit_note");
+    expect(note, `no credit note in ${JSON.stringify(rows)}`).toBeDefined();
+    expect(note?.internalId).toContain("SR");
+  });
+
+  it("queues nothing at all while auto-submit is off, so the toggle still means something", async () => {
+    const app = await newBackend();
+    // `autoSubmitOnConfirm` defaults to true, so this has to be switched OFF
+    // rather than assumed off.
+    expect(
+      (
+        await app.fetch(
+          new Request("http://local/eta/config", {
+            method: "PUT",
+            headers: { "content-type": "application/json", ...admin(app) },
+            body: JSON.stringify({ autoSubmitOnConfirm: false }),
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    await soldAndReturned(app);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await queue(app)).toEqual([]);
+  });
+});
+
+/**
+ * A landed cost credited GL 2100 — the AP CONTROL account — with no supplier
+ * document behind it, so the supplier sub-ledger and its control account
+ * disagreed by every landed cost ever posted (D75). That is one of the four
+ * zero-invariants the product is sold on, and nothing was measuring it.
+ */
+describe("createBackend — a landed cost does not touch the AP control account (D75)", () => {
+  it("leaves ذمم الموردين tied to GL 2100 after a confirmed landed cost", async () => {
+    const app = await newBackend();
+
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-lc", code: "item-lc", nameAr: "منتج مستورد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/adjustments",
+          {
+            adjustmentId: "adj-lc",
+            warehouseId: "WH-MAIN",
+            reason: "INITIAL_STOCK",
+            lines: [{ itemId: "item-lc", direction: "IN", qty: "100", unitCost: "10" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+
+    const before = (await (
+      await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }))
+    ).json()) as { allMatched: boolean; rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
+    expect(before.allMatched).toBe(true);
+    const apBefore = before.rows.find((r) => r.key === "ap")!;
+
+    const created = await post(
+      app,
+      "/landed-costs",
+      {
+        id: "lc-1",
+        date: "2026-08-24",
+        memo: "شحن وتخليص",
+        distributionMethod: "BY_VALUE",
+        costItems: [{ costType: "SHIPPING", description: "شحن بحري", amount: "500", supplierId: "SUP-FREIGHT" }],
+        targets: [
+          {
+            itemId: "item-lc",
+            warehouseId: "WH-MAIN",
+            sourceInvoiceId: "inv-lc",
+            sourceInvoiceNumber: "PI-000001",
+            qty: "100",
+            unitCost: "10",
+            weight: "1",
+          },
+        ],
+      },
+      admin(app),
+    );
+    expect(created.status).toBe(201);
+    expect((await post(app, "/landed-costs/lc-1/confirm", {}, admin(app))).status).toBe(200);
+
+    const after = (await (
+      await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }))
+    ).json()) as { allMatched: boolean; rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
+
+    const apAfter = after.rows.find((r) => r.key === "ap")!;
+    // The 500 accrual is a liability, but NOT a trade payable: it belongs to
+    // 2130 تكاليف إضافية مستحقة, so the AP control is exactly where it was.
+    expect(apAfter.glBalance).toBe(apBefore.glBalance);
+    expect(apAfter.subLedgerBalance).toBe(apAfter.glBalance);
+    expect(after.allMatched).toBe(true);
+  });
+
+  it("records the vendor the charge is owed to, so the accrual has a name on it", async () => {
+    const app = await newBackend();
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-lc2", code: "item-lc2", nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    const created = await post(
+      app,
+      "/landed-costs",
+      {
+        id: "lc-2",
+        date: "2026-08-24",
+        memo: "",
+        distributionMethod: "BY_QUANTITY",
+        costItems: [{ costType: "CUSTOMS", description: "جمارك", amount: "300", supplierId: "SUP-CUSTOMS" }],
+        targets: [
+          {
+            itemId: "item-lc2",
+            warehouseId: "WH-MAIN",
+            sourceInvoiceId: "inv-lc2",
+            sourceInvoiceNumber: "PI-000002",
+            qty: "10",
+            unitCost: "10",
+            weight: "1",
+          },
+        ],
+      },
+      admin(app),
+    );
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as { lines: { costItems: { supplierId: string | null }[] }[] };
+    expect(body.lines[0]?.costItems[0]?.supplierId).toBe("SUP-CUSTOMS");
   });
 });
 

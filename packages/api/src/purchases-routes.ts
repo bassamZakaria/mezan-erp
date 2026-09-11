@@ -61,6 +61,7 @@ import {
   auditBranchFromScope,
   branchScopedAuditSink,
   type AuditSink,
+  can,
 } from "@mezan/domain";
 import {
   createPurchaseOrderSchema,
@@ -994,6 +995,40 @@ export function createPurchasesRoutes(
     try {
       // create-from-receipt: auto-fill lines from a confirmed receipt when omitted.
       let lines: PurchaseInvoiceLine[] | undefined;
+      if (parsed.data.lines && parsed.data.receiptId) {
+        /*
+         * An invoice that NAMES a receipt and then states its own costs was
+         * never checked against it (D88): the supplier's figure went straight
+         * into the books, revalued the stock, and nothing said the goods had
+         * been received at a different price.
+         *
+         * A real price difference is legitimate — that is what the price
+         * variance account exists for — so this is a GATE, not a refusal:
+         * restating a received cost needs `purchases.receipt.edit_cost`, the
+         * same grant that lets someone change the cost on the receipt itself.
+         * Without it the receipt's cost stands.
+         */
+        const receipt = await deps.receipts.findById(parsed.data.receiptId);
+        if (!receipt) throw new GoodsReceiptNotFoundError(parsed.data.receiptId);
+        const receivedCost = new Map(receipt.lines.map((l) => [l.itemId, l.unitCost.toString()]));
+        const restated = parsed.data.lines.filter((l) => {
+          if (!l.itemId) return false;
+          const received = receivedCost.get(l.itemId);
+          return received !== undefined && received !== Money.fromMajor(l.unitCost).toString();
+        });
+        const ctx = getAuthContext(c);
+        if (restated.length > 0 && !(ctx && can(ctx, "purchases.receipt.edit_cost"))) {
+          return c.json(
+            {
+              error: "PERMISSION_DENIED",
+              permission: "purchases.receipt.edit_cost",
+              items: restated.map((l) => l.itemId),
+              message: "تكلفة الفاتورة تختلف عن تكلفة الاستلام، وتعديلها يتطلب صلاحية تعديل تكلفة الاستلام.",
+            },
+            403,
+          );
+        }
+      }
       if (parsed.data.lines) {
         lines = parsed.data.lines.map((l) => ({
           itemId: l.itemId ?? null,

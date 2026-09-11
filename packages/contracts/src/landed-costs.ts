@@ -14,6 +14,8 @@ export const landedCostItemEntrySchema = z.object({
   costType: landedCostTypeSchema,
   description: z.string(),
   amount: positiveDecimalString,
+  /** The freight/customs vendor this charge is owed to, so the accrual has a name on it (D75). */
+  supplierId: z.string().min(1).nullish(),
 });
 
 export const landedCostTargetSchema = z.object({

@@ -60,6 +60,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
    */
   { id: "2120", code: "2120", nameAr: "بضاعة واردة لم تُفوتر", nameEn: "Goods Received Not Invoiced", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2110", code: "2110", nameAr: "مرتجعات موردين تحت التسوية", nameEn: "Supplier Returns Clearing", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2130", code: "2130", nameAr: "تكاليف إضافية مستحقة", nameEn: "Accrued Landed Costs", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2150", code: "2150", nameAr: "شيكات صادرة", nameEn: "Cheques Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2160", code: "2160", nameAr: "دفعات مقدمة من عملاء", nameEn: "Customer Advances", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2200", code: "2200", nameAr: "ضريبة القيمة المضافة مستحقة", nameEn: "Output VAT Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },

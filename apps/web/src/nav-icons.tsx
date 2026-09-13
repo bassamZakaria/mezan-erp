@@ -215,12 +215,16 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "my-leave": CalendarDays,
 
   projects: FolderKanban,
+  subcontracts: Users,
+  "subcontract-certificates": FileCheck,
   guarantees: Landmark,
   "revenue-recognition": LineChart,
   "site-issues": SendHorizontal,
   "material-consumption": HardHat,
   "custody-register": Construction,
   "equipment-logs": Timer,
+  retention: Landmark,
+  "contracting-reports": ShieldAlert,
 
   "assets-hub": Building,
   "asset-register": ClipboardList,

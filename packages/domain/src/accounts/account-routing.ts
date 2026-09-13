@@ -42,10 +42,12 @@ export const ACCOUNT_ROUTING_SLOTS: readonly AccountRoutingSlot[] = [
   { key: "leave.expense", section: "leave", labelAr: "مصروف الإجازات", labelEn: "Leave expense", defaultAccountId: "5110" },
 
   // --- المقاولات ---
-  { key: "contracting.revenue", section: "contracting", labelAr: "إيرادات المقاولات", labelEn: "Contracting revenue", defaultAccountId: "4100" },
+  { key: "contracting.revenue", section: "contracting", labelAr: "إيرادات المقاولات", labelEn: "Contracting revenue", defaultAccountId: "4150" },
   { key: "contracting.retention_receivable", section: "contracting", labelAr: "محتجزات لدى العملاء", labelEn: "Retention receivable", defaultAccountId: "1150" },
   { key: "contracting.customer_advances", section: "contracting", labelAr: "دفعات مقدمة من العملاء", labelEn: "Advances from contracting customers", defaultAccountId: "2160" },
   { key: "contracting.late_penalty", section: "contracting", labelAr: "غرامات التأخير", labelEn: "Late-delivery penalties", defaultAccountId: "5910" },
+  { key: "contracting.employer_materials", section: "contracting", labelAr: "استهلاك عهدة المواد", labelEn: "Employer-supplied materials consumed", defaultAccountId: "5157" },
+  { key: "contracting.stamp_duty", section: "contracting", labelAr: "دمغات ورسوم", labelEn: "Stamp duty and fees", defaultAccountId: "5158" },
   // The rest of the contracting set (docs/artifacts/mezan-contracting-designs.html D-03,
   // D-04, D-12): billing and revenue are two arrows from two sources, so each needs
   // its own account, and retention has a payable direction.

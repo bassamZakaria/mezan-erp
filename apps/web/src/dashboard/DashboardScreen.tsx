@@ -27,6 +27,7 @@ import {
   type DashboardRangeValue,
 } from "./dashboard-hooks";
 import { entityName } from "../lib/entity-names";
+import { useContractingExceptionSummary } from "../data/contracting-controls-hooks";
 
 type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; intent?: ScreenIntentInput; primary?: boolean };
 
@@ -116,6 +117,13 @@ export function DashboardScreen() {
   const supplierAging = useSupplierAging();
   const topProducts = useTopProducts(window);
   const attention = useAttentionData(window, today);
+  /**
+   * استثناءات المقاولات — the one contracting tile (design §06). Gated on the
+   * certificate-view right so a tenant that does not run contracting never sees
+   * a row about it.
+   */
+  const mayViewContracting = (session?.permissions ?? []).some((p) => p === "*" || p === "contracting.certificate.view");
+  const contractingExceptions = useContractingExceptionSummary(mayViewContracting);
 
   const greetingName = session ? firstNameOf(displayName(session, locale)) : "";
   const gl = summary?.gl;
@@ -234,6 +242,27 @@ export function DashboardScreen() {
       actionLabel: t("dashboard.attention.stock.action"),
       onAction: () => navigate("report-inventory-stock-levels"),
     },
+    ...(mayViewContracting
+      ? [
+          {
+            key: "contractingExceptions",
+            kind: "contracting" as const,
+            tone: (contractingExceptions.data?.total ?? 0) > 0 ? ("danger" as const) : ("clear" as const),
+            title: t("dashboard.attention.contractingExceptions"),
+            detail:
+              (contractingExceptions.data?.total ?? 0) > 0 ? (
+                <>
+                  <span className="mz-num">{format.number(contractingExceptions.data?.total ?? 0)}</span>{" "}
+                  {t("dashboard.attention.exceptionsUnit")}
+                </>
+              ) : (
+                t("dashboard.attention.contractingExceptions.clear")
+              ),
+            actionLabel: t("dashboard.attention.contractingExceptions.action"),
+            onAction: () => navigate("contracting-reports"),
+          },
+        ]
+      : []),
     {
       key: "payables",
       kind: "payables",

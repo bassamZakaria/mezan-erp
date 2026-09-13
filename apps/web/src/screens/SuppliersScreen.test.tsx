@@ -25,6 +25,7 @@ function supplier(overrides: Partial<SupplierDTO> = {}): SupplierDTO {
     addressCity: "القاهرة",
     addressDistrict: "مدينة نصر",
     addressStreet: "شارع مكرم عبيد",
+    bankAccount: null,
     ...overrides,
   };
 }
@@ -618,6 +619,7 @@ describe("SuppliersScreen", () => {
       addressCity: "الجيزة",
       addressDistrict: "الدقي",
       addressStreet: "شارع التحرير",
+      bankAccount: null,
       notes: "مورد جديد من معرض بناء مصر",
     });
   });

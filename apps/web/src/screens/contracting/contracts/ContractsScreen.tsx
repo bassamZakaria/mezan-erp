@@ -126,10 +126,24 @@ interface DraftLine {
   estimatedUnitCost: string;
   section: string;
   costCategory: CostCategoryDTO | "";
+  /** الكمية النظرية لكل وحدة — the basis «انحراف الاستهلاك» measures against (slice 5B). */
+  theoreticalQtyPerUnit: string;
+  theoreticalItemId: string;
 }
 
 function emptyLine(): DraftLine {
-  return { code: "", descriptionAr: "", unit: "m3", qty: "", unitRate: "", estimatedUnitCost: "", section: "", costCategory: "" };
+  return {
+    code: "",
+    descriptionAr: "",
+    unit: "m3",
+    qty: "",
+    unitRate: "",
+    estimatedUnitCost: "",
+    section: "",
+    costCategory: "",
+    theoreticalQtyPerUnit: "",
+    theoreticalItemId: "",
+  };
 }
 
 function toInput(line: DraftLine): BoqLineInputDTO {
@@ -143,6 +157,8 @@ function toInput(line: DraftLine): BoqLineInputDTO {
     estimatedUnitCost: line.estimatedUnitCost.trim() === "" ? null : line.estimatedUnitCost.trim(),
     section: line.section.trim() === "" ? null : line.section.trim(),
     costCategory: line.costCategory === "" ? null : line.costCategory,
+    theoreticalQtyPerUnit: line.theoreticalQtyPerUnit.trim() === "" ? null : line.theoreticalQtyPerUnit.trim(),
+    theoreticalItemId: line.theoreticalItemId.trim() === "" ? null : line.theoreticalItemId.trim(),
   };
 }
 
@@ -167,6 +183,8 @@ function fromDto(line: BoqLineDTO): DraftLine {
     estimatedUnitCost: trimScale(line.estimatedUnitCost),
     section: line.section ?? "",
     costCategory: line.costCategory ?? "",
+    theoreticalQtyPerUnit: trimScale(line.theoreticalQtyPerUnit),
+    theoreticalItemId: line.theoreticalItemId ?? "",
   };
 }
 
@@ -890,6 +908,7 @@ function BoqTab({ contract, mayManage }: { contract: WorksContractDTO; mayManage
                 <th className="p-[7px] text-end">{t("boq.column.estimatedUnitCost")}</th>
                 <th className="p-[7px] text-start">{t("boq.column.section")}</th>
                 <th className="p-[7px] text-start">{t("boq.column.costCategory")}</th>
+                <th className="p-[7px] text-end">{t("boq.column.theoreticalQtyPerUnit")}</th>
                 <th className="p-[7px] text-end">{t("boq.column.lineValue")}</th>
                 <th className="p-[7px] text-start">{t("boq.column.origin")}</th>
                 {editable ? <th className="p-[7px]" /> : null}
@@ -930,6 +949,20 @@ function BoqTab({ contract, mayManage }: { contract: WorksContractDTO; mayManage
                         "—"
                       ) : (
                         t(COST_CATEGORY_KEY[line.costCategory])
+                      )}
+                    </td>
+                    <td className="p-[5px] text-end">
+                      {editable ? (
+                        <TextInput
+                          numeric
+                          value={line.theoreticalQtyPerUnit}
+                          onChange={(e) => edit(index, { theoreticalQtyPerUnit: e.target.value })}
+                          aria-label={t("boq.column.theoreticalQtyPerUnit")}
+                        />
+                      ) : line.theoreticalQtyPerUnit === "" ? (
+                        "—"
+                      ) : (
+                        <QtyValue value={line.theoreticalQtyPerUnit} />
                       )}
                     </td>
                     <td className="p-[5px] text-end">

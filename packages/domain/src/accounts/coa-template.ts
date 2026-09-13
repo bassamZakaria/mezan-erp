@@ -99,6 +99,9 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // --- 4000 الإيرادات (Revenue) ---
   { id: "4000", code: "4000", nameAr: "الإيرادات", nameEn: "Revenue", type: "revenue", naturalBalance: "credit", parentId: null, isHeader: true },
   { id: "4100", code: "4100", nameAr: "إيرادات المبيعات", nameEn: "Sales Revenue", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
+  // Separate from 4100 so contract revenue can be read off the income
+  // statement on its own line instead of blending into retail/wholesale sales.
+  { id: "4150", code: "4150", nameAr: "إيرادات عقود المقاولات", nameEn: "Contract Revenue", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
   // Distinct from 4900 فائض الصندوق, which is specifically a till overage —
   // an "other income" voucher is rent received, interest, a bank rebate.
   { id: "4910", code: "4910", nameAr: "إيرادات أخرى", nameEn: "Other Income", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
@@ -147,6 +150,12 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "5910", code: "5910", nameAr: "مصروفات أخرى", nameEn: "Other Expenses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5150", code: "5150", nameAr: "تكلفة إيراد العقود", nameEn: "Cost of Contract Revenue", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5155", code: "5155", nameAr: "تأمينات اجتماعية — مقاولات", nameEn: "Contracting Social Insurance", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // Certificate deductions that are neither a penalty nor a utility charge:
+  // employer-supplied material consumed against the contractor's عهدة, and
+  // the stamp duty/fees withheld from the certificate. Kept off 5910 so each
+  // reads on its own line rather than blending into "other expenses".
+  { id: "5157", code: "5157", nameAr: "استهلاك عهدة المواد", nameEn: "Employer-supplied materials consumed", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5158", code: "5158", nameAr: "دمغات ورسوم", nameEn: "Stamp duty and fees", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5160", code: "5160", nameAr: "استرداد تكلفة تشغيل المعدات", nameEn: "Internal Plant Hire Recovery", type: "expense", naturalBalance: "credit", parentId: "5000", isHeader: false },
   { id: "5930", code: "5930", nameAr: "خسائر عقود متوقعة", nameEn: "Foreseeable Contract Losses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },

@@ -34,6 +34,7 @@ export interface SiteReceiptRepository {
 export interface MaterialConsumptionFilter {
   readonly projectId?: string;
   readonly warehouseId?: string;
+  readonly subcontractId?: string;
   readonly status?: MaterialConsumption["status"];
 }
 

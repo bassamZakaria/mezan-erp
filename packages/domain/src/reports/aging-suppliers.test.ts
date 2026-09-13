@@ -15,7 +15,7 @@ function pinvoice(overrides: Partial<PurchaseInvoice> = {}): PurchaseInvoice {
   };
 }
 function supplier(overrides: Partial<Supplier> = {}): Supplier {
-  return { id: "sup-1", code: "S001", nameAr: "مورد أ", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null, category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: Money.zero(), branchId: null, active: true, addressCity: null, addressDistrict: null, addressStreet: null, ...overrides };
+  return { id: "sup-1", code: "S001", nameAr: "مورد أ", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null, category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: Money.zero(), branchId: null, active: true, addressCity: null, addressDistrict: null, addressStreet: null, bankAccount: null, ...overrides };
 }
 
 describe("createAgingSuppliersReport", () => {

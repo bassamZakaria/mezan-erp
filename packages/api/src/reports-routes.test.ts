@@ -1602,6 +1602,7 @@ function makeSupplier(overrides: Partial<Supplier> = {}): Supplier {
     addressCity: null,
     addressDistrict: null,
     addressStreet: null,
+    bankAccount: null,
     ...overrides,
   };
 }

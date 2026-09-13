@@ -68,6 +68,7 @@ const termsShape = {
   latePenaltyPercentPerPeriod: percentString.optional(),
   latePenaltyCapPercent: percentString.optional(),
   finalSecurityPercent: percentString.optional(),
+  provisionalReleasePercent: percentString.optional(),
 };
 
 export const createWorksContractSchema = z.object({
@@ -162,6 +163,10 @@ export const worksContractSchema = z.object({
   latePenaltyPercentPerPeriod: z.string(),
   latePenaltyCapPercent: z.string(),
   finalSecurityPercent: z.string(),
+  provisionalReleasePercent: z.string(),
+  /** التسليم الابتدائي والنهائي — recorded when they happen, not at signature. */
+  provisionalHandoverDate: z.string().nullable(),
+  finalHandoverDate: z.string().nullable(),
   /** Server-derived, never accepted from the client (design §06). */
   contractValue: moneyString,
   approvedVariationsValue: moneyString,
@@ -183,6 +188,8 @@ export const boqLineInputSchema = z.object({
   estimatedUnitCost: nonNegativeMoneyString.nullish(),
   section: z.string().nullish(),
   costCategory: costCategorySchema.nullish(),
+  theoreticalQtyPerUnit: nonNegativeMoneyString.nullish(),
+  theoreticalItemId: z.string().nullish(),
 });
 export type BoqLineInputDTO = z.infer<typeof boqLineInputSchema>;
 
@@ -206,6 +213,8 @@ export const boqLineSchema = z.object({
   origin: z.enum(["base", "variation"]),
   variationOrderId: z.string().nullable(),
   costCategory: costCategorySchema.nullable(),
+  theoreticalQtyPerUnit: moneyString.nullable(),
+  theoreticalItemId: z.string().nullable(),
 });
 export type BoqLineDTO = z.infer<typeof boqLineSchema>;
 

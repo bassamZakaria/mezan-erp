@@ -50,7 +50,7 @@ const ROUTING_DEFAULTS: Readonly<Record<keyof RecognitionAccountIds, [string, st
   contractLiability: ["contracting.contract_liability", "2175"],
   onerousProvision: ["contracting.onerous_provision", "2196"],
   onerousLoss: ["contracting.onerous_loss", "5930"],
-  revenue: ["contracting.revenue", "4100"],
+  revenue: ["contracting.revenue", "4150"],
   plantRecovery: ["contracting.plant_recovery", "5160"],
 };
 

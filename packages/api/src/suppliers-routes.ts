@@ -41,6 +41,7 @@ function serialize(supplier: Supplier) {
     addressCity: supplier.addressCity,
     addressDistrict: supplier.addressDistrict,
     addressStreet: supplier.addressStreet,
+    bankAccount: supplier.bankAccount,
   };
 }
 

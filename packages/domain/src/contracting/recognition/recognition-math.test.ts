@@ -137,6 +137,8 @@ describe("contractValueAsOf", () => {
       origin: "base",
       variationOrderId: null,
       costCategory: "materials",
+      theoreticalQtyPerUnit: null,
+      theoreticalItemId: null,
     },
   ];
   const order: VariationOrder = {

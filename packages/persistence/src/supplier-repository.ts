@@ -27,12 +27,16 @@ CREATE TABLE IF NOT EXISTS supplier (
   address_city       TEXT,
   address_district   TEXT,
   address_street     TEXT,
-  branch_id          TEXT
+  branch_id          TEXT,
+  bank_account       TEXT
 );
 `;
 
 /** Columns added after the table shipped — an existing database keeps them null. */
-const ADDED_COLUMNS: readonly [string, string][] = [["branch_id", "TEXT"]];
+const ADDED_COLUMNS: readonly [string, string][] = [
+  ["branch_id", "TEXT"],
+  ["bank_account", "TEXT"],
+];
 
 function addMissingColumns(sqlite: Database.Database): void {
   const existing = new Set(
@@ -62,6 +66,7 @@ interface SupplierRow {
   address_city: string | null;
   address_district: string | null;
   address_street: string | null;
+  bank_account: string | null;
 }
 
 function toSupplier(row: SupplierRow): Supplier {
@@ -84,6 +89,7 @@ function toSupplier(row: SupplierRow): Supplier {
     addressCity: row.address_city,
     addressDistrict: row.address_district,
     addressStreet: row.address_street,
+    bankAccount: row.bank_account ?? null,
   };
 }
 
@@ -97,17 +103,17 @@ class SqliteSupplierRepository implements SupplierRepository {
     this.upsert = sqlite.prepare(`
       INSERT INTO supplier (
         id, code, name_ar, name_en, phone, email, contact_person, tax_number, category, notes,
-        payment_terms_days, currency, opening_balance, active, address_city, address_district, address_street, branch_id
+        payment_terms_days, currency, opening_balance, active, address_city, address_district, address_street, branch_id, bank_account
       ) VALUES (
         @id, @code, @nameAr, @nameEn, @phone, @email, @contactPerson, @taxNumber, @category, @notes,
-        @paymentTermsDays, @currency, @openingBalance, @active, @addressCity, @addressDistrict, @addressStreet, @branchId
+        @paymentTermsDays, @currency, @openingBalance, @active, @addressCity, @addressDistrict, @addressStreet, @branchId, @bankAccount
       )
       ON CONFLICT(id) DO UPDATE SET
         code = @code, name_ar = @nameAr, name_en = @nameEn, phone = @phone, email = @email,
         contact_person = @contactPerson, tax_number = @taxNumber, category = @category, notes = @notes,
         payment_terms_days = @paymentTermsDays, currency = @currency, opening_balance = @openingBalance,
         active = @active, address_city = @addressCity, address_district = @addressDistrict,
-        address_street = @addressStreet, branch_id = @branchId
+        address_street = @addressStreet, branch_id = @branchId, bank_account = @bankAccount
     `);
     this.selectAll = sqlite.prepare(`SELECT * FROM supplier ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM supplier WHERE id = ?`);
@@ -148,6 +154,7 @@ class SqliteSupplierRepository implements SupplierRepository {
       addressCity: supplier.addressCity,
       addressDistrict: supplier.addressDistrict,
       addressStreet: supplier.addressStreet,
+      bankAccount: supplier.bankAccount ?? null,
     });
   }
 }

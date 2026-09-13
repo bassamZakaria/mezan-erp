@@ -15,6 +15,12 @@ export interface Supplier extends PartnerBase {
   readonly addressCity: string | null;
   readonly addressDistrict: string | null;
   readonly addressStreet: string | null;
+  /**
+   * رقم الحساب البنكي / IBAN. A subcontractor cannot be certified for payment
+   * without one (design §03 "THE MIRROR"), and every supplier paid by transfer
+   * needs it somewhere other than a note field.
+   */
+  readonly bankAccount: string | null;
 }
 
 export class InvalidSupplierError extends Error {
@@ -45,6 +51,7 @@ export interface CreateSupplierInput {
   readonly addressCity?: string | null;
   readonly addressDistrict?: string | null;
   readonly addressStreet?: string | null;
+  readonly bankAccount?: string | null;
 }
 
 function validate(supplier: Supplier): string[] {
@@ -72,6 +79,7 @@ export function createSupplier(input: CreateSupplierInput): Supplier {
     addressCity: input.addressCity ?? null,
     addressDistrict: input.addressDistrict ?? null,
     addressStreet: input.addressStreet ?? null,
+    bankAccount: input.bankAccount ?? null,
   };
   const reasons = validate(supplier);
   if (reasons.length > 0) throw new InvalidSupplierError(reasons);

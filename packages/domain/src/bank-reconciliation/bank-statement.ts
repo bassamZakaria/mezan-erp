@@ -69,6 +69,15 @@ export interface StatementLine {
   readonly matchedAt: string | null;
 }
 
+/**
+ * The largest magnitude an opening or closing balance can carry through the
+ * SQLite column, which stores the scaled integer as a JS number. Bank
+ * accounts may run negative (overdraft), so this bounds |scaled| rather than
+ * just an upper end — mirrors `MAX_OPENING_BALANCE_SCALED` in
+ * packages/domain/src/treasury-accounts/treasury-account.ts.
+ */
+export const MAX_STATEMENT_BALANCE_SCALED = BigInt(Number.MAX_SAFE_INTEGER);
+
 export interface BankStatementListFilter {
   readonly treasuryAccountId?: string;
   readonly status?: BankStatementStatus;

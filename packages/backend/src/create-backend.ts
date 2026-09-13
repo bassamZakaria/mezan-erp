@@ -23,9 +23,22 @@ import {
   createSalesInvoiceStockHook,
   SalesInvoiceService,
   CertificateService,
+  SubcontractService,
+  SubCertificateService,
+  createPurchaseInvoice,
+  confirmPurchaseInvoice,
+  type PurchaseGlPosting,
+  type PurchaseGlPostingPort,
+  type SubCertificateInvoicingPort,
+  type SubcontractSupplierPort,
+  type SubcontractVoucherPort,
+  type ClientCertifiedQuantityPort,
+  type SubcontractConsumptionPort,
   CERTIFICATE_WORKS_ITEM_ID,
+  RETENTION_RELEASE_ITEM_ID,
   GuaranteeService,
   type CertificateInvoicingPort,
+  type RetentionReleaseInvoicingPort,
   type CertificateGuaranteePort,
   createTreasuryLedgerReader,
   VoucherService,
@@ -117,7 +130,9 @@ import {
   createSqliteContractingSiteStore,
   createSqliteGuaranteeStore,
   createSqliteProgressCertificateStore,
+  createSqliteSubcontractStore,
   createSqliteContractingRecognitionStore,
+  createSqliteContractingControlsStore,
   createSqliteAssetCategoryRepository,
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
@@ -768,7 +783,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const contractingSiteStore = createSqliteContractingSiteStore(sqlite);
   const guarantees = createSqliteGuaranteeStore(sqlite);
   const progressCertificates = createSqliteProgressCertificateStore(sqlite);
+  const subcontracts = createSqliteSubcontractStore(sqlite);
   const recognitionRuns = createSqliteContractingRecognitionStore(sqlite);
+  const retentionReleases = createSqliteContractingControlsStore(sqlite);
   const assetCategories = createSqliteAssetCategoryRepository(sqlite);
   const assets = createSqliteAssetRepository(sqlite);
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
@@ -1064,6 +1081,95 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
   };
 
+  /**
+   * الإفراج عن المحتجزات 5B — the release becomes a RECEIVABLE, not a new sale.
+   * The generated invoice carries one non-stock, zero-tax line whose "revenue"
+   * account is the RETENTION account, so the invoice's own posting is the
+   * Dr 1105 / Cr 1150 reclass and the AR sub-ledger moves by exactly what the
+   * control account did.
+   *
+   * INVARIANT: `dueDate` is the RELEASE EVENT, never the release date and never
+   * the certificate's — retention aged as ordinary AR reads 120-days-overdue
+   * the day it is created (design §06).
+   */
+  const retentionInvoicing: RetentionReleaseInvoicingPort = {
+    async issue(cmd) {
+      const [customer, branchList, warehouseList, routing] = await Promise.all([
+        customers.findById(cmd.customerId),
+        branches.findAll(),
+        warehouses.findAll(),
+        accountRouting.get(),
+      ]);
+      const branchId = branchList[0]?.id;
+      const warehouseId = warehouseList[0]?.id;
+      if (!branchId || !warehouseId) {
+        throw new Error("لا يمكن إصدار مستند الإفراج عن المحتجزات قبل تعريف فرع ومستودع واحد على الأقل.");
+      }
+      const invoiceId = `${cmd.releaseId}-INV`;
+      const service = new SalesInvoiceService({
+        repo: salesInvoices,
+        numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
+        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        stock: createSalesInvoiceStockHook(stockService),
+        allocatable: vouchers.invoices,
+        audit: auditSink,
+        actor: "system",
+      });
+      await service.createDraft({
+        id: invoiceId,
+        date: cmd.date,
+        dueDate: cmd.dueDate,
+        customerId: cmd.customerId,
+        customerNameAr: customer?.nameAr ?? cmd.customerId,
+        warehouseId,
+        branchId,
+        projectId: cmd.projectId,
+        currency: "EGP",
+        notes: cmd.memoAr,
+        arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
+        taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        lines: [
+          {
+            lineId: `${invoiceId}-L1`,
+            itemId: cmd.itemId,
+            itemNameAr: cmd.lineDescriptionAr,
+            isStock: false,
+            qty: Qty.fromMajor("1"),
+            unitPrice: cmd.amount,
+            // No VAT: the works were taxed on the certificate that withheld
+            // this money. Taxing the release again would charge it twice.
+            taxRatePercent: 0,
+            revenueAccountId: cmd.retentionAccountId,
+          },
+        ],
+      });
+      const confirmed = await service.confirm(invoiceId, { actor: "system" });
+      const totals = salesInvoiceTotals(confirmed.invoice);
+      return {
+        invoiceId,
+        invoiceDocNo: confirmed.invoice.docNo ?? invoiceId,
+        arAccountId: confirmed.invoice.arAccountId,
+        total: salesInvoiceBaseGrandTotal(totals, confirmed.invoice.fxRate),
+      };
+    },
+    async status(invoiceId) {
+      const invoice = await salesInvoices.findById(invoiceId);
+      if (!invoice) return null;
+      const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
+      const sub = await vouchers.invoices.findById(invoiceId);
+      const allocated = sub?.allocated ?? Money.zero();
+      return {
+        invoiceId,
+        docNo: invoice.docNo,
+        total,
+        amountPaid: allocated,
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        dueDate: invoice.dueDate,
+        status: invoice.status,
+      };
+    },
+  };
+
   const certificateDeps = {
     store: progressCertificates,
     contracts: worksContracts,
@@ -1081,6 +1187,209 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
   };
   const certificateService = new CertificateService(certificateDeps);
+
+  /**
+   * عقود الباطن — slice 3. The mirror of the certificate wiring above, with
+   * every engine reused rather than re-implemented: a real purchase invoice
+   * through the purchasing module, the real AP allocation sub-ledger, the real
+   * voucher store for the advance, and the CLIENT certificates as the ceiling.
+   */
+  const subcontractPurchaseGl: PurchaseGlPostingPort = {
+    post: async (posting: PurchaseGlPosting) => {
+      await postJournalEntry(
+        {
+          id: `PI-JE:${posting.sourceDocId}`,
+          date: posting.date,
+          memo: posting.memo,
+          source: "system",
+          sourceDocType: posting.sourceDocType,
+          sourceDocId: posting.sourceDocId,
+          sourceDocNumber: posting.sourceDocNumber ?? null,
+          lines: posting.lines.map((l) => ({
+            accountId: l.accountId,
+            debit: l.debit,
+            credit: l.credit,
+            currency: l.currency ?? null,
+            fxRate: l.fxRate ?? null,
+            taxRatePercent: l.taxRatePercent ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
+          })),
+        },
+        salesInvoiceGl,
+      );
+    },
+  };
+
+  /**
+   * INVARIANT: `settle` bumps the purchase invoice's allocated total by exactly
+   * what the deductions entry debited to AP. The GL and the payables sub-ledger
+   * move together, or the invoice reads as owing the gross while the control
+   * account holds the net.
+   */
+  const subCertificateInvoicing: SubCertificateInvoicingPort = {
+    async issue(cmd) {
+      const [branchList, warehouseList] = await Promise.all([branches.findAll(), warehouses.findAll()]);
+      const branchId = branchList[0]?.id;
+      const warehouseId = warehouseList[0]?.id;
+      if (!branchId || !warehouseId) {
+        throw new Error("لا يمكن إصدار فاتورة مستخلص الباطن قبل تعريف فرع ومستودع واحد على الأقل.");
+      }
+      const invoiceId = `${cmd.certificateId}-PINV`;
+      await createPurchaseInvoice(
+        {
+          id: invoiceId,
+          supplierId: cmd.supplierId,
+          date: cmd.date,
+          dueDate: cmd.dueDate,
+          supplierInvoiceNumber: cmd.certificateDocNo,
+          branchId,
+          warehouseId,
+          currency: "EGP",
+          notes: cmd.memoAr,
+          projectId: cmd.projectId,
+          createdBy: "system",
+          lines: [
+            {
+              itemId: null,
+              kind: "expense",
+              description: cmd.lineDescriptionAr,
+              qty: Qty.fromMajor("1"),
+              unitCost: cmd.amount,
+              // The invoice engine takes a percent, so the transitional basis is
+              // carried as its EFFECTIVE rate and the basis itself is stated in
+              // the memo.
+              taxRatePercent: Number(cmd.taxRatePercent),
+              costCategory: "subcontract",
+            },
+          ],
+        },
+        { invoices: purchaseInvoices, numbering: ledger.numbering },
+      );
+      const { invoice } = await confirmPurchaseInvoice(invoiceId, {
+        invoices: purchaseInvoices,
+        stock: stockService,
+        gl: subcontractPurchaseGl,
+        // The expense account is the SUBCONTRACT's: a subcontractor's certified
+        // work is أعمال تحت التنفيذ (1230), relieved to cost of contract revenue
+        // by the monthly recognition run, never a period expense on 5910.
+        accounts: { ...PURCHASE_GL_ACCOUNTS, expenseAccountId: cmd.expenseAccountId },
+        allocatable: vouchers.invoices,
+        exchangeRates,
+        baseCurrency: "EGP",
+        audit: auditSink,
+        actor: "system",
+      });
+      return {
+        invoiceId,
+        invoiceDocNo: invoice.number,
+        apAccountId: PURCHASE_GL_ACCOUNTS.payableAccountId,
+        total: purchaseInvoiceBaseTotal(invoice),
+      };
+    },
+    async status(invoiceId) {
+      const invoice = await purchaseInvoices.findById(invoiceId);
+      if (!invoice) return null;
+      const total = purchaseInvoiceBaseTotal(invoice);
+      const sub = await vouchers.invoices.findById(invoiceId);
+      const allocated = sub?.allocated ?? Money.zero();
+      return {
+        invoiceId,
+        docNo: invoice.number,
+        total,
+        amountPaid: allocated,
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        dueDate: invoice.dueDate,
+        status: invoice.status,
+      };
+    },
+    async settle(invoiceId, amount) {
+      const sub = await vouchers.invoices.findById(invoiceId);
+      if (!sub) return;
+      await vouchers.invoices.save({ ...sub, allocated: Money.fromScaled(sub.allocated.scaled + amount.scaled) });
+    },
+  };
+
+  const subcontractSuppliers: SubcontractSupplierPort = {
+    async find(supplierId) {
+      const supplier = await suppliers.findById(supplierId);
+      if (!supplier) return null;
+      return {
+        id: supplier.id,
+        nameAr: supplier.nameAr,
+        taxNumber: supplier.taxNumber,
+        bankAccount: supplier.bankAccount,
+      };
+    },
+  };
+
+  const subcontractVouchers: SubcontractVoucherPort = {
+    async find(voucherId) {
+      const doc = await vouchers.documents.findById(voucherId);
+      const line = doc?.lines[0];
+      if (!doc || !line) return null;
+      return {
+        id: doc.id,
+        docNo: doc.docNo,
+        date: doc.date,
+        amount: line.amount,
+        supplierId: line.supplierId ?? null,
+        counterpartyGlAccountId: line.counterpartyGlAccountId ?? null,
+        status: doc.status,
+        direction: line.direction,
+      };
+    },
+  };
+
+  /**
+   * The back-to-back ceiling. Only certificates the consultant has SIGNED count
+   * — a quantity still at حصر is one nobody outside the company has agreed to —
+   * and the latest one carries the cumulative, so it is the one that is read.
+   */
+  const clientCertifiedQuantities: ClientCertifiedQuantityPort = {
+    async certifiedCumulativeByBoqLine(contractId) {
+      const signed = (await progressCertificates.listByContract(contractId)).filter(
+        (c) =>
+          c.status === "certified" || c.status === "approved_for_payment" || c.status === "invoiced",
+      );
+      const latest = signed.length === 0 ? null : signed[signed.length - 1];
+      const map = new Map<string, Qty>();
+      for (const line of latest?.workLines ?? []) {
+        map.set(line.boqLineId, line.cumulativeQty);
+      }
+      return map;
+    },
+  };
+
+  const subcontractConsumptions: SubcontractConsumptionPort = {
+    async materialsIssuedTo(subcontractId) {
+      const rows = await contractingSiteStore.consumptions.list({ subcontractId, status: "confirmed" });
+      return Money.sum(rows.map((r) => r.totalCost));
+    },
+  };
+
+  const subcontractDeps = {
+    store: subcontracts,
+    contracts: worksContracts,
+    numbering: ledger.numbering,
+    gl: salesInvoiceGl,
+    routing: accountRouting,
+    suppliers: subcontractSuppliers,
+    vouchers: subcontractVouchers,
+    payableAccountId: PURCHASE_GL_ACCOUNTS.payableAccountId,
+  };
+  const subCertificateDeps = {
+    store: subcontracts,
+    contracts: worksContracts,
+    numbering: ledger.numbering,
+    gl: salesInvoiceGl,
+    routing: accountRouting,
+    invoicing: subCertificateInvoicing,
+    suppliers: subcontractSuppliers,
+    clientCertificates: clientCertifiedQuantities,
+    consumptions: subcontractConsumptions,
+  };
+
 
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const documentWorkflowGate = createDocumentWorkflowGate(
@@ -1409,6 +1718,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     for (const doc of purchaseReturnDocs) {
       if (doc.status !== "confirmed") continue;
       apScaled -= purchaseReturnGrandTotal(doc).scaled;
+    }
+    /**
+     * An approved مستخلص باطن DEBITS AP by its deductions block — the retention
+     * withheld from the subcontractor, the advance recovered, the WHT owed to
+     * the ETA and the rest — against the purchase invoice it generated, and a
+     * retention RELEASE credits AP back. Both move the control account; the
+     * sub-ledger has to follow them or every tenant that ever approved a sub
+     * certificate reads a false mismatch for the whole deduction.
+     */
+    for (const certificate of await subcontracts.listCertificates()) {
+      apScaled -= certificate.postedDeductionsTotal.scaled;
+    }
+    for (const subcontract of await subcontracts.list()) {
+      for (const release of subcontract.retentionReleases) {
+        apScaled += release.amount.scaled;
+      }
     }
     // Landed costs are deliberately NOT added here any more. They used to be,
     // to compensate for the document crediting GL 2100 — so the invariant
@@ -2002,10 +2327,27 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       completionGuard: (contractId) => certificateService.completionRefusal(contractId),
     },
     contractingCertificates: certificateDeps,
+    contractingSubcontracts: { subcontracts: subcontractDeps, certificates: subCertificateDeps },
     contractingSite: { service: siteService },
     // تشغيل الاعتراف بالإيراد reads billings, WIP and the contract position
     // straight off the posted ledger and posts back through the same engine, so
     // the run can never disagree with the accounts it is derived from.
+    // تقارير الاستثناءات الستة وتقويم المحتجزات 5B — every report is assembled
+    // from the OTHER slices' own ports (certificates, contracts, site) and the
+    // posted ledger, so nothing here re-queries what they already answer.
+    contractingControls: {
+      releases: retentionReleases,
+      contracts: worksContracts,
+      certificates: progressCertificates,
+      gl: salesInvoiceGl,
+      numbering: ledger.numbering,
+      routing: accountRouting,
+      invoicing: retentionInvoicing,
+      site: siteService,
+      equipmentLogs: contractingSiteStore.equipmentLogs,
+      projects,
+      releaseItemId: RETENTION_RELEASE_ITEM_ID,
+    },
     contractingRecognition: {
       runs: recognitionRuns,
       contracts: worksContracts,

@@ -852,7 +852,7 @@ export class CertificateService {
     const dueDate = addDays(approvedAt, contract.paymentTermDays);
     const revenueAccountId = await this.routed(
       contract.recognitionPolicy === "certified_value" ? "contracting.revenue" : "contracting.billings",
-      contract.recognitionPolicy === "certified_value" ? "4100" : "2165",
+      contract.recognitionPolicy === "certified_value" ? "4150" : "2165",
     );
 
     const saved = await this.deps.store.transaction(async () => {
@@ -970,13 +970,16 @@ export class CertificateService {
     date: string,
     arAccountId: string,
   ): Promise<void> {
-    const [retentionAccount, advanceAccount, whtAccount, socialAccount, sundryAccount] = await Promise.all([
-      this.routed("contracting.retention_receivable", "1150"),
-      this.routed("contracting.customer_advances", "2160"),
-      this.routed("contracting.wht_receivable", "1175"),
-      this.routed("contracting.social_insurance", "5155"),
-      this.routed("contracting.late_penalty", "5910"),
-    ]);
+    const [retentionAccount, advanceAccount, whtAccount, socialAccount, sundryAccount, employerMaterialsAccount, stampDutyAccount] =
+      await Promise.all([
+        this.routed("contracting.retention_receivable", "1150"),
+        this.routed("contracting.customer_advances", "2160"),
+        this.routed("contracting.wht_receivable", "1175"),
+        this.routed("contracting.social_insurance", "5155"),
+        this.routed("contracting.late_penalty", "5910"),
+        this.routed("contracting.employer_materials", "5157"),
+        this.routed("contracting.stamp_duty", "5158"),
+      ]);
     const byKey = new Map(certificate.computed.deductions.map((d) => [d.key, d.thisCertificate]));
     const spec: readonly {
       key: string;
@@ -990,9 +993,9 @@ export class CertificateService {
       { key: "withholdingTax", accountId: whtAccount, amount: byKey.get("withholdingTax") ?? Money.zero(), memo: "ضريبة الخصم والتحصيل", cost: false },
       { key: "socialInsurance", accountId: socialAccount, amount: byKey.get("socialInsurance") ?? Money.zero(), memo: "التأمينات الاجتماعية", cost: true },
       { key: "penalties", accountId: sundryAccount, amount: byKey.get("penalties") ?? Money.zero(), memo: "غرامة التأخير", cost: true },
-      { key: "employerMaterials", accountId: sundryAccount, amount: byKey.get("employerMaterials") ?? Money.zero(), memo: "استهلاك عهدة المواد", cost: true },
+      { key: "employerMaterials", accountId: employerMaterialsAccount, amount: byKey.get("employerMaterials") ?? Money.zero(), memo: "استهلاك عهدة المواد", cost: true },
       { key: "waterElectricity", accountId: sundryAccount, amount: byKey.get("waterElectricity") ?? Money.zero(), memo: "استهلاك المياه والكهرباء", cost: true },
-      { key: "stampDuty", accountId: sundryAccount, amount: byKey.get("stampDuty") ?? Money.zero(), memo: "دمغات ورسوم", cost: true },
+      { key: "stampDuty", accountId: stampDutyAccount, amount: byKey.get("stampDuty") ?? Money.zero(), memo: "دمغات ورسوم", cost: true },
     ];
 
     const lines: JournalLineInput[] = [];

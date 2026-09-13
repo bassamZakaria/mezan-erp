@@ -82,7 +82,7 @@ const CONTRACTING_ACCOUNT_SLOTS: Readonly<Record<keyof ProjectContractingAccount
   contractAsset: ["contracting.contract_asset", "1170"],
   contractLiability: ["contracting.contract_liability", "2175"],
   billings: ["contracting.billings", "2165"],
-  revenue: ["contracting.revenue", "4100"],
+  revenue: ["contracting.revenue", "4150"],
 };
 
 /**

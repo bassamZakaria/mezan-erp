@@ -68,6 +68,9 @@ const contract: WorksContractDTO = {
   boqLineCount: 7,
   variationCount: 3,
   canComplete: true,
+  provisionalReleasePercent: "50",
+  provisionalHandoverDate: null,
+  finalHandoverDate: null,
 };
 
 const boqLines: BoqLineDTO[] = [
@@ -88,6 +91,8 @@ const boqLines: BoqLineDTO[] = [
     origin: "base",
     variationOrderId: null,
     costCategory: "equipment",
+    theoreticalQtyPerUnit: null,
+    theoreticalItemId: null,
   },
   {
     id: "VO-DEMO-1-L1",
@@ -106,6 +111,8 @@ const boqLines: BoqLineDTO[] = [
     origin: "variation",
     variationOrderId: "VO-DEMO-1",
     costCategory: "materials",
+    theoreticalQtyPerUnit: null,
+    theoreticalItemId: null,
   },
 ];
 

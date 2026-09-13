@@ -109,6 +109,8 @@ export interface BoqLineInput {
   readonly estimatedUnitCost?: string | null;
   readonly section?: string | null;
   readonly costCategory?: string | null;
+  readonly theoreticalQtyPerUnit?: string | null;
+  readonly theoreticalItemId?: string | null;
 }
 
 export interface VariationOrderLineInput {
@@ -173,6 +175,7 @@ export function defaultWorksContractTerms(contractType: WorksContractType, signe
     latePenaltyPercentPerPeriod: "0",
     latePenaltyCapPercent: "10",
     finalSecurityPercent: contractType === "public" ? "5" : "0",
+    provisionalReleasePercent: "50",
   };
 }
 
@@ -204,6 +207,18 @@ function moneyOrNull(reasons: string[], label: string, value: string | null | un
   }
 }
 
+function qtyOrNull(reasons: string[], label: string, value: string | null | undefined): Qty | null {
+  if (value === null || value === undefined || value === "") return null;
+  try {
+    const qty = Qty.fromMajor(value);
+    if (qty.isNegative()) reasons.push(`${label} لا يمكن أن تكون سالبة`);
+    return qty;
+  } catch {
+    reasons.push(`${label} يجب أن تكون رقمًا`);
+    return null;
+  }
+}
+
 function mergeTerms(current: WorksContractTerms, patch: WorksContractTermsInput): WorksContractTerms {
   return {
     tenderDiscountPercent: patch.tenderDiscountPercent ?? current.tenderDiscountPercent,
@@ -224,6 +239,7 @@ function mergeTerms(current: WorksContractTerms, patch: WorksContractTermsInput)
     latePenaltyPercentPerPeriod: patch.latePenaltyPercentPerPeriod ?? current.latePenaltyPercentPerPeriod,
     latePenaltyCapPercent: patch.latePenaltyCapPercent ?? current.latePenaltyCapPercent,
     finalSecurityPercent: patch.finalSecurityPercent ?? current.finalSecurityPercent,
+    provisionalReleasePercent: patch.provisionalReleasePercent ?? current.provisionalReleasePercent,
   };
 }
 
@@ -242,6 +258,7 @@ function validateTerms(terms: WorksContractTerms): string[] {
   requirePercent(reasons, "نسبة غرامة التأخير", terms.latePenaltyPercentPerPeriod);
   requirePercent(reasons, "سقف غرامة التأخير", terms.latePenaltyCapPercent);
   requirePercent(reasons, "نسبة التأمين النهائي", terms.finalSecurityPercent);
+  requirePercent(reasons, "نسبة الإفراج عند التسليم الابتدائي", terms.provisionalReleasePercent);
   if (!Number.isInteger(terms.paymentTermDays) || terms.paymentTermDays < 0) reasons.push("مهلة السداد يجب أن تكون عددًا صحيحًا موجبًا");
   if (!Number.isInteger(terms.defectsLiabilityMonths) || terms.defectsLiabilityMonths < 0) reasons.push("فترة الضمان يجب أن تكون عددًا صحيحًا موجبًا");
   return reasons;
@@ -318,6 +335,8 @@ export class WorksContractService {
         notes: cmd.notes ?? null,
         estimatedTotalCost,
         budgetRevisions: [],
+        provisionalHandoverDate: null,
+        finalHandoverDate: null,
       };
       await this.deps.store.saveContract(contract);
       return this.view(contract);
@@ -363,6 +382,7 @@ export class WorksContractService {
           "latePenaltyPercentPerPeriod",
           "latePenaltyCapPercent",
           "finalSecurityPercent",
+          "provisionalReleasePercent",
         ] as const
       ).filter((key) => cmd[key] !== undefined);
       if (frozen.length > 0) {
@@ -514,6 +534,8 @@ export class WorksContractService {
       origin: "base",
       variationOrderId: null,
       costCategory: row.costCategory,
+      theoreticalQtyPerUnit: null,
+      theoreticalItemId: null,
     }));
     if (added.length > 0) await this.deps.store.addBoqLines(added);
     return { review, lines: [...existing, ...added] };
@@ -657,6 +679,8 @@ export class WorksContractService {
             origin: "variation",
             variationOrderId: current.id,
             costCategory: line.newLine.costCategory,
+            theoreticalQtyPerUnit: null,
+            theoreticalItemId: null,
           });
           continue;
         }
@@ -776,6 +800,8 @@ export class WorksContractService {
         origin: "base",
         variationOrderId: null,
         costCategory,
+        theoreticalQtyPerUnit: qtyOrNull(reasons, `الكمية النظرية للبند "${code}"`, input.theoreticalQtyPerUnit),
+        theoreticalItemId: input.theoreticalItemId ?? null,
       };
       return line;
     });

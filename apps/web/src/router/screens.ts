@@ -130,6 +130,11 @@ export const SCREEN_MODULES = {
   "variation-orders": () => import("../screens/contracting/contracts/VariationOrdersScreen").then((m) => ({ Component: m.VariationOrdersScreen })),
   certificates: () => import("../screens/contracting/certificates/CertificatesScreen").then((m) => ({ Component: m.CertificatesScreen })),
   "internal-certificate": () => import("../screens/contracting/certificates/InternalCertificateScreen").then((m) => ({ Component: m.InternalCertificateScreen })),
+  subcontracts: () => import("../screens/contracting/subcontracts/SubcontractsScreen").then((m) => ({ Component: m.SubcontractsScreen })),
+  "subcontract-certificates": () =>
+    import("../screens/contracting/subcontracts/SubcontractCertificatesScreen").then((m) => ({
+      Component: m.SubcontractCertificatesScreen,
+    })),
   guarantees: () => import("../screens/contracting/guarantees/GuaranteesScreen").then((m) => ({ Component: m.GuaranteesScreen })),
   "revenue-recognition": () =>
     import("../screens/contracting/recognition/RevenueRecognitionScreen").then((m) => ({
@@ -139,6 +144,11 @@ export const SCREEN_MODULES = {
   "material-consumption": () => import("../screens/contracting/site/MaterialConsumptionScreen").then((m) => ({ Component: m.MaterialConsumptionScreen })),
   "custody-register": () => import("../screens/contracting/site/CustodyRegisterScreen").then((m) => ({ Component: m.CustodyRegisterScreen })),
   "equipment-logs": () => import("../screens/contracting/site/EquipmentLogsScreen").then((m) => ({ Component: m.EquipmentLogsScreen })),
+  retention: () => import("../screens/contracting/controls/RetentionScreen").then((m) => ({ Component: m.RetentionScreen })),
+  "contracting-reports": () =>
+    import("../screens/contracting/controls/ContractingReportsScreen").then((m) => ({
+      Component: m.ContractingReportsScreen,
+    })),
   "asset-categories": () => import("../screens/AssetCategoriesScreen").then((m) => ({ Component: m.AssetCategoriesScreen })),
   "asset-register": () => import("../screens/AssetRegisterScreen").then((m) => ({ Component: m.AssetRegisterScreen })),
   "depreciation-runs": () => import("../screens/DepreciationRunsScreen").then((m) => ({ Component: m.DepreciationRunsScreen })),

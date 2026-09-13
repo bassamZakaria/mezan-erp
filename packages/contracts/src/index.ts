@@ -408,6 +408,8 @@ export * from "./contracting-contracts.js";
 export * from "./contracting-certificates.js";
 export * from "./contracting-site.js";
 export * from "./contracting-recognition.js";
+export * from "./contracting-controls.js";
+export * from "./contracting-subcontracts.js";
 
 export {
   documentStatusSchema,

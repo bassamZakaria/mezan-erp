@@ -86,6 +86,8 @@ export const materialConsumptionSchema = z.object({
   warehouseId: z.string().min(1),
   projectId: z.string().min(1),
   boqLineId: z.string().nullable(),
+  /** عقد الباطن الذي صُرفت له المواد — prefills the sub certificate's deduction. */
+  subcontractId: z.string().nullable(),
   notes: z.string().nullable(),
   status: siteDocumentStatusSchema,
   lines: z.array(materialConsumptionLineSchema),
@@ -101,6 +103,7 @@ export const createMaterialConsumptionSchema = z.object({
   date: isoDate,
   warehouseId: z.string().min(1),
   boqLineId: z.string().nullable().optional(),
+  subcontractId: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   lines: z.array(materialConsumptionLineSchema).min(1),
 });

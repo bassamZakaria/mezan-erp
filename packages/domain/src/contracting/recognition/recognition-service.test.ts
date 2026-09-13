@@ -142,7 +142,7 @@ async function harness(
     ["2165", "liability", "credit"],
     ["2175", "liability", "credit"],
     ["2196", "liability", "credit"],
-    ["4100", "revenue", "credit"],
+    ["4150", "revenue", "credit"],
     ["5150", "expense", "debit"],
     ["5930", "expense", "debit"],
   ] as const) {
@@ -201,6 +201,8 @@ async function harness(
     estimatedTotalCost:
       options.estimatedTotalCost === null ? null : Money.fromMajor(options.estimatedTotalCost ?? "800000"),
     budgetRevisions: [],
+    provisionalHandoverDate: null,
+    finalHandoverDate: null,
   });
   store.boq.push({
     id: "B1",
@@ -217,6 +219,8 @@ async function harness(
     origin: "base",
     variationOrderId: null,
     costCategory: "materials",
+    theoreticalQtyPerUnit: null,
+    theoreticalItemId: null,
   });
 
   const gl = {
@@ -323,7 +327,7 @@ describe("RecognitionService.post", () => {
     expect(run.periodRevenue.toString()).toBe("250000.000000");
     expect(run.billedToDate.toString()).toBe("100000.000000");
     expect(run.contractAsset.toString()).toBe("150000.000000");
-    expect(await h.net("4100")).toBe("-250000.000000");
+    expect(await h.net("4150")).toBe("-250000.000000");
     // 2165 nets to zero: the certificate's credit has been reclassified into 1170.
     expect(await h.net("2165")).toBe("0.000000");
     // 1170 holds the revenue recognised less the billings reclassified into it.
@@ -456,7 +460,7 @@ describe("RecognitionService — certified value contracts", () => {
     const run = await h.service.post({ contractId: "CTR-1", periodEnd: "2026-05-31" });
     expect(run.periodRevenue.toString()).toBe("0.000000");
     expect(run.wipRelieved.toString()).toBe("200000.000000");
-    expect(await h.net("4100")).toBe("0.000000");
+    expect(await h.net("4150")).toBe("0.000000");
     expect(await h.net("2165")).toBe("-100000.000000");
     expect(await h.net("1230")).toBe("0.000000");
   });
@@ -488,12 +492,12 @@ describe("RecognitionService — refusals and reversal", () => {
     expect(reversed.reversalJournalEntryId).not.toBeNull();
     // June's relief and its revenue are back out: 1230 carries June's cost again.
     expect(await h.net("1230")).toBe("100000.000000");
-    expect(await h.net("4100")).toBe("-250000.000000");
+    expect(await h.net("4150")).toBe("-250000.000000");
     await expectEveryEntryBalanced(h.ledger);
 
     // With June reversed, May is the latest run again and may now be reversed.
     await expect(h.service.reverse(may.id)).resolves.toBeDefined();
-    expect(await h.net("4100")).toBe("0.000000");
+    expect(await h.net("4150")).toBe("0.000000");
     expect(await h.net("1230")).toBe("300000.000000");
   });
 });

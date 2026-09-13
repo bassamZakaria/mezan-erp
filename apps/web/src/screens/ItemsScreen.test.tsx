@@ -142,6 +142,7 @@ function supplier(overrides: Partial<SupplierDTO> = {}): SupplierDTO {
     addressCity: null,
     addressDistrict: null,
     addressStreet: null,
+    bankAccount: null,
     ...overrides,
   };
 }

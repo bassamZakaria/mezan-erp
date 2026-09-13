@@ -105,6 +105,9 @@ function serializeContract(view: WorksContractView) {
     latePenaltyPercentPerPeriod: c.latePenaltyPercentPerPeriod,
     latePenaltyCapPercent: c.latePenaltyCapPercent,
     finalSecurityPercent: c.finalSecurityPercent,
+    provisionalReleasePercent: c.provisionalReleasePercent,
+    provisionalHandoverDate: c.provisionalHandoverDate,
+    finalHandoverDate: c.finalHandoverDate,
     contractValue: view.contractValue.toString(),
     approvedVariationsValue: view.approvedVariationsValue.toString(),
     contractValueAfterVariations: view.contractValueAfterVariations.toString(),
@@ -132,6 +135,8 @@ function serializeBoqLine(line: BoqLine) {
     origin: line.origin,
     variationOrderId: line.variationOrderId,
     costCategory: line.costCategory,
+    theoreticalQtyPerUnit: line.theoreticalQtyPerUnit?.toString() ?? null,
+    theoreticalItemId: line.theoreticalItemId,
   };
 }
 

@@ -24,6 +24,7 @@ export const supplierSchema = z.object({
   addressCity: z.string().nullable(),
   addressDistrict: z.string().nullable(),
   addressStreet: z.string().nullable(),
+  bankAccount: z.string().nullable(),
 });
 
 /** POST /suppliers body — matches the catalog's "Add/Edit Supplier" modal defaults. */
@@ -45,6 +46,7 @@ export const createSupplierSchema = z.object({
   addressCity: z.string().nullable().optional(),
   addressDistrict: z.string().nullable().optional(),
   addressStreet: z.string().nullable().optional(),
+  bankAccount: z.string().nullable().optional(),
 });
 
 /** PATCH /suppliers/:id body — every field but id optional. */

@@ -105,6 +105,7 @@ const SUPPLIER: SupplierDTO = {
   addressCity: null,
   addressDistrict: null,
   addressStreet: null,
+  bankAccount: null,
 };
 
 const BRANCH: BranchDTO = {

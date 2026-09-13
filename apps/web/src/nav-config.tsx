@@ -218,7 +218,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
    * progress certificates, retention and subcontractors with it, and those are
    * a module, not a screen. One row today, the module's own home tomorrow.
    */
-  { key: "contracting", defaultCollapsed: true, itemKeys: ["projects", "contracting-contracts", "variation-orders", "certificates", "internal-certificate", "guarantees", "revenue-recognition", "site-issues", "material-consumption", "custody-register", "equipment-logs"] },
+  { key: "contracting", defaultCollapsed: true, itemKeys: ["projects", "contracting-contracts", "variation-orders", "certificates", "internal-certificate", "subcontracts", "subcontract-certificates", "guarantees", "revenue-recognition", "site-issues", "material-consumption", "custody-register", "equipment-logs", "retention", "contracting-reports"] },
   {
     key: "setup",
     defaultCollapsed: true,

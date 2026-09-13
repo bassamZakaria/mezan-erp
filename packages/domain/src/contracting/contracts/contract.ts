@@ -107,6 +107,12 @@ export interface WorksContractTerms {
   readonly latePenaltyCapPercent: string;
   /** تأمين نهائي — posted up front on a public contract instead of cash retained. */
   readonly finalSecurityPercent: string;
+  /**
+   * النسبة المفرج عنها من المحتجزات عند التسليم الابتدائي. The 50/50 split is
+   * UNVERIFIED in primary text (design §09), so it is a per-contract parameter
+   * with a default rather than a constant.
+   */
+  readonly provisionalReleasePercent: string;
 }
 
 export interface WorksContract extends WorksContractTerms {
@@ -129,6 +135,10 @@ export interface WorksContract extends WorksContractTerms {
   /** The cost-to-complete basis slice 4 forecasts against. */
   readonly estimatedTotalCost: Money | null;
   readonly budgetRevisions: readonly BudgetRevision[];
+  /** التسليم الابتدائي — the release event of the first retention tranche (design §06). */
+  readonly provisionalHandoverDate: string | null;
+  /** التسليم النهائي — the final tranche's event is this date plus `defectsLiabilityMonths`. */
+  readonly finalHandoverDate: string | null;
 }
 
 export interface BoqLine {
@@ -148,6 +158,14 @@ export interface BoqLine {
   readonly origin: BoqLineOrigin;
   readonly variationOrderId: string | null;
   readonly costCategory: CostCategory | null;
+  /**
+   * الكمية النظرية لكل وحدة — how much of `theoreticalItemId` one unit of this
+   * item ought to consume, the basis of «انحراف الاستهلاك عن الكميات النظرية».
+   * REPORTING ONLY: it never enters a contracted quantity, a certificate or a
+   * posting, so it stays editable after the contract is active.
+   */
+  readonly theoreticalQtyPerUnit: Qty | null;
+  readonly theoreticalItemId: string | null;
 }
 
 /**

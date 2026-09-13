@@ -85,6 +85,8 @@ export interface CreateMaterialConsumptionCommand {
   readonly date: string;
   readonly warehouseId: string;
   readonly boqLineId?: string | null;
+  /** عقد الباطن الذي صُرفت له المواد — prefills the sub certificate's deduction. */
+  readonly subcontractId?: string | null;
   readonly notes?: string | null;
   readonly lines: readonly { readonly itemId: string; readonly qty: Qty }[];
 }
@@ -416,6 +418,7 @@ export class SiteService {
       warehouseId: warehouse.id,
       projectId: warehouse.projectId as string,
       boqLineId,
+      subcontractId: command.subcontractId?.trim() ? command.subcontractId.trim() : null,
       notes: command.notes ?? null,
       status: "draft",
       lines: command.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),

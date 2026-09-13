@@ -67,7 +67,10 @@ CREATE TABLE IF NOT EXISTS works_contract (
   stamp_duty_percent             TEXT NOT NULL,
   late_penalty_percent_per_period TEXT NOT NULL,
   late_penalty_cap_percent       TEXT NOT NULL,
-  final_security_percent         TEXT NOT NULL
+  final_security_percent         TEXT NOT NULL,
+  provisional_release_percent    TEXT,
+  provisional_handover_date      TEXT,
+  final_handover_date            TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_works_contract_project ON works_contract(project_id);
 
@@ -86,6 +89,8 @@ CREATE TABLE IF NOT EXISTS contract_boq_line (
   origin              TEXT NOT NULL,
   variation_order_id  TEXT,
   cost_category       TEXT,
+  theoretical_qty_per_unit INTEGER,
+  theoretical_item_id TEXT,
   UNIQUE (contract_id, code)
 );
 CREATE INDEX IF NOT EXISTS idx_contract_boq_line_contract ON contract_boq_line(contract_id);
@@ -167,6 +172,9 @@ interface ContractRow {
   late_penalty_percent_per_period: string;
   late_penalty_cap_percent: string;
   final_security_percent: string;
+  provisional_release_percent: string | null;
+  provisional_handover_date: string | null;
+  final_handover_date: string | null;
 }
 
 interface BoqRow {
@@ -184,6 +192,8 @@ interface BoqRow {
   origin: string;
   variation_order_id: string | null;
   cost_category: string | null;
+  theoretical_qty_per_unit: number | null;
+  theoretical_item_id: string | null;
 }
 
 interface AdjustmentRow {
@@ -289,6 +299,9 @@ function toContract(row: ContractRow): WorksContract {
     latePenaltyPercentPerPeriod: row.late_penalty_percent_per_period,
     latePenaltyCapPercent: row.late_penalty_cap_percent,
     finalSecurityPercent: row.final_security_percent,
+    provisionalReleasePercent: row.provisional_release_percent ?? "50",
+    provisionalHandoverDate: row.provisional_handover_date,
+    finalHandoverDate: row.final_handover_date,
   };
 }
 
@@ -308,6 +321,8 @@ function toBoqLine(row: BoqRow): BoqLine {
     origin: row.origin === "variation" ? "variation" : "base",
     variationOrderId: row.variation_order_id,
     costCategory: (row.cost_category as CostCategory | null) ?? null,
+    theoreticalQtyPerUnit: row.theoretical_qty_per_unit === null ? null : Qty.fromScaled(row.theoretical_qty_per_unit),
+    theoreticalItemId: row.theoretical_item_id,
   };
 }
 
@@ -403,7 +418,8 @@ class SqliteWorksContractStore implements WorksContractStore {
            retention_cap_percent, advance_percent, advance_recovery_percent, materials_on_site_percent,
            deemed_wage_percent, social_insurance_rate_percent, social_insurance_note, withholding_tax_percent,
            vat_basis, payment_term_days, defects_liability_months, recognition_policy, stamp_duty_percent,
-           late_penalty_percent_per_period, late_penalty_cap_percent, final_security_percent
+           late_penalty_percent_per_period, late_penalty_cap_percent, final_security_percent,
+           provisional_release_percent, provisional_handover_date, final_handover_date
          ) VALUES (
            @id, @doc_no, @project_id, @customer_id, @title_ar, @title_en, @contract_type, @signed_date, @start_date,
            @planned_end_date, @currency, @status, @activated_at, @completed_at, @terminated_at, @notes,
@@ -411,7 +427,8 @@ class SqliteWorksContractStore implements WorksContractStore {
            @retention_cap_percent, @advance_percent, @advance_recovery_percent, @materials_on_site_percent,
            @deemed_wage_percent, @social_insurance_rate_percent, @social_insurance_note, @withholding_tax_percent,
            @vat_basis, @payment_term_days, @defects_liability_months, @recognition_policy, @stamp_duty_percent,
-           @late_penalty_percent_per_period, @late_penalty_cap_percent, @final_security_percent
+           @late_penalty_percent_per_period, @late_penalty_cap_percent, @final_security_percent,
+           @provisional_release_percent, @provisional_handover_date, @final_handover_date
          )
          ON CONFLICT(id) DO UPDATE SET
            project_id = excluded.project_id,
@@ -447,7 +464,10 @@ class SqliteWorksContractStore implements WorksContractStore {
            stamp_duty_percent = excluded.stamp_duty_percent,
            late_penalty_percent_per_period = excluded.late_penalty_percent_per_period,
            late_penalty_cap_percent = excluded.late_penalty_cap_percent,
-           final_security_percent = excluded.final_security_percent`,
+           final_security_percent = excluded.final_security_percent,
+           provisional_release_percent = excluded.provisional_release_percent,
+           provisional_handover_date = excluded.provisional_handover_date,
+           final_handover_date = excluded.final_handover_date`,
       )
       .run({
         id: contract.id,
@@ -486,6 +506,9 @@ class SqliteWorksContractStore implements WorksContractStore {
         late_penalty_percent_per_period: contract.latePenaltyPercentPerPeriod,
         late_penalty_cap_percent: contract.latePenaltyCapPercent,
         final_security_percent: contract.finalSecurityPercent,
+        provisional_release_percent: contract.provisionalReleasePercent,
+        provisional_handover_date: contract.provisionalHandoverDate,
+        final_handover_date: contract.finalHandoverDate,
       });
   }
 
@@ -624,8 +647,8 @@ class SqliteWorksContractStore implements WorksContractStore {
 
   private writeBoqLines(lines: readonly BoqLine[]): void {
     const stmt = this.sqlite.prepare(
-      `INSERT INTO contract_boq_line (id, contract_id, code, description_ar, description_en, unit, qty, unit_rate, estimated_unit_cost, section, sort_order, origin, variation_order_id, cost_category)
-       VALUES (@id, @contract_id, @code, @description_ar, @description_en, @unit, @qty, @unit_rate, @estimated_unit_cost, @section, @sort_order, @origin, @variation_order_id, @cost_category)
+      `INSERT INTO contract_boq_line (id, contract_id, code, description_ar, description_en, unit, qty, unit_rate, estimated_unit_cost, section, sort_order, origin, variation_order_id, cost_category, theoretical_qty_per_unit, theoretical_item_id)
+       VALUES (@id, @contract_id, @code, @description_ar, @description_en, @unit, @qty, @unit_rate, @estimated_unit_cost, @section, @sort_order, @origin, @variation_order_id, @cost_category, @theoretical_qty_per_unit, @theoretical_item_id)
        ON CONFLICT(id) DO UPDATE SET
          code = excluded.code,
          description_ar = excluded.description_ar,
@@ -638,7 +661,9 @@ class SqliteWorksContractStore implements WorksContractStore {
          sort_order = excluded.sort_order,
          origin = excluded.origin,
          variation_order_id = excluded.variation_order_id,
-         cost_category = excluded.cost_category`,
+         cost_category = excluded.cost_category,
+         theoretical_qty_per_unit = excluded.theoretical_qty_per_unit,
+         theoretical_item_id = excluded.theoretical_item_id`,
     );
     for (const line of lines) {
       stmt.run({
@@ -656,6 +681,8 @@ class SqliteWorksContractStore implements WorksContractStore {
         origin: line.origin,
         variation_order_id: line.variationOrderId,
         cost_category: line.costCategory,
+        theoretical_qty_per_unit: line.theoreticalQtyPerUnit?.toScaledNumber() ?? null,
+        theoretical_item_id: line.theoreticalItemId,
       });
     }
   }

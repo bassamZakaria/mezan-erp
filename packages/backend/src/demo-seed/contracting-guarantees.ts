@@ -52,11 +52,8 @@ export async function seedContractingGuarantees(app: App): Promise<void> {
     notes: "خطاب دفعة مقدمة يتناقص مع الاسترداد من المستخلصات",
   });
   await step(app, "POST", "/contracting/guarantees/LG-DEMO-2/issue", {});
-  await step(app, "POST", "/contracting/guarantees/LG-DEMO-2/reduce", {
-    date: "2026-08-06",
-    amount: "60000",
-    reason: "استرداد من المستخلص",
-  });
+  // Reduced for real by the certificates seed, which recovers the advance on
+  // every approval through `reduceAdvanceGuarantee` — no hand-reduction here.
 
   await step(app, "POST", "/contracting/guarantees", {
     id: "LG-DEMO-3",

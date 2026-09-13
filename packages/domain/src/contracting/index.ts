@@ -19,3 +19,5 @@ export * from "./certificates/index.js";
 export * from "./site/index.js";
 export * from "./guarantees/index.js";
 export * from "./recognition/index.js";
+export * from "./controls/index.js";
+export * from "./subcontracts/index.js";

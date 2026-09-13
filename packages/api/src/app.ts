@@ -192,6 +192,16 @@ import {
   createContractingRecognitionRoutes,
   type ContractingRecognitionRoutesDeps,
 } from "./contracting-recognition-routes.js";
+import {
+  createContractingReportsRoutes,
+  createContractingRetentionRoutes,
+  type ContractingControlsRoutesDeps,
+} from "./contracting-controls-routes.js";
+import {
+  createContractingSubcontractsRoutes,
+  createSubcontractCertificatesRoutes,
+  type ContractingSubcontractsRoutesDeps,
+} from "./contracting-subcontracts-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 import { createFieldSalesRoutes, createVansRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
 import {
@@ -619,6 +629,19 @@ export interface CreateAppOptions {
    * EAS 48 run and its reversal.
    */
   readonly contractingRecognition?: ContractingRecognitionRoutesDeps;
+  /**
+   * Mounts تقارير الاستثناءات الستة والإفراج عن المحتجزات وتقويمها — slice 5B
+   * of المقاولات (docs/artifacts/mezan-contracting-designs.html §06) — under
+   * `/contracting/reports` and `/contracting/retention`.
+   */
+  readonly contractingControls?: ContractingControlsRoutesDeps;
+  /**
+   * Mounts عقود الباطن ومستخلصات مقاولي الباطن — slice 3 of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html §03 "THE MIRROR", D-04,
+   * D-05) — under `/contracting/subcontracts` and
+   * `/contracting/subcontract-certificates`.
+   */
+  readonly contractingSubcontracts?: ContractingSubcontractsRoutesDeps;
   /**
    * Mounts Fixed Assets (docs/archive/catalog/07 "الأصول الثابتة") under `/assets`
    * when present: asset categories, the asset register, and depreciation
@@ -1194,6 +1217,17 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.contractingRecognition) {
     app.route("/contracting/recognition", createContractingRecognitionRoutes(options.contractingRecognition, resolveAuth));
+  }
+  if (options.contractingControls) {
+    app.route("/contracting/reports", createContractingReportsRoutes(options.contractingControls, resolveAuth));
+    app.route("/contracting/retention", createContractingRetentionRoutes(options.contractingControls, resolveAuth));
+  }
+  if (options.contractingSubcontracts) {
+    app.route("/contracting/subcontracts", createContractingSubcontractsRoutes(options.contractingSubcontracts, resolveAuth));
+    app.route(
+      "/contracting/subcontract-certificates",
+      createSubcontractCertificatesRoutes(options.contractingSubcontracts, resolveAuth),
+    );
   }
   if (options.fixedAssets) {
     app.route("/assets", createFixedAssetsRoutes(options.fixedAssets, resolveAuth));

@@ -86,6 +86,7 @@ function serializeConsumption(consumption: MaterialConsumption) {
     warehouseId: consumption.warehouseId,
     projectId: consumption.projectId,
     boqLineId: consumption.boqLineId,
+    subcontractId: consumption.subcontractId,
     notes: consumption.notes,
     status: consumption.status,
     lines: consumption.lines.map((l) => ({ itemId: l.itemId, qty: l.qty.toString() })),
@@ -304,9 +305,11 @@ export function createContractingSiteRoutes(
   app.get("/consumptions", gate("inventory.adjustment.view"), async (c) => {
     const projectId = c.req.query("projectId");
     const warehouseId = c.req.query("warehouseId");
+    const subcontractId = c.req.query("subcontractId");
     const consumptions = await service.listConsumptions({
       ...(projectId ? { projectId } : {}),
       ...(warehouseId ? { warehouseId } : {}),
+      ...(subcontractId ? { subcontractId } : {}),
     });
     return c.json(consumptions.map(serializeConsumption));
   });
@@ -326,6 +329,7 @@ export function createContractingSiteRoutes(
         date: parsed.data.date,
         warehouseId: parsed.data.warehouseId,
         boqLineId: parsed.data.boqLineId ?? null,
+        subcontractId: parsed.data.subcontractId ?? null,
         notes: parsed.data.notes ?? null,
         lines: parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
       });

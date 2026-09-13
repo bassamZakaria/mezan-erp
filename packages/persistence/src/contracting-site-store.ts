@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS material_consumption (
   warehouse_id      TEXT NOT NULL,
   project_id        TEXT NOT NULL,
   boq_line_id       TEXT,
+  subcontract_id    TEXT,
   notes             TEXT,
   status            TEXT NOT NULL,
   lines_json        TEXT NOT NULL,
@@ -82,6 +83,7 @@ CREATE TABLE IF NOT EXISTS material_consumption (
   confirmed_at      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_material_consumption_project ON material_consumption(project_id);
+CREATE INDEX IF NOT EXISTS idx_material_consumption_subcontract ON material_consumption(subcontract_id);
 
 CREATE TABLE IF NOT EXISTS site_custody (
   id                   TEXT PRIMARY KEY,
@@ -153,6 +155,7 @@ interface ConsumptionRow {
   warehouse_id: string;
   project_id: string;
   boq_line_id: string | null;
+  subcontract_id: string | null;
   notes: string | null;
   status: string;
   lines_json: string;
@@ -237,6 +240,7 @@ function toConsumption(row: ConsumptionRow): MaterialConsumption {
     warehouseId: row.warehouse_id,
     projectId: row.project_id,
     boqLineId: row.boq_line_id,
+    subcontractId: row.subcontract_id ?? null,
     notes: row.notes,
     status: row.status as MaterialConsumption["status"],
     lines: lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
@@ -296,6 +300,14 @@ export function createSqliteContractingSiteStore(
 ): SqliteContractingSiteStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
+  // Added after the table shipped — an existing database keeps it null.
+  if (
+    !(sqlite.prepare(`PRAGMA table_info(material_consumption)`).all() as { name: string }[]).some(
+      (c) => c.name === "subcontract_id",
+    )
+  ) {
+    sqlite.exec(`ALTER TABLE material_consumption ADD COLUMN subcontract_id TEXT`);
+  }
 
   const upsertIssue = sqlite.prepare(`
     INSERT INTO site_issue (id, doc_no, date, from_warehouse_id, to_warehouse_id, project_id,
@@ -321,13 +333,14 @@ export function createSqliteContractingSiteStore(
       created_at = excluded.created_at, confirmed_at = excluded.confirmed_at
   `);
   const upsertConsumption = sqlite.prepare(`
-    INSERT INTO material_consumption (id, doc_no, date, warehouse_id, project_id, boq_line_id, notes,
+    INSERT INTO material_consumption (id, doc_no, date, warehouse_id, project_id, boq_line_id, subcontract_id, notes,
       status, lines_json, total_cost, journal_entry_id, created_at, confirmed_at)
-    VALUES (@id, @doc_no, @date, @warehouse_id, @project_id, @boq_line_id, @notes,
+    VALUES (@id, @doc_no, @date, @warehouse_id, @project_id, @boq_line_id, @subcontract_id, @notes,
       @status, @lines_json, @total_cost, @journal_entry_id, @created_at, @confirmed_at)
     ON CONFLICT(id) DO UPDATE SET
       doc_no = excluded.doc_no, date = excluded.date, warehouse_id = excluded.warehouse_id,
-      project_id = excluded.project_id, boq_line_id = excluded.boq_line_id, notes = excluded.notes,
+      project_id = excluded.project_id, boq_line_id = excluded.boq_line_id,
+      subcontract_id = excluded.subcontract_id, notes = excluded.notes,
       status = excluded.status, lines_json = excluded.lines_json, total_cost = excluded.total_cost,
       journal_entry_id = excluded.journal_entry_id, created_at = excluded.created_at,
       confirmed_at = excluded.confirmed_at
@@ -451,6 +464,7 @@ export function createSqliteContractingSiteStore(
       const params: unknown[] = [];
       if (filter.projectId) { where.push("project_id = ?"); params.push(filter.projectId); }
       if (filter.warehouseId) { where.push("warehouse_id = ?"); params.push(filter.warehouseId); }
+      if (filter.subcontractId) { where.push("subcontract_id = ?"); params.push(filter.subcontractId); }
       if (filter.status) { where.push("status = ?"); params.push(filter.status); }
       return selectAll<ConsumptionRow>("material_consumption", where, params).map(toConsumption);
     },
@@ -462,6 +476,7 @@ export function createSqliteContractingSiteStore(
         warehouse_id: consumption.warehouseId,
         project_id: consumption.projectId,
         boq_line_id: consumption.boqLineId,
+        subcontract_id: consumption.subcontractId,
         notes: consumption.notes,
         status: consumption.status,
         lines_json: JSON.stringify(consumption.lines.map((l) => ({ itemId: l.itemId, qty: l.qty.toString() }))),

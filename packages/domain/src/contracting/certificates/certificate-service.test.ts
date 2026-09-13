@@ -153,6 +153,8 @@ function boqLine(id: string, code: string, qty: string, rate: string, sortOrder:
     origin: "base",
     variationOrderId: null,
     costCategory: "materials",
+    theoreticalQtyPerUnit: null,
+    theoreticalItemId: null,
   };
 }
 
@@ -182,6 +184,8 @@ async function harness(overrides: Partial<WorksContract> = {}): Promise<Harness>
     ["2165", "liability", "credit"],
     ["5155", "expense", "debit"],
     ["5910", "expense", "debit"],
+    ["5157", "expense", "debit"],
+    ["5158", "expense", "debit"],
   ] as const) {
     await accounts.create(account(id, type, natural));
   }
@@ -229,6 +233,8 @@ async function harness(overrides: Partial<WorksContract> = {}): Promise<Harness>
     notes: null,
     estimatedTotalCost: Money.fromMajor("900000"),
     budgetRevisions: [],
+    provisionalHandoverDate: null,
+    finalHandoverDate: null,
     tenderDiscountPercent: "4.5",
     ...overrides,
   });
@@ -427,6 +433,34 @@ describe("CertificateService", () => {
     }
   });
 
+  it("posts employer-supplied materials and stamp duty to their own accounts, not to 5910 late-penalty", async () => {
+    const withStampDuty = await harness({ stampDutyPercent: "1" });
+    await postAdvance(withStampDuty, "60000");
+    await withStampDuty.service.create(
+      {
+        id: "C1",
+        contractId: CONTRACT_ID,
+        periodFrom: "2026-01-01",
+        periodTo: "2026-01-31",
+        workLines: [{ boqLineId: "B1", thisPeriodQty: "1000" }],
+        employerMaterialsCumulative: "5000",
+      },
+      SURVEYOR,
+    );
+    await fullyApprove(withStampDuty, "C1", "2026-02-05");
+
+    const entry = await withStampDuty.ledger.findById("C1-DED");
+    expect(entry).not.toBeNull();
+    const employerMaterialsLine = entry!.lines.find((l) => l.accountId === "5157");
+    const stampDutyLine = entry!.lines.find((l) => l.accountId === "5158");
+    expect(employerMaterialsLine?.debit.toString()).toBe("5000.000000");
+    expect(employerMaterialsLine?.costCategory).toBe("indirect");
+    expect(stampDutyLine?.debit.scaled).toBeGreaterThan(0n);
+    expect(stampDutyLine?.costCategory).toBe("indirect");
+    // Neither deduction lands on the late-penalty account they used to share.
+    expect(entry!.lines.some((l) => l.accountId === "5910")).toBe(false);
+  });
+
   it("leaves the generated invoice owing exactly the net payable", async () => {
     await postAdvance(h, "60000");
     await draft(h, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
@@ -502,7 +536,7 @@ describe("CertificateService", () => {
     const certified = await harness({ recognitionPolicy: "certified_value" });
     await draft(certified, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
     await fullyApprove(certified, "C1", "2026-02-05");
-    expect(certified.issued[0]?.revenueAccountId).toBe("4100");
+    expect(certified.issued[0]?.revenueAccountId).toBe("4150");
   });
 
   it("reports the مستخلص تنفيذي at the latest certificate's cumulative quantities", async () => {

@@ -34,7 +34,7 @@ function WithSubPageNav({ children }: { children: ReactElement }) {
 const suppliers: SupplierDTO[] = [
   {
     id: "sup-1", code: "S1", nameAr: "شركة النيل للتوريدات", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
-    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null,
+    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null, bankAccount: null,
   },
 ];
 
@@ -65,7 +65,7 @@ const suppliers2: SupplierDTO[] = [
   ...suppliers,
   {
     id: "sup-2", code: "S2", nameAr: "مصنع الدلتا للأسمنت", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
-    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null,
+    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null, bankAccount: null,
   },
 ];
 

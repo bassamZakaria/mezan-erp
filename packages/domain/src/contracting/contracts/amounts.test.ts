@@ -22,6 +22,8 @@ function line(over: Partial<BoqLine> & Pick<BoqLine, "id" | "code" | "qty" | "un
     origin: "base",
     variationOrderId: null,
     costCategory: null,
+    theoreticalQtyPerUnit: null,
+    theoreticalItemId: null,
     ...over,
   };
 }

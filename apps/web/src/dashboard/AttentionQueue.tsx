@@ -7,7 +7,7 @@ import { Button } from "@mezan/ui";
  * opens the screen where it gets cleared.
  */
 
-export type AttentionKind = "overdue" | "dueSoon" | "tax" | "stock" | "payables";
+export type AttentionKind = "overdue" | "dueSoon" | "tax" | "stock" | "payables" | "contracting";
 export type AttentionTone = "danger" | "warning" | "info" | "clear";
 
 const toneClass: Record<AttentionTone, string> = {
@@ -53,6 +53,13 @@ function Glyph({ kind }: { kind: AttentionKind }) {
           <ellipse cx="10" cy="5.6" rx="6.2" ry="2.6" stroke="currentColor" strokeWidth="1.5" />
           <path d="M3.8 5.6v8.8c0 1.4 2.8 2.6 6.2 2.6s6.2-1.2 6.2-2.6V5.6" stroke="currentColor" strokeWidth="1.5" />
           <path d="M3.8 10c0 1.4 2.8 2.6 6.2 2.6S16.2 11.4 16.2 10" stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      );
+    case "contracting":
+      return (
+        <svg viewBox="0 0 20 20" width="17" height="17" fill="none" aria-hidden>
+          <path d="M10 2.8 3.6 5.4v4.3c0 3.5 2.7 6 6.4 7.5 3.7-1.5 6.4-4 6.4-7.5V5.4L10 2.8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+          <path d="M10 7.6v3M10 12.9v.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
         </svg>
       );
   }

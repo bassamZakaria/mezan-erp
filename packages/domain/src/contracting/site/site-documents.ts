@@ -74,6 +74,13 @@ export interface MaterialConsumption {
   readonly warehouseId: string;
   readonly projectId: string;
   readonly boqLineId: string | null;
+  /**
+   * عقد الباطن الذي صُرفت له المواد. Set when the material was issued TO a
+   * subcontractor rather than consumed by the contractor's own crew: the sub
+   * certificate's «خصم مواد مصروفة للمقاول» is prefilled from these, so a
+   * consumption that names no subcontract can never become a deduction.
+   */
+  readonly subcontractId: string | null;
   readonly notes: string | null;
   readonly status: MaterialConsumptionStatus;
   readonly lines: readonly MaterialConsumptionLine[];

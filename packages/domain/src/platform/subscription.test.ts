@@ -73,6 +73,11 @@ describe("startSubscription", () => {
     });
   });
 
+  it("normalises now to the toISOString shape, even without milliseconds", async () => {
+    const s = await startSubscription({ ...base, now: "2026-01-31T10:00:00Z" }, subs(), plans(plan()));
+    expect(s.currentPeriodStart).toBe("2026-01-31T10:00:00.000Z");
+  });
+
   it("starts active when not a trial, or when the plan has no trial days", async () => {
     expect((await startSubscription(base, subs(), plans(plan()))).status).toBe("active");
     const s = await startSubscription({ ...base, trial: true }, subs(), plans(plan({ trialDays: 0 })));
@@ -119,14 +124,15 @@ describe("lifecycle", () => {
     return repo;
   }
 
-  it("renew: trialing → active and rolls the period from the old end", async () => {
+  it("renew: trialing → active and rolls the period from the old end, ahead of it", async () => {
+    const BEFORE_END = "2026-02-20T00:00:00.000Z";
     const repo = await started("trialing", true);
-    const s = await renewSubscription({ id: "S1", now: LATER }, repo);
+    const s = await renewSubscription({ id: "S1", now: BEFORE_END }, repo);
     expect(s.status).toBe("active");
     expect(s.trialEndsAt).toBeNull();
     expect(s.currentPeriodStart).toBe("2026-02-28T10:00:00.000Z");
     expect(s.currentPeriodEnd).toBe("2026-03-28T10:00:00.000Z");
-    expect(s.updatedAt).toBe(LATER);
+    expect(s.updatedAt).toBe(BEFORE_END);
   });
 
   it("renew: past_due → active; active → active; cancelled refused", async () => {
@@ -136,10 +142,21 @@ describe("lifecycle", () => {
     await expect(renewSubscription({ id: "S1", now: LATER }, await started("suspended"))).rejects.toThrow(InvalidSubscriptionTransitionError);
   });
 
+  it("renew on a lapsed subscription starts the new period at now, not at the old end", async () => {
+    const repo = await started("active");
+    const s = await renewSubscription({ id: "S1", now: "2026-06-01T00:00:00.000Z" }, repo);
+    expect(s.currentPeriodStart).toBe("2026-06-01T00:00:00.000Z");
+    expect(s.currentPeriodEnd).toBe("2026-07-01T00:00:00.000Z");
+  });
+
   it("markPastDue only after the period end, only from active", async () => {
     await expect(markPastDue({ id: "S1", now: "2026-02-01T00:00:00.000Z" }, await started("active"))).rejects.toThrow(InvalidSubscriptionError);
     expect((await markPastDue({ id: "S1", now: LATER }, await started("active"))).status).toBe("past_due");
     await expect(markPastDue({ id: "S1", now: LATER }, await started("trialing", true))).rejects.toThrow(InvalidSubscriptionTransitionError);
+  });
+
+  it("markPastDue refuses a now that is not an ISO-8601 timestamp", async () => {
+    await expect(markPastDue({ id: "S1", now: "not a date" }, await started("active"))).rejects.toThrow(InvalidSubscriptionError);
   });
 
   it("suspend from active or past_due, resume only from suspended", async () => {
@@ -169,6 +186,14 @@ describe("lifecycle", () => {
     expect(s.currentPeriodEnd).toBe("2026-02-28T10:00:00.000Z");
     await expect(changePlan({ id: "S1", planId: "P3", now: LATER }, repo, plans(plan(), pro))).rejects.toThrow(PlanNotFoundError);
     await expect(changePlan({ id: "S1", planId: "P2", now: LATER }, repo, plans(plan(), { ...pro, status: "retired" }))).rejects.toThrow(PlanRetiredError);
+  });
+
+  it("changePlan on a cancelled subscription rejects, naming both states", async () => {
+    const repo = await started("cancelled");
+    await expect(changePlan({ id: "S1", planId: "P1", now: LATER }, repo, plans(plan())))
+      .rejects.toThrow(/cancelled/);
+    await expect(changePlan({ id: "S1", planId: "P1", now: LATER }, repo, plans(plan())))
+      .rejects.toThrow(/active/);
   });
 
   it("reports a missing subscription", async () => {

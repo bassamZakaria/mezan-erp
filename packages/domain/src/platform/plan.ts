@@ -1,6 +1,7 @@
 import { Money } from "../money/money.js";
 import { isKnownModule } from "./module-catalog.js";
 import { isValidSlug } from "./slug.js";
+import { isCount } from "./validation.js";
 import { InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
 
 export type PlanStatus = "active" | "retired";
@@ -54,10 +55,6 @@ export type UpdatePlanCommand = { readonly id: string } & Partial<
 >;
 
 export type HasLiveSubscribers = (planId: string) => Promise<boolean>;
-
-function isCount(n: number, min: number): boolean {
-  return Number.isInteger(n) && n >= min;
-}
 
 export function dedupeModules(modules: readonly string[]): string[] {
   return [...new Set(modules)];

@@ -1,5 +1,6 @@
 import { isKnownModule } from "./module-catalog.js";
 import { dedupeModules, type PlanRepository } from "./plan.js";
+import { isCount, isoTimestamp } from "./validation.js";
 import {
   InvalidSubscriptionError,
   InvalidSubscriptionTransitionError,
@@ -69,10 +70,6 @@ export interface StartSubscriptionCommand {
   readonly now: string;
 }
 
-function isCount(n: number, min: number): boolean {
-  return Number.isInteger(n) && n >= min;
-}
-
 function validateExtras(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">): string[] {
   const reasons: string[] = [];
   for (const m of s.addOnModules) if (!isKnownModule(m)) reasons.push(`unknown add-on module "${m}"`);
@@ -98,6 +95,8 @@ export async function startSubscription(
   if (cmd.id.trim() === "" || cmd.tenantId.trim() === "") {
     throw new InvalidSubscriptionError(["id and tenantId are required"]);
   }
+  const now = isoTimestamp(cmd.now);
+  if (!now) throw new InvalidSubscriptionError(["now must be an ISO-8601 timestamp"]);
   const plan = await activePlan(cmd.planId, plans);
   if (await repo.findLiveByTenant(cmd.tenantId)) throw new TenantAlreadySubscribedError(cmd.tenantId);
   const trial = cmd.trial === true && plan.trialDays > 0;
@@ -111,13 +110,13 @@ export async function startSubscription(
     extraSeats: cmd.extraSeats ?? 0,
     extraBranches: cmd.extraBranches ?? 0,
     extraWarehouses: cmd.extraWarehouses ?? 0,
-    currentPeriodStart: cmd.now,
-    currentPeriodEnd: addPeriod(cmd.now, cmd.billingCycle),
-    trialEndsAt: trial ? addDays(cmd.now, plan.trialDays) : null,
+    currentPeriodStart: now,
+    currentPeriodEnd: addPeriod(now, cmd.billingCycle),
+    trialEndsAt: trial ? addDays(now, plan.trialDays) : null,
     graceDays: cmd.graceDays ?? DEFAULT_GRACE_DAYS,
     cancelledAt: null,
-    createdAt: cmd.now,
-    updatedAt: cmd.now,
+    createdAt: now,
+    updatedAt: now,
   };
   const reasons = validateExtras(candidate);
   if (reasons.length > 0) throw new InvalidSubscriptionError(reasons);
@@ -140,16 +139,25 @@ function assertFrom(s: Subscription, allowed: readonly SubscriptionStatus[], to:
   if (!allowed.includes(s.status)) throw new InvalidSubscriptionTransitionError(s.status, to);
 }
 
+function requireNow(cmd: SubscriptionCommand): string {
+  const now = isoTimestamp(cmd.now);
+  if (!now) throw new InvalidSubscriptionError(["now must be an ISO-8601 timestamp"]);
+  return now;
+}
+
 export async function renewSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   assertFrom(s, ["trialing", "active", "past_due"], "active");
+  const now = requireNow(cmd);
+  const lapsed = s.currentPeriodEnd < now;
+  const periodStart = lapsed ? now : s.currentPeriodEnd;
   const next: Subscription = {
     ...s,
     status: "active",
     trialEndsAt: null,
-    currentPeriodStart: s.currentPeriodEnd,
-    currentPeriodEnd: addPeriod(s.currentPeriodEnd, s.billingCycle),
-    updatedAt: cmd.now,
+    currentPeriodStart: periodStart,
+    currentPeriodEnd: addPeriod(periodStart, s.billingCycle),
+    updatedAt: now,
   };
   await repo.save(next);
   return next;
@@ -158,10 +166,11 @@ export async function renewSubscription(cmd: SubscriptionCommand, repo: Subscrip
 export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   assertFrom(s, ["active"], "past_due");
-  if (cmd.now < s.currentPeriodEnd) {
+  const now = requireNow(cmd);
+  if (now < s.currentPeriodEnd) {
     throw new InvalidSubscriptionError([`period has not ended (ends ${s.currentPeriodEnd})`]);
   }
-  const next: Subscription = { ...s, status: "past_due", updatedAt: cmd.now };
+  const next: Subscription = { ...s, status: "past_due", updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -169,7 +178,8 @@ export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRe
 export async function suspendSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   assertFrom(s, ["active", "past_due"], "suspended");
-  const next: Subscription = { ...s, status: "suspended", updatedAt: cmd.now };
+  const now = requireNow(cmd);
+  const next: Subscription = { ...s, status: "suspended", updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -177,7 +187,8 @@ export async function suspendSubscription(cmd: SubscriptionCommand, repo: Subscr
 export async function resumeSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   assertFrom(s, ["suspended"], "active");
-  const next: Subscription = { ...s, status: "active", updatedAt: cmd.now };
+  const now = requireNow(cmd);
+  const next: Subscription = { ...s, status: "active", updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -185,7 +196,8 @@ export async function resumeSubscription(cmd: SubscriptionCommand, repo: Subscri
 export async function cancelSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   assertFrom(s, ["trialing", "active", "past_due", "suspended"], "cancelled");
-  const next: Subscription = { ...s, status: "cancelled", cancelledAt: cmd.now, updatedAt: cmd.now };
+  const now = requireNow(cmd);
+  const next: Subscription = { ...s, status: "cancelled", cancelledAt: now, updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -200,14 +212,15 @@ export async function changePlan(
   plans: PlanRepository,
 ): Promise<Subscription> {
   const s = await load(cmd.id, repo);
-  assertFrom(s, ["trialing", "active", "past_due"], s.status === "trialing" ? "active" : s.status);
+  assertFrom(s, ["trialing", "active", "past_due"], "active");
+  const now = requireNow(cmd);
   const plan = await activePlan(cmd.planId, plans);
   const next: Subscription = {
     ...s,
     planId: plan.id,
     status: s.status === "trialing" ? "active" : s.status,
     trialEndsAt: null,
-    updatedAt: cmd.now,
+    updatedAt: now,
   };
   await repo.save(next);
   return next;

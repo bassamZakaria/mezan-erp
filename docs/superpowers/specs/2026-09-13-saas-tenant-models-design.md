@@ -111,7 +111,7 @@ Model, repository and store only. No login route, no permissions, no screens in 
 
 Both are pure functions in `packages/domain/src/platform/`.
 
-### 4.1 `deriveEntitlements(plan, subscription, now): Entitlements`
+### 4.1 `deriveEntitlements(plan, subscription): Entitlements`
 
 - `plan` = `plan.code`
 - `activeModules` = deduplicated union of `plan.modules` and `subscription.addOnModules`
@@ -124,10 +124,12 @@ used is the licence state's job, not this function's.
 
 ### 4.2 `subscriptionLicenseState(tenant, subscription | null, now): LicenseStateView`
 
-Evaluated in order, first match wins:
+Evaluated in order, first match wins. `now` is normalised through `isoTimestamp` first; a
+value that does not parse is `INVALID_CLOCK` and never grants writes.
 
 | Condition | state | canWrite | usable |
 |---|---|---|---|
+| `now` unparseable | `INVALID` | false | true |
 | `tenant.status === "archived"` | `INVALID` | false | false |
 | `tenant.status === "provisioning"` or no subscription | `UNLICENSED` | false | true |
 | `tenant.status === "suspended"` | `READ_ONLY` | false | true |
@@ -139,7 +141,7 @@ Evaluated in order, first match wins:
 | otherwise | `READ_ONLY` | false | true |
 
 `licensee` = `tenant.nameAr`, `expiresAt` as in 4.1, `graceEndsAt` set when GRACE,
-`reason` set for every non-writable row. A READ_ONLY tenant keeps every read, print and
+`reason` is a literal from a closed union (`SubscriptionLicenseReason`) on every non-writable row. A READ_ONLY tenant keeps every read, print and
 export; only mutating routes are refused by the existing write gate.
 
 ## 5. Use-cases

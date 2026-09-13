@@ -75,6 +75,7 @@ interface AssetDraft {
   depreciationStartDate: string;
   usefulLifeMonths: number;
   salvageValue: number | null;
+  internalHourlyRate: number | null;
 }
 
 function blankDraft(): AssetDraft {
@@ -91,6 +92,7 @@ function blankDraft(): AssetDraft {
     depreciationStartDate: "",
     usefulLifeMonths: 60,
     salvageValue: null,
+    internalHourlyRate: null,
   };
 }
 
@@ -221,6 +223,7 @@ export function AssetRegisterScreen() {
       usefulLifeMonths: draft.usefulLifeMonths,
       salvageValue: draft.salvageValue === null ? undefined : draft.salvageValue.toFixed(6),
       projectId: project?.id ?? null,
+      internalHourlyRate: draft.internalHourlyRate === null ? null : draft.internalHourlyRate.toFixed(6),
     };
     try {
       await createAsset.mutateAsync(body);
@@ -404,6 +407,14 @@ export function AssetRegisterScreen() {
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.residualValue")}</div>
                 <MoneyDisplay value={toMajor(selected.salvageValue)} className="mt-[5px] text-[14px] font-bold" />
               </div>
+              <div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.internalHourlyRate")}</div>
+                {selected.internalHourlyRate ? (
+                  <MoneyDisplay value={toMajor(selected.internalHourlyRate)} className="mt-[5px] text-[14px] font-bold" />
+                ) : (
+                  <div className="mt-[5px] text-[14px] font-bold text-ink">{t("asset.notPlant")}</div>
+                )}
+              </div>
               <div className="border-e border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.accumulatedDepreciation")}</div>
                 <MoneyDisplay value={toMajor(selected.accumulatedDepreciation)} className="mt-[5px] text-[14px] font-bold" />
@@ -570,6 +581,15 @@ export function AssetRegisterScreen() {
               <div>
                 <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("asset.residualValue")}</div>
                 <MoneyInput aria-label={t("asset.residualValue")} value={draft.salvageValue} onChange={(v) => setDraft((d) => ({ ...d, salvageValue: v }))} />
+              </div>
+              <div>
+                <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("asset.internalHourlyRate")}</div>
+                <MoneyInput
+                  aria-label={t("asset.internalHourlyRate")}
+                  value={draft.internalHourlyRate}
+                  onChange={(v) => setDraft((d) => ({ ...d, internalHourlyRate: v }))}
+                />
+                <p className="mt-[6px] text-[11.5px] text-ink-muted">{t("asset.internalHourlyRateHint")}</p>
               </div>
             </div>
           </div>

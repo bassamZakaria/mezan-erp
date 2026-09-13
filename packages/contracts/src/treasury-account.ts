@@ -20,6 +20,8 @@ export const treasuryAccountSchema = z.object({
   glAccountId: z.string().nullable(),
   openingBalance: moneyString,
   openingBalanceDate: z.string().nullable(),
+  /** حد تسهيلات خطابات الضمان — null when the bank has no facility configured. */
+  guaranteeFacilityLimit: moneyString.nullable(),
   status: treasuryAccountStatusSchema,
 });
 
@@ -34,6 +36,7 @@ export const createTreasuryAccountSchema = z.object({
   glAccountId: z.string().nullable().optional(),
   openingBalance: moneyString.optional(),
   openingBalanceDate: z.string().nullable().optional(),
+  guaranteeFacilityLimit: moneyString.nullable().optional(),
 });
 
 /** All fields optional — a PATCH applies only what's supplied. Also used for "إضافة رصيد افتتاحي". */
@@ -46,6 +49,7 @@ export const updateTreasuryAccountSchema = z.object({
   glAccountId: z.string().nullable().optional(),
   openingBalance: moneyString.optional(),
   openingBalanceDate: z.string().nullable().optional(),
+  guaranteeFacilityLimit: moneyString.nullable().optional(),
   status: treasuryAccountStatusSchema.optional(),
 });
 

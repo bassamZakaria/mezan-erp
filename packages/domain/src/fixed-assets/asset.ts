@@ -35,6 +35,12 @@ export interface Asset {
   readonly notes: string | null;
   /** بُعد المشروع — the contracting project this asset is assigned to, while assigned its depreciation is that project's equipment cost. */
   readonly projectId: string | null;
+  /**
+   * سعر الساعة الداخلي — what one operating hour of this plant is charged to a
+   * project at (تشغيل المعدات). Null on anything that is not plant, in which
+   * case an equipment log must carry its own rate.
+   */
+  readonly internalHourlyRate: Money | null;
 }
 
 /** Persistence port for assets. The domain depends on this interface only — no SQL, no driver. */

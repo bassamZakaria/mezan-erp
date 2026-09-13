@@ -20,6 +20,8 @@ import { canTransitionProject, matchesSearch } from "@mezan/domain";
 import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/contracts";
 import { ApiError, useCreateProject, useCustomers, useProjectPnL, useProjects, useUpdateProject, useUsers } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useWorksContracts } from "../data/contracting-contracts-hooks";
+import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -396,6 +398,7 @@ export function ProjectsScreen() {
                 <MoneyDisplay value={toMajor(selected.budget)} className="text-[18px] font-bold" />
               </div>
             </Card>
+            <ProjectContractsCard projectId={selected.id} />
             {(() => {
               const row = pnlByProject.get(selected.id);
               if (!row) return null;
@@ -507,5 +510,41 @@ export function ProjectsScreen() {
         </form>
       </SidePanel>
     </div>
+  );
+}
+
+/**
+ * عقود المشروع — the contracts raised against this project, with the value the
+ * server derived from each one's BOQ. A project can carry several; the first is
+ * the main one.
+ */
+function ProjectContractsCard({ projectId }: { projectId: string }) {
+  const { t } = useAppTranslation();
+  const { openScreenAt } = useNavigation();
+  const contracts = useWorksContracts({ projectId }).data ?? EMPTY;
+
+  return (
+    <Card className="p-[13px_15px]">
+      <div className="text-[11px] font-semibold text-ink-faint">{t("worksContracts.title")}</div>
+      {contracts.length === 0 ? (
+        <div className="mt-[6px] text-[12.5px] text-ink-muted">{t("projects.noContracts")}</div>
+      ) : (
+        <ul className="mt-[8px] flex flex-col gap-[6px]">
+          {contracts.map((contract) => (
+            <li key={contract.id} className="flex items-center justify-between gap-[10px]">
+              <Button size="sm" onClick={() => openScreenAt("contracting-contracts", [contract.docNo])}>
+                <span className="mz-num">{contract.docNo}</span>
+              </Button>
+              <span className="flex-1 truncate text-[12.5px] text-ink">{contract.titleAr}</span>
+              <MoneyDisplay value={toMajor(contract.contractValueAfterVariations)} className="text-[12.5px] font-bold" showUnit={false} />
+              <StatusPill
+                label={t(`worksContracts.status.${contract.status}` as AppTranslationKey)}
+                tone={contract.status === "active" ? "success" : contract.status === "terminated" ? "danger" : "neutral"}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }

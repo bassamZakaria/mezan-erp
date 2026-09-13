@@ -80,7 +80,7 @@ const branches: BranchDTO[] = [
 ];
 
 const treasuryAccounts: TreasuryAccountDTO[] = [
-  { id: "tre-1", code: "CASH-MAIN", name: "خزينة رئيسية", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, status: "active" },
+  { id: "tre-1", code: "CASH-MAIN", name: "خزينة رئيسية", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
 ];
 
 function advance(overrides: Partial<EmployeeAdvanceDTO> = {}): EmployeeAdvanceDTO {

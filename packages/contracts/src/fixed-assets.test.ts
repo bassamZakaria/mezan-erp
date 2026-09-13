@@ -98,6 +98,7 @@ describe("assetSchema", () => {
     accumulatedDepreciationAccountId: null,
     notes: null,
     projectId: null,
+    internalHourlyRate: null,
   };
 
   it("accepts a minimal valid asset and preserves every field verbatim", () => {

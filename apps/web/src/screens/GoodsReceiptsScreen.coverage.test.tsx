@@ -96,8 +96,8 @@ const branches: BranchDTO[] = [
 ];
 
 const warehouses: WarehouseDTO[] = [
-  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true },
-  { id: "WH2", code: "WH2", name: "مخزن الفرع الثاني", nameEn: null, branchId: "BR2", type: "MAIN", isDefault: true, active: true },
+  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
+  { id: "WH2", code: "WH2", name: "مخزن الفرع الثاني", nameEn: null, branchId: "BR2", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
 ];
 
 function purchaseOrder(overrides: Partial<PurchaseOrderDTO> = {}): PurchaseOrderDTO {
@@ -461,7 +461,7 @@ describe("GoodsReceiptsScreen — an ad-hoc receipt with no warehouse to default
 describe("GoodsReceiptsScreen — an ad-hoc receipt when the working location has no warehouse of its own", () => {
   it("falls back to the tenant's only configured warehouse even when it belongs to a different branch", async () => {
     const offBranchWarehouse: WarehouseDTO[] = [
-      { id: "WH-OTHER", code: "WH-OTHER", name: "مخزن آخر", nameEn: null, branchId: "OTHER-BRANCH", type: "MAIN", isDefault: true, active: true },
+      { id: "WH-OTHER", code: "WH-OTHER", name: "مخزن آخر", nameEn: null, branchId: "OTHER-BRANCH", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
     ];
     const transport = stubTransport({
       ...baseHandlers,

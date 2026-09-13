@@ -175,7 +175,7 @@ export interface PostTransferCommand {
    * `WORK_ORDER` movement in the ledger, and filing it as a transfer would hide
    * it from the order's own movements feed.
    */
-  readonly sourceDocType?: Extract<StockSourceDocType, "TRANSFER" | "WORK_ORDER">;
+  readonly sourceDocType?: Extract<StockSourceDocType, "TRANSFER" | "WORK_ORDER" | "SITE_ISSUE" | "SITE_RECEIPT">;
   /**
    * The document the movement belongs to, when it is NOT the transfer itself
    * (same split as {@link PostReceiptCommand.sourceDocId}). A work order's

@@ -80,6 +80,8 @@ function activityForSection(section: AccountSection): CashFlowActivity | null {
     case "equity":
       return "financing";
     case "cash":
+    // A memorandum pair never moves cash — it is off balance sheet.
+    case "memorandum":
       return null;
   }
 }

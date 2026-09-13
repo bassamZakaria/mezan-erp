@@ -951,10 +951,10 @@ async function twoBranches() {
   const { deps } = harness;
 
   await deps.warehouses.save({
-    id: "wh-1", code: "WH-1", name: "مخزن القاهرة", nameEn: null, branchId: "br-1", type: "MAIN", isDefault: true, active: true,
+    id: "wh-1", code: "WH-1", name: "مخزن القاهرة", nameEn: null, branchId: "br-1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null,
   });
   await deps.warehouses.save({
-    id: "wh-2", code: "WH-2", name: "مخزن الجيزة", nameEn: null, branchId: "br-2", type: "MAIN", isDefault: false, active: true,
+    id: "wh-2", code: "WH-2", name: "مخزن الجيزة", nameEn: null, branchId: "br-2", type: "MAIN", isDefault: false, active: true, projectId: null, custodianUserId: null,
   });
 
   await deps.salesInvoices.save(

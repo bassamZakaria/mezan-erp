@@ -61,6 +61,8 @@ export const ACCOUNT_ROUTING_SLOTS: readonly AccountRoutingSlot[] = [
   { key: "contracting.onerous_loss", section: "contracting", labelAr: "خسائر عقود متوقعة", labelEn: "Foreseeable contract losses", defaultAccountId: "5930" },
   { key: "contracting.plant_recovery", section: "contracting", labelAr: "استرداد تكلفة تشغيل المعدات", labelEn: "Internal plant hire recovery", defaultAccountId: "5160" },
   { key: "contracting.restricted_cash", section: "contracting", labelAr: "غطاء نقدي مقيد لخطابات الضمان", labelEn: "Restricted cash — guarantee margins", defaultAccountId: "1340" },
+  { key: "contracting.memo_debit", section: "contracting", labelAr: "حسابات نظامية مدينة — خطابات ضمان", labelEn: "Memorandum debit — letters of guarantee", defaultAccountId: "9100" },
+  { key: "contracting.memo_credit", section: "contracting", labelAr: "حسابات نظامية دائنة — خطابات ضمان", labelEn: "Memorandum credit — letters of guarantee", defaultAccountId: "9200" },
 
   // --- خصم المبيعات ---
   { key: "sales_discount.contra", section: "sales_discount", labelAr: "حساب خصم المبيعات", labelEn: "Sales discount contra account", defaultAccountId: "4100" },

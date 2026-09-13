@@ -18,6 +18,10 @@ import {
   BookOpenCheck,
   BookText,
   Boxes,
+  Timer,
+  SendHorizontal,
+  HardHat,
+  Construction,
   Briefcase,
   Building,
   Building2,
@@ -211,6 +215,11 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "my-leave": CalendarDays,
 
   projects: FolderKanban,
+  guarantees: Landmark,
+  "site-issues": SendHorizontal,
+  "material-consumption": HardHat,
+  "custody-register": Construction,
+  "equipment-logs": Timer,
 
   "assets-hub": Building,
   "asset-register": ClipboardList,

@@ -36,7 +36,14 @@ export type AccountSection =
   | "non-current-liability"
   | "equity"
   | "revenue"
-  | "expense";
+  | "expense"
+  /**
+   * حسابات نظامية — off balance sheet. EVERY statement must skip this section:
+   * a memorandum pair is self-balancing, so counting it would inflate both
+   * sides of the balance sheet and both columns of the trial balance with a
+   * contingent obligation the entity does not own and does not owe.
+   */
+  | "memorandum";
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   asset: "الأصول",
@@ -44,6 +51,7 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   equity: "حقوق الملكية",
   revenue: "الإيرادات",
   expense: "المصروفات",
+  memorandum: "حسابات نظامية",
 };
 
 export const ACCOUNT_SECTION_LABELS: Record<AccountSection, string> = {
@@ -55,6 +63,7 @@ export const ACCOUNT_SECTION_LABELS: Record<AccountSection, string> = {
   equity: "حقوق الملكية",
   revenue: "الإيرادات",
   expense: "المصروفات",
+  memorandum: "حسابات نظامية",
 };
 
 /** Leading two digits of the account code, or NaN for non-numeric codes. */
@@ -87,7 +96,14 @@ export function classifyAccount(account: Account, cashAccountIds?: readonly stri
       return "revenue";
     case "expense":
       return "expense";
+    case "memorandum":
+      return "memorandum";
   }
+}
+
+/** True for an off-balance-sheet نظامي account — the one section every statement drops. */
+export function isMemorandumAccount(account: Account): boolean {
+  return account.type === "memorandum";
 }
 
 export function isCashAccount(account: Account, cashAccountIds?: readonly string[]): boolean {

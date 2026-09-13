@@ -177,6 +177,13 @@ import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } fro
 import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
 import { createHrRoutes, type HrRoutesDeps } from "./hr-routes.js";
 import { createProjectsRoutes, type ProjectsRoutesDeps } from "./projects-routes.js";
+import { createContractingGuaranteesRoutes, type ContractingGuaranteesRoutesDeps } from "./contracting-guarantees-routes.js";
+import {
+  createContractingContractsRoutes,
+  createVariationOrdersRoutes,
+  type ContractingContractsRoutesDeps,
+} from "./contracting-contracts-routes.js";
+import { createContractingSiteRoutes, type ContractingSiteRoutesDeps } from "./contracting-site-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 import { createFieldSalesRoutes, createVansRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
 import {
@@ -572,6 +579,24 @@ export interface CreateAppOptions {
    * cost center via the real cost-centers domain.
    */
   readonly projects?: ProjectsRoutesDeps;
+  /**
+   * Mounts العقود وجداول الكميات وأوامر التغيير — slice 1 of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html §03) — under
+   * `/contracting/contracts` and `/contracting/variation-orders`.
+   */
+  readonly contractingContracts?: ContractingContractsRoutesDeps;
+  /**
+   * Mounts مستودعات المواقع والصرف والاستهلاك والعهدة وتشغيل المعدات — slice 4A
+   * of المقاولات (D-11) — under `/contracting/site`.
+   */
+  readonly contractingSite?: ContractingSiteRoutesDeps;
+  /**
+   * Mounts خطابات الضمان — slice 5A of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html §05) — under
+   * `/contracting/guarantees`: the register, its bank-facility summary, and
+   * the memorandum + restricted-cash postings behind every status move.
+   */
+  readonly contractingGuarantees?: ContractingGuaranteesRoutesDeps;
   /**
    * Mounts Fixed Assets (docs/archive/catalog/07 "الأصول الثابتة") under `/assets`
    * when present: asset categories, the asset register, and depreciation
@@ -1131,6 +1156,16 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.projects) {
     app.route("/projects", createProjectsRoutes(options.projects, resolveAuth));
+  }
+  if (options.contractingContracts) {
+    app.route("/contracting/contracts", createContractingContractsRoutes(options.contractingContracts, resolveAuth));
+    app.route("/contracting/variation-orders", createVariationOrdersRoutes(options.contractingContracts, resolveAuth));
+  }
+  if (options.contractingSite) {
+    app.route("/contracting/site", createContractingSiteRoutes(options.contractingSite, resolveAuth));
+  }
+  if (options.contractingGuarantees) {
+    app.route("/contracting/guarantees", createContractingGuaranteesRoutes(options.contractingGuarantees, resolveAuth));
   }
   if (options.fixedAssets) {
     app.route("/assets", createFixedAssetsRoutes(options.fixedAssets, resolveAuth));

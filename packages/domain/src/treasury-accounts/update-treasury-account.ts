@@ -1,6 +1,6 @@
 import { Money } from "../money/index.js";
-import type { TreasuryAccount, TreasuryAccountRepository, TreasuryAccountStatus, TreasuryAccountType } from "./treasury-account.js";
-import { NegativeCashBalanceError, TreasuryAccountNotFoundError } from "./errors.js";
+import { MAX_GUARANTEE_FACILITY_LIMIT_SCALED, type TreasuryAccount, type TreasuryAccountRepository, type TreasuryAccountStatus, type TreasuryAccountType } from "./treasury-account.js";
+import { InvalidGuaranteeFacilityLimitError, NegativeCashBalanceError, TreasuryAccountNotFoundError } from "./errors.js";
 
 export interface UpdateTreasuryAccountCommand {
   readonly nameEn?: string | null;
@@ -12,7 +12,24 @@ export interface UpdateTreasuryAccountCommand {
   /** Exact decimal string — parsed via `Money.fromMajor`. Use "إضافة رصيد افتتاحي" semantics: this replaces the stored opening balance. */
   readonly openingBalance?: string;
   readonly openingBalanceDate?: string | null;
+  /** Exact decimal string; null clears the facility. */
+  readonly guaranteeFacilityLimit?: string | null;
   readonly status?: TreasuryAccountStatus;
+}
+
+/**
+ * The facility limit must be storable and must not be negative. Without this
+ * an over-large figure reaches the SQLite writer and throws a RangeError there
+ * — a 500 where the caller should have been told what is wrong.
+ */
+function assertFacilityLimit(accountId: string, limit: Money | null): void {
+  if (limit === null) return;
+  if (limit.scaled < 0n) {
+    throw new InvalidGuaranteeFacilityLimitError(accountId, "حد تسهيلات خطابات الضمان لا يمكن أن يكون سالباً.");
+  }
+  if (limit.scaled > MAX_GUARANTEE_FACILITY_LIMIT_SCALED) {
+    throw new InvalidGuaranteeFacilityLimitError(accountId, "حد تسهيلات خطابات الضمان أكبر من أن يُسجَّل — راجع الرقم المُدخل.");
+  }
 }
 
 /**
@@ -34,6 +51,12 @@ export async function updateTreasuryAccount(
     throw new NegativeCashBalanceError(accountId);
   }
 
+  const nextFacilityLimit =
+    command.guaranteeFacilityLimit !== undefined
+      ? (command.guaranteeFacilityLimit === null ? null : Money.fromMajor(command.guaranteeFacilityLimit))
+      : current.guaranteeFacilityLimit;
+  assertFacilityLimit(accountId, nextFacilityLimit);
+
   const updated: TreasuryAccount = {
     ...current,
     name: command.name ?? current.name,
@@ -44,6 +67,7 @@ export async function updateTreasuryAccount(
     glAccountId: command.glAccountId !== undefined ? command.glAccountId : current.glAccountId,
     openingBalance: nextOpeningBalance,
     openingBalanceDate: command.openingBalanceDate !== undefined ? command.openingBalanceDate : current.openingBalanceDate,
+    guaranteeFacilityLimit: nextFacilityLimit,
     status: command.status ?? current.status,
   };
 

@@ -29,3 +29,22 @@ export class NegativeCashBalanceError extends Error {
     this.name = "NegativeCashBalanceError";
   }
 }
+
+/**
+ * Raised when a guarantee facility limit is negative or too large to be stored
+ * exactly. `Money` is a bigint, but the SQLite column it lands in is a JS
+ * number, so a value past the safe-integer range cannot round-trip — and a
+ * facility limit that big is a typo, not a bank's ceiling. Refusing it here is
+ * what keeps the route answering 422 instead of throwing a RangeError at the
+ * writer and surfacing as a 500.
+ */
+export class InvalidGuaranteeFacilityLimitError extends Error {
+  readonly code = "INVALID_GUARANTEE_FACILITY_LIMIT";
+  constructor(
+    readonly accountId: string,
+    readonly reason: string,
+  ) {
+    super(reason);
+    this.name = "InvalidGuaranteeFacilityLimitError";
+  }
+}

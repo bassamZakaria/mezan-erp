@@ -109,6 +109,10 @@ export function createBalanceSheetReport(
         const section = classifyAccount(account, ctx.cashAccountIds);
         const net = moneyToNumber(balances.get(account.id) ?? Money.zero());
 
+        // حسابات نظامية are off balance sheet by definition: the pair is
+        // self-balancing, so including it would add the same contingent face
+        // value to BOTH sides and restate the statement (D-05).
+        if (section === "memorandum") continue;
         // Revenue/expense don't appear on the balance sheet — they accumulate
         // into retained earnings (net income to date), added under equity below.
         if (section === "revenue" || section === "expense") {

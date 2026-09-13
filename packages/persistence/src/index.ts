@@ -197,6 +197,11 @@ export {
   type SqliteActivityRepositoryHandle,
 } from "./crm-store.js";
 export { createSqliteProjectRepository, type SqliteProjectRepositoryHandle } from "./project-repository.js";
+export { createSqliteGuaranteeStore, type SqliteGuaranteeStoreHandle } from "./contracting-guarantees-store.js";
+export {
+  createSqliteWorksContractStore,
+  type SqliteWorksContractStoreHandle,
+} from "./contracting-contracts-store.js";
 export {
   createSqliteAssetCategoryRepository,
   createSqliteAssetRepository,
@@ -304,3 +309,8 @@ export {
   createSqliteAttachmentStore,
   type SqliteAttachmentStoreHandle,
 } from "./attachment-store.js";
+
+export {
+  createSqliteContractingSiteStore,
+  type SqliteContractingSiteStoreHandle,
+} from "./contracting-site-store.js";

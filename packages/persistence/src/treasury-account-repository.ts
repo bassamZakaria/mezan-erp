@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS treasury_account (
   gl_account_id         TEXT,
   opening_balance       INTEGER NOT NULL,
   opening_balance_date  TEXT,
+  guarantee_facility_limit INTEGER,
   status                TEXT NOT NULL
 );
 `;
@@ -31,6 +32,7 @@ interface TreasuryAccountRow {
   gl_account_id: string | null;
   opening_balance: number;
   opening_balance_date: string | null;
+  guarantee_facility_limit: number | null;
   status: string;
 }
 
@@ -46,6 +48,7 @@ function toTreasuryAccount(row: TreasuryAccountRow): TreasuryAccount {
     glAccountId: row.gl_account_id,
     openingBalance: Money.fromScaled(row.opening_balance),
     openingBalanceDate: row.opening_balance_date,
+    guaranteeFacilityLimit: row.guarantee_facility_limit == null ? null : Money.fromScaled(row.guarantee_facility_limit),
     status: row.status as TreasuryAccountStatus,
   };
 }
@@ -58,8 +61,8 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO treasury_account (id, code, name, name_en, type, currency, branch_id, gl_account_id, opening_balance, opening_balance_date, status)
-      VALUES (@id, @code, @name, @name_en, @type, @currency, @branch_id, @gl_account_id, @opening_balance, @opening_balance_date, @status)
+      INSERT INTO treasury_account (id, code, name, name_en, type, currency, branch_id, gl_account_id, opening_balance, opening_balance_date, guarantee_facility_limit, status)
+      VALUES (@id, @code, @name, @name_en, @type, @currency, @branch_id, @gl_account_id, @opening_balance, @opening_balance_date, @guarantee_facility_limit, @status)
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
         name = excluded.name,
@@ -70,6 +73,7 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
         gl_account_id = excluded.gl_account_id,
         opening_balance = excluded.opening_balance,
         opening_balance_date = excluded.opening_balance_date,
+        guarantee_facility_limit = excluded.guarantee_facility_limit,
         status = excluded.status
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM treasury_account WHERE id = ?`);
@@ -112,8 +116,19 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
       gl_account_id: account.glAccountId,
       opening_balance: account.openingBalance.toScaledNumber(),
       opening_balance_date: account.openingBalanceDate,
+      guarantee_facility_limit: account.guaranteeFacilityLimit ? account.guaranteeFacilityLimit.toScaledNumber() : null,
       status: account.status,
     });
+  }
+}
+
+/** حد تسهيلات خطابات الضمان arrived after the table shipped — an existing db gains the column in place. */
+function migrateTreasuryAccountSchema(sqlite: Database.Database): void {
+  const columns = new Set(
+    (sqlite.prepare(`PRAGMA table_info(treasury_account)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!columns.has("guarantee_facility_limit")) {
+    sqlite.exec(`ALTER TABLE treasury_account ADD COLUMN guarantee_facility_limit INTEGER`);
   }
 }
 
@@ -126,6 +141,7 @@ export function createSqliteTreasuryAccountRepository(path: SqliteConnectionInpu
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
+  migrateTreasuryAccountSchema(sqlite);
   const repo = new SqliteTreasuryAccountRepository(sqlite);
   return Object.assign(repo, {
     close: () => { if (owned) sqlite.close(); },

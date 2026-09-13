@@ -104,6 +104,7 @@ function serializeAsset(asset: Asset) {
     accumulatedDepreciationAccountId: asset.accumulatedDepreciationAccountId,
     notes: asset.notes,
     projectId: asset.projectId,
+    internalHourlyRate: asset.internalHourlyRate?.toString() ?? null,
   };
 }
 
@@ -260,6 +261,7 @@ export function createFixedAssetsRoutes(
           ...parsed.data,
           acquisitionCost: Money.fromMajor(parsed.data.acquisitionCost),
           salvageValue: parsed.data.salvageValue !== undefined ? Money.fromMajor(parsed.data.salvageValue) : undefined,
+          internalHourlyRate: parsed.data.internalHourlyRate ? Money.fromMajor(parsed.data.internalHourlyRate) : null,
         },
         { assets: deps.assets, categories: deps.categories },
       );

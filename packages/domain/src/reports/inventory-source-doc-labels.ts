@@ -13,4 +13,7 @@ export const STOCK_SOURCE_DOC_TYPE_LABELS_AR: Record<StockSourceDocType, string>
   WORK_ORDER: "أمر إنتاج",
   PURCHASE_CANCELLATION: "إلغاء استلام/فاتورة مشتريات",
   LANDED_COST: "تكاليف إضافية",
+  SITE_ISSUE: "إذن صرف للموقع",
+  SITE_RECEIPT: "استلام بالموقع",
+  MATERIAL_CONSUMPTION: "استهلاك مواد",
 };

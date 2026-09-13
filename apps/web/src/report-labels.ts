@@ -136,6 +136,7 @@ const GROUP_LABEL_KEYS: Readonly<Record<string, string>> = {
   "حقوق الملكية": "reportGroup.accountType.equity",
   "الإيرادات": "reportGroup.accountType.revenue",
   "المصروفات": "reportGroup.accountType.expense",
+  "حسابات نظامية": "reportGroup.accountType.memorandum",
   "تكلفة البضاعة المباعة": "reportGroup.section.cogs",
   "المصاريف التشغيلية": "reportGroup.section.opex",
   "النقدية وما في حكمها": "reportGroup.section.cash",

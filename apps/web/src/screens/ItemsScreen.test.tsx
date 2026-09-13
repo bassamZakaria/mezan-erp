@@ -105,7 +105,7 @@ const sampleItems: ItemDTO[] = [
 ];
 
 function warehouse(overrides: Partial<WarehouseDTO> = {}): WarehouseDTO {
-  return { id: "wh-1", code: "MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true, ...overrides };
+  return { id: "wh-1", code: "MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null, ...overrides };
 }
 
 function account(overrides: Partial<AccountDTO> = {}): AccountDTO {

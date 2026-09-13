@@ -12,6 +12,7 @@ import {
 } from "@mezan/api";
 import {
   ALL_SCOPE,
+  SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
   InvalidSalesInvoicePaymentError,
@@ -106,6 +107,9 @@ import {
   createSqlitePipelineStageRepository,
   createSqliteActivityRepository,
   createSqliteProjectRepository,
+  createSqliteWorksContractStore,
+  createSqliteContractingSiteStore,
+  createSqliteGuaranteeStore,
   createSqliteAssetCategoryRepository,
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
@@ -744,6 +748,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const pipelineStages = createSqlitePipelineStageRepository(sqlite);
   const activities = createSqliteActivityRepository(sqlite);
   const projects = createSqliteProjectRepository(sqlite);
+  const worksContracts = createSqliteWorksContractStore(sqlite);
+  const contractingSiteStore = createSqliteContractingSiteStore(sqlite);
+  const guarantees = createSqliteGuaranteeStore(sqlite);
   const assetCategories = createSqliteAssetCategoryRepository(sqlite);
   const assets = createSqliteAssetRepository(sqlite);
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
@@ -877,6 +884,35 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // and was never received anywhere. Without it such an issue was written at
     // zero and COGS was understated by the whole deficit (D101).
     fallbackUnitCost: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
+  });
+  // المقاولات 4A — site issues/receipts move stock through the branch transit
+  // store, consumption relieves it into WIP, and plant hours post their own
+  // entry. It shares `stockService` and `salesInvoiceGl` so the movements and
+  // the postings land in the SAME ledger every other document writes to.
+  const siteService = new SiteService({
+    issues: contractingSiteStore.issues,
+    receipts: contractingSiteStore.receipts,
+    consumptions: contractingSiteStore.consumptions,
+    custody: contractingSiteStore.custody,
+    equipmentLogs: contractingSiteStore.equipmentLogs,
+    warehouses,
+    projects,
+    assets,
+    stockLedger: stockService,
+    gl: salesInvoiceGl,
+    numbering: ledger.numbering,
+    accountRouting,
+    transaction: (fn) => contractingSiteStore.transaction(fn),
+    // A boqLineId on a consumption or a plant-hours log must name a real BOQ
+    // line, or the consumed-vs-theoretical comparison silently drops the row.
+    boqLines: {
+      exists: async (boqLineId) => {
+        for (const contract of await worksContracts.listContracts()) {
+          if ((await worksContracts.listBoqLines(contract.id)).some((line) => line.id === boqLineId)) return true;
+        }
+        return false;
+      },
+    },
   });
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const documentWorkflowGate = createDocumentWorkflowGate(
@@ -1774,6 +1810,26 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       ledger,
       accounts,
     },
+    contractingContracts: {
+      store: worksContracts,
+      numbering: ledger.numbering,
+      projects,
+      customers,
+    },
+    contractingSite: { service: siteService },
+    // خطابات الضمان posts the memorandum pair AND the restricted-cash margin
+    // through the SAME GL engine every other document uses, so the register's
+    // outstanding total and the 9100 balance can never drift apart.
+    contractingGuarantees: {
+      guarantees,
+      treasuryAccounts,
+      treasuryAccountsList: treasuryAccounts,
+      accounts,
+      projects,
+      projectsList: projects,
+      routing: accountRouting,
+      gl: salesInvoiceGl,
+    },
     fixedAssets: {
       categories: assetCategories,
       assets,
@@ -2220,6 +2276,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     pipelineStages,
     activities,
     projects,
+    worksContracts,
+    guarantees,
     assetCategories,
     assets,
     depreciationRuns,

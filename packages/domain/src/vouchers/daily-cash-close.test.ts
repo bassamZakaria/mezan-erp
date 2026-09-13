@@ -301,7 +301,7 @@ describe("LIMITATION: there is no close event to sign", () => {
     // closedBy. The system balance is simply asserted to be right.
     expect(Object.keys(treasury)).toEqual([
       "id", "code", "name", "nameEn", "type", "currency", "branchId", "glAccountId",
-      "openingBalance", "openingBalanceDate", "status",
+      "openingBalance", "openingBalanceDate", "guaranteeFacilityLimit", "status",
     ]);
     expect(await d.balance(SAFE)).toBe("2874.500000");
   });

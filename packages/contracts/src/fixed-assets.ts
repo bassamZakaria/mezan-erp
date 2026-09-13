@@ -66,6 +66,8 @@ export const assetSchema = z.object({
   notes: z.string().nullable(),
   /** بُعد المشروع — the contracting project this asset is assigned to. */
   projectId: z.string().nullable(),
+  /** سعر الساعة الداخلي — the rate تشغيل المعدات charges a project per operating hour. */
+  internalHourlyRate: z.string().nullable(),
 });
 
 export const createAssetSchema = z.object({
@@ -88,6 +90,7 @@ export const createAssetSchema = z.object({
   accumulatedDepreciationAccountId: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   projectId: z.string().nullable().optional(),
+  internalHourlyRate: moneyString.nullable().optional(),
 });
 
 export const depreciationRunStatusSchema = z.enum(["draft", "posted", "cancelled"]);

@@ -48,6 +48,7 @@ const sampleAssets: AssetDTO[] = [
   {
     id: "AST-1",
     projectId: null,
+    internalHourlyRate: null,
     code: "A-0001",
     nameAr: "سيارة توصيل",
     nameEn: null,
@@ -71,6 +72,7 @@ const sampleAssets: AssetDTO[] = [
   {
     id: "AST-2",
     projectId: null,
+    internalHourlyRate: null,
     code: "A-0002",
     nameAr: "معدات مكتبية",
     nameEn: null,

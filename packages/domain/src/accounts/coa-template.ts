@@ -3,7 +3,7 @@ import type { CreateAccountCommand } from "./create-account.js";
 import { createAccount } from "./create-account.js";
 
 /**
- * The standard Chart-of-Accounts template — the 5 top-level roots and their
+ * The standard Chart-of-Accounts template — the 6 top-level roots and their
  * best-attested header/detail children, transcribed from
  * docs/archive/catalog/04-accounting-treasury.md ("Root account types observed").
  * `id === code` throughout: account codes are unique and stable, so they
@@ -150,6 +150,15 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "5160", code: "5160", nameAr: "استرداد تكلفة تشغيل المعدات", nameEn: "Internal Plant Hire Recovery", type: "expense", naturalBalance: "credit", parentId: "5000", isHeader: false },
   { id: "5930", code: "5930", nameAr: "خسائر عقود متوقعة", nameEn: "Foreseeable Contract Losses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+
+  // --- 9000 حسابات نظامية (Memorandum / off-balance-sheet) ---
+  // A letter of guarantee's face value is a contingent obligation, not an
+  // asset and not a liability: it is carried as a self-balancing نظامي مدين /
+  // نظامي دائن pair that every financial statement excludes. Only the cash
+  // margin (1340) is on the balance sheet.
+  { id: "9000", code: "9000", nameAr: "حسابات نظامية", nameEn: "Memorandum Accounts", type: "memorandum", naturalBalance: "debit", parentId: null, isHeader: true },
+  { id: "9100", code: "9100", nameAr: "حسابات نظامية مدينة — خطابات ضمان", nameEn: "Memorandum Debit — Letters of Guarantee", type: "memorandum", naturalBalance: "debit", parentId: "9000", isHeader: false },
+  { id: "9200", code: "9200", nameAr: "حسابات نظامية دائنة — خطابات ضمان", nameEn: "Memorandum Credit — Letters of Guarantee", type: "memorandum", naturalBalance: "credit", parentId: "9000", isHeader: false },
 ];
 
 /**

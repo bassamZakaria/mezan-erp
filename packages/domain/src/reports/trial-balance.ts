@@ -41,6 +41,7 @@ const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   equity: "حقوق الملكية",
   revenue: "الإيرادات",
   expense: "المصروفات",
+  memorandum: "حسابات نظامية",
 };
 
 const trialBalanceParamsSchema = z.object({
@@ -67,7 +68,7 @@ export function createTrialBalanceReport(
   return {
     id: "accounting.trial-balance",
     titleAr: "ميزان المراجعة",
-    descriptionAr: "رصيد كل حساب تفصيلي في دليل الحسابات حتى تاريخ محدد، مجمّعاً حسب نوع الحساب.",
+    descriptionAr: "رصيد كل حساب تفصيلي في دليل الحسابات حتى تاريخ محدد، مجمّعاً حسب نوع الحساب. الحسابات النظامية خارج الميزان — تُقرأ من سجل خطابات الضمان.",
     paramsSchema: trialBalanceParamsSchema,
     defaultParams: { asOfDate: defaultAsOfDate },
     paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }],
@@ -108,6 +109,12 @@ export function createTrialBalanceReport(
       const rows: TrialBalanceRow[] = [];
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
+        // حسابات نظامية are off balance sheet. This report's totals ARE its
+        // rows (the engine sums the columns marked `total`), so a memorandum
+        // row would land inside «إجمالي المدين = إجمالي الدائن» and report a
+        // contingent obligation as if it were a ledger balance. The guarantee
+        // register (/contracting/guarantees/summary) is where those figures are read.
+        if (account.type === "memorandum") continue;
         const net = Number((balances.get(account.id) ?? Money.zero()).toString());
         rows.push({
           accountId: account.id,

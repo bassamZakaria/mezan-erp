@@ -202,6 +202,7 @@ export {
   classifyAccount,
   isCashAccount,
   isLedgerEffective,
+  isMemorandumAccount,
   moneyToNumber,
   netBalancesByAccount,
 } from "./gl-shared.js";

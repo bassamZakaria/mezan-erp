@@ -53,6 +53,7 @@ function asset(overrides: Partial<Asset> = {}): Asset {
     accumulatedDepreciationAccountId: null,
     notes: null,
     projectId: null,
+    internalHourlyRate: null,
     ...overrides,
   };
 }

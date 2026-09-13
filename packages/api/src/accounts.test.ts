@@ -189,6 +189,6 @@ describe("accounts router — CRUD", () => {
     const res = await app.fetch(req("/tree", { permissions: "accounting.coa.view" }));
     expect(res.status).toBe(200);
     const tree = (await res.json()) as Array<{ code: string }>;
-    expect(tree.map((n) => n.code)).toEqual(["1000", "2000", "3000", "4000", "5000"]);
+    expect(tree.map((n) => n.code)).toEqual(["1000", "2000", "3000", "4000", "5000", "9000"]);
   });
 });

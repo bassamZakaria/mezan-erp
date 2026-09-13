@@ -11,7 +11,14 @@
  * the mockup's "الرصيد الطبيعي" field.
  */
 
-export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
+/**
+ * "memorandum" (حساب نظامي) is off balance sheet: it records a contingent
+ * obligation — a letter of guarantee's face value — as a self-balancing
+ * نظامي مدين / نظامي دائن pair. Every financial statement MUST exclude it, or
+ * the guarantee register's face values inflate both sides of the balance sheet
+ * (reports/gl-shared.ts `classifyAccount`).
+ */
+export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense" | "memorandum";
 
 export type NaturalBalance = "debit" | "credit";
 

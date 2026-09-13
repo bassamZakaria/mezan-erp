@@ -35,6 +35,9 @@ export const stockSourceDocTypeSchema = z.enum([
   "PURCHASE_RETURN",
   "POS_SALE",
   "WORK_ORDER",
+  "SITE_ISSUE",
+  "SITE_RECEIPT",
+  "MATERIAL_CONSUMPTION",
 ]);
 
 export const stockMovementSchema = z.object({

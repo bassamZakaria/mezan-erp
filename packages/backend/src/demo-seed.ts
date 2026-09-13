@@ -11,6 +11,9 @@ import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
 import { seedHistory } from "./demo-seed/history.js";
 import { seedContracting } from "./demo-seed/contracting.js";
+import { seedContractingContracts } from "./demo-seed/contracting-contracts.js";
+import { seedContractingSite } from "./demo-seed/contracting-site.js";
+import { seedContractingGuarantees } from "./demo-seed/contracting-guarantees.js";
 
 /**
  * SEED PROFILE FOR TESTS AND LOCAL DEVELOPMENT ONLY.
@@ -674,6 +677,9 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   await seedPurchasing(app);
   await seedTreasury(app);
   await seedContracting(app);
+  await seedContractingContracts(app);
+  await seedContractingSite(app);
+  await seedContractingGuarantees(app);
   await seedPlatform(app);
   await seedAttachments(app);
 }

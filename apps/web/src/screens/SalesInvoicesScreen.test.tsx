@@ -85,7 +85,7 @@ const customers: CustomerDTO[] = [
 const treasuryAccounts: TreasuryAccountDTO[] = [
   {
     id: "tr-cash-main", code: "TR-01", name: "خزينة الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP",
-    branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, status: "active",
+    branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active",
   },
 ];
 
@@ -104,7 +104,7 @@ const items: ItemDTO[] = [
   },
 ];
 
-const warehouses: WarehouseDTO[] = [{ id: "wh-1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true }];
+const warehouses: WarehouseDTO[] = [{ id: "wh-1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null }];
 
 const accounts: AccountDTO[] = [
   { id: "1105", code: "1105", nameAr: "ذمم عملاء تجاريين", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" },

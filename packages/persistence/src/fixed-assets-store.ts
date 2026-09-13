@@ -193,7 +193,8 @@ CREATE TABLE IF NOT EXISTS asset (
   asset_account_id                     TEXT,
   depreciation_expense_account_id      TEXT,
   accumulated_depreciation_account_id  TEXT,
-  notes                                TEXT
+  notes                                TEXT,
+  internal_hourly_rate                 INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_asset_category ON asset(category_id);
 `;
@@ -228,6 +229,7 @@ interface AssetRow {
   accumulated_depreciation_account_id: string | null;
   notes: string | null;
   project_id: string | null;
+  internal_hourly_rate: number | null;
 }
 
 function toAsset(row: AssetRow): Asset {
@@ -253,6 +255,7 @@ function toAsset(row: AssetRow): Asset {
     accumulatedDepreciationAccountId: row.accumulated_depreciation_account_id,
     notes: row.notes,
     projectId: row.project_id,
+    internalHourlyRate: row.internal_hourly_rate === null ? null : Money.fromScaled(row.internal_hourly_rate),
   };
 }
 
@@ -268,13 +271,13 @@ class SqliteAssetRepository implements AssetRepository {
         id, code, name_ar, name_en, category_id, scope, branch_id, warehouse_id, acquisition_date,
         acquisition_cost, depreciation_start_date, depreciation_method, useful_life_months, salvage_value,
         accumulated_depreciation, status, asset_account_id, depreciation_expense_account_id,
-        accumulated_depreciation_account_id, notes, project_id
+        accumulated_depreciation_account_id, notes, project_id, internal_hourly_rate
       )
       VALUES (
         @id, @code, @name_ar, @name_en, @category_id, @scope, @branch_id, @warehouse_id, @acquisition_date,
         @acquisition_cost, @depreciation_start_date, @depreciation_method, @useful_life_months, @salvage_value,
         @accumulated_depreciation, @status, @asset_account_id, @depreciation_expense_account_id,
-        @accumulated_depreciation_account_id, @notes, @project_id
+        @accumulated_depreciation_account_id, @notes, @project_id, @internal_hourly_rate
       )
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
@@ -296,7 +299,8 @@ class SqliteAssetRepository implements AssetRepository {
         depreciation_expense_account_id = excluded.depreciation_expense_account_id,
         accumulated_depreciation_account_id = excluded.accumulated_depreciation_account_id,
         notes = excluded.notes,
-        project_id = excluded.project_id
+        project_id = excluded.project_id,
+        internal_hourly_rate = excluded.internal_hourly_rate
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM asset WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM asset WHERE code = ?`);
@@ -348,6 +352,7 @@ class SqliteAssetRepository implements AssetRepository {
       accumulated_depreciation_account_id: asset.accumulatedDepreciationAccountId,
       notes: asset.notes,
       project_id: asset.projectId,
+      internal_hourly_rate: asset.internalHourlyRate?.toScaledNumber() ?? null,
     });
   }
 }

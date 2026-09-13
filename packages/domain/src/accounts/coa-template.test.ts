@@ -37,7 +37,7 @@ describe("seedStandardChartOfAccounts", () => {
     expect(tree.map((n) => n.code)).toEqual(["1000", "2000", "3000", "4000", "5000"]);
     const assets = tree[0]!;
     const cash = assets.children.find((n) => n.code === "1300")!;
-    expect(cash.children.map((n) => n.code)).toEqual(["1300-1", "1310", "1315", "1320", "1330"]);
+    expect(cash.children.map((n) => n.code)).toEqual(["1300-1", "1310", "1315", "1320", "1330", "1340"]);
     // Every leaf (no children) must be postable (isHeader: false).
     function assertLeavesPostable(nodes: readonly (typeof tree)[number][]): void {
       for (const node of nodes) {

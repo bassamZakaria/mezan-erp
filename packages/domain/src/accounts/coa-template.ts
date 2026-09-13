@@ -21,10 +21,13 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "1110", code: "1110", nameAr: "ذمم أقساط مدينة", nameEn: "Installment Receivables", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1150", code: "1150", nameAr: "محتجزات ضمان مدينة", nameEn: "Retention Receivable", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1160", code: "1160", nameAr: "سلف الموظفين", nameEn: "Employee Advances", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
+  { id: "1170", code: "1170", nameAr: "أصل العقد", nameEn: "Contract Asset", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
+  { id: "1175", code: "1175", nameAr: "ضريبة خصم وتحصيل مستردة", nameEn: "Withholding Tax Receivable", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1190", code: "1190", nameAr: "مخصص هبوط المخزون", nameEn: "Inventory Provision", type: "asset", naturalBalance: "credit", parentId: "1000", isHeader: false },
   { id: "1200", code: "1200", nameAr: "المخزون", nameEn: "Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1210", code: "1210", nameAr: "مخزون المواد الخام", nameEn: "Raw Materials Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1220", code: "1220", nameAr: "مخزون المنتجات التامة", nameEn: "Finished Goods Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
+  { id: "1230", code: "1230", nameAr: "أعمال تحت التنفيذ — مقاولات", nameEn: "Contract Work in Progress", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1250", code: "1250", nameAr: "إنتاج تحت التشغيل", nameEn: "Work In Progress", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1300", code: "1300", nameAr: "النقدية", nameEn: "Cash", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: true },
   { id: "1300-1", code: "1300-1", nameAr: "صندوق نقدي الفرع الرئيسي", nameEn: "Main Branch Cash Drawer", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
@@ -32,6 +35,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "1315", code: "1315", nameAr: "مستحقات بطاقات الدفع", nameEn: "Card Receivables", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
   { id: "1320", code: "1320", nameAr: "شيكات تحت التحصيل", nameEn: "Cheques Under Collection", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
   { id: "1330", code: "1330", nameAr: "مستحقات المحافظ الإلكترونية", nameEn: "E-Wallet Receivables", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
+  { id: "1340", code: "1340", nameAr: "غطاء نقدي مقيد لخطابات الضمان", nameEn: "Restricted Cash — Guarantee Margins", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
   { id: "1350", code: "1350", nameAr: "سلف الموردين", nameEn: "Supplier Advances", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1360", code: "1360", nameAr: "شيكات مرتجعة", nameEn: "Bounced Cheques Receivable", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1400", code: "1400", nameAr: "ضريبة مدخلات", nameEn: "Input VAT Receivable", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
@@ -63,6 +67,10 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "2130", code: "2130", nameAr: "تكاليف إضافية مستحقة", nameEn: "Accrued Landed Costs", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2150", code: "2150", nameAr: "شيكات صادرة", nameEn: "Cheques Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2160", code: "2160", nameAr: "دفعات مقدمة من عملاء", nameEn: "Customer Advances", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2165", code: "2165", nameAr: "فواتير مستخلصات على العقود", nameEn: "Billings on Contracts", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2175", code: "2175", nameAr: "التزام العقد", nameEn: "Contract Liability", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2195", code: "2195", nameAr: "المحتجزات الضمانية المستحقة لمقاولي الباطن", nameEn: "Retention Payable to Subcontractors", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2196", code: "2196", nameAr: "مخصص عقود خاسرة", nameEn: "Onerous Contract Provision", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2200", code: "2200", nameAr: "ضريبة القيمة المضافة مستحقة", nameEn: "Output VAT Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   // hr/master-data — employee-related liability accounts, appended so the
   // sibling HR sub-phases (payroll, leave-accrual) have a stable account to
@@ -137,6 +145,10 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "5450", code: "5450", nameAr: "خسارة بيع الأصول", nameEn: "Loss on Asset Disposal", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   // Likewise distinct from 5900 عجز الصندوق: rent paid, maintenance, utilities.
   { id: "5910", code: "5910", nameAr: "مصروفات أخرى", nameEn: "Other Expenses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5150", code: "5150", nameAr: "تكلفة إيراد العقود", nameEn: "Cost of Contract Revenue", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5155", code: "5155", nameAr: "تأمينات اجتماعية — مقاولات", nameEn: "Contracting Social Insurance", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5160", code: "5160", nameAr: "استرداد تكلفة تشغيل المعدات", nameEn: "Internal Plant Hire Recovery", type: "expense", naturalBalance: "credit", parentId: "5000", isHeader: false },
+  { id: "5930", code: "5930", nameAr: "خسائر عقود متوقعة", nameEn: "Foreseeable Contract Losses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
 ];
 

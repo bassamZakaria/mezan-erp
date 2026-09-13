@@ -1,8 +1,8 @@
 import { createPlan, MODULE_CATALOG, Money, type CreatePlanCommand } from "@mezan/domain";
-import { createSqlitePlatformStores, type SqlitePlatformStoresHandle } from "@mezan/persistence";
+import { createSqlitePlatformStores, type SqlitePlatformStoresHandle, type SqliteConnectionInput } from "@mezan/persistence";
 
 export interface CreatePlatformOptions {
-  readonly dbPath?: string;
+  readonly dbPath?: SqliteConnectionInput;
   readonly now?: () => Date;
 }
 
@@ -43,9 +43,11 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
   const stores = createSqlitePlatformStores(options.dbPath ?? ":memory:");
   const now = options.now ?? (() => new Date());
   const seedPlansIfEmpty = async () => {
-    if ((await stores.plans.list()).length > 0) return;
     const stamp = now().toISOString();
-    for (const plan of PLATFORM_SEED_PLANS) await createPlan({ ...plan, now: stamp }, stores.plans);
+    for (const plan of PLATFORM_SEED_PLANS) {
+      if (await stores.plans.findByCode(plan.code)) continue;
+      await createPlan({ ...plan, now: stamp }, stores.plans);
+    }
   };
   await seedPlansIfEmpty();
   return { stores, seedPlansIfEmpty, close: () => stores.close() };

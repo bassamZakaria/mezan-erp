@@ -1,3 +1,4 @@
+import { normalizeEmail } from "../users/save-user.js";
 import { isValidSlug } from "./slug.js";
 import {
   InvalidTenantError,
@@ -36,10 +37,6 @@ export interface CreateTenantCommand {
   readonly now: string;
 }
 
-export function normalizeTenantEmail(value: string): string {
-  return value.trim().toLowerCase();
-}
-
 export function tenantDbFile(code: string): string {
   return `tenants/${code}.db`;
 }
@@ -49,7 +46,7 @@ function validate(cmd: CreateTenantCommand): string[] {
   if (cmd.id.trim() === "") reasons.push("id is required");
   if (!isValidSlug(cmd.code)) reasons.push("code must be a slug of 3 to 32 lower-case letters, digits or inner hyphens");
   if (cmd.nameAr.trim() === "") reasons.push("nameAr is required");
-  if (normalizeTenantEmail(cmd.ownerEmail) === "") reasons.push("ownerEmail is required");
+  if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("ownerEmail is required");
   return reasons;
 }
 
@@ -62,7 +59,7 @@ export async function createTenant(cmd: CreateTenantCommand, repo: TenantReposit
     code: cmd.code,
     nameAr: cmd.nameAr.trim(),
     nameEn: cmd.nameEn?.trim() || null,
-    ownerEmail: normalizeTenantEmail(cmd.ownerEmail),
+    ownerEmail: normalizeEmail(cmd.ownerEmail),
     status: "provisioning",
     dbFile: tenantDbFile(cmd.code),
     createdAt: cmd.now,

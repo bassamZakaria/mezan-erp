@@ -52,9 +52,11 @@ import { describe, it, expect } from "vitest";
 import { MODULE_CATALOG, isKnownModule } from "./module-catalog.js";
 
 describe("MODULE_CATALOG", () => {
-  it("holds the sixteen licensable modules, each once", () => {
-    expect(MODULE_CATALOG).toHaveLength(16);
-    expect(new Set(MODULE_CATALOG).size).toBe(16);
+  it("holds the nineteen modules the default entitlements served, each once", () => {
+    expect(MODULE_CATALOG).toHaveLength(19);
+    expect(new Set(MODULE_CATALOG).size).toBe(19);
+    expect(MODULE_CATALOG).toContain("notifications");
+    expect(MODULE_CATALOG).toContain("projects");
     expect(MODULE_CATALOG).toContain("accounting");
     expect(MODULE_CATALOG).toContain("hr");
   });
@@ -74,7 +76,7 @@ Expected: FAIL, cannot resolve `./module-catalog.js`.
 
 - [ ] **Step 3: Write the catalog**
 
-Copy the sixteen ids exactly from `DEFAULT_ACTIVE_MODULES` in `packages/api/src/app.ts` (read lines 213 to 230 first; the list starts `dashboard, sales, purchases, inventory, accounting, treasury, installments, financial_papers, crm, hr, manufacturing, assets, field, workflow, audit, transactions`).
+Copy the nineteen ids exactly from `DEFAULT_ACTIVE_MODULES` in `packages/api/src/app.ts` (read lines 205 to 235 first). Keep its doc comment with the list: it records why `pos` must stay out and that the ids are entitlement ids, not catalog ids, which is a hidden invariant.
 
 ```ts
 // packages/domain/src/platform/module-catalog.ts
@@ -95,6 +97,9 @@ export const MODULE_CATALOG = [
   "workflow",
   "audit",
   "transactions",
+  "admin",
+  "notifications",
+  "projects",
 ] as const;
 
 export type ModuleId = (typeof MODULE_CATALOG)[number];
@@ -2186,8 +2191,8 @@ export interface PlatformHandle {
   close(): void;
 }
 
-const CORE_MODULES = ["dashboard", "accounting", "sales", "purchases", "inventory", "treasury", "transactions", "workflow", "audit"];
-const BUSINESS_MODULES = [...CORE_MODULES, "crm", "installments", "financial_papers", "field", "assets"];
+const CORE_MODULES = ["dashboard", "accounting", "sales", "purchases", "inventory", "treasury", "transactions", "workflow", "audit", "admin", "notifications"];
+const BUSINESS_MODULES = [...CORE_MODULES, "crm", "installments", "financial_papers", "field", "assets", "projects"];
 
 type SeedPlan = Omit<CreatePlanCommand, "now">;
 

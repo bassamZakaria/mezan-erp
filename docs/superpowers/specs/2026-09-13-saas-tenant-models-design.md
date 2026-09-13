@@ -175,9 +175,9 @@ bootstraps the schema and, **only when the plan table is empty**, seeds three pl
 
 | code | modules | seats | trial |
 |---|---|---|---|
-| `core` | dashboard, accounting, sales, purchases, inventory, treasury, transactions, workflow, audit | 3 | 14 days |
-| `business` | core plus crm, installments, financial_papers, field, assets | 10 | 14 days |
-| `enterprise` | all sixteen (adds hr, manufacturing) | 25 | 14 days |
+| `core` | dashboard, accounting, sales, purchases, inventory, treasury, transactions, workflow, audit, admin, notifications | 3 | 14 days |
+| `business` | core plus crm, installments, financial_papers, field, assets, projects | 10 | 14 days |
+| `enterprise` | all nineteen (adds hr, manufacturing) | 25 | 14 days |
 
 **Open decision for the owner:** monthly and yearly EGP prices. The seed writes `0` for
 all six until they are given; this line is the register for that placeholder.

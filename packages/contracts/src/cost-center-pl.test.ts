@@ -9,6 +9,8 @@ describe("costCenterPnLRowSchema", () => {
     revenue: "10000.123456",
     expense: "4000.000001",
     profit: "6000.123455",
+    parentId: null,
+    rollup: { revenue: "10000.123456", expense: "4000.000001", profit: "6000.123455" },
   };
 
   it("accepts a minimal valid row and preserves every field verbatim", () => {
@@ -56,6 +58,8 @@ describe("costCenterPnLReportSchema", () => {
     revenue: "10000.123456",
     expense: "4000.000001",
     profit: "6000.123455",
+    parentId: null,
+    rollup: { revenue: "10000.123456", expense: "4000.000001", profit: "6000.123455" },
   };
   const report = {
     rows: [row],

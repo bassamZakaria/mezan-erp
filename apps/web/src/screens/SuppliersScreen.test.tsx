@@ -41,6 +41,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
   return {
     id: "pinv-x",
     number: "PINV-000001",
+    projectId: null,
     supplierId: "sup-1",
     date: "2026-08-01",
     dueDate: null,
@@ -68,6 +69,8 @@ function voucher(overrides: Partial<VoucherDTO> = {}): VoucherDTO {
   return {
     id: "vch-x",
     docNo: "PV-000001",
+    projectId: null,
+    costCategory: null,
     voucherType: "supplier_payment",
     direction: "payment",
     status: "confirmed",
@@ -309,6 +312,7 @@ describe("SuppliersScreen", () => {
     const inv: PurchaseInvoiceDTO = {
       id: "pinv-1",
       number: "PINV-000001",
+      projectId: null,
       supplierId: "sup-1",
       date: "2026-08-15",
       dueDate: null,
@@ -332,6 +336,8 @@ describe("SuppliersScreen", () => {
     const payment: VoucherDTO = {
       id: "vch-1",
       docNo: "PV-000001",
+      projectId: null,
+      costCategory: null,
       voucherType: "supplier_payment",
       direction: "payment",
       status: "confirmed",

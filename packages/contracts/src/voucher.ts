@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { costCategorySchema } from "./contracting.js";
 
 /**
  * Wire contracts for Treasury Vouchers (docs/archive/catalog/04 §"السندات النقدية") —
@@ -50,6 +51,10 @@ export const voucherSchema = z.object({
   supplierId: z.string().nullable(),
   referenceNo: z.string().nullable(),
   costCenterId: z.string().nullable(),
+  /** بُعد المشروع — the contracting project this voucher belongs to (D-01). */
+  projectId: z.string().nullable(),
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  costCategory: costCategorySchema.nullable(),
   withholdingAmount: moneyString.nullable(),
   withholdingRatePercent: z.number().nullable(),
   /** What actually leaves the treasury: amount − withholdingAmount. */
@@ -77,6 +82,10 @@ export const createVoucherSchema = z.object({
   supplierId: z.string().nullish(),
   referenceNo: z.string().nullish(),
   costCenterId: z.string().nullish(),
+  /** بُعد المشروع — the contracting project this voucher belongs to (D-01). */
+  projectId: z.string().nullish(),
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  costCategory: costCategorySchema.nullish(),
   /** Tax withheld from this payment and owed to the authority instead of to the payee. */
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),

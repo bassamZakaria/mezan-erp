@@ -68,6 +68,8 @@ export interface GlRoutesDeps {
   readonly vatFilings?: VatFilingRepository;
   readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
   readonly numbering: NextNumberService;
+  /** So a manual entry's `projectId` names a project that exists (D-01). */
+  readonly projects?: JournalPostingDeps["projects"];
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
   readonly now?: () => string;
@@ -251,6 +253,7 @@ export function createGlRoutes(
       periods: deps.periods,
       vatFilings: deps.vatFilings,
       numbering: deps.numbering,
+      projects: deps.projects,
       audit: deps.audit,
       events: deps.events,
       now: deps.now,

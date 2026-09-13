@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   DocumentList,
   EmptyState,
+  EntityPicker,
   Money as MoneyDisplay,
   StatusPill,
   Card,
@@ -10,6 +11,7 @@ import {
   SidePanel,
   MoneyInput,
   type DocumentListColumn,
+  type EntityPickerOption,
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
@@ -23,11 +25,13 @@ import {
   useBranches,
   useCreateAsset,
   useDisposeAsset,
+  useProjects,
   type AssetListFilter,
 } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { EMPTY } from "../lib/empty";
 
 /** سجل الأصول (Asset Register) — docs/archive/catalog/07 §"سجل الأصول". List + detail + register-asset panel. */
 
@@ -107,10 +111,23 @@ export function AssetRegisterScreen() {
   const { t } = useAppTranslation();
   const categoriesQuery = useAssetCategories();
   const branchesQuery = useBranches();
+  const projectsQuery = useProjects();
   const createAsset = useCreateAsset();
 
   const categories = categoriesQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
+  const projects = projectsQuery.data ?? EMPTY;
+  const projectName = useMemo(() => {
+    const map = new Map(projects.map((p) => [p.id, p.nameAr]));
+    return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
+  }, [projects, t]);
+  const projectOptions: EntityPickerOption[] = useMemo(
+    () =>
+      projects
+        .filter((p) => p.status === "planned" || p.status === "active" || p.status === "on_hold")
+        .map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code })),
+    [projects],
+  );
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -152,6 +169,7 @@ export function AssetRegisterScreen() {
   ];
   const [disposeProceedsAccountId, setDisposeProceedsAccountId] = useState("");
   const [draft, setDraft] = useState<AssetDraft>(blankDraft());
+  const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -175,6 +193,7 @@ export function AssetRegisterScreen() {
 
   function openCreateForm() {
     setDraft(blankDraft());
+    setProject(null);
     setFormError(null);
     setFormOpen(true);
   }
@@ -201,6 +220,7 @@ export function AssetRegisterScreen() {
       depreciationStartDate: draft.depreciationStartDate.trim() === "" ? undefined : draft.depreciationStartDate.trim(),
       usefulLifeMonths: draft.usefulLifeMonths,
       salvageValue: draft.salvageValue === null ? undefined : draft.salvageValue.toFixed(6),
+      projectId: project?.id ?? null,
     };
     try {
       await createAsset.mutateAsync(body);
@@ -370,6 +390,10 @@ export function AssetRegisterScreen() {
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.depreciationMethod")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{t("asset.straightLine")}</div>
               </div>
+              <div className="border-e border-t border-border p-[13px_15px]">
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.assignedProject")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{projectName(selected.projectId)}</div>
+              </div>
             </Card>
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
@@ -495,6 +519,14 @@ export function AssetRegisterScreen() {
               {draft.scope === "warehouse" ? (
                 <TextField label={t("common.warehouse")} value={draft.warehouseId} onChange={(v) => setDraft((d) => ({ ...d, warehouseId: v }))} />
               ) : null}
+              <EntityPicker
+                label={t("asset.assignedProject")}
+                value={project}
+                onChange={setProject}
+                options={projectOptions}
+                placeholder={t("common.noProject")}
+                emptyMessage={t("common.noProject")}
+              />
             </div>
           </div>
 

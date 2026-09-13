@@ -22,6 +22,7 @@ export interface CreateAssetCommand {
   readonly depreciationExpenseAccountId?: string | null;
   readonly accumulatedDepreciationAccountId?: string | null;
   readonly notes?: string | null;
+  readonly projectId?: string | null;
 }
 
 export interface CreateAssetDeps {
@@ -83,6 +84,7 @@ export async function createAsset(command: CreateAssetCommand, deps: CreateAsset
     depreciationExpenseAccountId: command.depreciationExpenseAccountId ?? null,
     accumulatedDepreciationAccountId: command.accumulatedDepreciationAccountId ?? null,
     notes: command.notes ?? null,
+    projectId: command.projectId ?? null,
   };
 
   await deps.assets.create(asset);

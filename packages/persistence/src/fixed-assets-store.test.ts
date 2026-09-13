@@ -52,6 +52,7 @@ function asset(overrides: Partial<Asset> = {}): Asset {
     depreciationExpenseAccountId: null,
     accumulatedDepreciationAccountId: null,
     notes: null,
+    projectId: null,
     ...overrides,
   };
 }
@@ -178,7 +179,12 @@ describe("SqliteDepreciationRunRepository", () => {
     const reloaded = await repo.findById("run-1");
     expect(reloaded).not.toBeNull();
     expect(reloaded?.lines).toHaveLength(2);
-    expect(reloaded?.lines[0]).toEqual({ assetId: "a1", amount: expect.anything() });
+    expect(reloaded?.lines[0]).toEqual({
+      assetId: "a1",
+      amount: expect.anything(),
+      projectId: null,
+      costCategory: null,
+    });
     expect(reloaded?.lines[0]?.amount.toString()).toBe("100.500000");
     expect(reloaded?.lines[1]?.amount.toString()).toBe("50.250000");
     expect(reloaded?.totalAmount.toString()).toBe("150.750000");

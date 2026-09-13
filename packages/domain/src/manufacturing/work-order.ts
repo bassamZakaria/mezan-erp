@@ -176,6 +176,12 @@ export interface WorkOrder {
   readonly issuedAt: string | null;
   readonly receivedAt: string | null;
   readonly completedAt: string | null;
+  /**
+   * بُعد المشروع — the contracting project this run belongs to. The finished
+   * good still goes to inventory at completion (no cost category here); the
+   * project only picks up cost when the product is later issued to it.
+   */
+  readonly projectId: string | null;
 }
 
 export interface WorkOrderRepository {
@@ -222,6 +228,7 @@ export interface CreateWorkOrderCommand {
   readonly notes?: string | null;
   readonly createdBy?: string;
   readonly configInstanceId?: string | null;
+  readonly projectId?: string | null;
 }
 
 export interface CreateWorkOrderDeps {
@@ -315,6 +322,7 @@ export async function createWorkOrder(
     issuedAt: null,
     receivedAt: null,
     completedAt: null,
+    projectId: command.projectId ?? null,
   };
   await deps.workOrders.create(order);
   return order;
@@ -990,8 +998,8 @@ export function buildWorkOrderGlPosting(
     if (net === 0n) continue;
     lines.push(
       net > 0n
-        ? { accountId, debit: Money.fromScaled(net), credit: Money.zero() }
-        : { accountId, debit: Money.zero(), credit: Money.fromScaled(-net) },
+        ? { accountId, debit: Money.fromScaled(net), credit: Money.zero(), projectId: order.projectId }
+        : { accountId, debit: Money.zero(), credit: Money.fromScaled(-net), projectId: order.projectId },
     );
   }
   if (lines.length < 2) return null;

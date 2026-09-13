@@ -32,7 +32,9 @@ import {
 } from "@mezan/domain";
 import type {
   AccountDTO,
+  CostCategoryDTO,
   CustomerDTO,
+  ProjectDTO,
   SupplierDTO,
   TreasuryAccountDTO,
   VoucherListQueryDTO,
@@ -47,6 +49,7 @@ import {
   useCreateVoucher,
   useCustomers,
   useOpenInvoices,
+  useProjects,
   useReverseAllocation,
   useReverseVoucher,
   useSuppliers,
@@ -122,6 +125,11 @@ function toMajor(value: string): number {
   return Number(value);
 }
 
+/** Projects still open for new spend/income — a project that finished or was cancelled cannot take new lines. */
+const OPEN_PROJECT_STATUSES = new Set<ProjectDTO["status"]>(["planned", "active", "on_hold"]);
+
+const COST_CATEGORY_VALUES: readonly CostCategoryDTO[] = ["materials", "labour", "equipment", "subcontract", "indirect"];
+
 /** Rebuilds the domain's pure `VoucherLine`/`VoucherDocument` shape from the wire DTO so `voucherDocumentType.describeEffects` (no I/O) can drive the effects panel — same helper the create-flow preview below uses. */
 function toVoucherLine(d: {
   voucherType: VoucherType;
@@ -139,6 +147,8 @@ function toVoucherLine(d: {
   supplierId: string | null;
   referenceNo: string | null;
   costCenterId: string | null;
+  projectId?: string | null;
+  costCategory?: CostCategoryDTO | null;
 }): VoucherLine {
   return { ...d, amount: Money.fromMajor(d.amount) };
 }
@@ -570,9 +580,11 @@ function VoucherDetailView({
   treasuryName: (id: string) => string;
   onBack: () => void;
 }) {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
   const query = useVoucherDetail(id);
+  const projectsQuery = useProjects();
   const reverseVoucher = useReverseVoucher();
   const createAllocation = useCreateAllocation();
   const reverseAllocation = useReverseAllocation();
@@ -654,6 +666,7 @@ function VoucherDetailView({
 
   const summary = doc.allocationSummary;
   const activeAllocations = doc.allocations.filter((a) => a.status === "active");
+  const project = doc.projectId ? (projectsQuery.data ?? []).find((p) => p.id === doc.projectId) : null;
 
   const summaryItems = [
     { label: t("common.type"), value: voucherLabel(def) },
@@ -661,6 +674,17 @@ function VoucherDetailView({
     { label: t("vouchers.paymentMethod"), value: getVoucherPaymentMethodLabel(doc.paymentMethod) },
     { label: t("vouchers.party"), value: partyName(partyId) },
     { label: t("common.amount"), value: <MoneyDisplay value={toMajor(doc.amount)} /> },
+    ...(doc.projectId
+      ? [
+          {
+            label: t("common.project"),
+            value: project ? `${project.code} — ${nameOf(project)}` : doc.projectId,
+          },
+        ]
+      : []),
+    ...(doc.costCategory
+      ? [{ label: t("common.costCategory"), value: t(`costCategory.${doc.costCategory}` as AppTranslationKey) }]
+      : []),
     ...(def.allocatable
       ? [
           {
@@ -853,6 +877,8 @@ interface CreateDraft {
   date: string;
   referenceNo: string;
   costCenterId: string;
+  projectId: string;
+  costCategory: CostCategoryDTO | "";
   withholdingRatePercent: number | null;
   memo: string;
 }
@@ -884,6 +910,7 @@ function CreateVoucherView({
   const confirmVoucher = useConfirmVoucher();
   const branchesQuery = useBranches();
   const costCentersQuery = useCostCenters();
+  const projectsQuery = useProjects();
 
   // A collection is what «تحصيل» means; without a customer the user still picks the type.
   // «تحصيل» means a collection and «صرف دفعة» a supplier payment; without a
@@ -901,6 +928,8 @@ function CreateVoucherView({
     date: todayIso(),
     referenceNo: "",
     costCenterId: "",
+    projectId: "",
+    costCategory: "",
     withholdingRatePercent: null,
     memo: "",
   });
@@ -920,6 +949,13 @@ function CreateVoucherView({
   const costCenterOptions = [
     { value: "", label: t("vouchers.costCenterUnassigned") },
     ...(costCentersQuery.data ?? []).map((cc) => ({ value: cc.id, label: `${cc.code} — ${nameOf(cc)}` })),
+  ];
+  const projectOptions: EntityPickerOption[] = (projectsQuery.data ?? [])
+    .filter((p) => OPEN_PROJECT_STATUSES.has(p.status))
+    .map((p) => ({ id: p.id, label: `${p.code} — ${nameOf(p)}` }));
+  const costCategoryOptions = [
+    { value: "", label: t("common.none") },
+    ...COST_CATEGORY_VALUES.map((c) => ({ value: c, label: t(`costCategory.${c}` as AppTranslationKey) })),
   ];
   const revenueOrExpenseOptions =
     type === "other_income"
@@ -959,6 +995,8 @@ function CreateVoucherView({
       supplierId: def.requiresSupplier ? draft.partyId || null : null,
       referenceNo: draft.referenceNo || null,
       costCenterId: draft.costCenterId || null,
+      projectId: draft.projectId || null,
+      costCategory: draft.projectId && draft.costCategory ? draft.costCategory : null,
       ...withholdingOf(amount, draft.withholdingRatePercent, def.direction),
     };
     // `workingLocation` and the branch list are real inputs: the line's branch
@@ -983,6 +1021,10 @@ function CreateVoucherView({
     if (!type || !def || busy) return;
     const line = buildLine();
     if (!line) return;
+    if (def.requiresProject && !line.projectId) {
+      setError(t("vouchers.projectRequiredForAdvance"));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -1002,6 +1044,8 @@ function CreateVoucherView({
         supplierId: line.supplierId,
         referenceNo: line.referenceNo,
         costCenterId: line.costCenterId ?? null,
+        projectId: line.projectId ?? null,
+        costCategory: line.costCategory ?? null,
         withholdingAmount: line.withholdingAmount ? line.withholdingAmount.toString() : null,
         withholdingRatePercent: line.withholdingRatePercent ?? null,
         withholdingGlAccountId: line.withholdingGlAccountId ?? null,
@@ -1164,6 +1208,26 @@ function CreateVoucherView({
             value={draft.costCenterId}
             onChange={(v) => setDraft((d) => ({ ...d, costCenterId: v }))}
             options={costCenterOptions}
+          />
+          <div>
+            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">
+              {t("common.project")}
+              {def.requiresProject ? " *" : ""}
+            </div>
+            <EntityPicker
+              label={undefined}
+              value={projectOptions.find((o) => o.id === draft.projectId) ?? null}
+              onChange={(o) => setDraft((d) => ({ ...d, projectId: o?.id ?? "", costCategory: o ? d.costCategory : "" }))}
+              options={projectOptions}
+              placeholder={t("common.noProject")}
+            />
+          </div>
+          <SelectField
+            label={t("common.costCategory")}
+            value={draft.costCategory}
+            onChange={(v) => setDraft((d) => ({ ...d, costCategory: v as CostCategoryDTO | "" }))}
+            options={costCategoryOptions}
+            disabled={!draft.projectId}
           />
           <TextField label={t("common.notes")} value={draft.memo} onChange={(v) => setDraft((d) => ({ ...d, memo: v }))} placeholder={voucherLabel(def)} />
         </Card>

@@ -38,6 +38,7 @@ function serializeLine(l: SalesReturnLine) {
     unitCost: l.unitCost.toString(),
     taxAmount: l.taxAmount.toString(),
     taxRatePercent: l.taxRatePercent ?? null,
+    projectId: l.projectId ?? null,
   };
 }
 
@@ -340,6 +341,7 @@ export function createSalesReturnsRoutes(
           unitCost: await resolveUnitCost(l.sourceInvoiceId, l.itemId, l.unitCost),
           taxAmount: Money.fromMajor(l.taxAmount),
           taxRatePercent: l.taxRatePercent ?? null,
+          projectId: l.projectId ?? null,
         }))),
       });
       return c.json(serialize(doc), 201);

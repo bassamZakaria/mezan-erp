@@ -24,6 +24,7 @@ export interface FxRevaluationRoutesDeps {
   readonly accounts: AccountRepository;
   readonly periods: JournalPostingDeps["periods"];
   readonly numbering: JournalPostingDeps["numbering"];
+  readonly projects?: JournalPostingDeps["projects"];
   readonly exchangeRates: ExchangeRateRepository;
   /** فروق عملة دائنة — FX gain account. */
   readonly gainAccountId: string;
@@ -120,6 +121,7 @@ export function createFxRevaluationRoutes(
         accounts: deps.accounts,
         periods: deps.periods,
         numbering: deps.numbering,
+        projects: deps.projects,
         audit: deps.audit,
         events: deps.events,
         now: deps.now,

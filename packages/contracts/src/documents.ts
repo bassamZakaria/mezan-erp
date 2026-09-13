@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { costCategorySchema } from "./contracting.js";
 import { moneyString } from "./money-string.js";
 
 /**
@@ -41,6 +42,9 @@ export const journalDocumentLineSchema = z.object({
   debit: moneyString,
   credit: moneyString,
   memo: z.string().nullish(),
+  costCenterId: z.string().min(1).nullish(),
+  projectId: z.string().min(1).nullish(),
+  costCategory: costCategorySchema.nullish(),
 });
 
 /** Create a journal document (draft or to post in one step). */

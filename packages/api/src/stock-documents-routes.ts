@@ -66,6 +66,10 @@ function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
     createdAt: doc.createdAt,
     confirmedAt: doc.confirmedAt,
     journalEntryId: doc.journalEntryId,
+    // One project/category per adjustment — carried per-line and validated
+    // uniform (stock-adjustment-document.ts), surfaced here as a single header.
+    projectId: doc.lines[0]?.projectId ?? null,
+    costCategory: doc.lines[0]?.costCategory ?? null,
   };
 }
 
@@ -253,6 +257,8 @@ export function createStockAdjustmentsRoutes(
           direction: l.direction,
           qty: Qty.fromMajor(l.qty),
           unitCost: l.unitCost ? Money.fromMajor(l.unitCost) : undefined,
+          projectId: parsed.data.projectId ?? null,
+          costCategory: parsed.data.costCategory ?? null,
         })),
       });
       return c.json(serializeAdjustment(doc), 201);

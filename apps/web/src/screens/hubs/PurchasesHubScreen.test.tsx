@@ -45,7 +45,7 @@ function purchaseOrder(overrides: Partial<PurchaseOrderDTO> = {}): PurchaseOrder
 
 function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO {
   return {
-    id: "gr-1", number: "GR-000001", purchaseOrderId: "po-1", supplierId: "sup-1", warehouseId: "MAIN-WH", date: "2026-08-19", notes: null,
+    id: "gr-1", number: "GR-000001", projectId: null, purchaseOrderId: "po-1", supplierId: "sup-1", warehouseId: "MAIN-WH", date: "2026-08-19", notes: null,
     lines: [{ itemId: "item-1", description: null, qty: "10.000000", unitCost: "85.000000", batchNo: null, expiryDate: null }],
     status: "confirmed", invoiced: false, totalCost: "850.000000", createdBy: "محمد الشهابي", createdAt: "2026-08-19T10:00:00.000Z",
     ...overrides,
@@ -54,7 +54,7 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
 
 function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseInvoiceDTO {
   return {
-    id: "pi-1", number: "PI-000001", supplierId: "sup-1", date: "2026-08-20", dueDate: "2026-09-04", supplierInvoiceNumber: null,
+    id: "pi-1", number: "PI-000001", projectId: null, supplierId: "sup-1", date: "2026-08-20", dueDate: "2026-09-04", supplierInvoiceNumber: null,
     branchId: "MAIN", warehouseId: "MAIN-WH", currency: "EGP", notes: null, receiptId: null,
     lines: [{ itemId: "item-1", description: null, kind: "inventory", qty: "1.000000", unitCost: "1250.750000", taxRatePercent: 0, batchNo: null, expiryDate: null }],
     status: "confirmed", subtotal: "1250.750000", tax: "0.000000", total: "1250.750000", amountPaid: "0.000000", remainingBalance: "1250.750000",

@@ -64,6 +64,8 @@ export function createInventoryOpsStockHook(
         adjustmentNumber: plan.sourceDocNumber,
         warehouseId: plan.warehouseId,
         reason,
+        projectId: plan.projectId ?? null,
+        costCategory: plan.costCategory ?? null,
         occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
         lines: plan.lines.map((l) => ({
           itemId: l.itemId,

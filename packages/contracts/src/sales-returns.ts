@@ -33,6 +33,8 @@ export const salesReturnLineSchema = z.object({
   taxAmount: positiveDecimalString,
   /** The VAT rate the source invoice line charged, so a mixed-rate return posts one tagged VAT line per rate (D76). */
   taxRatePercent: z.number().nullable().optional(),
+  /** بُعد المشروع, inherited from the source invoice — see `/from-invoice`. */
+  projectId: z.string().min(1).nullable().optional(),
 });
 
 export const createSalesReturnSchema = z.object({

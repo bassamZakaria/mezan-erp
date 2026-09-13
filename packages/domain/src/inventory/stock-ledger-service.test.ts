@@ -152,6 +152,45 @@ describe("StockLedgerService — adjustment validation & GL posting", () => {
     expect(cr?.accountId).toBe("5900");
     expect(cr?.credit.toString()).toBe("50.000000");
   });
+
+  it("tags projectId on every line and costCategory only on the counterpart (expense) line, for a stock-out adjustment", async () => {
+    const { service, postings } = build();
+    await service.postAdjustment({
+      adjustmentId: "ADJ1",
+      warehouseId: "W1",
+      reason: "OTHER",
+      lines: [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("5") }],
+    });
+    await service.postAdjustment({
+      adjustmentId: "ADJ2",
+      warehouseId: "W1",
+      reason: "SHORTAGE",
+      lines: [{ itemId: "I1", direction: "OUT", qty: Qty.fromMajor("4") }],
+      gl: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+      projectId: "PROJ-1",
+      costCategory: "materials",
+    });
+    const p = postings[0] as InventoryGlPosting;
+    const inventoryLine = p.lines.find((l) => l.accountId === "1200");
+    const counterpartLine = p.lines.find((l) => l.accountId === "5900");
+    expect(inventoryLine?.projectId).toBe("PROJ-1");
+    expect(counterpartLine?.projectId).toBe("PROJ-1");
+    expect(counterpartLine?.costCategory).toBe("materials");
+    expect(inventoryLine?.costCategory ?? null).toBeNull();
+  });
+
+  it("refuses a costCategory with no projectId on an adjustment", async () => {
+    const { service } = build();
+    await expect(
+      service.postAdjustment({
+        adjustmentId: "ADJ1",
+        warehouseId: "W1",
+        reason: "OTHER",
+        lines: [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("1") }],
+        costCategory: "materials",
+      }),
+    ).rejects.toBeInstanceOf(InvalidStockMovementError);
+  });
 });
 
 describe("StockLedgerService — opening balance (INITIAL_STOCK)", () => {

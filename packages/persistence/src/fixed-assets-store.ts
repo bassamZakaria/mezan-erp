@@ -13,6 +13,7 @@ import {
   type DepreciationRunLine,
   type DepreciationRunRepository,
   type DepreciationRunStatus,
+  type CostCategory,
 } from "@mezan/domain";
 
 /**
@@ -197,6 +198,14 @@ CREATE TABLE IF NOT EXISTS asset (
 CREATE INDEX IF NOT EXISTS idx_asset_category ON asset(category_id);
 `;
 
+/** `project_id` arrived after the table shipped; CREATE TABLE IF NOT EXISTS never widens an existing database. */
+function addAssetProjectColumnIfMissing(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(asset)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "project_id")) {
+    sqlite.exec(`ALTER TABLE asset ADD COLUMN project_id TEXT`);
+  }
+}
+
 interface AssetRow {
   id: string;
   code: string;
@@ -218,6 +227,7 @@ interface AssetRow {
   depreciation_expense_account_id: string | null;
   accumulated_depreciation_account_id: string | null;
   notes: string | null;
+  project_id: string | null;
 }
 
 function toAsset(row: AssetRow): Asset {
@@ -242,6 +252,7 @@ function toAsset(row: AssetRow): Asset {
     depreciationExpenseAccountId: row.depreciation_expense_account_id,
     accumulatedDepreciationAccountId: row.accumulated_depreciation_account_id,
     notes: row.notes,
+    projectId: row.project_id,
   };
 }
 
@@ -257,13 +268,13 @@ class SqliteAssetRepository implements AssetRepository {
         id, code, name_ar, name_en, category_id, scope, branch_id, warehouse_id, acquisition_date,
         acquisition_cost, depreciation_start_date, depreciation_method, useful_life_months, salvage_value,
         accumulated_depreciation, status, asset_account_id, depreciation_expense_account_id,
-        accumulated_depreciation_account_id, notes
+        accumulated_depreciation_account_id, notes, project_id
       )
       VALUES (
         @id, @code, @name_ar, @name_en, @category_id, @scope, @branch_id, @warehouse_id, @acquisition_date,
         @acquisition_cost, @depreciation_start_date, @depreciation_method, @useful_life_months, @salvage_value,
         @accumulated_depreciation, @status, @asset_account_id, @depreciation_expense_account_id,
-        @accumulated_depreciation_account_id, @notes
+        @accumulated_depreciation_account_id, @notes, @project_id
       )
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
@@ -284,7 +295,8 @@ class SqliteAssetRepository implements AssetRepository {
         asset_account_id = excluded.asset_account_id,
         depreciation_expense_account_id = excluded.depreciation_expense_account_id,
         accumulated_depreciation_account_id = excluded.accumulated_depreciation_account_id,
-        notes = excluded.notes
+        notes = excluded.notes,
+        project_id = excluded.project_id
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM asset WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM asset WHERE code = ?`);
@@ -335,6 +347,7 @@ class SqliteAssetRepository implements AssetRepository {
       depreciation_expense_account_id: asset.depreciationExpenseAccountId,
       accumulated_depreciation_account_id: asset.accumulatedDepreciationAccountId,
       notes: asset.notes,
+      project_id: asset.projectId,
     });
   }
 }
@@ -347,6 +360,7 @@ export interface SqliteAssetRepositoryHandle extends AssetRepository {
 export function createSqliteAssetRepository(path: SqliteConnectionInput = ":memory:"): SqliteAssetRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ASSET);
+  addAssetProjectColumnIfMissing(sqlite);
   const repo = new SqliteAssetRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetRepositoryHandle;
 }
@@ -381,9 +395,18 @@ interface DepreciationRunRow {
 }
 
 function toDepreciationRun(row: DepreciationRunRow): DepreciationRun {
-  const lines = (JSON.parse(row.lines) as { assetId: string; amount: string }[]).map<DepreciationRunLine>((l) => ({
+  const lines = (
+    JSON.parse(row.lines) as {
+      assetId: string;
+      amount: string;
+      projectId?: string | null;
+      costCategory?: CostCategory | null;
+    }[]
+  ).map<DepreciationRunLine>((l) => ({
     assetId: l.assetId,
     amount: Money.fromMajor(l.amount),
+    projectId: l.projectId ?? null,
+    costCategory: l.costCategory ?? null,
   }));
   return {
     id: row.id,
@@ -459,7 +482,14 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
       period: run.period,
       branch_id: run.branchId,
       status: run.status,
-      lines: JSON.stringify(run.lines.map((l) => ({ assetId: l.assetId, amount: l.amount.toString() }))),
+      lines: JSON.stringify(
+        run.lines.map((l) => ({
+          assetId: l.assetId,
+          amount: l.amount.toString(),
+          projectId: l.projectId ?? null,
+          costCategory: l.costCategory ?? null,
+        })),
+      ),
       total_amount: run.totalAmount.toScaledNumber(),
       journal_entry_id: run.journalEntryId,
       created_at: run.createdAt,

@@ -855,7 +855,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   // vatFilings rides along so a DOCUMENT confirm is gated by a filed return
   // exactly as a hand-written journal entry is (D29).
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering, vatFilings };
+  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering, vatFilings, projects };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -1240,6 +1240,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     accounts,
     periods: fiscalPeriods,
     numbering: ledger.numbering,
+    projects,
     treasuryAccounts,
     allocations: vouchers.allocations,
     invoices: vouchers.invoices,
@@ -1254,6 +1255,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     accounts,
     periods: fiscalPeriods,
     numbering: ledger.numbering,
+    projects,
     treasuryAccounts,
     allocations: vouchers.allocations,
     invoices: vouchers.invoices,
@@ -1413,6 +1415,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
+      projects,
       treasuryAccounts,
       allocations: vouchers.allocations,
       invoices: vouchers.invoices,
@@ -1526,6 +1529,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
+      projects,
       audit: auditSink,
       vatFilings,
       openPartyDocuments: () => collectOpenPartyDocuments(),
@@ -1545,6 +1549,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
+      projects,
       treasuryAccounts,
       // Without this the treasury guard reads its own hardcoded default and both
       // سياسة الخزينة switches on the settings screen do nothing (D19).
@@ -1596,6 +1601,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           accounts,
           periods: fiscalPeriods,
           numbering: ledger.numbering,
+          projects,
           treasuryAccounts,
           allocations: vouchers.allocations,
           invoices: vouchers.invoices,
@@ -1708,6 +1714,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
+      projects,
       exchangeRates,
       // فائض/عجز الصندوق double as the FX gain/loss accounts (postable leaves in the standard COA).
       gainAccountId: "4900",
@@ -1764,6 +1771,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     projects: {
       projects,
       costCenters,
+      ledger,
+      accounts,
     },
     fixedAssets: {
       categories: assetCategories,
@@ -1978,6 +1987,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             number: invoice.docNo ?? invoice.id,
             customerId: invoice.customerId,
             warehouseId: invoice.warehouseId,
+            projectId: invoice.projectId,
             date: invoice.date,
             status: "confirmed" as const,
             // A return is quoted in BASE units, because that is what it puts
@@ -2042,6 +2052,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             accounts,
             periods: fiscalPeriods,
             numbering: ledger.numbering,
+            projects,
             treasuryAccounts,
             allocations: vouchers.allocations,
             invoices: vouchers.invoices,

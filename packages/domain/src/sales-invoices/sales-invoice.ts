@@ -165,6 +165,8 @@ export interface SalesInvoice {
   readonly salespersonId: string | null;
   /** Name snapshot at draft time, like `customerNameAr` — print/history must not re-resolve it. */
   readonly salespersonNameAr: string | null;
+  /** بُعد المشروع — the contracting project this invoice's revenue and COGS belong to; null when unattributed. */
+  readonly projectId: string | null;
   readonly currency: string;
   /**
    * The rate this invoice was CONFIRMED at, when its currency is not the base

@@ -103,6 +103,7 @@ function serializeAsset(asset: Asset) {
     depreciationExpenseAccountId: asset.depreciationExpenseAccountId,
     accumulatedDepreciationAccountId: asset.accumulatedDepreciationAccountId,
     notes: asset.notes,
+    projectId: asset.projectId,
   };
 }
 

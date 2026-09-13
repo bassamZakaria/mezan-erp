@@ -67,8 +67,13 @@ describe("the permission catalogue against the routes that check it", () => {
     // this scanner only reads route sources. Two codes, deliberately left in
     // the number rather than special-cased, because a scanner with exceptions
     // is a scanner nobody trusts.
+    //
+    // The contracting module's nine codes are catalogued in slice 0 of
+    // docs/artifacts/mezan-contracting-designs.html, ahead of the BOQ and
+    // certificate routes of slices 1 and 2 that consume them. Each slice that
+    // lands must bring this number back DOWN by the codes it gates.
     expect(UNGATED.length).toBeGreaterThan(0);
-    expect(UNGATED.length).toBeLessThanOrEqual(92);
+    expect(UNGATED.length).toBeLessThanOrEqual(97);
   });
 
   it("LIMITATION (D116): the whole POS module is catalogued and has no route at all", () => {

@@ -40,6 +40,7 @@ import {
   type PostedTransferFilter,
 } from "./posted-stock-documents.js";
 import { getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import { extend, unitCostOf } from "./wac-math.js";
 import { replay, checkDrift, emptyPosition, type WacPosition, type DriftReport } from "./wac.js";
 import type {
@@ -135,6 +136,10 @@ export interface PostAdjustmentCommand {
    * posting entirely (e.g. no GL adapter wired).
    */
   readonly gl?: { readonly inventoryAccountId: string; readonly counterpartAccountId: string };
+  /** بُعد المشروع — tagged onto EVERY posted line (inventory side included). */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`, and tagged ONLY onto the counterpart (expense/loss) line. */
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface TransferLine {
@@ -292,6 +297,10 @@ export interface PostIssueCommand {
   readonly occurredAt?: string;
   /** Post Dr COGS / Cr Inventory for the total issued cost. Omit to let the caller post. */
   readonly gl?: { readonly cogsAccountId: string; readonly inventoryAccountId: string };
+  /** بُعد المشروع — tagged onto BOTH posted lines (COGS and inventory). */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`, and tagged ONLY onto the COGS (debit) line. */
+  readonly costCategory?: CostCategory | null;
 }
 
 /** The moving-average cost at which one issue line left stock. */
@@ -668,6 +677,9 @@ export class StockLedgerService {
         throw new InvalidStockMovementError([`السطر ${i}: الكمية يجب أن تكون رقماً موجباً`]);
       }
     }
+    if (command.costCategory && !command.projectId) {
+      throw new InvalidStockMovementError(["فئة التكلفة تتطلب اختيار مشروع"]);
+    }
     const occurredAt = command.occurredAt ?? this.now();
 
     return this.runInTransaction(async () => {
@@ -704,8 +716,19 @@ export class StockLedgerService {
           date: occurredAt,
           memo: `Stock issue ${command.sourceDocNumber ?? command.sourceDocId}`,
           lines: [
-            { accountId: command.gl.cogsAccountId, debit: totalCost, credit: Money.zero() },
-            { accountId: command.gl.inventoryAccountId, debit: Money.zero(), credit: totalCost },
+            {
+              accountId: command.gl.cogsAccountId,
+              debit: totalCost,
+              credit: Money.zero(),
+              projectId: command.projectId ?? null,
+              costCategory: command.costCategory ?? null,
+            },
+            {
+              accountId: command.gl.inventoryAccountId,
+              debit: Money.zero(),
+              credit: totalCost,
+              projectId: command.projectId ?? null,
+            },
           ],
         });
       }
@@ -1081,6 +1104,9 @@ export class StockLedgerService {
         reasons.push(`line ${i}: an IN line requires a unitCost`);
       }
     }
+    if (command.costCategory && !command.projectId) {
+      reasons.push("a cost category requires a projectId");
+    }
     if (reasons.length > 0) throw new InvalidStockMovementError(reasons);
   }
 
@@ -1240,15 +1266,19 @@ function buildAdjustmentPosting(
   const gl = command.gl as { inventoryAccountId: string; counterpartAccountId: string };
   const magnitude = valueDelta.scaled < 0n ? valueDelta.negate() : valueDelta;
   const increased = valueDelta.scaled > 0n;
-  // Value up → Dr Inventory / Cr counterpart. Value down → reverse.
+  const projectId = command.projectId ?? null;
+  const costCategory = command.costCategory ?? null;
+  // Value up → Dr Inventory / Cr counterpart. Value down → reverse. projectId
+  // travels on both lines; costCategory only on the counterpart (expense/loss)
+  // line — the inventory line is a balance-sheet movement, not a cost.
   const lines = increased
     ? [
-        { accountId: gl.inventoryAccountId, debit: magnitude, credit: Money.zero() },
-        { accountId: gl.counterpartAccountId, debit: Money.zero(), credit: magnitude },
+        { accountId: gl.inventoryAccountId, debit: magnitude, credit: Money.zero(), projectId },
+        { accountId: gl.counterpartAccountId, debit: Money.zero(), credit: magnitude, projectId, costCategory },
       ]
     : [
-        { accountId: gl.counterpartAccountId, debit: magnitude, credit: Money.zero() },
-        { accountId: gl.inventoryAccountId, debit: Money.zero(), credit: magnitude },
+        { accountId: gl.counterpartAccountId, debit: magnitude, credit: Money.zero(), projectId, costCategory },
+        { accountId: gl.inventoryAccountId, debit: Money.zero(), credit: magnitude, projectId },
       ];
   return {
     sourceDocType: "ADJUSTMENT",

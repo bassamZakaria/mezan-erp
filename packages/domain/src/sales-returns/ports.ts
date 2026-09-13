@@ -33,6 +33,8 @@ export interface SourceSalesInvoice {
   readonly date: string;
   readonly status: "confirmed" | "partial" | "paid";
   readonly lines: readonly SourceSalesInvoiceLine[];
+  /** بُعد المشروع on the invoice; a return built from it inherits this onto every line it produces. */
+  readonly projectId?: string | null;
 }
 
 /** Resolves a confirmed sales invoice by id. Implemented by the real invoices module (or a demo/test double) once wired in. */

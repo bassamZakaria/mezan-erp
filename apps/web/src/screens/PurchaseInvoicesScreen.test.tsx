@@ -90,6 +90,7 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
     totalCost: "1700.000000",
     createdBy: "USER-ADMIN",
     createdAt: "2026-08-19T10:00:00.000Z",
+    projectId: null,
     ...overrides,
   };
 }
@@ -107,6 +108,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
     currency: "EGP",
     notes: null,
     receiptId: null,
+    projectId: null,
     lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, batchNo: null, expiryDate: null }],
     status: "confirmed",
     subtotal: "100.000000",
@@ -137,6 +139,7 @@ function renderScreen(
     "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
     "GET /purchases/receipts": () => ({ body: [] }),
     "GET /landed-costs": () => ({ body: [] }),
+    "GET /projects": () => ({ body: [] }),
     "GET /settings/currencies": () => ({ body: { base: "EGP", multiCurrencyEnabled: false, allowed: [] } }),
     "GET /purchases/invoices": (_init, path) => {
       lastListPath = path;

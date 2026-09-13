@@ -107,6 +107,7 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
     totalCost: "1700.000000",
     createdBy: "محمد الشهابي",
     createdAt: "2026-08-19T10:00:00.000Z",
+    projectId: null,
     ...overrides,
   };
 }
@@ -119,6 +120,7 @@ const baseHandlers: Record<string, (init: RequestInit | undefined, path: string)
   "GET /branches": () => ({ body: branches }),
   "GET /warehouses": () => ({ body: warehouses }),
   "GET /users": () => ({ body: [] }),
+  "GET /projects": () => ({ body: [] }),
 };
 
 function renderScreen(transport: Transport) {

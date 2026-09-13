@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { costCategorySchema } from "./contracting.js";
 
 /**
  * Wire contracts for the purchase chain (docs/archive/catalog/02): أوامر الشراء →
@@ -80,6 +81,8 @@ export const goodsReceiptLineSchema = z.object({
   unitCost: decimalString,
   batchNo: z.string().nullable(),
   expiryDate: z.string().nullable(),
+  /** فئة التكلفة — only meaningful with the header's `projectId` (D-01). */
+  costCategory: costCategorySchema.nullish(),
 });
 
 export const goodsReceiptSchema = z.object({
@@ -91,6 +94,8 @@ export const goodsReceiptSchema = z.object({
   warehouseId: z.string().min(1),
   date: isoDate,
   notes: z.string().nullable(),
+  /** بُعد المشروع — the contracting project this receipt's cost belongs to (D-01). */
+  projectId: z.string().min(1).nullable(),
   lines: z.array(goodsReceiptLineSchema),
   status: goodsReceiptStatusSchema,
   invoiced: z.boolean(),
@@ -106,6 +111,7 @@ export const createGoodsReceiptLineSchema = z.object({
   unitCost: positiveDecimalString,
   batchNo: z.string().min(1).nullable().optional(),
   expiryDate: isoDate.nullable().optional(),
+  costCategory: costCategorySchema.nullish(),
 });
 
 export const createGoodsReceiptSchema = z.object({
@@ -114,6 +120,8 @@ export const createGoodsReceiptSchema = z.object({
   purchaseOrderId: z.string().min(1).nullable().optional(),
   date: isoDate,
   notes: z.string().nullable().optional(),
+  /** بُعد المشروع — optional; a line `costCategory` without it is refused. */
+  projectId: z.string().min(1).nullable().optional(),
   /** Required for an ad-hoc receipt (no PO to source from); omit to auto-fill from the PO. */
   lines: z.array(createGoodsReceiptLineSchema).min(1).optional(),
   /** Required for an ad-hoc receipt; ignored (derived from the PO) otherwise. */
@@ -132,6 +140,8 @@ export const purchaseInvoiceLineSchema = z.object({
   taxRatePercent: z.number(),
   batchNo: z.string().nullable(),
   expiryDate: z.string().nullable(),
+  /** فئة التكلفة — only meaningful with the header's `projectId` (D-01). */
+  costCategory: costCategorySchema.nullish(),
 });
 
 export const purchaseInvoiceSchema = z.object({
@@ -148,6 +158,8 @@ export const purchaseInvoiceSchema = z.object({
   fxRate: moneyString.nullable().optional(),
   notes: z.string().nullable(),
   receiptId: z.string().nullable(),
+  /** بُعد المشروع — the contracting project this invoice's cost belongs to (D-01). */
+  projectId: z.string().min(1).nullable(),
   lines: z.array(purchaseInvoiceLineSchema),
   status: purchaseInvoiceStatusSchema,
   subtotal: decimalString,
@@ -169,6 +181,7 @@ export const createPurchaseInvoiceLineSchema = z.object({
   taxRatePercent: z.number().min(0).optional(),
   batchNo: z.string().min(1).nullable().optional(),
   expiryDate: isoDate.nullable().optional(),
+  costCategory: costCategorySchema.nullish(),
 });
 
 /**
@@ -217,6 +230,8 @@ export const createPurchaseInvoiceSchema = z.object({
   notes: z.string().nullable().optional(),
   /** Create-from-receipt: auto-fills lines from this confirmed goods receipt when lines omitted. */
   receiptId: z.string().min(1).nullable().optional(),
+  /** بُعد المشروع — optional; omit to inherit the receipt's (create-from-receipt) or leave unset. */
+  projectId: z.string().min(1).nullable().optional(),
   lines: z.array(createPurchaseInvoiceLineSchema).min(1).optional(),
 });
 

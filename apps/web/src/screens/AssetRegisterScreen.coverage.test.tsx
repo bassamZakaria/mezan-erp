@@ -72,6 +72,7 @@ function asset(overrides: Partial<AssetDTO> & { id: string; code: string }): Ass
     depreciationExpenseAccountId: overrides.depreciationExpenseAccountId ?? null,
     accumulatedDepreciationAccountId: overrides.accumulatedDepreciationAccountId ?? null,
     notes: overrides.notes ?? null,
+    projectId: overrides.projectId ?? null,
   };
 }
 

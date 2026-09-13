@@ -76,6 +76,8 @@ export const createSalesInvoiceSchema = z.object({
   /** HR employee id (`/hr/employees`) credited with the sale. */
   salespersonId: z.string().min(1).nullish(),
   salespersonNameAr: z.string().min(1).nullish(),
+  /** بُعد المشروع — the contracting project this invoice's revenue and COGS belong to. */
+  projectId: z.string().min(1).nullish(),
   /** Coupon presented by the customer; the server evaluates promotions with it at confirm. */
   couponCode: z.string().min(1).nullish(),
   currency: z.string().optional(),

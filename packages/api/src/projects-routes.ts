@@ -8,9 +8,12 @@ import {
   InvalidProjectError,
   InvalidProjectTransitionError,
   DuplicateCostCenterCodeError,
+  computeProjectPnL,
   type Project,
   type ProjectRepository,
   type CostCenterRepository,
+  type LedgerRepository,
+  type AccountRepository,
 } from "@mezan/domain";
 import { createProjectSchema, updateProjectSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
@@ -52,6 +55,9 @@ function handleDomainError(c: Context, err: unknown) {
 export interface ProjectsRoutesDeps {
   readonly projects: ProjectRepository;
   readonly costCenters: CostCenterRepository;
+  /** The posted ledger and its accounts, for the project P&L. Omitted, the report answers with no rows. */
+  readonly ledger?: Pick<LedgerRepository, "listLines">;
+  readonly accounts?: Pick<AccountRepository, "list">;
 }
 
 /**
@@ -77,6 +83,37 @@ export function createProjectsRoutes(
   app.get("/", gate("projects.project.view"), async (c) => {
     const projects = await deps.projects.list();
     return c.json(projects.map(serialize));
+  });
+
+  app.get("/pnl", gate("projects.project.view"), async (c) => {
+    const fromDate = c.req.query("fromDate");
+    const toDate = c.req.query("toDate");
+    const [lines, accounts, projects] = await Promise.all([
+      deps.ledger?.listLines?.({ fromDate, toDate }) ?? [],
+      deps.accounts?.list() ?? [],
+      deps.projects.list(),
+    ]);
+    const report = computeProjectPnL(lines, accounts, projects);
+    return c.json({
+      rows: report.rows.map((r) => ({
+        projectId: r.projectId,
+        code: r.code,
+        name: r.name,
+        budget: r.budget.toString(),
+        revenue: r.revenue.toString(),
+        cost: r.cost.toString(),
+        costByCategory: Object.fromEntries(
+          Object.entries(r.costByCategory).map(([k, v]) => [k, v.toString()]),
+        ),
+        margin: r.margin.toString(),
+        budgetRemaining: r.budgetRemaining.toString(),
+      })),
+      totals: {
+        revenue: report.totals.revenue.toString(),
+        cost: report.totals.cost.toString(),
+        margin: report.totals.margin.toString(),
+      },
+    });
   });
 
   app.get("/:id", gate("projects.project.view"), async (c) => {

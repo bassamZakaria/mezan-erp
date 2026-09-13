@@ -133,6 +133,7 @@ describe("taxInclusive in the GL — the customer is debited the price on the la
       branchId: "BR1",
       salespersonId: null,
       salespersonNameAr: null,
+    projectId: null,
       couponCode: null,
       appliedPromotion: null,
       currency: "EGP",

@@ -33,6 +33,8 @@ export interface Asset {
   readonly depreciationExpenseAccountId: string | null;
   readonly accumulatedDepreciationAccountId: string | null;
   readonly notes: string | null;
+  /** بُعد المشروع — the contracting project this asset is assigned to, while assigned its depreciation is that project's equipment cost. */
+  readonly projectId: string | null;
 }
 
 /** Persistence port for assets. The domain depends on this interface only — no SQL, no driver. */

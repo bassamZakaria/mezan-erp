@@ -196,6 +196,7 @@ function serializeReceipt(r: GoodsReceipt) {
     warehouseId: r.warehouseId,
     date: r.date,
     notes: r.notes,
+    projectId: r.projectId ?? null,
     lines: r.lines.map((l) => ({
       itemId: l.itemId,
       description: l.description,
@@ -203,6 +204,7 @@ function serializeReceipt(r: GoodsReceipt) {
       unitCost: l.unitCost.toString(),
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
+      costCategory: l.costCategory ?? null,
     })),
     status: r.status,
     invoiced: r.invoiced,
@@ -234,6 +236,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero())
     fxRate: inv.fxRate ?? null,
     notes: inv.notes,
     receiptId: inv.receiptId,
+    projectId: inv.projectId ?? null,
     lines: inv.lines.map((l) => ({
       itemId: l.itemId,
       description: l.description,
@@ -243,6 +246,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero())
       taxRatePercent: l.taxRatePercent,
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
+      costCategory: l.costCategory ?? null,
     })),
     status: inv.status,
     subtotal: purchaseInvoiceSubtotal(inv).toString(),
@@ -607,6 +611,7 @@ export function createPurchasesRoutes(
           purchaseOrderId: parsed.data.purchaseOrderId,
           date: parsed.data.date,
           notes: parsed.data.notes,
+          projectId: parsed.data.projectId,
           createdBy: actor(c),
           supplierId: parsed.data.supplierId,
           warehouseId: parsed.data.warehouseId,
@@ -617,6 +622,7 @@ export function createPurchasesRoutes(
             unitCost: Money.fromMajor(l.unitCost),
             batchNo: l.batchNo,
             expiryDate: l.expiryDate,
+            costCategory: l.costCategory ?? null,
           })),
         },
         {
@@ -1039,6 +1045,7 @@ export function createPurchasesRoutes(
           taxRatePercent: l.taxRatePercent ?? 0,
           batchNo: l.batchNo ?? null,
           expiryDate: l.expiryDate ?? null,
+          costCategory: l.costCategory ?? null,
         }));
       } else if (parsed.data.receiptId) {
         const receipt = await deps.receipts.findById(parsed.data.receiptId);
@@ -1066,6 +1073,7 @@ export function createPurchasesRoutes(
           currency: parsed.data.currency,
           notes: parsed.data.notes,
           receiptId: parsed.data.receiptId,
+          projectId: parsed.data.projectId,
           createdBy: actor(c),
           lines,
         },

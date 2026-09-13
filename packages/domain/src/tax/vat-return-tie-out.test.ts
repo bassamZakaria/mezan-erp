@@ -110,6 +110,7 @@ function invoice(
     branchId: "BR1",
     salespersonId: null,
     salespersonNameAr: null,
+    projectId: null,
     couponCode: null,
     appliedPromotion: null,
     currency: "EGP",

@@ -248,6 +248,7 @@ interface WoRow {
   issued_at: string | null;
   received_at: string | null;
   completed_at: string | null;
+  project_id: string | null;
 }
 
 function woToDomain(row: WoRow): WorkOrder {
@@ -340,6 +341,7 @@ function woToDomain(row: WoRow): WorkOrder {
     issuedAt: row.issued_at,
     receivedAt: row.received_at,
     completedAt: row.completed_at,
+    projectId: row.project_id,
   };
 }
 
@@ -350,8 +352,8 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO work_order (id, number, bom_id, bom_version, product_item_id, planned_qty, produced_qty, source_warehouse_id, wip_warehouse_id, destination_warehouse_id, priority, scheduled_start_date, scheduled_end_date, notes, status, stage, materials, material_cost, labor_cost, overhead_cost, extra_cost, cost_log, waste_log, shop_floor_log, config_instance_id, gl_posted, created_by, created_at, started_at, issued_at, received_at, completed_at)
-      VALUES (@id, @number, @bom_id, @bom_version, @product_item_id, @planned_qty, @produced_qty, @source_warehouse_id, @wip_warehouse_id, @destination_warehouse_id, @priority, @scheduled_start_date, @scheduled_end_date, @notes, @status, @stage, @materials, @material_cost, @labor_cost, @overhead_cost, @extra_cost, @cost_log, @waste_log, @shop_floor_log, @config_instance_id, @gl_posted, @created_by, @created_at, @started_at, @issued_at, @received_at, @completed_at)
+      INSERT INTO work_order (id, number, bom_id, bom_version, product_item_id, planned_qty, produced_qty, source_warehouse_id, wip_warehouse_id, destination_warehouse_id, priority, scheduled_start_date, scheduled_end_date, notes, status, stage, materials, material_cost, labor_cost, overhead_cost, extra_cost, cost_log, waste_log, shop_floor_log, config_instance_id, gl_posted, created_by, created_at, started_at, issued_at, received_at, completed_at, project_id)
+      VALUES (@id, @number, @bom_id, @bom_version, @product_item_id, @planned_qty, @produced_qty, @source_warehouse_id, @wip_warehouse_id, @destination_warehouse_id, @priority, @scheduled_start_date, @scheduled_end_date, @notes, @status, @stage, @materials, @material_cost, @labor_cost, @overhead_cost, @extra_cost, @cost_log, @waste_log, @shop_floor_log, @config_instance_id, @gl_posted, @created_by, @created_at, @started_at, @issued_at, @received_at, @completed_at, @project_id)
       ON CONFLICT(id) DO UPDATE SET
         planned_qty = excluded.planned_qty, produced_qty = excluded.produced_qty,
         source_warehouse_id = excluded.source_warehouse_id, wip_warehouse_id = excluded.wip_warehouse_id,
@@ -364,7 +366,8 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
         cost_log = excluded.cost_log, waste_log = excluded.waste_log,
         shop_floor_log = excluded.shop_floor_log, gl_posted = excluded.gl_posted,
         started_at = excluded.started_at, issued_at = excluded.issued_at,
-        received_at = excluded.received_at, completed_at = excluded.completed_at
+        received_at = excluded.received_at, completed_at = excluded.completed_at,
+        project_id = excluded.project_id
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM work_order WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM work_order`);
@@ -441,6 +444,7 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
       issued_at: o.issuedAt,
       received_at: o.receivedAt,
       completed_at: o.completedAt,
+      project_id: o.projectId,
     });
   }
 }
@@ -849,6 +853,10 @@ export function createSqliteManufacturingStores(path: SqliteConnectionInput = ":
   // "is it set?" check while leaving the floor count exactly as unreconcilable.
   if (!woColumns.some((c) => c.name === "wip_warehouse_id")) {
     sqlite.exec(`ALTER TABLE work_order ADD COLUMN wip_warehouse_id TEXT NOT NULL DEFAULT ''`);
+  }
+  // بُعد المشروع (D-01) arrived later still.
+  if (!woColumns.some((c) => c.name === "project_id")) {
+    sqlite.exec(`ALTER TABLE work_order ADD COLUMN project_id TEXT`);
   }
   return {
     boms: new SqliteBomStore(sqlite),

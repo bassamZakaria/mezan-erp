@@ -2,6 +2,7 @@ import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { adjustmentReasonSchema } from "./inventory.js";
+import { costCategorySchema } from "./contracting.js";
 
 /**
  * Wire contracts for the phase4/inventory-ops document layer built on the
@@ -35,6 +36,14 @@ export const createStockAdjustmentSchema = z.object({
   date: z.string().min(1),
   memo: z.string().optional(),
   lines: z.array(stockAdjustmentDocLineSchema).min(1),
+  /**
+   * بُعد المشروع — the contracting project this adjustment's stock movement
+   * belongs to (D-01). One project, one category per adjustment: a stock-out
+   * adjustment issuing material to a site names both here, not per line.
+   */
+  projectId: z.string().min(1).nullish(),
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  costCategory: costCategorySchema.nullish(),
 });
 
 export const stockAdjustmentDocumentSchema = z.object({
@@ -48,6 +57,8 @@ export const stockAdjustmentDocumentSchema = z.object({
   createdAt: z.string(),
   confirmedAt: z.string().nullable(),
   journalEntryId: z.string().nullable(),
+  projectId: z.string().nullish(),
+  costCategory: costCategorySchema.nullish(),
 });
 
 // --- Stock Transfer document ------------------------------------------------

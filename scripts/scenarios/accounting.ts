@@ -561,7 +561,9 @@ export async function voucherTypesRouteToTheirOwnAccounts_R81(ctx: Ctx): Promise
         treasuryGlAccountId: treasury.glAccountId,
         // Deliberately wrong. The server must not take it.
         counterpartyGlAccountId: "9999-WRONG",
-        ...(type === "customer_advance" ? { customerId: "CUST-DEMO-1" } : {}),
+        // An advance with no project could never be recovered from that
+        // project's certificates, so the type refuses to draft without one.
+        ...(type === "customer_advance" ? { customerId: "CUST-DEMO-1", projectId: "PRJ-DEMO-1" } : {}),
       });
       ctx.check(`${type} — voucher drafts`, created.status === 201, JSON.stringify(created.body));
       ctx.checkEq(`${type} — routed to ${account}: ${why}`, created.body?.counterpartyGlAccountId, account);

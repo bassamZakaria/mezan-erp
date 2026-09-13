@@ -95,6 +95,7 @@ export function createSalesInvoiceStockHook(
         sourceDocNumber: plan.sourceDocNumber,
         warehouseId: plan.warehouseId,
         occurredAt: plan.occurredAt,
+        projectId: plan.projectId ?? null,
         lines,
       });
       return {

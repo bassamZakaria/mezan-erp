@@ -18,7 +18,7 @@ import {
 } from "@mezan/ui";
 import { canTransitionProject, matchesSearch } from "@mezan/domain";
 import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/contracts";
-import { ApiError, useCreateProject, useCustomers, useProjects, useUpdateProject, useUsers } from "../data/hooks";
+import { ApiError, useCreateProject, useCustomers, useProjectPnL, useProjects, useUpdateProject, useUsers } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
@@ -106,8 +106,10 @@ export function ProjectsScreen() {
   const usersQuery = useUsers();
   const createProject = useCreateProject();
   const updateProject = useUpdateProject();
+  const pnlQuery = useProjectPnL();
 
   const projects = query.data ?? EMPTY;
+  const pnlByProject = useMemo(() => new Map((pnlQuery.data?.rows ?? []).map((r) => [r.projectId, r])), [pnlQuery.data]);
   const customers = customersQuery.data ?? [];
   const users = usersQuery.data ?? [];
 
@@ -233,6 +235,25 @@ export function ProjectsScreen() {
     { key: "customer", header: t("common.customer"), render: (p) => customerName(p.customerId) },
     { key: "manager", header: t("projects.projectManager"), render: (p) => managerName(p.managerId) },
     { key: "budget", header: t("projects.budget"), align: "end", render: (p) => <MoneyDisplay value={toMajor(p.budget)} /> },
+    {
+      key: "actualCost",
+      header: t("projects.actualCost"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.cost)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "margin",
+      header: t("projects.margin"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        if (!row) return <span className="text-ink-muted">—</span>;
+        return <MoneyDisplay value={toMajor(row.margin)} className={Number(row.margin) < 0 ? "text-danger-ink" : "text-success-ink"} />;
+      },
+    },
     { key: "status", header: t("common.status"), render: (p) => <StatusPill label={t(STATUS_KEY[p.status])} tone={STATUS_TONE[p.status]} /> },
   ];
 
@@ -375,6 +396,40 @@ export function ProjectsScreen() {
                 <MoneyDisplay value={toMajor(selected.budget)} className="text-[18px] font-bold" />
               </div>
             </Card>
+            {(() => {
+              const row = pnlByProject.get(selected.id);
+              if (!row) return null;
+              const categories = ["materials", "labour", "equipment", "subcontract", "indirect", "uncategorised"] as const;
+              return (
+                <Card className="divide-y divide-border">
+                  <div className="grid grid-cols-1 divide-y divide-border">
+                    <div className="p-[13px_15px]">
+                      <div className="text-[11px] font-semibold text-ink-faint">{t("projects.actualCost")}</div>
+                      <div className="mt-[6px]"><MoneyDisplay value={toMajor(row.cost)} className="text-[16px] font-bold" /></div>
+                    </div>
+                    <div className="p-[13px_15px]">
+                      <div className="text-[11px] font-semibold text-ink-faint">{t("projects.margin")}</div>
+                      <div className="mt-[6px]"><MoneyDisplay value={toMajor(row.margin)} className={`text-[16px] font-bold ${Number(row.margin) < 0 ? "text-danger-ink" : "text-success-ink"}`} /></div>
+                    </div>
+                    <div className="p-[13px_15px]">
+                      <div className="text-[11px] font-semibold text-ink-faint">{t("projects.budgetRemaining")}</div>
+                      <div className="mt-[6px]"><MoneyDisplay value={toMajor(row.budgetRemaining)} className={`text-[16px] font-bold ${Number(row.budgetRemaining) < 0 ? "text-danger-ink" : "text-ink"}`} /></div>
+                    </div>
+                  </div>
+                  <div className="p-[13px_15px]">
+                    <div className="text-[11px] font-semibold text-ink-faint">{t("projects.costByCategory")}</div>
+                    <dl className="mt-[6px] grid grid-cols-2 gap-x-[16px] gap-y-[4px] text-[12.5px]">
+                      {categories.map((c) => (
+                        <div key={c} className="flex justify-between gap-[8px]">
+                          <dt className="text-ink-muted">{t(`costCategory.${c}`)}</dt>
+                          <dd><MoneyDisplay value={toMajor(row.costByCategory[c])} /></dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                </Card>
+              );
+            })()}
             {selected.notes ? (
               <Card className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("common.notes")}</div>

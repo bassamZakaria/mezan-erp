@@ -64,6 +64,8 @@ export const assetSchema = z.object({
   depreciationExpenseAccountId: z.string().nullable(),
   accumulatedDepreciationAccountId: z.string().nullable(),
   notes: z.string().nullable(),
+  /** بُعد المشروع — the contracting project this asset is assigned to. */
+  projectId: z.string().nullable(),
 });
 
 export const createAssetSchema = z.object({
@@ -85,6 +87,7 @@ export const createAssetSchema = z.object({
   depreciationExpenseAccountId: z.string().nullable().optional(),
   accumulatedDepreciationAccountId: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  projectId: z.string().nullable().optional(),
 });
 
 export const depreciationRunStatusSchema = z.enum(["draft", "posted", "cancelled"]);

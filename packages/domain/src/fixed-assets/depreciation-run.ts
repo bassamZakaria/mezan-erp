@@ -1,4 +1,5 @@
 import type { Money } from "../money/index.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 
 /**
  * Fixed Assets — Depreciation Runs (docs/archive/catalog/07-mfg-projects-assets.md
@@ -12,6 +13,9 @@ export type DepreciationRunStatus = "draft" | "posted" | "cancelled";
 export interface DepreciationRunLine {
   readonly assetId: string;
   readonly amount: Money;
+  /** بُعد المشروع — the asset's project at the time this run was drafted. */
+  readonly projectId?: string | null;
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface DepreciationRun {

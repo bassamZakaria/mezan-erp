@@ -41,6 +41,7 @@ function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
     branchId: "BR1",
     salespersonId: null,
     salespersonNameAr: null,
+    projectId: null,
     couponCode: null,
     appliedPromotion: null,
     currency: "EGP",
@@ -186,5 +187,29 @@ describe("buildSalesInvoiceGlPosting — the cost-centre dimension (D97)", () =>
     const debit = posting.lines.reduce((sum, l) => sum.add(l.debit), Money.zero());
     const credit = posting.lines.reduce((sum, l) => sum.add(l.credit), Money.zero());
     expect(debit.toString()).toBe(credit.toString());
+  });
+});
+
+describe("buildSalesInvoiceGlPosting — the project dimension (D-01)", () => {
+  it("carries the invoice's projectId onto every line: AR, revenue, tax, COGS and inventory alike", () => {
+    const inv = invoice({ projectId: "PRJ-1", lines: [line({ taxRatePercent: 14 })] });
+    const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+    const cogsLines: SalesInvoiceCogsLine[] = [{ cogsAccountId: "5000", inventoryAccountId: "1200", cost: Money.fromMajor("60") }];
+    const posting = buildSalesInvoiceGlPosting(inv, totals, cogsLines);
+
+    expect(posting.lines.length).toBeGreaterThan(0);
+    for (const l of posting.lines) {
+      expect(l.projectId).toBe("PRJ-1");
+    }
+  });
+
+  it("leaves every line unattributed when the invoice names no project", () => {
+    const inv = invoice({ projectId: null, lines: [line({ taxRatePercent: 14 })] });
+    const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+    const cogsLines: SalesInvoiceCogsLine[] = [{ cogsAccountId: "5000", inventoryAccountId: "1200", cost: Money.fromMajor("60") }];
+    const posting = buildSalesInvoiceGlPosting(inv, totals, cogsLines);
+    for (const l of posting.lines) {
+      expect(l.projectId ?? null).toBeNull();
+    }
   });
 });

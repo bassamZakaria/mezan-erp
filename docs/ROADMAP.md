@@ -368,8 +368,8 @@ HR dashboard charts (**R10.1**), asset status chips.
 > cannot legally transact. And there is no report centre and no drill-down across the
 > reports, which the audit names as the accountant's stated breaking point.
 
-**Re-verified 2026-09-07 against the tree.** The two items below are still open, and
-§5 now carries the larger list. What landed on 2026-09-07 is in §5.4. §3.3 records what moved and why, so nothing is silently dropped.
+**Re-verified 2026-09-07 against the tree; §3.2 added 2026-09-13.** The two items below are still open, and
+§5 now carries the larger list. What landed on 2026-09-07 is in §5.4. §3.4 records what moved and why, so nothing is silently dropped.
 
 ## 3.1 Row menus on the remaining 17 list screens — R1.3
 
@@ -381,7 +381,41 @@ HR dashboard charts (**R10.1**), asset status chips.
       state-dependent menu there would hold a single entry. **Settle against the running
       reference before adding one** — this is a question, not a backlog item.
 
-## 3.2 Outbound notification channels
+## 3.2 المقاولات — the contracting module, by slice
+
+The design is `artifacts/mezan-contracting-designs.html` (twelve decisions taken, six
+build slices). Ticked only when driven in the running app on seeded data.
+
+- [x] **Slice 0 — the dimension** (2026-09-13). `projectId` + `costCategory` on
+      `journal_line`, on every GL posting port and on all ten posting paths plus their
+      twins (sales and purchase returns, asset disposal); a category without a project is
+      refused before the engine, and every composition validates the project id. The nine
+      `contracting.*` permissions and the `contracting` entitlement module. Cost-centre
+      P&L rolls children into parents. `GET /projects/pnl` groups posted lines by the two
+      dimensions and «المشاريع» shows actual cost, margin and the category split. Project
+      pickers (real ids, never free text) on the voucher, journal, adjustment, sales
+      invoice, purchase invoice, goods receipt, landed cost, work order and asset forms.
+      Seed: one document per path on برج الأمل. Verified in Chrome: a labour voucher
+      confirmed from the form moved the project's actual cost by exactly its amount after
+      a fresh load.
+- [ ] **Slice 1 — contract & BOQ.** Contract on the `CTR-` sequence, BOQ with the stored
+      unit enum, Excel import, variation orders.
+- [ ] **Slice 2 — the certificate (المستخلص).** Cumulative lines, تشوينات, the eleven
+      deductions, consultant certification then finance clearance, generated invoice,
+      paginated print. Discharges the orphaned advance voucher.
+- [ ] **Slice 3 — the mirror.** Subcontracts, sub certificates, `retention_payable`,
+      the WHT suffered-side account, the sub tax-number/bank gate.
+- [ ] **Slice 4 — cost & recognition.** Site stores, two-step issue, consumption, WIP,
+      cost-to-complete, the monthly EAS 48 run, contract asset/liability.
+- [ ] **Slice 5 — controls & guarantees.** The six exception reports, the guarantee
+      register with bank-limit reporting, the retention release calendar.
+
+Open from slice 0: the nine contracting permission codes gate no route until slices 1–2
+land (`permission-catalog-coverage.test.ts` pins the ungated count at 97 for that reason,
+and each slice must bring it back down); the `/gl/journal-entries` list query still does
+not accept `sourceDocId`, so a document's own entry is found client-side.
+
+## 3.3 Outbound notification channels
 
 - [ ] `packages/domain/src/notifications/engine.ts` delivers **in-app only**: every other
       channel is stamped `"queued"` and nothing drains the queue. The channel type is
@@ -391,7 +425,7 @@ HR dashboard charts (**R10.1**), asset status chips.
       no longer a missing-transport problem — it is a delivery/retry decision: what happens to
       a queued mail when the shop is offline, which is the normal case for this product.
 
-## 3.3 Recently settled — no longer open
+## 3.4 Recently settled — no longer open
 
 ### Desktop packaging — closed 2026-08-27
 

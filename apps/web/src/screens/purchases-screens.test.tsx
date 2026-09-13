@@ -77,6 +77,7 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
   return {
     id: "gr-1",
     number: "GR-000001",
+    projectId: null,
     purchaseOrderId: "po-2",
     supplierId: "sup-1",
     warehouseId: "MAIN-WH",
@@ -96,6 +97,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
   return {
     id: "pi-1",
     number: "PI-000001",
+    projectId: null,
     supplierId: "sup-1",
     date: "2026-08-20",
     dueDate: "2026-09-04",

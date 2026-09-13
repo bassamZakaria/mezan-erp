@@ -61,6 +61,13 @@ export interface VoucherTypeDefinition {
   readonly direction: VoucherDirection;
   readonly requiresCustomer: boolean;
   readonly requiresSupplier: boolean;
+  /**
+   * Whether this type requires the contracting project dimension. An advance
+   * from a contracting customer with no project cannot later be recovered
+   * from that project's progress certificates, so it is the one type that
+   * makes `projectId` mandatory rather than optional.
+   */
+  readonly requiresProject: boolean;
   /** Whether the voucher amount can be allocated across open invoices. */
   readonly allocatable: boolean;
   /** The invoice kind allocations target (only meaningful when allocatable). */
@@ -97,6 +104,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "receipt",
     requiresCustomer: true,
     requiresSupplier: false,
+    requiresProject: false,
     allocatable: true,
     allocationKind: "sales",
     // The customer's own receivable control account, resolved per customer.
@@ -112,6 +120,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "payment",
     requiresCustomer: false,
     requiresSupplier: true,
+    requiresProject: false,
     allocatable: true,
     allocationKind: "purchase",
     // The supplier's own payable control account, resolved per supplier.
@@ -127,6 +136,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "payment",
     requiresCustomer: true,
     requiresSupplier: false,
+    requiresProject: false,
     allocatable: false,
     allocationKind: null,
     // Back against the customer's receivable.
@@ -142,6 +152,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "receipt",
     requiresCustomer: true,
     requiresSupplier: false,
+    requiresProject: true,
     allocatable: false,
     allocationKind: null,
     // An advance is money owed back until the work is certified — a liability, never revenue.
@@ -157,6 +168,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "receipt",
     requiresCustomer: false,
     requiresSupplier: true,
+    requiresProject: false,
     allocatable: false,
     allocationKind: null,
     // Back against the supplier's payable.
@@ -172,6 +184,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "receipt",
     requiresCustomer: false,
     requiresSupplier: false,
+    requiresProject: false,
     allocatable: false,
     allocationKind: null,
     // Sundry income.
@@ -187,6 +200,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "payment",
     requiresCustomer: false,
     requiresSupplier: false,
+    requiresProject: false,
     allocatable: false,
     allocationKind: null,
     // Sundry expense.
@@ -202,6 +216,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "receipt",
     requiresCustomer: false,
     requiresSupplier: false,
+    requiresProject: false,
     allocatable: false,
     allocationKind: null,
     // Equity, not income: the partner is not a customer (R8.1).
@@ -217,6 +232,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "payment",
     requiresCustomer: false,
     requiresSupplier: false,
+    requiresProject: false,
     allocatable: false,
     allocationKind: null,
     // Drawings — contra-equity, not an expense (R8.1).
@@ -232,6 +248,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "payment",
     requiresCustomer: false,
     requiresSupplier: false,
+    requiresProject: false,
     allocatable: false,
     allocationKind: null,
     // Settles the VAT payable the invoices accrued, never an expense (R8.1).
@@ -247,6 +264,7 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     direction: "transfer",
     requiresCustomer: false,
     requiresSupplier: false,
+    requiresProject: false,
     allocatable: false,
     allocationKind: null,
     // The destination treasury's own GL account.

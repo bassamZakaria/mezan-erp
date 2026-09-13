@@ -127,6 +127,10 @@ export interface DocumentStockPlan {
    * direction validation and GL account routing at the stock-hook adapter.
    */
   readonly reason?: string;
+  /** بُعد المشروع — carried onto the GL entry the stock hook posts (D-01). */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only with `projectId`; goes on the cost-side line of that entry. */
+  readonly costCategory?: CostCategory | null;
   /**
    * The document's own date (`FrameworkDocument.date`), so the stock hook can
    * date the resulting ledger movements (and any GL entry they post) into the

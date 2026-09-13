@@ -143,6 +143,7 @@ function workOrder(overrides: Partial<WorkOrderRecord> = {}): WorkOrderRecord {
     issuedAt: null,
     receivedAt: null,
     completedAt: null,
+    projectId: null,
     ...overrides,
   };
 }

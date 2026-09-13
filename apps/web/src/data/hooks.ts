@@ -44,10 +44,12 @@ import type {
   ConvertRfqDTO,
   ConvertSalesQuoteToInvoiceDTO,
   CostCenterDTO,
+  CostCategoryDTO,
   ImportableDepartmentDTO,
   CreateCostCentersFromDepartmentsDTO,
   PartyCurrencyBalanceReportDTO,
   CostCenterPnLReportDTO,
+  ProjectPnLReportDTO,
   CreateAccountDTO,
   CreateActivityDTO,
   CreateAllocationDTO,
@@ -1120,7 +1122,14 @@ export interface JournalEntryDTO {
   readonly sourceDocId: string | null;
   readonly sourceDocNumber: string | null;
   readonly sourceModule: JournalSourceModuleDTO;
-  readonly lines: ReadonlyArray<{ accountId: string; debit: string; credit: string; memo: string | null }>;
+  readonly lines: ReadonlyArray<{
+    accountId: string;
+    debit: string;
+    credit: string;
+    memo: string | null;
+    projectId?: string | null;
+    costCategory?: CostCategoryDTO | null;
+  }>;
 }
 
 export interface JournalEntryListFilter {
@@ -2351,6 +2360,8 @@ export interface SalesInvoiceDTO {
   readonly branchId: string;
   readonly salespersonId: string | null;
   readonly salespersonNameAr: string | null;
+  /** بُعد المشروع — the contracting project this invoice's revenue and COGS belong to. */
+  readonly projectId?: string | null;
   readonly currency: string;
   readonly couponCode: string | null;
   readonly appliedPromotion: AppliedSalesInvoicePromotionDTO | null;
@@ -2742,6 +2753,20 @@ export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
       const res = await request("/projects");
       if (!res.ok) throw new ApiError(res.status, t("api.projectsCouldNotBeLoaded"));
       return res.json<ProjectDTO[]>();
+    },
+  });
+}
+
+export function useProjectPnL(): UseQueryResult<ProjectPnLReportDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ProjectPnLReportDTO, ApiError>({
+    queryKey: ["projects", "pnl"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/projects/pnl");
+      if (!res.ok) throw new ApiError(res.status, t("api.projectPnlCouldNotBeLoaded"));
+      return res.json<ProjectPnLReportDTO>();
     },
   });
 }
@@ -3336,6 +3361,8 @@ export interface WorkOrderRecord {
   readonly issuedAt: string | null;
   readonly receivedAt: string | null;
   readonly completedAt: string | null;
+  /** بُعد المشروع — the contracting project this work order belongs to. */
+  readonly projectId: string | null;
 }
 
 export interface WorkOrderListFilter {

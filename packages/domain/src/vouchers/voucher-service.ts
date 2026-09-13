@@ -99,6 +99,13 @@ export interface VoucherServiceDeps {
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
   readonly allocations: AllocationRepository;
   readonly invoices: AllocatableInvoiceRepository;
+  /**
+   * بُعد المشروع — validates a voucher line's `projectId` against the real
+   * project register before posting (D-01). Absent means an older composition
+   * with no project repository wired in; the posting then trusts the id as
+   * given, exactly like `JournalPostingDeps.projects` upstream.
+   */
+  readonly projects?: JournalPostingDeps["projects"];
   /** Tenant settings source for the treasury-negative policies; absent means cash guarded, bank not. */
   readonly settings?: SettingsRepository;
   /**
@@ -144,6 +151,8 @@ export interface CreateVoucherCommand {
   readonly supplierId?: string | null;
   readonly referenceNo?: string | null;
   readonly costCenterId?: string | null;
+  readonly projectId?: string | null;
+  readonly costCategory?: import("../contracting/cost-category.js").CostCategory | null;
   readonly withholdingAmount?: import("../money/money.js").Money | null;
   readonly withholdingRatePercent?: number | null;
   readonly withholdingGlAccountId?: string | null;
@@ -167,6 +176,7 @@ export class VoucherService {
       audit: deps.audit,
       now: deps.now,
       actor: deps.actor,
+      projects: deps.projects,
     };
     this.service = new DocumentService(voucherDocumentType, {
       repo: deps.documents,
@@ -222,6 +232,8 @@ export class VoucherService {
       supplierId: cmd.supplierId ?? null,
       referenceNo: cmd.referenceNo ?? null,
       costCenterId: cmd.costCenterId ?? null,
+      projectId: cmd.projectId ?? null,
+      costCategory: cmd.costCategory ?? null,
       withholdingAmount: cmd.withholdingAmount ?? null,
       withholdingRatePercent: cmd.withholdingRatePercent ?? null,
       withholdingGlAccountId: cmd.withholdingGlAccountId ?? null,

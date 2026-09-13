@@ -7,6 +7,7 @@ import {
   DocumentList,
   DocumentStatusStepper,
   EmptyState,
+  EntityPicker,
   IconButton,
   Money as MoneyDisplay,
   RowMenu,
@@ -15,17 +16,19 @@ import {
   TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
+  type EntityPickerOption,
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
 import { Money } from "@mezan/domain";
-import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO } from "@mezan/contracts";
+import type { CostCategoryDTO, CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO, ProjectDTO } from "@mezan/contracts";
 import {
   useAccounts,
   useCreateJournalEntry,
   useJournalEntries,
   useJournalEntryCounts,
   useJournalEntryStats,
+  useProjects,
   useReverseJournalEntry,
   type JournalEntryDTO,
   type JournalEntryListFilter,
@@ -98,13 +101,20 @@ interface LineDraft {
   memo: string;
   debit: number;
   credit: number;
+  projectId: string;
+  costCategory: CostCategoryDTO | "";
 }
 
 let lineSeq = 0;
 function blankLine(): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, accountId: "", memo: "", debit: 0, credit: 0 };
+  return { key: `l${lineSeq}`, accountId: "", memo: "", debit: 0, credit: 0, projectId: "", costCategory: "" };
 }
+
+/** Projects still open for new spend/income — a finished or cancelled project cannot take new lines. */
+const OPEN_PROJECT_STATUSES = new Set<ProjectDTO["status"]>(["planned", "active", "on_hold"]);
+
+const COST_CATEGORY_VALUES: readonly CostCategoryDTO[] = ["materials", "labour", "equipment", "subcontract", "indirect"];
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
@@ -112,9 +122,11 @@ export function JournalsScreen() {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const accountsQuery = useAccounts();
+  const projectsQuery = useProjects();
   const createJournalEntry = useCreateJournalEntry();
   const reverseJournalEntry = useReverseJournalEntry();
   const accounts = accountsQuery.data ?? EMPTY;
+  const projects = projectsQuery.data ?? EMPTY;
 
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
@@ -160,6 +172,11 @@ export function JournalsScreen() {
     const map = new Map(accounts.map((a) => [a.id, `${a.code} — ${nameOf(a)}`]));
     return (id: string) => map.get(id) ?? id;
   }, [accounts, nameOf]);
+
+  const projectLabel = useMemo(() => {
+    const map = new Map(projects.map((p) => [p.id, `${p.code} — ${nameOf(p)}`]));
+    return (id: string | null | undefined) => (id ? (map.get(id) ?? id) : null);
+  }, [projects, nameOf]);
 
   const documents = query.data ?? [];
 
@@ -279,11 +296,13 @@ export function JournalsScreen() {
               content: (
                 <Card className="overflow-hidden">
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[560px] border-collapse text-[13px]">
+                    <table className="w-full min-w-[760px] border-collapse text-[13px]">
                       <thead>
                         <tr>
                           <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.account")}</th>
                           <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.description")}</th>
+                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.project")}</th>
+                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.costCategory")}</th>
                           <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
                           <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.credit")}</th>
                         </tr>
@@ -293,6 +312,8 @@ export function JournalsScreen() {
                           <tr key={i} className="border-b border-border last:border-b-0">
                             <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId)}</td>
                             <td className="px-[15px] py-[11px] text-ink-muted">{l.memo ?? "—"}</td>
+                            <td className="px-[15px] py-[11px] text-ink-muted">{projectLabel(l.projectId) ?? "—"}</td>
+                            <td className="px-[15px] py-[11px] text-ink-muted">{l.costCategory ? t(`costCategory.${l.costCategory}` as AppTranslationKey) : "—"}</td>
                             <td className="px-[15px] py-[11px] text-end">{toMajor(l.debit) !== 0 ? <MoneyDisplay value={toMajor(l.debit)} /> : "—"}</td>
                             <td className="px-[15px] py-[11px] text-end">{toMajor(l.credit) !== 0 ? <MoneyDisplay value={toMajor(l.credit)} /> : "—"}</td>
                           </tr>
@@ -300,7 +321,7 @@ export function JournalsScreen() {
                       </tbody>
                       <tfoot>
                         <tr className="bg-surface-2 font-bold">
-                          <td className="px-[15px] py-[11px]" colSpan={2}>
+                          <td className="px-[15px] py-[11px]" colSpan={4}>
                             <StatusPill label={balanced ? t("journals.balanced") : t("journals.outOfBalance")} tone={balanced ? "success" : "danger"} />
                           </td>
                           <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={totals.debit} /></td>
@@ -461,12 +482,22 @@ function CreateJournalView({
   accountOptions: { value: string; label: string }[];
   onDone: () => void;
 }) {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
+  const projectsQuery = useProjects();
   const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([blankLine(), blankLine()]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const projectOptions: EntityPickerOption[] = (projectsQuery.data ?? [])
+    .filter((p) => OPEN_PROJECT_STATUSES.has(p.status))
+    .map((p) => ({ id: p.id, label: `${p.code} — ${nameOf(p)}` }));
+  const costCategoryOptions = [
+    { value: "", label: t("common.none") },
+    ...COST_CATEGORY_VALUES.map((c) => ({ value: c, label: t(`costCategory.${c}` as AppTranslationKey) })),
+  ];
 
   const totalDebit = lines.reduce((s, l) => s + (l.debit || 0), 0);
   const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0);
@@ -501,6 +532,8 @@ function CreateJournalView({
           debit: String(l.debit || 0),
           credit: String(l.credit || 0),
           memo: l.memo.trim() === "" ? null : l.memo.trim(),
+          projectId: l.projectId || null,
+          costCategory: l.projectId && l.costCategory ? l.costCategory : null,
         })),
       });
       onDone();
@@ -542,11 +575,13 @@ function CreateJournalView({
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-[13px]">
+              <table className="w-full min-w-[900px] border-collapse text-[13px]">
                 <thead>
                   <tr>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.account")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.description")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.project")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.costCategory")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.credit")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px]" />
@@ -573,6 +608,26 @@ function CreateJournalView({
                           value={line.memo}
                           onChange={(e) => updateLine(i, { memo: e.target.value })}
                           placeholder={t("journals.describeTheLine")}
+                        />
+                      </td>
+                      <td className="px-[12px] py-[8px]">
+                        <EntityPicker
+                          className="min-w-[160px]"
+                          value={projectOptions.find((o) => o.id === line.projectId) ?? null}
+                          onChange={(o) => updateLine(i, { projectId: o?.id ?? "", costCategory: o ? line.costCategory : "" })}
+                          options={projectOptions}
+                          placeholder={t("common.noProject")}
+                        />
+                      </td>
+                      <td className="px-[12px] py-[8px]">
+                        <Select
+                          size="sm"
+                          className="min-w-[130px]"
+                          aria-label={t("common.costCategory")}
+                          disabled={!line.projectId}
+                          value={line.costCategory}
+                          onChange={(value) => updateLine(i, { costCategory: value as CostCategoryDTO | "" })}
+                          options={costCategoryOptions}
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">

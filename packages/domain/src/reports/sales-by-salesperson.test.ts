@@ -44,6 +44,7 @@ function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
     branchId: "br-1",
     salespersonId: null,
     salespersonNameAr: null,
+    projectId: null,
     couponCode: null,
     appliedPromotion: null,
     currency: "EGP",

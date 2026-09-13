@@ -85,6 +85,8 @@ function voucher(overrides: Partial<VoucherDTO> = {}): VoucherDTO {
     supplierId: null,
     referenceNo: "REF-1001",
     costCenterId: null,
+    projectId: null,
+    costCategory: null,
     withholdingAmount: null,
     withholdingRatePercent: null,
     netPaidAmount: "1000.000000",

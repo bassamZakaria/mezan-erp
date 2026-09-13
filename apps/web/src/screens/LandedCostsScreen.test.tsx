@@ -30,6 +30,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
     currency: "EGP",
     notes: null,
     receiptId: null,
+    projectId: null,
     lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "20.000000", unitCost: "85.000000", taxRatePercent: 14, batchNo: null, expiryDate: null }],
     status: "confirmed",
     subtotal: "1700.000000",
@@ -74,6 +75,7 @@ function baseHandlers(docs: LandedCostDocumentDTO[]) {
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /items": () => ({ body: items }),
     "GET /landed-costs": () => ({ body: docs }),
+    "GET /projects": () => ({ body: [] }),
   };
 }
 

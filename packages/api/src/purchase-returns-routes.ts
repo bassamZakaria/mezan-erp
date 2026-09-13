@@ -25,6 +25,8 @@ function serializeLine(l: PurchaseReturnLine) {
     unitCost: l.unitCost.toString(),
     taxAmount: l.taxAmount.toString(),
     taxRatePercent: l.taxRatePercent ?? null,
+    projectId: l.projectId ?? null,
+    costCategory: l.costCategory ?? null,
   };
 }
 
@@ -60,10 +62,22 @@ export function createPurchaseReturnsRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
+  type SourceInvoice = Awaited<ReturnType<PurchaseInvoiceLookupPort["findConfirmedInvoice"]>>;
+  // Scoped to ONE request: `alreadyReturnedQty` moves every time a return
+  // confirms, and a cache that outlives the request would keep serving the
+  // cap from before it did.
+  async function lookupInvoice(cache: Map<string, SourceInvoice>, sourceInvoiceId: string) {
+    if (!invoices) return undefined;
+    if (!cache.has(sourceInvoiceId)) {
+      cache.set(sourceInvoiceId, await invoices.findConfirmedInvoice(sourceInvoiceId));
+    }
+    return cache.get(sourceInvoiceId) ?? null;
+  }
+
   /** The client's `availableQty` is a hint, never the cap. */
   async function resolveAvailableQty(sourceInvoiceId: string, itemId: string, claimed: string): Promise<Qty> {
-    if (!invoices) return Qty.fromMajor(claimed);
-    const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
+    const invoice = await lookupInvoice(new Map(), sourceInvoiceId);
+    if (invoice === undefined) return Qty.fromMajor(claimed);
     const line = invoice?.lines.find((il) => il.itemId === itemId);
     if (!line) return Qty.zero();
     return line.qty.subtract(line.alreadyReturnedQty);
@@ -181,11 +195,14 @@ export function createPurchaseReturnsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const doc = await service.createDraft({
-        id: parsed.data.id,
-        date: parsed.data.date,
-        memo: parsed.data.memo,
-        lines: await Promise.all(parsed.data.lines.map(async (l) => ({
+      // A return built from an invoice inherits the invoice's projectId and
+      // each line's costCategory when the caller does not state its own
+      // (D-01) — otherwise an unattended build-from-invoice would drop them.
+      const requestInvoices = new Map<string, SourceInvoice>();
+      const lines = await Promise.all(parsed.data.lines.map(async (l) => {
+        const invoice = await lookupInvoice(requestInvoices, l.sourceInvoiceId);
+        const invoiceLine = invoice?.lines.find((il) => il.itemId === l.itemId);
+        return {
           itemId: l.itemId,
           warehouseId: l.warehouseId,
           supplierId: l.supplierId,
@@ -197,7 +214,15 @@ export function createPurchaseReturnsRoutes(
           unitCost: Money.fromMajor(l.unitCost),
           taxAmount: Money.fromMajor(l.taxAmount),
           taxRatePercent: l.taxRatePercent ?? null,
-        }))),
+          projectId: parsed.data.projectId ?? invoice?.projectId ?? null,
+          costCategory: l.costCategory ?? invoiceLine?.costCategory ?? null,
+        };
+      }));
+      const doc = await service.createDraft({
+        id: parsed.data.id,
+        date: parsed.data.date,
+        memo: parsed.data.memo,
+        lines,
       });
       return c.json(serialize(doc), 201);
     } catch (err) {

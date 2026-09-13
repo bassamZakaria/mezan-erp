@@ -32,6 +32,8 @@ function serializeLine(l: LandedCostLine) {
       amount: ci.amount.toString(),
       supplierId: ci.supplierId ?? null,
     })),
+    projectId: l.projectId ?? null,
+    costCategory: l.costCategory ?? null,
   };
 }
 
@@ -100,6 +102,8 @@ export function createLandedCostsRoutes(
         qty: Qty.fromMajor(t.qty),
         unitCost: Money.fromMajor(t.unitCost),
         weight: Qty.fromMajor(t.weight),
+        projectId: parsed.data.projectId ?? null,
+        costCategory: t.costCategory ?? null,
       }));
       const allocated = distributeLandedCost(costItems, parsed.data.distributionMethod, targets);
       const lines: LandedCostLine[] = allocated.map((a) => ({

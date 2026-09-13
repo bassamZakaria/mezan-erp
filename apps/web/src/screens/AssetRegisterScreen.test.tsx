@@ -50,6 +50,7 @@ const sampleAssets: AssetDTO[] = [
     depreciationExpenseAccountId: null,
     accumulatedDepreciationAccountId: null,
     notes: null,
+    projectId: null,
   },
 ];
 
@@ -59,6 +60,7 @@ function renderScreen(assets: AssetDTO[] = sampleAssets) {
     "GET /assets": () => ({ body: current }),
     "GET /assets/categories": () => ({ body: sampleCategories }),
     "GET /branches": () => ({ body: sampleBranches }),
+    "GET /projects": () => ({ body: [] }),
     "POST /assets": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       if (current.some((a) => a.code === body.code)) {
@@ -153,6 +155,7 @@ describe("AssetRegisterScreen", () => {
       "GET /assets": () => ({ body: disposed ? [{ ...sampleAssets[0], status: "disposed" }] : sampleAssets }),
       "GET /assets/categories": () => ({ body: sampleCategories }),
       "GET /branches": () => ({ body: sampleBranches }),
+      "GET /projects": () => ({ body: [] }),
       "POST /assets/asset-1/dispose": (init) => {
         disposedBody = JSON.parse(String(init?.body));
         disposed = true;

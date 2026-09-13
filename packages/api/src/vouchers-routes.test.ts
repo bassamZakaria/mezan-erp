@@ -16,6 +16,7 @@ import {
   createSqliteVoucherStore,
   createSqliteApprovalRequestStore,
   createSqliteChequeRepository,
+  createSqliteProjectRepository,
 } from "@mezan/persistence";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 
@@ -55,7 +56,8 @@ async function newApp() {
   const periods = createSqliteFiscalPeriodRepository();
   const treasury = createSqliteTreasuryAccountRepository();
   const store = createSqliteVoucherStore();
-  closers.push(ledger, accounts, periods, treasury, store);
+  const projects = createSqliteProjectRepository();
+  closers.push(ledger, accounts, periods, treasury, store, projects);
 
   await accounts.create(account("1300-1"));
   await accounts.create(account("1100"));
@@ -66,6 +68,21 @@ async function newApp() {
   await periods.create({ id: "fp-2026-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
   await treasury.create({ id: "ta-cash1", code: "CASH-001", name: "صندوق", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: (await import("@mezan/domain")).Money.zero(), openingBalanceDate: null, status: "active" });
   await store.invoices.save({ id: "inv1", invoiceNo: "INV-000001", kind: "sales", partyId: "cust-1", date: "2026-08-10", total: (await import("@mezan/domain")).Money.fromMajor("200"), allocated: (await import("@mezan/domain")).Money.zero() });
+  await projects.create({
+    id: "proj-1",
+    code: "P-001",
+    nameAr: "مشروع 1",
+    nameEn: null,
+    status: "active",
+    customerId: "cust-1",
+    managerId: null,
+    startDate: null,
+    endDate: null,
+    budget: (await import("@mezan/domain")).Money.zero(),
+    siteAddress: null,
+    notes: null,
+    costCenterId: "cc-1",
+  });
 
   idSeq = 0;
   const deps: VoucherRoutesDeps = {
@@ -77,6 +94,7 @@ async function newApp() {
     periods,
     numbering: ledger.numbering,
     treasuryAccounts: treasury,
+    projects,
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => `gen-${++idSeq}`,
   };
@@ -195,6 +213,92 @@ describe("vouchers routes", () => {
     const { vouchers } = await newApp();
     const res = await vouchers.fetch(req("/", { method: "POST", permissions: "treasury.cash_voucher.view", body: JSON.stringify(collection) }));
     expect(res.status).toBe(403);
+  });
+
+  it("threads projectId onto both GL lines and costCategory only onto the counterpart line, round-tripping through the response", async () => {
+    const { vouchers, ledger } = await newApp();
+    const created = await vouchers.fetch(
+      req("/", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "vp1",
+          date: "2026-08-22",
+          voucherType: "other_income",
+          amount: "150.00",
+          branchId: "b1",
+          paymentMethod: "cash",
+          treasuryAccountId: "ta-cash1",
+          treasuryGlAccountId: "1300-1",
+          counterpartyGlAccountId: "4900",
+          projectId: "proj-1",
+          costCategory: "materials",
+        }),
+      }),
+    );
+    expect(created.status).toBe(201);
+    const createdBody = (await created.json()) as any;
+    expect(createdBody.projectId).toBe("proj-1");
+    expect(createdBody.costCategory).toBe("materials");
+
+    const confirmed = await vouchers.fetch(req("/vp1/confirm", { method: "POST" }));
+    expect(confirmed.status).toBe(200);
+
+    const entry = await ledger.findById("vp1");
+    const treasuryLine = entry!.lines.find((l) => l.accountId === "1300-1")!;
+    const counterLine = entry!.lines.find((l) => l.accountId === "4900")!;
+    expect(treasuryLine.projectId).toBe("proj-1");
+    expect(counterLine.projectId).toBe("proj-1");
+    expect(counterLine.costCategory).toBe("materials");
+    expect(treasuryLine.costCategory ?? null).toBeNull();
+
+    const detail = (await (await vouchers.fetch(req("/vp1"))).json()) as any;
+    expect(detail.projectId).toBe("proj-1");
+    expect(detail.costCategory).toBe("materials");
+  });
+
+  it("refuses a contracting-customer advance with no project — even at draft creation", async () => {
+    const { vouchers } = await newApp();
+    const res = await vouchers.fetch(
+      req("/", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "va1",
+          date: "2026-08-22",
+          voucherType: "customer_advance",
+          amount: "1000.00",
+          branchId: "b1",
+          paymentMethod: "cash",
+          treasuryAccountId: "ta-cash1",
+          treasuryGlAccountId: "1300-1",
+          customerId: "cust-1",
+        }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect((await res.json() as any).error).toBe("INVALID_DOCUMENT");
+  });
+
+  it("accepts a contracting-customer advance once a project is named", async () => {
+    const { vouchers } = await newApp();
+    const res = await vouchers.fetch(
+      req("/", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "va2",
+          date: "2026-08-22",
+          voucherType: "customer_advance",
+          amount: "1000.00",
+          branchId: "b1",
+          paymentMethod: "cash",
+          treasuryAccountId: "ta-cash1",
+          treasuryGlAccountId: "1300-1",
+          customerId: "cust-1",
+          projectId: "proj-1",
+        }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as any).projectId).toBe("proj-1");
   });
 });
 

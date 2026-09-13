@@ -73,6 +73,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
   return {
     id: "pi-1",
     number: "PI-000001",
+    projectId: null,
     supplierId: "sup-1",
     date: "2026-08-20",
     dueDate: "2026-09-04",

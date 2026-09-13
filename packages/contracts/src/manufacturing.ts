@@ -109,6 +109,8 @@ export const createWorkOrderSchema = z.object({
   scheduledStartDate: isoDate,
   scheduledEndDate: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  /** بُعد المشروع — the contracting project this work order belongs to. */
+  projectId: z.string().nullable().optional(),
 });
 
 /**

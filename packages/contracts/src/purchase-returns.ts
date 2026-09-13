@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
+import { costCategorySchema } from "./contracting.js";
 
 /** Wire contracts for Purchase Returns (مرتجعات المشتريات، docs/archive/catalog/02). Mirrors sales-returns.ts. */
 
@@ -28,12 +29,18 @@ export const purchaseReturnLineSchema = z.object({
   taxAmount: positiveDecimalString,
   /** The VAT rate the source invoice line charged, so a mixed-rate return posts one tagged VAT line per rate (D76). */
   taxRatePercent: z.number().nullable().optional(),
+  /** بُعد المشروع — every line of a confirmed return carries the same document-wide value (D-01). */
+  projectId: z.string().min(1).nullable().optional(),
+  /** فئة التكلفة — only meaningful with the document's `projectId` (D-01). */
+  costCategory: costCategorySchema.nullish(),
 });
 
 export const createPurchaseReturnSchema = z.object({
   id: z.string().min(1),
   date: z.string().min(1),
   memo: z.string().default(""),
+  /** بُعد المشروع — the contracting project this return's cost belongs to (D-01). */
+  projectId: z.string().min(1).nullable().optional(),
   lines: z.array(purchaseReturnLineSchema).min(1),
 });
 

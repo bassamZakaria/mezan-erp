@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   branch_id              TEXT NOT NULL,
   salesperson_id         TEXT,
   salesperson_name_ar    TEXT,
+  project_id             TEXT,
   coupon_code            TEXT,
   promotion_id           TEXT,
   promotion_code         TEXT,
@@ -122,6 +123,7 @@ const ADDED_COLUMNS: readonly (readonly [string, string])[] = [
   ["promotion_applied_at", "TEXT"],
   ["tax_inclusive", "INTEGER"],
   ["fx_rate", "TEXT"],
+  ["project_id", "TEXT"],
 ];
 
 /** Line columns added after the table shipped — see {@link ADDED_COLUMNS}. */
@@ -164,6 +166,7 @@ interface InvoiceRow {
   branch_id: string;
   salesperson_id: string | null;
   salesperson_name_ar: string | null;
+  project_id: string | null;
   coupon_code: string | null;
   promotion_id: string | null;
   promotion_code: string | null;
@@ -294,6 +297,7 @@ function invoiceParams(invoice: SalesInvoice) {
     branch_id: invoice.branchId,
     salesperson_id: invoice.salespersonId,
     salesperson_name_ar: invoice.salespersonNameAr,
+    project_id: invoice.projectId,
     coupon_code: invoice.couponCode,
     promotion_id: promotion?.promotionId ?? null,
     promotion_code: promotion?.code ?? null,
@@ -345,6 +349,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       INSERT INTO sales_invoice (
         id, doc_type, doc_no, status, date, due_date, customer_id, customer_name_ar,
         customer_tax_exempt, tax_inclusive, warehouse_id, branch_id, salesperson_id, salesperson_name_ar,
+        project_id,
         coupon_code, promotion_id, promotion_code, promotion_name_ar, promotion_coupon_code,
         promotion_discount_total, promotion_line_discounts_json, promotion_applied_at,
         currency, fx_rate, notes, internal_notes,
@@ -354,6 +359,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       ) VALUES (
         @id, @doc_type, @doc_no, @status, @date, @due_date, @customer_id, @customer_name_ar,
         @customer_tax_exempt, @tax_inclusive, @warehouse_id, @branch_id, @salesperson_id, @salesperson_name_ar,
+        @project_id,
         @coupon_code, @promotion_id, @promotion_code, @promotion_name_ar, @promotion_coupon_code,
         @promotion_discount_total, @promotion_line_discounts_json, @promotion_applied_at,
         @currency, @fx_rate, @notes, @internal_notes,
@@ -377,6 +383,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         branch_id = @branch_id,
         salesperson_id = @salesperson_id,
         salesperson_name_ar = @salesperson_name_ar,
+        project_id = @project_id,
         coupon_code = @coupon_code,
         promotion_id = @promotion_id,
         promotion_code = @promotion_code,
@@ -562,6 +569,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       branchId: row.branch_id,
       salespersonId: row.salesperson_id,
       salespersonNameAr: row.salesperson_name_ar,
+      projectId: row.project_id,
       currency: row.currency,
       fxRate: row.fx_rate,
       couponCode: row.coupon_code,

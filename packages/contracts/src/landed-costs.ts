@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
+import { costCategorySchema } from "./contracting.js";
 
 /** Wire contracts for Landed Costs (التكاليف الإضافية، docs/archive/catalog/02). */
 
@@ -27,6 +28,8 @@ export const landedCostTargetSchema = z.object({
   unitCost: positiveDecimalString,
   /** Shipped weight of the line — the basis BY_WEIGHT allocates on (R4.7). */
   weight: positiveDecimalString.default("0"),
+  /** فئة التكلفة — only meaningful with the document's `projectId`; defaults to "materials" on the inventory debit (D-01). */
+  costCategory: costCategorySchema.nullish(),
 });
 
 /**
@@ -42,6 +45,8 @@ export const createLandedCostSchema = z.object({
   distributionMethod: landedCostDistributionMethodSchema,
   costItems: z.array(landedCostItemEntrySchema).min(1),
   targets: z.array(landedCostTargetSchema).min(1),
+  /** بُعد المشروع — the contracting project this landed cost's absorption belongs to (D-01). */
+  projectId: z.string().min(1).nullable().optional(),
 });
 
 export const landedCostLineSchema = z.object({
@@ -56,6 +61,9 @@ export const landedCostLineSchema = z.object({
   newUnitCost: positiveDecimalString,
   distributionMethod: landedCostDistributionMethodSchema,
   costItems: z.array(landedCostItemEntrySchema),
+  /** بُعد المشروع — every line of a confirmed landed-cost document carries the same document-wide value (D-01). */
+  projectId: z.string().min(1).nullable().optional(),
+  costCategory: costCategorySchema.nullish(),
 });
 
 export const landedCostDocumentSchema = z.object({

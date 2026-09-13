@@ -246,7 +246,7 @@ class SqliteLedgerRepository implements LedgerRepository {
       parentColumn: "entry_id",
       parentIds: rows.map((row) => row.id),
       orderBy: "entry_id, line_no",
-      columns: "entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent",
+      columns: "entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category",
       safeIntegers: true,
     });
     return rows.map((row) => this.hydrate(row, linesByEntry.get(row.id) ?? []));

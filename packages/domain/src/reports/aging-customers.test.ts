@@ -10,7 +10,7 @@ function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
 function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
   return {
     id: "inv-1", docType: "SALES_INVOICE", docNo: "INV-1", status: "confirmed", date: "2026-06-01", dueDate: "2026-06-15", customerId: "c1", customerNameAr: "عميل أ",
-    customerTaxExempt: false, taxInclusive: false, warehouseId: "wh-1", branchId: "br-1", salespersonId: null, salespersonNameAr: null, couponCode: null, appliedPromotion: null, currency: "EGP", notes: null, internalNotes: null, discount: { type: "amount", amount: Money.zero() },
+    customerTaxExempt: false, taxInclusive: false, warehouseId: "wh-1", branchId: "br-1", salespersonId: null, salespersonNameAr: null, projectId: null, couponCode: null, appliedPromotion: null, currency: "EGP", notes: null, internalNotes: null, discount: { type: "amount", amount: Money.zero() },
     arAccountId: "1120", taxAccountId: "2200", lines: [line()], amountPaid: Money.zero(), createdAt: "2026-06-01T00:00:00.000Z", confirmedAt: "2026-06-01T00:00:00.000Z",
     journalEntryId: null, workflowRequestId: null, reversesInvoiceId: null, reversedByInvoiceId: null, ...overrides,
   };

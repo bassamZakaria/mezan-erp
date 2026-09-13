@@ -12,6 +12,7 @@
  */
 
 import { Money, Qty } from "../money/index.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { extend, occurredAtFromDocumentDate, type CostLayerRepository } from "../inventory/index.js";
 import { convertToBase } from "../exchange-rates/convert.js";
@@ -68,6 +69,8 @@ export interface PurchaseInvoiceLine {
   readonly batchNo?: string | null;
   /** ISO-8601 expiry of the received goods; drives FEFO consumption. Absent for non-perishables. */
   readonly expiryDate?: string | null;
+  /** فئة التكلفة — only meaningful with the invoice's `projectId` (D-01). */
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface PurchaseInvoice {
@@ -84,6 +87,8 @@ export interface PurchaseInvoice {
   readonly notes: string | null;
   /** The confirmed goods receipt this invoice was created from, if any. */
   readonly receiptId: string | null;
+  /** بُعد المشروع — the contracting project this invoice's cost belongs to (D-01). */
+  readonly projectId?: string | null;
   readonly lines: readonly PurchaseInvoiceLine[];
   readonly status: PurchaseInvoiceStatus;
   /**
@@ -113,6 +118,7 @@ export interface PurchaseInvoiceLineInput {
   readonly taxRatePercent?: number;
   readonly batchNo?: string | null;
   readonly expiryDate?: string | null;
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface CreatePurchaseInvoiceCommand {
@@ -126,6 +132,8 @@ export interface CreatePurchaseInvoiceCommand {
   readonly currency?: string;
   readonly notes?: string | null;
   readonly receiptId?: string | null;
+  /** بُعد المشروع — optional; omit to inherit the receipt's projectId (create-from-receipt). */
+  readonly projectId?: string | null;
   readonly createdBy?: string;
   readonly lines: readonly PurchaseInvoiceLineInput[];
 }
@@ -301,6 +309,7 @@ export function buildInvoiceLinesFromReceipt(
     taxRatePercent: resolveTaxRate(l.itemId),
     batchNo: l.batchNo,
     expiryDate: l.expiryDate,
+    costCategory: l.costCategory ?? null,
   }));
 }
 
@@ -318,11 +327,12 @@ function normalizeLines(
       taxRatePercent: l.taxRatePercent ?? 0,
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
+      costCategory: l.costCategory ?? null,
     };
   });
 }
 
-function validate(lines: readonly PurchaseInvoiceLine[], supplierId: string): void {
+function validate(lines: readonly PurchaseInvoiceLine[], supplierId: string, projectId: string | null = null): void {
   const reasons: string[] = [];
   if (supplierId.trim() === "") reasons.push("a supplier is required");
   if (lines.length === 0) reasons.push("at least one line is required");
@@ -333,6 +343,9 @@ function validate(lines: readonly PurchaseInvoiceLine[], supplierId: string): vo
     if (line.qty.isZero() || line.qty.isNegative()) reasons.push(`line ${i}: qty must be positive`);
     if (line.unitCost.scaled < 0n) reasons.push(`line ${i}: unit cost must not be negative`);
     if (line.taxRatePercent < 0) reasons.push(`line ${i}: tax rate must not be negative`);
+    if (line.costCategory && !projectId) {
+      reasons.push(`line ${i}: costCategory requires the invoice's projectId`);
+    }
   });
   if (reasons.length > 0) throw new InvalidPurchaseDocumentError(reasons);
 }
@@ -349,6 +362,7 @@ export async function createPurchaseInvoice(
   if (policy.requireReceiptForInvoice && !command.receiptId) {
     throw new ReceiptRequiredError();
   }
+  let sourceReceipt: GoodsReceipt | null = null;
   if (command.receiptId && deps.receipts) {
     const receipt = await deps.receipts.findById(command.receiptId);
     if (!receipt) throw new GoodsReceiptNotFoundError(command.receiptId);
@@ -361,13 +375,18 @@ export async function createPurchaseInvoice(
     // against the same receipt was accepted and posted a duplicate Dr
     // Inventory with no matching stock movement.
     if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(command.receiptId);
+    sourceReceipt = receipt;
   }
   if (await deps.invoices.findById(command.id)) {
     throw new DuplicatePurchaseDocumentError(command.id);
   }
 
   const lines = normalizeLines(command.lines);
-  validate(lines, command.supplierId);
+  // A from-receipt invoice inherits the receipt's projectId when the caller
+  // does not state its own (D-01) — the header field an unattended
+  // create-from-receipt build would otherwise drop.
+  const projectId = command.projectId ?? sourceReceipt?.projectId ?? null;
+  validate(lines, command.supplierId, projectId);
 
   const number = await deps.numbering.next(PURCHASE_INVOICE_SEQUENCE, { branchId: command.branchId });
   const invoice: PurchaseInvoice = {
@@ -378,6 +397,7 @@ export async function createPurchaseInvoice(
     date: command.date,
     dueDate: command.dueDate ?? null,
     supplierInvoiceNumber: command.supplierInvoiceNumber ?? null,
+    projectId,
     branchId: command.branchId,
     warehouseId: command.warehouseId,
     currency: command.currency ?? "EGP",
@@ -416,6 +436,22 @@ export function buildInvoicePosting(
   const expenseAccountId = accounts.expenseAccountId ?? freightAccountId;
   const fxTag = foreign ? { currency: invoice.currency, fxRate: fx.rate } : {};
 
+  // Cost-side lines (inventory/freight/expense) are split by cost category —
+  // never the AP/VAT lines, which carry no cost dimension at all — so a mixed-
+  // category invoice still posts one tagged line per category instead of
+  // losing the split (D-01). A single, uncategorised group reproduces the
+  // one-line-per-kind shape this posting always had.
+  const byCategory = (kind: PurchaseInvoiceLineKind): Map<CostCategory | null, Money> => {
+    const map = new Map<CostCategory | null, Money>();
+    for (const line of invoice.lines) {
+      if (line.kind !== kind) continue;
+      const amount = convert(purchaseInvoiceLineBase(line));
+      const key = line.costCategory ?? null;
+      map.set(key, (map.get(key) ?? Money.zero()).add(amount));
+    }
+    return map;
+  };
+
   const lines: PurchaseGlPostingLine[] = [];
   if (inventoryBase.scaled !== 0n) {
     /**
@@ -428,17 +464,27 @@ export function buildInvoicePosting(
      * inventory itself.
      */
     const clearsGrni = invoice.receiptId !== null && accounts.goodsReceivedNotInvoicedAccountId !== undefined;
-    lines.push({
-      accountId: clearsGrni ? (accounts.goodsReceivedNotInvoicedAccountId as string) : accounts.inventoryAccountId,
-      debit: inventoryBase,
-      credit: Money.zero(),
-    });
+    for (const [costCategory, amount] of byCategory("inventory")) {
+      if (amount.scaled === 0n) continue;
+      lines.push({
+        accountId: clearsGrni ? (accounts.goodsReceivedNotInvoicedAccountId as string) : accounts.inventoryAccountId,
+        debit: amount,
+        credit: Money.zero(),
+        ...(costCategory ? { costCategory } : {}),
+      });
+    }
   }
   if (freightBase.scaled !== 0n) {
-    lines.push({ accountId: freightAccountId, debit: freightBase, credit: Money.zero() });
+    for (const [costCategory, amount] of byCategory("freight")) {
+      if (amount.scaled === 0n) continue;
+      lines.push({ accountId: freightAccountId, debit: amount, credit: Money.zero(), ...(costCategory ? { costCategory } : {}) });
+    }
   }
   if (expenseBase.scaled !== 0n) {
-    lines.push({ accountId: expenseAccountId, debit: expenseBase, credit: Money.zero() });
+    for (const [costCategory, amount] of byCategory("expense")) {
+      if (amount.scaled === 0n) continue;
+      lines.push({ accountId: expenseAccountId, debit: amount, credit: Money.zero(), ...(costCategory ? { costCategory } : {}) });
+    }
   }
   if (tax.scaled !== 0n) {
     // One input-VAT line per rate charged, not one blended lump. The VAT return
@@ -461,13 +507,14 @@ export function buildInvoicePosting(
   }
   lines.push({ accountId: accounts.payableAccountId, debit: Money.zero(), credit: payable, ...fxTag });
 
+  const projectId = invoice.projectId ?? null;
   return {
     sourceDocType: "PURCHASE_INVOICE",
     sourceDocId: invoice.id,
     sourceDocNumber: invoice.number,
     date: invoice.date,
     memo: `فاتورة مشتريات ${invoice.number}`,
-    lines,
+    lines: lines.map((l) => ({ ...l, projectId })),
   };
 }
 

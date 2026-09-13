@@ -98,4 +98,16 @@ describe("buildPurchaseReturnLinesFromInvoice", () => {
     const lines = buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [{ itemId: "ITEM2", qty: Qty.fromMajor("2") }]);
     expect(lines[0]?.unitCost.toString()).toBe("20.000000");
   });
+
+  it("inherits the invoice's projectId and the line's costCategory", () => {
+    const inv = invoice({
+      projectId: "proj-1",
+      lines: [
+        { itemId: "ITEM1", itemName: "صنف 1", qty: Qty.fromMajor("10"), alreadyReturnedQty: Qty.zero(), unitCost: Money.fromMajor("40"), taxAmount: Money.fromMajor("56"), costCategory: "materials" },
+      ],
+    });
+    const lines = buildPurchaseReturnLinesFromInvoice(inv, "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.fromMajor("3") }]);
+    expect(lines[0]?.projectId).toBe("proj-1");
+    expect(lines[0]?.costCategory).toBe("materials");
+  });
 });

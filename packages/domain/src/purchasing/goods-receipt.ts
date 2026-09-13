@@ -11,6 +11,7 @@
 import { Money, Qty } from "../money/index.js";
 import { extend, occurredAtFromDocumentDate, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import {
   applyReceiptToOrder,
   revertReceiptFromOrder,
@@ -53,6 +54,8 @@ export interface GoodsReceiptLine {
   readonly batchNo?: string | null;
   /** ISO-8601 expiry of the received goods; drives FEFO consumption. Absent for non-perishables. */
   readonly expiryDate?: string | null;
+  /** فئة التكلفة — only meaningful with the receipt's `projectId` (D-01). */
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface GoodsReceipt {
@@ -64,6 +67,8 @@ export interface GoodsReceipt {
   readonly warehouseId: string;
   readonly date: string;
   readonly notes: string | null;
+  /** بُعد المشروع — the contracting project this receipt's cost belongs to (D-01). */
+  readonly projectId?: string | null;
   readonly lines: readonly GoodsReceiptLine[];
   readonly status: GoodsReceiptStatus;
   /** True once a purchase invoice has been booked against this receipt. */
@@ -87,6 +92,7 @@ export interface GoodsReceiptLineInput {
   readonly unitCost: Money;
   readonly batchNo?: string | null;
   readonly expiryDate?: string | null;
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface CreateGoodsReceiptCommand {
@@ -95,6 +101,8 @@ export interface CreateGoodsReceiptCommand {
   readonly purchaseOrderId?: string | null;
   readonly date: string;
   readonly notes?: string | null;
+  /** بُعد المشروع — optional; a line `costCategory` without it is refused. */
+  readonly projectId?: string | null;
   readonly createdBy?: string;
   /** Required for an ad-hoc receipt (no PO to source from); omit to auto-fill from the PO. */
   readonly lines?: readonly GoodsReceiptLineInput[];
@@ -185,6 +193,7 @@ export function buildReceiptLinesFromOrder(order: PurchaseOrder): GoodsReceiptLi
       unitCost: line.unitPrice,
       batchNo: null,
       expiryDate: null,
+      costCategory: null,
     }))
     .filter((line) => !line.qty.isZero());
 }
@@ -230,11 +239,12 @@ export async function createGoodsReceipt(
           unitCost: l.unitCost,
           batchNo: l.batchNo ?? null,
           expiryDate: l.expiryDate ?? null,
+          costCategory: l.costCategory ?? null,
         }))
       : buildReceiptLinesFromOrder(order)
   );
 
-  validateLines(lines);
+  validateLines(lines, command.projectId ?? null);
 
   if (policy.blockOverReceipt) {
     const outstanding = new Map<string, Qty>();
@@ -260,6 +270,7 @@ export async function createGoodsReceipt(
     warehouseId: order.warehouseId,
     date: command.date,
     notes: command.notes ?? null,
+    projectId: command.projectId ?? null,
     lines: await stampBatchNumbers(lines, number.formatted, deps),
     status: "draft",
     invoiced: false,
@@ -270,13 +281,16 @@ export async function createGoodsReceipt(
   return receipt;
 }
 
-function validateLines(lines: readonly GoodsReceiptLine[]): void {
+function validateLines(lines: readonly GoodsReceiptLine[], projectId: string | null = null): void {
   const reasons: string[] = [];
   if (lines.length === 0) reasons.push("at least one line is required");
   lines.forEach((line, i) => {
     if (line.itemId.trim() === "") reasons.push(`line ${i}: an item is required`);
     if (line.qty.isZero() || line.qty.isNegative()) reasons.push(`line ${i}: qty must be positive`);
     if (line.unitCost.scaled < 0n) reasons.push(`line ${i}: unit cost must not be negative`);
+    if (line.costCategory && !projectId) {
+      reasons.push(`line ${i}: costCategory requires the receipt's projectId`);
+    }
   });
   if (reasons.length > 0) throw new InvalidPurchaseDocumentError(reasons);
 }
@@ -305,8 +319,9 @@ async function createAdHocGoodsReceipt(
     unitCost: l.unitCost,
     batchNo: l.batchNo ?? null,
     expiryDate: l.expiryDate ?? null,
+    costCategory: l.costCategory ?? null,
   }));
-  validateLines(lines);
+  validateLines(lines, command.projectId ?? null);
 
   const number = await deps.numbering.next(GOODS_RECEIPT_SEQUENCE);
   const receipt: GoodsReceipt = {
@@ -317,6 +332,7 @@ async function createAdHocGoodsReceipt(
     warehouseId: command.warehouseId as string,
     date: command.date,
     notes: command.notes ?? null,
+    projectId: command.projectId ?? null,
     lines: await stampBatchNumbers(lines, number.formatted, deps),
     status: "draft",
     invoiced: false,
@@ -346,6 +362,25 @@ export function buildGoodsReceiptPosting(
   accounts: { readonly inventoryAccountId: string; readonly goodsReceivedNotInvoicedAccountId: string },
 ): PurchaseGlPosting {
   const value = Money.sum(receipt.lines.map((l) => extend(l.qty, l.unitCost)));
+  // Split the inventory debit by cost category (never the GRNI credit — that
+  // is the liability side, like AP), so a receipt mixing categories still
+  // posts one tagged line per category rather than losing the split (D-01).
+  const byCategory = new Map<CostCategory | null, Money>();
+  for (const l of receipt.lines) {
+    const key = l.costCategory ?? null;
+    const amount = extend(l.qty, l.unitCost);
+    byCategory.set(key, (byCategory.get(key) ?? Money.zero()).add(amount));
+  }
+  const projectId = receipt.projectId ?? null;
+  const debitLines = [...byCategory.entries()]
+    .filter(([, amount]) => amount.scaled !== 0n)
+    .map(([costCategory, amount]) => ({
+      accountId: accounts.inventoryAccountId,
+      debit: amount,
+      credit: Money.zero(),
+      projectId,
+      ...(costCategory ? { costCategory } : {}),
+    }));
   return {
     sourceDocType: "PURCHASE_RECEIPT",
     sourceDocId: receipt.id,
@@ -353,8 +388,8 @@ export function buildGoodsReceiptPosting(
     date: receipt.date,
     memo: `إذن استلام ${receipt.number}`,
     lines: [
-      { accountId: accounts.inventoryAccountId, debit: value, credit: Money.zero() },
-      { accountId: accounts.goodsReceivedNotInvoicedAccountId, debit: Money.zero(), credit: value },
+      ...debitLines,
+      { accountId: accounts.goodsReceivedNotInvoicedAccountId, debit: Money.zero(), credit: value, projectId },
     ],
   };
 }

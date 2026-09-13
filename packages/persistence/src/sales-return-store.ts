@@ -24,6 +24,8 @@ interface WireLine {
   taxAmount: string;
   /** The rate the source invoice line charged. Dropped here, the per-rate VAT split the posting computes cannot survive a reload (D76). */
   taxRatePercent?: number | null;
+  /** بُعد المشروع, inherited from the source invoice. Dropped here, a reload posts an unattributed reversal on the next confirm. */
+  projectId?: string | null;
 }
 
 function serializeLine(line: SalesReturnLine): WireLine {
@@ -40,6 +42,7 @@ function serializeLine(line: SalesReturnLine): WireLine {
     unitCost: line.unitCost.toString(),
     taxAmount: line.taxAmount.toString(),
     taxRatePercent: line.taxRatePercent ?? null,
+    projectId: line.projectId ?? null,
   };
 }
 
@@ -58,6 +61,7 @@ function deserializeLine(wire: unknown): SalesReturnLine {
     unitCost: Money.fromMajor(w.unitCost),
     taxAmount: Money.fromMajor(w.taxAmount),
     taxRatePercent: w.taxRatePercent ?? null,
+    projectId: w.projectId ?? null,
   };
 }
 

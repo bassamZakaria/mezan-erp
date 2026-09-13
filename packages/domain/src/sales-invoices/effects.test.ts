@@ -42,6 +42,7 @@ function invoice(overrides: Partial<SalesInvoice> & { lines: SalesInvoiceLine[] 
     branchId: "BR1",
     salespersonId: null,
     salespersonNameAr: null,
+    projectId: null,
     currency: "EGP",
     couponCode: null,
     appliedPromotion: null,

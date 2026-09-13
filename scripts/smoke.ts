@@ -136,6 +136,7 @@ const READ_PATHS = [
   "/crm/pipeline-stages",
   "/crm/activities",
   "/projects",
+  "/projects/pnl",
   "/assets",
   "/assets/counts",
   "/assets/stats",

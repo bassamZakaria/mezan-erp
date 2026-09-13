@@ -38,6 +38,7 @@ function voucher(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {
     date: "2026-08-07", memo: "تحصيل من عميل", amount: "3500.500000", currency: "EGP", branchId: "MAIN", paymentMethod: "cash",
     treasuryAccountId: "ta-1", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", counterTreasuryAccountId: null,
     counterTreasuryGlAccountId: null, customerId: null, supplierId: null, referenceNo: null, costCenterId: null,
+    projectId: null, costCategory: null,
     withholdingAmount: null, withholdingRatePercent: null, netPaidAmount: "3500.500000", journalEntryId: "je-1",
     confirmedAt: "2026-08-07T10:00:00.000Z",
     allocatable: false,

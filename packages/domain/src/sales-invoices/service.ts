@@ -185,6 +185,7 @@ export interface CreateSalesInvoiceCommand {
   readonly branchId: string;
   readonly salespersonId?: string | null;
   readonly salespersonNameAr?: string | null;
+  readonly projectId?: string | null;
   readonly couponCode?: string | null;
   readonly currency?: string;
   readonly notes?: string | null;
@@ -333,6 +334,7 @@ export class SalesInvoiceService {
           sourceDocId: promoted.id,
           sourceDocNumber: docNo,
           warehouseId: promoted.warehouseId,
+          projectId: promoted.projectId,
           occurredAt,
           // BASE units, never the entered ones: a line sold in cartons must
           // take pieces out of the ledger, and the cost that comes back — and
@@ -570,6 +572,7 @@ export class SalesInvoiceService {
       branchId: cmd.branchId,
       salespersonId: cmd.salespersonId ?? null,
       salespersonNameAr: cmd.salespersonNameAr ?? null,
+      projectId: cmd.projectId ?? null,
       currency: cmd.currency ?? "EGP",
       couponCode: cmd.couponCode ?? null,
       appliedPromotion: null,

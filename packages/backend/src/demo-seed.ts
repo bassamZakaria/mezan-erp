@@ -10,6 +10,7 @@ import { seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
 import { seedHistory } from "./demo-seed/history.js";
+import { seedContracting } from "./demo-seed/contracting.js";
 
 /**
  * SEED PROFILE FOR TESTS AND LOCAL DEVELOPMENT ONLY.
@@ -672,6 +673,7 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   await seedInventoryOps(app);
   await seedPurchasing(app);
   await seedTreasury(app);
+  await seedContracting(app);
   await seedPlatform(app);
   await seedAttachments(app);
 }

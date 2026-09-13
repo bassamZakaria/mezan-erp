@@ -7,3 +7,8 @@ export {
   type Tenant, type TenantStatus, type TenantRepository,
   type CreateTenantCommand, type TenantTransitionCommand,
 } from "./tenant.js";
+export {
+  createPlan, updatePlan, retirePlan, dedupeModules,
+  type Plan, type PlanStatus, type PlanRepository,
+  type CreatePlanCommand, type UpdatePlanCommand, type HasLiveSubscribers,
+} from "./plan.js";

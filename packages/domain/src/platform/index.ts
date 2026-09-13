@@ -19,3 +19,7 @@ export {
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
 } from "./subscription.js";
+export {
+  deriveEntitlements, subscriptionLicenseState, subscriptionExpiresAt,
+  type SubscriptionLicenseState, type SubscriptionLicenseStateName,
+} from "./derive.js";

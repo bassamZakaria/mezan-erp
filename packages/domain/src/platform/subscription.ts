@@ -147,8 +147,8 @@ function requireNow(cmd: SubscriptionCommand): string {
 
 export async function renewSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
-  assertFrom(s, ["trialing", "active", "past_due"], "active");
   const now = requireNow(cmd);
+  assertFrom(s, ["trialing", "active", "past_due"], "active");
   const lapsed = s.currentPeriodEnd < now;
   const periodStart = lapsed ? now : s.currentPeriodEnd;
   const next: Subscription = {
@@ -165,8 +165,8 @@ export async function renewSubscription(cmd: SubscriptionCommand, repo: Subscrip
 
 export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
-  assertFrom(s, ["active"], "past_due");
   const now = requireNow(cmd);
+  assertFrom(s, ["active"], "past_due");
   if (now < s.currentPeriodEnd) {
     throw new InvalidSubscriptionError([`period has not ended (ends ${s.currentPeriodEnd})`]);
   }
@@ -177,8 +177,8 @@ export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRe
 
 export async function suspendSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
-  assertFrom(s, ["active", "past_due"], "suspended");
   const now = requireNow(cmd);
+  assertFrom(s, ["active", "past_due"], "suspended");
   const next: Subscription = { ...s, status: "suspended", updatedAt: now };
   await repo.save(next);
   return next;
@@ -186,8 +186,8 @@ export async function suspendSubscription(cmd: SubscriptionCommand, repo: Subscr
 
 export async function resumeSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
-  assertFrom(s, ["suspended"], "active");
   const now = requireNow(cmd);
+  assertFrom(s, ["suspended"], "active");
   const next: Subscription = { ...s, status: "active", updatedAt: now };
   await repo.save(next);
   return next;
@@ -195,8 +195,8 @@ export async function resumeSubscription(cmd: SubscriptionCommand, repo: Subscri
 
 export async function cancelSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
-  assertFrom(s, ["trialing", "active", "past_due", "suspended"], "cancelled");
   const now = requireNow(cmd);
+  assertFrom(s, ["trialing", "active", "past_due", "suspended"], "cancelled");
   const next: Subscription = { ...s, status: "cancelled", cancelledAt: now, updatedAt: now };
   await repo.save(next);
   return next;
@@ -212,8 +212,8 @@ export async function changePlan(
   plans: PlanRepository,
 ): Promise<Subscription> {
   const s = await load(cmd.id, repo);
-  assertFrom(s, ["trialing", "active", "past_due"], "active");
   const now = requireNow(cmd);
+  assertFrom(s, ["trialing", "active", "past_due"], "active");
   const plan = await activePlan(cmd.planId, plans);
   const next: Subscription = {
     ...s,

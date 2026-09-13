@@ -446,6 +446,7 @@ Expected: FAIL, cannot resolve `./tenant.js`.
 
 ```ts
 // packages/domain/src/platform/tenant.ts
+import { normalizeEmail } from "../users/save-user.js";
 import { isValidSlug } from "./slug.js";
 import {
   InvalidTenantError,
@@ -482,10 +483,6 @@ export interface CreateTenantCommand {
   readonly nameEn?: string | null;
   readonly ownerEmail: string;
   readonly now: string;
-}
-
-export function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
 }
 
 export function tenantDbFile(code: string): string {
@@ -566,7 +563,7 @@ export * from "./errors.js";
 export { isValidSlug } from "./slug.js";
 export {
   createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant,
-  normalizeEmail, tenantDbFile,
+  tenantDbFile,
   type Tenant, type TenantStatus, type TenantRepository,
   type CreateTenantCommand, type TenantTransitionCommand,
 } from "./tenant.js";
@@ -1577,7 +1574,7 @@ Expected: FAIL, cannot resolve `./platform-user.js`.
 ```ts
 // packages/domain/src/platform/platform-user.ts
 import type { SecretHasher } from "../users/user.js";
-import { normalizeEmail } from "./tenant.js";
+import { normalizeEmail } from "../users/save-user.js";
 import { InvalidPlatformUserError, PlatformUserEmailTakenError } from "./errors.js";
 
 export type PlatformRole = "owner" | "support";

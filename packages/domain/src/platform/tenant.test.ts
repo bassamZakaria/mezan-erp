@@ -54,6 +54,16 @@ describe("createTenant", () => {
     await createTenant(cmd, repo);
     await expect(createTenant({ ...cmd, id: "T2" }, repo)).rejects.toThrow(TenantCodeTakenError);
   });
+
+  it("refuses a clock that is not an ISO-8601 timestamp", async () => {
+    await expect(createTenant({ ...cmd, now: "garbage" }, memoryRepo())).rejects.toThrow(InvalidTenantError);
+  });
+
+  it("normalises a clock with no milliseconds", async () => {
+    const t = await createTenant({ ...cmd, now: "2026-09-13T10:00:00Z" }, memoryRepo());
+    expect(t.createdAt).toBe("2026-09-13T10:00:00.000Z");
+    expect(t.updatedAt).toBe("2026-09-13T10:00:00.000Z");
+  });
 });
 
 describe("tenant state machine", () => {

@@ -49,6 +49,15 @@ describe("createPlan", () => {
     await createPlan(cmd, repo);
     await expect(createPlan({ ...cmd, id: "P2" }, repo)).rejects.toThrow(PlanCodeTakenError);
   });
+
+  it("refuses a clock that is not an ISO-8601 timestamp", async () => {
+    await expect(createPlan({ ...cmd, now: "garbage" }, memoryRepo())).rejects.toThrow(InvalidPlanError);
+  });
+
+  it("normalises a clock with no milliseconds", async () => {
+    const plan = await createPlan({ ...cmd, now: "2026-09-13T10:00:00Z" }, memoryRepo());
+    expect(plan.createdAt).toBe("2026-09-13T10:00:00.000Z");
+  });
 });
 
 describe("updatePlan", () => {

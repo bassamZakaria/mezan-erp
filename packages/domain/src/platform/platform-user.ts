@@ -1,5 +1,6 @@
 import type { SecretHasher } from "../users/user.js";
 import { normalizeEmail } from "../users/save-user.js";
+import { isoTimestamp } from "./validation.js";
 import { InvalidPlatformUserError, PlatformUserEmailTakenError } from "./errors.js";
 
 export type PlatformRole = "owner" | "support";
@@ -37,12 +38,14 @@ export async function createPlatformUser(
   hasher: SecretHasher,
 ): Promise<PlatformUser> {
   const email = normalizeEmail(cmd.email);
+  const now = isoTimestamp(cmd.now);
   const reasons: string[] = [];
   if (cmd.id.trim() === "") reasons.push("id is required");
   if (email === "") reasons.push("email is required");
   if (cmd.password.length < MIN_PLATFORM_PASSWORD_LENGTH) {
     reasons.push(`password must be at least ${MIN_PLATFORM_PASSWORD_LENGTH} characters`);
   }
+  if (!now) reasons.push("now must be an ISO-8601 timestamp");
   if (reasons.length > 0) throw new InvalidPlatformUserError(reasons);
   if (await repo.findByEmail(email)) throw new PlatformUserEmailTakenError(email);
   const user: PlatformUser = {
@@ -51,7 +54,7 @@ export async function createPlatformUser(
     passwordHash: await hasher.hash(cmd.password),
     role: cmd.role,
     status: "active",
-    createdAt: cmd.now,
+    createdAt: now as string,
   };
   await repo.save(user);
   return user;

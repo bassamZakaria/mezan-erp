@@ -1,7 +1,7 @@
 import { Money } from "../money/money.js";
 import { isKnownModule } from "./module-catalog.js";
 import { isValidSlug } from "./slug.js";
-import { isCount } from "./validation.js";
+import { isCount, isoTimestamp } from "./validation.js";
 import { InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
 
 export type PlanStatus = "active" | "retired";
@@ -79,6 +79,7 @@ function validate(plan: Omit<Plan, "status" | "createdAt">): string[] {
 }
 
 export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): Promise<Plan> {
+  const now = isoTimestamp(cmd.now);
   const candidate: Plan = {
     id: cmd.id,
     code: cmd.code,
@@ -95,9 +96,10 @@ export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): 
     isPublic: cmd.isPublic,
     sortOrder: cmd.sortOrder,
     status: "active",
-    createdAt: cmd.now,
+    createdAt: now ?? cmd.now,
   };
   const reasons = validate(candidate);
+  if (!now) reasons.push("now must be an ISO-8601 timestamp");
   if (reasons.length > 0) throw new InvalidPlanError(reasons);
   if (await repo.findByCode(cmd.code)) throw new PlanCodeTakenError(cmd.code);
   await repo.save(candidate);

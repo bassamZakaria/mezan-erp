@@ -1,5 +1,6 @@
 import { normalizeEmail } from "../users/save-user.js";
 import { isValidSlug } from "./slug.js";
+import { isoTimestamp } from "./validation.js";
 import {
   InvalidTenantError,
   InvalidTenantTransitionError,
@@ -47,6 +48,7 @@ function validate(cmd: CreateTenantCommand): string[] {
   if (!isValidSlug(cmd.code)) reasons.push("code must be a slug of 3 to 32 lower-case letters, digits or inner hyphens");
   if (cmd.nameAr.trim() === "") reasons.push("nameAr is required");
   if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("ownerEmail is required");
+  if (!isoTimestamp(cmd.now)) reasons.push("now must be an ISO-8601 timestamp");
   return reasons;
 }
 
@@ -54,6 +56,7 @@ export async function createTenant(cmd: CreateTenantCommand, repo: TenantReposit
   const reasons = validate(cmd);
   if (reasons.length > 0) throw new InvalidTenantError(reasons);
   if (await repo.findByCode(cmd.code)) throw new TenantCodeTakenError(cmd.code);
+  const now = isoTimestamp(cmd.now) as string;
   const tenant: Tenant = {
     id: cmd.id,
     code: cmd.code,
@@ -62,8 +65,8 @@ export async function createTenant(cmd: CreateTenantCommand, repo: TenantReposit
     ownerEmail: normalizeEmail(cmd.ownerEmail),
     status: "provisioning",
     dbFile: tenantDbFile(cmd.code),
-    createdAt: cmd.now,
-    updatedAt: cmd.now,
+    createdAt: now,
+    updatedAt: now,
   };
   await repo.save(tenant);
   return tenant;
@@ -87,12 +90,14 @@ async function transition(
   repo: TenantRepository,
   from?: readonly TenantStatus[],
 ): Promise<Tenant> {
+  const now = isoTimestamp(cmd.now);
+  if (!now) throw new InvalidTenantError(["now must be an ISO-8601 timestamp"]);
   const current = await repo.findById(cmd.id);
   if (!current) throw new TenantNotFoundError(cmd.id);
   if (!TRANSITIONS[current.status].includes(to) || (from !== undefined && !from.includes(current.status))) {
     throw new InvalidTenantTransitionError(current.status, to);
   }
-  const next: Tenant = { ...current, status: to, updatedAt: cmd.now };
+  const next: Tenant = { ...current, status: to, updatedAt: now };
   await repo.save(next);
   return next;
 }

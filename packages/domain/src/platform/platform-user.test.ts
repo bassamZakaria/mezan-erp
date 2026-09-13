@@ -37,4 +37,20 @@ describe("createPlatformUser", () => {
     await createPlatformUser(cmd, repo, hasher);
     await expect(createPlatformUser({ ...cmd, id: "U2", email: "ROOT@mezan.app" }, repo, hasher)).rejects.toThrow(PlatformUserEmailTakenError);
   });
+
+  it("rejects an 11-character password and accepts a 12-character one", async () => {
+    await expect(createPlatformUser({ ...cmd, password: "a".repeat(11) }, memoryRepo(), hasher)).rejects.toThrow(InvalidPlatformUserError);
+    const u = await createPlatformUser({ ...cmd, password: "a".repeat(12) }, memoryRepo(), hasher);
+    expect(u.passwordHash).toBe(`hashed:${"a".repeat(12)}`);
+  });
+
+  it("refuses an empty id", async () => {
+    await expect(createPlatformUser({ ...cmd, id: " " }, memoryRepo(), hasher))
+      .rejects.toMatchObject({ reasons: expect.arrayContaining(["id is required"]) });
+  });
+
+  it("refuses a clock that is not an ISO-8601 timestamp", async () => {
+    await expect(createPlatformUser({ ...cmd, now: "garbage" }, memoryRepo(), hasher))
+      .rejects.toMatchObject({ reasons: expect.arrayContaining(["now must be an ISO-8601 timestamp"]) });
+  });
 });

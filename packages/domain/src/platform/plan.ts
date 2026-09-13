@@ -80,7 +80,7 @@ function validate(plan: Omit<Plan, "status" | "createdAt">): string[] {
 
 export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): Promise<Plan> {
   const now = isoTimestamp(cmd.now);
-  const candidate: Plan = {
+  const draft: Omit<Plan, "status" | "createdAt"> = {
     id: cmd.id,
     code: cmd.code,
     nameAr: cmd.nameAr.trim(),
@@ -95,13 +95,12 @@ export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): 
     trialDays: cmd.trialDays,
     isPublic: cmd.isPublic,
     sortOrder: cmd.sortOrder,
-    status: "active",
-    createdAt: now ?? cmd.now,
   };
-  const reasons = validate(candidate);
+  const reasons = validate(draft);
   if (!now) reasons.push("now must be an ISO-8601 timestamp");
-  if (reasons.length > 0) throw new InvalidPlanError(reasons);
+  if (!now || reasons.length > 0) throw new InvalidPlanError(reasons);
   if (await repo.findByCode(cmd.code)) throw new PlanCodeTakenError(cmd.code);
+  const candidate: Plan = { ...draft, status: "active", createdAt: now };
   await repo.save(candidate);
   return candidate;
 }

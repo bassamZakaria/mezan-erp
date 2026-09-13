@@ -46,7 +46,7 @@ export async function createPlatformUser(
     reasons.push(`password must be at least ${MIN_PLATFORM_PASSWORD_LENGTH} characters`);
   }
   if (!now) reasons.push("now must be an ISO-8601 timestamp");
-  if (reasons.length > 0) throw new InvalidPlatformUserError(reasons);
+  if (!now || reasons.length > 0) throw new InvalidPlatformUserError(reasons);
   if (await repo.findByEmail(email)) throw new PlatformUserEmailTakenError(email);
   const user: PlatformUser = {
     id: cmd.id,
@@ -54,7 +54,7 @@ export async function createPlatformUser(
     passwordHash: await hasher.hash(cmd.password),
     role: cmd.role,
     status: "active",
-    createdAt: now as string,
+    createdAt: now,
   };
   await repo.save(user);
   return user;

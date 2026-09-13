@@ -82,6 +82,16 @@ describe("tenant state machine", () => {
     expect(t.updatedAt).toBe(LATER);
   });
 
+  it("refuses a bad clock before looking up the tenant, even for an unknown id", async () => {
+    await expect(activateTenant({ id: "nope", now: "garbage" }, memoryRepo())).rejects.toThrow(InvalidTenantError);
+  });
+
+  it("normalises a transition clock with no milliseconds into updatedAt", async () => {
+    const repo = await seeded("provisioning");
+    const t = await activateTenant({ id: "T1", now: "2026-09-14T00:00:00Z" }, repo);
+    expect(t.updatedAt).toBe("2026-09-14T00:00:00.000Z");
+  });
+
   it("active ⇄ suspended", async () => {
     const repo = await seeded("active");
     expect((await suspendTenant({ id: "T1", now: LATER }, repo)).status).toBe("suspended");

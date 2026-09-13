@@ -48,15 +48,15 @@ function validate(cmd: CreateTenantCommand): string[] {
   if (!isValidSlug(cmd.code)) reasons.push("code must be a slug of 3 to 32 lower-case letters, digits or inner hyphens");
   if (cmd.nameAr.trim() === "") reasons.push("nameAr is required");
   if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("ownerEmail is required");
-  if (!isoTimestamp(cmd.now)) reasons.push("now must be an ISO-8601 timestamp");
   return reasons;
 }
 
 export async function createTenant(cmd: CreateTenantCommand, repo: TenantRepository): Promise<Tenant> {
+  const now = isoTimestamp(cmd.now);
   const reasons = validate(cmd);
-  if (reasons.length > 0) throw new InvalidTenantError(reasons);
+  if (!now) reasons.push("now must be an ISO-8601 timestamp");
+  if (!now || reasons.length > 0) throw new InvalidTenantError(reasons);
   if (await repo.findByCode(cmd.code)) throw new TenantCodeTakenError(cmd.code);
-  const now = isoTimestamp(cmd.now) as string;
   const tenant: Tenant = {
     id: cmd.id,
     code: cmd.code,

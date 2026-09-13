@@ -91,7 +91,10 @@ State machine:
   a trial, else `active`.
 - `trialing → active` via `renewSubscription` (first payment) or `changePlan`.
 - `active → past_due` via `markPastDue` (only after `currentPeriodEnd`).
-- `past_due → active` via `renewSubscription`.
+- `past_due → active` via `renewSubscription`. A renewal rolls the period from the old
+  end when that end is still ahead, and from `now` when the subscription had lapsed.
+- Every `now` a use-case receives is normalised to `toISOString()` form before it is stored or
+  compared; an unparseable value is an `InvalidSubscriptionError`.
 - `active | past_due → suspended` via `suspendSubscription`; `suspended → active` via
   `resumeSubscription`.
 - any non-cancelled → `cancelled` via `cancelSubscription`. Terminal.

@@ -49,7 +49,7 @@ export interface CreatePlanCommand {
   readonly now: string;
 }
 
-export type UpdatePlanCommand = { readonly id: string; readonly now: string } & Partial<
+export type UpdatePlanCommand = { readonly id: string } & Partial<
   Pick<Plan, "nameAr" | "nameEn" | "modules" | "features" | "seatsIncluded" | "branchesIncluded" | "warehousesIncluded" | "priceMonthly" | "priceYearly" | "trialDays" | "isPublic" | "sortOrder">
 >;
 
@@ -114,14 +114,20 @@ export async function updatePlan(
 ): Promise<Plan> {
   const current = await repo.findById(cmd.id);
   if (!current) throw new PlanNotFoundError(cmd.id);
-  const { id: _id, now: _now, ...patch } = cmd;
   const next: Plan = {
     ...current,
-    ...patch,
-    nameAr: (patch.nameAr ?? current.nameAr).trim(),
-    nameEn: (patch.nameEn ?? current.nameEn).trim(),
-    modules: dedupeModules(patch.modules ?? current.modules),
-    features: { ...(patch.features ?? current.features) },
+    nameAr: (cmd.nameAr ?? current.nameAr).trim(),
+    nameEn: (cmd.nameEn ?? current.nameEn).trim(),
+    modules: dedupeModules(cmd.modules ?? current.modules),
+    features: { ...(cmd.features ?? current.features) },
+    seatsIncluded: cmd.seatsIncluded ?? current.seatsIncluded,
+    branchesIncluded: cmd.branchesIncluded ?? current.branchesIncluded,
+    warehousesIncluded: cmd.warehousesIncluded ?? current.warehousesIncluded,
+    priceMonthly: cmd.priceMonthly ?? current.priceMonthly,
+    priceYearly: cmd.priceYearly ?? current.priceYearly,
+    trialDays: cmd.trialDays ?? current.trialDays,
+    isPublic: cmd.isPublic ?? current.isPublic,
+    sortOrder: cmd.sortOrder ?? current.sortOrder,
   };
   const reasons = validate(next);
   if (reasons.length > 0) throw new InvalidPlanError(reasons);
@@ -133,7 +139,7 @@ export async function updatePlan(
   return next;
 }
 
-export async function retirePlan(cmd: { readonly id: string; readonly now: string }, repo: PlanRepository): Promise<Plan> {
+export async function retirePlan(cmd: { readonly id: string }, repo: PlanRepository): Promise<Plan> {
   const current = await repo.findById(cmd.id);
   if (!current) throw new PlanNotFoundError(cmd.id);
   if (current.status === "retired") return current;

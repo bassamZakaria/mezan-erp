@@ -89,7 +89,7 @@ async function transition(
 ): Promise<Tenant> {
   const current = await repo.findById(cmd.id);
   if (!current) throw new TenantNotFoundError(cmd.id);
-  if (from ? !from.includes(current.status) : !TRANSITIONS[current.status].includes(to)) {
+  if (!TRANSITIONS[current.status].includes(to) || (from !== undefined && !from.includes(current.status))) {
     throw new InvalidTenantTransitionError(current.status, to);
   }
   const next: Tenant = { ...current, status: to, updatedAt: cmd.now };

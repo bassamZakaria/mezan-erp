@@ -122,7 +122,10 @@ class SqliteTenantStore implements TenantRepository {
   }
 
   async save(t: Tenant): Promise<void> {
-    this.upsert.run({ ...t });
+    this.upsert.run({
+      id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
+      status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
+    });
   }
 }
 
@@ -260,7 +263,13 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
   }
 
   async save(s: Subscription): Promise<void> {
-    this.upsert.run({ ...s, addOnModules: JSON.stringify(s.addOnModules) });
+    this.upsert.run({
+      id: s.id, tenantId: s.tenantId, planId: s.planId, status: s.status, billingCycle: s.billingCycle,
+      addOnModules: JSON.stringify(s.addOnModules), extraSeats: s.extraSeats, extraBranches: s.extraBranches,
+      extraWarehouses: s.extraWarehouses, currentPeriodStart: s.currentPeriodStart, currentPeriodEnd: s.currentPeriodEnd,
+      trialEndsAt: s.trialEndsAt, graceDays: s.graceDays, cancelledAt: s.cancelledAt,
+      createdAt: s.createdAt, updatedAt: s.updatedAt,
+    });
   }
 }
 
@@ -306,7 +315,10 @@ class SqlitePlatformUserStore implements PlatformUserRepository {
   }
 
   async save(u: PlatformUser): Promise<void> {
-    this.upsert.run({ ...u });
+    this.upsert.run({
+      id: u.id, email: u.email, passwordHash: u.passwordHash, role: u.role,
+      status: u.status, createdAt: u.createdAt,
+    });
   }
 }
 

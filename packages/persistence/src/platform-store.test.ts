@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import Database from "better-sqlite3";
 import { Money, type Plan, type Subscription, type Tenant, type PlatformUser } from "@mezan/domain";
 import { createSqlitePlatformStores } from "./platform-store.js";
 
@@ -37,6 +38,7 @@ describe("createSqlitePlatformStores", () => {
     const p = await stores.plans.findByCode("core");
     expect(p).toEqual(plan);
     expect(p?.priceMonthly.equals(Money.fromMajor("490.50"))).toBe(true);
+    expect(await stores.plans.findById("P1")).toEqual(plan);
     expect(await stores.plans.list()).toEqual([plan]);
 
     expect(await stores.subscriptions.findById("S1")).toEqual(sub);
@@ -46,6 +48,8 @@ describe("createSqlitePlatformStores", () => {
     expect(await stores.subscriptions.hasLiveByPlan("P9")).toBe(false);
 
     expect(await stores.platformUsers.findByEmail("root@mezan.app")).toEqual(user);
+    expect(await stores.platformUsers.findById("U1")).toEqual(user);
+    expect(await stores.platformUsers.list()).toEqual([user]);
     stores.close();
   });
 
@@ -55,11 +59,22 @@ describe("createSqlitePlatformStores", () => {
     await stores.tenants.save({ ...tenant, status: "active" });
     expect((await stores.tenants.list()).map((t) => t.status)).toEqual(["active"]);
 
+    await stores.subscriptions.save(sub);
     await stores.subscriptions.save({ ...sub, status: "cancelled", cancelledAt: NOW });
     expect(await stores.subscriptions.findLiveByTenant("T1")).toBeNull();
     expect(await stores.subscriptions.hasLiveByPlan("P1")).toBe(false);
     expect(await stores.subscriptions.listByTenant("T1")).toHaveLength(1);
     stores.close();
+  });
+
+  it("reuses a caller-owned connection and leaves it open after close()", async () => {
+    const db = new Database(":memory:");
+    const stores = createSqlitePlatformStores(db);
+    await stores.tenants.save(tenant);
+    stores.close();
+    expect(db.open).toBe(true);
+    expect(await stores.tenants.findById("T1")).toEqual(tenant);
+    db.close();
   });
 
   it("refuses a second live subscription for one tenant at the database", async () => {

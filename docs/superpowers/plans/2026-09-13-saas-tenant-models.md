@@ -533,10 +533,11 @@ async function transition(
   cmd: TenantTransitionCommand,
   to: TenantStatus,
   repo: TenantRepository,
+  from?: readonly TenantStatus[],
 ): Promise<Tenant> {
   const current = await repo.findById(cmd.id);
   if (!current) throw new TenantNotFoundError(cmd.id);
-  if (!TRANSITIONS[current.status].includes(to)) {
+  if (!TRANSITIONS[current.status].includes(to) || (from !== undefined && !from.includes(current.status))) {
     throw new InvalidTenantTransitionError(current.status, to);
   }
   const next: Tenant = { ...current, status: to, updatedAt: cmd.now };
@@ -547,13 +548,7 @@ async function transition(
 export const activateTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "active", repo);
 export const suspendTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "suspended", repo);
 export const archiveTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "archived", repo);
-
-export async function resumeTenant(cmd: TenantTransitionCommand, repo: TenantRepository): Promise<Tenant> {
-  const current = await repo.findById(cmd.id);
-  if (!current) throw new TenantNotFoundError(cmd.id);
-  if (current.status !== "suspended") throw new InvalidTenantTransitionError(current.status, "active");
-  return transition(cmd, "active", repo);
-}
+export const resumeTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "active", repo, ["suspended"]);
 ```
 
 Add to `packages/domain/src/platform/index.ts`:
@@ -654,7 +649,7 @@ describe("updatePlan", () => {
     const repo = memoryRepo();
     await createPlan(cmd, repo);
     const next = await updatePlan(
-      { id: "P1", nameEn: "Core+", priceMonthly: Money.fromMajor("590"), seatsIncluded: 5, modules: ["accounting", "sales", "inventory"], now: "2026-10-01T00:00:00.000Z" },
+      { id: "P1", nameEn: "Core+", priceMonthly: Money.fromMajor("590"), seatsIncluded: 5, modules: ["accounting", "sales", "inventory"] },
       repo, noSubscribers,
     );
     expect(next.code).toBe("core");
@@ -669,17 +664,17 @@ describe("updatePlan", () => {
   it("removes a module only while nobody live subscribes", async () => {
     const repo = memoryRepo();
     await createPlan(cmd, repo);
-    await expect(updatePlan({ id: "P1", modules: ["accounting"], now: NOW }, repo, async () => true))
+    await expect(updatePlan({ id: "P1", modules: ["accounting"] }, repo, async () => true))
       .rejects.toThrow(PlanInUseError);
-    const next = await updatePlan({ id: "P1", modules: ["accounting"], now: NOW }, repo, noSubscribers);
+    const next = await updatePlan({ id: "P1", modules: ["accounting"] }, repo, noSubscribers);
     expect(next.modules).toEqual(["accounting"]);
   });
 
   it("still validates on update and reports a missing plan", async () => {
     const repo = memoryRepo();
     await createPlan(cmd, repo);
-    await expect(updatePlan({ id: "P1", seatsIncluded: 0, now: NOW }, repo, noSubscribers)).rejects.toThrow(InvalidPlanError);
-    await expect(updatePlan({ id: "nope", now: NOW }, repo, noSubscribers)).rejects.toThrow(PlanNotFoundError);
+    await expect(updatePlan({ id: "P1", seatsIncluded: 0 }, repo, noSubscribers)).rejects.toThrow(InvalidPlanError);
+    await expect(updatePlan({ id: "nope" }, repo, noSubscribers)).rejects.toThrow(PlanNotFoundError);
   });
 });
 
@@ -687,8 +682,8 @@ describe("retirePlan", () => {
   it("marks the plan retired and is idempotent", async () => {
     const repo = memoryRepo();
     await createPlan(cmd, repo);
-    expect((await retirePlan({ id: "P1", now: NOW }, repo)).status).toBe("retired");
-    expect((await retirePlan({ id: "P1", now: NOW }, repo)).status).toBe("retired");
+    expect((await retirePlan({ id: "P1" }, repo)).status).toBe("retired");
+    expect((await retirePlan({ id: "P1" }, repo)).status).toBe("retired");
   });
 });
 ```
@@ -753,7 +748,7 @@ export interface CreatePlanCommand {
   readonly now: string;
 }
 
-export type UpdatePlanCommand = { readonly id: string; readonly now: string } & Partial<
+export type UpdatePlanCommand = { readonly id: string } & Partial<
   Pick<Plan, "nameAr" | "nameEn" | "modules" | "features" | "seatsIncluded" | "branchesIncluded" | "warehousesIncluded" | "priceMonthly" | "priceYearly" | "trialDays" | "isPublic" | "sortOrder">
 >;
 
@@ -818,14 +813,20 @@ export async function updatePlan(
 ): Promise<Plan> {
   const current = await repo.findById(cmd.id);
   if (!current) throw new PlanNotFoundError(cmd.id);
-  const { id: _id, now: _now, ...patch } = cmd;
   const next: Plan = {
     ...current,
-    ...patch,
-    nameAr: (patch.nameAr ?? current.nameAr).trim(),
-    nameEn: (patch.nameEn ?? current.nameEn).trim(),
-    modules: dedupeModules(patch.modules ?? current.modules),
-    features: { ...(patch.features ?? current.features) },
+    nameAr: (cmd.nameAr ?? current.nameAr).trim(),
+    nameEn: (cmd.nameEn ?? current.nameEn).trim(),
+    modules: dedupeModules(cmd.modules ?? current.modules),
+    features: { ...(cmd.features ?? current.features) },
+    seatsIncluded: cmd.seatsIncluded ?? current.seatsIncluded,
+    branchesIncluded: cmd.branchesIncluded ?? current.branchesIncluded,
+    warehousesIncluded: cmd.warehousesIncluded ?? current.warehousesIncluded,
+    priceMonthly: cmd.priceMonthly ?? current.priceMonthly,
+    priceYearly: cmd.priceYearly ?? current.priceYearly,
+    trialDays: cmd.trialDays ?? current.trialDays,
+    isPublic: cmd.isPublic ?? current.isPublic,
+    sortOrder: cmd.sortOrder ?? current.sortOrder,
   };
   const reasons = validate(next);
   if (reasons.length > 0) throw new InvalidPlanError(reasons);
@@ -837,7 +838,7 @@ export async function updatePlan(
   return next;
 }
 
-export async function retirePlan(cmd: { readonly id: string; readonly now: string }, repo: PlanRepository): Promise<Plan> {
+export async function retirePlan(cmd: { readonly id: string }, repo: PlanRepository): Promise<Plan> {
   const current = await repo.findById(cmd.id);
   if (!current) throw new PlanNotFoundError(cmd.id);
   if (current.status === "retired") return current;

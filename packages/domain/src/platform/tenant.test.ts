@@ -91,6 +91,11 @@ describe("tenant state machine", () => {
     await expect(archiveTenant({ id: "T1", now: LATER }, repo)).rejects.toThrow(InvalidTenantTransitionError);
   });
 
+  it("refuses resuming a provisioning tenant", async () => {
+    const repo = await seeded("provisioning");
+    await expect(resumeTenant({ id: "T1", now: LATER }, repo)).rejects.toThrow(InvalidTenantTransitionError);
+  });
+
   it("reports a missing tenant", async () => {
     await expect(activateTenant({ id: "nope", now: LATER }, memoryRepo())).rejects.toThrow(TenantNotFoundError);
   });

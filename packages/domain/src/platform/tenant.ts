@@ -85,10 +85,11 @@ async function transition(
   cmd: TenantTransitionCommand,
   to: TenantStatus,
   repo: TenantRepository,
+  from?: readonly TenantStatus[],
 ): Promise<Tenant> {
   const current = await repo.findById(cmd.id);
   if (!current) throw new TenantNotFoundError(cmd.id);
-  if (!TRANSITIONS[current.status].includes(to)) {
+  if (from ? !from.includes(current.status) : !TRANSITIONS[current.status].includes(to)) {
     throw new InvalidTenantTransitionError(current.status, to);
   }
   const next: Tenant = { ...current, status: to, updatedAt: cmd.now };
@@ -99,10 +100,4 @@ async function transition(
 export const activateTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "active", repo);
 export const suspendTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "suspended", repo);
 export const archiveTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "archived", repo);
-
-export async function resumeTenant(cmd: TenantTransitionCommand, repo: TenantRepository): Promise<Tenant> {
-  const current = await repo.findById(cmd.id);
-  if (!current) throw new TenantNotFoundError(cmd.id);
-  if (current.status !== "suspended") throw new InvalidTenantTransitionError(current.status, "active");
-  return transition(cmd, "active", repo);
-}
+export const resumeTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "active", repo, ["suspended"]);

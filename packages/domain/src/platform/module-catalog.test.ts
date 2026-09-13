@@ -2,13 +2,28 @@ import { describe, it, expect } from "vitest";
 import { MODULE_CATALOG, isKnownModule } from "./module-catalog.js";
 
 describe("MODULE_CATALOG", () => {
-  it("holds the nineteen licensable modules, each once", () => {
-    expect(MODULE_CATALOG).toHaveLength(19);
-    expect(new Set(MODULE_CATALOG).size).toBe(19);
-    expect(MODULE_CATALOG).toContain("accounting");
-    expect(MODULE_CATALOG).toContain("hr");
-    expect(MODULE_CATALOG).toContain("notifications");
-    expect(MODULE_CATALOG).toContain("projects");
+  it("holds the nineteen licensable modules, each once, in order", () => {
+    expect([...MODULE_CATALOG]).toEqual([
+      "dashboard",
+      "sales",
+      "purchases",
+      "inventory",
+      "accounting",
+      "treasury",
+      "installments",
+      "financial_papers",
+      "crm",
+      "hr",
+      "manufacturing",
+      "assets",
+      "field",
+      "workflow",
+      "audit",
+      "transactions",
+      "admin",
+      "notifications",
+      "projects",
+    ]);
   });
 
   it("recognises a catalog module and rejects anything else", () => {

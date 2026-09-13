@@ -92,11 +92,17 @@ export async function startSubscription(
   repo: SubscriptionRepository,
   plans: PlanRepository,
 ): Promise<Subscription> {
-  if (cmd.id.trim() === "" || cmd.tenantId.trim() === "") {
-    throw new InvalidSubscriptionError(["id and tenantId are required"]);
-  }
   const now = isoTimestamp(cmd.now);
-  if (!now) throw new InvalidSubscriptionError(["now must be an ISO-8601 timestamp"]);
+  const addOnModules = dedupeModules(cmd.addOnModules ?? []);
+  const extraSeats = cmd.extraSeats ?? 0;
+  const extraBranches = cmd.extraBranches ?? 0;
+  const extraWarehouses = cmd.extraWarehouses ?? 0;
+  const graceDays = cmd.graceDays ?? DEFAULT_GRACE_DAYS;
+  const reasons: string[] = [];
+  if (cmd.id.trim() === "" || cmd.tenantId.trim() === "") reasons.push("id and tenantId are required");
+  if (!now) reasons.push("now must be an ISO-8601 timestamp");
+  reasons.push(...validateExtras({ addOnModules, extraSeats, extraBranches, extraWarehouses, graceDays }));
+  if (!now || reasons.length > 0) throw new InvalidSubscriptionError(reasons);
   const plan = await activePlan(cmd.planId, plans);
   if (await repo.findLiveByTenant(cmd.tenantId)) throw new TenantAlreadySubscribedError(cmd.tenantId);
   const trial = cmd.trial === true && plan.trialDays > 0;
@@ -106,20 +112,18 @@ export async function startSubscription(
     planId: plan.id,
     status: trial ? "trialing" : "active",
     billingCycle: cmd.billingCycle,
-    addOnModules: dedupeModules(cmd.addOnModules ?? []),
-    extraSeats: cmd.extraSeats ?? 0,
-    extraBranches: cmd.extraBranches ?? 0,
-    extraWarehouses: cmd.extraWarehouses ?? 0,
+    addOnModules,
+    extraSeats,
+    extraBranches,
+    extraWarehouses,
     currentPeriodStart: now,
     currentPeriodEnd: addPeriod(now, cmd.billingCycle),
     trialEndsAt: trial ? addDays(now, plan.trialDays) : null,
-    graceDays: cmd.graceDays ?? DEFAULT_GRACE_DAYS,
+    graceDays,
     cancelledAt: null,
     createdAt: now,
     updatedAt: now,
   };
-  const reasons = validateExtras(candidate);
-  if (reasons.length > 0) throw new InvalidSubscriptionError(reasons);
   await repo.save(candidate);
   return candidate;
 }

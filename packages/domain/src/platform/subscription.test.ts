@@ -101,9 +101,20 @@ describe("startSubscription", () => {
     await expect(startSubscription({ ...base, extraSeats: -1 }, subs(), plans(plan()))).rejects.toThrow(InvalidSubscriptionError);
   });
 
+  it("accumulates every validation reason at once, rather than failing on the first", async () => {
+    await expect(startSubscription({ ...base, addOnModules: ["pos"], extraSeats: -1 }, subs(), plans(plan())))
+      .rejects.toMatchObject({ reasons: expect.arrayContaining([
+        expect.stringContaining("pos"), expect.stringContaining("extraSeats"),
+      ]) });
+  });
+
   it("refuses a missing or retired plan", async () => {
     await expect(startSubscription(base, subs(), plans())).rejects.toThrow(PlanNotFoundError);
     await expect(startSubscription(base, subs(), plans(plan({ status: "retired" })))).rejects.toThrow(PlanRetiredError);
+  });
+
+  it("validation errors win over a missing plan, since they are checked before any repository read", async () => {
+    await expect(startSubscription({ ...base, extraSeats: -1 }, subs(), plans())).rejects.toThrow(InvalidSubscriptionError);
   });
 
   it("refuses a second live subscription for the same tenant, but allows one after cancellation", async () => {

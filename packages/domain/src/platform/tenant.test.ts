@@ -116,6 +116,11 @@ describe("tenant state machine", () => {
     await expect(resumeTenant({ id: "T1", now: LATER }, repo)).rejects.toThrow(InvalidTenantTransitionError);
   });
 
+  it("refuses activating a suspended tenant, since resume is the only way back", async () => {
+    const repo = await seeded("suspended");
+    await expect(activateTenant({ id: "T1", now: LATER }, repo)).rejects.toThrow(InvalidTenantTransitionError);
+  });
+
   it("reports a missing tenant", async () => {
     await expect(activateTenant({ id: "nope", now: LATER }, memoryRepo())).rejects.toThrow(TenantNotFoundError);
   });

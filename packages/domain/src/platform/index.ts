@@ -12,3 +12,10 @@ export {
   type Plan, type PlanStatus, type PlanRepository,
   type CreatePlanCommand, type UpdatePlanCommand, type HasLiveSubscribers,
 } from "./plan.js";
+export {
+  addPeriod, addDays, DEFAULT_GRACE_DAYS,
+  startSubscription, renewSubscription, changePlan, markPastDue,
+  suspendSubscription, resumeSubscription, cancelSubscription,
+  type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
+  type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
+} from "./subscription.js";

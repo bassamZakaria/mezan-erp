@@ -53,8 +53,14 @@ describe("subscriptionLicenseState", () => {
 
   it("suspended tenant, suspended or cancelled subscription are READ_ONLY", () => {
     expect(at("2026-09-13T00:00:00.000Z", sub, { ...tenant, status: "suspended" })).toMatchObject({ state: "READ_ONLY", canWrite: false, usable: true });
-    expect(at("2026-09-13T00:00:00.000Z", { ...sub, status: "suspended" })).toMatchObject({ state: "READ_ONLY" });
-    expect(at("2026-09-13T00:00:00.000Z", { ...sub, status: "cancelled" })).toMatchObject({ state: "READ_ONLY" });
+    expect(at("2026-09-13T00:00:00.000Z", { ...sub, status: "cancelled" })).toEqual({
+      state: "READ_ONLY", canWrite: false, usable: true, licensee: "سياج",
+      expiresAt: "2026-10-01T00:00:00.000Z", reason: "SUBSCRIPTION_CANCELLED",
+    });
+    expect(at("2026-09-13T00:00:00.000Z", { ...sub, status: "suspended" })).toEqual({
+      state: "READ_ONLY", canWrite: false, usable: true, licensee: "سياج",
+      expiresAt: "2026-10-01T00:00:00.000Z", reason: "SUBSCRIPTION_SUSPENDED",
+    });
   });
 
   it("trial: ACTIVE before its end, READ_ONLY after, no grace", () => {
@@ -65,8 +71,14 @@ describe("subscriptionLicenseState", () => {
 
   it("active or past_due: ACTIVE in period, GRACE for graceDays after, then READ_ONLY", () => {
     expect(at("2026-09-30T23:59:59.000Z")).toMatchObject({ state: "ACTIVE", canWrite: true, licensee: "سياج" });
-    expect(at("2026-10-01T00:00:00.000Z")).toMatchObject({ state: "GRACE", canWrite: true, graceEndsAt: "2026-10-08T00:00:00.000Z" });
-    expect(at("2026-10-07T23:59:59.000Z", { ...sub, status: "past_due" })).toMatchObject({ state: "GRACE", canWrite: true });
+    expect(at("2026-10-01T00:00:00.000Z")).toEqual({
+      state: "GRACE", canWrite: true, usable: true, licensee: "سياج",
+      expiresAt: "2026-10-01T00:00:00.000Z", graceEndsAt: "2026-10-08T00:00:00.000Z",
+    });
+    expect(at("2026-10-07T23:59:59.000Z", { ...sub, status: "past_due" })).toEqual({
+      state: "GRACE", canWrite: true, usable: true, licensee: "سياج",
+      expiresAt: "2026-10-01T00:00:00.000Z", graceEndsAt: "2026-10-08T00:00:00.000Z",
+    });
     expect(at("2026-10-08T00:00:00.000Z")).toMatchObject({ state: "READ_ONLY", canWrite: false, usable: true });
   });
 
@@ -74,12 +86,28 @@ describe("subscriptionLicenseState", () => {
     expect(at("2026-10-01T00:00:00Z")).toMatchObject({ state: "GRACE", canWrite: true, graceEndsAt: "2026-10-08T00:00:00.000Z" });
   });
 
-  it("every non-writable result carries a reason", () => {
+  it("an unparseable clock is INVALID with reason INVALID_CLOCK, before any state rule", () => {
+    expect(at("garbage")).toEqual({ state: "INVALID", canWrite: false, usable: true, licensee: "سياج", reason: "INVALID_CLOCK" });
+  });
+
+  it("the post-grace READ_ONLY result carries no graceEndsAt", () => {
+    const r = at("2026-10-08T00:00:00.000Z");
+    expect(r).not.toHaveProperty("graceEndsAt");
+  });
+
+  it("every non-writable result carries its exact reason code", () => {
+    expect(at("2026-09-13T00:00:00.000Z", sub, { ...tenant, status: "archived" }).reason).toBe("TENANT_ARCHIVED");
+    expect(at("2026-09-13T00:00:00.000Z", null).reason).toBe("NO_SUBSCRIPTION");
+    expect(at("2026-09-13T00:00:00.000Z", { ...sub, status: "cancelled" }).reason).toBe("SUBSCRIPTION_CANCELLED");
+    expect(at("2026-09-13T00:00:00.000Z", { ...sub, status: "suspended" }).reason).toBe("SUBSCRIPTION_SUSPENDED");
+    expect(at("2026-10-08T00:00:00.000Z").reason).toBe("GRACE_ENDED");
+    expect(at("garbage").reason).toBe("INVALID_CLOCK");
     for (const r of [
       at("2026-09-13T00:00:00.000Z", sub, { ...tenant, status: "archived" }),
       at("2026-09-13T00:00:00.000Z", null),
       at("2026-09-13T00:00:00.000Z", { ...sub, status: "cancelled" }),
       at("2026-10-08T00:00:00.000Z"),
+      at("garbage"),
     ]) {
       expect(r.canWrite).toBe(false);
       expect(typeof r.reason).toBe("string");

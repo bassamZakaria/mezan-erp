@@ -21,5 +21,5 @@ export {
 } from "./subscription.js";
 export {
   deriveEntitlements, subscriptionLicenseState, subscriptionExpiresAt,
-  type SubscriptionLicenseState, type SubscriptionLicenseStateName,
+  type SubscriptionLicenseState, type SubscriptionLicenseStateName, type SubscriptionLicenseReason,
 } from "./derive.js";

@@ -199,4 +199,9 @@ describe("lifecycle", () => {
   it("reports a missing subscription", async () => {
     await expect(renewSubscription({ id: "nope", now: LATER }, subs())).rejects.toThrow(SubscriptionNotFoundError);
   });
+
+  it("a bad clock on a cancelled subscription rejects as InvalidSubscriptionError, not a transition error", async () => {
+    await expect(renewSubscription({ id: "S1", now: "not a date" }, await started("cancelled")))
+      .rejects.toThrow(InvalidSubscriptionError);
+  });
 });

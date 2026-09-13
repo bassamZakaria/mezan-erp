@@ -253,3 +253,6 @@ export * from "./attachments/index.js";
 
 /** Unit-of-measure conversion — an entered alternate unit into the base quantity the stock ledger moves. */
 export * from "./units/index.js";
+
+/** SaaS platform — tenants, plans, subscriptions and what they entitle. */
+export * from "./platform/index.js";

@@ -104,6 +104,7 @@ import {
   SalesInvoiceService,
   type ApprovalRequestRecord,
   type GateableActionType,
+  MODULE_CATALOG,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -201,41 +202,10 @@ import { createProfileRoutes } from "./profile-routes.js";
 import { createApiKeysRoutes } from "./api-keys-routes.js";
 import { createWebhooksRoutes } from "./webhooks-routes.js";
 
-/**
- * Modules this build can actually serve, used as the default entitlements the
- * `/roles` route validates grants against and as what `GET /entitlements`
- * reports. Listing a module here makes its permissions grantable, so an
- * unimplemented domain must stay out: `pos` has no domain, routes or
- * persistence anywhere in this repo. Ids are ENTITLEMENT ids, not catalog
- * ids — the catalog's `cheques` module is the `financial_papers` entitlement
- * (packages/domain/src/permissions/module-licensing.ts).
- */
-const DEFAULT_ACTIVE_MODULES = [
-  "dashboard",
-  "sales",
-  "purchases",
-  "inventory",
-  "accounting",
-  "treasury",
-  "installments",
-  "financial_papers",
-  "crm",
-  "hr",
-  "manufacturing",
-  "assets",
-  "field",
-  "workflow",
-  "audit",
-  "transactions",
-  "admin",
-  "notifications",
-  "projects",
-];
-
 function defaultEntitlementsResolver(): EntitlementsResolver {
   const entitlements: Entitlements = createEntitlements({
     plan: "ENTERPRISE",
-    activeModules: DEFAULT_ACTIVE_MODULES,
+    activeModules: MODULE_CATALOG,
     features: {},
     seats: 10,
     expiresAt: null,
@@ -762,7 +732,7 @@ export interface CreateAppOptions {
    * Entitlements resolver the `/roles` route validates permission grants
    * against (docs/archive/catalog/09 §الأدوار — only licensed-module permissions are
    * grantable), and that `GET /entitlements` reports. Defaults to
-   * `DEFAULT_ACTIVE_MODULES` until a real per-tenant source is wired up.
+   * `MODULE_CATALOG` until a real per-tenant source is wired up.
    */
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */

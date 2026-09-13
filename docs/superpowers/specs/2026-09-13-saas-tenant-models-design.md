@@ -177,7 +177,8 @@ invariant at the database as well as in the use-case.
 ## 7. Backend factory and seed
 
 `packages/backend/src/create-platform.ts` exports `createPlatform({ dbPath })`, which
-bootstraps the schema and, **only when the plan table is empty**, seeds three plans:
+bootstraps the schema and seeds whichever of these three plans is missing, by code, so a
+partial earlier seed never leaves one out:
 
 | code | modules | seats | trial |
 |---|---|---|---|

@@ -304,3 +304,5 @@ export {
   createSqliteAttachmentStore,
   type SqliteAttachmentStoreHandle,
 } from "./attachment-store.js";
+
+export { createSqlitePlatformStores, type SqlitePlatformStoresHandle } from "./platform-store.js";

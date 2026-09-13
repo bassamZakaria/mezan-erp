@@ -23,3 +23,8 @@ export {
   deriveEntitlements, subscriptionLicenseState, subscriptionExpiresAt,
   type SubscriptionLicenseState, type SubscriptionLicenseStateName, type SubscriptionLicenseReason,
 } from "./derive.js";
+export {
+  createPlatformUser, MIN_PLATFORM_PASSWORD_LENGTH,
+  type PlatformUser, type PlatformRole, type PlatformUserStatus,
+  type PlatformUserRepository, type CreatePlatformUserCommand,
+} from "./platform-user.js";

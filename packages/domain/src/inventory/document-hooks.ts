@@ -105,6 +105,8 @@ export function createInventoryGlPostingHook(deps: JournalPostingDeps): Inventor
             accountId: l.accountId,
             debit: l.debit,
             credit: l.credit,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
           })),
         },
         deps,

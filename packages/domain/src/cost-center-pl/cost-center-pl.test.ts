@@ -31,6 +31,8 @@ function line(accountId: string, costCenterId: string | null, debit: string, cre
     source: "manual",
     accountId,
     costCenterId,
+    projectId: null,
+    costCategory: null,
     currency: null,
     fxRate: null,
     memo: null,

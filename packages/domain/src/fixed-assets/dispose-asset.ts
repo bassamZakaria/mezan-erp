@@ -1,3 +1,4 @@
+import type { CostCategory } from "../contracting/cost-category.js";
 /**
  * التخلص من أصل — Asset disposal (docs/archive/catalog/07 §الأصول الثابتة).
  *
@@ -33,6 +34,8 @@ export interface DisposeAssetPostingLine {
   readonly accountId: string;
   readonly debit: Money;
   readonly credit: Money;
+  readonly projectId?: string | null;
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface DisposeAssetPosting {

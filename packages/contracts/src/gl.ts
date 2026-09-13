@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { costCategorySchema } from "./contracting.js";
 
 /**
  * Wire contracts for the GL posting engine (docs/archive/catalog/04 §القيود المحاسبية).
@@ -24,6 +25,10 @@ export const glJournalLineSchema = z.object({
   fxRate: moneyString.nullish(),
   /** VAT rate this line was charged at, so the VAT return reports the rates actually charged (D28). */
   taxRatePercent: z.number().nullish(),
+  /** بُعد المشروع — the contracting project the line belongs to (D-01). */
+  projectId: z.string().min(1).nullish(),
+  /** فئة التكلفة — only with `projectId`; the engine refuses one without the other. */
+  costCategory: costCategorySchema.nullish(),
 });
 
 /** Create (and post) a journal entry. */

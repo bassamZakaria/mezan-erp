@@ -538,6 +538,9 @@ const webAr = {
   "perm.action.recall": "استدعاء",
   "perm.action.manage_own": "إدارة الخاص بي",
   "perm.action.execute": "تنفيذ",
+  "perm.action.prepare": "إعداد",
+  "perm.action.certify": "اعتماد الاستشاري",
+  "perm.action.release": "إفراج",
 
   "perm.entity.account": "حساب",
   "perm.entity.activity": "النشاط",
@@ -548,6 +551,10 @@ const webAr = {
   "perm.entity.attendance": "الحضور",
   "perm.entity.balance_transfer": "ترحيل الأرصدة",
   "perm.entity.bom": "قائمة المواد",
+  "perm.entity.boq": "جدول الكميات",
+  "perm.entity.certificate": "مستخلص",
+  "perm.entity.variation": "أمر تغيير",
+  "perm.entity.retention": "المحتجزات الضمانية",
   "perm.entity.branches": "الفروع",
   "perm.entity.cash_voucher": "سند نقدي",
   "perm.entity.cheques": "الأوراق المالية",
@@ -669,6 +676,7 @@ const webAr = {
   "module.audit": "المراجعة",
   "module.transactions": "المعاملات",
   "module.projects": "المشاريع",
+  "module.contracting": "المقاولات",
 
   // settings — API keys
 
@@ -6104,6 +6112,7 @@ const webAr = {
   // costCenterPnl
   "costCenterPnl.costCentre": "مركز التكلفة",
   "costCenterPnl.revenue": "الإيرادات",
+  "costCenterPnl.rollupProfit": "الصافي شاملاً الفروع",
   "costCenterPnl.expenses": "المصروفات",
   "costCenterPnl.netProfit": "صافي الربح",
   "costCenterPnl.costCentrePL": "أرباح مراكز التكلفة",
@@ -7891,6 +7900,9 @@ const webEn: Record<WebTranslationKey, string> = {
   "perm.action.recall": "Recall",
   "perm.action.manage_own": "Manage own",
   "perm.action.execute": "Execute",
+  "perm.action.prepare": "Prepare",
+  "perm.action.certify": "Certify",
+  "perm.action.release": "Release",
 
   "perm.entity.account": "Account",
   "perm.entity.activity": "Activity",
@@ -7901,6 +7913,10 @@ const webEn: Record<WebTranslationKey, string> = {
   "perm.entity.attendance": "Attendance",
   "perm.entity.balance_transfer": "Balance transfer",
   "perm.entity.bom": "Bill of materials",
+  "perm.entity.boq": "Bill of quantities",
+  "perm.entity.certificate": "Progress certificate",
+  "perm.entity.variation": "Variation order",
+  "perm.entity.retention": "Retention",
   "perm.entity.branches": "Branches",
   "perm.entity.cash_voucher": "Cash voucher",
   "perm.entity.cheques": "Cheques",
@@ -8022,6 +8038,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "module.audit": "Audit",
   "module.transactions": "Transactions",
   "module.projects": "Projects",
+  "module.contracting": "Contracting",
 
   // settings — API keys
 
@@ -13457,6 +13474,7 @@ const webEn: Record<WebTranslationKey, string> = {
   // costCenterPnl
   "costCenterPnl.costCentre": "Cost centre",
   "costCenterPnl.revenue": "Revenue",
+  "costCenterPnl.rollupProfit": "Net incl. children",
   "costCenterPnl.expenses": "Expenses",
   "costCenterPnl.netProfit": "Net profit",
   "costCenterPnl.costCentrePL": "Cost-centre P&L",

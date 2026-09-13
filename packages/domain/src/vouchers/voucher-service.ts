@@ -71,6 +71,8 @@ export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
             credit: l.credit,
             memo: l.memo ?? null,
             costCenterId: l.costCenterId ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
           })),
         },
         deps,

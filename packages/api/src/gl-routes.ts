@@ -111,6 +111,8 @@ function serialize(entry: JournalEntry) {
       currency: l.currency ?? null,
       fxRate: l.fxRate ?? null,
       taxRatePercent: l.taxRatePercent ?? null,
+      projectId: l.projectId ?? null,
+      costCategory: l.costCategory ?? null,
     })),
   };
 }
@@ -277,6 +279,8 @@ export function createGlRoutes(
             taxRatePercent: l.taxRatePercent ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
           })),
         },
         postingDeps(c),
@@ -429,6 +433,8 @@ export function createGlRoutes(
             taxRatePercent: l.taxRatePercent ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
           })),
         },
         postingDeps(c),

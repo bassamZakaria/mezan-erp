@@ -73,6 +73,10 @@ export const MODULES: readonly ModuleDef[] = [
   // the original 268-permission/19-module matrix (docs/archive/catalog/09); it's added
   // fresh per docs/archive/catalog/07-mfg-projects-assets.md "المشاريع والمقاولات".
   { id: "projects", labelAr: "المشاريع", count: 2 },
+  // المقاولات — docs/artifacts/mezan-contracting-designs.html §06 "Four rights, not
+  // one": the certificate's preparer, certifier, approver and collector are four
+  // different people, and one `manage` right cannot express that.
+  { id: "contracting", labelAr: "المقاولات", count: 9 },
 ];
 
 /**
@@ -422,6 +426,17 @@ const ROWS: readonly Row[] = [
   // 20. projects — 2 (phase11/crm-projects-assets-field, docs/archive/catalog/07 §المشاريع)
   ["projects.project.view"],
   ["projects.project.manage", "projects.project.view"],
+
+  // 21. contracting — 9 (docs/artifacts/mezan-contracting-designs.html §06)
+  ["contracting.boq.view"],
+  ["contracting.boq.manage", "contracting.boq.view"],
+  ["contracting.variation.approve", "contracting.boq.view"],
+  ["contracting.certificate.view"],
+  ["contracting.certificate.prepare", "contracting.certificate.view"],
+  ["contracting.certificate.certify", "contracting.certificate.view"],
+  ["contracting.certificate.approve", "contracting.certificate.view", "s"],
+  ["contracting.certificate.collect", "contracting.certificate.view"],
+  ["contracting.retention.release", "contracting.certificate.view", "s"],
 ];
 
 function expand(row: Row): PermissionDef {

@@ -202,6 +202,9 @@ export * from "./crm/index.js";
 // --- projects/ — Projects (phase11) ---
 export * from "./projects/index.js";
 
+// --- contracting/ — المقاولات (docs/artifacts/mezan-contracting-designs.html) ---
+export * from "./contracting/index.js";
+
 // --- fixed-assets/ — Fixed Assets (phase11) ---
 export * from "./fixed-assets/index.js";
 

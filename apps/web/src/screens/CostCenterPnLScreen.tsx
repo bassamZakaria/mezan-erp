@@ -54,6 +54,16 @@ export function CostCenterPnLScreen() {
       header: t("costCenterPnl.netProfit"),
       render: (r) => <span className={`mz-num font-bold ${Number(r.profit) < 0 ? "text-danger-ink" : "text-success-ink"}`}>{fmt(r.profit)}</span>,
     },
+    {
+      key: "rollup",
+      header: t("costCenterPnl.rollupProfit"),
+      render: (r) =>
+        r.rollup.profit === r.profit ? (
+          <span className="text-ink-muted">—</span>
+        ) : (
+          <span className={`mz-num ${Number(r.rollup.profit) < 0 ? "text-danger-ink" : "text-ink"}`}>{fmt(r.rollup.profit)}</span>
+        ),
+    },
   ];
 
   return (

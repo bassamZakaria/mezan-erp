@@ -1,3 +1,4 @@
+import type { CostCategory } from "../contracting/cost-category.js";
 /**
  * The hook ports a document type may plug into (docs/archive/plan.md §3: numbering,
  * GL-posting, stock-movement, workflow-gate). Each is OPTIONAL per document
@@ -60,6 +61,10 @@ export interface DocumentGlPostingLine {
    * existed — the report falls back to the old derivation for those.
    */
   readonly taxRatePercent?: number | null;
+  /** بُعد المشروع — the contracting project the line belongs to (D-01). Dropped here, it is gone for good. */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  readonly costCategory?: CostCategory | null;
 }
 
 /**

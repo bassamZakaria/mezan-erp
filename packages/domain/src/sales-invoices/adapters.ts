@@ -42,6 +42,8 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHo
             taxRatePercent: l.taxRatePercent ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
           })),
         },
         deps,

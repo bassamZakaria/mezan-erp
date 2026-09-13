@@ -18,6 +18,9 @@ import {
   InvalidJournalEntryError,
 } from "../post-journal-entry.js";
 import type { LedgerRepository } from "./ledger.js";
+import { isCostCategory } from "../contracting/cost-category.js";
+import type { ProjectRepository } from "../projects/project.js";
+import { ProjectNotFoundError } from "../projects/errors.js";
 import type { GlEventPublisher } from "./events.js";
 import {
   DuplicateJournalEntryError,
@@ -43,6 +46,10 @@ export interface JournalLineInput {
   readonly fxRate?: string | null;
   /** VAT rate this line was charged at, so the VAT return can report the rates actually charged (D28). */
   readonly taxRatePercent?: number | null;
+  /** بُعد المشروع (D-01). Validated against `deps.projects` when that port is supplied. */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — rejected without a `projectId`, because a category with no project is a figure nothing can roll up. */
+  readonly costCategory?: JournalLine["costCategory"];
 }
 
 /** Command to create/post a journal entry. */
@@ -82,6 +89,12 @@ export interface JournalPostingDeps {
    */
   readonly vatFilings?: { findCovering(date: string): Promise<readonly { id: string; status: string }[]> };
   readonly numbering: NextNumberService;
+  /**
+   * Projects, so a line's `projectId` names a project that exists. Optional
+   * because the in-memory ledgers of older compositions carry no projects;
+   * every composition that posts contracting cost must supply it.
+   */
+  readonly projects?: Pick<ProjectRepository, "findById">;
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
@@ -104,6 +117,8 @@ function toLine(input: JournalLineInput): JournalLine {
     currency: input.currency ?? null,
     fxRate: input.fxRate ?? null,
     taxRatePercent: input.taxRatePercent ?? null,
+    projectId: input.projectId ?? null,
+    costCategory: input.costCategory ?? null,
   };
 }
 
@@ -139,6 +154,30 @@ export function assertEntryStructure(lines: readonly JournalLineInput[]): void {
         `Journal line for account "${line.accountId}" must have a non-zero debit or credit.`,
       );
     }
+    if (line.costCategory != null && !isCostCategory(line.costCategory)) {
+      throw new InvalidJournalEntryError(
+        `Journal line for account "${line.accountId}" names an unknown cost category "${String(line.costCategory)}".`,
+      );
+    }
+    if (line.costCategory != null && (line.projectId == null || line.projectId.trim() === "")) {
+      throw new InvalidJournalEntryError(
+        `Journal line for account "${line.accountId}" carries a cost category without a project.`,
+      );
+    }
+  }
+}
+
+/** Every `projectId` a line carries must name a project that exists — when the composition can check. */
+export async function assertProjectsExist(
+  lines: readonly JournalLineInput[],
+  projects: Pick<ProjectRepository, "findById"> | undefined,
+): Promise<void> {
+  if (!projects) return;
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (line.projectId == null || seen.has(line.projectId)) continue;
+    seen.add(line.projectId);
+    if (!(await projects.findById(line.projectId))) throw new ProjectNotFoundError(line.projectId);
   }
 }
 
@@ -207,6 +246,7 @@ export async function createJournalEntry(
   assertEntryStructure(cmd.lines);
   assertBalanced(cmd.lines);
   await assertLinesPostable(cmd.lines, deps.accounts);
+  await assertProjectsExist(cmd.lines, deps.projects);
 
   return deps.ledger.transaction(async () => {
     if (await deps.ledger.findById(cmd.id)) {
@@ -250,6 +290,7 @@ export async function postJournalEntry(
   assertEntryStructure(cmd.lines);
   const { totalDebit, totalCredit } = assertBalanced(cmd.lines);
   await assertLinesPostable(cmd.lines, deps.accounts);
+  await assertProjectsExist(cmd.lines, deps.projects);
   await assertPeriodOpen(cmd.date, deps.periods);
   await assertVatNotFiled(cmd.date, deps.vatFilings);
 

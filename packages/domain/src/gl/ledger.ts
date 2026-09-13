@@ -1,5 +1,6 @@
 import type { Money } from "../money/index.js";
 import type { JournalEntry, JournalEntrySource, JournalEntryStatus } from "../journal.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 
 /**
  * Ledger persistence port for the GL posting engine.
@@ -52,6 +53,8 @@ export interface PostedLineFilter {
   readonly accountIds?: readonly string[];
   /** Restrict to lines carrying this cost-center dimension. */
   readonly costCenterId?: string;
+  /** Restrict to lines carrying this project dimension (D-01). */
+  readonly projectId?: string;
 }
 
 /** One posted journal line with its full dimensional context. */
@@ -62,6 +65,8 @@ export interface PostedLine {
   readonly source: JournalEntrySource;
   readonly accountId: string;
   readonly costCenterId: string | null;
+  readonly projectId: string | null;
+  readonly costCategory: CostCategory | null;
   readonly currency: string | null;
   readonly fxRate: string | null;
   readonly memo: string | null;

@@ -310,7 +310,13 @@ export function createFixedAssetsRoutes(
                   date: posting.date,
                   memo: posting.memo,
                   source: "system",
-                  lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
+                  lines: posting.lines.map((l) => ({
+                    accountId: l.accountId,
+                    debit: l.debit,
+                    credit: l.credit,
+                    projectId: l.projectId ?? null,
+                    costCategory: l.costCategory ?? null,
+                  })),
                 },
                 deps.gl,
               );

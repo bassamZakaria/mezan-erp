@@ -367,6 +367,7 @@ export {
   type ReverseGlJournalEntryDTO,
   type GlJournalListQueryDTO,
 } from "./gl.js";
+export { costCategorySchema, type CostCategoryDTO } from "./contracting.js";
 
 export {
   documentStatusSchema,

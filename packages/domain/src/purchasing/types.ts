@@ -1,3 +1,4 @@
+import type { CostCategory } from "../contracting/cost-category.js";
 /**
  * Shared types + ports for the purchase chain (docs/archive/catalog/02-purchases.md
  * §"Document chain"): أوامر الشراء (Purchase Orders) → استلام البضائع (Goods
@@ -78,6 +79,10 @@ export interface PurchaseGlPostingLine {
    */
   readonly currency?: string | null;
   readonly fxRate?: string | null;
+  /** بُعد المشروع — the contracting project the line belongs to (D-01). Dropped here, it is gone for good. */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  readonly costCategory?: CostCategory | null;
   /**
    * The VAT rate this line was charged at (14, 5, 0…). Carried on the input-VAT
    * line so the VAT return reports the rates actually charged instead of

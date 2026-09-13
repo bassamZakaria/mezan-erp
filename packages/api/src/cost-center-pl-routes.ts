@@ -39,6 +39,12 @@ export function createCostCenterPnLRoutes(
         revenue: r.revenue.toString(),
         expense: r.expense.toString(),
         profit: r.profit.toString(),
+        parentId: r.parentId,
+        rollup: {
+          revenue: r.rollup.revenue.toString(),
+          expense: r.rollup.expense.toString(),
+          profit: r.rollup.profit.toString(),
+        },
       })),
       totals: {
         revenue: report.totals.revenue.toString(),

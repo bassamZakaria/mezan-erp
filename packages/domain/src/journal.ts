@@ -1,4 +1,5 @@
 import { Money } from "./money/index.js";
+import type { CostCategory } from "./contracting/cost-category.js";
 import type { RoleRepository } from "./roles/role.js";
 import type { UserRepository } from "./users/user.js";
 
@@ -53,6 +54,15 @@ export interface JournalLine {
    * existed — the report falls back to the old derivation for those.
    */
   readonly taxRatePercent?: number | null;
+  /**
+   * بُعد المشروع — the contracting project this line belongs to. Immutable with
+   * the posted line: a dimension added after go-live leaves every historic entry
+   * blind, which is why it lands before any contracting document does
+   * (docs/artifacts/mezan-contracting-designs.html D-01). Null = not project work.
+   */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — materials / labour / equipment / subcontract / indirect. Only meaningful with `projectId`. */
+  readonly costCategory?: CostCategory | null;
 }
 
 /**

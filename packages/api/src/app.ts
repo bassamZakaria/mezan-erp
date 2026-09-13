@@ -233,6 +233,7 @@ const DEFAULT_ACTIVE_MODULES = [
   "admin",
   "notifications",
   "projects",
+  "contracting",
 ];
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
@@ -1416,6 +1417,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               currency: l.currency ?? null,
               fxRate: l.fxRate ?? null,
               taxRatePercent: l.taxRatePercent ?? null,
+              projectId: l.projectId ?? null,
+              costCategory: l.costCategory ?? null,
             })),
           },
           purchases.gl,
@@ -1504,6 +1507,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               accountId: l.accountId,
               debit: l.debit,
               credit: l.credit,
+              projectId: l.projectId ?? null,
+              costCategory: l.costCategory ?? null,
             })),
           },
           mfg.gl,

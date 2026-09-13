@@ -1,3 +1,4 @@
+import type { CostCategory } from "../contracting/cost-category.js";
 /**
  * Ports for the stock-ledger / costing engine. The domain depends only on
  * these interfaces — never on SQL, HTTP, or the GL module (docs/archive/plan.md §3.2).
@@ -106,6 +107,10 @@ export interface InventoryGlPostingLine {
   readonly accountId: string;
   readonly debit: Money;
   readonly credit: Money;
+  /** بُعد المشروع — the contracting project the line belongs to (D-01). Dropped here, it is gone for good. */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  readonly costCategory?: CostCategory | null;
 }
 
 /**

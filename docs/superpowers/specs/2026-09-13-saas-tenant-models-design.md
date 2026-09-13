@@ -154,9 +154,10 @@ Subscription: `startSubscription`, `renewSubscription`, `changePlan`, `markPastD
 Derivations: `deriveEntitlements`, `subscriptionLicenseState`.
 
 Errors: `InvalidTenantError`, `TenantNotFoundError`, `TenantCodeTakenError`,
-`InvalidTenantTransitionError`, `InvalidPlanError`, `PlanNotFoundError`,
-`PlanRetiredError`, `InvalidSubscriptionError`, `SubscriptionNotFoundError`,
-`TenantAlreadySubscribedError`, `InvalidSubscriptionTransitionError`.
+`InvalidTenantTransitionError`, `InvalidPlanError`, `PlanNotFoundError`, `PlanCodeTakenError`,
+`PlanRetiredError`, `PlanInUseError`, `InvalidSubscriptionError`, `SubscriptionNotFoundError`,
+`TenantAlreadySubscribedError`, `InvalidSubscriptionTransitionError`,
+`InvalidPlatformUserError`, `PlatformUserEmailTakenError`.
 
 ## 6. Persistence
 

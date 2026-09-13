@@ -25,7 +25,7 @@ function account(id: string, type: Account["type"], naturalBalance: Account["nat
   return { id, code: id, nameAr: id, nameEn: null, type, naturalBalance, parentId: null, isHeader: false, status: "active" };
 }
 
-async function newApp() {
+async function newApp(contracts?: { exists(id: string): Promise<boolean> }) {
   const guarantees = createSqliteGuaranteeStore();
   handles.push(guarantees);
   const accounts = new InMemoryAccountRepository();
@@ -65,6 +65,7 @@ async function newApp() {
       projectsList: projects,
       gl: { ledger, accounts, periods, numbering: new NextNumberService(new InMemorySequenceStore()), projects },
       today: () => TODAY,
+      ...(contracts ? { contracts } : {}),
     },
     insecureHeaderAuthContextResolver,
   );
@@ -107,6 +108,26 @@ describe("guarantees router — permission gate", () => {
   it("lets the treasury permission through", async () => {
     const { app } = await newApp();
     const res = await app.fetch(req("/", { method: "POST", permissions: WRITE, body: JSON.stringify(DRAFT) }));
+    expect(res.status).toBe(201);
+  });
+});
+
+describe("guarantees router — contracts.exists port", () => {
+  it("422s a guarantee naming an unknown contractId when the port is supplied", async () => {
+    const { app } = await newApp({ exists: async () => false });
+    const res = await app.fetch(
+      req("/", { method: "POST", permissions: WRITE, body: JSON.stringify({ ...DRAFT, contractId: "CTR-0099" }) }),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { reasons: string[] };
+    expect(body.reasons.join(" ")).toContain("CTR-0099");
+  });
+
+  it("accepts a guarantee naming a contractId the port confirms exists", async () => {
+    const { app } = await newApp({ exists: async (id) => id === "CTR-0001" });
+    const res = await app.fetch(
+      req("/", { method: "POST", permissions: WRITE, body: JSON.stringify({ ...DRAFT, contractId: "CTR-0001" }) }),
+    );
     expect(res.status).toBe(201);
   });
 });

@@ -371,9 +371,11 @@ export {
   costCategorySchema,
   projectPnLReportSchema,
   projectPnLRowSchema,
+  projectStatusFlagSchema,
   type CostCategoryDTO,
   type ProjectPnLReportDTO,
   type ProjectPnLRowDTO,
+  type ProjectStatusFlagDTO,
 } from "./contracting.js";
 
 export {
@@ -403,7 +405,9 @@ export {
   type UpdateGuaranteeDTO,
 } from "./contracting-guarantees.js";
 export * from "./contracting-contracts.js";
+export * from "./contracting-certificates.js";
 export * from "./contracting-site.js";
+export * from "./contracting-recognition.js";
 
 export {
   documentStatusSchema,

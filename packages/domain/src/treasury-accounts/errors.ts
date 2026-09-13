@@ -48,3 +48,22 @@ export class InvalidGuaranteeFacilityLimitError extends Error {
     this.name = "InvalidGuaranteeFacilityLimitError";
   }
 }
+
+/**
+ * Raised when an opening balance is too large in magnitude to be stored
+ * exactly. `Money` is a bigint, but the SQLite column it lands in is a JS
+ * number, so a value past the safe-integer range cannot round-trip — and an
+ * opening balance that big is a typo, not a real figure. Refusing it here is
+ * what keeps the route answering 422 instead of throwing a RangeError at the
+ * writer and surfacing as a 500.
+ */
+export class InvalidOpeningBalanceError extends Error {
+  readonly code = "INVALID_OPENING_BALANCE";
+  constructor(
+    readonly accountId: string,
+    readonly reason: string,
+  ) {
+    super(reason);
+    this.name = "InvalidOpeningBalanceError";
+  }
+}

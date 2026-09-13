@@ -47,6 +47,8 @@ export const tenantSettingsSchema = z.object({
   creditControlEnabled: z.boolean(),
   creditControlMode: z.enum(["WARNING", "BLOCK"]),
   maxLineDiscountPercent: z.number().min(0).max(100),
+  /** المقاولات — CBE credit-and-discount rate; null when the tenant has not set one. */
+  contractingCbeCreditDiscountRatePercent: z.number().min(0).max(100).nullable().default(null),
 
   allowCrossWarehouseSales: z.boolean(),
   showOtherWarehouseStock: z.boolean(),

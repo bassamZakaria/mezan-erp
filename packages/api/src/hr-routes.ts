@@ -552,7 +552,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const id = parsed.data.id ?? randomUUID();
-      const number = (await deps.numbering.next("CONTRACT")).formatted;
+      const number = (await deps.numbering.next("EMPLOYMENT_CONTRACT")).formatted;
       const contract = await createContract(
         {
           ...parsed.data,

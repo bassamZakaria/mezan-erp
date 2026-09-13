@@ -1,6 +1,17 @@
 import { Money } from "../money/index.js";
-import { MAX_GUARANTEE_FACILITY_LIMIT_SCALED, type TreasuryAccount, type TreasuryAccountRepository, type TreasuryAccountType } from "./treasury-account.js";
-import { DuplicateTreasuryAccountCodeError, InvalidGuaranteeFacilityLimitError, NegativeCashBalanceError } from "./errors.js";
+import {
+  MAX_GUARANTEE_FACILITY_LIMIT_SCALED,
+  MAX_OPENING_BALANCE_SCALED,
+  type TreasuryAccount,
+  type TreasuryAccountRepository,
+  type TreasuryAccountType,
+} from "./treasury-account.js";
+import {
+  DuplicateTreasuryAccountCodeError,
+  InvalidGuaranteeFacilityLimitError,
+  InvalidOpeningBalanceError,
+  NegativeCashBalanceError,
+} from "./errors.js";
 
 export interface CreateTreasuryAccountCommand {
   readonly nameEn?: string | null;
@@ -40,6 +51,17 @@ function assertNoNegativeCashBalance(id: string, type: TreasuryAccountType, open
 }
 
 /**
+ * The opening balance must be storable. Without this an over-large figure
+ * reaches the SQLite writer and throws a RangeError there — a 500 where the
+ * caller should have been told what is wrong.
+ */
+function assertOpeningBalanceBound(accountId: string, openingBalance: Money): void {
+  if (openingBalance.scaled > MAX_OPENING_BALANCE_SCALED || openingBalance.scaled < -MAX_OPENING_BALANCE_SCALED) {
+    throw new InvalidOpeningBalanceError(accountId, "الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل.");
+  }
+}
+
+/**
  * Validates a new-treasury-account command against the existing list
  * (docs/archive/catalog/04 "حسابات الخزينة"): the code must be unique, and a cash
  * account's opening balance may not be negative (bank accounts may, per the
@@ -53,6 +75,7 @@ export function validateNewTreasuryAccount(
     throw new DuplicateTreasuryAccountCodeError(command.code);
   }
   const openingBalance = command.openingBalance ? Money.fromMajor(command.openingBalance) : Money.zero();
+  assertOpeningBalanceBound(command.id, openingBalance);
   assertNoNegativeCashBalance(command.id, command.type ?? "cash", openingBalance);
 }
 

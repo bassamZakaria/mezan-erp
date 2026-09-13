@@ -68,3 +68,10 @@ export interface TreasuryAccountRepository {
  * column, which stores the scaled integer as a JS number.
  */
 export const MAX_GUARANTEE_FACILITY_LIMIT_SCALED = BigInt(Number.MAX_SAFE_INTEGER);
+
+/**
+ * The largest magnitude an opening balance can carry through the SQLite
+ * column (stores the scaled integer as a JS number). Bank accounts may run
+ * negative (overdraft), so this bounds |scaled| rather than just an upper end.
+ */
+export const MAX_OPENING_BALANCE_SCALED = BigInt(Number.MAX_SAFE_INTEGER);

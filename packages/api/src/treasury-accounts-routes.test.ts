@@ -98,6 +98,35 @@ describe("treasury-accounts router — CRUD", () => {
     expect(res.status).toBe(422);
   });
 
+  it("422s an opening balance too large to round-trip through the SQLite writer, instead of throwing there as a 500", async () => {
+    const { app } = newApp();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "treasury.account.manage",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, type: "bank", openingBalance: "1000000012000000" }),
+      }),
+    );
+    expect(res.status).toBe(422);
+  });
+
+  it("PATCH 422s an opening balance too large to round-trip, instead of throwing at the SQLite writer as a 500", async () => {
+    const { app } = newApp();
+    await app.fetch(
+      req("/", { method: "POST", permissions: "treasury.account.manage", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, type: "bank" }) }),
+    );
+    const res = await app.fetch(
+      req("/ta1", {
+        method: "PATCH",
+        permissions: "treasury.account.manage",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ openingBalance: "1000000012000000" }),
+      }),
+    );
+    expect(res.status).toBe(422);
+  });
+
   it("PATCH supports 'إضافة رصيد افتتاحي' (adjusting the opening balance after creation)", async () => {
     const { app } = newApp();
     await app.fetch(req("/", { method: "POST", permissions: "treasury.account.manage", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }));

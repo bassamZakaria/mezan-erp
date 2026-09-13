@@ -248,7 +248,10 @@ export interface MoneyProps {
 export function Money({ value, currencyLabel, showUnit = true, className, numFontClassName }: MoneyProps) {
   const format = useFormat({ currencyLabel });
   return (
-    <span className={cn("inline-flex items-baseline gap-[5px]", className)}>
+    // flex-wrap + min-w-0 let a large figure's currency unit drop to its own
+    // line instead of being clipped by an ancestor's overflow-hidden (a stat
+    // tile at a 7-digit value) — the figure itself never breaks mid-number.
+    <span className={cn("inline-flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[1px]", className)}>
       <span className={cn("mz-num", numFontClassName)}>{format.money(value)}</span>
       {showUnit ? <span className="font-ar text-[0.85em] font-semibold text-ink-faint">{format.currencyLabel}</span> : null}
     </span>
@@ -295,11 +298,16 @@ export function StatCard({ label, value, sub, subTone = "neutral", valueTone = "
     // Depth comes from the hairline border, not a drop shadow, and a card does
     // not lift on hover: design spec §3.4. The lift also moved a row under the
     // cursor mid-click on a dense list.
-    <Card className="relative overflow-hidden rounded-md p-[15px_16px] transition-colors duration-150 hover:border-border-strong">
+    //
+    // min-w-0: a grid item's default min-width is its content's intrinsic
+    // width, which for a long money figure is wider than the column — without
+    // this the card refuses to shrink and the figure's tail (the currency
+    // unit) is clipped by overflow-hidden instead of wrapping.
+    <Card className="relative min-w-0 overflow-hidden rounded-md p-[15px_16px] transition-colors duration-150 hover:border-border-strong">
       <div className="text-xs font-semibold text-ink-muted">{label}</div>
       <div
         className={cn(
-          "mt-[6px] flex items-baseline gap-[5px] font-mono text-[24px] font-semibold tabular-nums tracking-[-0.02em]",
+          "mt-[6px] flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[2px] font-mono text-[24px] font-semibold tabular-nums tracking-[-0.02em]",
           valueTone === "danger" ? "text-danger-ink" : "text-ink",
         )}
       >

@@ -46,6 +46,7 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "CUSTOMER_REFUND", labelAr: "استرداد عميل", prefix: "CRF-", padLength: 6, annualReset: false },
   { code: "DELIVERY_ORDER", labelAr: "أمر توصيل", prefix: "DLV-", padLength: 6, annualReset: false },
   { code: "EMPLOYEE", labelAr: "موظف", prefix: "EMP-", padLength: 4, annualReset: false },
+  { code: "EMPLOYMENT_CONTRACT", labelAr: "عقد عمل", prefix: "ECT-", padLength: 4, annualReset: false },
   { code: "EMPLOYEE_ADVANCE", labelAr: "سلفة موظف", prefix: "ADV-", padLength: 6, annualReset: false },
   { code: "GOODS_RECEIPT", labelAr: "استلام بضاعة", prefix: "GR-", padLength: 6, annualReset: false },
   { code: "INSTALLMENT_PLAN", labelAr: "خطة أقساط", prefix: "IP-", padLength: 6, annualReset: false },

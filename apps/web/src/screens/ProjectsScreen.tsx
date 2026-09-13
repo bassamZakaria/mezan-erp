@@ -17,7 +17,7 @@ import {
   type RowMenuItem,
 } from "@mezan/ui";
 import { canTransitionProject, matchesSearch } from "@mezan/domain";
-import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/contracts";
+import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO, ProjectStatusFlagDTO } from "@mezan/contracts";
 import { ApiError, useCreateProject, useCustomers, useProjectPnL, useProjects, useUpdateProject, useUsers } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useWorksContracts } from "../data/contracting-contracts-hooks";
@@ -34,6 +34,12 @@ const STATUS_KEY: Record<ProjectStatusDTO, AppTranslationKey> = {
   on_hold: "projects.status.on_hold",
   completed: "projects.status.completed",
   cancelled: "projects.status.cancelled",
+};
+
+/** The derived flags the P&L reports per project — never stored, recomputed on every read. */
+const PROJECT_FLAG_KEY: Record<ProjectStatusFlagDTO, AppTranslationKey> = {
+  onerous_contract: "projects.flag.onerousContract",
+  late_penalty_risk: "projects.flag.latePenaltyRisk",
 };
 
 const STATUS_TONE: Record<ProjectStatusDTO, PillTone> = {
@@ -254,6 +260,65 @@ export function ProjectsScreen() {
         const row = pnlByProject.get(p.id);
         if (!row) return <span className="text-ink-muted">—</span>;
         return <MoneyDisplay value={toMajor(row.margin)} className={Number(row.margin) < 0 ? "text-danger-ink" : "text-success-ink"} />;
+      },
+    },
+    {
+      key: "revenueRecognised",
+      header: t("projects.revenueRecognised"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.revenueRecognised)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "billedToDate",
+      header: t("projects.billedToDate"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.billedToDate)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "wipBalance",
+      header: t("projects.wipBalance"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.wipBalance)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "contractPosition",
+      header: t("projects.contractPosition"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        if (!row) return <span className="text-ink-muted">—</span>;
+        // One column, two accounts: a credit position is التزام العقد and is
+        // shown as the negative of the asset it is the other side of.
+        return Number(row.contractLiability) > 0 ? (
+          <MoneyDisplay value={-toMajor(row.contractLiability)} className="text-danger-ink" />
+        ) : (
+          <MoneyDisplay value={toMajor(row.contractAsset)} />
+        );
+      },
+    },
+    {
+      key: "flags",
+      header: t("projects.flags"),
+      numeric: false,
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        if (!row || row.flags.length === 0) return <span className="text-ink-muted">—</span>;
+        return (
+          <div className="flex flex-wrap gap-[6px]">
+            {row.flags.map((flag) => (
+              <StatusPill key={flag} label={t(PROJECT_FLAG_KEY[flag])} tone="danger" />
+            ))}
+          </div>
+        );
       },
     },
     { key: "status", header: t("common.status"), render: (p) => <StatusPill label={t(STATUS_KEY[p.status])} tone={STATUS_TONE[p.status]} /> },

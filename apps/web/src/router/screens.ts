@@ -128,7 +128,13 @@ export const SCREEN_MODULES = {
   projects: () => import("../screens/ProjectsScreen").then((m) => ({ Component: m.ProjectsScreen })),
   "contracting-contracts": () => import("../screens/contracting/contracts/ContractsScreen").then((m) => ({ Component: m.ContractsScreen })),
   "variation-orders": () => import("../screens/contracting/contracts/VariationOrdersScreen").then((m) => ({ Component: m.VariationOrdersScreen })),
+  certificates: () => import("../screens/contracting/certificates/CertificatesScreen").then((m) => ({ Component: m.CertificatesScreen })),
+  "internal-certificate": () => import("../screens/contracting/certificates/InternalCertificateScreen").then((m) => ({ Component: m.InternalCertificateScreen })),
   guarantees: () => import("../screens/contracting/guarantees/GuaranteesScreen").then((m) => ({ Component: m.GuaranteesScreen })),
+  "revenue-recognition": () =>
+    import("../screens/contracting/recognition/RevenueRecognitionScreen").then((m) => ({
+      Component: m.RevenueRecognitionScreen,
+    })),
   "site-issues": () => import("../screens/contracting/site/SiteIssuesScreen").then((m) => ({ Component: m.SiteIssuesScreen })),
   "material-consumption": () => import("../screens/contracting/site/MaterialConsumptionScreen").then((m) => ({ Component: m.MaterialConsumptionScreen })),
   "custody-register": () => import("../screens/contracting/site/CustodyRegisterScreen").then((m) => ({ Component: m.CustodyRegisterScreen })),

@@ -1,6 +1,18 @@
 import { Money } from "../money/index.js";
-import { MAX_GUARANTEE_FACILITY_LIMIT_SCALED, type TreasuryAccount, type TreasuryAccountRepository, type TreasuryAccountStatus, type TreasuryAccountType } from "./treasury-account.js";
-import { InvalidGuaranteeFacilityLimitError, NegativeCashBalanceError, TreasuryAccountNotFoundError } from "./errors.js";
+import {
+  MAX_GUARANTEE_FACILITY_LIMIT_SCALED,
+  MAX_OPENING_BALANCE_SCALED,
+  type TreasuryAccount,
+  type TreasuryAccountRepository,
+  type TreasuryAccountStatus,
+  type TreasuryAccountType,
+} from "./treasury-account.js";
+import {
+  InvalidGuaranteeFacilityLimitError,
+  InvalidOpeningBalanceError,
+  NegativeCashBalanceError,
+  TreasuryAccountNotFoundError,
+} from "./errors.js";
 
 export interface UpdateTreasuryAccountCommand {
   readonly nameEn?: string | null;
@@ -33,6 +45,17 @@ function assertFacilityLimit(accountId: string, limit: Money | null): void {
 }
 
 /**
+ * The opening balance must be storable. Without this an over-large figure
+ * reaches the SQLite writer and throws a RangeError there — a 500 where the
+ * caller should have been told what is wrong.
+ */
+function assertOpeningBalanceBound(accountId: string, openingBalance: Money): void {
+  if (openingBalance.scaled > MAX_OPENING_BALANCE_SCALED || openingBalance.scaled < -MAX_OPENING_BALANCE_SCALED) {
+    throw new InvalidOpeningBalanceError(accountId, "الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل.");
+  }
+}
+
+/**
  * Edits an existing treasury account, including the "إضافة رصيد افتتاحي"
  * (add/adjust opening balance) menu action the catalog documents on the
  * account statement page. Re-validates the cash-can't-go-negative rule.
@@ -47,6 +70,7 @@ export async function updateTreasuryAccount(
 
   const nextType = command.type ?? current.type;
   const nextOpeningBalance = command.openingBalance ? Money.fromMajor(command.openingBalance) : current.openingBalance;
+  assertOpeningBalanceBound(accountId, nextOpeningBalance);
   if (nextType === "cash" && nextOpeningBalance.scaled < 0n) {
     throw new NegativeCashBalanceError(accountId);
   }

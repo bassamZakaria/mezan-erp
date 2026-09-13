@@ -41,6 +41,14 @@ export interface PartnerBase {
 }
 
 /**
+ * The largest magnitude an opening balance can carry through the SQLite
+ * column, which stores the scaled integer as a JS number (`Money.toScaledNumber`
+ * throws a RangeError past this — that would otherwise surface as a 500 at the
+ * writer instead of a 422 here).
+ */
+export const MAX_PARTNER_OPENING_BALANCE_SCALED = BigInt(Number.MAX_SAFE_INTEGER);
+
+/**
  * Common validation reasons shared by createCustomer/createCustomerFromPatch and their
  * supplier mirrors. Reasons are Arabic sentences (not English identifiers) because they
  * are surfaced as-is in the Arabic RTL UI (`InvalidCustomerError`/`InvalidSupplierError`
@@ -57,5 +65,11 @@ export function validatePartnerBase(partner: PartnerBase): string[] {
     reasons.push("مدة السداد يجب أن تكون رقمًا صحيحًا غير سالب");
   }
   if (partner.currency.trim() === "") reasons.push("العملة مطلوبة");
+  if (
+    partner.openingBalance.scaled > MAX_PARTNER_OPENING_BALANCE_SCALED ||
+    partner.openingBalance.scaled < -MAX_PARTNER_OPENING_BALANCE_SCALED
+  ) {
+    reasons.push("الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل");
+  }
   return reasons;
 }

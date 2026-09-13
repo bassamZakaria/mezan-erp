@@ -216,6 +216,7 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
 
   projects: FolderKanban,
   guarantees: Landmark,
+  "revenue-recognition": LineChart,
   "site-issues": SendHorizontal,
   "material-consumption": HardHat,
   "custody-register": Construction,

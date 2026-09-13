@@ -45,6 +45,7 @@ import {
   useWorksContractTransition,
   useWorksContracts,
 } from "../../../data/contracting-contracts-hooks";
+import { useRecognitionRuns } from "../../../data/contracting-recognition-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
@@ -545,7 +546,7 @@ function ContractDetailPage({
   onBack: () => void;
 }) {
   const { t } = useAppTranslation();
-  const { navigate } = useNavigation();
+  const { navigate, openScreenAt } = useNavigation();
   const projects = useProjects().data ?? EMPTY;
   const customers = useCustomers().data ?? EMPTY;
   const transition = useWorksContractTransition();
@@ -619,8 +620,75 @@ function ContractDetailPage({
           content: <ContractVariationsTab contract={contract} onNew={() => navigate("variation-orders", { kind: "create", prefill: { contractId: contract.id } })} />,
         },
         { key: "budget", label: t("worksContracts.tab.budget"), content: <BudgetTab contract={contract} mayManage={mayManage} /> },
+        {
+          key: "recognition",
+          label: t("worksContracts.tab.recognition"),
+          content: <ContractRecognitionTab contract={contract} onOpenRun={(docNo) => openScreenAt("revenue-recognition", [docNo])} />,
+        },
       ]}
     />
+  );
+}
+
+/**
+ * الاعتراف بالإيراد — every month this contract has been run, newest first.
+ * Read-only here: the run itself is posted from «الاعتراف بالإيراد», which is
+ * where the period is chosen and the figures are previewed before posting.
+ */
+function ContractRecognitionTab({
+  contract,
+  onOpenRun,
+}: {
+  contract: WorksContractDTO;
+  onOpenRun: (docNo: string) => void;
+}) {
+  const { t } = useAppTranslation();
+  const runsQuery = useRecognitionRuns(contract.id);
+  const runs = runsQuery.data ?? EMPTY;
+
+  if (runsQuery.isLoading) {
+    return <EmptyState title={t("common.loading")} description={t("revenueRecognition.loadingRun")} />;
+  }
+  if (runs.length === 0) {
+    return <EmptyState title={t("worksContracts.noRunsTitle")} description={t("worksContracts.noRunsBody")} />;
+  }
+  return (
+    <Card className="divide-y divide-border">
+      {runs.map((run) => (
+        <button
+          key={run.id}
+          type="button"
+          className="flex w-full flex-wrap items-center justify-between gap-3 p-[13px_15px] text-start hover:bg-surface-2"
+          onClick={() => onOpenRun(run.docNo)}
+        >
+          <div className="min-w-0">
+            <div className="mz-num text-[13px] font-semibold text-ink">
+              {run.docNo} · {run.periodEnd}
+            </div>
+            <div className="text-[11.5px] text-ink-muted">
+              {t("revenueRecognition.percentComplete")}: <span className="mz-num">{run.percentComplete}%</span>
+              {run.status === "reversed" ? ` · ${t("revenueRecognition.status.reversed")}` : ""}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-[18px]">
+            <RunFigure label={t("revenueRecognition.periodRevenue")} value={majorOf(run.periodRevenue)} />
+            <RunFigure label={t("revenueRecognition.wipRelieved")} value={majorOf(run.wipRelieved)} />
+            <RunFigure label={t("revenueRecognition.provisionRequired")} value={majorOf(run.provisionRequired)} />
+          </div>
+        </button>
+      ))}
+    </Card>
+  );
+}
+
+function RunFigure({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="text-end">
+      <div className="text-[11px] font-semibold text-ink-faint">{label}</div>
+      <div className="mt-[3px] text-[13px] font-bold text-ink">
+        <MoneyValue value={value} />
+      </div>
+    </div>
   );
 }
 

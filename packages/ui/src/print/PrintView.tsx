@@ -22,12 +22,19 @@ export interface PrintViewProps {
   document: PrintDocumentModel;
   /** Hides the on-screen "طباعة" / "حفظ PDF" toolbar (it's always excluded from the printed output via `@media print`). */
   showToolbar?: boolean;
+  /**
+   * Paper orientation. Landscape is what a مستخلص needs — nine columns per BOQ
+   * line do not fit across 210mm — and it drives BOTH output paths: the `@page`
+   * rule the browser prints from, and the Electron `printToPDF` flag.
+   */
+  orientation?: "portrait" | "landscape";
   className?: string;
 }
 
 const PAGE_WIDTH_MM: Record<"A4" | "A5", number> = { A4: 210, A5: 148 };
+const PAGE_HEIGHT_MM: Record<"A4" | "A5", number> = { A4: 297, A5: 210 };
 
-export function PrintView({ config, document, showToolbar = true, className }: PrintViewProps) {
+export function PrintView({ config, document, showToolbar = true, orientation = "portrait", className }: PrintViewProps) {
   const { t } = useTranslation();
   const effective = useMemo(
     () => resolvePrintTemplateConfig(config, document.documentType),
@@ -36,20 +43,22 @@ export function PrintView({ config, document, showToolbar = true, className }: P
 
   const { identity, header, content, columns, totals: totalsConfig, footer, watermark } = effective;
   const currencyLabel = document.totals.currencyLabel ?? t("ui.currency");
-  const pageWidthMm = PAGE_WIDTH_MM[effective.pageSize];
+  const landscape = orientation === "landscape";
+  const pageWidthMm = landscape ? PAGE_HEIGHT_MM[effective.pageSize] : PAGE_WIDTH_MM[effective.pageSize];
+  const pageHeightMm = landscape ? PAGE_WIDTH_MM[effective.pageSize] : PAGE_HEIGHT_MM[effective.pageSize];
   const signatureLabels = footer.signatureLabels.slice(0, footer.signatureCount);
   while (signatureLabels.length < footer.signatureCount) signatureLabels.push("");
 
   return (
     <div className={cn("mz-print-root", className)}>
-      <style>{`@page { size: ${effective.pageSize}; margin: 14mm 12mm; }`}</style>
+      <style>{`@page { size: ${effective.pageSize}${landscape ? " landscape" : ""}; margin: 14mm 12mm; }`}</style>
 
-      {showToolbar ? <PrintToolbar pageSize={effective.pageSize} /> : null}
+      {showToolbar ? <PrintToolbar pageSize={effective.pageSize} landscape={landscape} /> : null}
 
       <div
         dir="rtl"
         className="relative mx-auto overflow-hidden bg-surface p-[16mm_14mm] text-[12.5px] text-ink print:m-0"
-        style={{ width: `${pageWidthMm}mm`, minHeight: `${(pageWidthMm * 297) / 210}mm`, borderColor: identity.primaryColor }}
+        style={{ width: `${pageWidthMm}mm`, minHeight: `${pageHeightMm}mm`, borderColor: identity.primaryColor }}
       >
         {watermark.text ? (
           <div

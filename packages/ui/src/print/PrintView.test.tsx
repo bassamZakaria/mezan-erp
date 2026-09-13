@@ -132,6 +132,21 @@ describe("PrintView", () => {
     ).toBeInTheDocument();
   });
 
+  it("turns the page sideways on landscape — the @page rule AND the sheet's own dimensions", () => {
+    const { container } = render(
+      <PrintView
+        config={DEFAULT_PRINT_TEMPLATE_CONFIG}
+        document={createSampleInvoiceDocument()}
+        orientation="landscape"
+        showToolbar={false}
+      />,
+    );
+    expect(container.querySelector("style")?.textContent).toContain("size: A4 landscape");
+    const sheet = container.querySelector<HTMLElement>("div[dir=\"rtl\"]");
+    expect(sheet?.style.width).toBe("297mm");
+    expect(sheet?.style.minHeight).toBe("210mm");
+  });
+
   it("matches the rendered structure snapshot for the sample invoice", () => {
     const { container } = render(
       <PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={createSampleInvoiceDocument()} showToolbar={false} />,

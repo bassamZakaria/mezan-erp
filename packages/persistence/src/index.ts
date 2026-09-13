@@ -199,9 +199,17 @@ export {
 export { createSqliteProjectRepository, type SqliteProjectRepositoryHandle } from "./project-repository.js";
 export { createSqliteGuaranteeStore, type SqliteGuaranteeStoreHandle } from "./contracting-guarantees-store.js";
 export {
+  createSqliteContractingRecognitionStore,
+  type SqliteRecognitionStoreHandle,
+} from "./contracting-recognition-store.js";
+export {
   createSqliteWorksContractStore,
   type SqliteWorksContractStoreHandle,
 } from "./contracting-contracts-store.js";
+export {
+  createSqliteProgressCertificateStore,
+  type SqliteProgressCertificateStoreHandle,
+} from "./contracting-certificates-store.js";
 export {
   createSqliteAssetCategoryRepository,
   createSqliteAssetRepository,

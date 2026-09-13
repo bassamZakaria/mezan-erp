@@ -184,6 +184,14 @@ import {
   type ContractingContractsRoutesDeps,
 } from "./contracting-contracts-routes.js";
 import { createContractingSiteRoutes, type ContractingSiteRoutesDeps } from "./contracting-site-routes.js";
+import {
+  createContractingCertificatesRoutes,
+  type ContractingCertificatesRoutesDeps,
+} from "./contracting-certificates-routes.js";
+import {
+  createContractingRecognitionRoutes,
+  type ContractingRecognitionRoutesDeps,
+} from "./contracting-recognition-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 import { createFieldSalesRoutes, createVansRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
 import {
@@ -586,6 +594,13 @@ export interface CreateAppOptions {
    */
   readonly contractingContracts?: ContractingContractsRoutesDeps;
   /**
+   * Mounts المستخلصات — slice 2 of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html §04, D-02/D-03/D-09) —
+   * under `/contracting/certificates`: the cumulative certificate, its two
+   * approvals, the invoice generated on clearance and مستخلص تنفيذي.
+   */
+  readonly contractingCertificates?: ContractingCertificatesRoutesDeps;
+  /**
    * Mounts مستودعات المواقع والصرف والاستهلاك والعهدة وتشغيل المعدات — slice 4A
    * of المقاولات (D-11) — under `/contracting/site`.
    */
@@ -597,6 +612,13 @@ export interface CreateAppOptions {
    * the memorandum + restricted-cash postings behind every status move.
    */
   readonly contractingGuarantees?: ContractingGuaranteesRoutesDeps;
+  /**
+   * Mounts تشغيل الاعتراف بالإيراد — slice 4B of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html D-03, D-12) — under
+   * `/contracting/recognition`: the cost-to-complete workspace, the monthly
+   * EAS 48 run and its reversal.
+   */
+  readonly contractingRecognition?: ContractingRecognitionRoutesDeps;
   /**
    * Mounts Fixed Assets (docs/archive/catalog/07 "الأصول الثابتة") under `/assets`
    * when present: asset categories, the asset register, and depreciation
@@ -1161,11 +1183,17 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/contracting/contracts", createContractingContractsRoutes(options.contractingContracts, resolveAuth));
     app.route("/contracting/variation-orders", createVariationOrdersRoutes(options.contractingContracts, resolveAuth));
   }
+  if (options.contractingCertificates) {
+    app.route("/contracting/certificates", createContractingCertificatesRoutes(options.contractingCertificates, resolveAuth));
+  }
   if (options.contractingSite) {
     app.route("/contracting/site", createContractingSiteRoutes(options.contractingSite, resolveAuth));
   }
   if (options.contractingGuarantees) {
     app.route("/contracting/guarantees", createContractingGuaranteesRoutes(options.contractingGuarantees, resolveAuth));
+  }
+  if (options.contractingRecognition) {
+    app.route("/contracting/recognition", createContractingRecognitionRoutes(options.contractingRecognition, resolveAuth));
   }
   if (options.fixedAssets) {
     app.route("/assets", createFixedAssetsRoutes(options.fixedAssets, resolveAuth));

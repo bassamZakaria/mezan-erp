@@ -3,7 +3,12 @@ import { Money } from "../money/index.js";
 import { InMemoryTreasuryAccountRepository } from "./test-helpers/in-memory-treasury-account-repository.js";
 import { createTreasuryAccount } from "./create-treasury-account.js";
 import { updateTreasuryAccount } from "./update-treasury-account.js";
-import { InvalidGuaranteeFacilityLimitError, NegativeCashBalanceError, TreasuryAccountNotFoundError } from "./errors.js";
+import {
+  InvalidGuaranteeFacilityLimitError,
+  InvalidOpeningBalanceError,
+  NegativeCashBalanceError,
+  TreasuryAccountNotFoundError,
+} from "./errors.js";
 
 describe("updateTreasuryAccount", () => {
   it("updates fields in place", async () => {
@@ -30,6 +35,14 @@ describe("updateTreasuryAccount", () => {
     const repo = new InMemoryTreasuryAccountRepository();
     await createTreasuryAccount({ id: "ta1", code: "CASH-001", name: "صندوق", branchId: "b1" }, repo);
     await expect(updateTreasuryAccount("ta1", { openingBalance: "-1.00" }, repo)).rejects.toThrow(NegativeCashBalanceError);
+  });
+
+  it("refuses an opening balance too large to round-trip, instead of throwing at the SQLite writer as a 500", async () => {
+    const repo = new InMemoryTreasuryAccountRepository();
+    await createTreasuryAccount({ id: "ta-bank", code: "BANK-001", name: "بنك", type: "bank", branchId: "b1" }, repo);
+    await expect(
+      updateTreasuryAccount("ta-bank", { openingBalance: "1000000012000000" }, repo),
+    ).rejects.toBeInstanceOf(InvalidOpeningBalanceError);
   });
 
   it("can deactivate a treasury account via status", async () => {

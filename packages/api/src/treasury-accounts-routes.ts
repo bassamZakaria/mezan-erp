@@ -5,6 +5,7 @@ import {
   updateTreasuryAccount,
   DuplicateTreasuryAccountCodeError,
   InvalidGuaranteeFacilityLimitError,
+  InvalidOpeningBalanceError,
   NegativeCashBalanceError,
   TreasuryAccountNotFoundError,
   type AuditSink,
@@ -39,7 +40,11 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateTreasuryAccountCodeError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
-  if (err instanceof NegativeCashBalanceError || err instanceof InvalidGuaranteeFacilityLimitError) {
+  if (
+    err instanceof NegativeCashBalanceError ||
+    err instanceof InvalidGuaranteeFacilityLimitError ||
+    err instanceof InvalidOpeningBalanceError
+  ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   throw err;

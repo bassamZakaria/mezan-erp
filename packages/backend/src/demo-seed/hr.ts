@@ -276,8 +276,8 @@ const EMPLOYEES = [
 ];
 
 /**
- * CTR-DEMO-2 has already run out (a fixed term that ended 2026-01-14) and
- * CTR-DEMO-3 is its renewal, so the contracts screen has a lapsed row next to
+ * ECT-DEMO-2 has already run out (a fixed term that ended 2026-01-14) and
+ * ECT-DEMO-3 is its renewal, so the contracts screen has a lapsed row next to
  * a live one and payroll picks the successor by itself. Deduction lines are
  * contractual only — no tax or insurance line is seeded, because the payroll
  * engine computes neither.
@@ -294,40 +294,40 @@ const PAYROLL_COMPONENTS = [
 
 const CONTRACTS = [
   {
-    id: "CTR-DEMO-1",
+    id: "ECT-DEMO-1",
     employeeId: "EMP-DEMO-1",
     type: "indefinite",
     startDate: "2024-03-01",
     endDate: null,
     monthlySalary: "9000",
     allowances: [
-      { id: "CTR-DEMO-1-A1", name: "بدل انتقال", amount: "800", componentId: "PC-DEMO-TRANSPORT" },
-      { id: "CTR-DEMO-1-A2", name: "بدل هاتف", amount: "200", componentId: "PC-DEMO-PHONE" },
+      { id: "ECT-DEMO-1-A1", name: "بدل انتقال", amount: "800", componentId: "PC-DEMO-TRANSPORT" },
+      { id: "ECT-DEMO-1-A2", name: "بدل هاتف", amount: "200", componentId: "PC-DEMO-PHONE" },
     ],
-    deductions: [{ id: "CTR-DEMO-1-D1", name: "اشتراك صندوق الزمالة", amount: "100", componentId: "PC-DEMO-WELFARE" }],
+    deductions: [{ id: "ECT-DEMO-1-D1", name: "اشتراك صندوق الزمالة", amount: "100", componentId: "PC-DEMO-WELFARE" }],
   },
   {
-    id: "CTR-DEMO-2",
+    id: "ECT-DEMO-2",
     employeeId: "EMP-DEMO-2",
     type: "fixed_term",
     startDate: "2025-01-15",
     endDate: "2026-01-14",
     monthlySalary: "6500",
-    allowances: [{ id: "CTR-DEMO-2-A1", name: "بدل انتقال", amount: "500", componentId: "PC-DEMO-TRANSPORT" }],
+    allowances: [{ id: "ECT-DEMO-2-A1", name: "بدل انتقال", amount: "500", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
   {
-    id: "CTR-DEMO-3",
+    id: "ECT-DEMO-3",
     employeeId: "EMP-DEMO-2",
     type: "indefinite",
     startDate: "2026-01-15",
     endDate: null,
     monthlySalary: "7800",
-    allowances: [{ id: "CTR-DEMO-3-A1", name: "بدل انتقال", amount: "600", componentId: "PC-DEMO-TRANSPORT" }],
+    allowances: [{ id: "ECT-DEMO-3-A1", name: "بدل انتقال", amount: "600", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
   {
-    id: "CTR-DEMO-4",
+    id: "ECT-DEMO-4",
     employeeId: "EMP-DEMO-3",
     type: "indefinite",
     startDate: "2023-01-02",
@@ -335,56 +335,56 @@ const CONTRACTS = [
     monthlySalary: "18000",
     leaveEntitlement: { annualLeaveDays: 30 },
     allowances: [
-      { id: "CTR-DEMO-4-A1", name: "بدل سكن", amount: "2500", componentId: "PC-DEMO-HOUSING" },
-      { id: "CTR-DEMO-4-A2", name: "بدل انتقال", amount: "1500", componentId: "PC-DEMO-TRANSPORT" },
+      { id: "ECT-DEMO-4-A1", name: "بدل سكن", amount: "2500", componentId: "PC-DEMO-HOUSING" },
+      { id: "ECT-DEMO-4-A2", name: "بدل انتقال", amount: "1500", componentId: "PC-DEMO-TRANSPORT" },
     ],
     deductions: [],
   },
   {
-    id: "CTR-DEMO-5",
+    id: "ECT-DEMO-5",
     employeeId: "EMP-DEMO-4",
     type: "indefinite",
     startDate: "2024-09-01",
     endDate: null,
     monthlySalary: "7500",
-    allowances: [{ id: "CTR-DEMO-5-A1", name: "بدل انتقال", amount: "600", componentId: "PC-DEMO-TRANSPORT" }],
+    allowances: [{ id: "ECT-DEMO-5-A1", name: "بدل انتقال", amount: "600", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
   {
-    id: "CTR-DEMO-6",
+    id: "ECT-DEMO-6",
     employeeId: "EMP-DEMO-5",
     type: "indefinite",
     startDate: "2023-06-15",
     endDate: null,
     monthlySalary: "8200",
     allowances: [
-      { id: "CTR-DEMO-6-A1", name: "بدل انتقال", amount: "600", componentId: "PC-DEMO-TRANSPORT" },
-      { id: "CTR-DEMO-6-A2", name: "بدل طبيعة عمل", amount: "400", componentId: "PC-DEMO-NATURE" },
+      { id: "ECT-DEMO-6-A1", name: "بدل انتقال", amount: "600", componentId: "PC-DEMO-TRANSPORT" },
+      { id: "ECT-DEMO-6-A2", name: "بدل طبيعة عمل", amount: "400", componentId: "PC-DEMO-NATURE" },
     ],
-    deductions: [{ id: "CTR-DEMO-6-D1", name: "اشتراك صندوق الزمالة", amount: "100", componentId: "PC-DEMO-WELFARE" }],
+    deductions: [{ id: "ECT-DEMO-6-D1", name: "اشتراك صندوق الزمالة", amount: "100", componentId: "PC-DEMO-WELFARE" }],
   },
   {
-    id: "CTR-DEMO-7",
+    id: "ECT-DEMO-7",
     employeeId: "EMP-DEMO-6",
     type: "fixed_term",
     startDate: "2026-02-01",
     endDate: "2027-01-31",
     monthlySalary: "6800",
-    allowances: [{ id: "CTR-DEMO-7-A1", name: "بدل وجبة", amount: "450", componentId: "PC-DEMO-MEAL" }],
+    allowances: [{ id: "ECT-DEMO-7-A1", name: "بدل وجبة", amount: "450", componentId: "PC-DEMO-MEAL" }],
     deductions: [],
   },
   {
-    id: "CTR-DEMO-8",
+    id: "ECT-DEMO-8",
     employeeId: "EMP-DEMO-7",
     type: "probationary",
     startDate: "2026-06-01",
     endDate: "2026-08-31",
     monthlySalary: "5600",
-    allowances: [{ id: "CTR-DEMO-8-A1", name: "بدل انتقال", amount: "400", componentId: "PC-DEMO-TRANSPORT" }],
+    allowances: [{ id: "ECT-DEMO-8-A1", name: "بدل انتقال", amount: "400", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
   {
-    id: "CTR-DEMO-9",
+    id: "ECT-DEMO-9",
     employeeId: "EMP-DEMO-8",
     type: "seasonal",
     payBasis: "hourly",
@@ -396,13 +396,13 @@ const CONTRACTS = [
     deductions: [],
   },
   {
-    id: "CTR-DEMO-10",
+    id: "ECT-DEMO-10",
     employeeId: "EMP-DEMO-9",
     type: "indefinite",
     startDate: "2024-02-01",
     endDate: null,
     monthlySalary: "6200",
-    allowances: [{ id: "CTR-DEMO-10-A1", name: "بدل انتقال", amount: "500", componentId: "PC-DEMO-TRANSPORT" }],
+    allowances: [{ id: "ECT-DEMO-10-A1", name: "بدل انتقال", amount: "500", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
 ];
@@ -644,7 +644,7 @@ export async function seedHr(app: App): Promise<void> {
   for (const contract of CONTRACTS) {
     await step(app, "POST", "/hr/contracts", { ...contract, currency: "EGP" });
   }
-  await step(app, "POST", "/hr/contracts/CTR-DEMO-10/terminate", {});
+  await step(app, "POST", "/hr/contracts/ECT-DEMO-10/terminate", {});
   await step(app, "POST", "/hr/employees/EMP-DEMO-9/terminate", {});
   await step(app, "POST", "/hr/employees/EMP-DEMO-8/transition", { status: "suspended" });
 

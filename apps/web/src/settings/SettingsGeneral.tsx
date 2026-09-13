@@ -365,6 +365,18 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                 />
               </SectionCard>
 
+              <SectionCard title={t("settingsGeneral.contracting")}>
+                <NumberField
+                  label={t("settingsGeneral.cbeCreditDiscountRate")}
+                  value={draft.contractingCbeCreditDiscountRatePercent ?? 0}
+                  min={0}
+                  max={100}
+                  step={0.25}
+                  onChange={(v) => patch({ contractingCbeCreditDiscountRatePercent: v === 0 ? null : v })}
+                  hint={t("settingsGeneral.cbeCreditDiscountRateHint")}
+                />
+              </SectionCard>
+
               <SectionCard title={t("settingsGeneral.treasuryPolicy")}>
                 <ToggleField
                   label={t("settingsGeneral.blockANegativeBalanceOn")}

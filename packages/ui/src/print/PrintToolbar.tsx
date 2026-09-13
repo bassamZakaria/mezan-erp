@@ -8,7 +8,7 @@ import { useElectronPrintToPdf } from "./useElectronPrintToPdf";
  * owns the ONE pair of output paths: `window.print()` in the browser and
  * `webContents.printToPDF` on the desktop.
  */
-export function PrintToolbar({ pageSize }: { pageSize: "A4" | "A5" }) {
+export function PrintToolbar({ pageSize, landscape = false }: { pageSize: "A4" | "A5"; landscape?: boolean }) {
   const { t } = useTranslation();
   const { isAvailable, printToPdf } = useElectronPrintToPdf();
 
@@ -21,7 +21,7 @@ export function PrintToolbar({ pageSize }: { pageSize: "A4" | "A5" }) {
         <Button
           variant="default"
           onClick={() => {
-            void printToPdf({ pageSize });
+            void printToPdf({ pageSize, landscape });
           }}
         >
           {t("print.toolbar.savePdf")}

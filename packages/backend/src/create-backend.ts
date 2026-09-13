@@ -21,6 +21,12 @@ import {
   resolvePrice,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
+  SalesInvoiceService,
+  CertificateService,
+  CERTIFICATE_WORKS_ITEM_ID,
+  GuaranteeService,
+  type CertificateInvoicingPort,
+  type CertificateGuaranteePort,
   createTreasuryLedgerReader,
   VoucherService,
   type TreasuryTransferInput,
@@ -110,6 +116,8 @@ import {
   createSqliteWorksContractStore,
   createSqliteContractingSiteStore,
   createSqliteGuaranteeStore,
+  createSqliteProgressCertificateStore,
+  createSqliteContractingRecognitionStore,
   createSqliteAssetCategoryRepository,
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
@@ -664,6 +672,14 @@ export interface CreateBackendOptions {
  * over HTTP, the Vite dev plugin mounts as middleware, and Electron calls over
  * IPC — one app, three transports, no behavioural difference.
  */
+/**
+ * ذمم العملاء — the control account every AR path in this composition names
+ * (the reconciliation report's own control id, the voucher counterparty, the
+ * opening-balance receivable). The certificate's invoice and its deductions
+ * entry both have to land on THIS one or the sub-ledger and GL 1105 drift.
+ */
+const CERTIFICATE_AR_ACCOUNT_ID = "1105";
+
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
   const dbPath = options.dbPath ?? ":memory:";
 
@@ -751,6 +767,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const worksContracts = createSqliteWorksContractStore(sqlite);
   const contractingSiteStore = createSqliteContractingSiteStore(sqlite);
   const guarantees = createSqliteGuaranteeStore(sqlite);
+  const progressCertificates = createSqliteProgressCertificateStore(sqlite);
+  const recognitionRuns = createSqliteContractingRecognitionStore(sqlite);
   const assetCategories = createSqliteAssetCategoryRepository(sqlite);
   const assets = createSqliteAssetRepository(sqlite);
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
@@ -914,6 +932,156 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       },
     },
   });
+  /**
+   * المستخلص 2 — the certificate BILLS through the EXISTING sales-invoice
+   * engine (D-02). The certificate stays its own document and the invoice a
+   * thin derived one, so AR, aging, ETA and voucher allocation are reused
+   * unchanged.
+   *
+   * INVARIANT: `settle` bumps the invoice's allocated total by exactly what
+   * the deductions entry credited to AR. The GL and the receivables
+   * sub-ledger move together, or the invoice reads as owing the gross while
+   * the control account holds the net.
+   */
+  const certificateInvoicing: CertificateInvoicingPort = {
+    async issue(cmd) {
+      const [customer, branchList, warehouseList, routing] = await Promise.all([
+        customers.findById(cmd.customerId),
+        branches.findAll(),
+        warehouses.findAll(),
+        accountRouting.get(),
+      ]);
+      const branchId = branchList[0]?.id;
+      const warehouseId = warehouseList[0]?.id;
+      if (!branchId || !warehouseId) {
+        throw new Error("لا يمكن إصدار فاتورة المستخلص قبل تعريف فرع ومستودع واحد على الأقل.");
+      }
+      const invoiceId = `${cmd.certificateId}-INV`;
+      const service = new SalesInvoiceService({
+        repo: salesInvoices,
+        numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
+        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        stock: createSalesInvoiceStockHook(stockService),
+        allocatable: vouchers.invoices,
+        audit: auditSink,
+        actor: "system",
+      });
+      await service.createDraft({
+        id: invoiceId,
+        date: cmd.date,
+        dueDate: cmd.dueDate,
+        customerId: cmd.customerId,
+        customerNameAr: customer?.nameAr ?? cmd.customerId,
+        warehouseId,
+        branchId,
+        projectId: cmd.projectId,
+        currency: "EGP",
+        notes: cmd.memoAr,
+        arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
+        taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        lines: [
+          {
+            lineId: `${invoiceId}-L1`,
+            itemId: CERTIFICATE_WORKS_ITEM_ID,
+            itemNameAr: cmd.lineDescriptionAr,
+            isStock: false,
+            qty: Qty.fromMajor("1"),
+            unitPrice: cmd.amount,
+            // The invoice engine takes a percent, so the transitional basis is
+            // carried as its EFFECTIVE rate (14% × 36% = 5.04%) and the basis
+            // itself is stated in the memo — there is no second rate field to
+            // put "36% of value" in.
+            taxRatePercent: Number(cmd.taxRatePercent),
+            revenueAccountId: cmd.revenueAccountId,
+          },
+        ],
+      });
+      const confirmed = await service.confirm(invoiceId, { actor: "system" });
+      const totals = salesInvoiceTotals(confirmed.invoice);
+      return {
+        invoiceId,
+        invoiceDocNo: confirmed.invoice.docNo ?? invoiceId,
+        arAccountId: confirmed.invoice.arAccountId,
+        total: salesInvoiceBaseGrandTotal(totals, confirmed.invoice.fxRate),
+      };
+    },
+    async status(invoiceId) {
+      const invoice = await salesInvoices.findById(invoiceId);
+      if (!invoice) return null;
+      const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
+      const sub = await vouchers.invoices.findById(invoiceId);
+      const allocated = sub?.allocated ?? Money.zero();
+      return {
+        invoiceId,
+        docNo: invoice.docNo,
+        total,
+        amountPaid: allocated,
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        dueDate: invoice.dueDate,
+        status: invoice.status,
+      };
+    },
+    async settle(invoiceId, amount) {
+      const sub = await vouchers.invoices.findById(invoiceId);
+      if (!sub) return;
+      await vouchers.invoices.save({ ...sub, allocated: Money.fromScaled(sub.allocated.scaled + amount.scaled) });
+    },
+  };
+
+  /**
+   * خطاب ضمان الدفعة المقدمة reduces in step with recovery (Law 182/2018
+   * Art. 44). Optional: a contract with no advance guarantee on the register
+   * simply has nothing to reduce.
+   */
+  const certificateGuarantees: CertificateGuaranteePort = {
+    async reduceAdvanceGuarantee({ contractId, projectId, date, amount, sourceRef }) {
+      const live = (await guarantees.list()).find(
+        (g) =>
+          // The register links a letter to a project OR to a contract, and the
+          // advance guarantee is commonly filed against the project — matching
+          // only on contractId leaves it never reducing at all.
+          (g.contractId === contractId || (g.contractId === null && g.projectId === projectId)) &&
+          g.kind === "advance" &&
+          (g.status === "active" || g.status === "reduced") &&
+          g.currentValue.scaled > 0n,
+      );
+      if (!live) return;
+      const capped = amount.scaled > live.currentValue.scaled ? live.currentValue : amount;
+      const service = new GuaranteeService({
+        guarantees,
+        treasuryAccounts,
+        accounts,
+        projects,
+        routing: accountRouting,
+        gl: salesInvoiceGl,
+      });
+      await service.reduce(live.id, {
+        date,
+        amount: capped,
+        reason: "خصم الدفعة المقدمة من المستخلص",
+        sourceRef,
+      });
+    },
+  };
+
+  const certificateDeps = {
+    store: progressCertificates,
+    contracts: worksContracts,
+    numbering: ledger.numbering,
+    gl: salesInvoiceGl,
+    routing: accountRouting,
+    invoicing: certificateInvoicing,
+    guarantees: certificateGuarantees,
+    accounts,
+    projects,
+    cbeCreditDiscountRatePercent: async () => {
+      const tenant = (await settings.get()) ?? createDefaultSettings();
+      const rate = tenant.contractingCbeCreditDiscountRatePercent;
+      return rate === null ? null : String(rate);
+    },
+  };
+  const certificateService = new CertificateService(certificateDeps);
+
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const documentWorkflowGate = createDocumentWorkflowGate(
     (actionType) => workflowConfigs.resolveSync(actionType),
@@ -1210,6 +1378,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     for (const doc of salesReturnDocs) {
       if (doc.status !== "confirmed") continue;
       arScaled -= salesReturnGrandTotal(doc).scaled;
+    }
+    /**
+     * An approved مستخلص credits AR by its deductions block — retention, the
+     * advance recovered, WHT, social insurance and the rest — against the
+     * invoice it generated. The control account moves; the sub-ledger has to
+     * follow it, or every tenant that ever approved a certificate reads a
+     * false mismatch for the whole deduction.
+     */
+    for (const certificate of await progressCertificates.list()) {
+      arScaled -= certificate.postedDeductionsTotal.scaled;
     }
 
     let apScaled = 0n;
@@ -1809,14 +1987,33 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       costCenters,
       ledger,
       accounts,
+      routing: accountRouting,
+      worksContracts,
+      recognitionRuns,
     },
     contractingContracts: {
       store: worksContracts,
       numbering: ledger.numbering,
       projects,
       customers,
+      // Slice 2's مستخلص ختامي check: a contract closes on a final
+      // certificate, so one with certificates still in flight — or with none
+      // of them final — is refused rather than quietly closed.
+      completionGuard: (contractId) => certificateService.completionRefusal(contractId),
     },
+    contractingCertificates: certificateDeps,
     contractingSite: { service: siteService },
+    // تشغيل الاعتراف بالإيراد reads billings, WIP and the contract position
+    // straight off the posted ledger and posts back through the same engine, so
+    // the run can never disagree with the accounts it is derived from.
+    contractingRecognition: {
+      runs: recognitionRuns,
+      contracts: worksContracts,
+      accounts,
+      ledger,
+      routing: accountRouting,
+      gl: salesInvoiceGl,
+    },
     // خطابات الضمان posts the memorandum pair AND the restricted-cash margin
     // through the SAME GL engine every other document uses, so the register's
     // outstanding total and the 9100 balance can never drift apart.
@@ -1829,6 +2026,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       projectsList: projects,
       routing: accountRouting,
       gl: salesInvoiceGl,
+      contracts: { exists: async (id) => (await worksContracts.findContractById(id)) !== null },
     },
     fixedAssets: {
       categories: assetCategories,
@@ -2278,6 +2476,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     projects,
     worksContracts,
     guarantees,
+    recognitionRuns,
     assetCategories,
     assets,
     depreciationRuns,

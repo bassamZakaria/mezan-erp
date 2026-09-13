@@ -8,10 +8,14 @@ export {
 } from "./cost-category.js";
 export {
   computeProjectPnL,
+  type ProjectContractingAccountIds,
+  type ProjectContractingInput,
   type ProjectCostBreakdown,
   type ProjectPnLReport,
   type ProjectPnLRow,
 } from "./project-pl.js";
 export * from "./contracts/index.js";
+export * from "./certificates/index.js";
 export * from "./site/index.js";
 export * from "./guarantees/index.js";
+export * from "./recognition/index.js";

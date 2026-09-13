@@ -98,6 +98,16 @@ export interface TenantSettings {
    */
   readonly maxLineDiscountPercent: number;
 
+  // --- المقاولات (Contracting) ---
+  /**
+   * سعر الائتمان والخصم المعلن من البنك المركزي, as a percent. Law 182/2018
+   * Art. 45 compensates a contractor for a public employer's late payment at
+   * this rate, and almost no contractor ever invoices it. NULL means the
+   * tenant has not set it: the certificate screen then says «غير مُعد» and
+   * reports zero rather than inventing a rate.
+   */
+  readonly contractingCbeCreditDiscountRatePercent: number | null;
+
   // --- سياسة المخزون (Inventory policy) ---
   readonly allowCrossWarehouseSales: boolean;
   readonly showOtherWarehouseStock: boolean;
@@ -188,6 +198,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   creditControlEnabled: false,
   creditControlMode: "WARNING",
   maxLineDiscountPercent: 100,
+  contractingCbeCreditDiscountRatePercent: null,
 
   allowCrossWarehouseSales: true,
   showOtherWarehouseStock: true,
@@ -303,6 +314,12 @@ function validate(settings: TenantSettings): string[] {
   }
   if (settings.maxLineDiscountPercent < 0 || settings.maxLineDiscountPercent > 100) {
     reasons.push("maxLineDiscountPercent must be in 0..100");
+  }
+  if (
+    settings.contractingCbeCreditDiscountRatePercent !== null &&
+    (settings.contractingCbeCreditDiscountRatePercent < 0 || settings.contractingCbeCreditDiscountRatePercent > 100)
+  ) {
+    reasons.push("contractingCbeCreditDiscountRatePercent must be in 0..100");
   }
   if (settings.agingWritedownRatePercent < 0 || settings.agingWritedownRatePercent > 100) {
     reasons.push("agingWritedownRatePercent must be in 0..100");

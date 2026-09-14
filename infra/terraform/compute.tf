@@ -81,9 +81,12 @@ data "aws_caller_identity" "current" {}
 resource "aws_ecs_cluster" "main" {
   name = local.name
 
+  # RunningTaskCount, the metric the task-down alarm watches, is published only
+  # while Container Insights is on, so it follows the alarm rather than costing
+  # money on an environment that asked for no alarm.
   setting {
     name  = "containerInsights"
-    value = "disabled"
+    value = var.alarm_email == null ? "disabled" : "enabled"
   }
 }
 

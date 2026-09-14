@@ -61,6 +61,18 @@ function assertOpenableSqlite(file: string): void {
   }
 }
 
+function countFiles(dir: string): number {
+  return existsSync(dir) ? readdirSync(dir).length : 0;
+}
+
+async function pollUntil(predicate: () => boolean, timeoutMs = 5_000, intervalMs = 5): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error("pollUntil: condition not met before deadline");
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 describe("runBackups", () => {
   it("writes the platform backup and one backup per OPEN tenant, skipping a tenant never opened", async () => {
     const platform = await newPlatform();
@@ -155,27 +167,25 @@ describe("startBackupTimer", () => {
 
   it("repeats on the injected interval, and stop() ends further runs", async () => {
     // Real timers, deliberately: `runBackups` drives better-sqlite3's OWN
-    // internal `setImmediate` backup loop and real filesystem I/O, neither
-    // of which vitest's fake-timer clock advances — faking here would just
-    // hang the backup step rather than exercise the repeat/stop behavior.
+    // internal `setImmediate` backup loop and real filesystem I/O, neither of
+    // which vitest's fake-timer clock advances.
     const platform = await newPlatform();
     const router = newRouter(platform);
     const dir = tempDir("mezan-backup-dir-");
+    const platformDir = path.join(dir, "backups", "platform");
 
     let clock = new Date(T).getTime();
     const stop = startBackupTimer({ platform, router, dir, now: () => new Date(clock), intervalMs: 20 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(readdirSync(path.join(dir, "backups", "platform"))).toHaveLength(1);
+    await pollUntil(() => countFiles(platformDir) >= 1);
 
     clock += 60_000;
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(readdirSync(path.join(dir, "backups", "platform"))).toHaveLength(2);
+    await pollUntil(() => countFiles(platformDir) >= 2);
 
-    stop();
-    const countAfterStop = readdirSync(path.join(dir, "backups", "platform")).length;
+    await stop();
+    const countAfterStop = countFiles(platformDir);
     clock += 60_000;
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(readdirSync(path.join(dir, "backups", "platform"))).toHaveLength(countAfterStop);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(countFiles(platformDir)).toBe(countAfterStop);
   });
 
   it("unrefs its timer so it never keeps the process alive on its own", async () => {

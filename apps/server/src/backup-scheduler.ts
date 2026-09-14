@@ -81,21 +81,27 @@ export interface StartBackupTimerOptions extends RunBackupsOptions {
  * Runs `runBackups` immediately, then again on every `intervalMs` tick,
  * `unref`d so an idle process can still exit. Matches the shape
  * `apps/server/src/cloud-app.ts`'s `options.backups.start()` seam expects.
+ * The returned `stop` resolves once any in-flight run has settled, so
+ * callers (and tests) can know no further writes are coming.
  */
-export function startBackupTimer(options: StartBackupTimerOptions): () => void {
+export function startBackupTimer(options: StartBackupTimerOptions): () => Promise<void> {
+  let current: Promise<void> = Promise.resolve();
   const run = () => {
-    runBackups(options).catch((error: unknown) => options.onError?.(error));
+    current = runBackups(options).catch((error: unknown) => options.onError?.(error));
   };
   run();
 
   const timer = setInterval(run, options.intervalMs);
   timer.unref();
 
-  return () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    return current;
+  };
 }
 
 export interface BackupScheduler {
-  start(): () => void;
+  start(): () => Promise<void>;
 }
 
 /** Wraps `startBackupTimer` in the `{ start(): () => void }` shape `createCloudApp`'s `options.backups` seam is typed as. */

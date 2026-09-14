@@ -57,3 +57,12 @@ coverage/
 
 # Local staging/testing databases (scripts/env.mjs)
 .data/
+
+# Terraform working directories and state. The provider lock file
+# (.terraform.lock.hcl) is NOT ignored — it is committed on purpose.
+infra/terraform/**/.terraform/
+infra/terraform/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars.local

@@ -5,6 +5,8 @@ import { extend } from "../../inventory/wac-math.js";
 import { occurredAtFromDocumentDate } from "../../inventory/movement.js";
 import type { StockLedgerService } from "../../inventory/stock-ledger-service.js";
 import type { NextNumberService } from "../../numbering/index.js";
+import type { AuditSink } from "../../audit/index.js";
+import { recordTransition } from "../audit.js";
 import type { ProjectRepository } from "../../projects/project.js";
 import { ProjectNotFoundError } from "../../projects/errors.js";
 import type { AssetRepository } from "../../fixed-assets/asset.js";
@@ -17,6 +19,7 @@ import {
   SiteReceiptSelfReceiptError,
 } from "./errors.js";
 import type {
+  ActiveWorksContractPort,
   BoqLineExistencePort,
   CustodyFilter,
   CustodyRepository,
@@ -56,8 +59,14 @@ export interface SiteServiceDeps {
   readonly numbering: NextNumberService;
   readonly accountRouting?: Pick<AccountRoutingRepository, "get">;
   readonly boqLines?: BoqLineExistencePort;
+  /** Slice 1. Absent, a consumption may be booked without naming a BOQ line. */
+  readonly worksContracts?: ActiveWorksContractPort;
   /** Wraps confirm in one atomic transaction: stock, numbering and the GL entry commit together. */
   readonly transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** سجل العمليات الحساسة — a confirmed consumption or plant log relieves stock into WIP, so it is recorded. */
+  readonly audit?: AuditSink;
+  /** ISO `YYYY-MM-DD` "today" — the upper bound on every site document date. */
+  readonly today?: () => string;
   readonly now?: () => string;
 }
 
@@ -112,8 +121,6 @@ export interface CreateEquipmentLogCommand {
   readonly assetId: string;
   readonly date: string;
   readonly hours: Qty;
-  /** Omitted, the asset's سعر الساعة الداخلي is used; refused when the asset has none. */
-  readonly hourlyRate?: Money | null;
   readonly boqLineId?: string | null;
   readonly notes?: string | null;
 }
@@ -129,6 +136,10 @@ export class SiteService {
 
   private now(): string {
     return (this.deps.now ?? (() => new Date().toISOString()))();
+  }
+
+  private today(): string {
+    return this.deps.today ? this.deps.today() : this.now().slice(0, 10);
   }
 
   private run<T>(fn: () => Promise<T>): Promise<T> {
@@ -302,7 +313,20 @@ export class SiteService {
     }
 
     const reasons: string[] = [];
-    if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
+    if (!ISO_DATE.test(command.date)) {
+      reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
+    } else {
+      // A receipt signed BEFORE the material left the store is the signature of
+      // a back-dated cover-up, not a clerical slip: the transit leg cannot be
+      // closed before it opened, and nothing may be received in the future.
+      const today = this.today();
+      if (command.date < issue.date) {
+        reasons.push(`تاريخ الاستلام (${command.date}) يسبق تاريخ إذن الصرف (${issue.date})`);
+      }
+      if (command.date > today) {
+        reasons.push(`تاريخ الاستلام (${command.date}) بعد تاريخ اليوم (${today})`);
+      }
+    }
     if (command.lines.length === 0) reasons.push("الاستلام يحتاج سطراً واحداً على الأقل");
     const outstanding = await this.outstandingOf(issue);
     command.lines.forEach((line, i) => {
@@ -407,6 +431,18 @@ export class SiteService {
     if (boqLineId && this.deps.boqLines && !(await this.deps.boqLines.exists(boqLineId))) {
       throw new InvalidSiteDocumentError([`بند جدول الكميات "${boqLineId}" غير موجود`]);
     }
+    // Consumption with no BOQ line is invisible to انحراف الاستهلاك — it has no
+    // theoretical quantity to be compared against — so on a project running
+    // under a live works contract the line is not optional.
+    if (
+      boqLineId === null &&
+      this.deps.worksContracts &&
+      (await this.deps.worksContracts.hasActiveContract(warehouse.projectId as string))
+    ) {
+      throw new InvalidSiteDocumentError([
+        "بند جدول الكميات مطلوب — المشروع يعمل تحت عقد سارٍ، والاستهلاك بلا بند لا يظهر في تقرير انحراف الاستهلاك",
+      ]);
+    }
     if (await this.deps.consumptions.findById(command.id)) {
       throw new InvalidSiteDocumentError([`مستند الاستهلاك "${command.id}" موجود بالفعل`]);
     }
@@ -437,7 +473,7 @@ export class SiteService {
    * contract revenue by the monthly recognition run (D-12), not by a storeman
    * issuing cement.
    */
-  async confirmConsumption(id: string): Promise<MaterialConsumption> {
+  async confirmConsumption(id: string, actor?: string | null): Promise<MaterialConsumption> {
     const consumption = await this.deps.consumptions.findById(id);
     if (!consumption) throw new SiteDocumentNotFoundError(id);
     if (consumption.status === "confirmed") {
@@ -448,7 +484,7 @@ export class SiteService {
       this.routed("item_type.inventory", "1200"),
     ]);
 
-    return this.run(async () => {
+    const saved = await this.run(async () => {
       const number = await this.deps.numbering.next("MATERIAL_CONSUMPTION");
       const result = await this.deps.stockLedger.postIssue({
         issueId: consumption.id,
@@ -508,6 +544,19 @@ export class SiteService {
       await this.deps.consumptions.save(confirmed);
       return confirmed;
     });
+    await recordTransition(this.deps.audit, {
+      entityType: "MATERIAL_CONSUMPTION",
+      entityId: saved.id,
+      action: "CONFIRM",
+      actor: actor ?? "system",
+      details: {
+        docNo: saved.docNo,
+        projectId: saved.projectId,
+        totalCost: saved.totalCost.toString(),
+        journalEntryId: saved.journalEntryId,
+      },
+    });
+    return saved;
   }
 
   // --- عهدة المواد المرتجعة ---
@@ -572,9 +621,14 @@ export class SiteService {
     const asset = await this.deps.assets.findById(command.assetId);
     if (!asset) throw new InvalidSiteDocumentError([`الأصل "${command.assetId}" غير موجود`]);
 
-    const hourlyRate = command.hourlyRate ?? asset.internalHourlyRate;
+    // INVARIANT: the rate is the ASSET's سعر الساعة الداخلي and nothing else.
+    // A per-log override let whoever typed the log set the number that becomes
+    // WIP, then cost, then the percentage of completion, then recognised
+    // revenue — with no approval anywhere. Changing the rate is an edit of the
+    // asset register, gated and audited there.
+    const hourlyRate = asset.internalHourlyRate;
     if (!hourlyRate || hourlyRate.scaled <= 0n) {
-      throw new InvalidSiteDocumentError(["سعر الساعة الداخلي غير محدد على هذه المعدة — حدّده على الأصل أو أدخله هنا"]);
+      throw new InvalidSiteDocumentError(["سعر الساعة الداخلي غير محدد على هذه المعدة — حدّده على الأصل أولاً"]);
     }
     const boqLineId = command.boqLineId?.trim() ? command.boqLineId.trim() : null;
     if (boqLineId && this.deps.boqLines && !(await this.deps.boqLines.exists(boqLineId))) {
@@ -604,7 +658,7 @@ export class SiteService {
     return log;
   }
 
-  async confirmEquipmentLog(id: string): Promise<EquipmentLog> {
+  async confirmEquipmentLog(id: string, actor?: string | null): Promise<EquipmentLog> {
     const log = await this.deps.equipmentLogs.findById(id);
     if (!log) throw new SiteDocumentNotFoundError(id);
     if (log.status === "confirmed") {
@@ -615,7 +669,7 @@ export class SiteService {
       this.routed("contracting.plant_recovery", "5160"),
     ]);
 
-    return this.run(async () => {
+    const saved = await this.run(async () => {
       const number = await this.deps.numbering.next("EQUIPMENT_LOG");
       // Recomputed here rather than trusted from the stored draft: the rate or
       // the hours could have been edited between draft and confirm.
@@ -658,6 +712,19 @@ export class SiteService {
       await this.deps.equipmentLogs.save(confirmed);
       return confirmed;
     });
+    await recordTransition(this.deps.audit, {
+      entityType: "EQUIPMENT_LOG",
+      entityId: saved.id,
+      action: "CONFIRM",
+      actor: actor ?? "system",
+      details: {
+        docNo: saved.docNo,
+        projectId: saved.projectId,
+        assetId: saved.assetId,
+        journalEntryId: saved.journalEntryId,
+      },
+    });
+    return saved;
   }
 
   // --- reads ---
@@ -713,8 +780,36 @@ export class SiteService {
     const issues = await this.deps.issues.list(options.projectId ? { projectId: options.projectId } : {});
     const rows: UnreceivedRow[] = [];
     for (const issue of issues) {
-      if (issue.status !== "issued" && issue.status !== "partially_received") continue;
       const ageDays = Math.floor((asOf - Date.parse(`${issue.date}T00:00:00Z`)) / 86_400_000);
+      // A receipt dated before the issue it closes is reported REGARDLESS of
+      // the issue's status or the ageing window: it is not a shortfall waiting
+      // to be signed for, it is the signature of a back-dated one, and an aged
+      // filter is exactly where such a row would hide.
+      for (const receipt of await this.deps.receipts.list({ issueId: issue.id })) {
+        if (receipt.status !== "confirmed" || receipt.date >= issue.date) continue;
+        for (const line of receipt.lines) {
+          rows.push({
+            issueId: issue.id,
+            docNo: issue.docNo,
+            date: issue.date,
+            projectId: issue.projectId,
+            fromWarehouseId: issue.fromWarehouseId,
+            toWarehouseId: issue.toWarehouseId,
+            transitWarehouseId: issue.transitWarehouseId,
+            issuedByUserId: issue.issuedByUserId,
+            itemId: line.itemId,
+            qtyIssued: line.qtyReceived,
+            qtyReceived: line.qtyReceived,
+            qtyOutstanding: Qty.zero(),
+            ageDays: Math.floor((asOf - Date.parse(`${receipt.date}T00:00:00Z`)) / 86_400_000),
+            kind: "received_before_issue",
+            receiptId: receipt.id,
+            receiptDocNo: receipt.docNo,
+            receiptDate: receipt.date,
+          });
+        }
+      }
+      if (issue.status !== "issued" && issue.status !== "partially_received") continue;
       if (ageDays < olderThanDays) continue;
       const received = await this.receivedSoFar(issue.id);
       for (const line of issue.lines) {
@@ -735,6 +830,10 @@ export class SiteService {
           qtyReceived: already,
           qtyOutstanding: outstanding,
           ageDays,
+          kind: "outstanding",
+          receiptId: null,
+          receiptDocNo: null,
+          receiptDate: null,
         });
       }
     }

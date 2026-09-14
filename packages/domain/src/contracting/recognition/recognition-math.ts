@@ -103,6 +103,8 @@ export interface RecognitionAccountIds {
   readonly onerousLoss: string;
   readonly revenue: string;
   readonly plantRecovery: string;
+  readonly customerAdvances: string;
+  readonly retentionReceivable: string;
 }
 
 export interface RecognitionInput {
@@ -114,6 +116,13 @@ export interface RecognitionInput {
   readonly lines: readonly PostedLine[];
   /** The ids of every P&L expense account in the chart. */
   readonly expenseAccountIds: ReadonlySet<string>;
+  /**
+   * The expense accounts that are NOT contract cost — غرامات التأخير, the plant
+   * recovery contra, this run's own loss line and the inventory-adjustment
+   * accounts. Built from the routing table in the composition and passed in;
+   * omitted, only the two the arithmetic itself creates are excluded.
+   */
+  readonly costExcludedAccountIds?: ReadonlySet<string>;
   readonly accounts: RecognitionAccountIds;
   /** Σ periodRevenue over this contract's earlier live runs. */
   readonly revenueRecognisedPreviously: Money;
@@ -130,7 +139,9 @@ function netOf(lines: readonly PostedLine[]): Money {
 /**
  * التكلفة حتى تاريخه. Costs reach a project either as أعمال تحت التنفيذ (1230,
  * where the site documents capitalise them) or straight onto an expense
- * account carrying the project dimension.
+ * account carrying the project dimension — minus an explicit exclusion set,
+ * because a غرامة تأخير is a deduction from the price, not a cost of building,
+ * and counting it would raise the percentage of completion for being late.
  *
  * INVARIANT: تكلفة إيراد العقود (5150) IS counted. The monthly WIP relief moves
  * cost out of 1230 and into 5150, so netting 1230 without 5150 would report a
@@ -144,9 +155,10 @@ function netOf(lines: readonly PostedLine[]): Money {
 export function costToDateOf(
   lines: readonly PostedLine[],
   expenseAccountIds: ReadonlySet<string>,
-  accounts: RecognitionAccountIds,
+  accounts: Pick<RecognitionAccountIds, "wip" | "onerousLoss" | "plantRecovery">,
+  costExcludedAccountIds?: ReadonlySet<string>,
 ): Money {
-  const excluded = new Set([accounts.onerousLoss, accounts.plantRecovery]);
+  const excluded = new Set([accounts.onerousLoss, accounts.plantRecovery, ...(costExcludedAccountIds ?? [])]);
   return netOf(
     lines.filter(
       (l) => !excluded.has(l.accountId) && (l.accountId === accounts.wip || expenseAccountIds.has(l.accountId)),
@@ -188,7 +200,7 @@ export function computeRecognition(input: RecognitionInput): RecognitionFigures 
   const monthStart = monthStartOf(periodEnd);
   const certifiedValue = input.recognitionPolicy === "certified_value";
 
-  const costToDate = costToDateOf(input.lines, input.expenseAccountIds, accounts);
+  const costToDate = costToDateOf(input.lines, input.expenseAccountIds, accounts, input.costExcludedAccountIds);
   const costToComplete = Money.fromScaled(
     input.estimatedTotalCost.scaled > costToDate.scaled ? input.estimatedTotalCost.scaled - costToDate.scaled : 0n,
   );
@@ -224,22 +236,35 @@ export function computeRecognition(input: RecognitionInput): RecognitionFigures 
     ? Money.zero()
     : Money.fromScaled(contractAsset.scaled - assetAfterSteps.scaled);
 
-  const foreseeableLoss = certifiedValue
-    ? Money.zero()
-    : Money.fromScaled(
-        input.estimatedTotalCost.scaled > input.contractValue.scaled
-          ? input.estimatedTotalCost.scaled - input.contractValue.scaled
-          : 0n,
-      );
+  // OUTSIDE the policy branch: a contract billed at certified value can still be
+  // onerous, and the موقف المشاريع flag raises «عقد خاسر — مخصّص واجب» on it
+  // either way. Zeroing the provision here left the flag pointing at a run that
+  // said the provision was nil.
+  const foreseeableLoss = Money.fromScaled(
+    input.estimatedTotalCost.scaled > input.contractValue.scaled
+      ? input.estimatedTotalCost.scaled - input.contractValue.scaled
+      : 0n,
+  );
   const provisionRequired = proportionOf(foreseeableLoss, costToComplete, input.estimatedTotalCost);
   const provisionBalance = netOf(input.lines.filter((l) => l.accountId === accounts.onerousProvision)).negate();
   const provisionMovement = Money.fromScaled(provisionRequired.scaled - provisionBalance.scaled);
 
+  // دفعات مقدمة من العملاء (2160) and محتجزات لدى العملاء (1150) as the ledger
+  // holds them at periodEnd — the two figures a reader of the run needs to see
+  // beside the position, and neither is derivable from the run's own postings.
+  const advanceOutstanding = netOf(input.lines.filter((l) => l.accountId === accounts.customerAdvances)).negate();
+  const retentionHeld = netOf(input.lines.filter((l) => l.accountId === accounts.retentionReceivable));
+
   const wipLines = input.lines.filter((l) => l.accountId === accounts.wip);
   const wipOpening = netOf(wipLines.filter((l) => l.date < monthStart));
   const wipIncurred = netOf(wipLines.filter((l) => l.date >= monthStart));
-  const wipRelieved = Money.fromScaled(wipOpening.scaled + wipIncurred.scaled);
   const wipByCategory = wipByCategoryOf(wipLines);
+  // The relief takes the whole BALANCE standing in 1230 at periodEnd, not the
+  // month's own movement: a cost confirmed after its month was run reaches the
+  // ledger dated inside a closed month, and relieving only the movement would
+  // strand it in WIP for the life of the contract.
+  const wipRelieved = Money.sum(wipByCategory.map((b) => b.amount));
+  const wipClosing = Money.fromScaled(wipOpening.scaled + wipIncurred.scaled - wipRelieved.scaled);
 
   return {
     recognitionPolicy: input.recognitionPolicy,
@@ -257,13 +282,15 @@ export function computeRecognition(input: RecognitionInput): RecognitionFigures 
     contractLiability: certifiedValue ? Money.zero() : contractLiability,
     contractPositionMovement,
     foreseeableLoss,
-    provisionRequired: certifiedValue ? Money.zero() : provisionRequired,
+    provisionRequired,
     provisionBalance,
-    provisionMovement: certifiedValue ? Money.zero() : provisionMovement,
+    provisionMovement,
     wipOpening,
     wipIncurred,
     wipRelieved,
-    wipClosing: Money.zero(),
+    wipClosing,
     wipByCategory,
+    advanceOutstanding,
+    retentionHeld,
   };
 }

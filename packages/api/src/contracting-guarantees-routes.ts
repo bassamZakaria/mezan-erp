@@ -9,6 +9,9 @@ import {
   InvalidGuaranteeError,
   InvalidGuaranteeTransitionError,
   Money,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
+  VatPeriodAlreadyFiledError,
   computeGuaranteeSummary,
   daysToExpiry,
   derivedGuaranteeStatus,
@@ -28,20 +31,22 @@ import {
   releaseGuaranteeSchema,
   updateGuaranteeSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * خطابات الضمان — the register, its bank-facility report and the four status
  * moves that post to the ledger (design §05).
  *
- * PERMISSIONS: a letter of guarantee is a treasury instrument, not a
- * certificate — it locks the company's cash at its bank. It reads under
- * `treasury.cash_voucher.view` and is written under
- * `treasury.cash_voucher.create`, the codes the permission catalog already
- * carries for treasury documents. No new code is minted.
+ * PERMISSIONS: the register has its OWN three codes, not the treasury's.
+ * `treasury.cash_voucher.create` is held by the cashier at the counter, and it
+ * was letting that person release a performance bond — the employer's entire
+ * security on the job — and forfeit it, backdated and unlogged. Releasing or
+ * calling a letter is separated from issuing and reducing one, because giving
+ * the ceiling away is a different act from using it.
  */
-const VIEW = "treasury.cash_voucher.view";
-const WRITE = "treasury.cash_voucher.create";
+const VIEW = "contracting.guarantee.view";
+const WRITE = "contracting.guarantee.manage";
+const RELEASE = "contracting.guarantee.release";
 
 export interface ContractingGuaranteesRoutesDeps extends GuaranteeServiceDeps {
   /** Treasury accounts in full, for the facility limits the summary reports. */
@@ -76,11 +81,25 @@ function serialize(guarantee: LetterOfGuarantee, today: string) {
       amount: r.amount.toString(),
       reason: r.reason,
       sourceRef: r.sourceRef,
+      userId: r.userId,
+    })),
+    restorations: guarantee.restorations.map((r) => ({
+      date: r.date,
+      amount: r.amount.toString(),
+      reason: r.reason,
+      sourceRef: r.sourceRef,
+      userId: r.userId,
     })),
     closedDate: guarantee.closedDate,
+    closedBy: guarantee.closedBy,
     closedAmount: guarantee.closedAmount.toString(),
     notes: guarantee.notes,
   };
+}
+
+/** WHO is acting — stamped on the row and named in the audit trail. */
+function actorId(c: Context): string {
+  return getAuthContext(c)?.userId ?? "anonymous";
 }
 
 function serializeSummary(summary: GuaranteeSummary) {
@@ -131,6 +150,13 @@ function handleDomainError(c: Context, err: unknown) {
   }
   if (err instanceof InvalidGuaranteeTransitionError) {
     return c.json({ error: err.code, message: err.message, from: err.from, to: err.to }, 409);
+  }
+  // A closed month is a refusal the accountant has to read, never a 500.
+  if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
+    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
+  }
+  if (err instanceof VatPeriodAlreadyFiledError) {
+    return c.json({ error: "VAT_PERIOD_FILED", message: err.message }, 409);
   }
   throw err;
 }
@@ -260,7 +286,7 @@ export function createContractingGuaranteesRoutes(
     }
   }
 
-  app.post("/:id/issue", gate(WRITE), (c) => act(c, (id) => service.issue(id)));
+  app.post("/:id/issue", gate(WRITE), (c) => act(c, (id) => service.issue(id, { userId: actorId(c) })));
 
   app.post("/:id/reduce", gate(WRITE), async (c) => {
     const parsed = reduceGuaranteeSchema.safeParse(await c.req.json().catch(() => ({})));
@@ -272,18 +298,19 @@ export function createContractingGuaranteesRoutes(
         amount: Money.fromMajor(body.amount),
         reason: body.reason,
         sourceRef: body.sourceRef ?? null,
+        userId: actorId(c),
       }),
     );
   });
 
-  app.post("/:id/release", gate(WRITE), async (c) => {
+  app.post("/:id/release", gate(RELEASE), async (c) => {
     const parsed = releaseGuaranteeSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const body = parsed.data;
-    return act(c, (id) => service.release(id, { date: body.date }));
+    return act(c, (id) => service.release(id, { date: body.date, userId: actorId(c) }));
   });
 
-  app.post("/:id/call", gate(WRITE), async (c) => {
+  app.post("/:id/call", gate(RELEASE), async (c) => {
     const parsed = callGuaranteeSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const body = parsed.data;
@@ -292,6 +319,7 @@ export function createContractingGuaranteesRoutes(
         date: body.date,
         amount: body.amount !== undefined ? Money.fromMajor(body.amount) : undefined,
         chargeAccountId: body.chargeAccountId ?? null,
+        userId: actorId(c),
       }),
     );
   });

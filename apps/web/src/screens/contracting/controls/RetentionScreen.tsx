@@ -123,6 +123,7 @@ export function RetentionScreen() {
 
   const createRelease = useCreateRetentionRelease();
   const releaseRetention = useReleaseRetention();
+  const [approvedBy, setApprovedBy] = useState("");
   const cancelRelease = useCancelRetentionRelease();
   const recordHandover = useRecordHandover();
 
@@ -298,10 +299,25 @@ export function RetentionScreen() {
               </Button>
               {mayRelease && selected.status === "draft" ? (
                 <>
+                  {selected.earlyRelease ? (
+                    <TextField
+                      label={t("retention.approvedBy")}
+                      value={approvedBy}
+                      onChange={setApprovedBy}
+                      hint={t("retention.approvedByHint")}
+                    />
+                  ) : null}
                   <Button
                     variant="primary"
-                    disabled={pendingId === selected.id}
-                    onClick={() => void runAction(selected, () => releaseRetention.mutateAsync({ id: selected.id }))}
+                    disabled={pendingId === selected.id || (selected.earlyRelease && approvedBy.trim() === "")}
+                    onClick={() =>
+                      void runAction(selected, () =>
+                        releaseRetention.mutateAsync({
+                          id: selected.id,
+                          approvedBy: selected.earlyRelease ? approvedBy.trim() : null,
+                        }),
+                      )
+                    }
                   >
                     {t("retention.action.release")}
                   </Button>
@@ -341,6 +357,9 @@ export function RetentionScreen() {
                   />
                   <Figure label={t("retention.cap")} value={<MoneyValue value={majorOf(selected.cap)} />} />
                   {selected.notes ? <Figure label={t("common.notes")} value={selected.notes} /> : null}
+                  {selected.createdBy ? <Figure label={t("retention.createdBy")} value={selected.createdBy} /> : null}
+                  {selected.releasedBy ? <Figure label={t("retention.releasedBy")} value={selected.releasedBy} /> : null}
+                  {selected.approvedBy ? <Figure label={t("retention.approvedBy")} value={selected.approvedBy} /> : null}
                   {selected.earlyRelease ? (
                     <div className="p-[13px_15px] text-[12.5px] text-danger-ink">{t("retention.earlyWarning")}</div>
                   ) : null}

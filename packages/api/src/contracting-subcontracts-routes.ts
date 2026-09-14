@@ -5,6 +5,9 @@ import {
   InvalidSubcontractError,
   InvalidSubcontractTransitionError,
   LaterSubCertificateExistsError,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
+  SubCertificateDeductionError,
   SubCertificateNotFoundError,
   SubCertificateQuantityError,
   SubCertificateSegregationError,
@@ -13,6 +16,7 @@ import {
   SubcontractRetentionError,
   SubcontractService,
   SubcontractorNotPayableError,
+  VatPeriodAlreadyFiledError,
   type CertificateComputation,
   type SubCertificatePreview,
   type SubCertificateServiceDeps,
@@ -20,6 +24,7 @@ import {
   type SubCertificateView,
   type SubCertificateWorkLine,
   type SubcontractLine,
+  type SubcontractRetentionRelease,
   type SubcontractServiceDeps,
   type SubcontractStatus,
   type SubcontractView,
@@ -27,10 +32,13 @@ import {
 import {
   activateSubcontractSchema,
   approveSubCertificateSchema,
+  cancelSubCertificateSchema,
+  certifySubCertificateSchema,
   completeSubcontractSchema,
   createSubCertificateSchema,
   createSubcontractSchema,
   linkSubcontractAdvanceSchema,
+  measureSubCertificateSchema,
   previewSubCertificateSchema,
   releaseSubcontractRetentionSchema,
   replaceSubcontractLinesSchema,
@@ -141,17 +149,32 @@ function serializeSubcontract(view: SubcontractView) {
       held: view.retention.held.toString(),
       released: view.retention.released.toString(),
       balance: view.retention.balance.toString(),
-      releases: view.retention.releases.map((r) => ({
-        id: r.id,
-        date: r.date,
-        amount: r.amount.toString(),
-        journalEntryId: r.journalEntryId,
-        releasedBy: r.releasedBy,
-        notes: r.notes,
-      })),
+      completionDate: view.retention.completionDate,
+      defectsLiabilityMonths: view.retention.defectsLiabilityMonths,
+      provisionalReleaseEventDate: view.retention.provisionalReleaseEventDate,
+      finalReleaseEventDate: view.retention.finalReleaseEventDate,
+      releases: view.retention.releases.map(serializeRelease),
     },
+    certifiedToDate: view.certifiedToDate.toString(),
+    remainingCommitment: view.remainingCommitment.toString(),
     certificateCount: view.certificateCount,
     payabilityRefusals: view.payabilityRefusals,
+  };
+}
+
+function serializeRelease(r: SubcontractRetentionRelease) {
+  return {
+    id: r.id,
+    date: r.date,
+    amount: r.amount.toString(),
+    journalEntryId: r.journalEntryId,
+    kind: r.kind,
+    releaseEventDate: r.releaseEventDate,
+    earlyRelease: r.earlyRelease,
+    invoiceId: r.invoiceId,
+    invoiceDocNo: r.invoiceDocNo,
+    releasedBy: r.releasedBy,
+    notes: r.notes,
   };
 }
 
@@ -229,6 +252,7 @@ function serializeCertificate(view: SubCertificateView) {
     projectId: c.projectId,
     supplierId: c.supplierId,
     supplierNameAr: view.supplierNameAr,
+    supplierTaxNumber: view.supplierTaxNumber,
     serial: c.serial,
     previousCertificateId: c.previousCertificateId,
     periodFrom: c.periodFrom,
@@ -245,7 +269,9 @@ function serializeCertificate(view: SubCertificateView) {
     certifiedAt: c.certifiedAt,
     approvedBy: c.approvedBy,
     approvedAt: c.approvedAt,
+    cancelledBy: c.cancelledBy,
     cancelledAt: c.cancelledAt,
+    cancelReasonAr: c.cancelReasonAr,
     invoiceId: c.invoiceId,
     invoiceDocNo: c.invoiceDocNo,
     journalEntryId: c.journalEntryId,
@@ -292,8 +318,17 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof InvalidSubcontractError || err instanceof InvalidSubCertificateError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
   }
-  if (err instanceof SubCertificateQuantityError) {
+  if (err instanceof SubCertificateQuantityError || err instanceof SubCertificateDeductionError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+  }
+  // A closed period or a filed VAT return is a state conflict, not a server
+  // fault: the caller has to reopen the period or change the date.
+  if (
+    err instanceof PeriodNotOpenForPostingError ||
+    err instanceof NoFiscalPeriodForDateError ||
+    err instanceof VatPeriodAlreadyFiledError
+  ) {
+    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof SubcontractorNotPayableError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
@@ -480,14 +515,11 @@ export function createContractingSubcontractsRoutes(
         held: position.held.toString(),
         released: position.released.toString(),
         balance: position.balance.toString(),
-        releases: position.releases.map((r) => ({
-          id: r.id,
-          date: r.date,
-          amount: r.amount.toString(),
-          journalEntryId: r.journalEntryId,
-          releasedBy: r.releasedBy,
-          notes: r.notes,
-        })),
+        completionDate: position.completionDate,
+        defectsLiabilityMonths: position.defectsLiabilityMonths,
+        provisionalReleaseEventDate: position.provisionalReleaseEventDate,
+        finalReleaseEventDate: position.finalReleaseEventDate,
+        releases: position.releases.map(serializeRelease),
       });
     } catch (err) {
       return handleDomainError(c, err);
@@ -500,7 +532,12 @@ export function createContractingSubcontractsRoutes(
     try {
       const view = await service.releaseRetention(
         c.req.param("id"),
-        { amount: parsed.data.amount, date: parsed.data.date, notes: parsed.data.notes ?? null },
+        {
+          amount: parsed.data.amount,
+          date: parsed.data.date,
+          ...(parsed.data.kind !== undefined ? { kind: parsed.data.kind } : {}),
+          notes: parsed.data.notes ?? null,
+        },
         actorOf(c),
       );
       return c.json(serializeSubcontract(view));
@@ -629,16 +666,22 @@ export function createSubcontractCertificatesRoutes(
   });
 
   app.post("/:id/measure", gate(PREPARE), async (c) => {
+    const parsed = measureSubCertificateSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      return c.json(serializeCertificate(await service.measure(c.req.param("id"), actorOf(c))));
+      const view = await service.measure(c.req.param("id"), actorOf(c), parsed.data.measuredAt ?? null);
+      return c.json(serializeCertificate(view));
     } catch (err) {
       return handleDomainError(c, err);
     }
   });
 
   app.post("/:id/certify", gate(CERTIFY), async (c) => {
+    const parsed = certifySubCertificateSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      return c.json(serializeCertificate(await service.certify(c.req.param("id"), actorOf(c))));
+      const view = await service.certify(c.req.param("id"), actorOf(c), parsed.data.certifiedAt ?? null);
+      return c.json(serializeCertificate(view));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -657,8 +700,11 @@ export function createSubcontractCertificatesRoutes(
   });
 
   app.post("/:id/cancel", gate(PREPARE), async (c) => {
+    const parsed = cancelSubCertificateSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      return c.json(serializeCertificate(await service.cancel(c.req.param("id"), actorOf(c))));
+      const view = await service.cancel(c.req.param("id"), parsed.data.reasonAr, actorOf(c));
+      return c.json(serializeCertificate(view));
     } catch (err) {
       return handleDomainError(c, err);
     }

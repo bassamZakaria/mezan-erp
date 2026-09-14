@@ -68,6 +68,7 @@ const MODULE_KEY: Record<JournalSourceModuleDTO, AppTranslationKey> = {
   manufacturing: "journals.module.manufacturing",
   payroll: "journals.module.payroll",
   assets: "journals.module.assets",
+  contracting: "journals.module.contracting",
   manual: "journals.module.manual",
   unknown: "journals.module.unknown",
 };

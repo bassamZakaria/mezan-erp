@@ -79,3 +79,12 @@ export interface EquipmentLogRepository {
 export interface BoqLineExistencePort {
   exists(boqLineId: string): Promise<boolean>;
 }
+
+/**
+ * عقد أعمال سارٍ على المشروع. A project running under a live works contract is
+ * measured against its جدول الكميات, so consumption on it MUST name the line it
+ * was spent on; a project with no live contract has no bill to name.
+ */
+export interface ActiveWorksContractPort {
+  hasActiveContract(projectId: string): Promise<boolean>;
+}

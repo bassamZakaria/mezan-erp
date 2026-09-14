@@ -83,6 +83,8 @@ const CONTRACTING_ACCOUNT_SLOTS: Readonly<Record<keyof ProjectContractingAccount
   contractLiability: ["contracting.contract_liability", "2175"],
   billings: ["contracting.billings", "2165"],
   revenue: ["contracting.revenue", "4150"],
+  customerAdvances: ["contracting.customer_advances", "2160"],
+  retentionReceivable: ["contracting.retention_receivable", "1150"],
 };
 
 /**
@@ -133,12 +135,21 @@ export function createProjectsRoutes(
     const contractingLines =
       (await deps.ledger?.listLines?.({ toDate, accountIds: Object.values(contractingAccounts) })) ?? [];
 
+    // Bounded by the report's own end date: a run for a month AFTER `toDate`
+    // reclassified billings that had not happened yet as far as this report is
+    // concerned, and adding it made billedToDate run ahead of the certificates.
     const billedReclassedByProject = new Map<string, Money>();
     for (const run of runs) {
       if (run.status !== "posted") continue;
+      if (toDate && run.periodEnd > toDate) continue;
       const current = billedReclassedByProject.get(run.projectId) ?? Money.zero();
       billedReclassedByProject.set(run.projectId, current.add(run.billedInPeriod));
     }
+
+    // استرداد تكلفة تشغيل المعدات is the contra of a cost already in WIP; it
+    // carries the projectId so the recovery is traceable, and counting it as
+    // cost nets the same plant hours out twice.
+    const costExcludedAccountIds = new Set<string>([routedAccountId(routing, "contracting.plant_recovery") ?? "5160"]);
 
     const flagInputs: ProjectFlagContract[] = [];
     for (const contract of contracts) {
@@ -162,6 +173,7 @@ export function createProjectsRoutes(
       accounts: contractingAccounts,
       billedReclassedByProject,
       flagsByProject,
+      costExcludedAccountIds,
     });
     return c.json({
       rows: report.rows.map((r) => ({
@@ -181,6 +193,8 @@ export function createProjectsRoutes(
         contractLiability: r.contractLiability.toString(),
         billedToDate: r.billedToDate.toString(),
         revenueRecognised: r.revenueRecognised.toString(),
+        advanceOutstanding: r.advanceOutstanding.toString(),
+        retentionHeld: r.retentionHeld.toString(),
         flags: r.flags,
       })),
       totals: {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
-import { aggregateItemSales } from "./sales-item-aggregation.js";
+import { aggregateItemSales, creditedRevenueAccountIds } from "./sales-item-aggregation.js";
 import type { SalesInvoice, SalesInvoiceLine } from "../sales-invoices/sales-invoice.js";
 
 function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
@@ -114,5 +114,46 @@ describe("aggregateItemSales", () => {
   it("always returns a null English name — the report layer fills it from the item catalogue", () => {
     const invoices = [invoice()];
     expect(aggregateItemSales(invoices, undefined, undefined)[0]?.itemNameEn).toBeNull();
+  });
+
+  it("drops a line that credits a non-revenue account — a contract billing is not a sale", () => {
+    const invoices = [
+      invoice({
+        lines: [
+          line({ lineId: "l1", itemId: "item-a", qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("100.00"), revenueAccountId: "4100" }),
+          line({ lineId: "l2", itemId: "item-boq", qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("900.00"), revenueAccountId: "2165" }),
+        ],
+      }),
+    ];
+    const isContractBilling = (accountId: string) => accountId === "2165";
+    expect(aggregateItemSales(invoices, undefined, undefined, "exc")).toHaveLength(2);
+    const filtered = aggregateItemSales(invoices, undefined, undefined, "exc", isContractBilling);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]).toMatchObject({ itemId: "item-a", qty: 1, revenue: 100 });
+  });
+});
+
+describe("creditedRevenueAccountIds", () => {
+  it("names only the accounts the SALE lines credited, so the ledger side sums the same fact", () => {
+    const invoices = [
+      invoice({
+        lines: [
+          line({ lineId: "l1", itemId: "item-a", revenueAccountId: "4100" }),
+          line({ lineId: "l2", itemId: "item-b", revenueAccountId: "4150" }),
+          line({ lineId: "l3", itemId: "item-boq", revenueAccountId: "2165" }),
+        ],
+      }),
+    ];
+    const ids = creditedRevenueAccountIds(invoices, undefined, undefined, (id) => id === "2165");
+    expect([...ids].sort()).toEqual(["4100", "4150"]);
+  });
+
+  it("ignores drafts, cancellations and anything outside the range", () => {
+    const invoices = [
+      invoice({ id: "draft", status: "draft", lines: [line({ revenueAccountId: "4900" })] }),
+      invoice({ id: "outside", date: "2026-07-01", lines: [line({ revenueAccountId: "4800" })] }),
+      invoice({ id: "live", date: "2026-08-10", lines: [line({ revenueAccountId: "4100" })] }),
+    ];
+    expect(creditedRevenueAccountIds(invoices, "2026-08-01", "2026-08-31")).toEqual(["4100"]);
   });
 });

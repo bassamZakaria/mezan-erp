@@ -20,6 +20,7 @@ import { useApi } from "../../../data/ApiContext";
 import { useAccounts, useJournalEntry } from "../../../data/hooks";
 import {
   usePostRecognitionRun,
+  useRecognitionPreview,
   useRecognitionRun,
   useRecognitionRuns,
   useRecognitionStatus,
@@ -379,6 +380,8 @@ function RunDetailPage({
   const runQuery = useRecognitionRun(docNo);
   const run = runQuery.data ?? null;
   const siblingsQuery = useRecognitionRuns(run?.contractId ?? null);
+  const previewQuery = useRecognitionPreview(run?.contractId ?? null, run?.periodEnd ?? null);
+  const recomputed = previewQuery.data?.divergent ? (previewQuery.data.recomputed ?? null) : null;
   const entryQuery = useJournalEntry(run?.journalEntryId ?? null);
   const accountsQuery = useAccounts();
   const reverseRun = useReverseRecognitionRun();
@@ -423,13 +426,33 @@ function RunDetailPage({
     }
   }
 
-  const wipBalances = majorOf(run.wipOpening) + majorOf(run.wipIncurred) - majorOf(run.wipRelieved);
+  const wipBalances = majorOf(run.wipClosing);
 
   return (
     <div className="w-full">
       {error ? (
         <Card className="mb-[18px] p-[18px_20px]">
           <p className="text-[13px] font-semibold text-danger-ink">{error}</p>
+        </Card>
+      ) : null}
+      {recomputed ? (
+        <Card className="mb-[18px] border-s-4 border-danger p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">{t("revenueRecognition.divergenceTitle")}</p>
+          <p className="mt-[6px] text-[12.5px] text-ink-muted">{t("revenueRecognition.divergenceBody")}</p>
+          <div className="mt-[10px] grid grid-cols-1 gap-[6px] sm:grid-cols-3">
+            <Figure
+              label={t("revenueRecognition.costToDate")}
+              value={<MoneyValue value={majorOf(recomputed.costToDate)} className="text-danger-ink" />}
+            />
+            <Figure
+              label={t("revenueRecognition.wipStranded")}
+              value={<MoneyValue value={majorOf(recomputed.wipRelieved)} className="text-danger-ink" />}
+            />
+            <Figure
+              label={t("revenueRecognition.revenueToDate")}
+              value={<MoneyValue value={majorOf(recomputed.revenueToDate)} className="text-danger-ink" />}
+            />
+          </div>
         </Card>
       ) : null}
       <DocumentDetail
@@ -486,6 +509,8 @@ function RunDetailPage({
                 <Figure label={t("revenueRecognition.foreseeableLoss")} value={<MoneyValue value={majorOf(run.foreseeableLoss)} />} />
                 <Figure label={t("revenueRecognition.provisionRequired")} value={<MoneyValue value={majorOf(run.provisionRequired)} />} />
                 <Figure label={t("revenueRecognition.provisionMovement")} value={<MoneyValue value={majorOf(run.provisionMovement)} />} />
+                <Figure label={t("projects.advanceOutstanding")} value={<MoneyValue value={majorOf(run.advanceOutstanding)} />} />
+                <Figure label={t("projects.retentionHeld")} value={<MoneyValue value={majorOf(run.retentionHeld)} />} />
               </Card>
             ),
           },

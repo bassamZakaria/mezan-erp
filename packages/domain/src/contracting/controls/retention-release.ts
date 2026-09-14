@@ -70,6 +70,13 @@ export interface RetentionRelease {
   readonly invoiceDocNo: string | null;
   readonly releasedAt: string | null;
   readonly releasedBy: string | null;
+  /**
+   * The SECOND signature an early release needs. `releasedBy` alone is not
+   * enough: the release is already creator ≠ releaser, and letting money go
+   * before the event that entitled anyone to it is the one case that has to
+   * carry a named approval of its own. Null on a release that is not early.
+   */
+  readonly approvedBy: string | null;
   readonly cancelledAt: string | null;
   readonly createdAt: string;
   readonly createdBy: string | null;

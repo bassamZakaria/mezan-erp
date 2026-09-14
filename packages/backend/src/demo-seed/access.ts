@@ -166,6 +166,14 @@ const ROLES = [
       "transactions.view",
       "transactions.view_all",
       "audit.logs.view",
+      // المقاولات: the same person who approves a purchase invoice approves a
+      // مستخلص for payment and signs off a retention release.
+      "contracting.certificate.view",
+      "contracting.certificate.approve",
+      "contracting.certificate.collect",
+      "contracting.retention.release",
+      "contracting.guarantee.view",
+      "contracting.guarantee.release",
     ],
   },
   {
@@ -389,6 +397,10 @@ const ROLES = [
       "admin.users.view",
       "admin.roles.view",
       "admin.settings.view",
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.certificate.view",
+      "contracting.guarantee.view",
     ],
   },
   {
@@ -410,6 +422,75 @@ const ROLES = [
       "inventory.stock.view",
       "treasury.cash_voucher.view",
       "treasury.cash_voucher.create",
+    ],
+  },
+  /**
+   * المقاولات — four roles, because the certificate's preparer, certifier,
+   * approver and collector are FOUR people (design §06) and no seeded role
+   * held a single contracting code, so the segregation rules the module
+   * enforces could not be demonstrated against anyone who could sign in.
+   */
+  {
+    code: "TECHNICAL_OFFICE",
+    name: "المكتب الفني",
+    description: "يُعدّ جداول الكميات والمستخلصات ويرفعها للاعتماد — ولا يعتمدها.",
+    permissions: [
+      "dashboard.view",
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.boq.manage",
+      "contracting.certificate.view",
+      "contracting.certificate.prepare",
+      "inventory.stock.view",
+      "inventory.transfer.view",
+    ],
+  },
+  {
+    code: "CONSULTANT_QS",
+    name: "الاستشاري — مساح الكميات",
+    description: "يراجع الحصر ويعتمده فنيًا — ولا يُعدّ مستخلصًا ولا يصرفه.",
+    permissions: [
+      "dashboard.view",
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.certificate.view",
+      "contracting.certificate.certify",
+    ],
+  },
+  {
+    code: "CONTRACTS_ADMIN",
+    name: "إدارة العقود",
+    description: "يعتمد أوامر التغيير ويدير سجل خطابات الضمان — ولا يُفرج عن خطاب.",
+    permissions: [
+      "dashboard.view",
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.variation.approve",
+      "contracting.certificate.view",
+      // No `.release`: issuing a letter and giving it back are two decisions.
+      "contracting.guarantee.view",
+      "contracting.guarantee.manage",
+      "purchases.supplier.view",
+    ],
+  },
+  {
+    code: "FINANCE_CONTRACTING",
+    name: "المالية — المقاولات",
+    description: "يعتمد المستخلصات للصرف ويحصّلها ويُفرج عن المحتجزات وخطابات الضمان.",
+    permissions: [
+      "dashboard.view",
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.certificate.view",
+      "contracting.certificate.approve",
+      "contracting.certificate.collect",
+      "contracting.retention.release",
+      "contracting.guarantee.view",
+      "contracting.guarantee.release",
+      "accounting.reports.view",
+      "treasury.cash_voucher.view",
+      "sales.invoice.view",
+      "sales.invoice.view_all",
     ],
   },
   {
@@ -501,6 +582,14 @@ const PEOPLE: readonly Person[] = [
   { nameAr: "ليلى إبراهيم", nameEn: "Laila Ibrahim", local: "laila.ibrahim", role: "AUDITOR", status: "active" },
   { nameAr: "سامح فتحي", nameEn: "Sameh Fathy", local: "sameh.fathy", role: "CRM_MANAGER", status: "active" },
 
+  // المقاولات — one person per contracting role, so the module's segregation
+  // rules (preparer ≠ certifier ≠ approver) are demonstrable against real
+  // accounts rather than against the admin bypass.
+  { nameAr: "شريف الجندي", nameEn: "Sherif El-Gendy", local: "sherif.elgendy", role: "TECHNICAL_OFFICE", status: "active" },
+  { nameAr: "منار عبد العزيز", nameEn: "Manar Abdelaziz", local: "manar.abdelaziz", role: "CONSULTANT_QS", status: "active" },
+  { nameAr: "هشام لطفي", nameEn: "Hesham Lotfy", local: "hesham.lotfy", role: "CONTRACTS_ADMIN", status: "active" },
+  { nameAr: "نورهان سمير", nameEn: "Nourhan Samir", local: "nourhan.samir", role: "FINANCE_CONTRACTING", status: "active" },
+
   // Scoped to the one branch by an explicit allow-list rather than "*" — the
   // same value a second branch would narrow against.
   { nameAr: "حسام نبيل", nameEn: "Hossam Nabil", local: "hossam.nabil", role: "BRANCH_MANAGER", status: "active", branchScope: [BRANCH_ID] },
@@ -526,7 +615,14 @@ export async function seedAccess(app: App): Promise<void> {
   // Read-modify-write: settings is one bag and a PUT replaces it, so writing
   // only this key would blank every other policy the seed has set.
   const settings = (await step(app, "GET", "/settings")) as Record<string, unknown>;
-  await step(app, "PUT", "/settings", { ...settings, allowedEmailDomains: [TENANT_DOMAIN] });
+  await step(app, "PUT", "/settings", {
+    ...settings,
+    allowedEmailDomains: [TENANT_DOMAIN],
+    // FALSE, explicitly: this tenant has four contracting people, so the
+    // wildcard admin is subject to فصل المهام exactly like they are. A demo
+    // that waived it could not show the rule refusing anything.
+    contractingSingleOperatorMode: false,
+  });
 
   // --- الأدوار ---
   const roleIdByCode = new Map<string, string>();

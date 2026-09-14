@@ -1,13 +1,17 @@
 import { Money, Qty } from "../../money/index.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
 import type { NextNumberService } from "../../numbering/index.js";
+import type { AuditSink } from "../../audit/index.js";
+import { recordTransition } from "../audit.js";
 import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../../gl/index.js";
 import type { WorksContractStore } from "../contracts/contract.js";
 import {
   completionPercentOf,
   computeCertificate,
   extendQty,
+  percentOf,
   subtract,
+  toPiastres,
 } from "../certificates/amounts.js";
 import type { CertificateComputation } from "../certificates/certificate.js";
 import { subcontractCertificateTerms } from "./amounts.js";
@@ -15,6 +19,7 @@ import {
   InvalidSubCertificateError,
   InvalidSubCertificateTransitionError,
   LaterSubCertificateExistsError,
+  SubCertificateDeductionError,
   SubCertificateNotFoundError,
   SubCertificateQuantityError,
   SubCertificateSegregationError,
@@ -77,6 +82,10 @@ export interface SubCertificateServiceDeps {
   readonly clientCertificates?: ClientCertifiedQuantityPort;
   /** Slice 4A's consumptions that name this subcontract, for the materials prefill. */
   readonly consumptions?: SubcontractConsumptionPort;
+  /** سجل العمليات الحساسة — every transition below is recorded against the sub certificate. */
+  readonly audit?: AuditSink;
+  /** Reads the tenant's `contracting.singleOperatorMode`; false waives nothing. */
+  readonly segregationWaived?: (actor: SubCertificateActor) => Promise<boolean>;
   readonly today?: () => string;
 }
 
@@ -116,6 +125,8 @@ export interface SubCertificateView {
   readonly subcontractDocNo: string;
   readonly subcontractTitleAr: string;
   readonly supplierNameAr: string;
+  /** الرقم الضريبي لمقاول الباطن — printed on the certificate, both parties named. */
+  readonly supplierTaxNumber: string | null;
   readonly contractDocNo: string;
   readonly invoice: SubCertificateInvoiceStatus | null;
   /** True when a later certificate exists — every action on this one is refused. */
@@ -183,9 +194,13 @@ export class SubCertificateService {
     return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
   }
 
-  private async routed(key: string, fallback: string): Promise<string> {
+  private async routed(key: string): Promise<string> {
     const routing = this.deps.routing ? await this.deps.routing.get() : null;
-    return routedAccountId(routing, key) ?? fallback;
+    const accountId = routedAccountId(routing, key);
+    if (accountId === null) {
+      throw new InvalidSubCertificateError([`لم يُحدَّد حساب لتوجيه "${key}" في جدول توجيه الحسابات.`]);
+    }
+    return accountId;
   }
 
   // ----- reads -------------------------------------------------------------
@@ -233,6 +248,7 @@ export class SubCertificateService {
       subcontractDocNo: subcontract?.docNo ?? certificate.subcontractId,
       subcontractTitleAr: subcontract?.titleAr ?? "",
       supplierNameAr: supplier?.nameAr ?? certificate.supplierId,
+      supplierTaxNumber: supplier?.taxNumber ?? null,
       contractDocNo: contract?.docNo ?? certificate.contractId,
       invoice,
       hasLaterCertificate: siblings.some((s) => isLiveSubCertificate(s) && s.serial > certificate.serial),
@@ -278,6 +294,40 @@ export class SubCertificateService {
   private async clientCeiling(contractId: string): Promise<ReadonlyMap<string, Qty>> {
     if (!this.deps.clientCertificates) return new Map();
     return this.deps.clientCertificates.certifiedCumulativeByBoqLine(contractId);
+  }
+
+  /**
+   * What the OTHER subcontracts on the same client contract have already had
+   * certified against each client BOQ line.
+   *
+   * INVARIANT: the employer's certified quantity is shared. Comparing one
+   * sub's cumulative against the full client figure lets two subs on the same
+   * line be paid for the same metre twice, which is the classic back-to-back
+   * leak, so each sub's ceiling is the client figure LESS what its peers hold.
+   * Only committed certificates count — a peer still at حصر is one nobody has
+   * signed.
+   */
+  private async peerCertifiedByClientLine(
+    contractId: string,
+    excludeSubcontractId: string,
+  ): Promise<ReadonlyMap<string, Qty>> {
+    const rows = await this.deps.store.listCertificates({ contractId });
+    const latestBySubcontract = new Map<string, SubCertificate>();
+    for (const row of rows) {
+      if (row.subcontractId === excludeSubcontractId || !isLiveSubCertificate(row)) continue;
+      if (row.status !== "certified" && row.status !== "approved_for_payment" && row.status !== "invoiced") {
+        continue;
+      }
+      const held = latestBySubcontract.get(row.subcontractId);
+      if (!held || row.serial > held.serial) latestBySubcontract.set(row.subcontractId, row);
+    }
+    const map = new Map<string, Qty>();
+    for (const certificate of latestBySubcontract.values()) {
+      for (const line of certificate.workLines) {
+        map.set(line.clientBoqLineId, (map.get(line.clientBoqLineId) ?? Qty.zero()).add(line.cumulativeQty));
+      }
+    }
+    return map;
   }
 
   private buildWorkLines(
@@ -336,7 +386,10 @@ export class SubCertificateService {
    * the client line it sits under. Both figures are named, because the argument
    * on site is always about which of the two is wrong.
    */
-  private quantityRefusals(workLines: readonly SubCertificateWorkLine[]): string[] {
+  private quantityRefusals(
+    workLines: readonly SubCertificateWorkLine[],
+    peerCertified: ReadonlyMap<string, Qty>,
+  ): string[] {
     const reasons: string[] = [];
     for (const line of workLines) {
       if (line.cumulativeQty.isNegative()) {
@@ -349,9 +402,13 @@ export class SubCertificateService {
         );
         continue;
       }
-      if (line.cumulativeQty.compare(line.clientCertifiedCumulativeQty) > 0) {
+      const peer = peerCertified.get(line.clientBoqLineId) ?? Qty.zero();
+      const available = Qty.fromScaled(line.clientCertifiedCumulativeQty.scaled - peer.scaled);
+      if (line.cumulativeQty.compare(available) > 0) {
         reasons.push(
-          `لا يجوز اعتماد كمية للمقاول تتجاوز ما اعتمده الاستشاري على البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية للباطن ${qtyText(line.cumulativeQty)} والمعتمد للعميل ${qtyText(line.clientCertifiedCumulativeQty)}.`,
+          peer.isZero()
+            ? `لا يجوز اعتماد كمية للمقاول تتجاوز ما اعتمده الاستشاري على البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية للباطن ${qtyText(line.cumulativeQty)} والمعتمد للعميل ${qtyText(line.clientCertifiedCumulativeQty)}.`
+            : `لا يجوز اعتماد كمية للمقاول تتجاوز المتاح على البند "${line.code} — ${line.descriptionAr}": المعتمد للعميل ${qtyText(line.clientCertifiedCumulativeQty)}، ومعتمد لمقاولي باطن آخرين ${qtyText(peer)}، فالمتاح ${qtyText(available)} والكمية التراكمية لهذا المقاول ${qtyText(line.cumulativeQty)}.`,
         );
       }
     }
@@ -439,8 +496,14 @@ export class SubCertificateService {
     if (later) throw new LaterSubCertificateExistsError(certificate.id, later.docNo, later.serial);
   }
 
+  /**
+   * INVARIANT: the prefill is rounded to piastres, the same boundary the
+   * deduction is posted and printed on. A six-decimal WAC figure offered as a
+   * deduction is a number nobody can pay — and one the cap below would then
+   * refuse for being a piastre larger than itself.
+   */
   private async materialsPrefill(subcontractId: string): Promise<Money> {
-    return (await this.deps.consumptions?.materialsIssuedTo(subcontractId)) ?? Money.zero();
+    return toPiastres((await this.deps.consumptions?.materialsIssuedTo(subcontractId)) ?? Money.zero());
   }
 
   // ----- use cases ---------------------------------------------------------
@@ -466,7 +529,13 @@ export class SubCertificateService {
       executionDate: composed.executionDate,
       workLines: composed.workLines,
       computed: composed.computed,
-      refusals: this.quantityRefusals(composed.workLines),
+      refusals: [
+        ...this.quantityRefusals(
+          composed.workLines,
+          await this.peerCertifiedByClientLine(subcontract.contractId, subcontract.id),
+        ),
+        ...(await this.deductionRefusals(composed.computed, subcontract)),
+      ],
       employerMaterialsPrefill: await this.materialsPrefill(subcontract.id),
     };
   }
@@ -478,10 +547,13 @@ export class SubCertificateService {
         `لا يمكن إصدار مستخلص إلا على عقد باطن ساري — حالة العقد "${subcontract.status}".`,
       ]);
     }
-    const siblings = (await this.deps.store.listCertificatesBySubcontract(subcontract.id)).filter(
-      isLiveSubCertificate,
-    );
+    const all = await this.deps.store.listCertificatesBySubcontract(subcontract.id);
+    const siblings = all.filter(isLiveSubCertificate);
     const previous = siblings.length === 0 ? null : (siblings[siblings.length - 1] as SubCertificate);
+    // INVARIANT: the serial is monotonic over EVERY certificate of the
+    // subcontract, cancelled ones included. Reusing a cancelled serial gives
+    // two documents the same «مستخلص رقم ٣» and makes the audit trail unusable.
+    const serial = all.reduce((max, row) => Math.max(max, row.serial), 0) + 1;
     if (previous?.isFinal) {
       throw new InvalidSubCertificateError([
         `المستخلص الختامي رقم ${previous.serial} أقفل كميات عقد الباطن — لا يجوز إصدار مستخلص بعده.`,
@@ -501,7 +573,7 @@ export class SubCertificateService {
         contractId: subcontract.contractId,
         projectId: subcontract.projectId,
         supplierId: subcontract.supplierId,
-        serial: (previous?.serial ?? 0) + 1,
+        serial,
         previousCertificateId: previous?.id ?? null,
         periodFrom: cmd.periodFrom,
         periodTo: cmd.periodTo,
@@ -516,7 +588,9 @@ export class SubCertificateService {
         certifiedAt: null,
         approvedBy: null,
         approvedAt: null,
+        cancelledBy: null,
         cancelledAt: null,
+        cancelReasonAr: null,
         invoiceId: null,
         invoiceDocNo: null,
         journalEntryId: null,
@@ -594,39 +668,56 @@ export class SubCertificateService {
     return this.view(next);
   }
 
-  /** حصر معتمد — the site engineer's measurement. */
-  async measure(idOrDocNo: string, actor: SubCertificateActor): Promise<SubCertificateView> {
+  /** حصر معتمد — the site engineer's measurement, on the date it was actually taken. */
+  async measure(
+    idOrDocNo: string,
+    actor: SubCertificateActor,
+    measuredAt?: string | null,
+  ): Promise<SubCertificateView> {
     const current = await this.moveable(idOrDocNo, "draft", "measured");
-    const refusals = await this.refuseQuantities(current);
-    if (refusals.length > 0) throw new SubCertificateQuantityError(refusals);
+    const on = measuredAt ?? this.today();
+    this.assertSignatureDate("تاريخ الحصر", on, [
+      ["تاريخ نهاية الفترة", current.periodTo],
+    ]);
+    await this.refuseAll(current);
     const next: SubCertificate = {
       ...current,
       status: "measured",
       measuredBy: actor.userId,
-      measuredAt: this.today(),
+      measuredAt: on,
     };
     await this.deps.store.saveCertificate(next);
+    await this.audit(next, "MEASURE", actor, { measuredAt: on, periodTo: next.periodTo });
     return this.view(next);
   }
 
   /** معتمد فنيًا — the technical office signs the quantities off. Nothing changes after this. */
-  async certify(idOrDocNo: string, actor: SubCertificateActor): Promise<SubCertificateView> {
+  async certify(
+    idOrDocNo: string,
+    actor: SubCertificateActor,
+    certifiedAt?: string | null,
+  ): Promise<SubCertificateView> {
     const current = await this.moveable(idOrDocNo, "measured", "certified");
-    if (!actor.wildcardAdmin && current.preparedBy !== null && current.preparedBy === actor.userId) {
+    const on = certifiedAt ?? this.today();
+    this.assertSignatureDate("تاريخ الاعتماد الفني", on, [
+      ["تاريخ نهاية الفترة", current.periodTo],
+      ["تاريخ الحصر", current.measuredAt],
+    ]);
+    if (!(await this.waived(actor)) && current.preparedBy !== null && current.preparedBy === actor.userId) {
       throw new SubCertificateSegregationError(
         actor.userId,
         "لا يجوز اعتماد مستخلص الباطن من نفس الشخص الذي أعدّه.",
       );
     }
-    const refusals = await this.refuseQuantities(current);
-    if (refusals.length > 0) throw new SubCertificateQuantityError(refusals);
+    await this.refuseAll(current);
     const next: SubCertificate = {
       ...current,
       status: "certified",
       certifiedBy: actor.userId,
-      certifiedAt: this.today(),
+      certifiedAt: on,
     };
     await this.deps.store.saveCertificate(next);
+    await this.audit(next, "CERTIFY", actor, { certifiedAt: on, measuredBy: next.measuredBy });
     return this.view(next);
   }
 
@@ -637,8 +728,12 @@ export class SubCertificateService {
    */
   async approve(idOrDocNo: string, approvedAt: string, actor: SubCertificateActor): Promise<SubCertificateView> {
     const current = await this.moveable(idOrDocNo, "certified", "approved_for_payment");
-    if (!ISO_DATE.test(approvedAt)) throw new InvalidSubCertificateError(["تاريخ الاعتماد مطلوب بصيغة YYYY-MM-DD"]);
-    if (!actor.wildcardAdmin) {
+    this.assertSignatureDate("تاريخ الاعتماد للصرف", approvedAt, [
+      ["تاريخ نهاية الفترة", current.periodTo],
+      ["تاريخ الحصر", current.measuredAt],
+      ["تاريخ الاعتماد الفني", current.certifiedAt],
+    ]);
+    if (!(await this.waived(actor))) {
       if (current.preparedBy !== null && current.preparedBy === actor.userId) {
         throw new SubCertificateSegregationError(
           actor.userId,
@@ -658,12 +753,20 @@ export class SubCertificateService {
     }
     const subcontract = await this.requireSubcontract(current.subcontractId);
     await this.assertPayable(subcontract);
-    const refusals = await this.refuseQuantities(current);
-    if (refusals.length > 0) throw new SubCertificateQuantityError(refusals);
+    await this.refuseAll(current);
 
     const computed = current.computed;
     const dueDate = addDays(approvedAt, subcontract.paymentTermDays);
-    const wipAccountId = await this.routed("contracting.wip", "1230");
+    const wipAccountId = await this.routed("contracting.wip");
+    /**
+     * D-07: on the transitional basis the 5.04% is NOT recoverable input tax.
+     * It is raised at rate zero on a cost that already carries it, so the tax
+     * lands in أعمال تحت التنفيذ with the work instead of in 1400 as a claim
+     * against the authority that would never be allowed.
+     */
+    const transitional = subcontract.vatBasis === "transitional";
+    const invoiceAmount = transitional ? computed.invoiceBase.add(computed.vat) : computed.invoiceBase;
+    const invoiceTaxRatePercent = transitional ? "0" : computed.vatEffectiveRatePercent;
 
     const saved = await this.deps.store.transaction(async () => {
       const cleared: SubCertificate = {
@@ -684,13 +787,14 @@ export class SubCertificateService {
         projectId: cleared.projectId,
         date: approvedAt,
         dueDate,
-        amount: computed.invoiceBase,
-        taxRatePercent: computed.vatEffectiveRatePercent,
+        amount: invoiceAmount,
+        taxRatePercent: invoiceTaxRatePercent,
         expenseAccountId: wipAccountId,
         lineDescriptionAr: `مستخلص مقاول باطن رقم ${cleared.serial} — ${subcontract.docNo}`,
+        actor: actor.userId,
         memoAr:
           subcontract.vatBasis === "transitional"
-            ? `فاتورة مستخلص مقاول باطن رقم ${cleared.serial} — أساس ضريبي انتقالي: ١٤٪ على ٣٦٪ من القيمة (قرار ٤١٨ لسنة ٢٠٢٥).`
+            ? `فاتورة مستخلص مقاول باطن رقم ${cleared.serial} — أساس ضريبي انتقالي: ١٤٪ على ٣٦٪ من القيمة (قرار ٤١٨ لسنة ٢٠٢٥)، والضريبة غير قابلة للخصم فتُحمَّل على تكلفة الأعمال.`
             : `فاتورة مستخلص مقاول باطن رقم ${cleared.serial} — ${subcontract.docNo}.`,
       });
 
@@ -714,23 +818,85 @@ export class SubCertificateService {
       return invoiced;
     });
 
+    await this.audit(saved, "APPROVE", actor, {
+      approvedAt,
+      invoiceDocNo: saved.invoiceDocNo,
+      deductionsTotal: saved.postedDeductionsTotal.toString(),
+      preparedBy: saved.preparedBy,
+      certifiedBy: saved.certifiedBy,
+    });
     return this.view(saved);
   }
 
-  async cancel(idOrDocNo: string, actor: SubCertificateActor): Promise<SubCertificateView> {
+  /**
+   * الإلغاء. The reason is mandatory and the canceller is stamped: a cancelled
+   * document with no named actor and no stated reason is one an auditor cannot
+   * follow. `measuredBy` is NEVER back-filled here — signing a measurement is
+   * not what cancelling a certificate is.
+   */
+  async cancel(idOrDocNo: string, reasonAr: string, actor: SubCertificateActor): Promise<SubCertificateView> {
     const current = await this.require(idOrDocNo);
     if (current.status !== "draft" && current.status !== "measured") {
       throw new InvalidSubCertificateTransitionError(current.status, "cancelled");
     }
+    if (reasonAr.trim() === "") throw new InvalidSubCertificateError(["سبب إلغاء المستخلص مطلوب"]);
     await this.assertNoLaterCertificate(current);
     const next: SubCertificate = {
       ...current,
       status: "cancelled",
+      cancelledBy: actor.userId,
       cancelledAt: this.today(),
-      measuredBy: current.measuredBy ?? actor.userId,
+      cancelReasonAr: reasonAr.trim(),
     };
     await this.deps.store.saveCertificate(next);
+    await this.audit(next, "CANCEL", actor, { reasonAr: next.cancelReasonAr, from: current.status });
     return this.view(next);
+  }
+
+  /** One forensic row per transition; never allowed to fail the transition itself. */
+  private async audit(
+    certificate: SubCertificate,
+    action: string,
+    actor: SubCertificateActor,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    await recordTransition(this.deps.audit, {
+      entityType: "SUB_CERTIFICATE",
+      entityId: certificate.id,
+      action,
+      actor: actor.userId,
+      severity: action === "APPROVE" ? "WARNING" : "INFO",
+      details: { docNo: certificate.docNo, subcontractId: certificate.subcontractId, ...details },
+    });
+  }
+
+  /** Is this actor exempt from فصل المهام? Only when the tenant runs in single-operator mode. */
+  private async waived(actor: SubCertificateActor): Promise<boolean> {
+    return this.deps.segregationWaived ? this.deps.segregationWaived(actor) : false;
+  }
+
+  /**
+   * The signature chain: periodTo ≤ الحصر ≤ الاعتماد الفني ≤ الاعتماد للصرف ≤
+   * اليوم. A signature dated before the work it signs for, or after today, is
+   * the shape every backdated approval takes.
+   */
+  private assertSignatureDate(
+    label: string,
+    value: string,
+    mustNotPrecede: readonly (readonly [string, string | null])[],
+  ): void {
+    const reasons: string[] = [];
+    if (!ISO_DATE.test(value)) {
+      throw new InvalidSubCertificateError([`${label} مطلوب بصيغة YYYY-MM-DD`]);
+    }
+    for (const [earlierLabel, earlier] of mustNotPrecede) {
+      if (earlier !== null && value < earlier) {
+        reasons.push(`${label} (${value}) يسبق ${earlierLabel} (${earlier}).`);
+      }
+    }
+    const today = this.today();
+    if (value > today) reasons.push(`${label} (${value}) في المستقبل.`);
+    if (reasons.length > 0) throw new InvalidSubCertificateError(reasons);
   }
 
   private async moveable(
@@ -754,7 +920,54 @@ export class SubCertificateService {
       contractedQty: byLineId.get(line.boqLineId)?.qty ?? Qty.zero(),
       clientCertifiedCumulativeQty: ceiling.get(line.clientBoqLineId) ?? Qty.zero(),
     }));
-    return this.quantityRefusals(lines);
+    const peer = await this.peerCertifiedByClientLine(subcontract.contractId, subcontract.id);
+    return this.quantityRefusals(lines, peer);
+  }
+
+  /**
+   * THE deduction control (design §03, D-05). All four cumulative figures on a
+   * sub certificate are TYPED, so none may be believed: unbounded they drive
+   * the net payable negative, credit WIP with material never issued and strike
+   * a penalty past the ceiling the package was let at — and the purchase
+   * invoice's remaining balance goes negative behind them.
+   */
+  private async deductionRefusals(
+    computed: CertificateComputation,
+    subcontract: Subcontract,
+  ): Promise<string[]> {
+    const reasons: string[] = [];
+    if (computed.netPayableThisCertificate.scaled < 0n) {
+      reasons.push(
+        `إجمالي خصومات هذا المستخلص يتجاوز قيمة أعماله: صافي المستحق ${computed.netPayableThisCertificate.toString()}.`,
+      );
+    }
+    if (this.deps.consumptions) {
+      const issued = await this.materialsPrefill(subcontract.id);
+      const claimed =
+        computed.deductions.find((d) => d.key === "employerMaterials")?.cumulative ?? Money.zero();
+      if (claimed.scaled > issued.scaled) {
+        reasons.push(
+          `${EMPLOYER_MATERIALS_LABEL_AR} ${claimed.toString()} يتجاوز قيمة ما صُرف فعلًا لهذا المقاول من مستودع الموقع ${issued.toString()}.`,
+        );
+      }
+    }
+    const penalties = computed.deductions.find((d) => d.key === "penalties")?.cumulative ?? Money.zero();
+    const ceiling = percentOf(computed.netCertified, subcontract.penaltyCapPercent);
+    if (penalties.scaled > ceiling.scaled) {
+      reasons.push(
+        `غرامة التأخير ${penalties.toString()} تتجاوز سقف ${subcontract.penaltyCapPercent}٪ من القيمة المعتمدة (${ceiling.toString()}).`,
+      );
+    }
+    return reasons;
+  }
+
+  /** Both gates, run together so the screen shows every refusal at once. */
+  private async refuseAll(certificate: SubCertificate): Promise<void> {
+    const subcontract = await this.requireSubcontract(certificate.subcontractId);
+    const quantities = await this.refuseQuantities(certificate);
+    if (quantities.length > 0) throw new SubCertificateQuantityError(quantities);
+    const deductions = await this.deductionRefusals(certificate.computed, subcontract);
+    if (deductions.length > 0) throw new SubCertificateDeductionError(deductions);
   }
 
   private async assertPayable(subcontract: Subcontract): Promise<void> {
@@ -773,11 +986,12 @@ export class SubCertificateService {
    * roll up. The DEBIT side is the invoice's OWN payable account, so the AP
    * control moves by exactly what the sub-ledger records.
    *
-   * Three of the credits are deliberate reversals of a cost already borne:
-   * التأمينات withheld from the sub recovers the contractor's own insurance
-   * cost on that work (5155), a penalty recovers 5910, and materials the
-   * contractor issued to the sub return to WIP (1230) rather than being
-   * expensed twice.
+   * INVARIANT: التأمينات withheld from the sub is money held for NOSI under
+   * the SUB's own file — a LIABILITY (2197), never a credit back to the
+   * contractor's insurance expense, which would understate cost and leave the
+   * amount owed to the authority unrecorded. A penalty recovers 5910 and
+   * materials the contractor issued to the sub return to WIP (1230) rather
+   * than being expensed twice.
    */
   private async postDeductions(
     entryId: string,
@@ -788,12 +1002,12 @@ export class SubCertificateService {
   ): Promise<void> {
     const [retentionAccount, advanceAccount, whtAccount, socialAccount, sundryAccount, wipAccount] =
       await Promise.all([
-        this.routed("contracting.retention_payable", "2195"),
-        this.routed("contracting.subcontractor_advances", "1350"),
-        this.routed("contracting.wht_payable", "2210"),
-        this.routed("contracting.social_insurance", "5155"),
-        this.routed("contracting.late_penalty", "5910"),
-        this.routed("contracting.wip", "1230"),
+        this.routed("contracting.retention_payable"),
+        this.routed("contracting.subcontractor_advances"),
+        this.routed("contracting.wht_payable"),
+        this.routed("contracting.social_insurance_withheld"),
+        this.routed("contracting.late_penalty"),
+        this.routed("contracting.wip"),
       ]);
     const byKey = new Map(certificate.computed.deductions.map((d) => [d.key, d.thisCertificate]));
     const spec: readonly {
@@ -806,7 +1020,7 @@ export class SubCertificateService {
       { key: "retention", accountId: retentionAccount, amount: byKey.get("retention") ?? Money.zero(), memo: "محتجزات مقاول الباطن", cost: false },
       { key: "advanceRecovery", accountId: advanceAccount, amount: byKey.get("advanceRecovery") ?? Money.zero(), memo: "خصم الدفعة المقدمة", cost: false },
       { key: "withholdingTax", accountId: whtAccount, amount: byKey.get("withholdingTax") ?? Money.zero(), memo: "ضريبة الخصم والتحصيل المستحقة التوريد", cost: false },
-      { key: "socialInsurance", accountId: socialAccount, amount: byKey.get("socialInsurance") ?? Money.zero(), memo: "التأمينات الاجتماعية المستقطعة من الباطن", cost: true },
+      { key: "socialInsurance", accountId: socialAccount, amount: byKey.get("socialInsurance") ?? Money.zero(), memo: "التأمينات الاجتماعية المستقطعة من الباطن", cost: false },
       { key: "penalties", accountId: sundryAccount, amount: byKey.get("penalties") ?? Money.zero(), memo: "غرامة تأخير على مقاول الباطن", cost: true },
       { key: "employerMaterials", accountId: wipAccount, amount: byKey.get("employerMaterials") ?? Money.zero(), memo: EMPLOYER_MATERIALS_LABEL_AR, cost: true },
       { key: "waterElectricity", accountId: sundryAccount, amount: byKey.get("waterElectricity") ?? Money.zero(), memo: "استهلاك المياه والكهرباء", cost: true },

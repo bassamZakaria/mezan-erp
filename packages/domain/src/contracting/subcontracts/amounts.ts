@@ -1,6 +1,12 @@
 import { Money } from "../../money/index.js";
 import { extendQty, subtract, type CertificateComputationInput } from "../certificates/amounts.js";
-import type { Subcontract, SubcontractLine, SubcontractTerms } from "./subcontract.js";
+import { addMonthsToDate } from "../controls/retention-math.js";
+import type {
+  Subcontract,
+  SubcontractLine,
+  SubcontractRetentionReleaseKind,
+  SubcontractTerms,
+} from "./subcontract.js";
 
 /**
  * The subcontract's arithmetic — all of it, and pure.
@@ -58,4 +64,33 @@ export function subcontractCertificateTerms(
 /** The value of a subcontract as stored, for the header and the list. */
 export function subcontractValue(subcontract: Pick<Subcontract, "lines">): Money {
   return computeSubcontractValue(subcontract.lines);
+}
+
+/**
+ * ميعاد الإفراج — the release event a subcontract's retention is waiting on.
+ *
+ * The clock is the COMPLETION of the package, not the certificate that
+ * withheld the money: the provisional tranche falls due when the sub finishes,
+ * the final one when the defects-liability period it signed for has run. Null
+ * while the subcontract is not completed, because a date invented for an
+ * unfinished package is one a collector would chase.
+ */
+export function subcontractReleaseEventDate(
+  kind: SubcontractRetentionReleaseKind,
+  subcontract: Pick<Subcontract, "completedAt" | "defectsLiabilityMonths">,
+): string | null {
+  if (subcontract.completedAt === null) return null;
+  if (kind === "provisional") return subcontract.completedAt;
+  return addMonthsToDate(subcontract.completedAt, subcontract.defectsLiabilityMonths);
+}
+
+/** Released before its event fell due. False while the event is unknown — an unknown date is not evidence. */
+export function isEarlySubcontractRelease(date: string, releaseEventDate: string | null): boolean {
+  return releaseEventDate !== null && date < releaseEventDate;
+}
+
+/** التكلفة الملتزم بها — Σ qty × rate still ahead of the contractor on a live package. */
+export function remainingCommitmentOf(value: Money, certifiedToDate: Money): Money {
+  const remaining = Money.fromScaled(value.scaled - certifiedToDate.scaled);
+  return remaining.scaled < 0n ? Money.zero() : remaining;
 }

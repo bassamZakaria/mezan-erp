@@ -25,6 +25,7 @@ export {
   GuaranteeService,
   type CallGuaranteeCommand,
   type CreateGuaranteeCommand,
+  type GuaranteeActor,
   type GuaranteeServiceDeps,
   type ReduceGuaranteeCommand,
   type ReleaseGuaranteeCommand,

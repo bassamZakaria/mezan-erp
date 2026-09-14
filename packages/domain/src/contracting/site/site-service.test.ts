@@ -177,6 +177,7 @@ interface Harness {
   ledger: InMemoryLedgerRepository;
   warehouses: InMemoryWarehouses;
   assets: Map<string, Asset>;
+  setActiveContract: (value: boolean) => void;
 }
 
 async function harness(): Promise<Harness> {
@@ -235,6 +236,7 @@ async function harness(): Promise<Harness> {
   });
 
   const assets = map<Asset>();
+  let activeContract = false;
   const service = new SiteService({
     issues: issueRepo(map<SiteIssue>()),
     receipts: receiptRepo(map<SiteReceipt>()),
@@ -247,10 +249,21 @@ async function harness(): Promise<Harness> {
     stockLedger: stock,
     gl: { ledger, accounts, periods, numbering, projects },
     numbering,
+    worksContracts: { hasActiveContract: async () => activeContract },
     now: () => "2026-08-30T09:00:00.000Z",
+    today: () => "2026-08-30",
   });
 
-  return { service, stock, ledger, warehouses, assets };
+  return {
+    service,
+    stock,
+    ledger,
+    warehouses,
+    assets,
+    setActiveContract: (value: boolean) => {
+      activeContract = value;
+    },
+  };
 }
 
 /** 100 units into the main store at 10.00 each, so every issue below has a known WAC. */
@@ -566,5 +579,104 @@ describe("SiteService — العهدة وتشغيل المعدات", () => {
     // No valuation, no movement, no posting — the register is a register (D-11).
     expect(await h.ledger.list()).toHaveLength(0);
     expect((await h.stock.getBalance(ITEM, SITE)).toString()).toBe("0.000000");
+  });
+});
+
+describe("حدود تواريخ الاستلام وبند جدول الكميات", () => {
+  it("refuses a receipt dated before the issue it closes, and one dated in the future", async () => {
+    const h = await harness();
+    await stockMain(h.stock, "100", "10");
+    await h.service.createIssueDraft({
+      id: "iss-b",
+      date: "2026-08-10",
+      fromWarehouseId: MAIN,
+      toWarehouseId: SITE,
+      issuedByUserId: STOREKEEPER,
+      lines: [{ itemId: ITEM, qty: Qty.fromMajor("30") }],
+    });
+    await h.service.confirmIssue("iss-b");
+
+    await expect(
+      h.service.createReceiptDraft({
+        id: "rcp-early",
+        issueId: "iss-b",
+        date: "2026-08-09",
+        receivedByUserId: SUPERVISOR,
+        lines: [{ itemId: ITEM, qtyReceived: Qty.fromMajor("30") }],
+      }),
+    ).rejects.toThrow(/يسبق تاريخ إذن الصرف/);
+
+    await expect(
+      h.service.createReceiptDraft({
+        id: "rcp-future",
+        issueId: "iss-b",
+        date: "2026-09-30",
+        receivedByUserId: SUPERVISOR,
+        lines: [{ itemId: ITEM, qtyReceived: Qty.fromMajor("30") }],
+      }),
+    ).rejects.toThrow(/بعد تاريخ اليوم/);
+  });
+
+  it("refuses a consumption with no BOQ line on a project running under a live contract", async () => {
+    const h = await harness();
+    h.setActiveContract(true);
+    await stockMain(h.stock, "100", "10");
+    await expect(
+      h.service.createConsumptionDraft({
+        id: "con-x",
+        date: "2026-08-27",
+        warehouseId: SITE,
+        lines: [{ itemId: ITEM, qty: Qty.fromMajor("5") }],
+      }),
+    ).rejects.toThrow(/بند جدول الكميات مطلوب/);
+
+    // …and allows it on a project with no live contract, which has no bill to name.
+    h.setActiveContract(false);
+    const draft = await h.service.createConsumptionDraft({
+      id: "con-y",
+      date: "2026-08-27",
+      warehouseId: SITE,
+      lines: [{ itemId: ITEM, qty: Qty.fromMajor("5") }],
+    });
+    expect(draft.boqLineId).toBeNull();
+  });
+
+  it("refuses a per-log rate override: the plant rate is the asset's and nothing else", async () => {
+    const h = await harness();
+    h.assets.set("AST-RATE", {
+      id: "AST-RATE",
+      code: "AST-2",
+      nameAr: "حفار",
+      nameEn: null,
+      categoryId: "cat-1",
+      scope: "general",
+      branchId: null,
+      warehouseId: null,
+      acquisitionDate: "2025-01-01",
+      acquisitionCost: Money.fromMajor("500000"),
+      depreciationStartDate: "2025-01-01",
+      depreciationMethod: "straight_line",
+      usefulLifeMonths: 120,
+      salvageValue: Money.zero(),
+      accumulatedDepreciation: Money.zero(),
+      status: "active",
+      assetAccountId: null,
+      depreciationExpenseAccountId: null,
+      accumulatedDepreciationAccountId: null,
+      notes: null,
+      projectId: null,
+      internalHourlyRate: Money.fromMajor("300"),
+    });
+    const draft = await h.service.createEquipmentLogDraft({
+      // A caller that still sends a rate is ignored by the type AND the service.
+      ...({ hourlyRate: Money.fromMajor("9000") } as object),
+      id: "eql-rate",
+      projectId: PROJECT,
+      assetId: "AST-RATE",
+      date: "2026-08-27",
+      hours: Qty.fromMajor("4"),
+    });
+    expect(draft.hourlyRate.toString()).toBe("300.000000");
+    expect(draft.amount.toString()).toBe("1200.000000");
   });
 });

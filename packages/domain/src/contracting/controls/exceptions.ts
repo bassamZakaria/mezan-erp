@@ -1,7 +1,7 @@
 import { Money, Qty } from "../../money/index.js";
 
 /**
- * تقارير الاستثناءات الستة — the rules, and nothing else (design §06).
+ * تقارير الاستثناءات السبعة — the rules, and nothing else (design §06).
  *
  * The product ships 33 reports and not one of them is an exception report; for
  * a contracting customer that is the missing half of the control environment.
@@ -16,7 +16,8 @@ export type ContractingExceptionKey =
   | "consumption-variance"
   | "equipment-without-certificate"
   | "late-variation-approvals"
-  | "early-retention-release";
+  | "early-retention-release"
+  | "cost-overrun-vs-estimate";
 
 export const CONTRACTING_EXCEPTION_KEYS: readonly ContractingExceptionKey[] = [
   "boq-overrun",
@@ -25,6 +26,7 @@ export const CONTRACTING_EXCEPTION_KEYS: readonly ContractingExceptionKey[] = [
   "equipment-without-certificate",
   "late-variation-approvals",
   "early-retention-release",
+  "cost-overrun-vs-estimate",
 ];
 
 export interface ContractingExceptionDefinition {
@@ -77,6 +79,13 @@ export const CONTRACTING_EXCEPTION_DEFINITIONS: readonly ContractingExceptionDef
     labelEn: "Retention released before its release event",
     ruleAr:
       "يظهر المستند هنا إذا كان تاريخ الإفراج يسبق ميعاد الاستحقاق — التسليم الابتدائي للشريحة الأولى، والتسليم النهائي مضافًا إليه فترة الضمان للشريحة الأخيرة.",
+  },
+  {
+    key: "cost-overrun-vs-estimate",
+    labelAr: "تجاوز التكلفة للتقدير",
+    labelEn: "Cost to date running ahead of the estimate",
+    ruleAr:
+      "يظهر العقد هنا إذا تجاوزت التكلفة حتى تاريخه ما يقابل نسبة الإنجاز المعتمدة من التكلفة الكلية المقدرة بأكثر من الحد المحدد، أو إذا مضى على آخر مراجعة للتقدير أكثر من المدة المحددة بالأشهر — تقدير لم يُراجع هو تقدير لم يُختبر.",
   },
 ];
 
@@ -171,13 +180,22 @@ export interface UnreceivedCandidate {
   readonly qtyReceived: Qty;
   readonly qtyOutstanding: Qty;
   readonly ageDays: number;
+  /** `received_before_issue` rows are the fraud signature, not an ageing shortfall. */
+  readonly kind?: "outstanding" | "received_before_issue";
 }
 
+/**
+ * A receipt dated BEFORE the issue it closes is reported whatever its age and
+ * whatever it left outstanding — it is not a shortfall waiting to be signed
+ * for, and an ageing filter is exactly where such a row would hide.
+ */
 export function findUnreceivedIssues<T extends UnreceivedCandidate>(
   candidates: readonly T[],
   olderThanDays: number,
 ): T[] {
-  return candidates.filter((c) => c.ageDays >= olderThanDays && c.qtyOutstanding.scaled > 0n);
+  return candidates.filter((c) =>
+    c.kind === "received_before_issue" ? true : c.ageDays >= olderThanDays && c.qtyOutstanding.scaled > 0n,
+  );
 }
 
 // ----- 3. انحراف الاستهلاك عن الكميات النظرية ---------------------------------
@@ -312,9 +330,20 @@ export function findLateVariationApprovals(
 
 // ----- 6. ضمان محتجز مفرج عنه قبل الميعاد ------------------------------------
 
+/**
+ * Both sides of the retention. A release to a SUBCONTRACTOR is exactly the same
+ * exception as an early release by the employer — money let go before the event
+ * that entitled anyone to it — and a report that only looked at the receivable
+ * side left the half the contractor actually controls unwatched.
+ */
+export type RetentionReleaseParty = "customer" | "subcontractor";
+
 export interface EarlyReleaseCandidate {
   readonly releaseId: string;
   readonly docNo: string;
+  readonly party: RetentionReleaseParty;
+  /** The subcontractor's name on a `subcontractor` row; null on the client side. */
+  readonly counterpartyNameAr: string | null;
   readonly contractId: string;
   readonly contractDocNo: string;
   readonly projectId: string;
@@ -343,4 +372,85 @@ export function findEarlyRetentionReleases(
 /** Whole days from `from` to `to`, both ISO dates. Negative when `to` precedes `from`. */
 export function daysBetweenDates(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+// ----- 7. تجاوز التكلفة للتقدير ----------------------------------------------
+
+/**
+ * The estimate is the denominator of every percentage of completion the run
+ * posts, and nothing in the system ever questioned it: a contract could burn
+ * twice the cost its certified work has earned, or carry an estimate untouched
+ * since the day it was signed, and no report said a word. Both are the same
+ * finding — the التكلفة الكلية المقدرة is no longer describing this contract.
+ */
+export interface CostOverrunCandidate {
+  readonly contractId: string;
+  readonly contractDocNo: string;
+  readonly contractTitleAr: string;
+  readonly projectId: string;
+  readonly status: string;
+  /** التكلفة حتى تاريخه on the same basis the run uses. */
+  readonly costToDate: Money;
+  readonly estimatedTotalCost: Money;
+  /** إجمالي الأعمال المعتمدة تراكميًا — the certified gross works, before التشوينات and the discount. */
+  readonly certifiedGrossWorks: Money;
+  readonly contractValue: Money;
+  /** The date التكلفة الكلية المقدرة was last set or revised. Null when it was never revised. */
+  readonly lastEstimateRevisionDate: string | null;
+  /** Whole months from that date to the report date. Null when there is no date at all. */
+  readonly monthsSinceEstimateRevision: number | null;
+}
+
+export interface CostOverrunRow extends CostOverrunCandidate {
+  /** estimatedTotalCost × certifiedGrossWorks / contractValue — what the earned work should have cost. */
+  readonly expectedCostToDate: Money;
+  /** costToDate − expectedCostToDate. Positive on every row that fired for cost. */
+  readonly excessCost: Money;
+  readonly costOverrun: boolean;
+  readonly estimateStale: boolean;
+}
+
+/** Whole months between two ISO dates, floored — a 6-month staleness window is months, not 180 days. */
+export function monthsBetweenDates(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number) as [number, number, number];
+  const [ty, tm, td] = to.split("-").map(Number) as [number, number, number];
+  const months = (ty - fy) * 12 + (tm - fm);
+  return td < fd ? months - 1 : months;
+}
+
+/**
+ * Fires on either signal. The cost test is cross-multiplied so nothing rounds:
+ * costToDate × contractValue × 100 > estimatedTotalCost × certifiedGrossWorks ×
+ * (100 + threshold). A contract with no certified work yet has no earned cost
+ * to compare against, so only the staleness test can fire on it.
+ */
+export function findCostOverrunsVsEstimate(
+  candidates: readonly CostOverrunCandidate[],
+  thresholdPercent: string,
+  stalenessMonths: number,
+): CostOverrunRow[] {
+  const threshold = Money.fromMajor(thresholdPercent).scaled;
+  const rows: CostOverrunRow[] = [];
+  for (const c of candidates) {
+    const expectedCostToDate =
+      c.contractValue.scaled === 0n
+        ? Money.zero()
+        : Money.fromScaled(divHalfUp(c.estimatedTotalCost.scaled * c.certifiedGrossWorks.scaled, c.contractValue.scaled));
+    const costOverrun =
+      c.contractValue.scaled > 0n &&
+      c.certifiedGrossWorks.scaled > 0n &&
+      c.costToDate.scaled * c.contractValue.scaled * (100n * SCALE) >
+        c.estimatedTotalCost.scaled * c.certifiedGrossWorks.scaled * (100n * SCALE + threshold);
+    const estimateStale =
+      c.monthsSinceEstimateRevision !== null && c.monthsSinceEstimateRevision >= stalenessMonths;
+    if (!costOverrun && !estimateStale) continue;
+    rows.push({
+      ...c,
+      expectedCostToDate,
+      excessCost: Money.fromScaled(c.costToDate.scaled - expectedCostToDate.scaled),
+      costOverrun,
+      estimateStale,
+    });
+  }
+  return rows;
 }

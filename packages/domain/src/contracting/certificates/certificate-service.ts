@@ -1,9 +1,20 @@
 import { Money, Qty } from "../../money/index.js";
 import type { AccountRepository } from "../../accounts/account.js";
-import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
+import {
+  DEFAULT_ACCOUNT_ROUTING_OPTIONS,
+  routedAccountId,
+  type AccountRoutingRepository,
+} from "../../accounts/account-routing.js";
 import type { ProjectRepository } from "../../projects/project.js";
+import type { AuditSink } from "../../audit/index.js";
+import { recordTransition } from "../audit.js";
 import type { NextNumberService } from "../../numbering/index.js";
-import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../../gl/index.js";
+import {
+  postJournalEntry,
+  reverseJournalEntry,
+  type JournalLineInput,
+  type JournalPostingDeps,
+} from "../../gl/index.js";
 import type { BoqUnit } from "../contracts/boq-unit.js";
 import type { BoqLine, WorksContract, WorksContractStore } from "../contracts/contract.js";
 import {
@@ -34,6 +45,7 @@ import {
   subtract,
 } from "./amounts.js";
 import {
+  CertificateDateOrderError,
   CertificateQuantityError,
   CertificateSegregationError,
   InvalidProgressCertificateError,
@@ -59,10 +71,13 @@ const CERTIFICATE_SEQUENCE = "PROGRESS_CERTIFICATE";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * The person acting. `wildcardAdmin` is the tenant admin whose grant is `"*"`:
- * a single-operator install has nobody else to certify, so the
- * preparer ≠ certifier ≠ approver rule cannot be enforced against them without
- * locking the product. Every other caller is held to it.
+ * The person acting. `wildcardAdmin` is the tenant admin whose grant is `"*"`.
+ *
+ * Holding the wildcard is NOT by itself an exemption from فصل المهام: the
+ * `segregationWaived` dep decides, and it reads the tenant setting
+ * `contracting.singleOperatorMode` (default false). A one-person install turns
+ * it on and the waiver applies; everywhere else the admin is held to
+ * preparer ≠ certifier ≠ approver like anyone.
  */
 export interface CertificateActor {
   readonly userId: string;
@@ -85,6 +100,12 @@ export interface CertificateInvoiceCommand {
   readonly revenueAccountId: string;
   readonly lineDescriptionAr: string;
   readonly memoAr: string;
+  /**
+   * WHO approved the certificate. The generated invoice's own audit row named
+   * `system`, so the one act that created a live receivable was traceable to
+   * nobody.
+   */
+  readonly actor?: string | null;
 }
 
 export interface CertificateInvoiceResult {
@@ -120,6 +141,12 @@ export interface CertificateInvoicingPort {
    * ignored them would read permanently high.
    */
   settle(invoiceId: string, amount: Money, reference: string): Promise<void>;
+  /**
+   * The sales-invoice void path — the SAME one /sales/invoices/:id/void uses,
+   * so the reversal is a linked mirror entry and the receivable sub-ledger
+   * leaves with it. Optional: a server without it simply refuses the void.
+   */
+  voidInvoice?(invoiceId: string, date: string, reasonAr: string): Promise<void>;
 }
 
 /** Slice 5A's advance guarantee, reduced in step with recovery (Law 182/2018 Art. 44). */
@@ -127,6 +154,20 @@ export interface CertificateGuaranteePort {
   reduceAdvanceGuarantee(input: {
     contractId: string;
     /** The register links a letter to a project OR to a contract; both are given. */
+    projectId: string;
+    date: string;
+    amount: Money;
+    sourceRef: string;
+    /** WHO approved the certificate that drove the reduction. */
+    actor?: string | null;
+  }): Promise<void>;
+  /**
+   * The mirror of {@link reduceAdvanceGuarantee}, for a voided certificate. A
+   * negative reduction would corrupt the reduction history, so the register
+   * records a RESTORE of its own.
+   */
+  restoreAdvanceGuarantee?(input: {
+    contractId: string;
     projectId: string;
     date: string;
     amount: Money;
@@ -151,6 +192,14 @@ export interface CertificateServiceDeps {
    * case the compensation is reported as zero and the screen says «غير مُعد».
    */
   readonly cbeCreditDiscountRatePercent?: () => Promise<string | null>;
+  /** سجل العمليات الحساسة — every transition below is recorded against the certificate. */
+  readonly audit?: AuditSink;
+  /**
+   * Whether the segregation-of-duties rules are waived for this actor — the
+   * tenant setting `contracting.singleOperatorMode`, resolved per call. False
+   * (the default) subjects the wildcard admin to the same rules as anyone.
+   */
+  readonly segregationWaived?: (actor: CertificateActor) => Promise<boolean>;
   readonly today?: () => string;
 }
 
@@ -287,6 +336,34 @@ function addDays(date: string, days: number): string {
   return base.toISOString().slice(0, 10);
 }
 
+interface DatedStep {
+  readonly labelAr: string;
+  readonly date: string | null;
+}
+
+/**
+ * The three signatures run FORWARD from the period they certify and none of
+ * them is in the future. Every refusal names BOTH dates: «تاريخ الاعتماد
+ * (٢٠٢٤-٠١-٠١) يسبق…» is actionable, "invalid date" is not.
+ */
+function dateOrderRefusals(steps: readonly DatedStep[], today: string): string[] {
+  const reasons: string[] = [];
+  const known = steps.filter((s): s is { labelAr: string; date: string } => s.date !== null && s.date !== "");
+  for (let i = 1; i < known.length; i++) {
+    const earlier = known[i - 1] as { labelAr: string; date: string };
+    const later = known[i] as { labelAr: string; date: string };
+    if (later.date < earlier.date) {
+      reasons.push(`${later.labelAr} (${later.date}) يسبق ${earlier.labelAr} (${earlier.date}).`);
+    }
+  }
+  for (const step of known.slice(1)) {
+    if (step.date > today) {
+      reasons.push(`${step.labelAr} (${step.date}) يقع في المستقبل بعد تاريخ اليوم (${today}).`);
+    }
+  }
+  return reasons;
+}
+
 function daysBetween(from: string, to: string): number {
   const a = Date.parse(`${from}T00:00:00.000Z`);
   const b = Date.parse(`${to}T00:00:00.000Z`);
@@ -394,7 +471,10 @@ export class CertificateService {
    * the recovery cap is "never more than what came in", and a figure derived
    * from progress would keep recovering after the advance was repaid.
    */
-  private async advancePosition(projectId: string): Promise<{ received: Money; outstanding: Money }> {
+  private async advancePosition(
+    projectId: string,
+    contractId: string,
+  ): Promise<{ received: Money; outstanding: Money; ceiling: Money }> {
     const accountId = await this.routed("contracting.customer_advances", "2160");
     const lines = (await this.deps.gl.ledger.listLines?.({ accountIds: [accountId], projectId })) ?? [];
     let credits = 0n;
@@ -403,7 +483,26 @@ export class CertificateService {
       credits += line.credit.scaled;
       debits += line.debit.scaled;
     }
-    return { received: Money.fromScaled(credits), outstanding: Money.fromScaled(credits - debits) };
+    /**
+     * INVARIANT: the advance is received per PROJECT and recovered per
+     * CONTRACT. The ceiling for this contract is therefore what came in less
+     * what the project's OTHER contracts have already recovered — a ceiling of
+     * the full advance lets two contracts on one project each recover it and
+     * drives the advances account negative.
+     */
+    let recoveredElsewhere = 0n;
+    for (const sibling of await this.deps.store.list({ projectId })) {
+      if (sibling.contractId === contractId) continue;
+      if (sibling.status !== "invoiced" && sibling.status !== "approved_for_payment") continue;
+      recoveredElsewhere +=
+        sibling.computed.deductions.find((d) => d.key === "advanceRecovery")?.thisCertificate.scaled ?? 0n;
+    }
+    const ceiling = credits - recoveredElsewhere;
+    return {
+      received: Money.fromScaled(credits),
+      outstanding: Money.fromScaled(credits - debits),
+      ceiling: Money.fromScaled(ceiling > 0n ? ceiling : 0n),
+    };
   }
 
   // ----- building ----------------------------------------------------------
@@ -489,7 +588,11 @@ export class CertificateService {
       const key = input.materialKey.trim();
       const prior = priorByKey.get(key);
       const qty = qtyOf(reasons, `كمية التشوينات "${input.descriptionAr}"`, input.qty);
-      const unitRate = moneyOf(reasons, `فئة التشوينات "${input.descriptionAr}"`, input.unitRate);
+      // The rate is stamped by the FIRST certificate that carried the material,
+      // exactly as a work line's rate is. Re-reading a re-typed rate here
+      // restated the earlier certificate's cumulative value — money the
+      // consultant had already signed for.
+      const unitRate = prior?.unitRate ?? moneyOf(reasons, `فئة التشوينات "${input.descriptionAr}"`, input.unitRate);
       const previousCumulativeQty = prior?.cumulativeQty ?? Qty.zero();
       const cumulativeQty = previousCumulativeQty.add(qty);
       if (cumulativeQty.isNegative()) {
@@ -597,7 +700,7 @@ export class CertificateService {
     };
     if (reasons.length > 0) throw new InvalidProgressCertificateError(reasons);
 
-    const advance = await this.advancePosition(contract.projectId);
+    const advance = await this.advancePosition(contract.projectId, contract.id);
     const computed = computeCertificate({
       terms: contract,
       workLines,
@@ -612,6 +715,7 @@ export class CertificateService {
       contractValueAfterVariations: ctx.contractValueAfterVariations,
       advanceReceived: advance.received,
       advanceOutstanding: advance.outstanding,
+      advanceRecoveryCeiling: advance.ceiling,
     });
 
     return { workLines, materialLines, computed, manual, executionDate, asOfNow: ctx.asOfNow };
@@ -662,7 +766,9 @@ export class CertificateService {
       materialLines: composed.materialLines,
       computed: composed.computed,
       refusals: this.quantityRefusals(composed.workLines, composed.asOfNow, composed.executionDate),
-      serial: existing?.serial ?? (previous?.serial ?? 0) + 1,
+      serial:
+        existing?.serial ??
+        (await this.deps.store.listByContract(contract.id)).reduce((max, row) => Math.max(max, row.serial), 0) + 1,
       executionDate: composed.executionDate,
     };
   }
@@ -674,8 +780,15 @@ export class CertificateService {
         `لا يمكن إصدار مستخلص إلا على عقد ساري — حالة العقد "${contract.status}".`,
       ]);
     }
-    const siblings = (await this.deps.store.listByContract(contract.id)).filter(isLiveCertificate);
+    const all = await this.deps.store.listByContract(contract.id);
+    const siblings = all.filter(isLiveCertificate);
     const previous = siblings.length === 0 ? null : (siblings[siblings.length - 1] as ProgressCertificate);
+    // INVARIANT: the serial is monotonic over EVERY certificate of the
+    // contract, cancelled ones included — reusing a cancelled serial produces
+    // two «مستخلص رقم ٣» on one contract and the audit trail stops being
+    // followable. `previousCertificateId` still skips the cancelled ones,
+    // because the cumulative is read off the last LIVE certificate.
+    const nextSerial = all.reduce((max, row) => Math.max(max, row.serial), 0) + 1;
     if (previous?.isFinal) {
       throw new InvalidProgressCertificateError([
         `المستخلص الختامي رقم ${previous.serial} أقفل كميات هذا العقد — لا يجوز إصدار مستخلص بعده.`,
@@ -693,7 +806,7 @@ export class CertificateService {
         docNo: number.formatted,
         contractId: contract.id,
         projectId: contract.projectId,
-        serial: (previous?.serial ?? 0) + 1,
+        serial: nextSerial,
         previousCertificateId: previous?.id ?? null,
         periodFrom: cmd.periodFrom,
         periodTo: cmd.periodTo,
@@ -709,6 +822,12 @@ export class CertificateService {
         approvedBy: null,
         approvedAt: null,
         cancelledAt: null,
+        cancelledBy: null,
+        cancelReasonAr: null,
+        voidedAt: null,
+        voidedBy: null,
+        voidReasonAr: null,
+        voidJournalEntryId: null,
         invoiceId: null,
         invoiceDocNo: null,
         journalEntryId: null,
@@ -788,36 +907,78 @@ export class CertificateService {
   }
 
   /** حصر معتمد — the resident engineer's measurement. The quantities are frozen against the execution date here. */
-  async measure(idOrDocNo: string, actor: CertificateActor): Promise<CertificateView> {
+  async measure(idOrDocNo: string, actor: CertificateActor, measuredAt?: string | null): Promise<CertificateView> {
     const current = await this.moveable(idOrDocNo, "draft", "measured");
+    const date = measuredAt ?? this.today();
+    if (!ISO_DATE.test(date)) throw new InvalidProgressCertificateError(["تاريخ الحصر مطلوب بصيغة YYYY-MM-DD"]);
+    this.assertDates([
+      { labelAr: "نهاية الفترة", date: current.periodTo },
+      { labelAr: "تاريخ الحصر", date },
+    ]);
     const refusals = await this.refuseQuantities(current);
     if (refusals.length > 0) throw new CertificateQuantityError(refusals);
     const next: ProgressCertificate = {
       ...current,
       status: "measured",
       measuredBy: actor.userId,
-      measuredAt: this.today(),
+      measuredAt: date,
     };
     await this.deps.store.save(next);
+    await this.audit(next, "MEASURE", actor, { measuredAt: date, periodTo: next.periodTo });
     return this.view(next);
   }
 
   /** معتمد من الاستشاري — the consultant certifies the quantities. Nothing changes after this. */
-  async certify(idOrDocNo: string, actor: CertificateActor): Promise<CertificateView> {
+  async certify(idOrDocNo: string, actor: CertificateActor, certifiedAt?: string | null): Promise<CertificateView> {
     const current = await this.moveable(idOrDocNo, "measured", "certified");
-    if (!actor.wildcardAdmin && current.preparedBy !== null && current.preparedBy === actor.userId) {
+    if (!(await this.waived(actor)) && current.preparedBy !== null && current.preparedBy === actor.userId) {
       throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص من نفس الشخص الذي أعدّه.");
     }
+    const date = certifiedAt ?? this.today();
+    if (!ISO_DATE.test(date)) throw new InvalidProgressCertificateError(["تاريخ اعتماد الاستشاري مطلوب بصيغة YYYY-MM-DD"]);
+    this.assertDates([
+      { labelAr: "نهاية الفترة", date: current.periodTo },
+      { labelAr: "تاريخ الحصر", date: current.measuredAt },
+      { labelAr: "تاريخ اعتماد الاستشاري", date },
+    ]);
     const refusals = await this.refuseQuantities(current);
     if (refusals.length > 0) throw new CertificateQuantityError(refusals);
     const next: ProgressCertificate = {
       ...current,
       status: "certified",
       certifiedBy: actor.userId,
-      certifiedAt: this.today(),
+      certifiedAt: date,
     };
     await this.deps.store.save(next);
+    await this.audit(next, "CERTIFY", actor, { certifiedAt: date, measuredBy: next.measuredBy });
     return this.view(next);
+  }
+
+  /** One forensic row per transition; never allowed to fail the transition itself. */
+  private async audit(
+    certificate: ProgressCertificate,
+    action: string,
+    actor: CertificateActor,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    await recordTransition(this.deps.audit, {
+      entityType: "PROGRESS_CERTIFICATE",
+      entityId: certificate.id,
+      action,
+      actor: actor.userId,
+      severity: action === "APPROVE" || action === "VOID" ? "WARNING" : "INFO",
+      details: { docNo: certificate.docNo, contractId: certificate.contractId, projectId: certificate.projectId, ...details },
+    });
+  }
+
+  /** Is this actor exempt from فصل المهام? Only when the tenant runs in single-operator mode. */
+  private async waived(actor: CertificateActor): Promise<boolean> {
+    return this.deps.segregationWaived ? this.deps.segregationWaived(actor) : false;
+  }
+
+  private assertDates(steps: readonly DatedStep[]): void {
+    const reasons = dateOrderRefusals(steps, this.today());
+    if (reasons.length > 0) throw new CertificateDateOrderError(reasons);
   }
 
   /**
@@ -829,7 +990,13 @@ export class CertificateService {
   async approve(idOrDocNo: string, approvedAt: string, actor: CertificateActor): Promise<CertificateView> {
     const current = await this.moveable(idOrDocNo, "certified", "approved_for_payment");
     if (!ISO_DATE.test(approvedAt)) throw new InvalidProgressCertificateError(["تاريخ الاعتماد مطلوب بصيغة YYYY-MM-DD"]);
-    if (!actor.wildcardAdmin) {
+    this.assertDates([
+      { labelAr: "نهاية الفترة", date: current.periodTo },
+      { labelAr: "تاريخ الحصر", date: current.measuredAt },
+      { labelAr: "تاريخ اعتماد الاستشاري", date: current.certifiedAt },
+      { labelAr: "تاريخ اعتماد الصرف", date: approvedAt },
+    ]);
+    if (!(await this.waived(actor))) {
       if (current.preparedBy !== null && current.preparedBy === actor.userId) {
         throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص للصرف من نفس الشخص الذي أعدّه.");
       }
@@ -878,6 +1045,7 @@ export class CertificateService {
         taxRatePercent: computed.vatEffectiveRatePercent,
         revenueAccountId,
         lineDescriptionAr: `مستخلص رقم ${cleared.serial} — ${contract.docNo}`,
+        actor: actor.userId,
         memoAr:
           contract.vatBasis === "transitional"
             ? `فاتورة مستخلص رقم ${cleared.serial} — أساس ضريبي انتقالي: ١٤٪ على ٣٦٪ من القيمة (قرار ٤١٨ لسنة ٢٠٢٥).`
@@ -901,6 +1069,7 @@ export class CertificateService {
           date: approvedAt,
           amount: advanceRecovery,
           sourceRef: cleared.docNo,
+          actor: actor.userId,
         });
       }
 
@@ -916,25 +1085,131 @@ export class CertificateService {
       return invoiced;
     });
 
+    await this.audit(saved, "APPROVE", actor, {
+      approvedAt,
+      invoiceDocNo: saved.invoiceDocNo,
+      deductionsTotal: saved.postedDeductionsTotal.toString(),
+      preparedBy: saved.preparedBy,
+      certifiedBy: saved.certifiedBy,
+    });
     return this.view(saved);
   }
 
-  async cancel(idOrDocNo: string, actor: CertificateActor): Promise<CertificateView> {
+  async cancel(idOrDocNo: string, reasonAr: string, actor: CertificateActor): Promise<CertificateView> {
     const current = await this.require(idOrDocNo);
     if (current.status !== "draft" && current.status !== "measured") {
       throw new InvalidProgressCertificateTransitionError(current.status, "cancelled");
+    }
+    if (reasonAr.trim() === "") {
+      throw new InvalidProgressCertificateError(["سبب إلغاء المستخلص مطلوب."]);
     }
     await this.assertNoLaterCertificate(current);
     const next: ProgressCertificate = {
       ...current,
       status: "cancelled",
       cancelledAt: this.today(),
-      measuredBy: current.measuredBy ?? actor.userId,
+      // The canceller is NOT the measurer: back-filling `measuredBy` with them
+      // credited a measurement that never happened and let one person hold two
+      // of the three signatures on the next certificate.
+      cancelledBy: actor.userId,
+      cancelReasonAr: reasonAr.trim(),
     };
     await this.deps.store.save(next);
+    await this.audit(next, "CANCEL", actor, { reasonAr: next.cancelReasonAr, from: current.status });
     return this.view(next);
   }
 
+  /**
+   * إلغاء مستخلص معتمد — the only exit from an approved certificate, and it is
+   * a REVERSAL, not an edit: the deductions entry is mirrored, the generated
+   * invoice is voided through the sales-invoice void path, and the advance
+   * guarantee is restored by exactly what this certificate reduced it by.
+   */
+  async void(
+    idOrDocNo: string,
+    input: { readonly date: string; readonly reasonAr: string },
+    actor: CertificateActor,
+  ): Promise<CertificateView> {
+    const current = await this.require(idOrDocNo);
+    if (current.status !== "invoiced" && current.status !== "approved_for_payment") {
+      throw new InvalidProgressCertificateTransitionError(current.status, "voided");
+    }
+    if (!ISO_DATE.test(input.date)) {
+      throw new InvalidProgressCertificateError(["تاريخ الإلغاء مطلوب بصيغة YYYY-MM-DD"]);
+    }
+    if (input.reasonAr.trim() === "") {
+      throw new InvalidProgressCertificateError(["سبب إلغاء المستخلص المعتمد مطلوب."]);
+    }
+    this.assertDates([
+      { labelAr: "تاريخ اعتماد الصرف", date: current.approvedAt },
+      { labelAr: "تاريخ الإلغاء", date: input.date },
+    ]);
+    await this.assertNoLaterCertificate(current);
+
+    const invoicing = this.deps.invoicing;
+    if (!invoicing?.voidInvoice) {
+      throw new InvalidProgressCertificateError(["إلغاء فاتورة المستخلص غير مُفعّل على هذا الخادم."]);
+    }
+    if (current.invoiceId) {
+      const status = await invoicing.status(current.invoiceId);
+      // `settle` records the deductions against the invoice, so anything
+      // collected ON TOP of them is real money that has to be un-allocated on
+      // its own voucher first.
+      const collected = (status?.amountPaid.scaled ?? 0n) - current.postedDeductionsTotal.scaled;
+      if (collected > 0n) {
+        throw new InvalidProgressCertificateError([
+          `لا يمكن إلغاء مستخلص حُصّل جزء من فاتورته (${Money.fromScaled(collected).toString()}) — اعكس التحصيل أولًا.`,
+        ]);
+      }
+    }
+
+    const saved = await this.deps.store.transaction(async () => {
+      let voidJournalEntryId: string | null = null;
+      if (current.journalEntryId) {
+        voidJournalEntryId = `${current.id}-DED-VOID`;
+        const reversal = await reverseJournalEntry(current.journalEntryId, this.deps.gl, {
+          reversalId: voidJournalEntryId,
+          date: input.date,
+          memo: `عكس خصومات المستخلص ${current.docNo} — ${input.reasonAr.trim()}`,
+        });
+        voidJournalEntryId = reversal.reversal.id;
+      }
+      if (current.invoiceId) {
+        await invoicing.voidInvoice!(current.invoiceId, input.date, `إلغاء المستخلص ${current.docNo}`);
+      }
+      const advanceRecovery =
+        current.computed.deductions.find((d) => d.key === "advanceRecovery")?.thisCertificate ?? Money.zero();
+      if (advanceRecovery.scaled > 0n && this.deps.guarantees?.restoreAdvanceGuarantee) {
+        await this.deps.guarantees.restoreAdvanceGuarantee({
+          contractId: current.contractId,
+          projectId: current.projectId,
+          date: input.date,
+          amount: advanceRecovery,
+          sourceRef: current.docNo,
+        });
+      }
+      const voided: ProgressCertificate = {
+        ...current,
+        status: "voided",
+        voidedAt: input.date,
+        voidedBy: actor.userId,
+        voidReasonAr: input.reasonAr.trim(),
+        voidJournalEntryId,
+      };
+      await this.deps.store.save(voided);
+      return voided;
+    });
+    await this.audit(saved, "VOID", actor, { reasonAr: saved.voidReasonAr, journalEntryId: saved.voidJournalEntryId });
+    return this.view(saved);
+  }
+
+  /**
+   * The status guard for a FORWARD move. Deliberately does NOT refuse when a
+   * later certificate exists: measure, certify and approve change no figure on
+   * this certificate, so a draft successor is no reason to freeze the
+   * signature chain of the one it was built on. Editing and cancelling still
+   * are, and keep their own guard.
+   */
   private async moveable(
     idOrDocNo: string,
     from: ProgressCertificateStatus,
@@ -942,7 +1217,6 @@ export class CertificateService {
   ): Promise<ProgressCertificate> {
     const current = await this.require(idOrDocNo);
     if (current.status !== from) throw new InvalidProgressCertificateTransitionError(current.status, to);
-    await this.assertNoLaterCertificate(current);
     return current;
   }
 
@@ -970,16 +1244,46 @@ export class CertificateService {
     date: string,
     arAccountId: string,
   ): Promise<void> {
-    const [retentionAccount, advanceAccount, whtAccount, socialAccount, sundryAccount, employerMaterialsAccount, stampDutyAccount] =
-      await Promise.all([
-        this.routed("contracting.retention_receivable", "1150"),
-        this.routed("contracting.customer_advances", "2160"),
-        this.routed("contracting.wht_receivable", "1175"),
-        this.routed("contracting.social_insurance", "5155"),
-        this.routed("contracting.late_penalty", "5910"),
-        this.routed("contracting.employer_materials", "5157"),
-        this.routed("contracting.stamp_duty", "5158"),
-      ]);
+    const routing = this.deps.routing ? await this.deps.routing.get() : null;
+    const [
+      retentionAccount,
+      advanceAccount,
+      whtAccount,
+      socialAccount,
+      penaltyExpenseAccount,
+      employerMaterialsAccount,
+      stampDutyAccount,
+      utilitiesAccount,
+      billingsAccount,
+      revenueAccount,
+    ] = await Promise.all([
+      this.routed("contracting.retention_receivable", "1150"),
+      this.routed("contracting.customer_advances", "2160"),
+      this.routed("contracting.wht_receivable", "1175"),
+      this.routed("contracting.social_insurance", "5155"),
+      this.routed("contracting.late_penalty", "5910"),
+      this.routed("contracting.employer_materials", "5157"),
+      this.routed("contracting.stamp_duty", "5158"),
+      this.routed("contracting.utilities", "5159"),
+      this.routed("contracting.billings", "2165"),
+      this.routed("contracting.revenue", "4150"),
+    ]);
+    /**
+     * غرامة التأخير is money the customer never owed, so by default it is a
+     * DEDUCTION FROM THE BILLING, not a cost of building: a contra to 2165 on
+     * a cost-to-cost contract and to 4150 on a certified-value one. A tenant
+     * that has chosen `expense` gets 5910 instead. Either way it never carries
+     * a `costCategory` — a penalty counted as contract cost inflates
+     * percentage-of-completion and brings revenue forward.
+     */
+    const penaltyIsRevenueDeduction =
+      (routing?.options.latePenaltyTreatment ?? DEFAULT_ACCOUNT_ROUTING_OPTIONS.latePenaltyTreatment) ===
+      "revenue_deduction";
+    const penaltyAccount = penaltyIsRevenueDeduction
+      ? contract.recognitionPolicy === "certified_value"
+        ? revenueAccount
+        : billingsAccount
+      : penaltyExpenseAccount;
     const byKey = new Map(certificate.computed.deductions.map((d) => [d.key, d.thisCertificate]));
     const spec: readonly {
       key: string;
@@ -992,9 +1296,9 @@ export class CertificateService {
       { key: "advanceRecovery", accountId: advanceAccount, amount: byKey.get("advanceRecovery") ?? Money.zero(), memo: "خصم الدفعة المقدمة", cost: false },
       { key: "withholdingTax", accountId: whtAccount, amount: byKey.get("withholdingTax") ?? Money.zero(), memo: "ضريبة الخصم والتحصيل", cost: false },
       { key: "socialInsurance", accountId: socialAccount, amount: byKey.get("socialInsurance") ?? Money.zero(), memo: "التأمينات الاجتماعية", cost: true },
-      { key: "penalties", accountId: sundryAccount, amount: byKey.get("penalties") ?? Money.zero(), memo: "غرامة التأخير", cost: true },
+      { key: "penalties", accountId: penaltyAccount, amount: byKey.get("penalties") ?? Money.zero(), memo: penaltyIsRevenueDeduction ? "غرامة التأخير — خصم من قيمة الأعمال" : "غرامة التأخير", cost: false },
       { key: "employerMaterials", accountId: employerMaterialsAccount, amount: byKey.get("employerMaterials") ?? Money.zero(), memo: "استهلاك عهدة المواد", cost: true },
-      { key: "waterElectricity", accountId: sundryAccount, amount: byKey.get("waterElectricity") ?? Money.zero(), memo: "استهلاك المياه والكهرباء", cost: true },
+      { key: "waterElectricity", accountId: utilitiesAccount, amount: byKey.get("waterElectricity") ?? Money.zero(), memo: "استهلاك المياه والكهرباء", cost: true },
       { key: "stampDuty", accountId: stampDutyAccount, amount: byKey.get("stampDuty") ?? Money.zero(), memo: "دمغات ورسوم", cost: true },
     ];
 

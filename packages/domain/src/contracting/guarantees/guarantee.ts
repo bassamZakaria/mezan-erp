@@ -74,6 +74,8 @@ export interface GuaranteeReduction {
   readonly reason: string;
   /** The document that caused it (a progress certificate, say). Null when entered by hand. */
   readonly sourceRef: string | null;
+  /** WHO recorded it. Null only on rows written before the column existed. */
+  readonly userId: string | null;
 }
 
 export interface LetterOfGuarantee {
@@ -102,8 +104,17 @@ export interface LetterOfGuarantee {
   /** Face value net of every reduction; zero once released or called. */
   readonly currentValue: Money;
   readonly reductions: readonly GuaranteeReduction[];
+  /**
+   * Append-only steps back UP the face value: a reduction driven by a
+   * certificate that was later voided. Kept apart from `reductions` so the
+   * history of what the bank was told stays readable in both directions —
+   * currentValue = faceValue − Σ reductions + Σ restorations.
+   */
+  readonly restorations: readonly GuaranteeReduction[];
   /** The date the letter was released or called. Null while it is still outstanding. */
   readonly closedDate: string | null;
+  /** WHO released or called it. Null while the letter is still outstanding. */
+  readonly closedBy: string | null;
   /** What was released back or drawn by the beneficiary. Zero while outstanding. */
   readonly closedAmount: Money;
   readonly notes: string | null;

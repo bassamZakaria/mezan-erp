@@ -177,7 +177,7 @@ describe("reverseGlJournalEntrySchema", () => {
 
 describe("journalSourceModuleSchema", () => {
   it("accepts each known module", () => {
-    for (const m of ["sales", "purchases", "inventory", "treasury", "manufacturing", "payroll", "assets", "manual", "unknown"]) {
+    for (const m of ["sales", "purchases", "inventory", "treasury", "manufacturing", "payroll", "assets", "contracting", "manual", "unknown"]) {
       expect(journalSourceModuleSchema.safeParse(m).success).toBe(true);
     }
   });

@@ -5,8 +5,11 @@ import {
   InvalidStockMovementError,
   Money,
   NegativeStockError,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
   ProjectNotFoundError,
   Qty,
+  VatPeriodAlreadyFiledError,
   SameWarehouseTransferError,
   SiteDocumentNotFoundError,
   SiteDocumentStatusError,
@@ -146,6 +149,10 @@ function serializeUnreceived(row: UnreceivedRow) {
     qtyReceived: row.qtyReceived.toString(),
     qtyOutstanding: row.qtyOutstanding.toString(),
     ageDays: row.ageDays,
+    kind: row.kind,
+    receiptId: row.receiptId,
+    receiptDocNo: row.receiptDocNo,
+    receiptDate: row.receiptDate,
   };
 }
 
@@ -181,6 +188,13 @@ function handleDomainError(c: Context, err: unknown) {
   }
   if (err instanceof SameWarehouseTransferError || err instanceof InvalidStockMovementError) {
     return c.json({ error: err.code, message: err.message }, 422);
+  }
+  // A closed month is a refusal the storekeeper has to read, never a 500.
+  if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
+    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
+  }
+  if (err instanceof VatPeriodAlreadyFiledError) {
+    return c.json({ error: "VAT_PERIOD_FILED", message: err.message }, 409);
   }
   throw err;
 }
@@ -341,7 +355,7 @@ export function createContractingSiteRoutes(
 
   app.post("/consumptions/:id/confirm", gate("inventory.adjustment.confirm"), async (c) => {
     try {
-      return c.json(serializeConsumption(await service.confirmConsumption(c.req.param("id"))));
+      return c.json(serializeConsumption(await service.confirmConsumption(c.req.param("id"), callerUserId(c))));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -415,7 +429,6 @@ export function createContractingSiteRoutes(
         assetId: parsed.data.assetId,
         date: parsed.data.date,
         hours: Qty.fromMajor(parsed.data.hours),
-        hourlyRate: parsed.data.hourlyRate ? Money.fromMajor(parsed.data.hourlyRate) : null,
         boqLineId: parsed.data.boqLineId ?? null,
         notes: parsed.data.notes ?? null,
       });
@@ -427,7 +440,7 @@ export function createContractingSiteRoutes(
 
   app.post("/equipment-logs/:id/confirm", gate("projects.project.manage"), async (c) => {
     try {
-      return c.json(serializeEquipmentLog(await service.confirmEquipmentLog(c.req.param("id"))));
+      return c.json(serializeEquipmentLog(await service.confirmEquipmentLog(c.req.param("id"), callerUserId(c))));
     } catch (err) {
       return handleDomainError(c, err);
     }

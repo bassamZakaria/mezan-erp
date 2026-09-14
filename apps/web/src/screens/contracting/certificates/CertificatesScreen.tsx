@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -66,6 +66,17 @@ interface MaterialDraft {
   unit: string;
   qty: string;
   unitRate: string;
+}
+
+/** The certificate's stored materials, as the editable form holds them. */
+function materialDraftsOf(certificate: ProgressCertificateDTO): MaterialDraft[] {
+  return certificate.materialLines.map((line) => ({
+    materialKey: line.materialKey,
+    descriptionAr: line.descriptionAr,
+    unit: line.unit,
+    qty: trimScale(line.qty),
+    unitRate: trimScale(line.unitRate),
+  }));
 }
 
 function monthStart(): string {
@@ -152,8 +163,9 @@ export function CertificatesScreen() {
       key: "docNo",
       header: t("certificates.column.docNo"),
       render: (c) => (
-        <span className="mz-num font-semibold">
-          {c.docNo} · {c.serial}
+        <span className="font-semibold">
+          <span className="mz-num">{c.docNo}</span>{" "}
+          {t(c.isFinal ? "certificates.finalSerial" : "certificates.interimSerial", { serial: String(c.serial) })}
         </span>
       ),
     },
@@ -172,8 +184,10 @@ export function CertificatesScreen() {
       key: "netCertified",
       header: t("certificates.column.netCertified"),
       align: "end",
+      // No footer total: netCertified is CUMULATIVE to date, so summing it
+      // down the list adds the same work once per certificate. netPayable is a
+      // period figure and does total.
       render: (c) => <MoneyValue value={majorOf(c.computed.netCertified)} showUnit={false} />,
-      total: (rows) => <MoneyValue value={sumMajor(rows.map((r) => r.computed.netCertified))} showUnit={false} />,
     },
     {
       key: "netPayable",
@@ -310,6 +324,33 @@ function NewCertificatePage({ onDone, onCancel }: { onDone: (docNo: string) => v
       }
     : null;
   const preview = useCertificatePreview(previewBody);
+
+  /**
+   * التشوينات carried forward by the server — material certified on an earlier
+   * certificate that stays on this one at its cumulative value. It was
+   * invisible here, so the surveyor could not see what was already stored, let
+   * alone enter the negative quantity that incorporates it.
+   *
+   * Only rows the form does not already hold are appended, and each keeps its
+   * own index, so typing in one row never re-creates the others.
+   */
+  const carried = preview.data?.materialLines;
+  useEffect(() => {
+    if (!carried || carried.length === 0) return;
+    setMaterials((current) => {
+      const known = new Set(current.map((m) => m.materialKey.trim()));
+      const missing = carried
+        .filter((line) => !known.has(line.materialKey))
+        .map((line) => ({
+          materialKey: line.materialKey,
+          descriptionAr: line.descriptionAr,
+          unit: line.unit,
+          qty: "0",
+          unitRate: trimScale(line.unitRate),
+        }));
+      return missing.length === 0 ? current : [...current, ...missing];
+    });
+  }, [carried]);
 
   async function save() {
     setError(null);
@@ -639,9 +680,11 @@ function CertificateDetailPage({
   const update = useUpdateProgressCertificate();
   const projects = useProjects().data ?? EMPTY;
   const customers = useCustomers().data ?? EMPTY;
-  const [approvedAt, setApprovedAt] = useState(todayIso());
+  const [actionDate, setActionDate] = useState(todayIso());
+  const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [draftQty, setDraftQty] = useState<Record<string, string> | null>(null);
+  const [draftMaterials, setDraftMaterials] = useState<MaterialDraft[] | null>(null);
 
   const { session } = useApi();
   const authContext = createAuthContext({
@@ -667,14 +710,25 @@ function CertificateDetailPage({
   const mayApprove = can(authContext, "contracting.certificate.approve");
   const editable = mayPrepare && (certificate.status === "draft" || certificate.status === "measured") && !certificate.hasLaterCertificate;
 
-  async function move(action: "measure" | "certify" | "approve" | "cancel") {
+  async function move(action: "measure" | "certify" | "approve" | "cancel" | "void") {
     setError(null);
+    if ((action === "cancel" || action === "void") && reason.trim() === "") {
+      setError(t("certificates.reasonRequired"));
+      return;
+    }
+    const body =
+      action === "approve"
+        ? { approvedAt: actionDate }
+        : action === "measure"
+          ? { measuredAt: actionDate }
+          : action === "certify"
+            ? { certifiedAt: actionDate }
+            : action === "cancel"
+              ? { reasonAr: reason.trim() }
+              : { date: actionDate, reasonAr: reason.trim() };
     try {
-      await transition.mutateAsync({
-        id: certificate!.id,
-        action,
-        ...(action === "approve" ? { body: { approvedAt } } : {}),
-      });
+      await transition.mutateAsync({ id: certificate!.id, action, body });
+      setReason("");
     } catch (err) {
       setError(err instanceof Error ? err.message : t("certificates.transitionFailed"));
     }
@@ -682,18 +736,35 @@ function CertificateDetailPage({
 
   async function saveLines() {
     setError(null);
-    if (!draftQty) return;
+    if (!draftQty && !draftMaterials) return;
+    const materialRows = draftMaterials ?? materialDraftsOf(certificate!);
     try {
       await update.mutateAsync({
         id: certificate!.id,
         patch: {
           workLines: certificate!.workLines.map((l) => ({
             boqLineId: l.boqLineId,
-            thisPeriodQty: draftQty[l.boqLineId] ?? trimScale(l.thisPeriodQty) ?? "0",
+            thisPeriodQty: draftQty?.[l.boqLineId] ?? trimScale(l.thisPeriodQty) ?? "0",
           })),
+          // التشوينات travels with the quantities: patching only the work lines
+          // dropped every material the certificate carried, because a PATCH
+          // that omits materialLines re-derives them from the previous
+          // certificate alone.
+          materialLines: materialRows
+            .filter((m) => m.materialKey.trim() !== "")
+            .map(
+              (m): CertificateMaterialLineInputDTO => ({
+                materialKey: m.materialKey.trim(),
+                descriptionAr: m.descriptionAr.trim() || m.materialKey.trim(),
+                unit: m.unit as CertificateMaterialLineInputDTO["unit"],
+                qty: m.qty.trim() || "0",
+                unitRate: m.unitRate.trim() || "0",
+              }),
+            ),
         },
       });
       setDraftQty(null);
+      setDraftMaterials(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("certificates.saveFailed"));
     }
@@ -705,7 +776,7 @@ function CertificateDetailPage({
 
   return (
     <DocumentDetail
-      title={`${certificate.docNo} — ${t("certificates.serialTitle", { serial: String(certificate.serial) })}`}
+      title={`${certificate.docNo} — ${t(certificate.isFinal ? "certificates.finalSerial" : "certificates.interimSerial", { serial: String(certificate.serial) })}`}
       statusLabel={t(CERTIFICATE_STATUS_KEY[certificate.derivedStatus])}
       statusTone={CERTIFICATE_STATUS_TONE[certificate.derivedStatus]}
       subtitle={`${certificate.contractDocNo} · ${projectName} · ${customerName}`}
@@ -713,40 +784,87 @@ function CertificateDetailPage({
         <div className="flex flex-wrap items-center gap-[9px]">
           <Button onClick={onBack}>{t("common.back")}</Button>
           <Button onClick={onPrint}>{t("certificates.print")}</Button>
+          {/* A later certificate freezes the FIGURES, never the signatures:
+              measuring, certifying and clearing this one change nothing a
+              successor read off it. Editing and cancelling do, and stay shut. */}
           {certificate.hasLaterCertificate ? (
             <span className="text-[12px] font-semibold text-warning-ink">{t("certificates.lockedByLater")}</span>
-          ) : (
+          ) : null}
+          {mayPrepare && certificate.status === "draft" ? (
             <>
-              {mayPrepare && certificate.status === "draft" ? (
-                <Button variant="primary" onClick={() => void move("measure")} disabled={transition.isPending}>
-                  {t("certificates.action.measure")}
-                </Button>
-              ) : null}
-              {mayCertify && certificate.status === "measured" ? (
-                <Button variant="primary" onClick={() => void move("certify")} disabled={transition.isPending}>
-                  {t("certificates.action.certify")}
-                </Button>
-              ) : null}
-              {mayApprove && certificate.status === "certified" ? (
-                <>
-                  <TextInput
-                    type="date"
-                    value={approvedAt}
-                    onChange={(e) => setApprovedAt(e.target.value)}
-                    aria-label={t("certificates.field.approvedAt")}
-                  />
-                  <Button variant="primary" onClick={() => void move("approve")} disabled={transition.isPending}>
-                    {t("certificates.action.approve")}
-                  </Button>
-                </>
-              ) : null}
-              {mayPrepare && (certificate.status === "draft" || certificate.status === "measured") ? (
-                <Button onClick={() => void move("cancel")} disabled={transition.isPending}>
-                  {t("certificates.action.cancel")}
-                </Button>
-              ) : null}
+              <TextInput
+                type="date"
+                value={actionDate}
+                onChange={(e) => setActionDate(e.target.value)}
+                aria-label={t("certificates.field.measuredAt")}
+              />
+              <Button variant="primary" onClick={() => void move("measure")} disabled={transition.isPending}>
+                {t("certificates.action.measure")}
+              </Button>
             </>
-          )}
+          ) : null}
+          {mayCertify && certificate.status === "measured" ? (
+            <>
+              <TextInput
+                type="date"
+                value={actionDate}
+                onChange={(e) => setActionDate(e.target.value)}
+                aria-label={t("certificates.field.certifiedAt")}
+              />
+              <Button variant="primary" onClick={() => void move("certify")} disabled={transition.isPending}>
+                {t("certificates.action.certify")}
+              </Button>
+            </>
+          ) : null}
+          {mayApprove && certificate.status === "certified" ? (
+            <>
+              <TextInput
+                type="date"
+                value={actionDate}
+                onChange={(e) => setActionDate(e.target.value)}
+                aria-label={t("certificates.field.approvedAt")}
+              />
+              <Button variant="primary" onClick={() => void move("approve")} disabled={transition.isPending}>
+                {t("certificates.action.approve")}
+              </Button>
+            </>
+          ) : null}
+          {mayPrepare &&
+          !certificate.hasLaterCertificate &&
+          (certificate.status === "draft" || certificate.status === "measured") ? (
+            <>
+              <TextInput
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                aria-label={t("certificates.field.cancelReason")}
+                placeholder={t("certificates.field.cancelReason")}
+              />
+              <Button onClick={() => void move("cancel")} disabled={transition.isPending}>
+                {t("certificates.action.cancel")}
+              </Button>
+            </>
+          ) : null}
+          {mayApprove &&
+          !certificate.hasLaterCertificate &&
+          (certificate.status === "invoiced" || certificate.status === "approved_for_payment") ? (
+            <>
+              <TextInput
+                type="date"
+                value={actionDate}
+                onChange={(e) => setActionDate(e.target.value)}
+                aria-label={t("certificates.field.voidDate")}
+              />
+              <TextInput
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                aria-label={t("certificates.field.voidReason")}
+                placeholder={t("certificates.field.voidReason")}
+              />
+              <Button onClick={() => void move("void")} disabled={transition.isPending}>
+                {t("certificates.action.void")}
+              </Button>
+            </>
+          ) : null}
         </div>
       }
       summary={[
@@ -836,9 +954,16 @@ function CertificateDetailPage({
                     </tbody>
                   </table>
                 </div>
-                {editable && draftQty ? (
+                {editable && (draftQty || draftMaterials) ? (
                   <div className="mt-[12px] flex justify-end gap-[9px]">
-                    <Button onClick={() => setDraftQty(null)}>{t("common.cancel")}</Button>
+                    <Button
+                      onClick={() => {
+                        setDraftQty(null);
+                        setDraftMaterials(null);
+                      }}
+                    >
+                      {t("common.cancel")}
+                    </Button>
                     <Button variant="primary" onClick={() => void saveLines()} disabled={update.isPending}>
                       {t("common.save")}
                     </Button>
@@ -846,7 +971,12 @@ function CertificateDetailPage({
                 ) : null}
               </Card>
 
-              {certificate.materialLines.length > 0 ? (
+              {editable ? (
+                <MaterialsCard
+                  materials={draftMaterials ?? materialDraftsOf(certificate)}
+                  onChange={setDraftMaterials}
+                />
+              ) : certificate.materialLines.length > 0 ? (
                 <Card className="p-[14px_16px]">
                   <h3 className="mb-[8px] text-[12.5px] font-bold text-ink">{t("certificates.section.materials")}</h3>
                   <table className="w-full border-collapse text-[12px]">

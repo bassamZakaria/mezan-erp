@@ -3,6 +3,8 @@ import type { AccountRepository } from "../../accounts/account.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
 import type { ProjectRepository } from "../../projects/project.js";
 import type { TreasuryAccountRepository } from "../../treasury-accounts/treasury-account.js";
+import type { AuditSink } from "../../audit/index.js";
+import { recordTransition } from "../audit.js";
 import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../../gl/index.js";
 import {
   daysToExpiry,
@@ -52,8 +54,15 @@ export interface GuaranteeServiceDeps {
   readonly contracts?: ContractExistencePort;
   readonly routing?: Pick<AccountRoutingRepository, "get">;
   readonly gl: JournalPostingDeps;
+  /** سجل العمليات الحساسة — a letter of guarantee locks the company's cash, so every move is recorded. */
+  readonly audit?: AuditSink;
   /** ISO `YYYY-MM-DD` "today", overridable for deterministic tests. */
   readonly today?: () => string;
+}
+
+/** Who is acting. Stamped on the row and named in the audit trail. */
+export interface GuaranteeActor {
+  readonly userId: string;
 }
 
 export interface CreateGuaranteeCommand {
@@ -95,14 +104,18 @@ export interface ReduceGuaranteeCommand {
   readonly amount: Money;
   readonly reason: string;
   readonly sourceRef?: string | null;
+  /** WHO. Null only when a background port (the certificate's own recovery) acts. */
+  readonly userId?: string | null;
 }
 
 export interface ReleaseGuaranteeCommand {
   readonly date: string;
+  readonly userId?: string | null;
 }
 
 export interface CallGuaranteeCommand {
   readonly date: string;
+  readonly userId?: string | null;
   /** Omitted, the beneficiary draws the whole outstanding value. */
   readonly amount?: Money;
   /** Where the loss lands. Omitted, the `contracting.onerous_loss` routing slot decides. */
@@ -237,7 +250,9 @@ export class GuaranteeService {
       status: "draft",
       currentValue: command.faceValue,
       reductions: [],
+      restorations: [],
       closedDate: null,
+      closedBy: null,
       closedAmount: Money.zero(),
       notes: command.notes ?? null,
     };
@@ -297,7 +312,7 @@ export class GuaranteeService {
    * the bank into restricted cash (Dr 1340 / Cr bank), as ONE balanced entry so
    * neither half can exist without the other.
    */
-  async issue(id: string): Promise<LetterOfGuarantee> {
+  async issue(id: string, actor?: GuaranteeActor): Promise<LetterOfGuarantee> {
     const current = await this.require(id);
     if (current.status !== "draft") throw new InvalidGuaranteeTransitionError(current.status, "active");
 
@@ -324,6 +339,12 @@ export class GuaranteeService {
 
     const issued: LetterOfGuarantee = { ...current, docNo, status: "active", currentValue: current.faceValue };
     await this.deps.guarantees.update(issued);
+    await this.audit(issued, "ISSUE", actor?.userId, {
+      faceValue: issued.faceValue.toString(),
+      cashMarginAmount: issued.cashMarginAmount.toString(),
+      issueDate: issued.issueDate,
+      expiryDate: issued.expiryDate,
+    });
     return issued;
   }
 
@@ -340,6 +361,7 @@ export class GuaranteeService {
       throw new GuaranteeAmountExceedsValueError(id, command.amount.toString(), current.currentValue.toString());
     }
     if (command.reason.trim() === "") throw new InvalidGuaranteeError(["سبب التخفيض مطلوب."]);
+    this.assertEventDate("تاريخ التخفيض", command.date, current);
 
     const [memoDebit, memoCredit] = await Promise.all([
       this.routed("contracting.memo_debit", "9100"),
@@ -364,6 +386,7 @@ export class GuaranteeService {
       amount: command.amount,
       reason: command.reason,
       sourceRef: command.sourceRef ?? null,
+      userId: command.userId ?? null,
     };
     const reduced: LetterOfGuarantee = {
       ...current,
@@ -372,7 +395,78 @@ export class GuaranteeService {
       reductions: [...current.reductions, reduction],
     };
     await this.deps.guarantees.update(reduced);
+    await this.audit(reduced, "REDUCE", command.userId, {
+      amount: command.amount.toString(),
+      date: command.date,
+      reason: command.reason,
+      sourceRef: command.sourceRef ?? null,
+      currentValue: reduced.currentValue.toString(),
+    });
     return reduced;
+  }
+
+  /**
+   * استرجاع التخفيض — the step back up, for a reduction whose cause was
+   * reversed (a voided مستخلص). It posts the memorandum pair the reduction
+   * reversed, never a negative reduction: the register has to be able to say
+   * what was reduced and what was put back, and a signed `reductions` list
+   * cannot.
+   */
+  async restore(id: string, command: ReduceGuaranteeCommand): Promise<LetterOfGuarantee> {
+    const current = await this.require(id);
+    if (!isGuaranteeOutstanding(current)) throw new InvalidGuaranteeTransitionError(current.status, "reduced");
+    if (command.amount.scaled <= 0n) throw new InvalidGuaranteeError(["قيمة الاسترجاع يجب أن تكون أكبر من صفر."]);
+    if (current.currentValue.scaled + command.amount.scaled > current.faceValue.scaled) {
+      throw new GuaranteeAmountExceedsValueError(
+        id,
+        command.amount.toString(),
+        Money.fromScaled(current.faceValue.scaled - current.currentValue.scaled).toString(),
+      );
+    }
+    if (command.reason.trim() === "") throw new InvalidGuaranteeError(["سبب الاسترجاع مطلوب."]);
+    this.assertEventDate("تاريخ الاسترجاع", command.date, current);
+
+    const [memoDebit, memoCredit] = await Promise.all([
+      this.routed("contracting.memo_debit", "9100"),
+      this.routed("contracting.memo_credit", "9200"),
+    ]);
+    const lines: JournalLineInput[] = [
+      this.memoLine(memoDebit, command.amount, "debit", current, "استرجاع القيمة الاسمية لخطاب الضمان"),
+      this.memoLine(memoCredit, command.amount, "credit", current, "استرجاع التزام عرضي — خطاب ضمان"),
+    ];
+    const docNo = current.docNo ?? current.id;
+    await this.post(
+      `${GUARANTEE_DOC_TYPE}:RESTORE:${current.id}:${current.restorations.length + 1}`,
+      command.date,
+      `استرجاع تخفيض خطاب ضمان ${docNo} — ${command.reason}`,
+      docNo,
+      current,
+      lines,
+    );
+
+    const restored: LetterOfGuarantee = {
+      ...current,
+      currentValue: current.currentValue.add(command.amount),
+      restorations: [
+        ...current.restorations,
+        {
+          date: command.date,
+          amount: command.amount,
+          reason: command.reason,
+          sourceRef: command.sourceRef ?? null,
+          userId: command.userId ?? null,
+        },
+      ],
+    };
+    await this.deps.guarantees.update(restored);
+    await this.audit(restored, "RESTORE", command.userId, {
+      amount: command.amount.toString(),
+      date: command.date,
+      reason: command.reason,
+      sourceRef: command.sourceRef ?? null,
+      currentValue: restored.currentValue.toString(),
+    });
+    return restored;
   }
 
   /**
@@ -404,6 +498,7 @@ export class GuaranteeService {
       );
     }
     if (lines.length === 0) throw new InvalidGuaranteeError(["لا يوجد ما يُفرَج عنه في هذا الخطاب."]);
+    this.assertEventDate("تاريخ الإفراج", command.date, current);
 
     const docNo = current.docNo ?? current.id;
     await this.post(`${GUARANTEE_DOC_TYPE}:RELEASE:${current.id}`, command.date, `إفراج عن خطاب ضمان ${docNo}`, docNo, current, lines);
@@ -412,10 +507,16 @@ export class GuaranteeService {
       ...current,
       status: "released",
       closedDate: command.date,
+      closedBy: command.userId ?? null,
       closedAmount: current.currentValue,
       currentValue: Money.zero(),
     };
     await this.deps.guarantees.update(released);
+    await this.audit(released, "RELEASE", command.userId, {
+      date: command.date,
+      closedAmount: released.closedAmount.toString(),
+      cashMarginAmount: released.cashMarginAmount.toString(),
+    });
     return released;
   }
 
@@ -444,6 +545,7 @@ export class GuaranteeService {
     const chargeAccountId = command.chargeAccountId ?? defaultCharge;
     const chargeAccount = await this.deps.accounts.findById(chargeAccountId);
     if (!chargeAccount) throw new GuaranteeChargeAccountNotFoundError(chargeAccountId);
+    this.assertEventDate("تاريخ المصادرة", command.date, current);
 
     const bankGl = await this.bankGlAccountId(current.bankTreasuryAccountId);
     const lines: JournalLineInput[] = [
@@ -466,11 +568,57 @@ export class GuaranteeService {
       ...current,
       status: "called",
       closedDate: command.date,
+      closedBy: command.userId ?? null,
       closedAmount: amount,
       currentValue: Money.zero(),
     };
     await this.deps.guarantees.update(called);
+    await this.audit(called, "CALL", command.userId, {
+      date: command.date,
+      closedAmount: amount.toString(),
+      chargeAccountId,
+    });
     return called;
+  }
+
+  /**
+   * تاريخ الحركة محصور بين تاريخ الإصدار واليوم. A release dated before the
+   * letter existed, or in the future, is either a mistake or a backdate past a
+   * period the books have closed — and both were accepted.
+   */
+  private assertEventDate(labelAr: string, date: string, guarantee: LetterOfGuarantee): void {
+    const reasons: string[] = [];
+    if (!ISO_DATE.test(date)) reasons.push(`${labelAr} مطلوب بصيغة YYYY-MM-DD.`);
+    else {
+      if (date < guarantee.issueDate) {
+        reasons.push(`${labelAr} (${date}) لا يجوز أن يسبق تاريخ إصدار الخطاب (${guarantee.issueDate}).`);
+      }
+      const today = this.today();
+      if (date > today) reasons.push(`${labelAr} (${date}) لا يجوز أن يكون في المستقبل (اليوم ${today}).`);
+    }
+    if (reasons.length > 0) throw new InvalidGuaranteeError(reasons);
+  }
+
+  private async audit(
+    guarantee: LetterOfGuarantee,
+    action: string,
+    userId: string | null | undefined,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    await recordTransition(this.deps.audit, {
+      entityType: GUARANTEE_DOC_TYPE,
+      entityId: guarantee.id,
+      action,
+      actor: userId ?? "system",
+      severity: action === "RELEASE" || action === "CALL" ? "WARNING" : "INFO",
+      details: {
+        docNo: guarantee.docNo,
+        kind: guarantee.kind,
+        projectId: guarantee.projectId,
+        contractId: guarantee.contractId,
+        ...details,
+      },
+    });
   }
 
   private memoLine(

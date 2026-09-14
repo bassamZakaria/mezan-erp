@@ -60,6 +60,8 @@ function serializeFigures(figures: RecognitionFigures) {
       costCategory: b.costCategory,
       amount: b.amount.toString(),
     })),
+    advanceOutstanding: figures.advanceOutstanding.toString(),
+    retentionHeld: figures.retentionHeld.toString(),
   };
 }
 
@@ -96,6 +98,8 @@ function serializePreview(preview: RecognitionPreview) {
     existingRunDocNo: preview.existingRunDocNo,
     due: preview.due,
     blockedReasonAr: preview.blockedReasonAr,
+    recomputed: preview.recomputed ? serializeFigures(preview.recomputed) : null,
+    divergent: preview.divergent,
   };
 }
 

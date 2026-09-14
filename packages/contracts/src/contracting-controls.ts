@@ -2,7 +2,7 @@ import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 
 /**
- * Wire contracts for تقارير الاستثناءات الستة، الإفراج عن المحتجزات وتقويمها —
+ * Wire contracts for تقارير الاستثناءات السبعة، الإفراج عن المحتجزات وتقويمها —
  * slice 5B of المقاولات (docs/artifacts/mezan-contracting-designs.html §06).
  *
  * Every figure crosses as an exact decimal string. The reports carry their own
@@ -19,6 +19,7 @@ export const contractingExceptionKeySchema = z.enum([
   "equipment-without-certificate",
   "late-variation-approvals",
   "early-retention-release",
+  "cost-overrun-vs-estimate",
 ]);
 export type ContractingExceptionKeyDTO = z.infer<typeof contractingExceptionKeySchema>;
 
@@ -31,6 +32,8 @@ const reportEnvelope = {
   projectId: z.string().nullable(),
   olderThanDays: z.number().nullable(),
   thresholdPercent: z.string().nullable(),
+  /** How many months an unrevised التكلفة الكلية المقدرة may stand — report 7 only. */
+  stalenessMonths: z.number().nullable(),
 };
 
 export const boqOverrunRowSchema = z.object({
@@ -64,6 +67,11 @@ export const unreceivedIssueRowSchema = z.object({
   qtyReceived: moneyString,
   qtyOutstanding: moneyString,
   ageDays: z.number(),
+  /** `received_before_issue` is a confirmed receipt dated before the issue it closes. */
+  kind: z.enum(["outstanding", "received_before_issue"]),
+  receiptId: z.string().nullable(),
+  receiptDocNo: z.string().nullable(),
+  receiptDate: z.string().nullable(),
 });
 export type UnreceivedIssueRowDTO = z.infer<typeof unreceivedIssueRowSchema>;
 
@@ -130,6 +138,9 @@ export type LateVariationRowDTO = z.infer<typeof lateVariationRowSchema>;
 export const earlyRetentionReleaseRowSchema = z.object({
   releaseId: z.string(),
   docNo: z.string(),
+  /** Which half of the retention: the employer's، or a subcontractor's. */
+  party: z.enum(["customer", "subcontractor"]),
+  counterpartyNameAr: z.string().nullable(),
   contractId: z.string(),
   contractDocNo: z.string(),
   projectId: z.string(),
@@ -142,12 +153,33 @@ export const earlyRetentionReleaseRowSchema = z.object({
 });
 export type EarlyRetentionReleaseRowDTO = z.infer<typeof earlyRetentionReleaseRowSchema>;
 
+export const costOverrunRowSchema = z.object({
+  contractId: z.string(),
+  contractDocNo: z.string(),
+  contractTitleAr: z.string(),
+  projectId: z.string(),
+  status: z.string(),
+  costToDate: moneyString,
+  estimatedTotalCost: moneyString,
+  certifiedGrossWorks: moneyString,
+  contractValue: moneyString,
+  /** estimatedTotalCost × certifiedGrossWorks / contractValue. */
+  expectedCostToDate: moneyString,
+  excessCost: moneyString,
+  lastEstimateRevisionDate: z.string().nullable(),
+  monthsSinceEstimateRevision: z.number().nullable(),
+  costOverrun: z.boolean(),
+  estimateStale: z.boolean(),
+});
+export type CostOverrunRowDTO = z.infer<typeof costOverrunRowSchema>;
+
 export const boqOverrunReportSchema = z.object({ ...reportEnvelope, rows: z.array(boqOverrunRowSchema) });
 export const unreceivedIssuesReportSchema = z.object({ ...reportEnvelope, rows: z.array(unreceivedIssueRowSchema) });
 export const consumptionVarianceReportSchema = z.object({ ...reportEnvelope, rows: z.array(consumptionVarianceRowSchema) });
 export const equipmentExceptionReportSchema = z.object({ ...reportEnvelope, rows: z.array(equipmentExceptionRowSchema) });
 export const lateVariationReportSchema = z.object({ ...reportEnvelope, rows: z.array(lateVariationRowSchema) });
 export const earlyRetentionReleaseReportSchema = z.object({ ...reportEnvelope, rows: z.array(earlyRetentionReleaseRowSchema) });
+export const costOverrunReportSchema = z.object({ ...reportEnvelope, rows: z.array(costOverrunRowSchema) });
 
 export type BoqOverrunReportDTO = z.infer<typeof boqOverrunReportSchema>;
 export type UnreceivedIssuesReportDTO = z.infer<typeof unreceivedIssuesReportSchema>;
@@ -155,6 +187,7 @@ export type ConsumptionVarianceReportDTO = z.infer<typeof consumptionVarianceRep
 export type EquipmentExceptionReportDTO = z.infer<typeof equipmentExceptionReportSchema>;
 export type LateVariationReportDTO = z.infer<typeof lateVariationReportSchema>;
 export type EarlyRetentionReleaseReportDTO = z.infer<typeof earlyRetentionReleaseReportSchema>;
+export type CostOverrunReportDTO = z.infer<typeof costOverrunReportSchema>;
 
 export const contractingExceptionSummarySchema = z.object({
   asOfDate: z.string(),
@@ -182,6 +215,15 @@ export const createRetentionReleaseSchema = z.object({
   notes: z.string().nullish(),
 });
 export type CreateRetentionReleaseDTO = z.infer<typeof createRetentionReleaseSchema>;
+
+/**
+ * الإفراج. `approvedBy` is REQUIRED when the release date precedes the release
+ * event, and must name a user who is neither the author nor the releaser.
+ */
+export const releaseRetentionSchema = z.object({
+  approvedBy: z.string().min(1).nullable().optional(),
+});
+export type ReleaseRetentionDTO = z.infer<typeof releaseRetentionSchema>;
 
 export const updateRetentionReleaseSchema = z.object({
   kind: retentionReleaseKindSchema.optional(),
@@ -213,6 +255,8 @@ export const retentionReleaseSchema = z.object({
   invoiceDocNo: z.string().nullable(),
   releasedAt: z.string().nullable(),
   releasedBy: z.string().nullable(),
+  /** The second signature an early release carries. Null on a release that is not early. */
+  approvedBy: z.string().nullable(),
   cancelledAt: z.string().nullable(),
   createdAt: z.string(),
   createdBy: z.string().nullable(),
@@ -267,6 +311,24 @@ export const retentionCalendarRowSchema = z.object({
 });
 export type RetentionCalendarRowDTO = z.infer<typeof retentionCalendarRowSchema>;
 
+export const retentionPayableSubcontractRowSchema = z.object({
+  subcontractId: z.string(),
+  subcontractDocNo: z.string(),
+  titleAr: z.string(),
+  supplierId: z.string(),
+  status: z.string(),
+  held: moneyString,
+  released: moneyString,
+  balance: moneyString,
+  completionDate: z.string().nullable(),
+  defectsLiabilityMonths: z.number().int(),
+  releaseEventDate: z.string().nullable(),
+  daysToEvent: z.number().nullable(),
+  due: z.boolean(),
+  ageDays: z.number().nullable(),
+});
+export type RetentionPayableSubcontractRowDTO = z.infer<typeof retentionPayableSubcontractRowSchema>;
+
 export const retentionPayableRowSchema = z.object({
   projectId: z.string(),
   projectNameAr: z.string().nullable(),
@@ -275,6 +337,8 @@ export const retentionPayableRowSchema = z.object({
   held: moneyString,
   released: moneyString,
   balance: moneyString,
+  /** The subcontracts behind the balance, each on its own release clock. */
+  subcontracts: z.array(retentionPayableSubcontractRowSchema),
 });
 export type RetentionPayableRowDTO = z.infer<typeof retentionPayableRowSchema>;
 

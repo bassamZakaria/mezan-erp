@@ -126,3 +126,17 @@ export class SubcontractRetentionError extends Error {
     this.name = "SubcontractRetentionError";
   }
 }
+
+/**
+ * Raised when the deduction block is not payable: a net payable below zero, a
+ * materials deduction larger than what was actually issued to this sub, or a
+ * penalty past the ceiling the package was let at. Every one of the four
+ * cumulative figures is typed by a person, so none of them may be believed.
+ */
+export class SubCertificateDeductionError extends Error {
+  readonly code = "SUB_CERTIFICATE_DEDUCTION_REFUSED";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "SubCertificateDeductionError";
+  }
+}

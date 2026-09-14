@@ -42,6 +42,8 @@ export interface SubCertificateInvoiceCommand {
   readonly expenseAccountId: string;
   readonly lineDescriptionAr: string;
   readonly memoAr: string;
+  /** WHO approved the sub certificate — the generated purchase invoice's audit row named `system`. */
+  readonly actor?: string | null;
 }
 
 export interface SubCertificateInvoiceResult {
@@ -114,4 +116,39 @@ export interface ClientCertifiedQuantityPort {
  */
 export interface SubcontractConsumptionPort {
   materialsIssuedTo(subcontractId: string): Promise<Money>;
+}
+
+/**
+ * الإفراج عن المحتجزات as an AP DOCUMENT (design §06, D-05).
+ *
+ * The release is a purchase invoice whose single expense line debits the
+ * retention-payable account, so the invoice's own posting is Dr 2195 / Cr AP:
+ * GL 2100 and the payables sub-ledger move together and a voucher can pay it.
+ */
+export interface SubcontractRetentionReleaseInvoiceCommand {
+  readonly releaseId: string;
+  readonly subcontractId: string;
+  readonly subcontractDocNo: string;
+  readonly supplierId: string;
+  readonly projectId: string;
+  readonly date: string;
+  /** ميعاد الاستحقاق — the release EVENT, not the invoice date plus payment terms. */
+  readonly dueDate: string;
+  readonly amount: Money;
+  /** The retention-payable account the expense line debits. */
+  readonly retentionAccountId: string;
+  readonly lineDescriptionAr: string;
+  readonly memoAr: string;
+  /** WHO released the retention — the generated purchase invoice's audit row named `system`. */
+  readonly actor?: string | null;
+}
+
+export interface SubcontractRetentionReleaseInvoiceResult {
+  readonly invoiceId: string;
+  readonly invoiceDocNo: string;
+  readonly journalEntryId: string;
+}
+
+export interface SubcontractRetentionInvoicingPort {
+  issue(cmd: SubcontractRetentionReleaseInvoiceCommand): Promise<SubcontractRetentionReleaseInvoiceResult>;
 }

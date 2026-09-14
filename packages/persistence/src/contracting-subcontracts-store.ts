@@ -17,6 +17,7 @@ import {
   type SubcontractLine,
   type SubcontractListFilter,
   type SubcontractRetentionRelease,
+  type SubcontractRetentionReleaseKind,
   type SubcontractStatus,
   type SubcontractStore,
   type VatBasis,
@@ -108,6 +109,11 @@ CREATE TABLE IF NOT EXISTS subcontract_retention_release (
   date             TEXT NOT NULL,
   amount           INTEGER NOT NULL,
   journal_entry_id TEXT NOT NULL,
+  kind             TEXT NOT NULL DEFAULT 'final',
+  release_event_date TEXT,
+  early_release    INTEGER NOT NULL DEFAULT 0,
+  invoice_id       TEXT,
+  invoice_doc_no   TEXT,
   released_by      TEXT,
   notes            TEXT,
   sort_order       INTEGER NOT NULL
@@ -136,7 +142,9 @@ CREATE TABLE IF NOT EXISTS subcontract_certificate (
   certified_at                   TEXT,
   approved_by                    TEXT,
   approved_at                    TEXT,
+  cancelled_by                   TEXT,
   cancelled_at                   TEXT,
+  cancel_reason_ar               TEXT,
   invoice_id                     TEXT,
   invoice_doc_no                 TEXT,
   journal_entry_id               TEXT,
@@ -278,6 +286,11 @@ interface ReleaseRow {
   date: string;
   amount: number;
   journal_entry_id: string;
+  kind: string;
+  release_event_date: string | null;
+  early_release: number;
+  invoice_id: string | null;
+  invoice_doc_no: string | null;
   released_by: string | null;
   notes: string | null;
   sort_order: number;
@@ -305,7 +318,9 @@ interface CertificateRow {
   certified_at: string | null;
   approved_by: string | null;
   approved_at: string | null;
+  cancelled_by: string | null;
   cancelled_at: string | null;
+  cancel_reason_ar: string | null;
   invoice_id: string | null;
   invoice_doc_no: string | null;
   journal_entry_id: string | null;
@@ -408,6 +423,11 @@ function toRelease(row: ReleaseRow): SubcontractRetentionRelease {
     date: row.date,
     amount: Money.fromScaled(row.amount),
     journalEntryId: row.journal_entry_id,
+    kind: row.kind as SubcontractRetentionReleaseKind,
+    releaseEventDate: row.release_event_date,
+    earlyRelease: row.early_release === 1,
+    invoiceId: row.invoice_id,
+    invoiceDocNo: row.invoice_doc_no,
     releasedBy: row.released_by,
     notes: row.notes,
   };
@@ -554,9 +574,11 @@ class SqliteSubcontractStore implements SubcontractStore {
     `);
     this.insertRelease = sqlite.prepare(`
       INSERT INTO subcontract_retention_release (
-        id, subcontract_id, date, amount, journal_entry_id, released_by, notes, sort_order
+        id, subcontract_id, date, amount, journal_entry_id, kind, release_event_date,
+        early_release, invoice_id, invoice_doc_no, released_by, notes, sort_order
       ) VALUES (
-        @id, @subcontract_id, @date, @amount, @journal_entry_id, @released_by, @notes, @sort_order
+        @id, @subcontract_id, @date, @amount, @journal_entry_id, @kind, @release_event_date,
+        @early_release, @invoice_id, @invoice_doc_no, @released_by, @notes, @sort_order
       )
     `);
     this.upsertCertificate = sqlite.prepare(`
@@ -564,7 +586,7 @@ class SqliteSubcontractStore implements SubcontractStore {
         id, doc_no, subcontract_id, contract_id, project_id, supplier_id, serial,
         previous_certificate_id, period_from, period_to, execution_date, is_final, status,
         prepared_by, prepared_at, measured_by, measured_at, certified_by, certified_at,
-        approved_by, approved_at, cancelled_at, invoice_id, invoice_doc_no, journal_entry_id,
+        approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason_ar, invoice_id, invoice_doc_no, journal_entry_id,
         posted_deductions_total, due_date, penalties_cumulative, suspended_cumulative,
         employer_materials_cumulative, water_electricity_cumulative, notes,
         gross_works, materials_on_site, certificate_total, tender_discount_percent, tender_discount,
@@ -577,7 +599,7 @@ class SqliteSubcontractStore implements SubcontractStore {
         @id, @doc_no, @subcontract_id, @contract_id, @project_id, @supplier_id, @serial,
         @previous_certificate_id, @period_from, @period_to, @execution_date, @is_final, @status,
         @prepared_by, @prepared_at, @measured_by, @measured_at, @certified_by, @certified_at,
-        @approved_by, @approved_at, @cancelled_at, @invoice_id, @invoice_doc_no, @journal_entry_id,
+        @approved_by, @approved_at, @cancelled_by, @cancelled_at, @cancel_reason_ar, @invoice_id, @invoice_doc_no, @journal_entry_id,
         @posted_deductions_total, @due_date, @penalties_cumulative, @suspended_cumulative,
         @employer_materials_cumulative, @water_electricity_cumulative, @notes,
         @gross_works, @materials_on_site, @certificate_total, @tender_discount_percent, @tender_discount,
@@ -608,7 +630,9 @@ class SqliteSubcontractStore implements SubcontractStore {
         certified_at = excluded.certified_at,
         approved_by = excluded.approved_by,
         approved_at = excluded.approved_at,
+        cancelled_by = excluded.cancelled_by,
         cancelled_at = excluded.cancelled_at,
+        cancel_reason_ar = excluded.cancel_reason_ar,
         invoice_id = excluded.invoice_id,
         invoice_doc_no = excluded.invoice_doc_no,
         journal_entry_id = excluded.journal_entry_id,
@@ -754,7 +778,9 @@ class SqliteSubcontractStore implements SubcontractStore {
       certifiedAt: row.certified_at,
       approvedBy: row.approved_by,
       approvedAt: row.approved_at,
+      cancelledBy: row.cancelled_by,
       cancelledAt: row.cancelled_at,
+      cancelReasonAr: row.cancel_reason_ar,
       invoiceId: row.invoice_id,
       invoiceDocNo: row.invoice_doc_no,
       journalEntryId: row.journal_entry_id,
@@ -867,6 +893,11 @@ class SqliteSubcontractStore implements SubcontractStore {
           date: release.date,
           amount: release.amount.toScaledNumber(),
           journal_entry_id: release.journalEntryId,
+          kind: release.kind,
+          release_event_date: release.releaseEventDate,
+          early_release: release.earlyRelease ? 1 : 0,
+          invoice_id: release.invoiceId,
+          invoice_doc_no: release.invoiceDocNo,
           released_by: release.releasedBy,
           notes: release.notes,
           sort_order: index + 1,
@@ -938,7 +969,9 @@ class SqliteSubcontractStore implements SubcontractStore {
         certified_at: certificate.certifiedAt,
         approved_by: certificate.approvedBy,
         approved_at: certificate.approvedAt,
+        cancelled_by: certificate.cancelledBy,
         cancelled_at: certificate.cancelledAt,
+        cancel_reason_ar: certificate.cancelReasonAr,
         invoice_id: certificate.invoiceId,
         invoice_doc_no: certificate.invoiceDocNo,
         journal_entry_id: certificate.journalEntryId,
@@ -1032,6 +1065,13 @@ export interface SqliteSubcontractStoreHandle extends SubcontractStore {
   close(): void;
 }
 
+function addColumnIfMissing(sqlite: Database.Database, table: string, column: string, ddl: string): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!existing.has(column)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+
 /** Open a SQLite-backed subcontract store. ":memory:" for tests, a path for real. */
 export function createSqliteSubcontractStore(
   path: SqliteConnectionInput = ":memory:",
@@ -1039,6 +1079,13 @@ export function createSqliteSubcontractStore(
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  addColumnIfMissing(sqlite, "subcontract_retention_release", "kind", "kind TEXT NOT NULL DEFAULT 'final'");
+  addColumnIfMissing(sqlite, "subcontract_retention_release", "release_event_date", "release_event_date TEXT");
+  addColumnIfMissing(sqlite, "subcontract_retention_release", "early_release", "early_release INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(sqlite, "subcontract_retention_release", "invoice_id", "invoice_id TEXT");
+  addColumnIfMissing(sqlite, "subcontract_retention_release", "invoice_doc_no", "invoice_doc_no TEXT");
+  addColumnIfMissing(sqlite, "subcontract_certificate", "cancelled_by", "cancelled_by TEXT");
+  addColumnIfMissing(sqlite, "subcontract_certificate", "cancel_reason_ar", "cancel_reason_ar TEXT");
   const store = new SqliteSubcontractStore(sqlite);
   return Object.assign(store, {
     close: () => {

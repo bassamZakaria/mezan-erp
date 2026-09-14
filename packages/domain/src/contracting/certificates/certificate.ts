@@ -30,7 +30,8 @@ export type ProgressCertificateStatus =
   | "certified"
   | "approved_for_payment"
   | "invoiced"
-  | "cancelled";
+  | "cancelled"
+  | "voided";
 
 /**
  * «محصّل» is a READ-time derivation from the generated invoice's remaining
@@ -50,6 +51,7 @@ export const PROGRESS_CERTIFICATE_STATUS_DEFINITIONS: readonly {
   { code: "invoiced", labelAr: "مفوتر" },
   { code: "collected", labelAr: "محصّل" },
   { code: "cancelled", labelAr: "ملغي" },
+  { code: "voided", labelAr: "معكوس بعد الاعتماد" },
 ] as const;
 
 export function getProgressCertificateStatusLabel(status: ProgressCertificateDerivedStatus): string {
@@ -59,9 +61,13 @@ export function getProgressCertificateStatusLabel(status: ProgressCertificateDer
 /** Statuses whose lines a preparer may still re-enter. After certify nothing changes. */
 export const EDITABLE_CERTIFICATE_STATUSES: readonly ProgressCertificateStatus[] = ["draft", "measured"];
 
-/** A certificate that still counts against the contract — anything but a cancelled one. */
+/**
+ * A certificate that still counts against the contract. A cancelled one never
+ * reached the ledger and a voided one has had its invoice and its deductions
+ * entry reversed, so neither may be the «سابق» a later certificate subtracts.
+ */
 export function isLiveCertificate(certificate: Pick<ProgressCertificate, "status">): boolean {
-  return certificate.status !== "cancelled";
+  return certificate.status !== "cancelled" && certificate.status !== "voided";
 }
 
 /** The eleven deduction rows of the Egyptian block, in the order the paperwork prints them. */
@@ -206,6 +212,15 @@ export interface ProgressCertificate {
   readonly approvedBy: string | null;
   readonly approvedAt: string | null;
   readonly cancelledAt: string | null;
+  /** Who cancelled it — never the measurer, who may never have existed. */
+  readonly cancelledBy: string | null;
+  /** Mandatory on cancel: a cancelled certificate with no stated reason is unauditable. */
+  readonly cancelReasonAr: string | null;
+  readonly voidedAt: string | null;
+  readonly voidedBy: string | null;
+  readonly voidReasonAr: string | null;
+  /** The entry that mirrored the deductions entry when this certificate was voided. */
+  readonly voidJournalEntryId: string | null;
   readonly invoiceId: string | null;
   readonly invoiceDocNo: string | null;
   readonly journalEntryId: string | null;

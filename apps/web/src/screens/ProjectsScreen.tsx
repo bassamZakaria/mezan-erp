@@ -306,6 +306,24 @@ export function ProjectsScreen() {
       },
     },
     {
+      key: "advanceOutstanding",
+      header: t("projects.advanceOutstanding"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.advanceOutstanding)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "retentionHeld",
+      header: t("projects.retentionHeld"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.retentionHeld)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
       key: "flags",
       header: t("projects.flags"),
       numeric: false,

@@ -64,6 +64,8 @@ export interface WorksContractServiceDeps {
    * so the certificate slice tightens this without editing the contract.
    */
   readonly completionGuard?: (contractId: string) => Promise<string | null>;
+  /** ISO `YYYY-MM-DD` "today", overridable for deterministic tests. */
+  readonly today?: () => string;
 }
 
 export interface WorksContractTermsInput extends Partial<WorksContractTerms> {}
@@ -455,6 +457,19 @@ export class WorksContractService {
     requireDate(reasons, "تاريخ التفعيل", activatedAt);
     const lines = await this.deps.store.listBoqLines(current.id);
     if (lines.length === 0) reasons.push("لا يمكن تفعيل عقد بلا بنود في جدول الكميات");
+    // INVARIANT: one LIVE works contract per project. Every per-project read —
+    // the WIP balance, أصل العقد, the recognition run, the project P&L — is
+    // keyed on the projectId alone, so a second active contract on the same
+    // project silently attributes one contract's cost and billings to the
+    // other. Drafts and closed contracts may still share a project.
+    const live = (await this.deps.store.listContracts({ projectId: current.projectId })).find(
+      (c) => c.id !== current.id && c.status === "active",
+    );
+    if (live) {
+      reasons.push(
+        `المشروع مرتبط بعقد سارٍ بالفعل (${live.docNo}) — لا يمكن تفعيل عقد ثانٍ على نفس المشروع قبل إنهائه أو فسخه.`,
+      );
+    }
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
     const contract: WorksContract = { ...current, status: "active", activatedAt };
     await this.deps.store.saveContract(contract);
@@ -651,6 +666,22 @@ export class WorksContractService {
     if (current.status !== "draft") reasons.push("أمر التغيير لم يعد مسودة");
     if (contract.status !== "active") reasons.push("لا يمكن اعتماد أمر تغيير إلا على عقد ساري");
     requireDate(reasons, "تاريخ الاعتماد", approvedAt);
+    /**
+     * INVARIANT: the approval is BOUNDED by the order's own date and today.
+     * `approvedAt` is what every ceiling and every «أوامر تغيير متأخرة
+     * الاعتماد» exception is measured from, so a date before the order existed
+     * reopened every quantity ceiling retroactively and hid the late approval
+     * from the report at the same time.
+     */
+    if (DATE_RE.test(approvedAt)) {
+      const today = this.today();
+      if (approvedAt < current.date) {
+        reasons.push(`تاريخ الاعتماد (${approvedAt}) لا يجوز أن يسبق تاريخ أمر التغيير (${current.date}).`);
+      }
+      if (approvedAt > today) {
+        reasons.push(`تاريخ الاعتماد (${approvedAt}) لا يجوز أن يكون في المستقبل (اليوم ${today}).`);
+      }
+    }
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
     if (!actor.wildcardAdmin && current.createdBy !== null && current.createdBy === actor.userId) {
       throw new SelfApprovalError(actor.userId);
@@ -724,6 +755,10 @@ export class WorksContractService {
   }
 
   // ----- internals ---------------------------------------------------------
+
+  private today(): string {
+    return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
+  }
 
   private async require(idOrDocNo: string): Promise<WorksContract> {
     const found =

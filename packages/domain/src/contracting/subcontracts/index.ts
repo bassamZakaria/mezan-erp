@@ -1,9 +1,11 @@
 export {
   SUBCONTRACT_KIND_DEFINITIONS,
+  SUBCONTRACT_RETENTION_RELEASE_KIND_DEFINITIONS,
   SUBCONTRACT_STATUS_DEFINITIONS,
   SUBCONTRACT_TRANSITIONS,
   canTransitionSubcontract,
   getSubcontractKindLabel,
+  getSubcontractRetentionReleaseKindLabel,
   getSubcontractStatusLabel,
   type Subcontract,
   type SubcontractAdvancePayment,
@@ -11,6 +13,7 @@ export {
   type SubcontractLine,
   type SubcontractListFilter,
   type SubcontractRetentionRelease,
+  type SubcontractRetentionReleaseKind,
   type SubcontractStatus,
   type SubcontractTerms,
 } from "./subcontract.js";
@@ -29,7 +32,10 @@ export {
 export {
   computeSubcontractClientValue,
   computeSubcontractValue,
+  isEarlySubcontractRelease,
   lineMarginVsClient,
+  remainingCommitmentOf,
+  subcontractReleaseEventDate,
   subcontractCertificateTerms,
   subcontractValue,
 } from "./amounts.js";
@@ -41,6 +47,9 @@ export type {
   SubCertificateInvoicingPort,
   SubcontractAdvanceVoucher,
   SubcontractConsumptionPort,
+  SubcontractRetentionInvoicingPort,
+  SubcontractRetentionReleaseInvoiceCommand,
+  SubcontractRetentionReleaseInvoiceResult,
   SubcontractSupplierPort,
   SubcontractVoucherPort,
   SubcontractorParty,
@@ -51,6 +60,7 @@ export {
   InvalidSubcontractError,
   InvalidSubcontractTransitionError,
   LaterSubCertificateExistsError,
+  SubCertificateDeductionError,
   SubCertificateNotFoundError,
   SubCertificateQuantityError,
   SubCertificateSegregationError,
@@ -60,7 +70,6 @@ export {
 } from "./errors.js";
 export {
   SUBCONTRACT_DOC_TYPE,
-  SUPPLIER_ADVANCES_ACCOUNT_ID,
   SUPPLIER_ADVANCES_ROUTING_KEY,
   SubcontractService,
   payabilityRefusals,

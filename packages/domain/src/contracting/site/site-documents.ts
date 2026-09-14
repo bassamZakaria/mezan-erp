@@ -148,6 +148,16 @@ export interface UnreceivedRow {
   readonly qtyReceived: Qty;
   readonly qtyOutstanding: Qty;
   readonly ageDays: number;
+  /**
+   * `outstanding` — the ordinary shortfall the two-step split exists to find.
+   * `received_before_issue` — a CONFIRMED receipt dated before the issue it
+   * closes, which no honest sequence of events produces.
+   */
+  readonly kind: "outstanding" | "received_before_issue";
+  /** On a `received_before_issue` row, the offending receipt. Null otherwise. */
+  readonly receiptId: string | null;
+  readonly receiptDocNo: string | null;
+  readonly receiptDate: string | null;
 }
 
 /** استهلاك مقابل بند جدول الكميات — consumed quantity per (BOQ line, item). */

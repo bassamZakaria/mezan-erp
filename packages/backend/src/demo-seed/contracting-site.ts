@@ -98,12 +98,13 @@ export async function seedContractingSite(app: App): Promise<void> {
   });
 
   // --- تحويل إلى مستودع الموقع: valuation-neutral, no posting (D-11) ---
+  // INVARIANT: CORE.items[1], not items[0] — see the note in contracting.ts.
   await step(app, "POST", "/inventory/stock-transfers/draft", {
     id: "XFER-DEMO-SITE-1",
     date: "2026-08-21",
     memo: "تحويل مواد إلى مستودع موقع برج الأمل",
     lines: [
-      { itemId: CORE.items[0], fromWarehouseId: WAREHOUSE_ID, toWarehouseId: SITE_WAREHOUSE_ID, qty: "40" },
+      { itemId: CORE.items[1], fromWarehouseId: WAREHOUSE_ID, toWarehouseId: SITE_WAREHOUSE_ID, qty: "40" },
     ],
   });
   await step(app, "POST", "/inventory/stock-transfers/XFER-DEMO-SITE-1/confirm", {});
@@ -138,7 +139,7 @@ export async function seedContractingSite(app: App): Promise<void> {
     warehouseId: SITE_WAREHOUSE_ID,
     boqLineId: await boqLineFor(app, "materials"),
     notes: "صرف مواد لأعمال الأساسات",
-    lines: [{ itemId: CORE.items[0], qty: "25" }],
+    lines: [{ itemId: CORE.items[1], qty: "25" }],
   });
   await step(app, "POST", "/contracting/site/consumptions/CON-DEMO-1/confirm", {});
 
@@ -179,4 +180,25 @@ export async function seedContractingSite(app: App): Promise<void> {
     notes: "صب خرسانة الأساسات",
   });
   await step(app, "POST", "/contracting/site/equipment-logs/EQL-DEMO-1/confirm", {});
+
+  /**
+   * ساعات معدات بلا بند — the hours nobody allocated, which «ساعات معدات بلا
+   * مستخلص مقابل» exists to find.
+   *
+   * INVARIANT: it is seeded HERE, before `seedContractingRecognition`, not with
+   * the controls profile that reads it. Confirmed after the July run, its
+   * 2026-07-20 debit lands dated inside a month already closed, so no run ever
+   * relieves it and 18,000 sits in 1230 for the life of the contract while
+   * every posted run still reports a closing balance of zero.
+   */
+  await step(app, "POST", "/contracting/site/equipment-logs", {
+    id: "EQL-DEMO-2",
+    projectId: TOWER,
+    assetId: PLANT_ASSET_ID,
+    date: "2026-07-20",
+    hours: "40",
+    boqLineId: null,
+    notes: "ساعات تشغيل بالموقع لم تُنسب إلى بند — تحتاج مراجعة المكتب الفني.",
+  });
+  await step(app, "POST", "/contracting/site/equipment-logs/EQL-DEMO-2/confirm", {});
 }

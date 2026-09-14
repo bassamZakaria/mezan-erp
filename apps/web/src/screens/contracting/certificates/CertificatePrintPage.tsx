@@ -27,14 +27,23 @@ import { trimScale } from "./certificate-common";
 
 const SCALE = 1_000_000n;
 
-function money(value: string): string {
+/**
+ * A figure SUBTRACTED on the sheet prints in brackets, the way every Egyptian
+ * certificate prints it. Printed bare, نسبة الممارسة and the whole deductions
+ * column read as additions, and the block stops adding up on paper even when
+ * it adds up in the ledger.
+ */
+function money(value: string, negative = false): string {
   const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(value.trim());
   if (!match) return value;
   const frac = ((match[3] ?? "") + "000000").slice(0, 6);
   const scaled = BigInt(match[2] ?? "0") * SCALE + BigInt(frac);
   const whole = (scaled / SCALE).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const cents = ((scaled % SCALE) / 10_000n).toString().padStart(2, "0");
-  return `${match[1]}${whole}.${cents}`;
+  const plain = `${whole}.${cents}`;
+  const sign = match[1] === "-";
+  if (negative !== sign) return `(${plain})`;
+  return plain;
 }
 
 export function CertificatePrintPage({
@@ -119,7 +128,10 @@ export function CertificatePrintPage({
         <div>
           <div className="font-display text-[17px] font-bold text-ink">{settings?.companyName ?? ""}</div>
           <p className="text-[11px] text-ink-muted">
-            {t("certificatePrint.title", { serial: String(certificate.serial), docNo: certificate.docNo })}
+            {t(certificate.isFinal ? "certificatePrint.titleFinal" : "certificatePrint.title", {
+              serial: String(certificate.serial),
+              docNo: certificate.docNo,
+            })}
           </p>
         </div>
         <div className="text-end text-[10.5px] text-ink-muted">
@@ -139,13 +151,13 @@ export function CertificatePrintPage({
     </header>
   );
 
-  const totalsRow = (label: string, value: string, strong = false) => (
+  const totalsRow = (label: string, value: string, strong = false, negative = false) => (
     <div
       key={label}
       className={`flex items-baseline justify-between gap-[10px] border-b border-border py-[5px] ${strong ? "font-bold" : ""}`}
     >
       <span className="text-[11px] text-ink">{label}</span>
-      <span className="mz-num text-[11.5px] text-ink">{money(value)}</span>
+      <span className="mz-num text-[11.5px] text-ink">{money(value, negative)}</span>
     </div>
   );
 
@@ -187,18 +199,28 @@ export function CertificatePrintPage({
           {totalsRow(
             t("certificates.block.tenderDiscount", { percent: computed.tenderDiscountPercent }),
             computed.tenderDiscount,
+            false,
+            true,
           )}
           {totalsRow(t("certificates.block.netCertified"), computed.netCertified, true)}
+          {/* The bridge from the CUMULATIVE column to this certificate's own
+              figure. Without these two rows the sheet jumps from a cumulative
+              net certified to a period deduction and the employer cannot
+              follow how one became the other. */}
+          {totalsRow(t("certificates.block.previousNetCertified"), computed.previousNetCertified, false, true)}
+          {totalsRow(t("certificates.block.thisNetCertified"), computed.thisCertificateNetCertified, true)}
         </div>
         <div>
           {computed.deductions.map((deduction) =>
             totalsRow(
               deduction.percent ? `${deduction.labelAr} — ${deduction.percent}%` : deduction.labelAr,
               deduction.thisCertificate,
+              false,
+              true,
             ),
           )}
+          {totalsRow(t("certificates.block.deductionsThisCertificate"), computed.deductionsThisCertificate, true, true)}
           {totalsRow(t("certificates.block.vat", { percent: computed.vatEffectiveRatePercent }), computed.vat)}
-          {totalsRow(t("certificates.block.previousPayments"), computed.previousPayments)}
           {totalsRow(t("certificates.block.netPayable"), computed.netPayableThisCertificate, true)}
         </div>
       </section>

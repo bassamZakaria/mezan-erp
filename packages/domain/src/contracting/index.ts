@@ -7,6 +7,11 @@ export {
   type CostCategoryDefinition,
 } from "./cost-category.js";
 export {
+  CONTRACTING_AUDIT_MODULE,
+  recordTransition,
+  type ContractingTransitionAudit,
+} from "./audit.js";
+export {
   computeProjectPnL,
   type ProjectContractingAccountIds,
   type ProjectContractingInput,

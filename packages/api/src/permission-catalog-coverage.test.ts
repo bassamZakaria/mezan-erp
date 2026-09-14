@@ -29,11 +29,26 @@ function gatedCodes(): ReadonlySet<string> {
       // codes — a different vocabulary that would otherwise read as a typo.
       if (file.name === "module-gate.ts") continue;
       const source = readFileSync(join(dir, file.name), "utf8");
+      // Module-level `const VIEW = "contracting.certificate.view";` bindings.
+      // Reading only literal arguments made every route file that names its
+      // codes once at the top — which is most of the contracting module —
+      // register as gating NOTHING, so the instrument reported a bigger gap
+      // than the product has. A gate is a gate whether the code is inlined or
+      // named.
+      const constants = new Map<string, string>();
+      for (const match of source.matchAll(/\bconst\s+([A-Z][A-Z0-9_]*)\s*=\s*"([a-z_.]+)"/g)) {
+        constants.set(match[1] as string, match[2] as string);
+      }
       // `gate(...)`, `gateAny(...)`, and `permission(...)` — the last is what
       // `lan/routes.ts` calls its `createPermissionGate` binding, and a gate is
       // a gate whatever the local const is named.
-      for (const match of source.matchAll(/(?:gate(?:Any)?|permission)\(\s*((?:"[a-z_.]+"\s*,?\s*)+)\)/g)) {
-        for (const code of (match[1] ?? "").matchAll(/"([a-z_.]+)"/g)) found.add(code[1] as string);
+      for (const match of source.matchAll(/(?:gate(?:Any)?|permission)\(\s*((?:(?:"[a-z_.]+"|[A-Z][A-Z0-9_]*)\s*,?\s*)+)\)/g)) {
+        const args = match[1] ?? "";
+        for (const code of args.matchAll(/"([a-z_.]+)"/g)) found.add(code[1] as string);
+        for (const name of args.matchAll(/\b([A-Z][A-Z0-9_]*)\b/g)) {
+          const resolved = constants.get(name[1] as string);
+          if (resolved) found.add(resolved);
+        }
       }
     }
   };
@@ -68,12 +83,13 @@ describe("the permission catalogue against the routes that check it", () => {
     // the number rather than special-cased, because a scanner with exceptions
     // is a scanner nobody trusts.
     //
-    // The contracting module's nine codes are catalogued in slice 0 of
-    // docs/artifacts/mezan-contracting-designs.html, ahead of the BOQ and
-    // certificate routes of slices 1 and 2 that consume them. Each slice that
-    // lands must bring this number back DOWN by the codes it gates.
+    // The contracting module's twelve codes are all gated now — the BOQ,
+    // certificate, retention and guarantee routes each check one — and the
+    // scanner above had to learn to follow a named constant before it could
+    // see them. Each slice that lands must bring this number back DOWN by the
+    // codes it gates.
     expect(UNGATED.length).toBeGreaterThan(0);
-    expect(UNGATED.length).toBeLessThanOrEqual(97);
+    expect(UNGATED.length).toBeLessThanOrEqual(89);
   });
 
   it("LIMITATION (D116): the whole POS module is catalogued and has no route at all", () => {

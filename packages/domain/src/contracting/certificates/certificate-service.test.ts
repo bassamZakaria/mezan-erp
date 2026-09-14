@@ -26,7 +26,12 @@ import {
   type CertificateInvoiceCommand,
   type CertificateInvoicingPort,
 } from "./certificate-service.js";
-import { CertificateQuantityError, CertificateSegregationError, LaterCertificateExistsError } from "./errors.js";
+import {
+  CertificateDateOrderError,
+  CertificateQuantityError,
+  CertificateSegregationError,
+  LaterCertificateExistsError,
+} from "./errors.js";
 
 const CONTRACT_ID = "CTR-1";
 const PROJECT_ID = "PRJ-1";
@@ -91,7 +96,11 @@ class MemoryCertificateStore implements ProgressCertificateStore {
     return [...this.rows.values()].find((r) => r.docNo === docNo) ?? null;
   }
   async list(filter?: ProgressCertificateListFilter) {
-    return [...this.rows.values()].filter((r) => !filter?.contractId || r.contractId === filter.contractId);
+    return [...this.rows.values()].filter(
+      (r) =>
+        (!filter?.contractId || r.contractId === filter.contractId) &&
+        (!filter?.projectId || r.projectId === filter.projectId),
+    );
   }
   async listByContract(contractId: string) {
     return [...this.rows.values()].filter((r) => r.contractId === contractId).sort((a, b) => a.serial - b.serial);
@@ -104,11 +113,17 @@ class MemoryCertificateStore implements ProgressCertificateStore {
   }
 }
 
-/** The in-memory ledger has no dimensional read, and the advance cap depends on one. */
+/**
+ * The in-memory ledger has no dimensional read, and the advance cap depends on
+ * one. A REVERSED entry's lines are included exactly as the SQLite reader
+ * includes them (`je.status IN ('posted','reversed')`): the entry stays in the
+ * ledger and is cancelled by its mirror, never removed from it.
+ */
 class DimensionalLedger extends InMemoryLedgerRepository {
   async listLines(filter: PostedLineFilter = {}): Promise<readonly PostedLine[]> {
     const out: PostedLine[] = [];
-    for (const entry of await this.list({ status: "posted" })) {
+    const entries = [...(await this.list({ status: "posted" })), ...(await this.list({ status: "reversed" }))];
+    for (const entry of entries) {
       for (const line of entry.lines) {
         if (filter.accountIds && !filter.accountIds.includes(line.accountId)) continue;
         if (filter.projectId && line.projectId !== filter.projectId) continue;
@@ -165,6 +180,7 @@ interface Harness {
   ledger: DimensionalLedger;
   issued: CertificateInvoiceCommand[];
   settled: { invoiceId: string; amount: Money }[];
+  voided: string[];
 }
 
 const ADMIN = { userId: "admin", wildcardAdmin: true };
@@ -172,7 +188,10 @@ const SURVEYOR = { userId: "surveyor", wildcardAdmin: false };
 const CONSULTANT = { userId: "consultant", wildcardAdmin: false };
 const FINANCE = { userId: "finance", wildcardAdmin: false };
 
-async function harness(overrides: Partial<WorksContract> = {}): Promise<Harness> {
+async function harness(
+  overrides: Partial<WorksContract> = {},
+  serviceOverrides: Record<string, unknown> = {},
+): Promise<Harness> {
   const ledger = new DimensionalLedger();
   const accounts = new InMemoryAccountRepository();
   const periods = new InMemoryFiscalPeriodRepository();
@@ -186,6 +205,8 @@ async function harness(overrides: Partial<WorksContract> = {}): Promise<Harness>
     ["5910", "expense", "debit"],
     ["5157", "expense", "debit"],
     ["5158", "expense", "debit"],
+    ["5159", "expense", "debit"],
+    ["4150", "revenue", "credit"],
   ] as const) {
     await accounts.create(account(id, type, natural));
   }
@@ -243,6 +264,7 @@ async function harness(overrides: Partial<WorksContract> = {}): Promise<Harness>
   const certificates = new MemoryCertificateStore();
   const issued: CertificateInvoiceCommand[] = [];
   const settled: { invoiceId: string; amount: Money }[] = [];
+  const voided: string[] = [];
   const invoicing: CertificateInvoicingPort = {
     async issue(cmd) {
       issued.push(cmd);
@@ -269,6 +291,9 @@ async function harness(overrides: Partial<WorksContract> = {}): Promise<Harness>
     async settle(invoiceId, amount) {
       settled.push({ invoiceId, amount });
     },
+    async voidInvoice(invoiceId) {
+      voided.push(invoiceId);
+    },
   };
 
   const service = new CertificateService({
@@ -279,8 +304,9 @@ async function harness(overrides: Partial<WorksContract> = {}): Promise<Harness>
     invoicing,
     accounts,
     today: () => "2026-09-13",
+    ...serviceOverrides,
   });
-  return { service, contracts, certificates, ledger, issued, settled };
+  return { service, contracts, certificates, ledger, issued, settled, voided };
 }
 
 /** The customer's advance, as the ledger records it: a credit to 2160 with the project dimension. */
@@ -324,10 +350,22 @@ async function draft(
   );
 }
 
+/**
+ * The three signatures, each with its OWN date and in order — the service now
+ * refuses a certificate cleared for payment before it was measured.
+ */
 async function fullyApprove(h: Harness, id: string, approvedAt: string): Promise<void> {
-  await h.service.measure(id, SURVEYOR);
-  await h.service.certify(id, CONSULTANT);
+  const measuredAt = addDays(approvedAt, -3);
+  const certifiedAt = addDays(approvedAt, -1);
+  await h.service.measure(id, SURVEYOR, measuredAt);
+  await h.service.certify(id, CONSULTANT, certifiedAt);
   await h.service.approve(id, approvedAt, FINANCE);
+}
+
+function addDays(date: string, days: number): string {
+  const base = new Date(`${date}T00:00:00.000Z`);
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
 }
 
 describe("CertificateService", () => {
@@ -392,26 +430,43 @@ describe("CertificateService", () => {
 
   it("holds preparer ≠ certifier ≠ approver by userId, and lets the wildcard admin through", async () => {
     await draft(h, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
-    await h.service.measure("C1", SURVEYOR);
-    await expect(h.service.certify("C1", SURVEYOR)).rejects.toBeInstanceOf(CertificateSegregationError);
-    await h.service.certify("C1", CONSULTANT);
+    await h.service.measure("C1", SURVEYOR, "2026-02-01");
+    await expect(h.service.certify("C1", SURVEYOR, "2026-02-03")).rejects.toBeInstanceOf(CertificateSegregationError);
+    await h.service.certify("C1", CONSULTANT, "2026-02-03");
     await expect(h.service.approve("C1", "2026-02-05", CONSULTANT)).rejects.toBeInstanceOf(CertificateSegregationError);
 
-    // A single-operator install has nobody else to sign, so the tenant admin
-    // whose grant is "*" is exempt — deliberately, and stated here.
-    const solo = await harness();
+    // A single-operator install has nobody else to sign, so a tenant that has
+    // switched فصل المهام off is exempt — a waiver the tenant chose, never one
+    // the wildcard grant confers by itself.
+    const solo = await harness({}, { segregationWaived: async () => true });
     await draft(solo, "S1", "1000", { from: "2026-01-01", to: "2026-01-31" }, ADMIN);
-    await solo.service.measure("S1", ADMIN);
-    await solo.service.certify("S1", ADMIN);
+    await solo.service.measure("S1", ADMIN, "2026-02-01");
+    await solo.service.certify("S1", ADMIN, "2026-02-03");
     await solo.service.approve("S1", "2026-02-05", ADMIN);
     expect((await solo.certificates.findById("S1"))?.status).toBe("invoiced");
   });
 
-  it("refuses every transition while a later certificate exists", async () => {
+  it("lets a certificate with a draft successor finish its signatures, and still refuses an edit or a cancel", async () => {
+    await postAdvance(h, "60000");
     await draft(h, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
     await draft(h, "C2", "500", { from: "2026-02-01", to: "2026-02-28" });
-    await expect(h.service.measure("C1", SURVEYOR)).rejects.toBeInstanceOf(LaterCertificateExistsError);
-    await expect(h.service.cancel("C1", SURVEYOR)).rejects.toBeInstanceOf(LaterCertificateExistsError);
+
+    // measure / certify / approve change no figure on C1, so a draft C2 built
+    // on it is no reason to freeze the chain.
+    await fullyApprove(h, "C1", "2026-02-05");
+    expect((await h.certificates.findById("C1"))?.status).toBe("invoiced");
+
+    // Editing or cancelling it WOULD restate what C2 subtracted, and stays refused.
+    await expect(
+      h.service.update("C2", { workLines: [{ boqLineId: "B1", thisPeriodQty: "600" }] }, SURVEYOR),
+    ).resolves.toBeTruthy();
+    await draft(h, "C3", "100", { from: "2026-03-01", to: "2026-03-31" });
+    await expect(
+      h.service.update("C2", { workLines: [{ boqLineId: "B1", thisPeriodQty: "700" }] }, SURVEYOR),
+    ).rejects.toBeInstanceOf(LaterCertificateExistsError);
+    await expect(h.service.cancel("C2", "خطأ في الكميات", SURVEYOR)).rejects.toBeInstanceOf(
+      LaterCertificateExistsError,
+    );
   });
 
   it("posts a balanced deductions entry carrying the project on every line", async () => {
@@ -537,6 +592,252 @@ describe("CertificateService", () => {
     await draft(certified, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
     await fullyApprove(certified, "C1", "2026-02-05");
     expect(certified.issued[0]?.revenueAccountId).toBe("4150");
+  });
+
+  it("refuses signature dates that do not run forward from the period, naming both dates", async () => {
+    await draft(h, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
+    await expect(h.service.measure("C1", SURVEYOR, "2026-01-20")).rejects.toBeInstanceOf(CertificateDateOrderError);
+    await expect(h.service.measure("C1", SURVEYOR, "2026-01-20")).rejects.toThrow(/نهاية الفترة \(2026-01-31\)/);
+    // …and nothing may be signed in the future.
+    await expect(h.service.measure("C1", SURVEYOR, "2027-01-01")).rejects.toThrow(/في المستقبل/);
+
+    await h.service.measure("C1", SURVEYOR, "2026-02-01");
+    await expect(h.service.certify("C1", CONSULTANT, "2026-01-15")).rejects.toThrow(/تاريخ الحصر \(2026-02-01\)/);
+    await h.service.certify("C1", CONSULTANT, "2026-02-03");
+    // The 2024 backdate the auditor found, refused by name.
+    await expect(h.service.approve("C1", "2024-06-30", FINANCE)).rejects.toBeInstanceOf(CertificateDateOrderError);
+    await expect(h.service.approve("C1", "2024-06-30", FINANCE)).rejects.toThrow(
+      /تاريخ اعتماد الصرف \(2024-06-30\) يسبق تاريخ اعتماد الاستشاري \(2026-02-03\)/,
+    );
+  });
+
+  it("stamps the canceller and a mandatory reason, and never credits them with the measurement", async () => {
+    await draft(h, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
+    await expect(h.service.cancel("C1", "   ", SURVEYOR)).rejects.toThrow(/سبب إلغاء المستخلص مطلوب/);
+    await h.service.cancel("C1", "أعيد الحصر بعد اعتراض الاستشاري", CONSULTANT);
+    const cancelled = await h.certificates.findById("C1");
+    expect(cancelled?.status).toBe("cancelled");
+    expect(cancelled?.cancelledBy).toBe("consultant");
+    expect(cancelled?.cancelReasonAr).toBe("أعيد الحصر بعد اعتراض الاستشاري");
+    expect(cancelled?.measuredBy).toBeNull();
+  });
+
+  it("keeps the serial monotonic over cancelled certificates and links the previous LIVE one", async () => {
+    await draft(h, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
+    await draft(h, "C2", "500", { from: "2026-02-01", to: "2026-02-28" });
+    await h.service.cancel("C2", "كميات غير مكتملة", SURVEYOR);
+    await draft(h, "C3", "500", { from: "2026-02-01", to: "2026-02-28" });
+    const third = await h.certificates.findById("C3");
+    expect(third?.serial).toBe(3);
+    expect(third?.previousCertificateId).toBe("C1");
+  });
+
+  it("holds the advance ceiling per CONTRACT, netting what another contract of the project already recovered", async () => {
+    await postAdvance(h, "60000");
+    await draft(h, "C1", "8000", { from: "2026-01-01", to: "2026-01-31" });
+    await fullyApprove(h, "C1", "2026-02-05");
+    const first = await h.certificates.findById("C1");
+    expect(first!.computed.deductions.find((d) => d.key === "advanceRecovery")!.thisCertificate.toString()).toBe(
+      "60000.000000",
+    );
+
+    // A SECOND contract on the SAME project. The advance is spent; its ceiling is zero.
+    const second = "CTR-2";
+    h.contracts.contracts.set(second, { ...h.contracts.contracts.get(CONTRACT_ID)!, id: second, docNo: "CTR-0002" });
+    h.contracts.boq.push({ ...boqLine("B9", "9", "12000", "185", 1), contractId: second });
+    await h.service.create(
+      {
+        id: "D1",
+        contractId: second,
+        periodFrom: "2026-03-01",
+        periodTo: "2026-03-31",
+        workLines: [{ boqLineId: "B9", thisPeriodQty: "4000" }],
+      },
+      SURVEYOR,
+    );
+    const sibling = await h.certificates.findById("D1");
+    const recovery = sibling!.computed.deductions.find((d) => d.key === "advanceRecovery")!;
+    expect(recovery.cumulative.toString()).toBe("0.000000");
+    expect(recovery.capped).toBe(true);
+  });
+
+  it("stamps a material's rate from the first certificate that carried it", async () => {
+    await h.service.create(
+      {
+        id: "C1",
+        contractId: CONTRACT_ID,
+        periodFrom: "2026-01-01",
+        periodTo: "2026-01-31",
+        workLines: [{ boqLineId: "B1", thisPeriodQty: "100" }],
+        materialLines: [
+          { materialKey: "REBAR", descriptionAr: "حديد تسليح", unit: "ton", qty: "10", unitRate: "40000" },
+        ],
+      },
+      SURVEYOR,
+    );
+    await h.service.create(
+      {
+        id: "C2",
+        contractId: CONTRACT_ID,
+        periodFrom: "2026-02-01",
+        periodTo: "2026-02-28",
+        workLines: [{ boqLineId: "B1", thisPeriodQty: "100" }],
+        // A re-typed rate on the SECOND certificate must not restate the first's cumulative.
+        materialLines: [
+          { materialKey: "REBAR", descriptionAr: "حديد تسليح", unit: "ton", qty: "5", unitRate: "90000" },
+        ],
+      },
+      SURVEYOR,
+    );
+    const second = await h.certificates.findById("C2");
+    const line = second!.materialLines.find((l) => l.materialKey === "REBAR")!;
+    expect(line.unitRate.toString()).toBe("40000.000000");
+  });
+
+  it("reads نسبة الإنجاز off executed work against the contracted value, not off the net certified", async () => {
+    await h.service.create(
+      {
+        id: "C1",
+        contractId: CONTRACT_ID,
+        periodFrom: "2026-01-01",
+        periodTo: "2026-01-31",
+        workLines: [{ boqLineId: "B1", thisPeriodQty: "1200" }],
+        materialLines: [
+          { materialKey: "REBAR", descriptionAr: "حديد تسليح", unit: "ton", qty: "10", unitRate: "40000" },
+        ],
+      },
+      SURVEYOR,
+    );
+    const stored = await h.certificates.findById("C1");
+    // 1,200 × 185 = 222,000 of a 2,220,000 contract = 10.0%, with التشوينات excluded.
+    expect(stored!.computed.grossWorks.toString()).toBe("222000.000000");
+    expect(stored!.computed.materialsOnSite.scaled).toBeGreaterThan(0n);
+    expect(stored!.computed.completionPercent).toBe("10.0");
+  });
+
+  it("rounds every deduction and the VAT to piastres, and the columns still tie", async () => {
+    const odd = await harness({ retentionPercent: "5.333", withholdingTaxPercent: "1.111", tenderDiscountPercent: "3.777" });
+    await postAdvance(odd, "60000");
+    await draft(odd, "C1", "1333", { from: "2026-01-01", to: "2026-01-31" });
+    await draft(odd, "C2", "777", { from: "2026-02-01", to: "2026-02-28" });
+    for (const id of ["C1", "C2"]) {
+      const stored = await odd.certificates.findById(id);
+      for (const row of stored!.computed.deductions) {
+        for (const figure of [row.cumulative, row.previous, row.thisCertificate]) {
+          expect(figure.scaled % 10_000n).toBe(0n);
+        }
+      }
+      expect(stored!.computed.vat.scaled % 10_000n).toBe(0n);
+    }
+    const first = await odd.certificates.findById("C1");
+    const second = await odd.certificates.findById("C2");
+    for (const key of ["retention", "withholdingTax"] as const) {
+      const a = first!.computed.deductions.find((d) => d.key === key)!;
+      const b = second!.computed.deductions.find((d) => d.key === key)!;
+      expect(Money.sum([a.thisCertificate, b.thisCertificate]).toString()).toBe(b.cumulative.toString());
+    }
+  });
+
+  it("takes a late penalty off the billing rather than into cost, and utilities to their own account", async () => {
+    await postAdvance(h, "60000");
+    await h.service.create(
+      {
+        id: "C1",
+        contractId: CONTRACT_ID,
+        periodFrom: "2026-01-01",
+        periodTo: "2026-01-31",
+        workLines: [{ boqLineId: "B1", thisPeriodQty: "1000" }],
+        penaltiesCumulative: "7500",
+        waterElectricityCumulative: "1200",
+      },
+      SURVEYOR,
+    );
+    await fullyApprove(h, "C1", "2026-02-05");
+
+    const entry = await h.ledger.findById("C1-DED");
+    const penalty = entry!.lines.find((l) => l.memo?.includes("غرامة التأخير"));
+    expect(penalty?.accountId).toBe("2165");
+    expect(penalty?.debit.toString()).toBe("7500.000000");
+    // NEVER a contract cost: a penalty counted as cost brings revenue forward.
+    expect(penalty?.costCategory).toBeNull();
+    const utilities = entry!.lines.find((l) => l.accountId === "5159");
+    expect(utilities?.debit.toString()).toBe("1200.000000");
+    expect(utilities?.costCategory).toBe("indirect");
+    expect(entry!.lines.some((l) => l.accountId === "5910")).toBe(false);
+  });
+
+  it("honours latePenaltyTreatment=expense, and a certified_value contract takes the penalty off 4150", async () => {
+    const expensed = await harness(
+      {},
+      {
+        routing: {
+          get: async () => ({
+            overrides: {},
+            options: {
+              latePenaltyTreatment: "expense",
+              useSeparateDiscountAccount: false,
+              applyDiscountAccountToLines: false,
+            },
+          }),
+        },
+      },
+    );
+    await expensed.service.create(
+      {
+        id: "C1",
+        contractId: CONTRACT_ID,
+        periodFrom: "2026-01-01",
+        periodTo: "2026-01-31",
+        workLines: [{ boqLineId: "B1", thisPeriodQty: "1000" }],
+        penaltiesCumulative: "500",
+      },
+      SURVEYOR,
+    );
+    await fullyApprove(expensed, "C1", "2026-02-05");
+    const expenseEntry = await expensed.ledger.findById("C1-DED");
+    expect(expenseEntry!.lines.find((l) => l.memo === "غرامة التأخير")?.accountId).toBe("5910");
+
+    const certified = await harness({ recognitionPolicy: "certified_value" });
+    await certified.service.create(
+      {
+        id: "C1",
+        contractId: CONTRACT_ID,
+        periodFrom: "2026-01-01",
+        periodTo: "2026-01-31",
+        workLines: [{ boqLineId: "B1", thisPeriodQty: "1000" }],
+        penaltiesCumulative: "500",
+      },
+      SURVEYOR,
+    );
+    await fullyApprove(certified, "C1", "2026-02-05");
+    const revenueEntry = await certified.ledger.findById("C1-DED");
+    expect(revenueEntry!.lines.find((l) => l.memo?.includes("غرامة التأخير"))?.accountId).toBe("4150");
+  });
+
+  it("voids an approved certificate: the deductions entry is mirrored, the invoice is voided and AR nets to zero", async () => {
+    await postAdvance(h, "60000");
+    await draft(h, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
+    await fullyApprove(h, "C1", "2026-02-05");
+    const approved = await h.certificates.findById("C1");
+    expect(approved!.postedDeductionsTotal.scaled).toBeGreaterThan(0n);
+
+    const view = await h.service.void("C1", { date: "2026-03-01", reasonAr: "خطأ في الحصر" }, ADMIN);
+    expect(view.certificate.status).toBe("voided");
+    expect(view.certificate.voidReasonAr).toBe("خطأ في الحصر");
+    expect(h.voided).toContain("C1-INV");
+
+    // AR == GL: the deductions entry and its mirror cancel on 1105.
+    const arLines = (await h.ledger.listLines({ accountIds: ["1105"], projectId: PROJECT_ID })).filter(
+      (l) => l.entryId === "C1-DED" || l.entryId === approved!.id + "-DED-VOID",
+    );
+    const net = arLines.reduce((sum, l) => sum + l.debit.scaled - l.credit.scaled, 0n);
+    expect(net).toBe(0n);
+
+    // A voided certificate is not «سابق» for anything: the next one starts clean.
+    await draft(h, "C2", "1000", { from: "2026-02-01", to: "2026-02-28" });
+    const next = await h.certificates.findById("C2");
+    expect(next?.previousCertificateId).toBeNull();
+    expect(next?.workLines[0]?.previousCumulativeQty.toString()).toBe("0.000000");
   });
 
   it("reports the مستخلص تنفيذي at the latest certificate's cumulative quantities", async () => {

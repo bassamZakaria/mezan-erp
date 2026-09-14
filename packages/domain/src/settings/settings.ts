@@ -107,6 +107,14 @@ export interface TenantSettings {
    * reports zero rather than inventing a rate.
    */
   readonly contractingCbeCreditDiscountRatePercent: number | null;
+  /**
+   * وضع المشغّل الواحد. FALSE by default: فصل المهام on a مستخلص — preparer ≠
+   * certifier ≠ approver — is enforced against EVERYONE, the tenant admin
+   * holding the `"*"` wildcard included. A genuinely one-person install turns
+   * this on and the admin may sign every step; every other tenant leaves it
+   * off, and the admin bypass that used to be unconditional is gone.
+   */
+  readonly contractingSingleOperatorMode: boolean;
 
   // --- سياسة المخزون (Inventory policy) ---
   readonly allowCrossWarehouseSales: boolean;
@@ -199,6 +207,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   creditControlMode: "WARNING",
   maxLineDiscountPercent: 100,
   contractingCbeCreditDiscountRatePercent: null,
+  contractingSingleOperatorMode: false,
 
   allowCrossWarehouseSales: true,
   showOtherWarehouseStock: true,

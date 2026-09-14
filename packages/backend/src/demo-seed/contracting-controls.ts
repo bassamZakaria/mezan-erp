@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { CORE, step } from "./shared.js";
+import { CORE, seedActorHeaders, step } from "./shared.js";
 
 /**
  * تقارير الاستثناءات الستة، الإفراج عن المحتجزات وتقويم المحتجزات — slice 5B
@@ -12,8 +12,39 @@ import { CORE, step } from "./shared.js";
 
 const TOWER_CONTRACT = "CTR-DEMO-1";
 const FITOUT_CONTRACT = "CTR-DEMO-3";
-const TOWER_PROJECT = "PRJ-DEMO-1";
-const PLANT_ASSET_ID = "ASSET-DEMO-PLANT-1";
+
+const RETENTION_VIEW = "contracting.certificate.view";
+const RETENTION_RELEASE = "contracting.retention.release";
+
+/**
+ * Three DIFFERENT identities, because the release enforces creator ≠ releaser
+ * on the userId and an early release needs a second approver who is neither.
+ * Seeding all three from one admin would leave the rule untested in the one
+ * place a person can see it.
+ */
+function retentionActor(userId: string): Record<string, string> {
+  return seedActorHeaders(userId, [RETENTION_VIEW, RETENTION_RELEASE], null);
+}
+
+async function stepAs(
+  app: App,
+  headers: Record<string, string>,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<unknown> {
+  const res = await app.fetch(
+    new Request(`http://demo-seed${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+  );
+  if (!res.ok) {
+    throw new Error(`[demo-seed] ${method} ${path} failed with ${res.status}: ${await res.text()}`);
+  }
+  return res.status === 204 ? undefined : await res.json();
+}
 
 interface BoqLineRow {
   id: string;
@@ -84,18 +115,6 @@ export async function seedContractingControls(app: App): Promise<void> {
     await step(app, "POST", "/contracting/variation-orders/VO-DEMO-4/approve", { approvedAt: "2026-08-20" });
   }
 
-  // --- ساعات معدات بلا بند: the plant hours nobody allocated ---
-  await step(app, "POST", "/contracting/site/equipment-logs", {
-    id: "EQL-DEMO-2",
-    projectId: TOWER_PROJECT,
-    assetId: PLANT_ASSET_ID,
-    date: "2026-07-20",
-    hours: "40",
-    boqLineId: null,
-    notes: "ساعات تشغيل بالموقع لم تُنسب إلى بند — تحتاج مراجعة المكتب الفني.",
-  });
-  await step(app, "POST", "/contracting/site/equipment-logs/EQL-DEMO-2/confirm", {});
-
   /**
    * إفراج مبكر عن المحتجزات. The design's own example is a release on the
    * finished fit-out, but no certificate ever withheld retention on that
@@ -104,7 +123,7 @@ export async function seedContractingControls(app: App): Promise<void> {
    * 2026-09-01 against a provisional handover of 2027-03-31, it is early,
    * flagged, and lands in report 6.
    */
-  await step(app, "POST", "/contracting/retention/releases", {
+  await stepAs(app, retentionActor("USER-DEMO-CERT-FINANCE"), "POST", "/contracting/retention/releases", {
     id: "RET-DEMO-1",
     contractId: TOWER_CONTRACT,
     kind: "provisional",
@@ -112,5 +131,11 @@ export async function seedContractingControls(app: App): Promise<void> {
     amount: "5000.00",
     notes: "إفراج جزئي مبكر بموافقة الإدارة المالية — قبل التسليم الابتدائي.",
   });
-  await step(app, "POST", "/contracting/retention/releases/RET-DEMO-1/release", {});
+  await stepAs(
+    app,
+    retentionActor("USER-DEMO-TREASURER"),
+    "POST",
+    "/contracting/retention/releases/RET-DEMO-1/release",
+    { approvedBy: "USER-DEMO-CFO" },
+  );
 }

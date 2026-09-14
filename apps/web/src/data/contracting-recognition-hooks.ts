@@ -38,6 +38,30 @@ export function useRecognitionStatus(periodEnd: string | null): UseQueryResult<R
   });
 }
 
+/**
+ * The same arithmetic re-run against TODAY's ledger for one period. On a month
+ * that has already been posted the server answers with the run's own figures
+ * plus a `recomputed` block and a `divergent` flag — the only way a reader
+ * learns that a cost landed in a month after its run closed it.
+ */
+export function useRecognitionPreview(
+  contractId: string | null,
+  periodEnd: string | null,
+): UseQueryResult<RecognitionPreviewDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<RecognitionPreviewDTO, ApiError>({
+    queryKey: [...KEY, "preview", contractId, periodEnd],
+    enabled: session !== null && contractId !== null && periodEnd !== null,
+    queryFn: async () => {
+      const search = new URLSearchParams({ contractId: contractId as string, periodEnd: periodEnd as string });
+      const res = await request(`${ROOT}/preview?${search.toString()}`);
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("revenueRecognition.api.statusFailed")));
+      return res.json<RecognitionPreviewDTO>();
+    },
+  });
+}
+
 export function useRecognitionRuns(contractId: string | null): UseQueryResult<RecognitionRunDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();

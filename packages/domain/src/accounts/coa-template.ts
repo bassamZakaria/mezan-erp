@@ -71,6 +71,10 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "2175", code: "2175", nameAr: "التزام العقد", nameEn: "Contract Liability", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2195", code: "2195", nameAr: "المحتجزات الضمانية المستحقة لمقاولي الباطن", nameEn: "Retention Payable to Subcontractors", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2196", code: "2196", nameAr: "مخصص عقود خاسرة", nameEn: "Onerous Contract Provision", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  // Social insurance withheld from a subcontractor's certificate is money held
+  // for NOSI under the SUB's file. Crediting it back to the contractor's own
+  // insurance expense understates cost and leaves the liability unrecorded.
+  { id: "2197", code: "2197", nameAr: "تأمينات اجتماعية محتجزة من مقاولي الباطن", nameEn: "Social Insurance Withheld from Subcontractors", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2200", code: "2200", nameAr: "ضريبة القيمة المضافة مستحقة", nameEn: "Output VAT Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   // hr/master-data — employee-related liability accounts, appended so the
   // sibling HR sub-phases (payroll, leave-accrual) have a stable account to
@@ -156,6 +160,10 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // reads on its own line rather than blending into "other expenses".
   { id: "5157", code: "5157", nameAr: "استهلاك عهدة المواد", nameEn: "Employer-supplied materials consumed", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5158", code: "5158", nameAr: "دمغات ورسوم", nameEn: "Stamp duty and fees", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // Water and electricity the employer supplies and deducts from the
+  // certificate. It IS a cost of the site — unlike the delay penalty it used
+  // to share 5910 with, which is a deduction from the billing.
+  { id: "5159", code: "5159", nameAr: "مصروفات مرافق الموقع", nameEn: "Site Utilities Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5160", code: "5160", nameAr: "استرداد تكلفة تشغيل المعدات", nameEn: "Internal Plant Hire Recovery", type: "expense", naturalBalance: "credit", parentId: "5000", isHeader: false },
   { id: "5930", code: "5930", nameAr: "خسائر عقود متوقعة", nameEn: "Foreseeable Contract Losses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },

@@ -71,3 +71,16 @@ export class CertificateQuantityError extends Error {
     this.name = "CertificateQuantityError";
   }
 }
+
+/**
+ * Raised when the three signature dates do not run forward from the period
+ * they certify. Names BOTH dates, because "invalid date" tells the person
+ * nothing about which of the two they have to change.
+ */
+export class CertificateDateOrderError extends Error {
+  readonly code = "CERTIFICATE_DATE_ORDER_REFUSED";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "CertificateDateOrderError";
+  }
+}

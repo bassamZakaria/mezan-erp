@@ -15,10 +15,12 @@ import { step, CORE } from "./shared.js";
 const TOWER = "PRJ-DEMO-1";
 const WAREHOUSE_EXPANSION = "PRJ-DEMO-2";
 const FITOUT = "PRJ-DEMO-3";
+const VILLAS = "PRJ-DEMO-9";
 
 const TOWER_CONTRACT = "CTR-DEMO-1";
 const PUBLIC_CONTRACT = "CTR-DEMO-2";
 const FITOUT_CONTRACT = "CTR-DEMO-3";
+const VILLAS_CONTRACT = "CTR-DEMO-9";
 
 export async function seedContractingContracts(app: App): Promise<void> {
   await step(app, "POST", "/contracting/contracts", {
@@ -143,4 +145,39 @@ export async function seedContractingContracts(app: App): Promise<void> {
   });
   await step(app, "POST", `/contracting/contracts/${FITOUT_CONTRACT}/activate`, { activatedAt: "2026-04-01" });
   await step(app, "POST", `/contracting/contracts/${FITOUT_CONTRACT}/complete`, { completedAt: "2026-07-15" });
+
+  /**
+   * العقد الخاسر — value 4,150,000 against an estimated total cost of
+   * 4,600,000. EAS 48 requires the WHOLE 450,000 foreseen loss to be provided
+   * the month it is foreseen, so the first recognition run on this contract
+   * raises «عقد خاسر — مخصّص واجب» and posts the provision. Every other seeded
+   * contract is profitable, so nothing could raise that flag before.
+   */
+  await step(app, "POST", "/contracting/contracts", {
+    id: VILLAS_CONTRACT,
+    projectId: VILLAS,
+    customerId: CORE.customers[2],
+    titleAr: "عقد تشطيبات فيلات — الشيخ زايد",
+    titleEn: "Sheikh Zayed Villas — fit-out contract",
+    contractType: "private",
+    signedDate: "2026-04-18",
+    startDate: "2026-05-01",
+    plannedEndDate: "2027-04-30",
+    notes: "سُعِّر قبل موجة أسعار مواد التشطيب؛ التكلفة المقدرة تتجاوز قيمة العقد.",
+    estimatedTotalCost: "4600000",
+    retentionPercent: "5",
+    advancePercent: "0",
+    advanceRecoveryPercent: "0",
+    paymentTermDays: 30,
+    recognitionPolicy: "cost_to_cost",
+  });
+
+  await step(app, "PUT", `/contracting/contracts/${VILLAS_CONTRACT}/boq`, {
+    lines: [
+      { id: `${VILLAS_CONTRACT}-B1`, code: "1", descriptionAr: "أعمال المحارة والبياض", unit: "m2", qty: "7000", unitRate: "180.00", estimatedUnitCost: "205", costCategory: "labour" },
+      { id: `${VILLAS_CONTRACT}-B2`, code: "2", descriptionAr: "توريد وتركيب أرضيات رخام", unit: "m2", qty: "2600", unitRate: "650.00", estimatedUnitCost: "720", costCategory: "materials" },
+      { id: `${VILLAS_CONTRACT}-B3`, code: "3", descriptionAr: "أعمال الدهانات والديكور", unit: "lump_sum", qty: "1", unitRate: "1200000.00", estimatedUnitCost: "1330000", costCategory: "subcontract" },
+    ],
+  });
+  await step(app, "POST", `/contracting/contracts/${VILLAS_CONTRACT}/activate`, { activatedAt: "2026-05-01" });
 }

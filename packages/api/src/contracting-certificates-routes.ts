@@ -1,12 +1,16 @@
 import { Hono, type Context } from "hono";
 import {
+  CertificateDateOrderError,
   CertificateQuantityError,
   CertificateSegregationError,
   CertificateService,
   InvalidProgressCertificateError,
   InvalidProgressCertificateTransitionError,
   LaterCertificateExistsError,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
   ProgressCertificateNotFoundError,
+  VatPeriodAlreadyFiledError,
   type CertificateComputation,
   type CertificateMaterialLine,
   type CertificateServiceDeps,
@@ -17,9 +21,13 @@ import {
 } from "@mezan/domain";
 import {
   approveProgressCertificateSchema,
+  cancelProgressCertificateSchema,
+  certifyProgressCertificateSchema,
   createProgressCertificateSchema,
+  measureProgressCertificateSchema,
   previewProgressCertificateSchema,
   updateProgressCertificateSchema,
+  voidProgressCertificateSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
@@ -150,6 +158,12 @@ function serialize(view: CertificateView) {
     approvedBy: c.approvedBy,
     approvedAt: c.approvedAt,
     cancelledAt: c.cancelledAt,
+    cancelledBy: c.cancelledBy,
+    cancelReasonAr: c.cancelReasonAr,
+    voidedAt: c.voidedAt,
+    voidedBy: c.voidedBy,
+    voidReasonAr: c.voidReasonAr,
+    voidJournalEntryId: c.voidJournalEntryId,
     invoiceId: c.invoiceId,
     invoiceDocNo: c.invoiceDocNo,
     journalEntryId: c.journalEntryId,
@@ -229,6 +243,21 @@ function handleDomainError(c: Context, err: unknown) {
   }
   if (err instanceof CertificateQuantityError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+  }
+  if (err instanceof CertificateDateOrderError) {
+    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+  }
+  /**
+   * The GL engine's own refusals. They are a CLOSED period or a FILED VAT
+   * return telling the user to pick another date — a 409, never the 500 an
+   * unhandled throw turned them into.
+   */
+  if (
+    err instanceof PeriodNotOpenForPostingError ||
+    err instanceof NoFiscalPeriodForDateError ||
+    err instanceof VatPeriodAlreadyFiledError
+  ) {
+    return c.json({ error: (err as { code?: string }).code ?? "PERIOD_REFUSED", message: err.message }, 409);
   }
   if (err instanceof CertificateSegregationError) {
     return c.json({ error: err.code, message: err.message }, 409);
@@ -383,16 +412,20 @@ export function createContractingCertificatesRoutes(
   });
 
   app.post("/:id/measure", gate(PREPARE), async (c) => {
+    const parsed = measureProgressCertificateSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      return c.json(serialize(await service.measure(c.req.param("id"), actorOf(c))));
+      return c.json(serialize(await service.measure(c.req.param("id"), actorOf(c), parsed.data.measuredAt ?? null)));
     } catch (err) {
       return handleDomainError(c, err);
     }
   });
 
   app.post("/:id/certify", gate(CERTIFY), async (c) => {
+    const parsed = certifyProgressCertificateSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      return c.json(serialize(await service.certify(c.req.param("id"), actorOf(c))));
+      return c.json(serialize(await service.certify(c.req.param("id"), actorOf(c), parsed.data.certifiedAt ?? null)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -409,8 +442,29 @@ export function createContractingCertificatesRoutes(
   });
 
   app.post("/:id/cancel", gate(PREPARE), async (c) => {
+    const parsed = cancelProgressCertificateSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      return c.json(serialize(await service.cancel(c.req.param("id"), actorOf(c))));
+      return c.json(serialize(await service.cancel(c.req.param("id"), parsed.data.reasonAr, actorOf(c))));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  /**
+   * إلغاء مستخلص معتمد — the reversal path. Gated by the SAME permission that
+   * approved it: whoever can start the payment clock is the one who can stop
+   * it, and nobody else.
+   */
+  app.post("/:id/void", gate(APPROVE), async (c) => {
+    const parsed = voidProgressCertificateSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      return c.json(
+        serialize(
+          await service.void(c.req.param("id"), { date: parsed.data.date, reasonAr: parsed.data.reasonAr }, actorOf(c)),
+        ),
+      );
     } catch (err) {
       return handleDomainError(c, err);
     }

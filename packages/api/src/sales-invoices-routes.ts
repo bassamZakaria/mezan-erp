@@ -50,6 +50,7 @@ import {
   type CreditCheckResult,
   can,
   type SalesInvoicePricingDeps,
+  type ContractBillingRoutingPort,
   type SalesInvoiceTaxPolicy,
 } from "@mezan/domain";
 import {
@@ -115,6 +116,12 @@ export interface SalesInvoiceRoutesDeps {
   readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
   /** The tenant's base currency; defaults to EGP. */
   readonly baseCurrency?: string;
+  /**
+   * Contracting's billing re-route: an ordinary invoice on a project running a
+   * live cost_to_cost works contract credits 2165, not revenue, so the monthly
+   * EAS 48 run stays the only thing that recognises. Omit and nothing moves.
+   */
+  readonly contractBilling?: ContractBillingRoutingPort;
   /**
    * Turns a collection recorded on the invoice into a real confirmed collection
    * voucher, allocated to that invoice. Without it the route refuses rather
@@ -423,6 +430,7 @@ export function createSalesInvoicesRoutes(
       taxPolicy: deps.taxPolicy,
       exchangeRates: deps.exchangeRates,
       baseCurrency: deps.baseCurrency,
+      contractBilling: deps.contractBilling,
       audit: deps.audit,
       events: deps.events,
       allocatable: deps.allocatable,

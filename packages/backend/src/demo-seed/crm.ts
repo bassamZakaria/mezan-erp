@@ -323,6 +323,25 @@ const PROJECTS = [
     notes: "تم إلغاء المشروع بعد تغيير أولويات العميل.",
     statusPath: ["active", "cancelled"],
   },
+  /**
+   * العقد الخاسر. Every other project here makes money, so «عقد خاسر — مخصّص
+   * واجب» — the EAS 48 provision that recognises the WHOLE foreseen loss in
+   * the month it is foreseen — was a flag nothing in the demo could raise.
+   */
+  {
+    id: "PRJ-DEMO-9",
+    code: "VILLAS-SZ",
+    nameAr: "تشطيبات فيلات — الشيخ زايد",
+    nameEn: "Sheikh Zayed Villas Fit-Out",
+    customerId: CORE.customers[2],
+    managerId: CORE.employees[0],
+    startDate: "2026-05-01",
+    endDate: "2027-04-30",
+    budget: "4600000",
+    siteAddress: "الشيخ زايد، الحي السادس عشر",
+    notes: "سُعِّر العقد قبل موجة أسعار مواد التشطيب؛ التكلفة المقدرة تجاوزت قيمة العقد.",
+    statusPath: ["active"],
+  },
 ] as const;
 
 /**

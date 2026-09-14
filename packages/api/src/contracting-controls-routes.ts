@@ -23,10 +23,11 @@ import {
 import {
   createRetentionReleaseSchema,
   recordHandoverSchema,
+  releaseRetentionSchema,
   setTheoreticalQuantitiesSchema,
   updateRetentionReleaseSchema,
 } from "@mezan/contracts";
-import { callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { callerUserId, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * تقارير الاستثناءات الستة، الإفراج عن المحتجزات وتقويم المحتجزات — slice 5B
@@ -51,7 +52,14 @@ function paramsOf(c: Context): ExceptionReportParams {
     asOfDate: c.req.query("asOfDate") ?? null,
     olderThanDays: parsed === null || Number.isNaN(parsed) ? null : parsed,
     thresholdPercent: c.req.query("thresholdPercent") ?? null,
+    stalenessMonths: stalenessOf(c.req.query("stalenessMonths")),
   };
+}
+
+function stalenessOf(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 /** Money and Qty go over the wire as exact decimal strings, never as numbers. */
@@ -71,6 +79,7 @@ function serializeReport<TRow, TOut>(
     projectId: report.projectId,
     olderThanDays: report.olderThanDays,
     thresholdPercent: report.thresholdPercent,
+    stalenessMonths: report.stalenessMonths,
     rows: report.rows.map(row),
   };
 }
@@ -98,6 +107,7 @@ function serializeRelease(view: RetentionReleaseView) {
     invoiceDocNo: r.invoiceDocNo,
     releasedAt: r.releasedAt,
     releasedBy: r.releasedBy,
+    approvedBy: r.approvedBy,
     cancelledAt: r.cancelledAt,
     createdAt: r.createdAt,
     createdBy: r.createdBy,
@@ -146,6 +156,22 @@ function serializeCalendar(calendar: RetentionCalendar) {
       held: row.held.toString(),
       released: row.released.toString(),
       balance: row.balance.toString(),
+      subcontracts: row.subcontracts.map((sub) => ({
+        subcontractId: sub.subcontractId,
+        subcontractDocNo: sub.subcontractDocNo,
+        titleAr: sub.titleAr,
+        supplierId: sub.supplierId,
+        status: sub.status,
+        held: sub.held.toString(),
+        released: sub.released.toString(),
+        balance: sub.balance.toString(),
+        completionDate: sub.completionDate,
+        defectsLiabilityMonths: sub.defectsLiabilityMonths,
+        releaseEventDate: sub.releaseEventDate,
+        daysToEvent: sub.daysToEvent,
+        due: sub.due,
+        ageDays: sub.ageDays,
+      })),
     })),
   };
 }
@@ -187,7 +213,7 @@ function handleDomainError(c: Context, err: unknown) {
   throw err;
 }
 
-/** `GET /contracting/reports/…` — the six exception reports and the dashboard summary. */
+/** `GET /contracting/reports/…` — the seven exception reports and the dashboard summary. */
 export function createContractingReportsRoutes(
   deps: ContractingControlsRoutesDeps,
   resolveAuthContext: AuthContextResolver,
@@ -238,6 +264,10 @@ export function createContractingReportsRoutes(
         qtyReceived: row.qtyReceived.toString(),
         qtyOutstanding: row.qtyOutstanding.toString(),
         ageDays: row.ageDays,
+        kind: row.kind,
+        receiptId: row.receiptId,
+        receiptDocNo: row.receiptDocNo,
+        receiptDate: row.receiptDate,
       })),
     );
   });
@@ -319,6 +349,8 @@ export function createContractingReportsRoutes(
       serializeReport(report, (row) => ({
         releaseId: row.releaseId,
         docNo: row.docNo,
+        party: row.party,
+        counterpartyNameAr: row.counterpartyNameAr,
         contractId: row.contractId,
         contractDocNo: row.contractDocNo,
         projectId: row.projectId,
@@ -328,6 +360,29 @@ export function createContractingReportsRoutes(
         releaseEventDate: row.releaseEventDate,
         status: row.status,
         daysEarly: row.daysEarly,
+      })),
+    );
+  });
+
+  app.get("/cost-overrun-vs-estimate", gate(VIEW), async (c) => {
+    const report = await service.costOverrunsVsEstimate(paramsOf(c));
+    return c.json(
+      serializeReport(report, (row) => ({
+        contractId: row.contractId,
+        contractDocNo: row.contractDocNo,
+        contractTitleAr: row.contractTitleAr,
+        projectId: row.projectId,
+        status: row.status,
+        costToDate: row.costToDate.toString(),
+        estimatedTotalCost: row.estimatedTotalCost.toString(),
+        certifiedGrossWorks: row.certifiedGrossWorks.toString(),
+        contractValue: row.contractValue.toString(),
+        expectedCostToDate: row.expectedCostToDate.toString(),
+        excessCost: row.excessCost.toString(),
+        lastEstimateRevisionDate: row.lastEstimateRevisionDate,
+        monthsSinceEstimateRevision: row.monthsSinceEstimateRevision,
+        costOverrun: row.costOverrun,
+        estimateStale: row.estimateStale,
       })),
     );
   });
@@ -439,8 +494,14 @@ export function createContractingRetentionRoutes(
   });
 
   app.post("/releases/:id/release", gate(RELEASE), async (c) => {
+    const parsed = releaseRetentionSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const view = await service.release(c.req.param("id"), { userId: callerUserId(c) ?? "system" });
+      const view = await service.release(
+        c.req.param("id"),
+        { userId: callerUserId(c) ?? "system", wildcardAdmin: getAuthContext(c)?.permissions.has("*") ?? false },
+        { approvedBy: parsed.data.approvedBy ?? null },
+      );
       return c.json(serializeRelease(view));
     } catch (err) {
       return handleDomainError(c, err);

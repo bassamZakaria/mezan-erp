@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("has the documented 268 permissions plus 2 promotion permissions (phase5/full-sales), a new 2-permission projects module (phase11/crm-projects-assets-field), 3 phase4 inventory.count.* permissions, 6 inv/labels-templates-writedown inventory permissions (labels, templates, aging write-down), and 5 admin permissions for the operational acts that had no code of their own, and the 9-permission contracting module — 295 across 21 modules", () => {
+  it("has the documented 268 permissions plus 2 promotion permissions (phase5/full-sales), a new 2-permission projects module (phase11/crm-projects-assets-field), 3 phase4 inventory.count.* permissions, 6 inv/labels-templates-writedown inventory permissions (labels, templates, aging write-down), and 5 admin permissions for the operational acts that had no code of their own, and the 12-permission contracting module — 298 across 21 modules", () => {
     // `admin.users.unlock`, `admin.devices.view`, `admin.devices.manage`,
     // `admin.backup.view`, `admin.backup.restore`.
     //
@@ -27,14 +27,16 @@ describe("permission catalog", () => {
     // its own pair because it REPLACES the books: it should be grantable to
     // whoever holds the recovery runbook without every tenant setting alongside.
     //
-    // 295 = 286 + the contracting module's nine: the certificate's preparer,
+    // 298 = 286 + the contracting module's twelve: the certificate's preparer,
     // certifier, approver and collector are four different people
     // (docs/artifacts/mezan-contracting-designs.html §06), plus BOQ view/manage,
-    // variation approval and retention release.
-    expect(PERMISSIONS).toHaveLength(295);
+    // variation approval, retention release, and the three خطابات الضمان codes
+    // — the register used to be written under `treasury.cash_voucher.create`,
+    // which put a till cashier in charge of the company's performance bonds.
+    expect(PERMISSIONS).toHaveLength(298);
     expect(MODULES).toHaveLength(21);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(295);
+    expect(summed).toBe(298);
   });
 
   it("passes integrity checks (unique codes, resolvable deps, module counts)", () => {
@@ -49,8 +51,10 @@ describe("permission catalog", () => {
     expect(isSensitive("sales.invoice.view")).toBe(false);
     expect(isSensitive("contracting.certificate.approve")).toBe(true);
     expect(isSensitive("contracting.retention.release")).toBe(true);
+    expect(isSensitive("contracting.guarantee.release")).toBe(true);
+    expect(isSensitive("contracting.guarantee.manage")).toBe(false);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(6);
+    expect(sensitiveCount).toBe(7);
   });
 
   it("marks the two platform-admin-only permissions", () => {

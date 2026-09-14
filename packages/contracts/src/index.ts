@@ -1102,6 +1102,7 @@ export {
   depreciationRunLineSchema,
   depreciationRunSchema,
   createDepreciationRunSchema,
+  setInternalHourlyRateSchema,
   type DepreciationMethodDTO,
   type AssetScopeDTO,
   type AssetStatusDTO,
@@ -1114,6 +1115,7 @@ export {
   type DepreciationRunLineDTO,
   type DepreciationRunDTO,
   type CreateDepreciationRunDTO,
+  type SetInternalHourlyRateDTO,
 } from "./fixed-assets.js";
 
 export {

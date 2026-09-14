@@ -126,6 +126,17 @@ async function startAsLanClient(config: ClientConfig): Promise<void> {
   });
 }
 
+/**
+ * A rejected promise that reaches the process must not end it. The LAN host
+ * serves every till in the shop out of THIS process, and a single refused
+ * posting — a document approved into a closed fiscal period — was taking it
+ * down for all of them. Logged, never fatal; `app.onError` in @mezan/api has
+ * already answered the request.
+ */
+process.on("unhandledRejection", (reason) => {
+  console.error("[desktop] unhandled rejection (ignored, host stays up):", reason);
+});
+
 app.whenReady().then(async () => {
   const dbPath = isDev() ? ":memory:" : defaultDbPath();
   // Tells the seed whether this is a real install: a packaged build must not

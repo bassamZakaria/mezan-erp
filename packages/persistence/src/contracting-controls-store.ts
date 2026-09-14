@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS contracting_retention_release (
   invoice_doc_no      TEXT,
   released_at         TEXT,
   released_by         TEXT,
+  approved_by         TEXT,
   cancelled_at        TEXT,
   created_at          TEXT NOT NULL,
   created_by          TEXT
@@ -63,6 +64,7 @@ interface ReleaseRow {
   invoice_doc_no: string | null;
   released_at: string | null;
   released_by: string | null;
+  approved_by: string | null;
   cancelled_at: string | null;
   created_at: string;
   created_by: string | null;
@@ -87,6 +89,7 @@ function toRelease(row: ReleaseRow): RetentionRelease {
     invoiceDocNo: row.invoice_doc_no,
     releasedAt: row.released_at,
     releasedBy: row.released_by,
+    approvedBy: row.approved_by ?? null,
     cancelledAt: row.cancelled_at,
     createdAt: row.created_at,
     createdBy: row.created_by,
@@ -104,11 +107,11 @@ class SqliteRetentionReleaseStore implements RetentionReleaseStore {
       INSERT INTO contracting_retention_release (
         id, doc_no, contract_id, contract_doc_no, project_id, customer_id, kind, date, amount,
         release_event_date, early_release, status, notes, invoice_id, invoice_doc_no,
-        released_at, released_by, cancelled_at, created_at, created_by
+        released_at, released_by, approved_by, cancelled_at, created_at, created_by
       ) VALUES (
         @id, @doc_no, @contract_id, @contract_doc_no, @project_id, @customer_id, @kind, @date, @amount,
         @release_event_date, @early_release, @status, @notes, @invoice_id, @invoice_doc_no,
-        @released_at, @released_by, @cancelled_at, @created_at, @created_by
+        @released_at, @released_by, @approved_by, @cancelled_at, @created_at, @created_by
       )
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
@@ -122,6 +125,7 @@ class SqliteRetentionReleaseStore implements RetentionReleaseStore {
         invoice_doc_no = excluded.invoice_doc_no,
         released_at = excluded.released_at,
         released_by = excluded.released_by,
+        approved_by = excluded.approved_by,
         cancelled_at = excluded.cancelled_at
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM contracting_retention_release WHERE id = ?`);
@@ -171,6 +175,7 @@ class SqliteRetentionReleaseStore implements RetentionReleaseStore {
       invoice_doc_no: release.invoiceDocNo,
       released_at: release.releasedAt,
       released_by: release.releasedBy,
+      approved_by: release.approvedBy,
       cancelled_at: release.cancelledAt,
       created_at: release.createdAt,
       created_by: release.createdBy,
@@ -193,6 +198,12 @@ export function createSqliteContractingControlsStore(
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
+  const releaseColumns = new Set(
+    (sqlite.prepare(`PRAGMA table_info(contracting_retention_release)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!releaseColumns.has("approved_by")) {
+    sqlite.exec(`ALTER TABLE contracting_retention_release ADD COLUMN approved_by TEXT`);
+  }
   const store = new SqliteRetentionReleaseStore(sqlite);
   return Object.assign(store, {
     close: () => {

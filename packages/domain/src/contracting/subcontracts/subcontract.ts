@@ -2,6 +2,21 @@ import type { Money, Qty } from "../../money/index.js";
 import type { BoqUnit } from "../contracts/boq-unit.js";
 import type { VatBasis } from "../contracts/contract.js";
 
+/** The sub side releases on the same two events as the client side (design §06). */
+export type SubcontractRetentionReleaseKind = "provisional" | "final";
+
+export const SUBCONTRACT_RETENTION_RELEASE_KIND_DEFINITIONS: readonly {
+  code: SubcontractRetentionReleaseKind;
+  labelAr: string;
+}[] = [
+  { code: "provisional", labelAr: "إفراج عند إنهاء الأعمال" },
+  { code: "final", labelAr: "إفراج عند انتهاء فترة الضمان" },
+] as const;
+
+export function getSubcontractRetentionReleaseKindLabel(kind: SubcontractRetentionReleaseKind): string {
+  return SUBCONTRACT_RETENTION_RELEASE_KIND_DEFINITIONS.find((d) => d.code === kind)?.labelAr ?? kind;
+}
+
 /**
  * عقد الباطن — the mirror of the works contract, and usually the larger half of
  * the money (design §03 "THE MIRROR", D-04, D-05).
@@ -86,12 +101,27 @@ export interface SubcontractAdvancePayment {
   readonly amount: Money;
 }
 
-/** One release of retention back to the subcontractor — Dr 2195 / Cr AP, posted. */
+/**
+ * One release of retention back to the subcontractor.
+ *
+ * INVARIANT: the release is an AP DOCUMENT, not a bare journal — a purchase
+ * invoice whose single expense line debits 2195, so the invoice's own posting
+ * is Dr 2195 / Cr AP and the payables sub-ledger moves with GL 2100. A bare
+ * journal moved the control account and left nothing for a voucher to pay.
+ */
 export interface SubcontractRetentionRelease {
   readonly id: string;
   readonly date: string;
   readonly amount: Money;
   readonly journalEntryId: string;
+  /** الشريحة — التسليم الابتدائي or انتهاء فترة الضمان. */
+  readonly kind: SubcontractRetentionReleaseKind;
+  /** completionDate for `provisional`, completionDate + فترة الضمان for `final`; null until the sub is completed. */
+  readonly releaseEventDate: string | null;
+  /** Released before its event fell due — the flag the exception report reads. */
+  readonly earlyRelease: boolean;
+  readonly invoiceId: string | null;
+  readonly invoiceDocNo: string | null;
   readonly releasedBy: string | null;
   readonly notes: string | null;
 }

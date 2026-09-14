@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS contracting_guarantee (
   status                   TEXT NOT NULL,
   current_value            INTEGER NOT NULL,
   reductions               TEXT NOT NULL DEFAULT '[]',
+  restorations             TEXT NOT NULL DEFAULT '[]',
   closed_date              TEXT,
+  closed_by                TEXT,
   closed_amount            INTEGER NOT NULL DEFAULT 0,
   notes                    TEXT
 );
@@ -68,7 +70,9 @@ interface GuaranteeRow {
   status: string;
   current_value: number;
   reductions: string;
+  restorations: string;
   closed_date: string | null;
+  closed_by: string | null;
   closed_amount: number;
   notes: string | null;
 }
@@ -78,6 +82,7 @@ interface ReductionJson {
   amount: number;
   reason: string;
   sourceRef: string | null;
+  userId?: string | null;
 }
 
 function toReductions(json: string): GuaranteeReduction[] {
@@ -87,6 +92,7 @@ function toReductions(json: string): GuaranteeReduction[] {
     amount: Money.fromScaled(r.amount),
     reason: r.reason,
     sourceRef: r.sourceRef ?? null,
+    userId: r.userId ?? null,
   }));
 }
 
@@ -110,7 +116,9 @@ function toGuarantee(row: GuaranteeRow): LetterOfGuarantee {
     status: row.status as GuaranteeStatus,
     currentValue: Money.fromScaled(row.current_value),
     reductions: toReductions(row.reductions),
+    restorations: toReductions(row.restorations ?? "[]"),
     closedDate: row.closed_date,
+    closedBy: row.closed_by ?? null,
     closedAmount: Money.fromScaled(row.closed_amount),
     notes: row.notes,
   };
@@ -128,12 +136,12 @@ class SqliteLetterOfGuaranteeRepository implements LetterOfGuaranteeRepository {
         id, doc_no, kind, project_id, contract_id, tender_ref, beneficiary_name_ar,
         bank_treasury_account_id, bank_name_ar, face_value, percent_of_contract,
         cash_margin_percent, cash_margin_amount, issue_date, expiry_date, status,
-        current_value, reductions, closed_date, closed_amount, notes
+        current_value, reductions, restorations, closed_date, closed_by, closed_amount, notes
       ) VALUES (
         @id, @doc_no, @kind, @project_id, @contract_id, @tender_ref, @beneficiary_name_ar,
         @bank_treasury_account_id, @bank_name_ar, @face_value, @percent_of_contract,
         @cash_margin_percent, @cash_margin_amount, @issue_date, @expiry_date, @status,
-        @current_value, @reductions, @closed_date, @closed_amount, @notes
+        @current_value, @reductions, @restorations, @closed_date, @closed_by, @closed_amount, @notes
       )
       ON CONFLICT(id) DO UPDATE SET
         doc_no = excluded.doc_no,
@@ -153,7 +161,9 @@ class SqliteLetterOfGuaranteeRepository implements LetterOfGuaranteeRepository {
         status = excluded.status,
         current_value = excluded.current_value,
         reductions = excluded.reductions,
+        restorations = excluded.restorations,
         closed_date = excluded.closed_date,
+        closed_by = excluded.closed_by,
         closed_amount = excluded.closed_amount,
         notes = excluded.notes
     `);
@@ -209,9 +219,20 @@ class SqliteLetterOfGuaranteeRepository implements LetterOfGuaranteeRepository {
           amount: r.amount.toScaledNumber(),
           reason: r.reason,
           sourceRef: r.sourceRef,
+          userId: r.userId,
+        })),
+      ),
+      restorations: JSON.stringify(
+        guarantee.restorations.map((r) => ({
+          date: r.date,
+          amount: r.amount.toScaledNumber(),
+          reason: r.reason,
+          sourceRef: r.sourceRef,
+          userId: r.userId,
         })),
       ),
       closed_date: guarantee.closedDate,
+      closed_by: guarantee.closedBy,
       closed_amount: guarantee.closedAmount.toScaledNumber(),
       notes: guarantee.notes,
     });
@@ -227,6 +248,13 @@ export function createSqliteGuaranteeStore(path: SqliteConnectionInput = ":memor
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
+  if (
+    !(sqlite.prepare(`PRAGMA table_info(contracting_guarantee)`).all() as { name: string }[]).some(
+      (c) => c.name === "restorations",
+    )
+  ) {
+    sqlite.exec(`ALTER TABLE contracting_guarantee ADD COLUMN restorations TEXT NOT NULL DEFAULT '[]'`);
+  }
   const repo = new SqliteLetterOfGuaranteeRepository(sqlite);
   return Object.assign(repo, {
     close: () => {

@@ -15,6 +15,7 @@ export const CERTIFICATE_STATUS_KEY: Record<ProgressCertificateDerivedStatusDTO,
   invoiced: "certificates.status.invoiced",
   collected: "certificates.status.collected",
   cancelled: "certificates.status.cancelled",
+  voided: "certificates.status.voided",
 };
 
 export const CERTIFICATE_STATUS_TONE: Record<ProgressCertificateDerivedStatusDTO, PillTone> = {
@@ -25,9 +26,10 @@ export const CERTIFICATE_STATUS_TONE: Record<ProgressCertificateDerivedStatusDTO
   invoiced: "success",
   collected: "success",
   cancelled: "danger",
+  voided: "danger",
 };
 
-/** The stepper's path. «ملغي» is off-path and is shown by tone, not by a step. */
+/** The stepper's path. «ملغي» and «معكوس» are off-path and shown by tone, not by a step. */
 export const CERTIFICATE_STEPS: readonly ProgressCertificateDerivedStatusDTO[] = [
   "draft",
   "measured",

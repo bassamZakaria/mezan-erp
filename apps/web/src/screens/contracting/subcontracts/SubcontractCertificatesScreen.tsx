@@ -474,6 +474,8 @@ function SubCertificateDetailPage({
   const update = useUpdateSubCertificate();
   const projects = useProjects().data ?? EMPTY;
   const [approvedAt, setApprovedAt] = useState(todayIso());
+  const [signedAt, setSignedAt] = useState(todayIso());
+  const [cancelReason, setCancelReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [draftQty, setDraftQty] = useState<Record<string, string> | null>(null);
 
@@ -504,11 +506,19 @@ function SubCertificateDetailPage({
   async function move(action: "measure" | "certify" | "approve" | "cancel") {
     setError(null);
     try {
+      if (action === "cancel" && cancelReason.trim() === "") {
+        setError(t("subCertificates.cancelReasonRequired"));
+        return;
+      }
       await transition.mutateAsync({
         id: certificate!.id,
         action,
         ...(action === "approve" ? { body: { approvedAt } } : {}),
+        ...(action === "measure" ? { body: { measuredAt: signedAt } } : {}),
+        ...(action === "certify" ? { body: { certifiedAt: signedAt } } : {}),
+        ...(action === "cancel" ? { body: { reasonAr: cancelReason.trim() } } : {}),
       });
+      if (action === "cancel") setCancelReason("");
     } catch (err) {
       setError(err instanceof Error ? err.message : t("subCertificates.transitionFailed"));
     }
@@ -551,14 +561,30 @@ function SubCertificateDetailPage({
           ) : (
             <>
               {mayPrepare && certificate.status === "draft" ? (
-                <Button variant="primary" onClick={() => void move("measure")} disabled={transition.isPending}>
-                  {t("subCertificates.action.measure")}
-                </Button>
+                <>
+                  <TextInput
+                    type="date"
+                    value={signedAt}
+                    onChange={(e) => setSignedAt(e.target.value)}
+                    aria-label={t("subCertificates.field.measuredAt")}
+                  />
+                  <Button variant="primary" onClick={() => void move("measure")} disabled={transition.isPending}>
+                    {t("subCertificates.action.measure")}
+                  </Button>
+                </>
               ) : null}
               {mayCertify && certificate.status === "measured" ? (
-                <Button variant="primary" onClick={() => void move("certify")} disabled={transition.isPending}>
-                  {t("subCertificates.action.certify")}
-                </Button>
+                <>
+                  <TextInput
+                    type="date"
+                    value={signedAt}
+                    onChange={(e) => setSignedAt(e.target.value)}
+                    aria-label={t("subCertificates.field.certifiedAt")}
+                  />
+                  <Button variant="primary" onClick={() => void move("certify")} disabled={transition.isPending}>
+                    {t("subCertificates.action.certify")}
+                  </Button>
+                </>
               ) : null}
               {mayApprove && certificate.status === "certified" ? (
                 <>
@@ -579,9 +605,20 @@ function SubCertificateDetailPage({
                 </>
               ) : null}
               {mayPrepare && (certificate.status === "draft" || certificate.status === "measured") ? (
-                <Button onClick={() => void move("cancel")} disabled={transition.isPending}>
-                  {t("subCertificates.action.cancel")}
-                </Button>
+                <>
+                  <TextInput
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder={t("subCertificates.field.cancelReason")}
+                    aria-label={t("subCertificates.field.cancelReason")}
+                  />
+                  <Button
+                    onClick={() => void move("cancel")}
+                    disabled={transition.isPending || cancelReason.trim() === ""}
+                  >
+                    {t("subCertificates.action.cancel")}
+                  </Button>
+                </>
               ) : null}
             </>
           )}

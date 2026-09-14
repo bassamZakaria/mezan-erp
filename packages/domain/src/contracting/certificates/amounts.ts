@@ -45,6 +45,20 @@ function roundMinor(scaled: bigint): bigint {
   return divHalfUp(scaled, MINOR_STEP) * MINOR_STEP;
 }
 
+/**
+ * INVARIANT: the certificate boundary is a PIASTRE boundary. Every deduction
+ * and the VAT are rounded to 2 dp here, because these exact figures are both
+ * posted to the ledger and printed on the sheet the employer signs — a
+ * six-decimal deduction is a number nobody can pay and nobody can tie.
+ *
+ * Where a rounded cumulative is split into «سابق» and «هذا المستخلص», the
+ * split is the SUBTRACTION of two rounded cumulatives, so the parts always sum
+ * back to the whole exactly (largest-remainder by construction).
+ */
+export function toPiastres(value: Money): Money {
+  return Money.fromScaled(roundMinor(value.scaled));
+}
+
 /** An exact decimal percentage as a scaled integer at 1e-6 — never a float. */
 export function parsePercent(percent: string | null | undefined): bigint {
   if (percent === null || percent === undefined || percent.trim() === "") return 0n;
@@ -123,10 +137,18 @@ export interface CertificateComputationInput {
   /** The previous certificate's stored block; null for serial 1. */
   readonly previous: CertificateComputation | null;
   readonly contractValueAfterVariations: Money;
-  /** Σ credits to the customer-advances account for this project — the recovery ceiling. */
+  /** Σ credits to the customer-advances account for this project. */
   readonly advanceReceived: Money;
   /** Σ credits − debits on the same account: what is still owed back. */
   readonly advanceOutstanding: Money;
+  /**
+   * The recovery ceiling for THIS contract: the advance received less what the
+   * project's OTHER contracts have already recovered. The advance is held per
+   * project but recovered per contract, so a per-project ceiling lets two
+   * contracts each recover the whole advance and drives 2160 negative.
+   * Defaults to {@link advanceReceived} when the caller knows of no siblings.
+   */
+  readonly advanceRecoveryCeiling?: Money;
 }
 
 const DEDUCTION_LABELS: Readonly<Record<CertificateDeductionKey, string>> = {
@@ -153,14 +175,15 @@ function row(
   posted: boolean,
   capped = false,
 ): CertificateDeductionRow {
-  const prev = previousOf(previous, key);
+  const prev = toPiastres(previousOf(previous, key));
+  const rounded = toPiastres(cumulative);
   return {
     key,
     labelAr: DEDUCTION_LABELS[key],
     percent,
-    cumulative,
+    cumulative: rounded,
     previous: prev,
-    thisCertificate: subtract(cumulative, prev),
+    thisCertificate: subtract(rounded, prev),
     posted,
     capped,
   };
@@ -193,7 +216,10 @@ export function computeCertificate(input: CertificateComputationInput): Certific
       ? null
       : percentOf(input.contractValueAfterVariations, terms.retentionCapPercent);
   const retention = capAt(percentOf(netCertified, terms.retentionPercent), retentionCeiling);
-  const advance = capAt(percentOf(netCertified, terms.advanceRecoveryPercent), input.advanceReceived);
+  const advance = capAt(
+    percentOf(netCertified, terms.advanceRecoveryPercent),
+    input.advanceRecoveryCeiling ?? input.advanceReceived,
+  );
   const socialInsurance = percentOf(
     percentOf(netCertified, terms.deemedWagePercent),
     terms.socialInsuranceRatePercent,
@@ -226,7 +252,7 @@ export function computeCertificate(input: CertificateComputationInput): Certific
   const invoiceBase = subtract(thisCertificateNetCertified, suspendedDelta);
 
   const effectiveRate = vatEffectiveRatePercent(terms.vatBasis);
-  const vat = percentOf(invoiceBase, effectiveRate);
+  const vat = toPiastres(percentOf(invoiceBase, effectiveRate));
 
   const previousPayments = previous?.cumulativeNetPayable ?? Money.zero();
   const netPayableThisCertificate = subtract(invoiceBase, deductionsThisCertificate).add(vat);
@@ -243,7 +269,7 @@ export function computeCertificate(input: CertificateComputationInput): Certific
     deductions,
     deductionsThisCertificate,
     deductionsCumulative,
-    suspendedBalance: input.manual.suspended,
+    suspendedBalance: toPiastres(input.manual.suspended),
     invoiceBase,
     vatBasis: terms.vatBasis,
     vatStatutoryRatePercent: EGYPT_VAT_RATE_PERCENT,
@@ -253,7 +279,11 @@ export function computeCertificate(input: CertificateComputationInput): Certific
     netPayableThisCertificate,
     cumulativeNetPayable: previousPayments.add(netPayableThisCertificate),
     contractValueAfterVariations: input.contractValueAfterVariations,
-    completionPercent: completionPercentOfMoney(netCertified, input.contractValueAfterVariations),
+    // نسبة الإنجاز is WORK executed against the contracted value of that work.
+    // netCertified is neither: it carries التشوينات (material delivered but not
+    // built in) and is net of the tender discount, so it read high on a
+    // certificate carrying materials and low on a discounted contract.
+    completionPercent: completionPercentOfMoney(grossWorks, input.contractValueAfterVariations),
     retentionHeldCumulative: retention.value,
     advanceReceived: input.advanceReceived,
     advanceOutstanding: input.advanceOutstanding,

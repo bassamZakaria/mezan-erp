@@ -50,6 +50,8 @@ export const guaranteeSchema = z.object({
   daysToExpiry: z.number(),
   currentValue: moneyString,
   reductions: z.array(guaranteeReductionSchema),
+  /** Steps back up the face value — a reduction whose certificate was voided. */
+  restorations: z.array(guaranteeReductionSchema),
   closedDate: z.string().nullable(),
   closedAmount: moneyString,
   notes: z.string().nullable(),

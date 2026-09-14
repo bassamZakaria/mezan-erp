@@ -159,8 +159,7 @@ export const createEquipmentLogSchema = z.object({
   assetId: z.string().min(1),
   date: isoDate,
   hours: nonNegativeMoneyString,
-  /** Omit to take the asset's سعر الساعة الداخلي. */
-  hourlyRate: moneyString.nullable().optional(),
+  /** سعر الساعة is NOT accepted here: it is the asset's rate, edited on the asset. */
   boqLineId: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
 });
@@ -179,6 +178,10 @@ export const unreceivedRowSchema = z.object({
   qtyReceived: nonNegativeMoneyString,
   qtyOutstanding: nonNegativeMoneyString,
   ageDays: z.number().int(),
+  kind: z.enum(["outstanding", "received_before_issue"]),
+  receiptId: z.string().nullable(),
+  receiptDocNo: z.string().nullable(),
+  receiptDate: z.string().nullable(),
 });
 
 export const consumptionByBoqLineRowSchema = z.object({

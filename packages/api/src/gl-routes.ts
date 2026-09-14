@@ -70,6 +70,12 @@ export interface GlRoutesDeps {
   readonly numbering: NextNumberService;
   /** So a manual entry's `projectId` names a project that exists (D-01). */
   readonly projects?: JournalPostingDeps["projects"];
+  /**
+   * Accounts whose lines must name a project — the routed contracting control
+   * and cost slots. The hand-written journal is exactly where an unattributed
+   * movement on 1230 or 2160 gets in.
+   */
+  readonly projectRequiredAccountIds?: JournalPostingDeps["projectRequiredAccountIds"];
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
   readonly now?: () => string;
@@ -254,6 +260,7 @@ export function createGlRoutes(
       vatFilings: deps.vatFilings,
       numbering: deps.numbering,
       projects: deps.projects,
+      projectRequiredAccountIds: deps.projectRequiredAccountIds,
       audit: deps.audit,
       events: deps.events,
       now: deps.now,

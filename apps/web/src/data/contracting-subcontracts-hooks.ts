@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   ApproveSubCertificateDTO,
+  CancelSubCertificateDTO,
+  CertifySubCertificateDTO,
+  MeasureSubCertificateDTO,
   CreateSubcontractDTO,
   CreateSubCertificateDTO,
   LinkSubcontractAdvanceDTO,
@@ -318,6 +321,13 @@ export function useUpdateSubCertificate() {
 
 export type SubCertificateAction = "measure" | "certify" | "approve" | "cancel";
 
+/** Each transition carries the date it happened on, and a cancel carries its reason. */
+export type SubCertificateTransitionBody =
+  | ApproveSubCertificateDTO
+  | MeasureSubCertificateDTO
+  | CertifySubCertificateDTO
+  | CancelSubCertificateDTO;
+
 /** حصر / اعتماد فني / اعتماد للصرف / إلغاء — one mutation over the four gated routes. */
 export function useSubCertificateTransition() {
   const { t } = useAppTranslation();
@@ -326,7 +336,7 @@ export function useSubCertificateTransition() {
   return useMutation<
     SubCertificateDTO,
     ApiError,
-    { id: string; action: SubCertificateAction; body?: ApproveSubCertificateDTO }
+    { id: string; action: SubCertificateAction; body?: SubCertificateTransitionBody }
   >({
     mutationFn: async ({ id, action, body }) => {
       const res = await request(`/contracting/subcontract-certificates/${encodeURIComponent(id)}/${action}`, {

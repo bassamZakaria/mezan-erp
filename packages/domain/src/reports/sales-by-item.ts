@@ -27,6 +27,13 @@ export interface SalesByItemContext {
    * itself.
    */
   readonly postedRevenue?: (params: { dateFrom: string; dateTo: string }) => number;
+  /**
+   * Whether a line's revenue account is one the chart KNOWS is not revenue —
+   * a contract BILLING rather than a sale (see `aggregateItemSales`).
+   * Optional: omit it and every line counts, which is right for a tenant with
+   * no contracting documents.
+   */
+  readonly isContractBilling?: (accountId: string) => boolean;
 }
 
 export interface SalesByItemParams {
@@ -73,7 +80,9 @@ export function createSalesByItemReport(
      * The report sums invoice lines; the GL holds what those invoices posted
      * to revenue. They are two independent paths to the same number, so a
      * difference means one of them is wrong — which is the only reason to
-     * show a reconciliation at all.
+     * show a reconciliation at all. Both sides read the SAME fact: what a
+     * sales invoice credited to the revenue accounts its counted lines named.
+     * A contract billing line is absent from both.
      */
     reconciliation: {
       labelAr: "إيرادات التقرير مقابل المرحَّل في دفتر الأستاذ",
@@ -96,7 +105,7 @@ export function createSalesByItemReport(
     ],
     run: (params, ctx) => {
       const inBranch = ctx.invoices.filter((invoice) => matchesBranch(invoice.branchId, params.branchId));
-      const aggregates = aggregateItemSales(inBranch, params.dateFrom, params.dateTo);
+      const aggregates = aggregateItemSales(inBranch, params.dateFrom, params.dateTo, "exc", ctx.isContractBilling);
       const namesEn = new Map((ctx.items ?? []).map((i) => [i.id, i.nameEn ?? null]));
       const totalRevenue = sumRows(aggregates, (a) => a.revenue);
       return aggregates

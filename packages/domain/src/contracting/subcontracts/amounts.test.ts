@@ -4,8 +4,11 @@ import { computeCertificate } from "../certificates/amounts.js";
 import {
   computeSubcontractClientValue,
   computeSubcontractValue,
+  isEarlySubcontractRelease,
   lineMarginVsClient,
+  remainingCommitmentOf,
   subcontractCertificateTerms,
+  subcontractReleaseEventDate,
 } from "./amounts.js";
 import type { SubcontractTerms } from "./subcontract.js";
 
@@ -154,5 +157,37 @@ describe("subcontract amounts", () => {
     const advance = computed.deductions.find((d) => d.key === "advanceRecovery");
     expect(advance?.cumulative.toString()).toBe("10000.000000");
     expect(advance?.capped).toBe(true);
+  });
+});
+
+describe("the subcontract retention clock", () => {
+  const sub = (completedAt: string | null, defectsLiabilityMonths = 12) => ({
+    completedAt,
+    defectsLiabilityMonths,
+  });
+
+  it("has no release event until the package is completed", () => {
+    expect(subcontractReleaseEventDate("provisional", sub(null))).toBeNull();
+    expect(subcontractReleaseEventDate("final", sub(null))).toBeNull();
+  });
+
+  it("releases the provisional tranche at completion and the last one a defects-liability period later", () => {
+    expect(subcontractReleaseEventDate("provisional", sub("2026-08-31"))).toBe("2026-08-31");
+    expect(subcontractReleaseEventDate("final", sub("2026-08-31"))).toBe("2027-08-31");
+    // The day of month is kept where the target month has it, clamped where it does not.
+    expect(subcontractReleaseEventDate("final", sub("2026-08-31", 6))).toBe("2027-02-28");
+  });
+
+  it("flags a release struck before its event, and says nothing when the event is unknown", () => {
+    expect(isEarlySubcontractRelease("2026-09-10", "2027-02-28")).toBe(true);
+    expect(isEarlySubcontractRelease("2027-02-28", "2027-02-28")).toBe(false);
+    expect(isEarlySubcontractRelease("2026-09-10", null)).toBe(false);
+  });
+
+  it("floors the remaining commitment at zero once the package is certified past its value", () => {
+    expect(remainingCommitmentOf(Money.fromMajor("121500"), Money.fromMajor("67500")).toString()).toBe(
+      "54000.000000",
+    );
+    expect(remainingCommitmentOf(Money.fromMajor("100"), Money.fromMajor("130")).toString()).toBe("0.000000");
   });
 });

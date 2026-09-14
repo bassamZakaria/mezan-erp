@@ -20,6 +20,7 @@ import { SubCertificateService } from "./sub-certificate-service.js";
 import {
   InvalidSubCertificateError,
   InvalidSubcontractError,
+  SubCertificateDeductionError,
   SubCertificateQuantityError,
   SubcontractRetentionError,
   SubcontractorNotPayableError,
@@ -33,8 +34,11 @@ import type { Subcontract, SubcontractListFilter } from "./subcontract.js";
 import type {
   SubCertificateInvoiceCommand,
   SubCertificateInvoicingPort,
+  SubcontractRetentionInvoicingPort,
+  SubcontractRetentionReleaseInvoiceCommand,
   SubcontractorParty,
 } from "./ports.js";
+import { postJournalEntry } from "../../gl/index.js";
 
 const CONTRACT_ID = "CTR-1";
 const PROJECT_ID = "PRJ-1";
@@ -165,6 +169,9 @@ interface Harness {
   ceiling: Map<string, Qty>;
   issued: SubCertificateInvoiceCommand[];
   settled: { invoiceId: string; amount: Money }[];
+  /** Σ of the site consumptions issued to this subcontract — the materials-deduction ceiling. */
+  materialsIssued: { value: Money };
+  releaseInvoices: SubcontractRetentionReleaseInvoiceCommand[];
 }
 
 async function harness(): Promise<Harness> {
@@ -176,6 +183,7 @@ async function harness(): Promise<Harness> {
     ["1350", "asset", "debit"],
     ["2100", "liability", "credit"],
     ["2195", "liability", "credit"],
+    ["2197", "liability", "credit"],
     ["2210", "liability", "credit"],
     ["5155", "expense", "debit"],
     ["5910", "expense", "debit"],
@@ -239,6 +247,7 @@ async function harness(): Promise<Harness> {
   const ceiling = new Map<string, Qty>();
   const issued: SubCertificateInvoiceCommand[] = [];
   const settled: { invoiceId: string; amount: Money }[] = [];
+  const gl = { ledger, accounts, periods, numbering };
   const invoicing: SubCertificateInvoicingPort = {
     async issue(cmd) {
       issued.push(cmd);
@@ -257,16 +266,52 @@ async function harness(): Promise<Harness> {
     },
   };
 
-  const gl = { ledger, accounts, periods, numbering };
+  const materialsIssued = { value: Money.zero() };
+  const releaseInvoices: SubcontractRetentionReleaseInvoiceCommand[] = [];
+  /**
+   * The release is an AP DOCUMENT: its own posting is Dr 2195 / Cr AP, exactly
+   * as the real purchase-invoice engine raises it in the composition.
+   */
+  const retentionInvoicing: SubcontractRetentionInvoicingPort = {
+    async issue(cmd) {
+      releaseInvoices.push(cmd);
+      const journalEntryId = `PI-JE:${cmd.releaseId}-PINV`;
+      await postJournalEntry(
+        {
+          id: journalEntryId,
+          date: cmd.date,
+          memo: cmd.memoAr,
+          source: "system",
+          sourceDocType: "PURCHASE_INVOICE",
+          sourceDocId: `${cmd.releaseId}-PINV`,
+          sourceDocNumber: `PI-RET-${releaseInvoices.length}`,
+          lines: [
+            {
+              accountId: cmd.retentionAccountId,
+              debit: cmd.amount,
+              credit: Money.zero(),
+              projectId: cmd.projectId,
+            },
+            { accountId: "2100", debit: Money.zero(), credit: cmd.amount, projectId: cmd.projectId },
+          ],
+        },
+        gl,
+      );
+      return {
+        invoiceId: `${cmd.releaseId}-PINV`,
+        invoiceDocNo: `PI-RET-${releaseInvoices.length}`,
+        journalEntryId,
+      };
+    },
+  };
   return {
     subcontracts: new SubcontractService({
       store,
       contracts,
       numbering,
-      gl,
       suppliers,
-      payableAccountId: "2100",
-      today: () => "2026-01-01",
+      retentionInvoicing,
+      today: () => "2026-06-30",
     }),
     certificates: new SubCertificateService({
       store,
@@ -276,7 +321,8 @@ async function harness(): Promise<Harness> {
       invoicing,
       suppliers,
       clientCertificates: { certifiedCumulativeByBoqLine: async () => ceiling },
-      today: () => "2026-01-01",
+      consumptions: { materialsIssuedTo: async () => materialsIssued.value },
+      today: () => "2026-06-30",
     }),
     store,
     ledger,
@@ -284,6 +330,8 @@ async function harness(): Promise<Harness> {
     ceiling,
     issued,
     settled,
+    materialsIssued,
+    releaseInvoices,
   };
 }
 
@@ -381,7 +429,7 @@ describe("SubCertificateService", () => {
   it("refuses a cumulative quantity beyond what the consultant certified to the employer, naming both figures", async () => {
     const h = await harness();
     await activeWithCertificate(h, "9000");
-    const error = await h.certificates.measure("SMST-1", ENGINEER).catch((e: unknown) => e);
+    const error = await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(SubCertificateQuantityError);
     const [reason] = (error as SubCertificateQuantityError).reasons;
     expect(reason).toContain("لا يجوز اعتماد كمية للمقاول تتجاوز ما اعتمده الاستشاري");
@@ -392,8 +440,8 @@ describe("SubCertificateService", () => {
   it("posts a balanced deductions entry that DEBITS payables and credits retention, WHT and the advance", async () => {
     const h = await harness();
     await activeWithCertificate(h);
-    await h.certificates.measure("SMST-1", ENGINEER);
-    await h.certificates.certify("SMST-1", TECHNICAL);
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
     const view = await h.certificates.approve("SMST-1", "2026-03-05", FINANCE);
 
     expect(view.certificate.status).toBe("invoiced");
@@ -420,9 +468,10 @@ describe("SubCertificateService", () => {
   it("returns materials issued to the sub from WIP under the subcontract cost category", async () => {
     const h = await harness();
     await activeWithCertificate(h);
+    h.materialsIssued.value = Money.fromMajor("400");
     await h.certificates.update("SMST-1", { employerMaterialsCumulative: "260.12" }, ENGINEER);
-    await h.certificates.measure("SMST-1", ENGINEER);
-    await h.certificates.certify("SMST-1", TECHNICAL);
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
     await h.certificates.approve("SMST-1", "2026-03-05", FINANCE);
 
     const entry = (await h.ledger.list({ status: "posted" })).find((e) => e.id === "SMST-1-DED");
@@ -435,9 +484,9 @@ describe("SubCertificateService", () => {
   it("refuses the certify and the approve signatures to the person who prepared it", async () => {
     const h = await harness();
     await activeWithCertificate(h);
-    await h.certificates.measure("SMST-1", ENGINEER);
-    await expect(h.certificates.certify("SMST-1", ENGINEER)).rejects.toThrow(/نفس الشخص الذي أعدّه/);
-    await h.certificates.certify("SMST-1", TECHNICAL);
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await expect(h.certificates.certify("SMST-1", ENGINEER, "2026-03-03")).rejects.toThrow(/نفس الشخص الذي أعدّه/);
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
     await expect(h.certificates.approve("SMST-1", "2026-03-05", TECHNICAL)).rejects.toThrow(
       /اعتمد الحصر فنيًا/,
     );
@@ -446,8 +495,8 @@ describe("SubCertificateService", () => {
   it("refuses to approve for payment once the subcontractor's bank account has been removed", async () => {
     const h = await harness();
     await activeWithCertificate(h);
-    await h.certificates.measure("SMST-1", ENGINEER);
-    await h.certificates.certify("SMST-1", TECHNICAL);
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
     h.supplier.value = { id: SUPPLIER_ID, nameAr: "مقاول الحفر", taxNumber: "512", bankAccount: null };
     await expect(h.certificates.approve("SMST-1", "2026-03-05", FINANCE)).rejects.toThrow(
       InvalidSubCertificateError,
@@ -459,8 +508,8 @@ describe("subcontract retention", () => {
   it("releases against the balance actually held and posts Dr 2195 / Cr AP", async () => {
     const h = await harness();
     await activeWithCertificate(h);
-    await h.certificates.measure("SMST-1", ENGINEER);
-    await h.certificates.certify("SMST-1", TECHNICAL);
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
     await h.certificates.approve("SMST-1", "2026-03-05", FINANCE);
 
     const held = await h.subcontracts.retentionPosition(SUBCONTRACT_ID);
@@ -479,10 +528,244 @@ describe("subcontract retention", () => {
     expect(after.retention.released.toString()).toBe("5000.000000");
     expect(after.retention.balance.toString()).toBe("7150.000000");
 
-    const entry = (await h.ledger.list({ status: "posted" })).find((e) => e.id === `${SUBCONTRACT_ID}-RET-1`);
+    const entry = (await h.ledger.list({ status: "posted" })).find(
+      (e) => e.id === `PI-JE:${SUBCONTRACT_ID}-RET-1-PINV`,
+    );
     const byAccount = new Map(entry!.lines.map((l) => [l.accountId, l]));
     expect(byAccount.get("2195")!.debit.toString()).toBe("5000.000000");
     expect(byAccount.get("2100")!.credit.toString()).toBe("5000.000000");
     expect(entry!.lines.every((l) => l.projectId === PROJECT_ID)).toBe(true);
+  });
+});
+
+describe("sub certificate deduction bounds", () => {
+  it("refuses a block whose deductions drive the net payable below zero", async () => {
+    const h = await harness();
+    await activeWithCertificate(h);
+    await h.certificates.update("SMST-1", { penaltiesCumulative: "400000" }, ENGINEER);
+    const error = await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SubCertificateDeductionError);
+    expect((error as SubCertificateDeductionError).reasons.join("، ")).toContain("صافي المستحق");
+  });
+
+  it("caps the materials deduction at what the site store actually issued to this subcontract", async () => {
+    const h = await harness();
+    await activeWithCertificate(h);
+    h.materialsIssued.value = Money.fromMajor("1000");
+    await h.certificates.update("SMST-1", { employerMaterialsCumulative: "1500" }, ENGINEER);
+    const error = await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SubCertificateDeductionError);
+    expect((error as SubCertificateDeductionError).reasons.join("، ")).toContain("1000");
+
+    await h.certificates.update("SMST-1", { employerMaterialsCumulative: "900" }, ENGINEER);
+    expect((await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01")).certificate.status).toBe("measured");
+  });
+
+  it("refuses a penalty past the cap the package was let at, naming the ceiling", async () => {
+    const h = await harness();
+    await activeWithCertificate(h);
+    // 30,000 on 243,000 certified — well inside the net payable, and past the
+    // 10% ceiling the package was let at.
+    await h.certificates.update("SMST-1", { penaltiesCumulative: "30000" }, ENGINEER);
+    const error = await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SubCertificateDeductionError);
+    const reasons = (error as SubCertificateDeductionError).reasons.join("، ");
+    expect(reasons).toContain("غرامة التأخير");
+    expect(reasons).toContain("24300");
+  });
+});
+
+describe("back-to-back ceiling across two subcontracts", () => {
+  it("nets the other subcontracts' certified quantity out of the client's certified figure", async () => {
+    const h = await harness();
+    const lines = await activeWithCertificate(h, "2800");
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
+
+    // A SECOND package on the same client BOQ line B1.
+    await h.subcontracts.create(
+      {
+        id: "SUB-2",
+        contractId: CONTRACT_ID,
+        supplierId: SUPPLIER_ID,
+        titleAr: "عقد باطن ثانٍ على نفس البند",
+        signedDate: "2026-01-02",
+        startDate: "2026-01-05",
+        plannedEndDate: "2026-12-31",
+        retentionPercent: "5",
+        withholdingTaxPercent: "1",
+        lines: [{ clientBoqLineId: "B1", qty: "5000", unitRate: "130" }],
+      },
+      ADMIN,
+    );
+    await h.subcontracts.activate("SUB-2", "2026-01-05");
+    const secondLines = (await h.subcontracts.get("SUB-2")).subcontract.lines;
+    await h.certificates.create(
+      {
+        id: "SMST-2",
+        subcontractId: "SUB-2",
+        periodFrom: "2026-02-01",
+        periodTo: "2026-02-28",
+        workLines: [{ subcontractLineId: secondLines[0]!.id, thisPeriodQty: "2500" }],
+      },
+      ENGINEER,
+    );
+
+    // 2,800 + 2,500 = 5,300 against a client figure of 5,200: under the old
+    // per-subcontract rule both passed and the same 100 m³ was paid twice.
+    const error = await h.certificates.measure("SMST-2", ENGINEER, "2026-03-01").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SubCertificateQuantityError);
+    const reason = (error as SubCertificateQuantityError).reasons.join("، ");
+    expect(reason).toContain("معتمد لمقاولي باطن آخرين");
+    expect(reason).toContain("2400");
+
+    await h.certificates.update("SMST-2", {
+      workLines: [{ subcontractLineId: secondLines[0]!.id, thisPeriodQty: "2400" }],
+    }, ENGINEER);
+    expect((await h.certificates.measure("SMST-2", ENGINEER, "2026-03-01")).certificate.status).toBe("measured");
+    expect(lines).toHaveLength(2);
+  });
+});
+
+describe("sub certificate posting details", () => {
+  it("credits social insurance withheld from the sub to the liability 2197, never to insurance expense", async () => {
+    const h = await harness();
+    await draftSubcontract(h, {
+      withholdSocialInsurance: true,
+      deemedWagePercent: "100",
+      socialInsuranceRatePercent: "18.75",
+    });
+    await h.subcontracts.activate(SUBCONTRACT_ID, "2026-01-05");
+    h.ceiling.set("B1", Qty.fromMajor("5200"));
+    h.ceiling.set("B2", Qty.fromMajor("260"));
+    const lines = (await h.subcontracts.get(SUBCONTRACT_ID)).subcontract.lines;
+    await h.certificates.create(
+      {
+        id: "SMST-1",
+        subcontractId: SUBCONTRACT_ID,
+        periodFrom: "2026-02-01",
+        periodTo: "2026-02-28",
+        workLines: [{ subcontractLineId: lines[0]!.id, thisPeriodQty: "1000" }],
+      },
+      ENGINEER,
+    );
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
+    await h.certificates.approve("SMST-1", "2026-03-05", FINANCE);
+
+    const entry = (await h.ledger.list({ status: "posted" })).find((e) => e.id === "SMST-1-DED");
+    const byAccount = new Map(entry!.lines.map((l) => [l.accountId, l]));
+    // 140,000 × 100% × 18.75%
+    expect(byAccount.get("2197")!.credit.toString()).toBe("26250.000000");
+    expect(byAccount.has("5155")).toBe(false);
+    expect(byAccount.get("2197")!.costCategory ?? null).toBeNull();
+  });
+
+  it("puts the transitional-basis tax on the cost of the work instead of claiming it as input VAT", async () => {
+    const h = await harness();
+    await draftSubcontract(h, { vatBasis: "transitional" });
+    await h.subcontracts.activate(SUBCONTRACT_ID, "2026-01-05");
+    h.ceiling.set("B1", Qty.fromMajor("5200"));
+    const lines = (await h.subcontracts.get(SUBCONTRACT_ID)).subcontract.lines;
+    await h.certificates.create(
+      {
+        id: "SMST-1",
+        subcontractId: SUBCONTRACT_ID,
+        periodFrom: "2026-02-01",
+        periodTo: "2026-02-28",
+        workLines: [{ subcontractLineId: lines[0]!.id, thisPeriodQty: "1000" }],
+      },
+      ENGINEER,
+    );
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
+    const view = await h.certificates.approve("SMST-1", "2026-03-05", FINANCE);
+
+    const cmd = h.issued.at(-1)!;
+    // D-07: the 5.04% is not recoverable, so the invoice is raised at zero and
+    // the tax rides on the WIP line with the work it belongs to.
+    expect(cmd.taxRatePercent).toBe("0");
+    expect(cmd.amount.toString()).toBe(
+      Money.fromScaled(
+        view.certificate.computed.invoiceBase.scaled + view.certificate.computed.vat.scaled,
+      ).toString(),
+    );
+    expect(view.certificate.computed.vatEffectiveRatePercent).toBe("5.040000");
+  });
+});
+
+describe("sub retention release as an AP document", () => {
+  it("raises a purchase invoice due on the release event and flags an early release", async () => {
+    const h = await harness();
+    await activeWithCertificate(h);
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
+    await h.certificates.approve("SMST-1", "2026-03-05", FINANCE);
+    await h.subcontracts.complete(SUBCONTRACT_ID, "2026-04-30");
+
+    const after = await h.subcontracts.releaseRetention(
+      SUBCONTRACT_ID,
+      { amount: "5000", date: "2026-05-10", kind: "final" },
+      ADMIN,
+    );
+    const release = after.retention.releases.at(-1)!;
+    // 12 months of defects liability from the completion date.
+    expect(release.releaseEventDate).toBe("2027-04-30");
+    expect(release.earlyRelease).toBe(true);
+    expect(release.invoiceId).toBe(`${SUBCONTRACT_ID}-RET-1-PINV`);
+    expect(h.releaseInvoices.at(-1)!.dueDate).toBe("2027-04-30");
+    expect(h.releaseInvoices.at(-1)!.retentionAccountId).toBe("2195");
+
+    const provisional = await h.subcontracts.releaseRetention(
+      SUBCONTRACT_ID,
+      { amount: "1000", date: "2026-05-10", kind: "provisional" },
+      ADMIN,
+    );
+    expect(provisional.retention.releases.at(-1)!.earlyRelease).toBe(false);
+    expect(provisional.retention.completionDate).toBe("2026-04-30");
+  });
+});
+
+describe("sub certificate cancellation and the signature dates", () => {
+  it("stamps the canceller and the reason, never back-fills measuredBy, and keeps the serial monotonic", async () => {
+    const h = await harness();
+    await activeWithCertificate(h);
+    await expect(h.certificates.cancel("SMST-1", "   ", ENGINEER)).rejects.toThrow(InvalidSubCertificateError);
+
+    const cancelled = await h.certificates.cancel("SMST-1", "خطأ في الحصر", TECHNICAL);
+    expect(cancelled.certificate.status).toBe("cancelled");
+    expect(cancelled.certificate.cancelledBy).toBe("technical");
+    expect(cancelled.certificate.cancelReasonAr).toBe("خطأ في الحصر");
+    expect(cancelled.certificate.measuredBy).toBeNull();
+
+    const lines = (await h.subcontracts.get(SUBCONTRACT_ID)).subcontract.lines;
+    const next = await h.certificates.create(
+      {
+        id: "SMST-2",
+        subcontractId: SUBCONTRACT_ID,
+        periodFrom: "2026-03-01",
+        periodTo: "2026-03-31",
+        workLines: [{ subcontractLineId: lines[0]!.id, thisPeriodQty: "100" }],
+      },
+      ENGINEER,
+    );
+    expect(next.certificate.serial).toBe(2);
+  });
+
+  it("refuses a signature dated before the work it signs for or after today", async () => {
+    const h = await harness();
+    await activeWithCertificate(h);
+    await expect(h.certificates.measure("SMST-1", ENGINEER, "2026-02-01")).rejects.toThrow(
+      /يسبق تاريخ نهاية الفترة/,
+    );
+    await expect(h.certificates.measure("SMST-1", ENGINEER, "2026-12-31")).rejects.toThrow(/في المستقبل/);
+    await h.certificates.measure("SMST-1", ENGINEER, "2026-03-01");
+    await expect(h.certificates.certify("SMST-1", TECHNICAL, "2026-02-28")).rejects.toThrow(
+      /يسبق تاريخ الحصر/,
+    );
+    await h.certificates.certify("SMST-1", TECHNICAL, "2026-03-03");
+    await expect(h.certificates.approve("SMST-1", "2026-03-02", FINANCE)).rejects.toThrow(
+      /يسبق تاريخ الاعتماد الفني/,
+    );
   });
 });

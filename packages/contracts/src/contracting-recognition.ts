@@ -49,6 +49,10 @@ export const recognitionFiguresSchema = z.object({
   wipRelieved: moneyString,
   wipClosing: moneyString,
   wipByCategory: z.array(wipCategoryAmountSchema),
+  /** دفعات مقدمة من العملاء still outstanding — the 2160 credit balance at `periodEnd`. */
+  advanceOutstanding: moneyString,
+  /** محتجزات لدى العميل — the 1150 debit balance at `periodEnd`. */
+  retentionHeld: moneyString,
 });
 
 export const recognitionRunSchema = recognitionFiguresSchema.extend({
@@ -80,6 +84,10 @@ export const recognitionPreviewSchema = recognitionFiguresSchema.extend({
   due: z.boolean(),
   /** Why «تشغيل» is refused, in Arabic. Null when the run would go through. */
   blockedReasonAr: z.string().nullable(),
+  /** The same arithmetic re-run against today's ledger for a CLOSED period. Null otherwise. */
+  recomputed: recognitionFiguresSchema.nullable(),
+  /** True when `recomputed` disagrees with what the run posted. */
+  divergent: z.boolean(),
 });
 
 export const postRecognitionRunSchema = z.object({

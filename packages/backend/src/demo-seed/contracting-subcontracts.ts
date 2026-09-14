@@ -24,6 +24,8 @@ const SUPPLIER_ADVANCES_GL = "1350";
 
 const EXCAVATION = "SUB-DEMO-1";
 const PLASTERING = "SUB-DEMO-2";
+/** A SECOND package on the same client BOQ line — the two share one certified quantity. */
+const SHORING = "SUB-DEMO-3";
 
 const VIEW = "contracting.certificate.view";
 const SITE_ENGINEER = seedActor("USER-DEMO-SURVEYOR", ["contracting.certificate.prepare", VIEW]);
@@ -174,6 +176,8 @@ export async function seedContractingSubcontracts(app: App): Promise<void> {
         { code: "1", qty: "1500" },
         { code: "2", qty: "20" },
       ],
+      measuredAt: "2026-06-01",
+      certifiedAt: "2026-06-05",
       approvedAt: "2026-06-10",
     },
     {
@@ -185,6 +189,8 @@ export async function seedContractingSubcontracts(app: App): Promise<void> {
         { code: "1", qty: "1300" },
         { code: "2", qty: "60" },
       ],
+      measuredAt: "2026-07-01",
+      certifiedAt: "2026-07-05",
       approvedAt: "2026-07-10",
     },
   ] as const;
@@ -198,8 +204,12 @@ export async function seedContractingSubcontracts(app: App): Promise<void> {
       executionDate: spec.executionDate,
       workLines: spec.workLines.map((w) => ({ subcontractLineId: line(w.code), thisPeriodQty: w.qty })),
     });
-    await stepAs(app, SITE_ENGINEER(), "POST", `/contracting/subcontract-certificates/${spec.id}/measure`);
-    await stepAs(app, TECHNICAL_OFFICE(), "POST", `/contracting/subcontract-certificates/${spec.id}/certify`);
+    await stepAs(app, SITE_ENGINEER(), "POST", `/contracting/subcontract-certificates/${spec.id}/measure`, {
+      measuredAt: spec.measuredAt,
+    });
+    await stepAs(app, TECHNICAL_OFFICE(), "POST", `/contracting/subcontract-certificates/${spec.id}/certify`, {
+      certifiedAt: spec.certifiedAt,
+    });
     await stepAs(app, FINANCE(), "POST", `/contracting/subcontract-certificates/${spec.id}/approve`, {
       approvedAt: spec.approvedAt,
     });
@@ -216,6 +226,7 @@ export async function seedContractingSubcontracts(app: App): Promise<void> {
     date: "2026-08-27",
     warehouseId: "WH-SITE-TOWER",
     subcontractId: EXCAVATION,
+    boqLineId: clientLine("1"),
     notes: "مواد مصروفة لمقاول باطن الحفر — تُخصم من مستخلصه",
     lines: [{ itemId: CORE.items[2], qty: "8" }],
   });
@@ -277,4 +288,73 @@ export async function seedContractingSubcontracts(app: App): Promise<void> {
     lines: [{ clientBoqLineId: clientLine("5"), qty: "6000", unitRate: "38.00", estimatedUnitCost: "31" }],
   });
   await step(app, "POST", `/contracting/subcontracts/${PLASTERING}/activate`, { activatedAt: "2026-05-01" });
+
+  /**
+   * A SECOND package on the SAME client BOQ line as the excavation. The
+   * employer's certified quantity is shared: what this package may be
+   * certified for is the consultant's cumulative on line «١» LESS what
+   * SUB-DEMO-1 already holds — the leak two back-to-back subcontracts open
+   * when each is compared against the full client figure.
+   */
+  await step(app, "POST", "/contracting/subcontracts", {
+    id: SHORING,
+    contractId: TOWER_CONTRACT,
+    supplierId: SUBCONTRACTOR,
+    titleAr: "عقد باطن — سند جوانب الحفر",
+    kind: "works",
+    signedDate: "2026-04-10",
+    startDate: "2026-05-01",
+    plannedEndDate: "2026-08-31",
+    notes: "عقد باطن ثانٍ على نفس بند الحفر — الكمية المعتمدة للعميل مشتركة بين العقدين.",
+    retentionPercent: "5",
+    advancePercent: "0",
+    advanceRecoveryPercent: "0",
+    withholdingTaxPercent: "1",
+    withholdSocialInsurance: false,
+    paymentTermDays: 30,
+    defectsLiabilityMonths: 6,
+    lines: [{ clientBoqLineId: clientLine("1"), qty: "900", unitRate: "135.00", estimatedUnitCost: "112" }],
+  });
+  await step(app, "POST", `/contracting/subcontracts/${SHORING}/activate`, { activatedAt: "2026-05-01" });
+
+  const shoringLine = await subcontractLineIds(app, SHORING);
+  await stepAs(app, SITE_ENGINEER(), "POST", "/contracting/subcontract-certificates", {
+    id: "SMST-DEMO-4",
+    subcontractId: SHORING,
+    periodFrom: "2026-07-01",
+    periodTo: "2026-07-31",
+    executionDate: "2026-07-31",
+    workLines: [{ subcontractLineId: shoringLine.get("1"), thisPeriodQty: "500" }],
+  });
+  await stepAs(app, SITE_ENGINEER(), "POST", "/contracting/subcontract-certificates/SMST-DEMO-4/measure", {
+    measuredAt: "2026-08-01",
+  });
+  await stepAs(app, TECHNICAL_OFFICE(), "POST", "/contracting/subcontract-certificates/SMST-DEMO-4/certify", {
+    certifiedAt: "2026-08-04",
+  });
+  await stepAs(app, FINANCE(), "POST", "/contracting/subcontract-certificates/SMST-DEMO-4/approve", {
+    approvedAt: "2026-08-08",
+  });
+
+  /**
+   * المحتجزات على ساعتها. Completing the package starts the clock: the
+   * provisional tranche falls due at completion, the last one after the
+   * defects-liability period. The release is raised as a PURCHASE INVOICE
+   * debiting 2195, so AP and GL 2100 move together and a voucher can pay it —
+   * and the second release, struck months before its event, is what the
+   * «ضمان محتجز مفرج عنه قبل الميعاد» report is meant to catch.
+   */
+  await step(app, "POST", `/contracting/subcontracts/${SHORING}/complete`, { completedAt: "2026-08-31" });
+  await step(app, "POST", `/contracting/subcontracts/${SHORING}/release-retention`, {
+    amount: "1500.00",
+    date: "2026-09-05",
+    kind: "provisional",
+    notes: "إفراج عن شريحة المحتجزات المستحقة عند إنهاء الأعمال.",
+  });
+  await step(app, "POST", `/contracting/subcontracts/${SHORING}/release-retention`, {
+    amount: "800.00",
+    date: "2026-09-10",
+    kind: "final",
+    notes: "إفراج مبكر بقرار إدارة المشروع — قبل انتهاء فترة الضمان.",
+  });
 }

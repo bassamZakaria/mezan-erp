@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS contracting_recognition_run (
   wip_relieved                   INTEGER NOT NULL,
   wip_closing                    INTEGER NOT NULL,
   wip_by_category                TEXT NOT NULL DEFAULT '[]',
+  advance_outstanding            INTEGER NOT NULL DEFAULT 0,
+  retention_held                 INTEGER NOT NULL DEFAULT 0,
   journal_entry_id               TEXT,
   reversal_journal_entry_id      TEXT,
   posted_at                      TEXT NOT NULL,
@@ -98,6 +100,8 @@ interface RunRow {
   wip_relieved: number;
   wip_closing: number;
   wip_by_category: string;
+  advance_outstanding: number;
+  retention_held: number;
   journal_entry_id: string | null;
   reversal_journal_entry_id: string | null;
   posted_at: string;
@@ -150,6 +154,8 @@ function toRun(row: RunRow): RevenueRecognitionRun {
     wipRelieved: Money.fromScaled(row.wip_relieved),
     wipClosing: Money.fromScaled(row.wip_closing),
     wipByCategory: toWipByCategory(row.wip_by_category),
+    advanceOutstanding: Money.fromScaled(row.advance_outstanding ?? 0),
+    retentionHeld: Money.fromScaled(row.retention_held ?? 0),
     journalEntryId: row.journal_entry_id,
     reversalJournalEntryId: row.reversal_journal_entry_id,
     postedAt: row.posted_at,
@@ -174,6 +180,7 @@ class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository 
         billed_in_period, billed_to_date, contract_asset, contract_liability, contract_position_movement,
         foreseeable_loss, provision_required, provision_balance, provision_movement,
         wip_opening, wip_incurred, wip_relieved, wip_closing, wip_by_category,
+        advance_outstanding, retention_held,
         journal_entry_id, reversal_journal_entry_id, posted_at, posted_by, reversed_at, reversed_by
       ) VALUES (
         @id, @doc_no, @contract_id, @contract_doc_no, @project_id, @period_end, @status,
@@ -182,6 +189,7 @@ class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository 
         @billed_in_period, @billed_to_date, @contract_asset, @contract_liability, @contract_position_movement,
         @foreseeable_loss, @provision_required, @provision_balance, @provision_movement,
         @wip_opening, @wip_incurred, @wip_relieved, @wip_closing, @wip_by_category,
+        @advance_outstanding, @retention_held,
         @journal_entry_id, @reversal_journal_entry_id, @posted_at, @posted_by, @reversed_at, @reversed_by
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -254,6 +262,8 @@ class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository 
       wip_by_category: JSON.stringify(
         run.wipByCategory.map((b) => ({ costCategory: b.costCategory, amount: b.amount.toScaledNumber() })),
       ),
+      advance_outstanding: run.advanceOutstanding.toScaledNumber(),
+      retention_held: run.retentionHeld.toScaledNumber(),
       journal_entry_id: run.journalEntryId,
       reversal_journal_entry_id: run.reversalJournalEntryId,
       posted_at: run.postedAt,
@@ -279,6 +289,14 @@ export function createSqliteContractingRecognitionStore(
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
+  const runColumns = new Set(
+    (sqlite.prepare(`PRAGMA table_info(contracting_recognition_run)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const column of ["advance_outstanding", "retention_held"]) {
+    if (!runColumns.has(column)) {
+      sqlite.exec(`ALTER TABLE contracting_recognition_run ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
+    }
+  }
   const repo = new SqliteRecognitionRunRepository(sqlite);
   return Object.assign(repo, {
     close: () => {

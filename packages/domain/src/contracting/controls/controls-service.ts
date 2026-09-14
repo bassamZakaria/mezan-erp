@@ -2,6 +2,8 @@ import { Money, Qty } from "../../money/index.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
 import type { NextNumberService } from "../../numbering/index.js";
 import type { JournalPostingDeps } from "../../gl/index.js";
+import type { AuditSink } from "../../audit/index.js";
+import { recordTransition } from "../audit.js";
 import type { ProjectRepository } from "../../projects/project.js";
 import { approvalDates, contractedQtyOf } from "../contracts/index.js";
 import type {
@@ -19,21 +21,27 @@ import type {
   UnreceivedRow,
 } from "../site/index.js";
 import { getBoqUnitLabel } from "../contracts/boq-unit.js";
+import { contractValueAsOf } from "../recognition/recognition-math.js";
+import type { SubcontractView } from "../subcontracts/subcontract-service.js";
 import {
   CONTRACTING_EXCEPTION_KEYS,
   daysBetweenDates,
   findBoqOverruns,
   findConsumptionVariances,
   findEarlyRetentionReleases,
+  findCostOverrunsVsEstimate,
   findEquipmentWithoutCertificate,
   findLateVariationApprovals,
   findUnreceivedIssues,
   getContractingExceptionDefinition,
+  monthsBetweenDates,
   type BoqOverrunCandidate,
   type BoqOverrunRow,
   type ConsumptionVarianceCandidate,
   type ConsumptionVarianceRow,
   type ContractingExceptionKey,
+  type CostOverrunCandidate,
+  type CostOverrunRow,
   type EarlyReleaseCandidate,
   type EarlyReleaseRow,
   type EquipmentExceptionCandidate,
@@ -91,6 +99,8 @@ const CERTIFIED_STATUSES = new Set(["certified", "approved_for_payment", "invoic
 export const DEFAULT_UNRECEIVED_OLDER_THAN_DAYS = 7;
 export const DEFAULT_CONSUMPTION_VARIANCE_PERCENT = "10";
 export const DEFAULT_EQUIPMENT_OLDER_THAN_DAYS = 30;
+export const DEFAULT_COST_OVERRUN_PERCENT = "10";
+export const DEFAULT_ESTIMATE_STALENESS_MONTHS = 6;
 
 /** The site module's read models, as the control reports see them (slice 4A owns them). */
 export interface SiteReadPort {
@@ -117,6 +127,8 @@ export interface RetentionReleaseInvoiceCommand {
   readonly itemId: string;
   readonly lineDescriptionAr: string;
   readonly memoAr: string;
+  /** WHO released the retention — the generated invoice's audit row named `system`. */
+  readonly actor?: string | null;
 }
 
 export interface RetentionReleaseInvoiceResult {
@@ -150,6 +162,36 @@ export interface RetentionReleaseInvoicingPort {
   status(invoiceId: string): Promise<RetentionReleaseInvoiceStatus | null>;
 }
 
+/**
+ * One subcontract's retention row on the calendar. The event is the sub's own
+ * clock — completion for the provisional tranche, completion + فترة الضمان for
+ * the final one — so the payable side ages from when it becomes claimable
+ * rather than from the certificate that withheld it.
+ */
+function subcontractRetentionClock(view: SubcontractView, asOfDate: string): RetentionPayableSubcontractRow {
+  const s = view.subcontract;
+  const releaseEventDate =
+    view.retention.finalReleaseEventDate ?? view.retention.provisionalReleaseEventDate;
+  const daysToEvent = releaseEventDate === null ? null : daysBetweenDates(asOfDate, releaseEventDate);
+  const due = releaseEventDate !== null && releaseEventDate <= asOfDate;
+  return {
+    subcontractId: s.id,
+    subcontractDocNo: s.docNo,
+    titleAr: s.titleAr,
+    supplierId: s.supplierId,
+    status: s.status,
+    held: view.retention.held,
+    released: view.retention.released,
+    balance: view.retention.balance,
+    completionDate: view.retention.completionDate,
+    defectsLiabilityMonths: view.retention.defectsLiabilityMonths,
+    releaseEventDate,
+    daysToEvent,
+    due,
+    ageDays: due && daysToEvent !== null ? -daysToEvent : null,
+  };
+}
+
 export interface ControlsServiceDeps {
   readonly releases: RetentionReleaseStore;
   readonly contracts: WorksContractStore;
@@ -162,9 +204,35 @@ export interface ControlsServiceDeps {
   readonly site?: SiteReadPort;
   readonly equipmentLogs?: Pick<EquipmentLogRepository, "list">;
   readonly projects?: Pick<ProjectRepository, "list">;
+  /**
+   * عقود الباطن. Absent, the retention reports show the receivable side only —
+   * which is honest, not silently half-right.
+   */
+  readonly subcontracts?: { list(): Promise<readonly SubcontractView[]> };
+  /**
+   * التكلفة حتى تاريخه for a project, on the recognition run's OWN basis —
+   * the same `costToDateOf` the run posts through, so report 7 and the run can
+   * never disagree about what a contract has cost. Absent, only the staleness
+   * half of report 7 can fire.
+   */
+  readonly projectCostToDate?: (projectId: string, toDate: string) => Promise<Money>;
   /** The service item the generated release invoice names. */
   readonly releaseItemId?: string;
+  /** سجل العمليات الحساسة — the release moves money, so it is recorded. */
+  readonly audit?: AuditSink;
   readonly today?: () => string;
+  /**
+   * Reads the tenant's `contracting.singleOperatorMode`. False — the default —
+   * waives nothing, so the creator of a release may never be the one who
+   * releases it. The same predicate the certificate uses.
+   */
+  readonly segregationWaived?: (actor: RetentionReleaseActor) => Promise<boolean>;
+}
+
+/** WHO is releasing. `wildcardAdmin` is what «وضع المشغّل الواحد» waives, and only that. */
+export interface RetentionReleaseActor {
+  readonly userId: string;
+  readonly wildcardAdmin: boolean;
 }
 
 export interface ExceptionReportParams {
@@ -172,6 +240,8 @@ export interface ExceptionReportParams {
   readonly asOfDate?: string | null;
   readonly olderThanDays?: number | null;
   readonly thresholdPercent?: string | null;
+  /** How many months an unrevised التكلفة الكلية المقدرة may stand before it is an exception. */
+  readonly stalenessMonths?: number | null;
 }
 
 export interface ExceptionReport<TRow> {
@@ -182,6 +252,7 @@ export interface ExceptionReport<TRow> {
   readonly projectId: string | null;
   readonly olderThanDays: number | null;
   readonly thresholdPercent: string | null;
+  readonly stalenessMonths: number | null;
   readonly rows: readonly TRow[];
 }
 
@@ -225,6 +296,27 @@ export interface RetentionPayableRow {
   readonly held: Money;
   readonly released: Money;
   readonly balance: Money;
+  /** The subcontracts behind the project's balance, each on its own release clock. */
+  readonly subcontracts: readonly RetentionPayableSubcontractRow[];
+}
+
+/** One subcontract's retention and the event that releases it (design §06). */
+export interface RetentionPayableSubcontractRow {
+  readonly subcontractId: string;
+  readonly subcontractDocNo: string;
+  readonly titleAr: string;
+  readonly supplierId: string;
+  readonly status: string;
+  readonly held: Money;
+  readonly released: Money;
+  readonly balance: Money;
+  readonly completionDate: string | null;
+  readonly defectsLiabilityMonths: number;
+  readonly releaseEventDate: string | null;
+  readonly daysToEvent: number | null;
+  readonly due: boolean;
+  /** Days since the event fell due; null while it is still ahead. */
+  readonly ageDays: number | null;
 }
 
 export interface RetentionCalendar {
@@ -514,6 +606,8 @@ export class ControlsService {
       .map((r) => ({
         releaseId: r.id,
         docNo: r.docNo,
+        party: "customer" as const,
+        counterpartyNameAr: null,
         contractId: r.contractId,
         contractDocNo: contracts.get(r.contractId)?.docNo ?? r.contractDocNo,
         projectId: r.projectId,
@@ -523,7 +617,92 @@ export class ControlsService {
         releaseEventDate: r.releaseEventDate,
         status: r.status,
       }));
+    candidates.push(...(await this.subcontractReleaseCandidates(asOfDate, params.projectId ?? null)));
     return this.report("early-retention-release", params, asOfDate, findEarlyRetentionReleases(candidates));
+  }
+
+  /** The payable side: a release to a subcontractor before its own event fell due. */
+  private async subcontractReleaseCandidates(
+    asOfDate: string,
+    projectId: string | null,
+  ): Promise<EarlyReleaseCandidate[]> {
+    if (!this.deps.subcontracts) return [];
+    const rows: EarlyReleaseCandidate[] = [];
+    for (const view of await this.deps.subcontracts.list()) {
+      const subcontract = view.subcontract;
+      if (projectId !== null && subcontract.projectId !== projectId) continue;
+      for (const release of subcontract.retentionReleases) {
+        if (release.date > asOfDate) continue;
+        rows.push({
+          releaseId: release.id,
+          docNo: release.invoiceDocNo ?? subcontract.docNo,
+          party: "subcontractor",
+          counterpartyNameAr: view.supplierNameAr,
+          contractId: subcontract.contractId,
+          contractDocNo: subcontract.docNo,
+          projectId: subcontract.projectId,
+          kind: release.kind,
+          date: release.date,
+          amount: release.amount,
+          releaseEventDate: release.releaseEventDate,
+          status: "released",
+        });
+      }
+    }
+    return rows;
+  }
+
+  // ----- 7. تجاوز التكلفة للتقدير ----------------------------------------------
+
+  /**
+   * The estimate is the denominator of every percentage of completion the run
+   * posts. This is the only report that questions it: cost that has run ahead
+   * of what the certified work has earned, and an estimate nobody has revised
+   * for months. Both mean the same thing — the forecast no longer describes
+   * the contract, so every revenue figure derived from it is stale too.
+   */
+  async costOverrunsVsEstimate(params: ExceptionReportParams = {}): Promise<ExceptionReport<CostOverrunRow>> {
+    const asOfDate = params.asOfDate ?? this.today();
+    const thresholdPercent = params.thresholdPercent ?? DEFAULT_COST_OVERRUN_PERCENT;
+    const stalenessMonths = params.stalenessMonths ?? DEFAULT_ESTIMATE_STALENESS_MONTHS;
+    const candidates: CostOverrunCandidate[] = [];
+    for (const ctx of await this.contexts(params.projectId)) {
+      if (ctx.contract.status !== "active") continue;
+      // A contract with no التكلفة الكلية المقدرة at all has nothing to be
+      // measured against, and the recognition run already refuses it by name —
+      // firing here too would bury the contracts whose estimate IS wrong under
+      // the ones that never had one.
+      const estimatedTotalCost = ctx.contract.estimatedTotalCost;
+      if (estimatedTotalCost === null || estimatedTotalCost.scaled <= 0n) continue;
+      const certificate = ControlsService.certificateAt(ctx, asOfDate);
+      const revisions = [...ctx.contract.budgetRevisions].sort((a, b) => a.date.localeCompare(b.date));
+      const lastEstimateRevisionDate =
+        revisions[revisions.length - 1]?.date ?? ctx.contract.activatedAt ?? ctx.contract.signedDate ?? null;
+      candidates.push({
+        contractId: ctx.contract.id,
+        contractDocNo: ctx.contract.docNo,
+        contractTitleAr: ctx.contract.titleAr,
+        projectId: ctx.contract.projectId,
+        status: ctx.contract.status,
+        costToDate: (await this.deps.projectCostToDate?.(ctx.contract.projectId, asOfDate)) ?? Money.zero(),
+        estimatedTotalCost,
+        certifiedGrossWorks: certificate?.computed.grossWorks ?? Money.zero(),
+        contractValue: contractValueAsOf(ctx.boqLines, ctx.orders, asOfDate),
+        lastEstimateRevisionDate,
+        monthsSinceEstimateRevision:
+          lastEstimateRevisionDate === null ? null : monthsBetweenDates(lastEstimateRevisionDate, asOfDate),
+      });
+    }
+    return {
+      ...this.report(
+        "cost-overrun-vs-estimate",
+        params,
+        asOfDate,
+        findCostOverrunsVsEstimate(candidates, thresholdPercent, stalenessMonths),
+      ),
+      thresholdPercent,
+      stalenessMonths,
+    };
   }
 
   async summary(asOfDate?: string | null): Promise<ExceptionSummary> {
@@ -536,6 +715,7 @@ export class ControlsService {
       this.equipmentWithoutCertificate(params),
       this.lateVariationApprovals(params),
       this.earlyRetentionReleases(params),
+      this.costOverrunsVsEstimate(params),
     ]);
     const reports = CONTRACTING_EXCEPTION_KEYS.map((key, index) => ({
       key,
@@ -560,6 +740,7 @@ export class ControlsService {
       projectId: params.projectId ?? null,
       olderThanDays: null,
       thresholdPercent: null,
+      stalenessMonths: null,
       rows,
     };
   }
@@ -624,7 +805,7 @@ export class ControlsService {
         }),
       });
     }
-    return { asOfDate: on, receivable, payable: await this.payableRows(contracts, names) };
+    return { asOfDate: on, receivable, payable: await this.payableRows(contracts, names, on) };
   }
 
   /**
@@ -635,6 +816,7 @@ export class ControlsService {
   private async payableRows(
     contracts: readonly WorksContract[],
     names: ReadonlyMap<string, string>,
+    asOfDate: string,
   ): Promise<RetentionPayableRow[]> {
     const accountId = await this.routed("contracting.retention_payable", "2195");
     const lines = (await this.deps.gl.ledger.listLines?.({ accountIds: [accountId] })) ?? [];
@@ -646,6 +828,7 @@ export class ControlsService {
       bucket.credits += line.credit.scaled;
       byProject.set(line.projectId, bucket);
     }
+    const subcontracts = (await this.deps.subcontracts?.list()) ?? [];
     const rows: RetentionPayableRow[] = [];
     for (const [projectId, bucket] of byProject) {
       const position = retentionPayablePositionOf(Money.fromScaled(bucket.debits), Money.fromScaled(bucket.credits));
@@ -658,6 +841,10 @@ export class ControlsService {
         held: position.held,
         released: position.released,
         balance: position.balance,
+        subcontracts: subcontracts
+          .filter((v) => v.subcontract.projectId === projectId)
+          .filter((v) => v.retention.held.scaled !== 0n || v.retention.released.scaled !== 0n)
+          .map((v) => subcontractRetentionClock(v, asOfDate)),
       });
     }
     return rows;
@@ -756,6 +943,7 @@ export class ControlsService {
         invoiceDocNo: null,
         releasedAt: null,
         releasedBy: null,
+        approvedBy: null,
         cancelledAt: null,
         createdAt: this.today(),
         createdBy: cmd.createdBy ?? null,
@@ -806,7 +994,11 @@ export class ControlsService {
    * and its due date is the release event, which is the whole point of the
    * document (design §06).
    */
-  async release(idOrDocNo: string, actor: { userId: string }): Promise<RetentionReleaseView> {
+  async release(
+    idOrDocNo: string,
+    actor: RetentionReleaseActor,
+    options: { approvedBy?: string | null } = {},
+  ): Promise<RetentionReleaseView> {
     const current = await this.require(idOrDocNo);
     if (current.status !== "draft") throw new InvalidRetentionReleaseTransitionError(current.status, "released");
     const invoicing = this.deps.invoicing;
@@ -820,6 +1012,34 @@ export class ControlsService {
     // balance may have moved, since the draft was written.
     const releaseEventDate = releaseEventDateOf(current.kind, contract);
     await this.assertWithinCap(contract, current.kind, current.amount);
+
+    // فصل المهام. Enforced on the USER id, not on a role: an admin wildcard
+    // grants every permission and would otherwise walk straight through the
+    // only check standing between one person and the retention account.
+    const waived = this.deps.segregationWaived ? await this.deps.segregationWaived(actor) : false;
+    if (!waived && current.createdBy !== null && current.createdBy === actor.userId) {
+      throw new InvalidRetentionReleaseError([
+        "لا يمكن لمن أنشأ مستند الإفراج أن يفرج عنه — يلزم مستخدم آخر.",
+      ]);
+    }
+
+    // الإفراج المبكر. Money let go before the event that entitles anyone to it
+    // carries a named second approval of its own, and the approver may be
+    // neither the author of the document nor the person releasing it.
+    const early = isEarlyRelease(current.date, releaseEventDate);
+    const approvedBy = options.approvedBy?.trim() ? options.approvedBy.trim() : null;
+    if (early && !waived) {
+      if (approvedBy === null) {
+        throw new InvalidRetentionReleaseError([
+          `الإفراج قبل ميعاد الاستحقاق (${releaseEventDate ?? "غير محدد"}) يحتاج اعتماد مستخدم ثانٍ.`,
+        ]);
+      }
+      if (approvedBy === current.createdBy || approvedBy === actor.userId) {
+        throw new InvalidRetentionReleaseError([
+          "معتمد الإفراج المبكر يجب أن يكون مستخدمًا غير مُنشئ المستند وغير المُفرِج.",
+        ]);
+      }
+    }
     const retentionAccountId = await this.routed("contracting.retention_receivable", "1150");
 
     const saved = await this.deps.releases.transaction(async () => {
@@ -836,19 +1056,41 @@ export class ControlsService {
         itemId: this.deps.releaseItemId ?? RETENTION_RELEASE_ITEM_ID,
         lineDescriptionAr: `إفراج عن محتجزات — ${contract.docNo}`,
         memoAr: `${current.docNo} — إفراج عن المحتجزات الضمانية، ${contract.titleAr}.`,
+        actor: actor.userId,
       });
       const next: RetentionRelease = {
         ...current,
         status: "released",
         releaseEventDate,
-        earlyRelease: isEarlyRelease(current.date, releaseEventDate),
+        earlyRelease: early,
         invoiceId: invoice.invoiceId,
         invoiceDocNo: invoice.invoiceDocNo,
         releasedAt: this.today(),
         releasedBy: actor.userId,
+        approvedBy: early ? approvedBy : null,
       };
       await this.deps.releases.save(next);
       return next;
+    });
+    await recordTransition(this.deps.audit, {
+      entityType: "RETENTION_RELEASE",
+      entityId: saved.id,
+      action: "RELEASE",
+      actor: actor.userId,
+      severity: "WARNING",
+      details: {
+        docNo: saved.docNo,
+        contractId: saved.contractId,
+        projectId: saved.projectId,
+        amount: saved.amount.toString(),
+        date: saved.date,
+        kind: saved.kind,
+        releaseEventDate: saved.releaseEventDate,
+        earlyRelease: saved.earlyRelease,
+        createdBy: saved.createdBy,
+        approvedBy: saved.approvedBy,
+        invoiceDocNo: saved.invoiceDocNo,
+      },
     });
     return this.view(saved);
   }

@@ -1,9 +1,17 @@
 import { Money, Qty } from "../../money/index.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
 import type { NextNumberService } from "../../numbering/index.js";
-import { postJournalEntry, type JournalPostingDeps } from "../../gl/index.js";
+import type { AuditSink } from "../../audit/index.js";
+import { recordTransition } from "../audit.js";
 import type { BoqLine, WorksContract, WorksContractStore } from "../contracts/contract.js";
-import { computeSubcontractClientValue, computeSubcontractValue, lineMarginVsClient } from "./amounts.js";
+import {
+  computeSubcontractClientValue,
+  computeSubcontractValue,
+  isEarlySubcontractRelease,
+  lineMarginVsClient,
+  remainingCommitmentOf,
+  subcontractReleaseEventDate,
+} from "./amounts.js";
 import {
   InvalidSubcontractError,
   InvalidSubcontractTransitionError,
@@ -11,10 +19,15 @@ import {
   SubcontractRetentionError,
   SubcontractorNotPayableError,
 } from "./errors.js";
-import type { SubcontractSupplierPort, SubcontractVoucherPort } from "./ports.js";
+import type {
+  SubcontractRetentionInvoicingPort,
+  SubcontractSupplierPort,
+  SubcontractVoucherPort,
+} from "./ports.js";
 import { isLiveSubCertificate, type SubcontractStore } from "./sub-certificate.js";
 import {
   canTransitionSubcontract,
+  getSubcontractRetentionReleaseKindLabel,
   getSubcontractStatusLabel,
   type Subcontract,
   type SubcontractAdvancePayment,
@@ -22,6 +35,7 @@ import {
   type SubcontractLine,
   type SubcontractListFilter,
   type SubcontractRetentionRelease,
+  type SubcontractRetentionReleaseKind,
   type SubcontractStatus,
 } from "./subcontract.js";
 
@@ -41,9 +55,12 @@ const SUBCONTRACT_SEQUENCE = "SUBCONTRACT";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PERCENT = /^\d{1,3}(\.\d{1,6})?$/;
 
-/** The account a supplier advance sits in until a certificate recovers it — سلف الموردين. */
-export const SUPPLIER_ADVANCES_ACCOUNT_ID = "1350";
-/** The routing key the tenant may repoint that at. Falls back to the account above. */
+/**
+ * The routing slot a supplier advance sits in until a certificate recovers it —
+ * سلف مقاولي الباطن, registered in `account-routing.ts` with its shipped default.
+ * There is deliberately no literal fallback here: an account id spelled in a
+ * poster is the one a tenant cannot repoint.
+ */
 export const SUPPLIER_ADVANCES_ROUTING_KEY = "contracting.subcontractor_advances";
 
 export interface SubcontractActor {
@@ -55,12 +72,13 @@ export interface SubcontractServiceDeps {
   readonly store: SubcontractStore;
   readonly contracts: WorksContractStore;
   readonly numbering: NextNumberService;
-  readonly gl: JournalPostingDeps;
   readonly routing?: Pick<AccountRoutingRepository, "get">;
   readonly suppliers?: SubcontractSupplierPort;
   readonly vouchers?: SubcontractVoucherPort;
-  /** ذمم موردين تجاريين — the control account the purchase chain credits (2100). */
-  readonly payableAccountId?: string;
+  /** The purchase-invoice engine the retention release is raised through. */
+  readonly retentionInvoicing?: SubcontractRetentionInvoicingPort;
+  /** سجل العمليات الحساسة — the retention release is a payment decision, so it is recorded. */
+  readonly audit?: AuditSink;
   readonly today?: () => string;
 }
 
@@ -116,11 +134,18 @@ export interface UpdateSubcontractCommand extends SubcontractTermsInput {
   readonly notes?: string | null;
 }
 
-/** المحتجزات — held, released and what is still releasable, all derived. */
+/** المحتجزات — held, released, what is still releasable and when it falls due. */
 export interface SubcontractRetentionPosition {
   readonly held: Money;
   readonly released: Money;
   readonly balance: Money;
+  /** completionDate — the clock the release event hangs on. Null until the package is completed. */
+  readonly completionDate: string | null;
+  readonly defectsLiabilityMonths: number;
+  /** completionDate, for the tranche released when the sub finishes. */
+  readonly provisionalReleaseEventDate: string | null;
+  /** completionDate + فترة الضمان, for the last tranche. */
+  readonly finalReleaseEventDate: string | null;
   readonly releases: readonly SubcontractRetentionRelease[];
 }
 
@@ -138,6 +163,10 @@ export interface SubcontractView {
   readonly advanceRecovered: Money;
   readonly advanceOutstanding: Money;
   readonly retention: SubcontractRetentionPosition;
+  /** Σ of the latest POSTED certificate's cumulative net certified value. */
+  readonly certifiedToDate: Money;
+  /** value − certifiedToDate, floored at zero — the committed cost still ahead. */
+  readonly remainingCommitment: Money;
   readonly certificateCount: number;
   /** Why the subcontract cannot be activated or certified yet, in Arabic. Empty when it can. */
   readonly payabilityRefusals: readonly string[];
@@ -184,9 +213,13 @@ export class SubcontractService {
     return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
   }
 
-  private async routed(key: string, fallback: string): Promise<string> {
+  private async routed(key: string): Promise<string> {
     const routing = this.deps.routing ? await this.deps.routing.get() : null;
-    return routedAccountId(routing, key) ?? fallback;
+    const accountId = routedAccountId(routing, key);
+    if (accountId === null) {
+      throw new InvalidSubcontractError([`لم يُحدَّد حساب لتوجيه "${key}" في جدول توجيه الحسابات.`]);
+    }
+    return accountId;
   }
 
   // ----- reads -------------------------------------------------------------
@@ -231,6 +264,8 @@ export class SubcontractService {
       posted.map((c) => c.computed.deductions.find((d) => d.key === "retention")?.thisCertificate ?? Money.zero()),
     );
     const released = Money.sum(subcontract.retentionReleases.map((r) => r.amount));
+    const lastPosted = posted.length === 0 ? null : posted[posted.length - 1];
+    const certifiedToDate = lastPosted?.computed.netCertified ?? Money.zero();
     return {
       subcontract,
       contractDocNo: contract?.docNo ?? subcontract.contractId,
@@ -242,10 +277,16 @@ export class SubcontractService {
       advancePaid,
       advanceRecovered,
       advanceOutstanding: Money.fromScaled(advancePaid.scaled - advanceRecovered.scaled),
+      certifiedToDate,
+      remainingCommitment: remainingCommitmentOf(value, certifiedToDate),
       retention: {
         held,
         released,
         balance: Money.fromScaled(held.scaled - released.scaled),
+        completionDate: subcontract.completedAt,
+        defectsLiabilityMonths: subcontract.defectsLiabilityMonths,
+        provisionalReleaseEventDate: subcontractReleaseEventDate("provisional", subcontract),
+        finalReleaseEventDate: subcontractReleaseEventDate("final", subcontract),
         releases: subcontract.retentionReleases,
       },
       certificateCount: certificates.filter(isLiveSubCertificate).length,
@@ -563,7 +604,7 @@ export class SubcontractService {
     }
     const voucher = await this.deps.vouchers.find(voucherId);
     if (!voucher) throw new InvalidSubcontractError([`السند "${voucherId}" غير موجود`]);
-    const advanceAccount = await this.routed(SUPPLIER_ADVANCES_ROUTING_KEY, SUPPLIER_ADVANCES_ACCOUNT_ID);
+    const advanceAccount = await this.routed(SUPPLIER_ADVANCES_ROUTING_KEY);
     const reasons: string[] = [];
     if (voucher.status !== "confirmed") reasons.push(`السند "${voucher.docNo ?? voucherId}" غير مؤكد`);
     if (voucher.direction !== "payment") reasons.push(`السند "${voucher.docNo ?? voucherId}" ليس سند صرف`);
@@ -590,14 +631,25 @@ export class SubcontractService {
   }
 
   /**
-   * الإفراج عن المحتجزات. Dr 2195 / Cr AP: the retention stops being a
-   * liability held against the work and becomes a payable due now. Refused
-   * beyond the balance actually held — the whole reason 2195 exists is that a
-   * retention hidden inside AP drifts unchallenged.
+   * الإفراج عن المحتجزات — raised as an AP DOCUMENT, never as a bare journal.
+   *
+   * INVARIANT: the release is a purchase invoice whose single expense line
+   * debits the retention-payable account, so its OWN posting is Dr 2195 / Cr AP
+   * and the payables sub-ledger moves by exactly what GL 2100 moved. A bare
+   * Dr 2195 / Cr 2100 journal left the control account high with nothing in the
+   * sub-ledger for a voucher to pay.
+   *
+   * The due date is the RELEASE EVENT, not the invoice date plus payment terms:
+   * retention ages from when it becomes claimable (design §06).
    */
   async releaseRetention(
     idOrDocNo: string,
-    input: { readonly amount: string; readonly date: string; readonly notes?: string | null },
+    input: {
+      readonly amount: string;
+      readonly date: string;
+      readonly kind?: SubcontractRetentionReleaseKind;
+      readonly notes?: string | null;
+    },
     actor: SubcontractActor,
   ): Promise<SubcontractView> {
     const current = await this.require(idOrDocNo);
@@ -606,6 +658,11 @@ export class SubcontractService {
     const amount = moneyOf(reasons, "قيمة الإفراج", input.amount);
     if (amount.scaled <= 0n) reasons.push("قيمة الإفراج يجب أن تكون موجبة");
     if (reasons.length > 0) throw new InvalidSubcontractError(reasons);
+    const invoicing = this.deps.retentionInvoicing;
+    if (!invoicing) {
+      throw new InvalidSubcontractError(["الإفراج عن محتجزات مقاولي الباطن غير مُفعّل على هذا الخادم."]);
+    }
+    await this.assertPayable(current, "الإفراج عن محتجزات مقاول الباطن");
 
     const position = (await this.view(current)).retention;
     if (amount.scaled > position.balance.scaled) {
@@ -614,52 +671,59 @@ export class SubcontractService {
       );
     }
 
-    const [retentionAccount, payableAccount] = await Promise.all([
-      this.routed("contracting.retention_payable", "2195"),
-      Promise.resolve(this.deps.payableAccountId ?? "2100"),
-    ]);
-    const entryId = `${current.id}-RET-${current.retentionReleases.length + 1}`;
+    const kind: SubcontractRetentionReleaseKind = input.kind ?? "final";
+    const releaseEventDate = subcontractReleaseEventDate(kind, current);
+    const retentionAccount = await this.routed("contracting.retention_payable");
+    const releaseId = `${current.id}-RET-${current.retentionReleases.length + 1}`;
 
     const saved = await this.deps.store.transaction(async () => {
-      await postJournalEntry(
-        {
-          id: entryId,
-          date: input.date,
-          memo: `الإفراج عن محتجزات مقاول الباطن ${current.docNo}`,
-          source: "system",
-          sourceDocType: SUBCONTRACT_DOC_TYPE,
-          sourceDocId: current.id,
-          sourceDocNumber: current.docNo,
-          lines: [
-            {
-              accountId: retentionAccount,
-              debit: amount,
-              credit: Money.zero(),
-              memo: "المحتجزات الضمانية المستحقة لمقاولي الباطن",
-              projectId: current.projectId,
-            },
-            {
-              accountId: payableAccount,
-              debit: Money.zero(),
-              credit: amount,
-              memo: `مستحق لمقاول الباطن — الإفراج عن المحتجزات ${current.docNo}`,
-              projectId: current.projectId,
-            },
-          ],
-        },
-        this.deps.gl,
-      );
+      const invoice = await invoicing.issue({
+        releaseId,
+        subcontractId: current.id,
+        subcontractDocNo: current.docNo,
+        supplierId: current.supplierId,
+        projectId: current.projectId,
+        date: input.date,
+        dueDate: releaseEventDate ?? input.date,
+        amount,
+        retentionAccountId: retentionAccount,
+        lineDescriptionAr: `الإفراج عن محتجزات مقاول الباطن ${current.docNo}`,
+        memoAr: `الإفراج عن محتجزات مقاول الباطن ${current.docNo} — ${getSubcontractRetentionReleaseKindLabel(kind)}.`,
+        actor: actor.userId,
+      });
       const release: SubcontractRetentionRelease = {
-        id: entryId,
+        id: releaseId,
         date: input.date,
         amount,
-        journalEntryId: entryId,
+        journalEntryId: invoice.journalEntryId,
+        kind,
+        releaseEventDate,
+        earlyRelease: isEarlySubcontractRelease(input.date, releaseEventDate),
+        invoiceId: invoice.invoiceId,
+        invoiceDocNo: invoice.invoiceDocNo,
         releasedBy: actor.userId,
         notes: input.notes ?? null,
       };
       const next: Subcontract = { ...current, retentionReleases: [...current.retentionReleases, release] };
       await this.deps.store.save(next);
       return next;
+    });
+    await recordTransition(this.deps.audit, {
+      entityType: "SUBCONTRACT_RETENTION_RELEASE",
+      entityId: releaseId,
+      action: "RELEASE",
+      actor: actor.userId,
+      severity: "WARNING",
+      details: {
+        subcontractId: current.id,
+        subcontractDocNo: current.docNo,
+        supplierId: current.supplierId,
+        amount: amount.toString(),
+        date: input.date,
+        kind,
+        releaseEventDate,
+        earlyRelease: isEarlySubcontractRelease(input.date, releaseEventDate),
+      },
     });
     return this.view(saved);
   }

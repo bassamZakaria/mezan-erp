@@ -70,11 +70,21 @@ export const subcontractAdvanceSchema = z.object({
 });
 export type SubcontractAdvanceDTO = z.infer<typeof subcontractAdvanceSchema>;
 
+export const subcontractRetentionReleaseKindSchema = z.enum(["provisional", "final"]);
+export type SubcontractRetentionReleaseKindDTO = z.infer<typeof subcontractRetentionReleaseKindSchema>;
+
 export const subcontractRetentionReleaseSchema = z.object({
   id: z.string(),
   date: isoDate,
   amount: moneyString,
   journalEntryId: z.string(),
+  kind: subcontractRetentionReleaseKindSchema,
+  /** completionDate for `provisional`, completionDate + فترة الضمان for `final`. */
+  releaseEventDate: z.string().nullable(),
+  earlyRelease: z.boolean(),
+  /** The purchase invoice the release was raised as — what a voucher pays. */
+  invoiceId: z.string().nullable(),
+  invoiceDocNo: z.string().nullable(),
   releasedBy: z.string().nullable(),
   notes: z.string().nullable(),
 });
@@ -84,6 +94,11 @@ export const subcontractRetentionSchema = z.object({
   held: moneyString,
   released: moneyString,
   balance: moneyString,
+  /** The completion date the release clock hangs on; null until the package is completed. */
+  completionDate: z.string().nullable(),
+  defectsLiabilityMonths: z.number().int(),
+  provisionalReleaseEventDate: z.string().nullable(),
+  finalReleaseEventDate: z.string().nullable(),
   releases: z.array(subcontractRetentionReleaseSchema),
 });
 export type SubcontractRetentionDTO = z.infer<typeof subcontractRetentionSchema>;
@@ -134,6 +149,10 @@ export const subcontractSchema = z.object({
   advanceRecovered: moneyString,
   advanceOutstanding: moneyString,
   retention: subcontractRetentionSchema,
+  /** Cumulative net certified on the latest POSTED certificate. */
+  certifiedToDate: moneyString,
+  /** value − certifiedToDate — the commitment still ahead of the contractor. */
+  remainingCommitment: moneyString,
   certificateCount: z.number().int(),
   /** Why the subcontract cannot be activated or certified yet. Empty when it can. */
   payabilityRefusals: z.array(z.string()),
@@ -216,6 +235,7 @@ export type LinkSubcontractAdvanceDTO = z.infer<typeof linkSubcontractAdvanceSch
 export const releaseSubcontractRetentionSchema = z.object({
   amount: nonNegativeMoneyString,
   date: isoDate,
+  kind: subcontractRetentionReleaseKindSchema.optional(),
   notes: z.string().nullish(),
 });
 export type ReleaseSubcontractRetentionDTO = z.infer<typeof releaseSubcontractRetentionSchema>;
@@ -264,6 +284,8 @@ export const subCertificateSchema = z.object({
   projectId: z.string(),
   supplierId: z.string(),
   supplierNameAr: z.string(),
+  /** الرقم الضريبي لمقاول الباطن — both parties' numbers appear on the printed sheet. */
+  supplierTaxNumber: z.string().nullable(),
   serial: z.number().int(),
   previousCertificateId: z.string().nullable(),
   periodFrom: isoDate,
@@ -280,7 +302,9 @@ export const subCertificateSchema = z.object({
   certifiedAt: z.string().nullable(),
   approvedBy: z.string().nullable(),
   approvedAt: z.string().nullable(),
+  cancelledBy: z.string().nullable(),
   cancelledAt: z.string().nullable(),
+  cancelReasonAr: z.string().nullable(),
   invoiceId: z.string().nullable(),
   invoiceDocNo: z.string().nullable(),
   journalEntryId: z.string().nullable(),
@@ -361,3 +385,16 @@ export type SubCertificatePreviewDTO = z.infer<typeof subCertificatePreviewSchem
 
 export const approveSubCertificateSchema = z.object({ approvedAt: isoDate });
 export type ApproveSubCertificateDTO = z.infer<typeof approveSubCertificateSchema>;
+
+/** The date the measurement was actually taken; defaults to today when omitted. */
+export const measureSubCertificateSchema = z.object({ measuredAt: isoDate.nullish() });
+export type MeasureSubCertificateDTO = z.infer<typeof measureSubCertificateSchema>;
+
+export const certifySubCertificateSchema = z.object({ certifiedAt: isoDate.nullish() });
+export type CertifySubCertificateDTO = z.infer<typeof certifySubCertificateSchema>;
+
+/** سبب الإلغاء is mandatory: a cancelled certificate with no reason is untraceable. */
+export const cancelSubCertificateSchema = z.object({
+  reasonAr: z.string().min(1, "سبب إلغاء المستخلص مطلوب"),
+});
+export type CancelSubCertificateDTO = z.infer<typeof cancelSubCertificateSchema>;

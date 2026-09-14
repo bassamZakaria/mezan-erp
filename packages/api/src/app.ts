@@ -1796,6 +1796,25 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
 
+  /**
+   * The last net. A domain error a route file forgot to map used to propagate
+   * out of the fetch handler as a rejected promise — Hono answered the plain
+   * text «Internal Server Error» and, on the node server, the unhandled
+   * rejection took the PROCESS down: one refused approval into a closed month
+   * and every till on the LAN lost its backend.
+   *
+   * INVARIANT: this handler must never itself throw. It logs and answers a
+   * JSON body in the shape every client already parses.
+   */
+  app.onError((err, c) => {
+    try {
+      console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
+    } catch {
+      // A logger that throws must not turn a 500 into a crash.
+    }
+    return c.json({ error: "INTERNAL", message: "خطأ داخلي" }, 500);
+  });
+
   return app;
 }
 

@@ -20,6 +20,8 @@ export interface TopProductsContext {
    * read in English (D57). Optional: omit it and the Arabic name stands.
    */
   readonly items?: readonly { readonly id: string; readonly nameEn: string | null }[];
+  /** See `SalesByItemContext.isContractBilling` — the same billing-versus-sale split, so the two rankings agree. */
+  readonly isContractBilling?: (accountId: string) => boolean;
 }
 
 export interface TopProductsParams {
@@ -95,7 +97,7 @@ export function createTopProductsReport(
     ],
     run: (params, ctx) => {
       const inBranch = ctx.invoices.filter((invoice) => matchesBranch(invoice.branchId, params.branchId));
-      const aggregates = aggregateItemSales(inBranch, params.dateFrom, params.dateTo);
+      const aggregates = aggregateItemSales(inBranch, params.dateFrom, params.dateTo, "exc", ctx.isContractBilling);
       const namesEn = new Map((ctx.items ?? []).map((i) => [i.id, i.nameEn ?? null]));
       const totalRevenue = sumRows(aggregates, (a) => a.revenue);
       const ranked = aggregates

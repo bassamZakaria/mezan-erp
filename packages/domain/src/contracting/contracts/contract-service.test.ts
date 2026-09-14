@@ -162,6 +162,21 @@ describe("the draft gate", () => {
     );
   });
 
+  it("refuses a SECOND live works contract on a project that already has one", async () => {
+    await activeContract();
+    await service.create({ ...base, id: "CTR-2", titleAr: "عقد إنشاء ثانٍ" });
+    await service.putBoq("CTR-2", [{ ...BOQ[0]!, id: "CTR-2-B1" }]);
+    await expect(service.activate("CTR-2", "2026-04-01")).rejects.toThrow(
+      /المشروع مرتبط بعقد سارٍ بالفعل \(CTR-0001\)/,
+    );
+
+    // A CLOSED contract frees the project again — several contracts per project
+    // is the design, one LIVE contract per project is the invariant.
+    await service.complete("CTR-1", "2026-03-31");
+    const second = await service.activate("CTR-2", "2026-04-01");
+    expect(second.contract.status).toBe("active");
+  });
+
   it("refuses a BOQ edit once the contract is active, in Arabic", async () => {
     await activeContract();
     await expect(service.putBoq("CTR-1", BOQ)).rejects.toThrow(WorksContractNotDraftError);
@@ -244,6 +259,28 @@ describe("variation orders", () => {
     const adminSelf = { userId: PREPARER.userId, wildcardAdmin: true };
     const approved = await service.approveVariationOrder("VO-1", "2026-08-02", adminSelf);
     expect(approved.order.status).toBe("approved");
+  });
+
+  /**
+   * `approvedAt` is what every quantity ceiling and the «أوامر تغيير متأخرة
+   * الاعتماد» exception are measured from. Backdating it to before the order
+   * existed reopened every ceiling retroactively AND hid the late approval
+   * from the report that exists to catch it.
+   */
+  it("refuses an approval dated before the variation order itself", async () => {
+    await activeContract();
+    await draftOrder([{ kind: "change", boqLineId: "CTR-1-B1", qtyDelta: "600" }]);
+    await expect(service.approveVariationOrder("VO-1", "2024-01-01", APPROVER)).rejects.toThrow(
+      /لا يجوز أن يسبق تاريخ أمر التغيير/,
+    );
+  });
+
+  it("refuses an approval dated in the future", async () => {
+    await activeContract();
+    await draftOrder([{ kind: "change", boqLineId: "CTR-1-B1", qtyDelta: "600" }]);
+    await expect(service.approveVariationOrder("VO-1", "2099-01-01", APPROVER)).rejects.toThrow(
+      /لا يجوز أن يكون في المستقبل/,
+    );
   });
 
   it("adds an `add` line to the BOQ with origin variation, and records a `change` as a dated adjustment", async () => {

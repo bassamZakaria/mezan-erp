@@ -14,7 +14,7 @@ import type {
   WorksContractStore,
 } from "../contracts/contract.js";
 import type { ProgressCertificate } from "../certificates/certificate.js";
-import { ControlsService, type RetentionReleaseInvoicingPort } from "./controls-service.js";
+import { ControlsService, type ControlsServiceDeps, type RetentionReleaseInvoicingPort } from "./controls-service.js";
 import { RetentionReleaseExceedsBalanceError } from "./errors.js";
 import type { RetentionRelease, RetentionReleaseListFilter, RetentionReleaseStore } from "./retention-release.js";
 
@@ -215,6 +215,12 @@ function certificate(over: Partial<ProgressCertificate> = {}): ProgressCertifica
     approvedBy: null,
     approvedAt: null,
     cancelledAt: null,
+    cancelledBy: null,
+    cancelReasonAr: null,
+    voidedAt: null,
+    voidedBy: null,
+    voidReasonAr: null,
+    voidJournalEntryId: null,
     invoiceId: null,
     invoiceDocNo: null,
     journalEntryId: null,
@@ -234,6 +240,7 @@ function certificate(over: Partial<ProgressCertificate> = {}): ProgressCertifica
 
 interface Harness {
   service: ControlsService;
+  deps: ControlsServiceDeps;
   contracts: MemoryContractStore;
   releases: MemoryReleaseStore;
   ledger: FakeLedger;
@@ -318,7 +325,7 @@ function harness(options: { heldRetention?: string; contract?: Partial<WorksCont
   };
 
   const gl = { ledger } as unknown as JournalPostingDeps;
-  const service = new ControlsService({
+  const deps: ControlsServiceDeps = {
     releases,
     contracts,
     certificates: { listByContract: async (contractId: string) => certificates.filter((c) => c.contractId === contractId) },
@@ -326,8 +333,9 @@ function harness(options: { heldRetention?: string; contract?: Partial<WorksCont
     numbering: new NextNumberService(sequences),
     invoicing,
     today: () => "2026-09-13",
-  });
-  return { service, contracts, releases, ledger, certificates, subLedger };
+  };
+  const service = new ControlsService(deps);
+  return { service, deps, contracts, releases, ledger, certificates, subLedger };
 }
 
 describe("الإفراج عن المحتجزات", () => {
@@ -382,7 +390,7 @@ describe("الإفراج عن المحتجزات", () => {
       date: "2026-09-01",
       amount: "5000",
     });
-    const released = await h.service.release("RET-1", { userId: "USER-FINANCE" });
+    const released = await h.service.release("RET-1", { userId: "USER-FINANCE", wildcardAdmin: false }, { approvedBy: "USER-CFO" });
 
     expect(released.release.status).toBe("released");
     expect(released.release.invoiceId).toBe("RET-1-INV");
@@ -407,7 +415,7 @@ describe("الإفراج عن المحتجزات", () => {
       date: "2027-03-31",
       amount: "40000",
     });
-    await h.service.release("RET-1", { userId: "USER-FINANCE" });
+    await h.service.release("RET-1", { userId: "USER-FINANCE", wildcardAdmin: false }, { approvedBy: "USER-CFO" });
     await expect(
       h.service.createRelease({
         id: "RET-2",
@@ -477,7 +485,7 @@ describe("تقارير الاستثناءات", () => {
       amount: "5000",
     });
     expect((await h.service.earlyRetentionReleases({ asOfDate: "2026-09-13" })).rows).toEqual([]);
-    await h.service.release("RET-1", { userId: "USER-FINANCE" });
+    await h.service.release("RET-1", { userId: "USER-FINANCE", wildcardAdmin: false }, { approvedBy: "USER-CFO" });
     const report = await h.service.earlyRetentionReleases({ asOfDate: "2026-09-13" });
     expect(report.rows).toHaveLength(1);
     expect(report.rows[0]?.daysEarly).toBe(211);
@@ -517,7 +525,7 @@ describe("تقارير الاستثناءات", () => {
   it("counts every report in the dashboard summary", async () => {
     const h = harness({ heldRetention: "53269.90" });
     const summary = await h.service.summary("2026-09-13");
-    expect(summary.reports).toHaveLength(6);
+    expect(summary.reports).toHaveLength(7);
     expect(summary.total).toBe(0);
   });
 
@@ -529,5 +537,66 @@ describe("تقارير الاستثناءات", () => {
     expect(lines[0]?.theoreticalQtyPerUnit?.toString()).toBe("7.000000");
     expect(lines[0]?.theoreticalItemId).toBe("ITEM-1");
     expect(lines[0]?.qty.toString()).toBe("1450.000000");
+  });
+});
+
+describe("الإفراج عن المحتجزات — فصل المهام", () => {
+  it("refuses the author of the release as its releaser", async () => {
+    const h = harness({ heldRetention: "53269.90" });
+    await h.service.createRelease({
+      id: "RET-SOD",
+      contractId: CONTRACT_ID,
+      kind: "provisional",
+      date: "2027-03-31",
+      amount: "5000",
+      createdBy: "USER-FINANCE",
+    });
+    await expect(
+      h.service.release("RET-SOD", { userId: "USER-FINANCE", wildcardAdmin: false }),
+    ).rejects.toThrow(/لا يمكن لمن أنشأ مستند الإفراج أن يفرج عنه/);
+
+    const released = await h.service.release("RET-SOD", { userId: "USER-TREASURER", wildcardAdmin: false });
+    expect(released.release.status).toBe("released");
+    expect(released.release.earlyRelease).toBe(false);
+    expect(released.release.approvedBy).toBeNull();
+  });
+
+  it("demands a second approver on an early release, and refuses one who already signed", async () => {
+    const h = harness({ heldRetention: "53269.90" });
+    await h.service.createRelease({
+      id: "RET-EARLY",
+      contractId: CONTRACT_ID,
+      kind: "provisional",
+      date: "2026-09-01",
+      amount: "5000",
+      createdBy: "USER-FINANCE",
+    });
+    const actor = { userId: "USER-TREASURER", wildcardAdmin: false };
+    await expect(h.service.release("RET-EARLY", actor)).rejects.toThrow(/اعتماد مستخدم ثانٍ/);
+    await expect(
+      h.service.release("RET-EARLY", actor, { approvedBy: "USER-FINANCE" }),
+    ).rejects.toThrow(/غير مُنشئ المستند وغير المُفرِج/);
+    await expect(
+      h.service.release("RET-EARLY", actor, { approvedBy: "USER-TREASURER" }),
+    ).rejects.toThrow(/غير مُنشئ المستند وغير المُفرِج/);
+
+    const released = await h.service.release("RET-EARLY", actor, { approvedBy: "USER-CFO" });
+    expect(released.release.earlyRelease).toBe(true);
+    expect(released.release.approvedBy).toBe("USER-CFO");
+  });
+
+  it("waives both only for a wildcard admin in «وضع المشغّل الواحد»", async () => {
+    const h = harness({ heldRetention: "53269.90" });
+    const solo = new ControlsService({ ...h.deps, segregationWaived: async () => true });
+    await solo.createRelease({
+      id: "RET-SOLO",
+      contractId: CONTRACT_ID,
+      kind: "provisional",
+      date: "2026-09-01",
+      amount: "5000",
+      createdBy: "USER-ADMIN",
+    });
+    const released = await solo.release("RET-SOLO", { userId: "USER-ADMIN", wildcardAdmin: true });
+    expect(released.release.status).toBe("released");
   });
 });

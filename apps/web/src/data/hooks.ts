@@ -57,6 +57,7 @@ import type {
   CreateAssetDTO,
   SalesInvoicePaymentDTO,
   DisposeAssetDTO,
+  SetInternalHourlyRateDTO,
   CreateBomDTO,
   CreateBranchDTO,
   CreateChequeDTO,
@@ -2907,6 +2908,28 @@ export function useCreateAsset() {
   return useMutation<AssetDTO, ApiError, CreateAssetDTO>({
     mutationFn: async (body) => {
       const res = await request("/assets", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBe")));
+      return res.json<AssetDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
+  });
+}
+
+/**
+ * سعر الساعة الداخلي — a separate, permissioned, audited edit. Every سجل تشغيل
+ * معدات charges its project at this rate, so it reaches WIP, cost, the
+ * percentage of completion and recognised revenue; the site log has no override.
+ */
+export function useSetInternalHourlyRate() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AssetDTO, ApiError, { id: string } & SetInternalHourlyRateDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/assets/${id}/internal-hourly-rate`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBe")));
       return res.json<AssetDTO>();
     },

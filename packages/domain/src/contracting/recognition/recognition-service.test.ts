@@ -375,6 +375,35 @@ describe("RecognitionService.post", () => {
     expect(preview.contractAsset.toString()).toBe(may.contractAsset.toString());
     expect(preview.due).toBe(false);
     expect(preview.existingRunDocNo).toBe(may.docNo);
+    // Nothing has moved since, so the recomputation agrees with what was posted.
+    expect(preview.divergent).toBe(false);
+    expect(preview.recomputed?.wipClosing.toString()).toBe("0.000000");
+  });
+
+  it("flags a closed month whose ledger has moved since, and the next run clears it", async () => {
+    await h.capitalise("2026-05-12", "200000", "materials");
+    const may = await h.service.post({ contractId: "CTR-1", periodEnd: "2026-05-31" });
+    expect(may.wipClosing.toString()).toBe("0.000000");
+
+    // A cost confirmed AFTER May was run, dated inside May. It cannot change
+    // the posted entry, and the posted run still reads a closing balance of
+    // zero — the divergence is the only thing that says otherwise.
+    await h.capitalise("2026-05-20", "18000", "equipment");
+    const preview = await h.service.preview("CTR-1", "2026-05-31");
+    expect(preview.wipClosing.toString()).toBe("0.000000");
+    expect(preview.divergent).toBe(true);
+    // 1230 still holds the stranded 18,000 (May's run relieved 200,000 into
+    // 5150), and the cost to date is the two together.
+    expect(preview.recomputed?.wipRelieved.toString()).toBe("18000.000000");
+    expect(preview.recomputed?.costToDate.toString()).toBe("218000.000000");
+
+    // June takes the whole 1230 BALANCE, not June's own movement, so the
+    // stranded 18,000 is relieved rather than sitting in WIP for ever.
+    const june = await h.service.post({ contractId: "CTR-1", periodEnd: "2026-06-30" });
+    expect(june.wipOpening.toString()).toBe("18000.000000");
+    expect(june.wipRelieved.toString()).toBe("18000.000000");
+    expect(june.wipClosing.toString()).toBe("0.000000");
+    expect(await h.net("1230")).toBe("0.000000");
   });
 
   it("refuses a second run for a period it has already run", async () => {

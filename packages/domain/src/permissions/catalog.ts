@@ -76,7 +76,7 @@ export const MODULES: readonly ModuleDef[] = [
   // المقاولات — docs/artifacts/mezan-contracting-designs.html §06 "Four rights, not
   // one": the certificate's preparer, certifier, approver and collector are four
   // different people, and one `manage` right cannot express that.
-  { id: "contracting", labelAr: "المقاولات", count: 9 },
+  { id: "contracting", labelAr: "المقاولات", count: 12 },
 ];
 
 /**
@@ -427,7 +427,7 @@ const ROWS: readonly Row[] = [
   ["projects.project.view"],
   ["projects.project.manage", "projects.project.view"],
 
-  // 21. contracting — 9 (docs/artifacts/mezan-contracting-designs.html §06)
+  // 21. contracting — 12 (docs/artifacts/mezan-contracting-designs.html §06)
   ["contracting.boq.view"],
   ["contracting.boq.manage", "contracting.boq.view"],
   ["contracting.variation.approve", "contracting.boq.view"],
@@ -437,6 +437,13 @@ const ROWS: readonly Row[] = [
   ["contracting.certificate.approve", "contracting.certificate.view", "s"],
   ["contracting.certificate.collect", "contracting.certificate.view"],
   ["contracting.retention.release", "contracting.certificate.view", "s"],
+  // خطابات الضمان. A letter of guarantee is the contractor's credit line, not a
+  // till document: releasing a performance bond gave away the employer's whole
+  // security. It was gated on `treasury.cash_voucher.create`, which the cashier
+  // at the counter holds.
+  ["contracting.guarantee.view"],
+  ["contracting.guarantee.manage", "contracting.guarantee.view"],
+  ["contracting.guarantee.release", "contracting.guarantee.view", "s"],
 ];
 
 function expand(row: Row): PermissionDef {

@@ -139,3 +139,15 @@ export type DepreciationRunStatusDTO = z.infer<typeof depreciationRunStatusSchem
 export type DepreciationRunLineDTO = z.infer<typeof depreciationRunLineSchema>;
 export type DepreciationRunDTO = z.infer<typeof depreciationRunSchema>;
 export type CreateDepreciationRunDTO = z.infer<typeof createDepreciationRunSchema>;
+
+/**
+ * سعر الساعة الداخلي — the ONLY writable path to the rate every سجل تشغيل
+ * معدات charges to a project. It is a separate, permissioned, audited edit
+ * because the number ends up in WIP, then in cost, then in the percentage of
+ * completion, then in recognised revenue.
+ */
+export const setInternalHourlyRateSchema = z.object({
+  internalHourlyRate: moneyString.nullable(),
+  reason: z.string().max(500).nullable().optional(),
+});
+export type SetInternalHourlyRateDTO = z.infer<typeof setInternalHourlyRateSchema>;

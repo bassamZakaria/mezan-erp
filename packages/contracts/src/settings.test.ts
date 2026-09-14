@@ -39,6 +39,7 @@ const baseSettings = {
   creditControlMode: "BLOCK" as const,
   maxLineDiscountPercent: 20,
   contractingCbeCreditDiscountRatePercent: null,
+  contractingSingleOperatorMode: false,
   allowCrossWarehouseSales: false,
   showOtherWarehouseStock: true,
   allowBackorder: false,

@@ -26,6 +26,7 @@ import {
   useCreateAsset,
   useDisposeAsset,
   useProjects,
+  useSetInternalHourlyRate,
   type AssetListFilter,
 } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
@@ -152,6 +153,9 @@ export function AssetRegisterScreen() {
 
   const [formOpen, setFormOpen] = useState(false);
   const disposeAsset = useDisposeAsset();
+  const setInternalHourlyRate = useSetInternalHourlyRate();
+  const [rateDraft, setRateDraft] = useState<number | null>(null);
+  const [rateError, setRateError] = useState<string | null>(null);
   const [disposeOpen, setDisposeOpen] = useState(false);
   const [disposeDate, setDisposeDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [disposeProceeds, setDisposeProceeds] = useState<number | null>(null);
@@ -407,13 +411,39 @@ export function AssetRegisterScreen() {
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.residualValue")}</div>
                 <MoneyDisplay value={toMajor(selected.salvageValue)} className="mt-[5px] text-[14px] font-bold" />
               </div>
-              <div>
+              <div className="border-b border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.internalHourlyRate")}</div>
                 {selected.internalHourlyRate ? (
                   <MoneyDisplay value={toMajor(selected.internalHourlyRate)} className="mt-[5px] text-[14px] font-bold" />
                 ) : (
                   <div className="mt-[5px] text-[14px] font-bold text-ink">{t("asset.notPlant")}</div>
                 )}
+                <div className="mt-[8px] flex items-end gap-[8px]">
+                  <MoneyInput
+                    aria-label={t("asset.internalHourlyRate")}
+                    value={rateDraft}
+                    onChange={setRateDraft}
+                  />
+                  <Button
+                    disabled={setInternalHourlyRate.isPending}
+                    onClick={() => {
+                      setRateError(null);
+                      setInternalHourlyRate
+                        .mutateAsync({
+                          id: selected.id,
+                          internalHourlyRate: rateDraft === null ? null : rateDraft.toFixed(6),
+                        })
+                        .then(() => setRateDraft(null))
+                        .catch((err: unknown) =>
+                          setRateError(err instanceof ApiError ? err.message : t("asset.rateCouldNotBeSaved")),
+                        );
+                    }}
+                  >
+                    {t("asset.saveRate")}
+                  </Button>
+                </div>
+                <p className="mt-[6px] text-[11.5px] text-ink-muted">{t("asset.internalHourlyRateAudited")}</p>
+                {rateError ? <p className="mt-[6px] text-[11.5px] font-semibold text-danger-ink">{rateError}</p> : null}
               </div>
               <div className="border-e border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.accumulatedDepreciation")}</div>
@@ -438,7 +468,11 @@ export function AssetRegisterScreen() {
                     <TextField label={t("assets.disposeDate")} value={disposeDate} onChange={setDisposeDate} placeholder="YYYY-MM-DD" />
                     <div>
                       <div className="mb-[5px] text-[11px] font-semibold text-ink-faint">{t("assets.disposeProceeds")}</div>
-                      <MoneyInput value={disposeProceeds} onChange={setDisposeProceeds} />
+                      <MoneyInput
+                        aria-label={t("assets.disposeProceeds")}
+                        value={disposeProceeds}
+                        onChange={setDisposeProceeds}
+                      />
                     </div>
                     <SelectField
                       label={t("assets.disposeProceedsAccount")}

@@ -26,11 +26,13 @@ export {
   parsePercent,
   percentOf as certificatePercentOf,
   subtract as subtractMoney,
+  toPiastres as certificateToPiastres,
   vatEffectiveRatePercent,
   type CertificateComputationInput,
   type CertificateDeductionInputs,
 } from "./amounts.js";
 export {
+  CertificateDateOrderError,
   CertificateQuantityError,
   CertificateSegregationError,
   InvalidProgressCertificateError,

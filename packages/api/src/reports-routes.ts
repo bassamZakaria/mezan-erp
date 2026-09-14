@@ -5,6 +5,7 @@ import {
   runReport,
   createSalesByPeriodReport,
   createSalesByItemReport,
+  creditedRevenueAccountIds,
   createSalesByCustomerReport,
   createSalesBySalespersonReport,
   createTopProductsReport,
@@ -63,6 +64,7 @@ import {
   type SalesReturnDocument,
   type ChequeRepository,
   type AllocationRepository,
+  type SubcontractStore,
   type VoucherLine,
 } from "@mezan/domain";
 import { branchScopeOf, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
@@ -120,17 +122,27 @@ export interface ReportsRoutesDeps {
   readonly vanTrips?: VanTripRepository;
   /** Resolves van-trip crew ids to employee names; ids are shown verbatim when absent. */
   readonly employees?: EmployeeRepository;
+  /**
+   * مستخلصات مقاولي الباطن. Egypt's Form 41 covers tax withheld on a PAYMENT
+   * and tax withheld on a certified subcontractor's bill alike; a filing
+   * assembled from vouchers alone under-declares by the whole subcontract side.
+   */
+  readonly subCertificates?: Pick<SubcontractStore, "listCertificates">;
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
   readonly today?: () => string;
 }
 
 /**
- * The control accounts each by-item report ties back to. Kept here rather than
- * read from the account-routing table because a reconciliation must compare
- * against where the postings ACTUALLY went, not where a tenant has since
- * decided they should go.
+ * The control account the purchases by-item report ties back to. Kept here
+ * rather than read from the account-routing table because a reconciliation must
+ * compare against where the postings ACTUALLY went, not where a tenant has
+ * since decided they should go.
+ *
+ * Sales once had a hardcoded 4100 beside it. It is gone: the sales reference is
+ * now the set of accounts the counted lines themselves credited
+ * (`creditedRevenueAccountIds`), which is the same fact as the report only so
+ * long as it is derived from the same lines.
  */
-const REVENUE_ACCOUNT_IDS = ["4100"] as const;
 const INVENTORY_ACCOUNT_IDS = ["1200"] as const;
 
 /**
@@ -152,6 +164,22 @@ const INVENTORY_CONTROL_ACCOUNT_ID = INVENTORY_ACCOUNT_IDS[0];
  * told the true total separately so it can say what it is not showing.
  */
 const DRILL_DOWN_LIMIT = 25;
+
+/**
+ * Tells a contract BILLING line from a sale: true only for an account the
+ * tenant's own chart holds AND classifies as something other than revenue — a
+ * certificate credits مستخلصات تحت التنفيذ (liability), a retention release
+ * credits the retention receivable (asset). An account the chart has never
+ * heard of is NOT called a billing: a report that empties itself because the
+ * chart is thin would be worse than the difference it set out to explain.
+ */
+async function contractBillingTest(deps: ReportsRoutesDeps): Promise<(accountId: string) => boolean> {
+  const typeById = new Map((await deps.accounts.list()).map((account) => [account.id, account.type]));
+  return (accountId) => {
+    const type = typeById.get(accountId);
+    return type !== undefined && type !== "revenue";
+  };
+}
 
 function todayIso(deps: ReportsRoutesDeps): string {
   if (deps.today) return deps.today();
@@ -448,20 +476,33 @@ export function createReportsRoutes(
   app.get("/sales/by-item", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByItemReport(firstOfMonth(today), today);
-    const [invoices, items] = await Promise.all([scopedSalesInvoices(c), deps.items.list()]);
+    const [invoices, items, isContractBilling] = await Promise.all([
+      scopedSalesInvoices(c),
+      deps.items.list(),
+      contractBillingTest(deps),
+    ]);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     const params = { ...definition.defaultParams, ...queryParams(c) };
     // The ledger side is company-wide, so it is only a valid reference for a
-    // company-wide run — see `branchNarrowed`.
+    // company-wide run — see `branchNarrowed`. It sums exactly the accounts the
+    // lines the report counted credited, so both halves read one fact.
+    const range = params as { dateFrom: string; dateTo: string };
     const postedRevenue = branchNarrowed(c, params)
       ? undefined
-      : await postedGross(deps, REVENUE_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "credit", ["SALES_INVOICE"]);
+      : await postedGross(
+          deps,
+          creditedRevenueAccountIds(invoices, range.dateFrom, range.dateTo, isContractBilling),
+          range,
+          "credit",
+          ["SALES_INVOICE"],
+        );
     return respond(
       c,
       runReport(definition, params, {
         invoices,
         items,
         allocatedByInvoiceId,
+        isContractBilling,
         postedRevenue: postedRevenue === undefined ? undefined : () => postedRevenue,
       }),
     );
@@ -484,8 +525,15 @@ export function createReportsRoutes(
   app.get("/sales/top-products", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createTopProductsReport(firstOfMonth(today), today);
-    const [invoices, items] = await Promise.all([scopedSalesInvoices(c), deps.items.list()]);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, items }));
+    const [invoices, items, isContractBilling] = await Promise.all([
+      scopedSalesInvoices(c),
+      deps.items.list(),
+      contractBillingTest(deps),
+    ]);
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, items, isContractBilling }),
+    );
   });
 
   // --- المشتريات -----------------------------------------------------
@@ -734,6 +782,25 @@ export function createReportsRoutes(
         withheldAmount: withheld,
       }];
     });
+    // The subcontract half: the tax was withheld when the certificate was
+    // approved for payment, on the certified value, and is owed to the
+    // authority from that date whether or not the sub has been paid yet.
+    const certificates = (await deps.subCertificates?.listCertificates()) ?? [];
+    for (const certificate of certificates) {
+      if (certificate.status !== "approved_for_payment" && certificate.status !== "invoiced") continue;
+      const row = certificate.computed.deductions.find((d) => d.key === "withholdingTax");
+      if (!row || row.thisCertificate.scaled <= 0n) continue;
+      rows.push({
+        voucherId: certificate.id,
+        voucherNo: certificate.docNo,
+        date: certificate.approvedAt ?? certificate.executionDate,
+        partyId: certificate.supplierId,
+        partyNameAr: supplierName.get(certificate.supplierId) || certificate.supplierId,
+        grossAmount: certificate.computed.thisCertificateNetCertified,
+        ratePercent: row.percent === null ? null : Number(row.percent),
+        withheldAmount: row.thisCertificate,
+      });
+    }
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { rows }));
   });
 

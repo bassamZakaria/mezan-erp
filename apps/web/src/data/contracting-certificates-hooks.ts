@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   ApproveProgressCertificateDTO,
+  CancelProgressCertificateDTO,
+  CertifyProgressCertificateDTO,
+  MeasureProgressCertificateDTO,
+  VoidProgressCertificateDTO,
   CreateProgressCertificateDTO,
   InternalCertificateDTO,
   PreviewProgressCertificateDTO,
@@ -152,9 +156,16 @@ export function useUpdateProgressCertificate() {
   });
 }
 
-export type CertificateAction = "measure" | "certify" | "approve" | "cancel";
+export type CertificateAction = "measure" | "certify" | "approve" | "cancel" | "void";
 
-/** حصر / اعتماد الاستشاري / اعتماد للصرف / إلغاء — one mutation over the four gated routes. */
+export type CertificateTransitionBody =
+  | MeasureProgressCertificateDTO
+  | CertifyProgressCertificateDTO
+  | ApproveProgressCertificateDTO
+  | CancelProgressCertificateDTO
+  | VoidProgressCertificateDTO;
+
+/** حصر / اعتماد الاستشاري / اعتماد للصرف / إلغاء / عكس — one mutation over the five gated routes. */
 export function useProgressCertificateTransition() {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -162,7 +173,7 @@ export function useProgressCertificateTransition() {
   return useMutation<
     ProgressCertificateDTO,
     ApiError,
-    { id: string; action: CertificateAction; body?: ApproveProgressCertificateDTO }
+    { id: string; action: CertificateAction; body?: CertificateTransitionBody }
   >({
     mutationFn: async ({ id, action, body }) => {
       const res = await request(`/contracting/certificates/${encodeURIComponent(id)}/${action}`, {

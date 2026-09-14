@@ -52,19 +52,22 @@ export async function seedContracting(app: App): Promise<void> {
   });
   await step(app, "POST", "/vouchers/VCH-DEMO-PRJ-1/confirm", {});
 
+  // INVARIANT: the site movements draw CORE.items[1], never items[0]. PI-DEMO-1
+  // funds ITEM-DEMO-1's only cost layer, and the purchases fulfilment scenario
+  // needs stock left on it to move — 52 units taken here emptied it.
   await step(app, "POST", "/inventory/stock-adjustments/draft", {
     id: "ADJ-DEMO-PRJ-1",
     date: "2026-08-22",
     memo: "صرف مواد من المستودع الرئيسي إلى موقع برج الأمل",
     projectId: TOWER,
     costCategory: "materials",
-    lines: [{ itemId: CORE.items[0], warehouseId: WAREHOUSE_ID, reason: "OTHER", direction: "OUT", qty: "12" }],
+    lines: [{ itemId: CORE.items[1], warehouseId: WAREHOUSE_ID, reason: "OTHER", direction: "OUT", qty: "12" }],
   });
   await step(app, "POST", "/inventory/stock-adjustments/ADJ-DEMO-PRJ-1/confirm", {});
 
   await step(app, "POST", "/vouchers", {
     id: "VCH-DEMO-PRJ-ADV",
-    date: "2026-08-05",
+    date: "2026-04-05",
     memo: "دفعة مقدمة على عقد برج الأمل — تُسترد من المستخلصات",
     voucherType: "customer_advance",
     amount: "60000.00",
@@ -77,6 +80,30 @@ export async function seedContracting(app: App): Promise<void> {
   });
   await step(app, "POST", "/vouchers/VCH-DEMO-PRJ-ADV/confirm", {});
 
+
+  await step(app, "POST", "/gl/journal-entries", {
+    id: "JE-DEMO-PRJ-1",
+    date: "2026-08-28",
+    memo: "مصروفات غير مباشرة — تجهيز فرع جديد (كهرباء ومياه الموقع)",
+    source: "manual",
+    lines: [
+      { accountId: SUNDRY_EXPENSE_GL, debit: "3200", credit: "0", memo: "كهرباء ومياه الموقع", projectId: FITOUT, costCategory: "indirect" },
+      { accountId: ACCOUNTS.cash, debit: "0", credit: "3200", memo: "سداد نقدي", projectId: FITOUT },
+    ],
+  });
+}
+
+/**
+ * الفاتورة المباشرة على مشروع بعقد نسبة إتمام — seeded AFTER the works contract
+ * exists, because that is the whole point of it.
+ *
+ * INVARIANT: this invoice's 210,000 credits «فواتير مستخلصات على العقود» 2165,
+ * NOT revenue 4100. PRJ-DEMO-1 runs a live cost_to_cost contract, so revenue on
+ * it is recognised only by the monthly EAS 48 run; an invoice that credited
+ * 4100 put the same work into the P&L twice. The re-route is the sales-invoice
+ * confirm's own (`contractBilling`), and it states itself in the invoice memo.
+ */
+export async function seedContractingProjectInvoice(app: App): Promise<void> {
   await step(app, "POST", "/sales-invoices", {
     id: "INV-DEMO-PRJ-1",
     date: "2026-08-25",
@@ -105,15 +132,4 @@ export async function seedContracting(app: App): Promise<void> {
     ],
   });
   await step(app, "POST", "/sales-invoices/INV-DEMO-PRJ-1/confirm", {});
-
-  await step(app, "POST", "/gl/journal-entries", {
-    id: "JE-DEMO-PRJ-1",
-    date: "2026-08-28",
-    memo: "مصروفات غير مباشرة — تجهيز فرع جديد (كهرباء ومياه الموقع)",
-    source: "manual",
-    lines: [
-      { accountId: SUNDRY_EXPENSE_GL, debit: "3200", credit: "0", memo: "كهرباء ومياه الموقع", projectId: FITOUT, costCategory: "indirect" },
-      { accountId: ACCOUNTS.cash, debit: "0", credit: "3200", memo: "سداد نقدي", projectId: FITOUT },
-    ],
-  });
 }

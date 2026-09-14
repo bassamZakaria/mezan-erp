@@ -646,7 +646,8 @@ export class StockLedgerService {
 
       if (command.gl && this.deps.gl && valueDelta.scaled !== 0n) {
         await this.deps.gl.post(
-          buildAdjustmentPosting(command, valueDelta, occurredAt),
+          // The GL is dated with a DAY; `occurredAt` is an ISO instant.
+          buildAdjustmentPosting(command, valueDelta, occurredAt.slice(0, 10)),
         );
       }
 
@@ -713,7 +714,7 @@ export class StockLedgerService {
           sourceDocType: command.sourceDocType,
           sourceDocId: command.sourceDocId,
           sourceDocNumber: command.sourceDocNumber ?? null,
-          date: occurredAt,
+          date: occurredAt.slice(0, 10),
           memo: `Stock issue ${command.sourceDocNumber ?? command.sourceDocId}`,
           lines: [
             {

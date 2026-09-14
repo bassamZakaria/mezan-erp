@@ -18,6 +18,7 @@ import {
   InvalidSalesInvoicePaymentError,
   InvalidPurchaseDocumentError,
   postJournalEntry,
+  reverseJournalEntry,
   resolvePrice,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
@@ -34,12 +35,14 @@ import {
   type SubcontractVoucherPort,
   type ClientCertifiedQuantityPort,
   type SubcontractConsumptionPort,
+  type SubcontractRetentionInvoicingPort,
   CERTIFICATE_WORKS_ITEM_ID,
   RETENTION_RELEASE_ITEM_ID,
   GuaranteeService,
   type CertificateInvoicingPort,
   type RetentionReleaseInvoicingPort,
   type CertificateGuaranteePort,
+  type ContractBillingRoutingPort,
   createTreasuryLedgerReader,
   VoucherService,
   type TreasuryTransferInput,
@@ -75,6 +78,7 @@ import {
   getAdjustmentReasonDefinition,
   type AdjustmentReason,
   type AccountRouting,
+  costToDateOf,
   routedAccountId,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
@@ -895,9 +899,58 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const workflowConfigs = createSqliteWorkflowConfigStore(sqlite);
   const approvalRequests = createSqliteApprovalRequestStore(sqlite);
 
+  /**
+   * The contracting control and contract-cost accounts, resolved through the
+   * routing store, whose journal lines MUST name a project. A hand-written
+   * entry that moved 1230 or 2160 with no `projectId` produced a figure no
+   * project report could roll up and no module could reconcile.
+   *
+   * The memorandum pair, the restricted-cash margin and «خسائر عقود متوقعة»
+   * are deliberately NOT in the set: a forfeited خطاب ضمان ابتدائي belongs to a
+   * TENDER, which by construction has no project yet.
+   */
+  const PROJECT_REQUIRED_ROUTING_KEYS = [
+    "contracting.wip",
+    "contracting.contract_asset",
+    "contracting.contract_liability",
+    "contracting.billings",
+    "contracting.retention_receivable",
+    "contracting.retention_payable",
+    "contracting.customer_advances",
+    "contracting.cost_of_revenue",
+    "contracting.social_insurance",
+    "contracting.social_insurance_withheld",
+    "contracting.employer_materials",
+    "contracting.stamp_duty",
+    "contracting.utilities",
+    "contracting.onerous_provision",
+    "contracting.wht_receivable",
+    "contracting.wht_payable",
+    "contracting.subcontractor_advances",
+  ] as const;
+  const projectRequiredAccountIds = new Set<string>(
+    (
+      await Promise.all(
+        PROJECT_REQUIRED_ROUTING_KEYS.map(async (key) =>
+          routedAccountId(await accountRouting.get(), key),
+        ),
+      )
+    ).filter((id): id is string => id !== null),
+  );
+  // `audit` so every posting this composition makes — the contracting module's
+  // included — leaves a forensic row naming the entry, its date and its actor.
   // vatFilings rides along so a DOCUMENT confirm is gated by a filed return
   // exactly as a hand-written journal entry is (D29).
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering, vatFilings, projects };
+  const salesInvoiceGl = {
+    ledger,
+    accounts,
+    periods: fiscalPeriods,
+    numbering: ledger.numbering,
+    vatFilings,
+    projects,
+    projectRequiredAccountIds,
+    audit: auditSink,
+  };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -920,6 +973,53 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // zero and COGS was understated by the whole deficit (D101).
     fallbackUnitCost: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
   });
+  /**
+   * The expense accounts a contract's التكلفة حتى تاريخه must NOT count:
+   * غرامة التأخير (a deduction from the price — counting it would raise the
+   * percentage of completion for being late), the plant-recovery contra of a
+   * cost already in WIP, the run's own onerous-loss line, and the
+   * inventory-adjustment accounts 5060–5080, which are shrinkage rather than
+   * anything built. Everything else expense-type still counts.
+   */
+  const contractingCostExclusions = async (): Promise<ReadonlySet<string>> => {
+    const routing = await accountRouting.get();
+    const excluded = new Set<string>([
+      routedAccountId(routing, "contracting.late_penalty") ?? "5910",
+      routedAccountId(routing, "contracting.plant_recovery") ?? "5160",
+      routedAccountId(routing, "contracting.onerous_loss") ?? "5930",
+    ]);
+    for (const account of await accounts.list()) {
+      if (account.type === "expense" && account.code >= "5060" && account.code <= "5080") excluded.add(account.id);
+    }
+    return excluded;
+  };
+
+  /**
+   * التكلفة حتى تاريخه for a project on the recognition run's own basis. The
+   * cost-overrun exception report reads it through THIS function rather than
+   * summing the ledger itself, so the report and the run can never disagree
+   * about what a contract has cost.
+   */
+  const contractingProjectCostToDate = async (projectId: string, toDate: string): Promise<Money> => {
+    const [routing, accountList, excluded, lines] = await Promise.all([
+      accountRouting.get(),
+      accounts.list(),
+      contractingCostExclusions(),
+      ledger.listLines?.({ projectId, toDate }) ?? [],
+    ]);
+    const expenseAccountIds = new Set(accountList.filter((a) => a.type === "expense").map((a) => a.id));
+    return costToDateOf(
+      lines,
+      expenseAccountIds,
+      {
+        wip: routedAccountId(routing, "contracting.wip") ?? "1230",
+        onerousLoss: routedAccountId(routing, "contracting.onerous_loss") ?? "5930",
+        plantRecovery: routedAccountId(routing, "contracting.plant_recovery") ?? "5160",
+      },
+      excluded,
+    );
+  };
+
   // المقاولات 4A — site issues/receipts move stock through the branch transit
   // store, consumption relieves it into WIP, and plant hours post their own
   // entry. It shares `stockService` and `salesInvoiceGl` so the movements and
@@ -935,6 +1035,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     assets,
     stockLedger: stockService,
     gl: salesInvoiceGl,
+    audit: auditSink,
     numbering: ledger.numbering,
     accountRouting,
     transaction: (fn) => contractingSiteStore.transaction(fn),
@@ -948,7 +1049,75 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return false;
       },
     },
+    // A project running under a live works contract is measured against its
+    // جدول الكميات, so consumption on it MUST name the line it was spent on or
+    // it never reaches انحراف الاستهلاك.
+    worksContracts: {
+      hasActiveContract: async (projectId) =>
+        (await worksContracts.listContracts({ projectId })).some((c) => c.status === "active"),
+    },
   });
+  // Sales invoices are the one document type the catalog's own email-template
+  // preview names explicitly ("تم إنشاء الفاتورة INV-000123 بقيمة 1,150.00 ج.م
+  // للعميل" — docs/archive/catalog/09 §البريد الإلكتروني), so this bridge enriches the
+  // generic documentNumber with the two other named template fields.
+  const salesInvoiceEventMapping = {
+    SALES_INVOICE: { DOCUMENT_CONFIRMED: "SALES_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "SALES_INVOICE_VOIDED" },
+  } satisfies DocumentEventMapping;
+  const salesInvoiceEventBridge = createDocumentEventBridge(
+    eventBus,
+    salesInvoiceEventMapping,
+    async (docId) => {
+      const invoice = await salesInvoices.findById(docId);
+      if (!invoice) return {};
+      const totals = salesInvoiceTotals(invoice);
+      return { customerName: invoice.customerNameAr, amount: totals.grandTotal.toString() };
+    },
+  );
+
+  const salesInvoiceEvents = fanOutDocumentEvents(
+    salesInvoiceEventBridge,
+    createEtaEnqueueBridge({
+      eta: etaService,
+      invoices: salesInvoices,
+      customers,
+      items,
+      taxRates,
+      branchCodes: etaStore.branchCodes,
+      unitMappings: etaStore.unitMappings,
+    }),
+  );
+
+  /**
+   * D-03's billing arrow, enforced on EVERY sales invoice and not just the ones
+   * a certificate raises: a project running a LIVE cost_to_cost works contract
+   * recognises revenue from the monthly EAS 48 run, so an ordinary invoice on
+   * it must credit البللينغ 2165 rather than إيرادات — otherwise the same work
+   * is counted twice, once by the invoice and once by the run.
+   *
+   * `revenueAccountIds` is the tenant's own chart, so a retention-release line
+   * (whose "revenue" account is the retention asset) and a billings line are
+   * left exactly where they are.
+   */
+  const contractBillingRouting: ContractBillingRoutingPort = {
+    async resolve(projectId) {
+      const live = (await worksContracts.listContracts()).find(
+        (contract) =>
+          contract.projectId === projectId &&
+          contract.status === "active" &&
+          contract.recognitionPolicy === "cost_to_cost",
+      );
+      if (!live) return null;
+      const [routing, chart] = await Promise.all([accountRouting.get(), accounts.list()]);
+      const billingsAccountId = routedAccountId(routing, "contracting.billings") ?? "2165";
+      return {
+        billingsAccountId,
+        revenueAccountIds: new Set(chart.filter((a) => a.type === "revenue").map((a) => a.id)),
+        memoAr: `عقد مقاولات بنظام نسبة الإتمام — الإيراد يُعترف به بمسيرة EAS 48 الشهرية، وهذه الفاتورة تُرحّل إلى حساب فواتير المستخلصات (${billingsAccountId}).`,
+      };
+    },
+  };
+
   /**
    * المستخلص 2 — the certificate BILLS through the EXISTING sales-invoice
    * engine (D-02). The certificate stays its own document and the invoice a
@@ -981,7 +1150,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         stock: createSalesInvoiceStockHook(stockService),
         allocatable: vouchers.invoices,
         audit: auditSink,
-        actor: "system",
+        // INVARIANT: the SAME publisher the /sales/invoices routes use. A
+        // derived invoice confirmed without it is a live invoice the ETA queue
+        // never hears about (D5) — the authority sees the tenant's certificate
+        // billing simply missing.
+        events: salesInvoiceEvents,
+        // The REAL actor, not "system": this invoice is a live receivable, and
+        // its audit row named nobody.
+        actor: cmd.actor ?? "system",
       });
       await service.createDraft({
         id: invoiceId,
@@ -1013,7 +1189,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           },
         ],
       });
-      const confirmed = await service.confirm(invoiceId, { actor: "system" });
+      const confirmed = await service.confirm(invoiceId, { actor: cmd.actor ?? "system" });
       const totals = salesInvoiceTotals(confirmed.invoice);
       return {
         invoiceId,
@@ -1043,6 +1219,28 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       if (!sub) return;
       await vouchers.invoices.save({ ...sub, allocated: Money.fromScaled(sub.allocated.scaled + amount.scaled) });
     },
+    /**
+     * The void, mirroring /sales/invoices/:id/void: a LINKED reversing entry
+     * (never an edit or a delete), the invoice moved to «معكوس», and the
+     * receivable sub-ledger row zeroed so it leaves AR with the control
+     * account. The certificate's own lines are never stock, so there is
+     * nothing to put back into the store.
+     */
+    async voidInvoice(invoiceId, date, reasonAr) {
+      const invoice = await salesInvoices.findById(invoiceId);
+      if (!invoice) return;
+      if (invoice.status === "reversed" || invoice.status === "cancelled") return;
+      if (invoice.journalEntryId) {
+        await reverseJournalEntry(invoice.journalEntryId, salesInvoiceGl, {
+          reversalId: `${invoice.id}:void`,
+          date,
+          memo: `عكس فاتورة مستخلص ${invoice.docNo ?? invoice.id} — ${reasonAr}`,
+        });
+      }
+      await salesInvoices.update({ ...invoice, status: "reversed" });
+      const sub = await vouchers.invoices.findById(invoiceId);
+      if (sub) await vouchers.invoices.save({ ...sub, total: Money.zero(), allocated: Money.zero() });
+    },
   };
 
   /**
@@ -1051,7 +1249,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * simply has nothing to reduce.
    */
   const certificateGuarantees: CertificateGuaranteePort = {
-    async reduceAdvanceGuarantee({ contractId, projectId, date, amount, sourceRef }) {
+    async reduceAdvanceGuarantee({ contractId, projectId, date, amount, sourceRef, actor }) {
       const live = (await guarantees.list()).find(
         (g) =>
           // The register links a letter to a project OR to a contract, and the
@@ -1071,11 +1269,40 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         projects,
         routing: accountRouting,
         gl: salesInvoiceGl,
+        audit: auditSink,
       });
       await service.reduce(live.id, {
         date,
         amount: capped,
         reason: "خصم الدفعة المقدمة من المستخلص",
+        sourceRef,
+        userId: actor ?? null,
+      });
+    },
+    async restoreAdvanceGuarantee({ contractId, projectId, date, amount, sourceRef }) {
+      const live = (await guarantees.list()).find(
+        (g) =>
+          (g.contractId === contractId || (g.contractId === null && g.projectId === projectId)) &&
+          g.kind === "advance" &&
+          (g.status === "active" || g.status === "reduced"),
+      );
+      if (!live) return;
+      const headroom = live.faceValue.scaled - live.currentValue.scaled;
+      if (headroom <= 0n) return;
+      const capped = amount.scaled > headroom ? Money.fromScaled(headroom) : amount;
+      const service = new GuaranteeService({
+        guarantees,
+        treasuryAccounts,
+        accounts,
+        projects,
+        routing: accountRouting,
+        gl: salesInvoiceGl,
+        audit: auditSink,
+      });
+      await service.restore(live.id, {
+        date,
+        amount: capped,
+        reason: "إلغاء مستخلص — استرجاع تخفيض الدفعة المقدمة",
         sourceRef,
       });
     },
@@ -1113,7 +1340,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         stock: createSalesInvoiceStockHook(stockService),
         allocatable: vouchers.invoices,
         audit: auditSink,
-        actor: "system",
+        // INVARIANT: the same publisher the /sales/invoices routes use — see the certificate's port above.
+        events: salesInvoiceEvents,
+        // The REAL actor, not "system": this invoice is a live receivable, and
+        // its audit row named nobody.
+        actor: cmd.actor ?? "system",
       });
       await service.createDraft({
         id: invoiceId,
@@ -1143,7 +1374,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           },
         ],
       });
-      const confirmed = await service.confirm(invoiceId, { actor: "system" });
+      const confirmed = await service.confirm(invoiceId, { actor: cmd.actor ?? "system" });
       const totals = salesInvoiceTotals(confirmed.invoice);
       return {
         invoiceId,
@@ -1170,6 +1401,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
   };
 
+  /**
+   * فصل المهام — read per call, never captured. The wildcard admin is bound by
+   * preparer ≠ certifier ≠ approver like everyone else UNLESS the tenant has
+   * turned on «وضع المشغّل الواحد», which a genuinely one-person install does
+   * and nobody else should.
+   */
+  const segregationWaived = async (actor: { wildcardAdmin: boolean }): Promise<boolean> => {
+    if (!actor.wildcardAdmin) return false;
+    const tenant = (await settings.get()) ?? createDefaultSettings();
+    return tenant.contractingSingleOperatorMode;
+  };
+
   const certificateDeps = {
     store: progressCertificates,
     contracts: worksContracts,
@@ -1185,6 +1428,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const rate = tenant.contractingCbeCreditDiscountRatePercent;
       return rate === null ? null : String(rate);
     },
+    audit: auditSink,
+    segregationWaived,
   };
   const certificateService = new CertificateService(certificateDeps);
 
@@ -1227,14 +1472,27 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * move together, or the invoice reads as owing the gross while the control
    * account holds the net.
    */
+  /**
+   * INVARIANT: a subcontract's invoice is booked in the PROJECT's own branch
+   * and site store, resolved from مستودع الموقع. Falling back to the first
+   * branch in the list put every project's cost in the head-office branch and
+   * made per-branch reporting silently wrong.
+   */
+  const projectPosting = async (projectId: string): Promise<{ branchId: string; warehouseId: string }> => {
+    const siteStore = (await warehouses.findAll()).find(
+      (w) => w.type === "SITE" && w.projectId === projectId && w.active,
+    );
+    if (!siteStore) {
+      throw new Error(
+        `لا يمكن إصدار مستند على المشروع "${projectId}" قبل تعريف مستودع موقع له — الفرع والمستودع يُقرآن منه.`,
+      );
+    }
+    return { branchId: siteStore.branchId, warehouseId: siteStore.id };
+  };
+
   const subCertificateInvoicing: SubCertificateInvoicingPort = {
     async issue(cmd) {
-      const [branchList, warehouseList] = await Promise.all([branches.findAll(), warehouses.findAll()]);
-      const branchId = branchList[0]?.id;
-      const warehouseId = warehouseList[0]?.id;
-      if (!branchId || !warehouseId) {
-        throw new Error("لا يمكن إصدار فاتورة مستخلص الباطن قبل تعريف فرع ومستودع واحد على الأقل.");
-      }
+      const { branchId, warehouseId } = await projectPosting(cmd.projectId);
       const invoiceId = `${cmd.certificateId}-PINV`;
       await createPurchaseInvoice(
         {
@@ -1248,7 +1506,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           currency: "EGP",
           notes: cmd.memoAr,
           projectId: cmd.projectId,
-          createdBy: "system",
+          createdBy: cmd.actor ?? "system",
           lines: [
             {
               itemId: null,
@@ -1278,7 +1536,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         exchangeRates,
         baseCurrency: "EGP",
         audit: auditSink,
-        actor: "system",
+        actor: cmd.actor ?? "system",
       });
       return {
         invoiceId,
@@ -1307,6 +1565,61 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const sub = await vouchers.invoices.findById(invoiceId);
       if (!sub) return;
       await vouchers.invoices.save({ ...sub, allocated: Money.fromScaled(sub.allocated.scaled + amount.scaled) });
+    },
+  };
+
+  /**
+   * INVARIANT: الإفراج عن محتجزات الباطن is a purchase invoice whose single
+   * expense line debits 2195, so its own posting is Dr 2195 / Cr AP: the AP
+   * sub-ledger moves with GL 2100 and a payment voucher can settle it. Its due
+   * date is the release EVENT, not the invoice date plus payment terms.
+   */
+  const subcontractRetentionInvoicing: SubcontractRetentionInvoicingPort = {
+    async issue(cmd) {
+      const { branchId, warehouseId } = await projectPosting(cmd.projectId);
+      const invoiceId = `${cmd.releaseId}-PINV`;
+      await createPurchaseInvoice(
+        {
+          id: invoiceId,
+          supplierId: cmd.supplierId,
+          date: cmd.date,
+          dueDate: cmd.dueDate,
+          supplierInvoiceNumber: cmd.subcontractDocNo,
+          branchId,
+          warehouseId,
+          currency: "EGP",
+          notes: cmd.memoAr,
+          projectId: cmd.projectId,
+          createdBy: cmd.actor ?? "system",
+          lines: [
+            {
+              itemId: null,
+              kind: "expense",
+              description: cmd.lineDescriptionAr,
+              qty: Qty.fromMajor("1"),
+              unitCost: cmd.amount,
+              taxRatePercent: 0,
+            },
+          ],
+        },
+        { invoices: purchaseInvoices, numbering: ledger.numbering },
+      );
+      const { invoice } = await confirmPurchaseInvoice(invoiceId, {
+        invoices: purchaseInvoices,
+        stock: stockService,
+        gl: subcontractPurchaseGl,
+        accounts: { ...PURCHASE_GL_ACCOUNTS, expenseAccountId: cmd.retentionAccountId },
+        allocatable: vouchers.invoices,
+        exchangeRates,
+        baseCurrency: "EGP",
+        audit: auditSink,
+        actor: cmd.actor ?? "system",
+      });
+      return {
+        invoiceId,
+        invoiceDocNo: invoice.number,
+        journalEntryId: `PI-JE:${invoiceId}`,
+      };
     },
   };
 
@@ -1376,7 +1689,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     routing: accountRouting,
     suppliers: subcontractSuppliers,
     vouchers: subcontractVouchers,
-    payableAccountId: PURCHASE_GL_ACCOUNTS.payableAccountId,
+    retentionInvoicing: subcontractRetentionInvoicing,
+    audit: auditSink,
   };
   const subCertificateDeps = {
     store: subcontracts,
@@ -1388,6 +1702,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     suppliers: subcontractSuppliers,
     clientCertificates: clientCertifiedQuantities,
     consumptions: subcontractConsumptions,
+    audit: auditSink,
+    segregationWaived,
   };
 
 
@@ -1406,37 +1722,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
   } satisfies DocumentEventMapping;
   const returnsEventBridge = createDocumentEventBridge(eventBus, returnsEventMapping);
-
-  // Sales invoices are the one document type the catalog's own email-template
-  // preview names explicitly ("تم إنشاء الفاتورة INV-000123 بقيمة 1,150.00 ج.م
-  // للعميل" — docs/archive/catalog/09 §البريد الإلكتروني), so this bridge enriches the
-  // generic documentNumber with the two other named template fields.
-  const salesInvoiceEventMapping = {
-    SALES_INVOICE: { DOCUMENT_CONFIRMED: "SALES_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "SALES_INVOICE_VOIDED" },
-  } satisfies DocumentEventMapping;
-  const salesInvoiceEventBridge = createDocumentEventBridge(
-    eventBus,
-    salesInvoiceEventMapping,
-    async (docId) => {
-      const invoice = await salesInvoices.findById(docId);
-      if (!invoice) return {};
-      const totals = salesInvoiceTotals(invoice);
-      return { customerName: invoice.customerNameAr, amount: totals.grandTotal.toString() };
-    },
-  );
-
-  const salesInvoiceEvents = fanOutDocumentEvents(
-    salesInvoiceEventBridge,
-    createEtaEnqueueBridge({
-      eta: etaService,
-      invoices: salesInvoices,
-      customers,
-      items,
-      taxRates,
-      branchCodes: etaStore.branchCodes,
-      unitMappings: etaStore.unitMappings,
-    }),
-  );
 
   const salesReturnEvents = fanOutDocumentEvents(
     returnsEventBridge,
@@ -1696,6 +1981,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * false mismatch for the whole deduction.
      */
     for (const certificate of await progressCertificates.list()) {
+      // A VOIDED certificate has had its deductions entry mirrored, so the
+      // control account is back where it was and the sub-ledger must not
+      // subtract them a second time.
+      if (certificate.status === "voided") continue;
       arScaled -= certificate.postedDeductionsTotal.scaled;
     }
 
@@ -1722,18 +2011,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     /**
      * An approved مستخلص باطن DEBITS AP by its deductions block — the retention
      * withheld from the subcontractor, the advance recovered, the WHT owed to
-     * the ETA and the rest — against the purchase invoice it generated, and a
-     * retention RELEASE credits AP back. Both move the control account; the
-     * sub-ledger has to follow them or every tenant that ever approved a sub
-     * certificate reads a false mismatch for the whole deduction.
+     * the ETA and the rest — against the purchase invoice it generated. The
+     * control account moves; the sub-ledger has to follow it or every tenant
+     * that ever approved a sub certificate reads a false mismatch for the whole
+     * deduction.
+     *
+     * A retention RELEASE is NOT added here: it is itself a purchase invoice
+     * (Dr 2195 / Cr AP), already counted with every other confirmed one above.
      */
     for (const certificate of await subcontracts.listCertificates()) {
       apScaled -= certificate.postedDeductionsTotal.scaled;
-    }
-    for (const subcontract of await subcontracts.list()) {
-      for (const release of subcontract.retentionReleases) {
-        apScaled += release.amount.scaled;
-      }
     }
     // Landed costs are deliberately NOT added here any more. They used to be,
     // to compensate for the document crediting GL 2100 — so the invariant
@@ -1747,10 +2034,115 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       inventoryScaled += snap.totalValue.scaled;
     }
 
+    /**
+     * المقاولات — six more control accounts, each read from the MODULE's own
+     * store the same way the poster moved the ledger. Without these rows the
+     * whole contracting module stood outside the one instrument that proves a
+     * sub-ledger and its control account still agree, which is the only reason
+     * the certificate, the subcontract and the site store can be trusted.
+     */
+    const [certificates, subContracts, subCerts, releases, consumptions, equipmentLogs, runs, routing] =
+      await Promise.all([
+        progressCertificates.list(),
+        subcontracts.list(),
+        subcontracts.listCertificates(),
+        retentionReleases.list(),
+        contractingSiteStore.consumptions.list({ status: "confirmed" }),
+        contractingSiteStore.equipmentLogs.list({ status: "confirmed" }),
+        recognitionRuns.list(),
+        accountRouting.get(),
+      ]);
+    const account = (key: string, fallback: string): string => routedAccountId(routing, key) ?? fallback;
+
+    /** Only a certificate whose deductions entry is actually on the ledger, and was not reversed. */
+    const postedCertificates = certificates.filter((c) => c.journalEntryId !== null && c.status !== "voided");
+    const postedSubCertificates = subCerts.filter((c) => c.journalEntryId !== null);
+    const postedRuns = runs.filter((r) => r.status === "posted");
+    const deduction = (
+      rows: readonly { key: string; thisCertificate: Money }[],
+      key: string,
+    ): bigint => rows.find((d) => d.key === key)?.thisCertificate.scaled ?? 0n;
+
+    let retentionReceivableScaled = 0n;
+    for (const c of postedCertificates) retentionReceivableScaled += deduction(c.computed.deductions, "retention");
+    for (const r of releases) {
+      if (r.status === "released") retentionReceivableScaled -= r.amount.scaled;
+    }
+
+    let retentionPayableScaled = 0n;
+    for (const c of postedSubCertificates) retentionPayableScaled += deduction(c.computed.deductions, "retention");
+    for (const sub of subContracts) {
+      for (const release of sub.retentionReleases) retentionPayableScaled -= release.amount.scaled;
+    }
+
+    /**
+     * دفعات مقدمة من العملاء: the advance voucher credits it, every certificate
+     * that recovers part of the advance debits it. The advance is received once
+     * and recovered many times, so both halves have to be read.
+     */
+    const advanceAccountId = account("contracting.customer_advances", "2160");
+    let customerAdvancesScaled = 0n;
+    for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
+      const line = doc.lines[0];
+      if (!line || line.counterpartyGlAccountId !== advanceAccountId) continue;
+      customerAdvancesScaled += line.direction === "receipt" ? line.amount.scaled : -line.amount.scaled;
+    }
+    for (const c of postedCertificates) {
+      customerAdvancesScaled -= deduction(c.computed.deductions, "advanceRecovery");
+    }
+
+    /**
+     * أعمال تحت التنفيذ: what the site store consumed into it, what the plant
+     * logs charged to it, and what the subcontractors' certified work put into
+     * it — less what the monthly recognition run has already relieved.
+     */
+    let wipScaled = 0n;
+    for (const row of consumptions) wipScaled += row.totalCost.scaled;
+    for (const log of equipmentLogs) wipScaled += log.amount.scaled;
+    for (const c of postedSubCertificates) wipScaled += c.computed.invoiceBase.scaled;
+    for (const run of postedRuns) wipScaled -= run.wipRelieved.scaled;
+
+    /**
+     * فواتير مستخلصات على العقود: what the certificates of cost-to-cost
+     * contracts billed, less what each run has reclassified out of 2165.
+     */
+    const billingsAccountId = account("contracting.billings", "2165");
+    let billingsScaled = 0n;
+    for (const inv of invoices) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      const lineTotals = salesInvoiceTotals(inv).lines;
+      inv.lines.forEach((line, index) => {
+        if (line.revenueAccountId !== billingsAccountId) return;
+        const base = lineTotals[index]?.taxableBase;
+        if (base) billingsScaled += base.scaled;
+      });
+    }
+    for (const run of postedRuns) billingsScaled -= run.billedInPeriod.scaled;
+
+    /** أصل/التزام العقد: the latest posted run per contract IS the position. */
+    const latestRunByContract = new Map<string, (typeof postedRuns)[number]>();
+    for (const run of postedRuns) {
+      const seen = latestRunByContract.get(run.contractId);
+      if (!seen || run.periodEnd > seen.periodEnd) latestRunByContract.set(run.contractId, run);
+    }
+    let contractAssetScaled = 0n;
+    let contractLiabilityScaled = 0n;
+    for (const run of latestRunByContract.values()) {
+      contractAssetScaled += run.contractAsset.scaled;
+      contractLiabilityScaled += run.contractLiability.scaled;
+    }
+
     return [
       { key: "inventory", label: "تقييم المخزون مقابل دفتر الأستاذ", controlAccountId: "1200", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(inventoryScaled) },
       { key: "ar", label: "ذمم العملاء مقابل دفتر الأستاذ", controlAccountId: "1105", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(arScaled) },
       { key: "ap", label: "ذمم الموردين مقابل دفتر الأستاذ", controlAccountId: "2100", naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(apScaled) },
+      { key: "contracting_retention_receivable", label: "محتجزات لدى العملاء مقابل دفتر الأستاذ", controlAccountId: account("contracting.retention_receivable", "1150"), naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(retentionReceivableScaled) },
+      { key: "contracting_retention_payable", label: "محتجزات مقاولي الباطن مقابل دفتر الأستاذ", controlAccountId: account("contracting.retention_payable", "2195"), naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(retentionPayableScaled) },
+      { key: "contracting_customer_advances", label: "دفعات مقدمة من العملاء مقابل دفتر الأستاذ", controlAccountId: advanceAccountId, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(customerAdvancesScaled) },
+      { key: "contracting_wip", label: "أعمال تحت التنفيذ مقابل دفتر الأستاذ", controlAccountId: account("contracting.wip", "1230"), naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(wipScaled) },
+      { key: "contracting_billings", label: "فواتير مستخلصات على العقود مقابل دفتر الأستاذ", controlAccountId: billingsAccountId, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(billingsScaled) },
+      { key: "contracting_contract_asset", label: "أصل العقد مقابل دفتر الأستاذ", controlAccountId: account("contracting.contract_asset", "1170"), naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(contractAssetScaled) },
+      { key: "contracting_contract_liability", label: "التزام العقد مقابل دفتر الأستاذ", controlAccountId: account("contracting.contract_liability", "2175"), naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(contractLiabilityScaled) },
     ];
   }
 
@@ -2070,6 +2462,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: ledger.numbering,
       projects,
       audit: auditSink,
+      // The HAND-WRITTEN journal is exactly where an uncategorised movement on
+      // a contracting control account gets in, so the same set guards it.
+      projectRequiredAccountIds,
       vatFilings,
       openPartyDocuments: () => collectOpenPartyDocuments(),
       baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
@@ -2207,6 +2602,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // not have — the browser fills any unmapped item from constants (D108).
       accounts,
       allocatable: vouchers.invoices,
+      contractBilling: contractBillingRouting,
       // The customer's own price list, consulted SERVER-side. The engine
       // (resolvePrice) always existed and no route called it, so the whole
       // pricing order held only in the browser (D35).
@@ -2346,7 +2742,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       site: siteService,
       equipmentLogs: contractingSiteStore.equipmentLogs,
       projects,
+      // The payable half of the retention: the sub side has its own clock, and
+      // an early release to a subcontractor is the same exception as one to a
+      // client.
+      subcontracts: { list: () => new SubcontractService(subcontractDeps).list() },
+      projectCostToDate: contractingProjectCostToDate,
       releaseItemId: RETENTION_RELEASE_ITEM_ID,
+      segregationWaived,
+      audit: auditSink,
     },
     contractingRecognition: {
       runs: recognitionRuns,
@@ -2355,6 +2758,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       ledger,
       routing: accountRouting,
       gl: salesInvoiceGl,
+      audit: auditSink,
+      costExcludedAccountIds: contractingCostExclusions,
     },
     // خطابات الضمان posts the memorandum pair AND the restricted-cash margin
     // through the SAME GL engine every other document uses, so the register's
@@ -2368,6 +2773,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       projectsList: projects,
       routing: accountRouting,
       gl: salesInvoiceGl,
+      audit: auditSink,
       contracts: { exists: async (id) => (await worksContracts.findContractById(id)) !== null },
     },
     fixedAssets: {
@@ -2377,6 +2783,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gl: salesInvoiceGl,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
       settings,
+      audit: auditSink,
     },
     inventoryWritedown: {
       runs: writedownRuns,
@@ -2752,6 +3159,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // مبيعات المندوبين reads the same van-trip store /field/van-trips writes.
       vanTrips,
       employees: hrEmployees,
+      // إقرار الخصم والتحصيل covers both halves: tax withheld on a payment
+      // voucher and tax withheld on a subcontractor's certified bill.
+      subCertificates: subcontracts,
     },
     financialReports: {
       ledger,

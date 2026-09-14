@@ -69,7 +69,8 @@ function makeRandom(seed: number): () => number {
   };
 }
 
-const rand = makeRandom(0x4d455a41);
+const HISTORY_RANDOM_SEED = 0x4d455a41;
+let rand = makeRandom(HISTORY_RANDOM_SEED);
 
 function pick<T>(items: readonly T[]): T {
   return items[Math.floor(rand() * items.length)]!;
@@ -159,6 +160,13 @@ function priceAt(item: HistoryItem, monthIndex: number): number {
 }
 
 export async function seedHistory(app: App): Promise<void> {
+  // INVARIANT: both `rand` and `onHand` are module state belonging to ONE
+  // tenant. A second seed in the same process would otherwise continue the
+  // first one's random stream (so the figures are no longer reproducible) and
+  // inherit its stock balances, planning sales against stock this tenant never
+  // bought — the confirm then fails NEGATIVE_STOCK partway through.
+  rand = makeRandom(HISTORY_RANDOM_SEED);
+  onHand.clear();
   await openFiscalYears(app);
   await seedExpenseAccounts(app);
   await seedParties(app);

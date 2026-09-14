@@ -20,6 +20,7 @@ import type {
   CreateSubcontractDTO,
   SubcontractDTO,
   SubcontractKindDTO,
+  SubcontractRetentionReleaseKindDTO,
   SubcontractLineDTO,
   SubcontractLineInputDTO,
   SubcontractStatusDTO,
@@ -678,6 +679,8 @@ function SubcontractDetailPage({
         { label: t("subcontracts.column.margin"), value: <MoneyValue value={majorOf(subcontract.margin)} showUnit={false} /> },
         { label: t("subcontracts.summary.advanceOutstanding"), value: <MoneyValue value={majorOf(subcontract.advanceOutstanding)} showUnit={false} /> },
         { label: t("subcontracts.summary.retentionHeld"), value: <MoneyValue value={majorOf(subcontract.retention.held)} showUnit={false} /> },
+        { label: t("subcontracts.summary.certifiedToDate"), value: <MoneyValue value={majorOf(subcontract.certifiedToDate)} showUnit={false} /> },
+        { label: t("subcontracts.summary.remainingCommitment"), value: <MoneyValue value={majorOf(subcontract.remainingCommitment)} showUnit={false} /> },
         { label: t("subcontracts.summary.certificateCount"), value: <span className="mz-num">{subcontract.certificateCount}</span> },
       ]}
       tabs={[
@@ -962,8 +965,13 @@ function SubcontractRetentionTab({ subcontract, mayRelease }: { subcontract: Sub
   const release = useReleaseSubcontractRetention();
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayIso());
+  const [kind, setKind] = useState<SubcontractRetentionReleaseKindDTO>("final");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const eventDate =
+    kind === "provisional"
+      ? subcontract.retention.provisionalReleaseEventDate
+      : subcontract.retention.finalReleaseEventDate;
 
   async function submit() {
     setError(null);
@@ -972,7 +980,10 @@ function SubcontractRetentionTab({ subcontract, mayRelease }: { subcontract: Sub
       return;
     }
     try {
-      await release.mutateAsync({ id: subcontract.id, body: { amount: amount.trim(), date, notes: notes.trim() === "" ? null : notes.trim() } });
+      await release.mutateAsync({
+        id: subcontract.id,
+        body: { amount: amount.trim(), date, kind, notes: notes.trim() === "" ? null : notes.trim() },
+      });
       setAmount("");
       setNotes("");
     } catch (err) {
@@ -987,6 +998,20 @@ function SubcontractRetentionTab({ subcontract, mayRelease }: { subcontract: Sub
           <Row label={t("subcontracts.retention.held")} value={<MoneyValue value={majorOf(subcontract.retention.held)} showUnit={false} />} />
           <Row label={t("subcontracts.retention.released")} value={<MoneyValue value={majorOf(subcontract.retention.released)} showUnit={false} />} />
           <Row label={t("subcontracts.retention.balance")} value={<MoneyValue value={majorOf(subcontract.retention.balance)} showUnit={false} />} />
+          <Row
+            label={t("subcontracts.retention.completionDate")}
+            value={<span className="mz-num">{subcontract.retention.completionDate ?? t("subcontracts.retention.notCompleted")}</span>}
+          />
+          <Row
+            label={t("subcontracts.retention.provisionalEvent")}
+            value={<span className="mz-num">{subcontract.retention.provisionalReleaseEventDate ?? "—"}</span>}
+          />
+          <Row
+            label={t("subcontracts.retention.finalEvent", {
+              months: String(subcontract.retention.defectsLiabilityMonths),
+            })}
+            value={<span className="mz-num">{subcontract.retention.finalReleaseEventDate ?? "—"}</span>}
+          />
         </div>
       </Card>
 
@@ -994,11 +1019,25 @@ function SubcontractRetentionTab({ subcontract, mayRelease }: { subcontract: Sub
         <Card className="p-[14px_16px]">
           <h3 className="mb-[8px] text-[12.5px] font-bold text-ink">{t("subcontracts.retention.releaseAction")}</h3>
           {error ? <p className="mb-[8px] text-[12px] font-semibold text-danger-ink">{error}</p> : null}
-          <div className="grid gap-[10px] sm:grid-cols-3">
+          <div className="grid gap-[10px] sm:grid-cols-4">
             <TextField label={t("subcontracts.retention.amount")} value={amount} onChange={setAmount} />
             <TextField label={t("subcontracts.retention.date")} value={date} onChange={setDate} type="date" />
+            <SelectField
+              label={t("subcontracts.retention.kind")}
+              value={kind}
+              onChange={(v) => setKind(v as SubcontractRetentionReleaseKindDTO)}
+              options={[
+                { value: "provisional", label: t("subcontracts.retention.kind.provisional") },
+                { value: "final", label: t("subcontracts.retention.kind.final") },
+              ]}
+            />
             <TextField label={t("common.notes")} value={notes} onChange={setNotes} />
           </div>
+          {eventDate !== null && date < eventDate ? (
+            <p className="mt-[8px] text-[12px] font-semibold text-warning-ink">
+              {t("subcontracts.retention.earlyWarning", { eventDate })}
+            </p>
+          ) : null}
           <div className="mt-[12px] flex justify-end">
             <Button variant="primary" onClick={() => void submit()} disabled={release.isPending}>
               {t("subcontracts.retention.releaseAction")}
@@ -1018,6 +1057,9 @@ function SubcontractRetentionTab({ subcontract, mayRelease }: { subcontract: Sub
                 <tr className="border-b border-border text-ink-muted">
                   <th className="p-[6px_8px] text-start">{t("subcontracts.col.date")}</th>
                   <th className="p-[6px_8px] text-end">{t("subcontracts.col.amount")}</th>
+                  <th className="p-[6px_8px] text-start">{t("subcontracts.retention.kind")}</th>
+                  <th className="p-[6px_8px] text-start">{t("subcontracts.retention.eventDate")}</th>
+                  <th className="p-[6px_8px] text-start">{t("subcontracts.retention.invoice")}</th>
                   <th className="p-[6px_8px] text-start">{t("common.notes")}</th>
                 </tr>
               </thead>
@@ -1028,6 +1070,20 @@ function SubcontractRetentionTab({ subcontract, mayRelease }: { subcontract: Sub
                     <td className="mz-num p-[6px_8px] text-end">
                       <MoneyValue value={majorOf(r.amount)} showUnit={false} />
                     </td>
+                    <td className="p-[6px_8px]">
+                      {t(
+                        r.kind === "provisional"
+                          ? "subcontracts.retention.kind.provisional"
+                          : "subcontracts.retention.kind.final",
+                      )}
+                      {r.earlyRelease ? (
+                        <span className="ms-[6px] text-[11px] font-semibold text-warning-ink">
+                          {t("subcontracts.retention.early")}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="mz-num p-[6px_8px]">{r.releaseEventDate ?? "—"}</td>
+                    <td className="p-[6px_8px]">{r.invoiceDocNo ?? "—"}</td>
                     <td className="p-[6px_8px]">{r.notes ?? "—"}</td>
                   </tr>
                 ))}

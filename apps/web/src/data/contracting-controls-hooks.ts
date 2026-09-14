@@ -3,6 +3,7 @@ import type {
   BoqOverrunReportDTO,
   ConsumptionVarianceReportDTO,
   ContractingExceptionSummaryDTO,
+  CostOverrunReportDTO,
   CreateRetentionReleaseDTO,
   EarlyRetentionReleaseReportDTO,
   EquipmentExceptionReportDTO,
@@ -41,6 +42,7 @@ export interface ExceptionReportParams {
   readonly asOfDate?: string | null;
   readonly olderThanDays?: string | null;
   readonly thresholdPercent?: string | null;
+  readonly stalenessMonths?: string | null;
 }
 
 function searchOf(params: ExceptionReportParams): string {
@@ -49,6 +51,7 @@ function searchOf(params: ExceptionReportParams): string {
   if (params.asOfDate) search.set("asOfDate", params.asOfDate);
   if (params.olderThanDays) search.set("olderThanDays", params.olderThanDays);
   if (params.thresholdPercent) search.set("thresholdPercent", params.thresholdPercent);
+  if (params.stalenessMonths) search.set("stalenessMonths", params.stalenessMonths);
   const text = search.toString();
   return text === "" ? "" : `?${text}`;
 }
@@ -80,6 +83,8 @@ export const useLateVariationReport = (p: ExceptionReportParams, enabled: boolea
   useExceptionReport<LateVariationReportDTO>("late-variation-approvals", p, enabled);
 export const useEarlyRetentionReleaseReport = (p: ExceptionReportParams, enabled: boolean) =>
   useExceptionReport<EarlyRetentionReleaseReportDTO>("early-retention-release", p, enabled);
+export const useCostOverrunReport = (p: ExceptionReportParams, enabled: boolean) =>
+  useExceptionReport<CostOverrunReportDTO>("cost-overrun-vs-estimate", p, enabled);
 
 /** The dashboard tile's figure: how many exceptions are open right now. */
 export function useContractingExceptionSummary(enabled = true): UseQueryResult<ContractingExceptionSummaryDTO, ApiError> {
@@ -200,11 +205,11 @@ export function useReleaseRetention() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const invalidate = useInvalidate();
-  return useMutation<RetentionReleaseDTO, ApiError, { id: string }>({
-    mutationFn: async ({ id }) => {
+  return useMutation<RetentionReleaseDTO, ApiError, { id: string; approvedBy?: string | null }>({
+    mutationFn: async ({ id, approvedBy }) => {
       const res = await request(`${RETENTION}/releases/${encodeURIComponent(id)}/release`, {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify({ approvedBy: approvedBy?.trim() ? approvedBy.trim() : null }),
       });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("retention.api.releaseActionFailed")));
       return res.json<RetentionReleaseDTO>();

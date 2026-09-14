@@ -87,7 +87,10 @@ export interface SubCertificate {
   readonly certifiedAt: string | null;
   readonly approvedBy: string | null;
   readonly approvedAt: string | null;
+  readonly cancelledBy: string | null;
   readonly cancelledAt: string | null;
+  /** سبب الإلغاء — mandatory. A cancelled document with no stated reason is an untraceable one. */
+  readonly cancelReasonAr: string | null;
   readonly invoiceId: string | null;
   readonly invoiceDocNo: string | null;
   readonly journalEntryId: string | null;

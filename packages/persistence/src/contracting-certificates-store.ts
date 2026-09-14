@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS contracting_certificate (
   approved_by                    TEXT,
   approved_at                    TEXT,
   cancelled_at                   TEXT,
+  cancelled_by                   TEXT,
+  cancel_reason_ar               TEXT,
+  voided_at                      TEXT,
+  voided_by                      TEXT,
+  void_reason_ar                 TEXT,
+  void_journal_entry_id          TEXT,
   invoice_id                     TEXT,
   invoice_doc_no                 TEXT,
   journal_entry_id               TEXT,
@@ -164,6 +170,12 @@ interface HeaderRow {
   approved_by: string | null;
   approved_at: string | null;
   cancelled_at: string | null;
+  cancelled_by: string | null;
+  cancel_reason_ar: string | null;
+  voided_at: string | null;
+  voided_by: string | null;
+  void_reason_ar: string | null;
+  void_journal_entry_id: string | null;
   invoice_id: string | null;
   invoice_doc_no: string | null;
   journal_entry_id: string | null;
@@ -347,7 +359,8 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
       INSERT INTO contracting_certificate (
         id, doc_no, contract_id, project_id, serial, previous_certificate_id, period_from, period_to,
         execution_date, is_final, status, prepared_by, prepared_at, measured_by, measured_at,
-        certified_by, certified_at, approved_by, approved_at, cancelled_at, invoice_id, invoice_doc_no,
+        certified_by, certified_at, approved_by, approved_at, cancelled_at, cancelled_by, cancel_reason_ar,
+        voided_at, voided_by, void_reason_ar, void_journal_entry_id, invoice_id, invoice_doc_no,
         journal_entry_id, posted_deductions_total, due_date, penalties_cumulative, suspended_cumulative,
         employer_materials_cumulative, water_electricity_cumulative, notes,
         gross_works, materials_on_site, certificate_total, tender_discount_percent, tender_discount,
@@ -359,7 +372,8 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
       ) VALUES (
         @id, @doc_no, @contract_id, @project_id, @serial, @previous_certificate_id, @period_from, @period_to,
         @execution_date, @is_final, @status, @prepared_by, @prepared_at, @measured_by, @measured_at,
-        @certified_by, @certified_at, @approved_by, @approved_at, @cancelled_at, @invoice_id, @invoice_doc_no,
+        @certified_by, @certified_at, @approved_by, @approved_at, @cancelled_at, @cancelled_by, @cancel_reason_ar,
+        @voided_at, @voided_by, @void_reason_ar, @void_journal_entry_id, @invoice_id, @invoice_doc_no,
         @journal_entry_id, @posted_deductions_total, @due_date, @penalties_cumulative, @suspended_cumulative,
         @employer_materials_cumulative, @water_electricity_cumulative, @notes,
         @gross_works, @materials_on_site, @certificate_total, @tender_discount_percent, @tender_discount,
@@ -389,6 +403,12 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
         approved_by = excluded.approved_by,
         approved_at = excluded.approved_at,
         cancelled_at = excluded.cancelled_at,
+        cancelled_by = excluded.cancelled_by,
+        cancel_reason_ar = excluded.cancel_reason_ar,
+        voided_at = excluded.voided_at,
+        voided_by = excluded.voided_by,
+        void_reason_ar = excluded.void_reason_ar,
+        void_journal_entry_id = excluded.void_journal_entry_id,
         invoice_id = excluded.invoice_id,
         invoice_doc_no = excluded.invoice_doc_no,
         journal_entry_id = excluded.journal_entry_id,
@@ -498,6 +518,12 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
       approvedBy: row.approved_by,
       approvedAt: row.approved_at,
       cancelledAt: row.cancelled_at,
+      cancelledBy: row.cancelled_by ?? null,
+      cancelReasonAr: row.cancel_reason_ar ?? null,
+      voidedAt: row.voided_at ?? null,
+      voidedBy: row.voided_by ?? null,
+      voidReasonAr: row.void_reason_ar ?? null,
+      voidJournalEntryId: row.void_journal_entry_id ?? null,
       invoiceId: row.invoice_id,
       invoiceDocNo: row.invoice_doc_no,
       journalEntryId: row.journal_entry_id,
@@ -564,6 +590,12 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
         approved_by: certificate.approvedBy,
         approved_at: certificate.approvedAt,
         cancelled_at: certificate.cancelledAt,
+        cancelled_by: certificate.cancelledBy,
+        cancel_reason_ar: certificate.cancelReasonAr,
+        voided_at: certificate.voidedAt,
+        voided_by: certificate.voidedBy,
+        void_reason_ar: certificate.voidReasonAr,
+        void_journal_entry_id: certificate.voidJournalEntryId,
         invoice_id: certificate.invoiceId,
         invoice_doc_no: certificate.invoiceDocNo,
         journal_entry_id: certificate.journalEntryId,
@@ -675,6 +707,19 @@ export function createSqliteProgressCertificateStore(
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  const headerColumns = new Set(
+    (sqlite.prepare(`PRAGMA table_info(contracting_certificate)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const name of [
+    "cancelled_by",
+    "cancel_reason_ar",
+    "voided_at",
+    "voided_by",
+    "void_reason_ar",
+    "void_journal_entry_id",
+  ]) {
+    if (!headerColumns.has(name)) sqlite.exec(`ALTER TABLE contracting_certificate ADD COLUMN ${name} TEXT`);
+  }
   const store = new SqliteProgressCertificateStore(sqlite);
   return Object.assign(store, {
     close: () => {

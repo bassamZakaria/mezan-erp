@@ -4,6 +4,11 @@ import { BRANCH_ID, CORE, seedActorHeaders, step } from "./shared.js";
 /**
  * المستخلصات — slice 2 of المقاولات, seeded through the real routes.
  *
+ * Every signature carries its OWN date and they run forward —
+ * periodTo ≤ measuredAt ≤ certifiedAt ≤ approvedAt — because the service now
+ * refuses a certificate cleared for payment before it was measured, and a seed
+ * that stamped all three with today() could never prove it.
+ *
  * Every figure the screens show is the server's: the previous cumulative, the
  * contracted quantity as of the execution date, the whole deductions block and
  * the net payable are derived from the certificates that came before and from
@@ -109,6 +114,8 @@ export async function seedContractingCertificates(app: App): Promise<void> {
       executionDate: "2026-05-31",
       workLines: [{ code: "1", qty: "1600" }],
       materialLines: [] as { materialKey: string; descriptionAr: string; unit: string; qty: string; unitRate: string }[],
+      measuredAt: "2026-06-01",
+      certifiedAt: "2026-06-03",
       approvedAt: "2026-06-05",
     },
     {
@@ -121,6 +128,8 @@ export async function seedContractingCertificates(app: App): Promise<void> {
         { code: "2", qty: "30" },
       ],
       materialLines: [],
+      measuredAt: "2026-07-01",
+      certifiedAt: "2026-07-03",
       approvedAt: "2026-07-06",
     },
     {
@@ -134,6 +143,8 @@ export async function seedContractingCertificates(app: App): Promise<void> {
         { code: "3", qty: "40" },
       ],
       materialLines: [],
+      measuredAt: "2026-08-01",
+      certifiedAt: "2026-08-03",
       approvedAt: "2026-08-06",
     },
   ] as const;
@@ -151,8 +162,12 @@ export async function seedContractingCertificates(app: App): Promise<void> {
       workLines: spec.workLines.map((w) => ({ boqLineId: line(w.code), thisPeriodQty: w.qty })),
       materialLines: spec.materialLines,
     });
-    await stepAs(app, SURVEYOR(), "POST", `/contracting/certificates/${spec.id}/measure`);
-    await stepAs(app, CONSULTANT(), "POST", `/contracting/certificates/${spec.id}/certify`);
+    await stepAs(app, SURVEYOR(), "POST", `/contracting/certificates/${spec.id}/measure`, {
+      measuredAt: spec.measuredAt,
+    });
+    await stepAs(app, CONSULTANT(), "POST", `/contracting/certificates/${spec.id}/certify`, {
+      certifiedAt: spec.certifiedAt,
+    });
     const approved = (await stepAs(app, EMPLOYER_FINANCE(), "POST", `/contracting/certificates/${spec.id}/approve`, {
       approvedAt: spec.approvedAt,
     })) as unknown as CertificateRow;
@@ -216,8 +231,12 @@ export async function seedContractingCertificates(app: App): Promise<void> {
     ],
     notes: "تشوينات حديد التسليح بمحضر معاينة مشترك رقم ٤١.",
   });
-  await stepAs(app, SURVEYOR(), "POST", "/contracting/certificates/MST-DEMO-4/measure");
-  await stepAs(app, CONSULTANT(), "POST", "/contracting/certificates/MST-DEMO-4/certify");
+  await stepAs(app, SURVEYOR(), "POST", "/contracting/certificates/MST-DEMO-4/measure", {
+    measuredAt: "2026-09-02",
+  });
+  await stepAs(app, CONSULTANT(), "POST", "/contracting/certificates/MST-DEMO-4/certify", {
+    certifiedAt: "2026-09-05",
+  });
 
   await stepAs(app, SURVEYOR(), "POST", "/contracting/certificates", {
     id: "MST-DEMO-5",

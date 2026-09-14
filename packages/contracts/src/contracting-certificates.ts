@@ -22,6 +22,7 @@ export const progressCertificateStatusSchema = z.enum([
   "approved_for_payment",
   "invoiced",
   "cancelled",
+  "voided",
 ]);
 export type ProgressCertificateStatusDTO = z.infer<typeof progressCertificateStatusSchema>;
 
@@ -34,6 +35,7 @@ export const progressCertificateDerivedStatusSchema = z.enum([
   "invoiced",
   "collected",
   "cancelled",
+  "voided",
 ]);
 export type ProgressCertificateDerivedStatusDTO = z.infer<typeof progressCertificateDerivedStatusSchema>;
 
@@ -161,6 +163,12 @@ export const progressCertificateSchema = z.object({
   approvedBy: z.string().nullable(),
   approvedAt: z.string().nullable(),
   cancelledAt: z.string().nullable(),
+  cancelledBy: z.string().nullable(),
+  cancelReasonAr: z.string().nullable(),
+  voidedAt: z.string().nullable(),
+  voidedBy: z.string().nullable(),
+  voidReasonAr: z.string().nullable(),
+  voidJournalEntryId: z.string().nullable(),
   invoiceId: z.string().nullable(),
   invoiceDocNo: z.string().nullable(),
   journalEntryId: z.string().nullable(),
@@ -257,6 +265,34 @@ export const approveProgressCertificateSchema = z.object({
   approvedAt: isoDate,
 });
 export type ApproveProgressCertificateDTO = z.infer<typeof approveProgressCertificateSchema>;
+
+/**
+ * حصر / اعتماد الاستشاري carry their OWN date. Stamping today() made the three
+ * signature dates unorderable — a certificate for August could be measured,
+ * certified and cleared in an order the dates could not tell apart.
+ */
+export const measureProgressCertificateSchema = z.object({
+  measuredAt: isoDate.optional(),
+});
+export type MeasureProgressCertificateDTO = z.infer<typeof measureProgressCertificateSchema>;
+
+export const certifyProgressCertificateSchema = z.object({
+  certifiedAt: isoDate.optional(),
+});
+export type CertifyProgressCertificateDTO = z.infer<typeof certifyProgressCertificateSchema>;
+
+/** A cancelled certificate with no stated reason is unauditable. */
+export const cancelProgressCertificateSchema = z.object({
+  reasonAr: z.string().min(1, "سبب الإلغاء مطلوب"),
+});
+export type CancelProgressCertificateDTO = z.infer<typeof cancelProgressCertificateSchema>;
+
+/** إلغاء مستخلص معتمد — a reversal, and it carries the date it posts into. */
+export const voidProgressCertificateSchema = z.object({
+  date: isoDate,
+  reasonAr: z.string().min(1, "سبب الإلغاء مطلوب"),
+});
+export type VoidProgressCertificateDTO = z.infer<typeof voidProgressCertificateSchema>;
 
 export const internalCertificateRowSchema = z.object({
   boqLineId: z.string(),

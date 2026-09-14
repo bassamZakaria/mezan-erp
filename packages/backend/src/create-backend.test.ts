@@ -1531,7 +1531,22 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
       allMatched: boolean;
     };
     expect(body.allMatched).toBe(true);
-    expect(body.rows.map((r) => r.key).sort()).toEqual(["ap", "ar", "inventory"]);
+    // The three original controls plus المقاولات' seven: retention on both
+    // sides, customer advances, أعمال تحت التنفيذ, billings, and the contract
+    // asset/liability pair. The whole module used to sit outside the one
+    // instrument that proves a sub-ledger still equals its control account.
+    expect(body.rows.map((r) => r.key).sort()).toEqual([
+      "ap",
+      "ar",
+      "contracting_billings",
+      "contracting_contract_asset",
+      "contracting_contract_liability",
+      "contracting_customer_advances",
+      "contracting_retention_payable",
+      "contracting_retention_receivable",
+      "contracting_wip",
+      "inventory",
+    ]);
     for (const row of body.rows) {
       expect(row.matched).toBe(true);
       expect(Number(row.subLedgerBalance)).toBe(0);
@@ -3346,5 +3361,35 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
     expect(res.status).toBe(200);
     const customersList = (await res.json()) as unknown[];
     expect(customersList.length).toBeGreaterThan(0);
+  }, 60000);
+
+  /**
+   * D5 — the certificate BILLS through the ordinary sales-invoice engine, so
+   * its invoice is an ordinary ETA document. The contracting ports build their
+   * own `SalesInvoiceService`; one built without the shared event publisher
+   * confirms a live invoice the authority never hears about.
+   */
+  it("an approved progress certificate's invoice reaches the ETA queue exactly once", async () => {
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
+    handles.push(handle);
+    registries.set(handle.app, handle.sessions);
+    const app = handle.app;
+
+    const certRes = await app.fetch(new Request("http://local/contracting/certificates", { headers: admin(app) }));
+    expect(certRes.status).toBe(200);
+    const certificates = (await certRes.json()) as { invoiceDocNo: string | null }[];
+    const billed = certificates.map((c) => c.invoiceDocNo).filter((docNo): docNo is string => docNo !== null);
+    expect(billed.length).toBeGreaterThan(0);
+
+    // The bridge queues on a floating promise after confirm returns.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const queueRes = await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }));
+    expect(queueRes.status).toBe(200);
+    const queued = (await queueRes.json()) as { internalId: string; documentType: string }[];
+    for (const docNo of billed) {
+      const rows = queued.filter((r) => r.internalId === docNo);
+      expect(rows.map((r) => r.documentType), `certificate invoice ${docNo} in the queue`).toEqual(["invoice"]);
+    }
   }, 60000);
 });

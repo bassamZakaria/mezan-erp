@@ -83,6 +83,10 @@ export interface RecognitionFigures {
   /** opening + incurred − relieved. Reads zero after a run, which is the identity the screen shows. */
   readonly wipClosing: Money;
   readonly wipByCategory: readonly WipCategoryAmount[];
+  /** دفعات مقدمة من العملاء still to be recovered — the 2160 credit balance at `periodEnd`. */
+  readonly advanceOutstanding: Money;
+  /** محتجزات لدى العميل — the 1150 debit balance at `periodEnd`, net of what has been released. */
+  readonly retentionHeld: Money;
 }
 
 export interface RevenueRecognitionRun extends RecognitionFigures {

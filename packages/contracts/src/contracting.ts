@@ -37,6 +37,10 @@ export const projectPnLRowSchema = z.object({
   contractLiability: z.string(),
   billedToDate: z.string(),
   revenueRecognised: z.string(),
+  /** دفعات مقدمة من العملاء still outstanding — the 2160 credit balance. */
+  advanceOutstanding: z.string(),
+  /** محتجزات لدى العميل — the 1150 debit balance. */
+  retentionHeld: z.string(),
   flags: z.array(projectStatusFlagSchema),
 });
 

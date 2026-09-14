@@ -142,6 +142,7 @@ export type JournalSourceModule =
   | "manufacturing"
   | "payroll"
   | "assets"
+  | "contracting"
   | "manual"
   | "unknown";
 
@@ -169,6 +170,16 @@ const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   EMPLOYEE_ADVANCE: "payroll",
   DEPRECIATION_RUN: "assets",
   ASSET_DISPOSAL: "assets",
+  SUBCONTRACT: "contracting",
+  SUBCONTRACT_CERTIFICATE: "contracting",
+  PROGRESS_CERTIFICATE: "contracting",
+  RETENTION_RELEASE: "contracting",
+  LETTER_OF_GUARANTEE: "contracting",
+  REVENUE_RECOGNITION_RUN: "contracting",
+  SITE_ISSUE: "contracting",
+  SITE_RECEIPT: "contracting",
+  MATERIAL_CONSUMPTION: "contracting",
+  EQUIPMENT_LOG: "contracting",
   JOURNAL_ENTRY: "manual",
 };
 

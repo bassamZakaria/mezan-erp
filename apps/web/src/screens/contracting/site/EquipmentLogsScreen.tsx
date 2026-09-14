@@ -213,7 +213,6 @@ function NewEquipmentLogView({ onDone }: { onDone: () => void }) {
   const [assetId, setAssetId] = useState("");
   const [date, setDate] = useState(todayIso());
   const [hours, setHours] = useState("");
-  const [hourlyRate, setHourlyRate] = useState("");
   const [boqLineId, setBoqLineId] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -223,12 +222,10 @@ function NewEquipmentLogView({ onDone }: { onDone: () => void }) {
   }, [projects, projectId]);
 
   const asset = assets.find((a) => a.id === assetId) ?? null;
-  // Seeded from the asset, still editable: a night shift or a hired-in
-  // replacement is charged at a different rate, and the posting must show the
-  // rate actually applied.
-  useEffect(() => {
-    setHourlyRate(asset?.internalHourlyRate ?? "");
-  }, [asset?.id, asset?.internalHourlyRate]);
+  // READ-ONLY, from the asset. This rate becomes WIP, then cost, then the
+  // percentage of completion, then recognised revenue — typing it here put
+  // that whole chain in the hands of whoever filled in the log.
+  const hourlyRate = asset?.internalHourlyRate ?? "";
 
   const contract = contracts.find((c) => c.projectId === projectId) ?? null;
   const boqLines = useContractBoq(contract?.id ?? null).data?.lines ?? EMPTY;
@@ -256,7 +253,6 @@ function NewEquipmentLogView({ onDone }: { onDone: () => void }) {
         assetId,
         date,
         hours,
-        hourlyRate,
         boqLineId: boqLineId === "" ? null : boqLineId,
         notes: notes.trim() === "" ? null : notes.trim(),
       });
@@ -314,9 +310,9 @@ function NewEquipmentLogView({ onDone }: { onDone: () => void }) {
           <TextField
             label={t("site.equipment.rate")}
             value={hourlyRate}
-            onChange={setHourlyRate}
-            type="number"
-            hint={asset && !asset.internalHourlyRate ? t("site.equipment.noAssetRate") : undefined}
+            onChange={() => undefined}
+            disabled
+            hint={asset && !asset.internalHourlyRate ? t("site.equipment.noAssetRate") : t("site.equipment.rateFromAsset")}
           />
           <TextField label={t("common.notes")} value={notes} onChange={setNotes} />
           <div>

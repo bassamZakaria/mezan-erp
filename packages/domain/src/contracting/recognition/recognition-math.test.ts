@@ -26,6 +26,8 @@ const ACCOUNTS: RecognitionAccountIds = {
   onerousLoss: "5930",
   revenue: "4100",
   plantRecovery: "5160",
+  customerAdvances: "2160",
+  retentionReceivable: "1150",
 };
 
 const EXPENSES = new Set(["5150", "5155", "5160", "5930"]);
@@ -352,5 +354,69 @@ describe("computeRecognition — certified value", () => {
     expect(figures.wipRelieved.toString()).toBe("200000.000000");
     // The cost figures are still real — the workspace shows them either way.
     expect(figures.percentComplete).toBe("25.0000");
+  });
+});
+
+describe("costToDateOf — the exclusion set", () => {
+  it("leaves out the penalty, the plant contra, its own loss line and the inventory adjustments", () => {
+    const excluded = new Set(["5910", "5075"]);
+    const expenses = new Set(["5150", "5910", "5075", "5160", "5930"]);
+    const lines = [
+      line("1230", "debit", "200000", "2026-05-10", "materials"),
+      line("5150", "debit", "50000", "2026-05-31"),
+      line("5910", "debit", "125000", "2026-05-20"), // غرامة تأخير
+      line("5075", "debit", "3000", "2026-05-22"), // تسويات مخزون
+      line("5160", "credit", "27900", "2026-05-27"),
+      line("5930", "debit", "75000", "2026-05-31"),
+    ];
+    expect(costToDateOf(lines, expenses, ACCOUNTS, excluded).toString()).toBe("250000.000000");
+  });
+});
+
+describe("computeRecognition — WIP closing and the deductions position", () => {
+  it("relieves the WHOLE 1230 balance and reports a closing balance that is really derived", () => {
+    const figures = computeRecognition(
+      input({
+        // A July cost confirmed after July was run: it lands dated inside a
+        // closed month, so only a relief that takes the BALANCE picks it up.
+        lines: [
+          line("1230", "debit", "18000", "2026-04-20", "equipment"),
+          line("1230", "debit", "27900", "2026-05-27", "equipment"),
+        ],
+      }),
+    );
+    expect(figures.wipOpening.toString()).toBe("18000.000000");
+    expect(figures.wipIncurred.toString()).toBe("27900.000000");
+    expect(figures.wipRelieved.toString()).toBe("45900.000000");
+    expect(figures.wipClosing.toString()).toBe("0.000000");
+  });
+
+  it("carries the advance outstanding and the retention held off the ledger", () => {
+    const figures = computeRecognition(
+      input({
+        lines: [
+          line("2160", "credit", "500000", "2026-04-01"),
+          line("2160", "debit", "120000", "2026-05-15"),
+          line("1150", "debit", "53269.90", "2026-05-06"),
+          line("1150", "credit", "5000", "2026-05-20"),
+        ],
+      }),
+    );
+    expect(figures.advanceOutstanding.toString()).toBe("380000.000000");
+    expect(figures.retentionHeld.toString()).toBe("48269.900000");
+  });
+
+  it("still provides for an onerous contract billed at certified value", () => {
+    const figures = computeRecognition(
+      input({
+        recognitionPolicy: "certified_value",
+        estimatedTotalCost: Money.fromMajor("4600000"),
+        contractValue: Money.fromMajor("4150000"),
+        lines: [line("1230", "debit", "620000", "2026-05-10", "materials")],
+      }),
+    );
+    expect(figures.foreseeableLoss.toString()).toBe("450000.000000");
+    expect(figures.provisionRequired.scaled > 0n).toBe(true);
+    expect(figures.provisionMovement.toString()).toBe(figures.provisionRequired.toString());
   });
 });

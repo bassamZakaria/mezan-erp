@@ -461,8 +461,7 @@ describe("AssetRegisterScreen — disposal", () => {
     const detail = screen.getByRole("dialog", { name: /أصل —/ });
     fireEvent.click(within(detail).getByRole("button", { name: "التخلص من الأصل" }));
 
-    const [, proceedsInput] = within(detail).getAllByRole("textbox");
-    typeMoney(proceedsInput!, "5000");
+    typeMoney(within(detail).getByRole("textbox", { name: "قيمة البيع" }), "5000");
     fireEvent.click(within(detail).getByRole("combobox", { name: "حساب التحصيل" }));
     fireEvent.mouseDown(await screen.findByRole("option", { name: "1301 — نقدية بالخزينة" }));
 

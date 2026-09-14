@@ -1,5 +1,7 @@
 import { Money } from "../../money/index.js";
 import type { Account, AccountRepository } from "../../accounts/account.js";
+import type { AuditSink } from "../../audit/index.js";
+import { recordTransition } from "../audit.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
 import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../../gl/index.js";
 import type { LedgerRepository, PostedLine } from "../../gl/ledger.js";
@@ -52,6 +54,8 @@ const ROUTING_DEFAULTS: Readonly<Record<keyof RecognitionAccountIds, [string, st
   onerousLoss: ["contracting.onerous_loss", "5930"],
   revenue: ["contracting.revenue", "4150"],
   plantRecovery: ["contracting.plant_recovery", "5160"],
+  customerAdvances: ["contracting.customer_advances", "2160"],
+  retentionReceivable: ["contracting.retention_receivable", "1150"],
 };
 
 export interface RecognitionServiceDeps {
@@ -62,6 +66,14 @@ export interface RecognitionServiceDeps {
   readonly routing?: Pick<AccountRoutingRepository, "get">;
   /** The REAL GL posting engine's ports — a run posts through it, nothing else. */
   readonly gl: JournalPostingDeps;
+  /**
+   * The expense accounts that are NOT contract cost — غرامات التأخير, the plant
+   * recovery contra, the onerous-loss line and the inventory-adjustment
+   * accounts (5060–5080). Built from the routing table in the composition.
+   */
+  readonly costExcludedAccountIds?: () => Promise<ReadonlySet<string>>;
+  /** سجل العمليات الحساسة — a run recognises revenue, so it is recorded. */
+  readonly audit?: AuditSink;
   /** ISO `YYYY-MM-DD` "today", overridable for deterministic tests. */
   readonly today?: () => string;
   /** ISO-8601 UTC "now", overridable for deterministic tests. */
@@ -94,6 +106,33 @@ export interface RecognitionPreview extends RecognitionFigures {
   readonly due: boolean;
   /** Why «تشغيل» is refused, in Arabic. Null when the run would go through. */
   readonly blockedReasonAr: string | null;
+  /**
+   * A closed month answers with the figures the run POSTED; this is the same
+   * arithmetic run again against the ledger as it stands TODAY. A cost
+   * confirmed after the month was closed lands dated inside it, so the two
+   * diverge — which is the only way a reader ever learns the tie is broken.
+   * Null on a period that has not been run.
+   */
+  readonly recomputed: RecognitionFigures | null;
+  /** True when `recomputed` disagrees with the posted figures on cost, billings or WIP. */
+  readonly divergent: boolean;
+}
+
+/**
+ * The fields a divergence is judged on.
+ *
+ * NOT billedInPeriod or wipRelieved directly: the run ITSELF debits 2165 and
+ * credits 1230, so recomputing a closed month always reports both as nil and
+ * comparing them would flag every run ever posted. What a later posting shows
+ * up as is a cost to date that no longer matches, or a 1230 balance that is
+ * standing at the period end again after the run took it to zero.
+ */
+function divergesFrom(posted: RecognitionFigures, recomputed: RecognitionFigures): boolean {
+  return (
+    posted.costToDate.scaled !== recomputed.costToDate.scaled ||
+    posted.revenueToDate.scaled !== recomputed.revenueToDate.scaled ||
+    recomputed.wipRelieved.scaled !== 0n
+  );
 }
 
 const EMPTY_FIGURES: Omit<RecognitionFigures, "recognitionPolicy"> = {
@@ -119,6 +158,8 @@ const EMPTY_FIGURES: Omit<RecognitionFigures, "recognitionPolicy"> = {
   wipRelieved: Money.zero(),
   wipClosing: Money.zero(),
   wipByCategory: [],
+  advanceOutstanding: Money.zero(),
+  retentionHeld: Money.zero(),
 };
 
 /** The figures a preview or a stored run carries, without the context around them. */
@@ -147,6 +188,8 @@ function figuresOf(preview: RecognitionFigures): RecognitionFigures {
     wipRelieved: preview.wipRelieved,
     wipClosing: preview.wipClosing,
     wipByCategory: preview.wipByCategory,
+    advanceOutstanding: preview.advanceOutstanding,
+    retentionHeld: preview.retentionHeld,
   };
 }
 
@@ -177,6 +220,10 @@ export class RecognitionService {
   private async expenseAccountIds(): Promise<Set<string>> {
     const accounts = (await this.deps.accounts.list()) as Account[];
     return new Set(accounts.filter((a) => a.type === "expense").map((a) => a.id));
+  }
+
+  private async costExcluded(): Promise<ReadonlySet<string>> {
+    return this.deps.costExcludedAccountIds ? this.deps.costExcludedAccountIds() : new Set<string>();
   }
 
   private async requireContract(idOrDocNo: string): Promise<WorksContract> {
@@ -229,11 +276,14 @@ export class RecognitionService {
     // and reclassified the billings it is now being asked about, so a fresh
     // computation of a closed month contradicts the entry standing in the books.
     if (existing) {
+      const recomputed = await this.recompute(contract, periodEnd, earlier);
       return {
         ...base,
         ...figuresOf(existing),
         due: false,
         blockedReasonAr: `سبق تشغيل هذه الفترة بالمستند ${existing.docNo}.`,
+        recomputed,
+        divergent: recomputed !== null && divergesFrom(existing, recomputed),
       };
     }
 
@@ -245,6 +295,8 @@ export class RecognitionService {
         recognitionPolicy: contract.recognitionPolicy,
         due: false,
         blockedReasonAr: "لا يمكن الاعتراف بالإيراد على عقد ما زال مسودة.",
+        recomputed: null,
+        divergent: false,
       };
     }
     if (estimatedTotalCost === null || estimatedTotalCost.scaled <= 0n) {
@@ -254,28 +306,12 @@ export class RecognitionService {
         recognitionPolicy: contract.recognitionPolicy,
         due: false,
         blockedReasonAr: "لا يمكن الاعتراف بالإيراد دون تقدير التكلفة الكلية.",
+        recomputed: null,
+        divergent: false,
       };
     }
 
-    const [boqLines, orders, lines, expenseAccountIds, accounts] = await Promise.all([
-      this.deps.contracts.listBoqLines(contract.id) as Promise<BoqLine[]>,
-      this.deps.contracts.listVariationOrders({ contractId: contract.id }) as Promise<VariationOrder[]>,
-      this.projectLines(contract.projectId, periodEnd),
-      this.expenseAccountIds(),
-      this.accountIds(),
-    ]);
-
-    const figures = computeRecognition({
-      periodEnd,
-      recognitionPolicy: contract.recognitionPolicy,
-      estimatedTotalCost,
-      contractValue: contractValueAsOf(boqLines, orders, periodEnd),
-      lines,
-      expenseAccountIds,
-      accounts,
-      revenueRecognisedPreviously: Money.sum(earlier.map((r) => r.periodRevenue)),
-      billedReclassedPreviously: Money.sum(earlier.map((r) => r.billedInPeriod)),
-    });
+    const figures = (await this.recompute(contract, periodEnd, earlier, estimatedTotalCost))!;
 
     const movesSomething =
       figures.periodRevenue.scaled !== 0n ||
@@ -296,7 +332,41 @@ export class RecognitionService {
     const due =
       blockedReasonAr === null && (contract.status === "active" ? true : movesSomething);
 
-    return { ...base, ...figures, due, blockedReasonAr };
+    return { ...base, ...figures, due, blockedReasonAr, recomputed: null, divergent: false };
+  }
+
+  /**
+   * The arithmetic, run against the ledger AS IT STANDS NOW for one period.
+   * Called both to compute a fresh period and to re-explain a closed one.
+   */
+  private async recompute(
+    contract: WorksContract,
+    periodEnd: string,
+    earlier: readonly RevenueRecognitionRun[],
+    estimated?: Money,
+  ): Promise<RecognitionFigures | null> {
+    const estimatedTotalCost = estimated ?? estimatedTotalCostAsOf(contract, periodEnd);
+    if (estimatedTotalCost === null || estimatedTotalCost.scaled <= 0n) return null;
+    const [boqLines, orders, lines, expenseAccountIds, accounts, costExcludedAccountIds] = await Promise.all([
+      this.deps.contracts.listBoqLines(contract.id) as Promise<BoqLine[]>,
+      this.deps.contracts.listVariationOrders({ contractId: contract.id }) as Promise<VariationOrder[]>,
+      this.projectLines(contract.projectId, periodEnd),
+      this.expenseAccountIds(),
+      this.accountIds(),
+      this.costExcluded(),
+    ]);
+    return computeRecognition({
+      periodEnd,
+      recognitionPolicy: contract.recognitionPolicy,
+      estimatedTotalCost,
+      contractValue: contractValueAsOf(boqLines, orders, periodEnd),
+      lines,
+      expenseAccountIds,
+      costExcludedAccountIds,
+      accounts,
+      revenueRecognisedPreviously: Money.sum(earlier.map((r) => r.periodRevenue)),
+      billedReclassedPreviously: Money.sum(earlier.map((r) => r.billedInPeriod)),
+    });
   }
 
   /**
@@ -350,7 +420,7 @@ export class RecognitionService {
       throw new InvalidRecognitionRunError([`تشغيل الاعتراف بالإيراد "${runId}" موجود بالفعل.`]);
     }
 
-    return this.deps.runs.transaction(async () => {
+    const posted = await this.deps.runs.transaction(async () => {
       const number = await this.deps.gl.numbering.next(RECOGNITION_SEQUENCE);
       let journalEntryId: string | null = null;
       if (lines.length > 0) {
@@ -389,6 +459,22 @@ export class RecognitionService {
       await this.deps.runs.save(run);
       return run;
     });
+    await recordTransition(this.deps.audit, {
+      entityType: RECOGNITION_DOC_TYPE,
+      entityId: posted.id,
+      action: "POST",
+      actor: posted.postedBy ?? "system",
+      severity: "WARNING",
+      details: {
+        docNo: posted.docNo,
+        contractId: posted.contractId,
+        projectId: posted.projectId,
+        periodEnd: posted.periodEnd,
+        periodRevenue: posted.periodRevenue.toString(),
+        journalEntryId: posted.journalEntryId,
+      },
+    });
+    return posted;
   }
 
   /**

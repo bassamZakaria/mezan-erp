@@ -5,13 +5,16 @@ import {
   findBoqOverruns,
   findConsumptionVariances,
   findEarlyRetentionReleases,
+  findCostOverrunsVsEstimate,
   findEquipmentWithoutCertificate,
   findLateVariationApprovals,
   findUnreceivedIssues,
+  monthsBetweenDates,
   multiplyQty,
   variancePercentOf,
   type BoqOverrunCandidate,
   type ConsumptionVarianceCandidate,
+  type CostOverrunCandidate,
   type EarlyReleaseCandidate,
   type EquipmentExceptionCandidate,
   type LateVariationCandidate,
@@ -220,6 +223,8 @@ describe("ضمان محتجز مفرج عنه قبل الميعاد", () => {
   const row = (over: Partial<EarlyReleaseCandidate> = {}): EarlyReleaseCandidate => ({
     releaseId: "RET-1",
     docNo: "RET-000001",
+    party: "customer",
+    counterpartyNameAr: null,
     contractId: "CTR-1",
     contractDocNo: "CTR-0001",
     projectId: "PRJ-1",
@@ -248,5 +253,99 @@ describe("ضمان محتجز مفرج عنه قبل الميعاد", () => {
 
   it("ignores a release whose event date the contract never recorded", () => {
     expect(findEarlyRetentionReleases([row({ releaseEventDate: null })])).toEqual([]);
+  });
+
+  it("fires on a SUBCONTRACTOR release too — the payable side is the half the contractor controls", () => {
+    const rows = findEarlyRetentionReleases([
+      row({
+        releaseId: "SUB-1-RET-1",
+        party: "subcontractor",
+        counterpartyNameAr: "مقاول الحفر",
+        kind: "final",
+        date: "2027-01-01",
+        releaseEventDate: "2027-06-30",
+      }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.party).toBe("subcontractor");
+    expect(rows[0]?.counterpartyNameAr).toBe("مقاول الحفر");
+    expect(rows[0]?.daysEarly).toBe(180);
+  });
+});
+
+describe("تجاوز التكلفة للتقدير", () => {
+  function candidate(over: Partial<CostOverrunCandidate> = {}): CostOverrunCandidate {
+    return {
+      contractId: "CTR-1",
+      contractDocNo: "CTR-0001",
+      contractTitleAr: "عقد إنشاء برج الأمل",
+      projectId: "PRJ-1",
+      status: "active",
+      costToDate: m("500000"),
+      estimatedTotalCost: m("4000000"),
+      certifiedGrossWorks: m("1000000"),
+      contractValue: m("5000000"),
+      lastEstimateRevisionDate: "2026-08-01",
+      monthsSinceEstimateRevision: 1,
+      ...over,
+    };
+  }
+
+  it("stays silent while the cost tracks what the certified work has earned", () => {
+    // 20% certified × 4,000,000 = 800,000 expected; 800,000 spent is dead on.
+    expect(findCostOverrunsVsEstimate([candidate({ costToDate: m("800000") })], "10", 6)).toEqual([]);
+  });
+
+  it("tolerates the threshold and fires one piastre past it", () => {
+    const atThreshold = findCostOverrunsVsEstimate([candidate({ costToDate: m("880000") })], "10", 6);
+    expect(atThreshold).toEqual([]);
+    const past = findCostOverrunsVsEstimate([candidate({ costToDate: m("880000.01") })], "10", 6);
+    expect(past).toHaveLength(1);
+    expect(past[0]?.costOverrun).toBe(true);
+    expect(past[0]?.estimateStale).toBe(false);
+    expect(past[0]?.expectedCostToDate.toString()).toBe("800000.000000");
+    expect(past[0]?.excessCost.toString()).toBe("80000.010000");
+  });
+
+  it("fires on an estimate nobody has revised, whatever the cost is doing", () => {
+    const rows = findCostOverrunsVsEstimate(
+      [candidate({ costToDate: m("800000"), monthsSinceEstimateRevision: 6 })],
+      "10",
+      6,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.costOverrun).toBe(false);
+    expect(rows[0]?.estimateStale).toBe(true);
+  });
+
+  it("cannot fire on cost alone before anything has been certified", () => {
+    // No certified work means no earned cost to compare against — reporting an
+    // "overrun" there would fire on every contract in its first month.
+    expect(
+      findCostOverrunsVsEstimate([candidate({ certifiedGrossWorks: m("0"), costToDate: m("900000") })], "10", 6),
+    ).toEqual([]);
+  });
+
+  it("counts whole months, so the day of the month decides the boundary", () => {
+    expect(monthsBetweenDates("2026-03-15", "2026-09-14")).toBe(5);
+    expect(monthsBetweenDates("2026-03-15", "2026-09-15")).toBe(6);
+  });
+});
+
+describe("مواد مصروفة لم تُستلم بالموقع — الاستلام قبل الصرف", () => {
+  it("reports a receipt dated before its issue however old it is and whatever it left outstanding", () => {
+    const row: UnreceivedCandidate = {
+      issueId: "ISS-1",
+      docNo: "ISS-000001",
+      date: "2026-08-20",
+      projectId: "PRJ-1",
+      itemId: "ITM-1",
+      qtyIssued: q("30"),
+      qtyReceived: q("30"),
+      qtyOutstanding: q("0"),
+      ageDays: 0,
+      kind: "received_before_issue",
+    };
+    expect(findUnreceivedIssues([row], 7)).toEqual([row]);
   });
 });

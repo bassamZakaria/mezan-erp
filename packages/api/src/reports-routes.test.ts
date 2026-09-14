@@ -1635,6 +1635,73 @@ function makeCustomer(overrides: Partial<Customer> = {}): Customer {
   } as Customer;
 }
 
+/**
+ * Form 41 covers tax withheld on a PAYMENT and tax withheld on a certified
+ * subcontractor's bill alike. A filing assembled from vouchers alone
+ * under-declares by the whole subcontract side.
+ */
+describe("reports routes — tax/withholding over subcontractor certificates", () => {
+  function subCertificate(
+    id: string,
+    docNo: string,
+    approvedAt: string,
+    previousWht: string,
+    cumulativeWht: string,
+    thisNetCertified: string,
+  ) {
+    const deduction = (key: string, cumulative: string, previous: string) => ({
+      key,
+      labelAr: key,
+      percent: key === "withholdingTax" ? "1" : null,
+      cumulative: Money.fromMajor(cumulative),
+      previous: Money.fromMajor(previous),
+      thisCertificate: Money.fromScaled(
+        Money.fromMajor(cumulative).scaled - Money.fromMajor(previous).scaled,
+      ),
+      posted: true,
+      capped: false,
+    });
+    return {
+      id,
+      docNo,
+      status: "invoiced",
+      supplierId: "sup-wh",
+      approvedAt,
+      executionDate: approvedAt,
+      computed: {
+        thisCertificateNetCertified: Money.fromMajor(thisNetCertified),
+        deductions: [deduction("retention", "0", "0"), deduction("withholdingTax", cumulativeWht, previousWht)],
+      },
+    };
+  }
+
+  it("unions the sub-certificate withholding in, and the two seeded certificates add to 5,240", async () => {
+    const { deps } = await newApp();
+    await deps.suppliers.save(makeSupplier({ id: "sup-wh", code: "SUP-WH", nameAr: "مقاول الباطن" }));
+    const rows = [
+      subCertificate("SMST-DEMO-1", "SMST-000001", "2026-06-10", "0", "2430", "243000"),
+      subCertificate("SMST-DEMO-2", "SMST-000002", "2026-07-10", "2430", "5240", "281000"),
+      // A draft carries no liability to the authority yet.
+      { ...subCertificate("SMST-DEMO-3", "SMST-000003", "2026-08-10", "5240", "9000", "376000"), status: "draft" },
+    ];
+    const withSubs = {
+      ...deps,
+      subCertificates: { listCertificates: async () => rows },
+    } as unknown as ReportsRoutesDeps;
+
+    const res = await app_fetch(withSubs, "/tax/withholding?fromDate=2026-01-01&toDate=2026-12-31", "accounting.reports.view");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rows: { voucherId: string; voucherNo: string; partyNameAr: string; ratePercent: number; withheldAmount: number }[];
+      kpis: { key: string; value: number }[];
+    };
+    expect(body.rows.map((r) => r.voucherNo)).toEqual(["SMST-000001", "SMST-000002"]);
+    expect(body.rows.map((r) => r.withheldAmount)).toEqual([2430, 2810]);
+    expect(body.rows.every((r) => r.partyNameAr === "مقاول الباطن" && r.ratePercent === 1)).toBe(true);
+    expect(body.kpis.find((k) => k.key === "withheldAmount")?.value).toBe(5240);
+  });
+});
+
 function app_fetch(deps: ReportsRoutesDeps, path: string, permission: string) {
   return createReportsRoutes(deps, insecureHeaderAuthContextResolver).fetch(req(path, permission));
 }

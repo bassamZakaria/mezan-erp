@@ -26,13 +26,21 @@ import {
   type AssetRepository,
   type DepreciationRun,
   type DepreciationRunRepository,
+  type AuditSink,
   type JournalPostingDeps,
   type SettingsRepository,
   createDefaultSettings,
   matchesSearch,
 } from "@mezan/domain";
-import { createAssetCategorySchema, createAssetSchema, createDepreciationRunSchema, disposeAssetSchema } from "@mezan/contracts";
+import {
+  createAssetCategorySchema,
+  createAssetSchema,
+  createDepreciationRunSchema,
+  disposeAssetSchema,
+  setInternalHourlyRateSchema,
+} from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 
 /**
  * Fixed Assets routes (docs/archive/catalog/07-mfg-projects-assets.md "الأصول
@@ -55,6 +63,8 @@ export interface FixedAssetsRoutesDeps {
   };
   /** Generates ids when the request omits them. Defaults to `randomUUID`. */
   readonly idGen?: () => string;
+  /** سجل العمليات الحساسة — a سعر الساعة الداخلي change is recorded with its before and after. */
+  readonly audit?: AuditSink;
   /**
    * Tenant settings §"الضريبة" → `depreciationProrate`, so the depreciation in
    * the month of acquisition follows the tenant's stated policy rather than a
@@ -275,6 +285,43 @@ export function createFixedAssetsRoutes(
     const asset = await deps.assets.findById(c.req.param("id"));
     if (!asset) return c.json({ error: "ASSET_NOT_FOUND" }, 404);
     return c.json(serializeAsset(asset));
+  });
+
+  /**
+   * سعر الساعة الداخلي. Every سجل تشغيل معدات charges the project at THIS
+   * number — it becomes أعمال تحت التنفيذ, then تكلفة إيراد العقود, then the
+   * percentage of completion, then recognised revenue. The site log therefore
+   * has no override; the rate is changed here, under `assets.manage`, and the
+   * before and after are recorded.
+   */
+  app.patch("/:id/internal-hourly-rate", gate("assets.manage"), async (c) => {
+    const parsed = setInternalHourlyRateSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const asset = await deps.assets.findById(c.req.param("id"));
+    if (!asset) return c.json({ error: "ASSET_NOT_FOUND" }, 404);
+    const next =
+      parsed.data.internalHourlyRate === null ? null : Money.fromMajor(parsed.data.internalHourlyRate);
+    if (next !== null && next.scaled < 0n) {
+      return c.json({ error: "VALIDATION_ERROR", message: "سعر الساعة الداخلي لا يمكن أن يكون سالبًا" }, 422);
+    }
+    const updated: Asset = { ...asset, internalHourlyRate: next };
+    await deps.assets.update(updated);
+    await recordAdminEvent(deps.audit, c, {
+      module: "assets",
+      entityType: "ASSET",
+      entityId: asset.id,
+      action: "SET_INTERNAL_HOURLY_RATE",
+      severity: "WARNING",
+      details: {
+        code: asset.code,
+        before: asset.internalHourlyRate?.toString() ?? null,
+        after: next?.toString() ?? null,
+        reason: parsed.data.reason ?? null,
+      },
+    });
+    return c.json(serializeAsset(updated));
   });
 
   /**

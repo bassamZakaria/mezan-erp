@@ -37,6 +37,10 @@ export interface ProjectPnLRow {
   readonly billedToDate: Money;
   /** Cumulative إيرادات المقاولات (4100) credited against this project. */
   readonly revenueRecognised: Money;
+  /** دفعات مقدمة من العملاء still to be recovered — the 2160 credit balance. */
+  readonly advanceOutstanding: Money;
+  /** محتجزات لدى العميل — the 1150 debit balance, net of what has been released. */
+  readonly retentionHeld: Money;
   /** «عقد خاسر — مخصّص واجب» / «غرامة تأخير محتملة», derived on every read. */
   readonly flags: readonly ProjectStatusFlag[];
 }
@@ -48,6 +52,8 @@ export interface ProjectContractingAccountIds {
   readonly contractLiability: string;
   readonly billings: string;
   readonly revenue: string;
+  readonly customerAdvances: string;
+  readonly retentionReceivable: string;
 }
 
 export interface ProjectContractingInput {
@@ -66,6 +72,14 @@ export interface ProjectContractingInput {
    */
   readonly billedReclassedByProject?: ReadonlyMap<string, Money>;
   readonly flagsByProject?: ReadonlyMap<string, readonly ProjectStatusFlag[]>;
+  /**
+   * Expense accounts that are not project cost — استرداد تكلفة تشغيل المعدات
+   * (5160) above all. It is the CONTRA of plant hours already capitalised into
+   * WIP and carries the project dimension so the recovery can be traced, so
+   * letting it into the cost bucket nets the same hours out twice and the P&L
+   * reports a cost lower than the run's.
+   */
+  readonly costExcludedAccountIds?: ReadonlySet<string>;
 }
 
 export interface ProjectPnLReport {
@@ -89,6 +103,8 @@ interface ContractingBucket {
   contractLiability: bigint;
   billings: bigint;
   revenueRecognised: bigint;
+  advanceOutstanding: bigint;
+  retentionHeld: bigint;
 }
 
 function contractingBuckets(input: ProjectContractingInput | undefined): Map<string, ContractingBucket> {
@@ -98,7 +114,15 @@ function contractingBuckets(input: ProjectContractingInput | undefined): Map<str
     if (line.projectId === null) continue;
     let bucket = buckets.get(line.projectId);
     if (!bucket) {
-      bucket = { wip: 0n, contractAsset: 0n, contractLiability: 0n, billings: 0n, revenueRecognised: 0n };
+      bucket = {
+        wip: 0n,
+        contractAsset: 0n,
+        contractLiability: 0n,
+        billings: 0n,
+        revenueRecognised: 0n,
+        advanceOutstanding: 0n,
+        retentionHeld: 0n,
+      };
       buckets.set(line.projectId, bucket);
     }
     const debitNet = line.debit.scaled - line.credit.scaled;
@@ -107,6 +131,8 @@ function contractingBuckets(input: ProjectContractingInput | undefined): Map<str
     if (line.accountId === input.accounts.contractLiability) bucket.contractLiability -= debitNet;
     if (line.accountId === input.accounts.billings) bucket.billings -= debitNet;
     if (line.accountId === input.accounts.revenue) bucket.revenueRecognised -= debitNet;
+    if (line.accountId === input.accounts.customerAdvances) bucket.advanceOutstanding -= debitNet;
+    if (line.accountId === input.accounts.retentionReceivable) bucket.retentionHeld += debitNet;
   }
   return buckets;
 }
@@ -127,6 +153,7 @@ export function computeProjectPnL(
     if (line.projectId === null) continue;
     const account = accountById.get(line.accountId);
     if (!account || (account.type !== "revenue" && account.type !== "expense")) continue;
+    if (contracting?.costExcludedAccountIds?.has(line.accountId)) continue;
     let bucket = buckets.get(line.projectId);
     if (!bucket) {
       bucket = { revenue: 0n, cost: 0n, byCategory: new Map() };
@@ -171,6 +198,8 @@ export function computeProjectPnL(
       contractLiability: 0n,
       billings: 0n,
       revenueRecognised: 0n,
+      advanceOutstanding: 0n,
+      retentionHeld: 0n,
     };
     const reclassed = contracting?.billedReclassedByProject?.get(id)?.scaled ?? 0n;
     return {
@@ -188,6 +217,8 @@ export function computeProjectPnL(
       contractLiability: Money.fromScaled(contract.contractLiability > 0n ? contract.contractLiability : 0n),
       billedToDate: Money.fromScaled(contract.billings + reclassed),
       revenueRecognised: Money.fromScaled(contract.revenueRecognised),
+      advanceOutstanding: Money.fromScaled(contract.advanceOutstanding),
+      retentionHeld: Money.fromScaled(contract.retentionHeld),
       flags: contracting?.flagsByProject?.get(id) ?? [],
     };
   });

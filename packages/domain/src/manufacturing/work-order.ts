@@ -786,7 +786,8 @@ export async function logWorkOrderWaste(
       sourceDocType: "WORK_ORDER",
       sourceDocId: order.id,
       sourceDocNumber: order.number,
-      date: at,
+      // The GL is dated with a DAY; `at` is an ISO instant.
+      date: at.slice(0, 10),
       memo: `فاقد أمر التصنيع ${order.number}`,
       // Scrap can be logged many times on one order, so the ref carries the
       // waste id (which is already unique per call) rather than the order's.
@@ -926,7 +927,7 @@ export async function receiveWorkOrderProduct(
       sourceDocType: "WORK_ORDER",
       sourceDocId: order.id,
       sourceDocNumber: order.number,
-      date: occurredAt,
+      date: occurredAt.slice(0, 10),
       memo: `تحميل الفاقد الطبيعي على المنتج — أمر التصنيع ${order.number}`,
       // Once per order: the stage guard admits exactly one receipt.
       entryRef: `WO-RECEIVE-JE:${order.id}`,
@@ -1027,7 +1028,7 @@ export async function completeWorkOrder(
   if (order.stage !== "product_received") throw new WorkOrderStageError("complete", order.stage);
 
   const completedAt = nowIso(deps);
-  const posting = buildWorkOrderGlPosting(order, deps.accounts, completedAt);
+  const posting = buildWorkOrderGlPosting(order, deps.accounts, completedAt.slice(0, 10));
   if (posting) await deps.gl.post(posting);
 
   const updated: WorkOrder = {

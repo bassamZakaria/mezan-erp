@@ -12,8 +12,12 @@ import { createSqliteGuaranteeStore, type SqliteGuaranteeStoreHandle } from "@me
 import { createContractingGuaranteesRoutes } from "./contracting-guarantees-routes.js";
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 
-const VIEW = "treasury.cash_voucher.view";
-const WRITE = "treasury.cash_voucher.create";
+// The register's OWN codes. It used to read and write under the treasury
+// voucher permissions, which put the cashier at the counter in charge of the
+// company's performance bonds.
+const VIEW = "contracting.guarantee.view";
+const WRITE = "contracting.guarantee.manage";
+const RELEASE = "contracting.guarantee.release";
 const TODAY = "2026-09-13";
 
 const handles: SqliteGuaranteeStoreHandle[] = [];
@@ -105,7 +109,7 @@ describe("guarantees router — permission gate", () => {
     expect(res.status).toBe(403);
   });
 
-  it("lets the treasury permission through", async () => {
+  it("lets the register's own manage permission through", async () => {
     const { app } = await newApp();
     const res = await app.fetch(req("/", { method: "POST", permissions: WRITE, body: JSON.stringify(DRAFT) }));
     expect(res.status).toBe(201);
@@ -210,7 +214,7 @@ describe("guarantees router — refusals arrive as 4xx in Arabic, never a 500", 
     const res = await app.fetch(
       req("/LG-1/call", {
         method: "POST",
-        permissions: WRITE,
+        permissions: RELEASE,
         body: JSON.stringify({ date: "2026-09-12", chargeAccountId: "9999" }),
       }),
     );
@@ -237,5 +241,64 @@ describe("guarantees router — refusals arrive as 4xx in Arabic, never a 500", 
     const { app } = await newApp();
     const res = await app.fetch(req("/LG-999999", { permissions: VIEW }));
     expect(res.status).toBe(404);
+  });
+});
+
+describe("guarantees router — giving the letter back is its own right", () => {
+  async function issued() {
+    const { app } = await newApp();
+    await app.fetch(req("/", { method: "POST", permissions: WRITE, body: JSON.stringify(DRAFT) }));
+    await app.fetch(req("/LG-1/issue", { method: "POST", permissions: WRITE, body: "{}" }));
+    return app;
+  }
+
+  it("refuses a release to someone who may only issue and reduce", async () => {
+    const app = await issued();
+    const res = await app.fetch(
+      req("/LG-1/release", { method: "POST", permissions: WRITE, body: JSON.stringify({ date: "2026-09-12" }) }),
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { permission: string }).permission).toBe(RELEASE);
+  });
+
+  it("stamps the acting user on the release and on every reduction", async () => {
+    const app = await issued();
+    await app.fetch(
+      req("/LG-1/reduce", {
+        method: "POST",
+        permissions: WRITE,
+        headers: { "x-user-id": "u-contracts" },
+        body: JSON.stringify({ date: "2026-09-05", amount: "1000", reason: "استرداد جزئي" }),
+      }),
+    );
+    const res = await app.fetch(
+      req("/LG-1/release", {
+        method: "POST",
+        permissions: RELEASE,
+        headers: { "x-user-id": "u-finance" },
+        body: JSON.stringify({ date: "2026-09-12" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { closedBy: string; reductions: { userId: string }[] };
+    expect(body.closedBy).toBe("u-finance");
+    expect(body.reductions[0]?.userId).toBe("u-contracts");
+  });
+
+  it("refuses a release dated before the letter was issued", async () => {
+    const app = await issued();
+    const res = await app.fetch(
+      req("/LG-1/release", { method: "POST", permissions: RELEASE, body: JSON.stringify({ date: "2026-08-01" }) }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("INVALID_GUARANTEE");
+  });
+
+  it("refuses a release dated in the future", async () => {
+    const app = await issued();
+    const res = await app.fetch(
+      req("/LG-1/release", { method: "POST", permissions: RELEASE, body: JSON.stringify({ date: "2027-01-01" }) }),
+    );
+    expect(res.status).toBe(422);
   });
 });

@@ -16,6 +16,7 @@ import {
   useBoqOverrunReport,
   useConsumptionVarianceReport,
   useContractingExceptionSummary,
+  useCostOverrunReport,
   useEarlyRetentionReleaseReport,
   useEquipmentExceptionReport,
   useLateVariationReport,
@@ -26,7 +27,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf } from "../../../lib/money";
 
 /**
- * تقارير المقاولات — the six exception reports (design §06).
+ * تقارير المقاولات — the seven exception reports (design §06).
  *
  * The product ships 33 reports and not one of them is an exception report. For
  * a contracting customer that is the missing half of the control environment,
@@ -43,6 +44,7 @@ const TAB_KEYS: readonly ContractingExceptionKeyDTO[] = [
   "equipment-without-certificate",
   "late-variation-approvals",
   "early-retention-release",
+  "cost-overrun-vs-estimate",
 ];
 
 const TAB_LABEL_KEYS: Record<ContractingExceptionKeyDTO, AppTranslationKey> = {
@@ -52,6 +54,7 @@ const TAB_LABEL_KEYS: Record<ContractingExceptionKeyDTO, AppTranslationKey> = {
   "equipment-without-certificate": "contractingReports.tab.equipment",
   "late-variation-approvals": "contractingReports.tab.lateVariation",
   "early-retention-release": "contractingReports.tab.earlyRelease",
+  "cost-overrun-vs-estimate": "contractingReports.tab.costOverrun",
 };
 
 function todayIso(): string {
@@ -72,6 +75,7 @@ export function ContractingReportsScreen() {
     projectId: "",
     olderThanDays: "",
     thresholdPercent: "",
+    stalenessMonths: "",
   }));
 
   const authContext = createAuthContext({
@@ -90,6 +94,7 @@ export function ContractingReportsScreen() {
     projectId: params.projectId || null,
     olderThanDays: params.olderThanDays || null,
     thresholdPercent: params.thresholdPercent || null,
+    stalenessMonths: params.stalenessMonths || null,
   };
 
   const boqOverrun = useBoqOverrunReport(query, mayView && tab === "boq-overrun");
@@ -98,6 +103,7 @@ export function ContractingReportsScreen() {
   const equipment = useEquipmentExceptionReport(query, mayView && tab === "equipment-without-certificate");
   const lateVariation = useLateVariationReport(query, mayView && tab === "late-variation-approvals");
   const earlyRelease = useEarlyRetentionReleaseReport(query, mayView && tab === "early-retention-release");
+  const costOverrun = useCostOverrunReport(query, mayView && tab === "cost-overrun-vs-estimate");
 
   const projectOptions = useMemo(
     () => [
@@ -134,6 +140,12 @@ export function ContractingReportsScreen() {
     key: "thresholdPercent",
     label: t("contractingReports.thresholdPercent"),
     placeholder: "10",
+  };
+  const stalenessField: ReportRunnerParamField = {
+    kind: "text",
+    key: "stalenessMonths",
+    label: t("contractingReports.stalenessMonths"),
+    placeholder: "6",
   };
 
   return (
@@ -311,6 +323,44 @@ export function ContractingReportsScreen() {
             ] as ReportRunnerColumn<NonNullable<typeof earlyRelease.data>["rows"][number]>[]
           }
           rowKey={(r) => r.releaseId}
+        />
+      ) : null}
+
+      {tab === "cost-overrun-vs-estimate" ? (
+        <ReportTab
+          exportName="contracting-cost-overrun-vs-estimate"
+          loading={costOverrun.isFetching}
+          ruleAr={costOverrun.data?.ruleAr ?? ""}
+          rows={costOverrun.data?.rows ?? []}
+          hasResult={costOverrun.data !== undefined}
+          paramFields={[...baseFields, thresholdField, stalenessField]}
+          params={params}
+          onParamsChange={setParams}
+          title={t("contractingReports.tab.costOverrun")}
+          columns={
+            [
+              { key: "contractDocNo", header: t("contractingReports.col.contract"), value: (r) => r.contractDocNo },
+              { key: "contractTitleAr", header: t("contractingReports.col.contractTitle"), value: (r) => r.contractTitleAr },
+              { key: "certifiedGrossWorks", header: t("contractingReports.col.certifiedGrossWorks"), format: "money", align: "end", total: true, value: (r) => majorOf(r.certifiedGrossWorks) },
+              { key: "estimatedTotalCost", header: t("contractingReports.col.estimatedTotalCost"), format: "money", align: "end", total: true, value: (r) => majorOf(r.estimatedTotalCost) },
+              { key: "expectedCostToDate", header: t("contractingReports.col.expectedCostToDate"), format: "money", align: "end", total: true, value: (r) => majorOf(r.expectedCostToDate) },
+              { key: "costToDate", header: t("contractingReports.col.costToDate"), format: "money", align: "end", total: true, value: (r) => majorOf(r.costToDate) },
+              { key: "excessCost", header: t("contractingReports.col.excessCost"), format: "money", align: "end", total: true, value: (r) => majorOf(r.excessCost) },
+              { key: "lastEstimateRevisionDate", header: t("contractingReports.col.lastEstimateRevision"), format: "date", value: (r) => r.lastEstimateRevisionDate },
+              { key: "monthsSinceEstimateRevision", header: t("contractingReports.col.monthsSinceRevision"), align: "end", value: (r) => r.monthsSinceEstimateRevision },
+              {
+                key: "reason",
+                header: t("contractingReports.col.reason"),
+                value: (r) =>
+                  r.costOverrun && r.estimateStale
+                    ? t("contractingReports.reason.costAndStale")
+                    : r.costOverrun
+                      ? t("contractingReports.reason.costAboveEarned")
+                      : t("contractingReports.reason.estimateStale"),
+              },
+            ] as ReportRunnerColumn<NonNullable<typeof costOverrun.data>["rows"][number]>[]
+          }
+          rowKey={(r) => r.contractId}
         />
       ) : null}
     </div>

@@ -87,6 +87,8 @@ export function TenantDetailPage() {
   const [retryPlanId, setRetryPlanId] = useState("");
   const [retryBillingCycle, setRetryBillingCycle] = useState<BillingCycleDTO>("monthly");
   const [retryTrial, setRetryTrial] = useState(true);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const onMutationError = (err: PlatformApiError) => setMutationError(err.message);
 
   const summary = tenantQuery.data;
   if (!summary) {
@@ -132,6 +134,14 @@ export function TenantDetailPage() {
         <p className="mt-[2px] text-[12.5px] text-ink-muted">{t("platform.tenantDetail.ownerEmail")}: {tenant.ownerEmail}</p>
       </div>
 
+      {mutationError ? (
+        <Card className="p-[14px_16px]">
+          <p role="alert" className="text-[13px] font-semibold text-danger-ink">
+            {mutationError}
+          </p>
+        </Card>
+      ) : null}
+
       {isOwner ? (
         <div className="flex flex-wrap gap-[9px]">
           {tenant.status === "provisioning" ? (
@@ -144,12 +154,26 @@ export function TenantDetailPage() {
             </Button>
           ) : null}
           {canSuspendTenant(tenant.status) ? (
-            <Button variant="default" disabled={suspendTenant.isPending} onClick={() => suspendTenant.mutate(tenant.id)}>
+            <Button
+              variant="default"
+              disabled={suspendTenant.isPending}
+              onClick={() => {
+                setMutationError(null);
+                suspendTenant.mutate(tenant.id, { onError: onMutationError });
+              }}
+            >
               {t("platform.tenantDetail.suspend")}
             </Button>
           ) : null}
           {canResumeTenant(tenant.status) ? (
-            <Button variant="default" disabled={resumeTenant.isPending} onClick={() => resumeTenant.mutate(tenant.id)}>
+            <Button
+              variant="default"
+              disabled={resumeTenant.isPending}
+              onClick={() => {
+                setMutationError(null);
+                resumeTenant.mutate(tenant.id, { onError: onMutationError });
+              }}
+            >
               {t("platform.tenantDetail.resume")}
             </Button>
           ) : null}
@@ -244,7 +268,11 @@ export function TenantDetailPage() {
                       disabled={planPickerId === "" || changePlan.isPending}
                       onClick={() => {
                         if (planPickerId === "") return;
-                        changePlan.mutate({ tenantId: tenant.id, body: { planId: planPickerId } }, { onSuccess: () => setPlanPickerId("") });
+                        setMutationError(null);
+                        changePlan.mutate(
+                          { tenantId: tenant.id, body: { planId: planPickerId } },
+                          { onSuccess: () => setPlanPickerId(""), onError: onMutationError },
+                        );
                       }}
                     >
                       {t("platform.tenantDetail.apply")}
@@ -327,7 +355,8 @@ export function TenantDetailPage() {
         tone="danger"
         onConfirm={() => {
           setConfirmArchive(false);
-          archiveTenant.mutate(tenant.id);
+          setMutationError(null);
+          archiveTenant.mutate(tenant.id, { onError: onMutationError });
         }}
         onCancel={() => setConfirmArchive(false)}
       />
@@ -339,7 +368,8 @@ export function TenantDetailPage() {
         tone="danger"
         onConfirm={() => {
           setConfirmCancel(false);
-          cancelSubscription.mutate(tenant.id);
+          setMutationError(null);
+          cancelSubscription.mutate(tenant.id, { onError: onMutationError });
         }}
         onCancel={() => setConfirmCancel(false)}
       />

@@ -1,4 +1,5 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AppShell, SkeletonTable, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
@@ -11,7 +12,14 @@ import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { LicenceStatusNotice } from "./lan/ConnectedDevicesPanel";
-import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, PINNED_NAV_ITEM_KEYS } from "./nav-config";
+import {
+  buildCommandItems,
+  buildGoToCommandItems,
+  buildNavGroups,
+  buildTopNavItem,
+  filterNavGroupsByEntitlements,
+  PINNED_NAV_ITEM_KEYS,
+} from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
@@ -106,6 +114,7 @@ function initialsFor(fullName: string, unknown: string): string {
 
 export function AppLayout() {
   const { session, setSession, request } = useApi();
+  const queryClient = useQueryClient();
   const profile = useProfile();
   const { t, locale } = useAppTranslation();
   const [showWizard, setShowWizard] = useState(false);
@@ -252,6 +261,14 @@ export function AppLayout() {
     }));
   }, [navigate, pendingApprovalCount, unreadNotificationCount, t]);
 
+  /**
+   * The rail's own view of `groups`, with any screen whose module the plan
+   * doesn't license removed. Kept separate from `groups` because the pinned
+   * direct-nav items (صندوق الوارد، الموافقات) come off سير العمل, which is
+   * always licensed and must never depend on this filter's timing.
+   */
+  const licensedGroups = useMemo(() => filterNavGroupsByEntitlements(groups, entitlements), [groups, entitlements]);
+
   // "Workspace" here is the top-level grouping `nav-config.tsx` already names:
   // the two-row top bar switches between them in row one instead of a left
   // rail, and ROW TWO renders the active one's own screens. الإعداد والصلاحيات
@@ -291,12 +308,12 @@ export function AppLayout() {
    */
   const workspaceGroups = useMemo(
     () =>
-      groups
+      licensedGroups
         .map((group) => ({ ...group, items: group.items.filter((item) => !PINNED_NAV_ITEM_KEYS.includes(item.key)) }))
         // A group may carry all of its screens in sections and none directly —
         // التقارير does — so an empty `items` is not an empty group.
         .filter((group) => navGroupItems(group).length > 0),
-    [groups],
+    [licensedGroups],
   );
 
   /**
@@ -366,7 +383,11 @@ export function AppLayout() {
     void request("/auth/logout", { method: "POST" }).catch(() => undefined);
     setActiveScreen("dashboard");
     setSession(null);
-  }, [request, setSession, setActiveScreen]);
+    // Every cached answer belonged to the tenant/user who just signed out —
+    // without this, the next person's screens rendered under someone else's
+    // rows until each query happened to refetch on its own.
+    queryClient.clear();
+  }, [request, setSession, setActiveScreen, queryClient]);
 
   const routedTopNavItem = useMemo(() => {
     const topNavItem = buildTopNavItem(t);
@@ -542,7 +563,7 @@ export function AppLayout() {
       workspaceGroups={workspaceGroups}
       // Every group, الإعداد والصلاحيات included — «كل الشاشات» is the
       // unfiltered map, so a screen no workspace tab shows is still browsable.
-      allScreensGroups={groups}
+      allScreensGroups={licensedGroups}
       onShowHelp={() => setShortcutsOpen(true)}
       user={shellUser}
       commandItems={routedCommandItems}

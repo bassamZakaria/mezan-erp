@@ -9,9 +9,9 @@ import { PlansPage } from "./PlansPage";
 import { OperatorsPage } from "./OperatorsPage";
 
 const RAIL_ITEMS = [
-  { to: "tenants", labelKey: "platform.nav.tenants" as const },
-  { to: "plans", labelKey: "platform.nav.plans" as const },
-  { to: "users", labelKey: "platform.nav.operators" as const },
+  { to: "/platform/tenants", labelKey: "platform.nav.tenants" as const },
+  { to: "/platform/plans", labelKey: "platform.nav.plans" as const },
+  { to: "/platform/users", labelKey: "platform.nav.operators" as const },
 ];
 
 export function PlatformShell() {
@@ -64,7 +64,7 @@ export function PlatformShell() {
 
       <main className="flex-1 p-[24px]">
         <Routes>
-          <Route index element={<Navigate to="tenants" replace />} />
+          <Route index element={<Navigate to="/platform/tenants" replace />} />
           <Route path="tenants" element={<TenantsPage />} />
           <Route path="tenants/:id" element={<TenantDetailPage />} />
           <Route path="plans" element={<PlansPage />} />

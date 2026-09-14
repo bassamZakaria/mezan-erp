@@ -9,12 +9,7 @@ import type {
   TenantSummaryDTO,
 } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { PlatformApiError, usePlatformApi } from "./api";
-
-async function readPlatformError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
-}
+import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 
 export function useTenantsQuery(): UseQueryResult<TenantSummaryDTO[], PlatformApiError> {
   const { t } = useAppTranslation();
@@ -24,7 +19,7 @@ export function useTenantsQuery(): UseQueryResult<TenantSummaryDTO[], PlatformAp
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/tenants");
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.tenants.loadFailed")));
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenants.loadFailed"));
       return res.json<TenantSummaryDTO[]>();
     },
   });
@@ -38,7 +33,7 @@ export function useTenantQuery(id: string): UseQueryResult<TenantSummaryDTO, Pla
     enabled: session !== null && id !== "",
     queryFn: async () => {
       const res = await request(`/tenants/${id}`);
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.tenantDetail.notFound")));
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.notFound"));
       return res.json<TenantSummaryDTO>();
     },
   });
@@ -52,7 +47,7 @@ export function usePlansQuery(): UseQueryResult<PlanDTO[], PlatformApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/plans");
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.plans.loadFailed")));
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.plans.loadFailed"));
       return res.json<PlanDTO[]>();
     },
   });
@@ -71,7 +66,7 @@ function useSummaryMutation<TVars>(
     mutationFn: async (vars) => {
       const body = buildBody(vars);
       const res = await request(buildPath(vars), { method: "POST", ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t(errorKey)));
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, errorKey));
       return res.json<TenantSummaryDTO>();
     },
     onSuccess: (summary) => {
@@ -88,7 +83,7 @@ export function useCreateTenantMutation() {
   return useMutation<ProvisionResultDTO, PlatformApiError, CreateTenantRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/tenants", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.newTenant.error.generic")));
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.newTenant.error.generic"));
       return res.json<ProvisionResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["platform", "tenants"] }),
@@ -102,7 +97,7 @@ export function useRetryProvisionMutation() {
   return useMutation<ProvisionResultDTO, PlatformApiError, { tenantId: string; body?: ProvisionRetryRequestDTO }>({
     mutationFn: async ({ tenantId, body }) => {
       const res = await request(`/tenants/${tenantId}/provision`, { method: "POST", ...(body ? { body: JSON.stringify(body) } : {}) });
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.tenantDetail.retryProvision.error.generic")));
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.retryProvision.error.generic"));
       return res.json<ProvisionResultDTO>();
     },
     onSuccess: (result) => {

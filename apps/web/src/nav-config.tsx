@@ -1,4 +1,5 @@
 import { modKeyLabel, type CommandItem, type NavGroup, type NavItem } from "@mezan/ui";
+import { isModuleLicensed, type Entitlements, type ModuleId } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 import { navGroupIcon, navItemIcon } from "./nav-icons";
 
@@ -265,6 +266,59 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     ],
   },
 ];
+
+/**
+ * Nav group key -> the entitlement module its screens require. A group with
+ * no entry here (سير العمل، الإعداد) is core platform surface and always
+ * shown, the same set `isModuleLicensed` treats as always-licensed.
+ */
+const GROUP_MODULE: Readonly<Partial<Record<string, ModuleId>>> = {
+  sell: "sales",
+  crm: "crm",
+  installments: "installments",
+  buy: "purchases",
+  items: "inventory",
+  stock: "inventory",
+  manufacturing: "manufacturing",
+  treasury: "treasury",
+  money: "accounting",
+  people: "hr",
+  assets: "assets",
+  contracting: "projects",
+};
+
+/** Per-item overrides for a screen whose module differs from its group's — الأوراق المالية sits on the treasury shelf but is its own licensable module. */
+const ITEM_MODULE_OVERRIDE: Readonly<Partial<Record<string, ModuleId>>> = {
+  cheques: "financial_papers",
+};
+
+function moduleForNavItem(groupKey: string, itemKey: string): ModuleId | undefined {
+  return ITEM_MODULE_OVERRIDE[itemKey] ?? GROUP_MODULE[groupKey];
+}
+
+/**
+ * Hides a group's items — and the group itself once it has none left — whose
+ * module the tenant's plan does not license, so a business-plan tenant with
+ * no `hr` module never sees الأشخاص in the rail. `entitlements === null`
+ * means "still loading" and returns `groups` untouched: filtering on a `null`
+ * would flash the whole rail empty for an instant on every load.
+ */
+export function filterNavGroupsByEntitlements(groups: readonly NavGroup[], entitlements: Entitlements | null): NavGroup[] {
+  if (!entitlements) return [...groups];
+  const isVisible = (groupKey: string, item: NavItem) => {
+    const moduleId = moduleForNavItem(groupKey, item.key);
+    return moduleId === undefined || isModuleLicensed(moduleId, entitlements);
+  };
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => isVisible(group.key, item)),
+      sections: group.sections
+        ?.map((section) => ({ ...section, items: section.items.filter((item) => isVisible(group.key, item)) }))
+        .filter((section) => section.items.length > 0),
+    }))
+    .filter((group) => group.items.length > 0 || (group.sections?.length ?? 0) > 0);
+}
 
 /** Items the shell pins at the top of the rail, above every group; their own group never reaches the rail. */
 /**

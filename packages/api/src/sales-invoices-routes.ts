@@ -55,7 +55,7 @@ import {
 } from "@mezan/contracts";
 import type { CurrencyCheck } from "./currency-policy.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
-import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -502,29 +502,37 @@ export function createSalesInvoicesRoutes(
       }
       return false;
     });
-    if (giveaway && !(ctx && can(ctx, "sales.price.override"))) {
-      return c.json(
-        {
-          error: "PERMISSION_DENIED",
-          permission: "sales.price.override",
-          message: "سعر صفري أو خصم كامل يحتاج صلاحية تعديل السعر.",
-        },
-        403,
-      );
+    if (giveaway) {
+      const moduleRefused = moduleRefusalFor(c, "sales.price.override");
+      if (moduleRefused) return moduleRefused;
+      if (!(ctx && can(ctx, "sales.price.override"))) {
+        return c.json(
+          {
+            error: "PERMISSION_DENIED",
+            permission: "sales.price.override",
+            message: "سعر صفري أو خصم كامل يحتاج صلاحية تعديل السعر.",
+          },
+          403,
+        );
+      }
     }
 
     const overCeiling =
       body.lines.some((line) => line.discountType === "percent" && (line.discountPercent ?? 0) > ceiling) ||
       (body.discount?.type === "percent" && body.discount.percent > ceiling);
-    if (overCeiling && !(ctx && can(ctx, "pos.discount.approve"))) {
-      return c.json(
-        {
-          error: "PERMISSION_DENIED",
-          permission: "pos.discount.approve",
-          message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
-        },
-        403,
-      );
+    if (overCeiling) {
+      const moduleRefused = moduleRefusalFor(c, "pos.discount.approve");
+      if (moduleRefused) return moduleRefused;
+      if (!(ctx && can(ctx, "pos.discount.approve"))) {
+        return c.json(
+          {
+            error: "PERMISSION_DENIED",
+            permission: "pos.discount.approve",
+            message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
+          },
+          403,
+        );
+      }
     }
     return null;
   }

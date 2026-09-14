@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ALL_PERMISSION_CODES, WILDCARD_PERMISSION } from "@mezan/domain";
+import { ALL_PERMISSION_CODES, WILDCARD_PERMISSION, getPermission } from "@mezan/domain";
 
 /**
  * Which permission codes any route actually gates on.
@@ -54,6 +54,19 @@ describe("the permission catalogue against the routes that check it", () => {
     const known = new Set<string>(ALL_PERMISSION_CODES);
     const unknown = [...GATED].filter((code) => !known.has(code));
     expect(unknown, `routes gate on codes the catalogue does not define: ${unknown.join(", ")}`).toEqual([]);
+  });
+
+  it("resolves every gated code through getPermission — the module gate reads this and silently skips its check for anything it does not resolve", () => {
+    // `createPermissionGate`/`createAnyPermissionGate` (permission-gate.ts) only
+    // refuse an unlicensed module when `getPermission(code)` resolves — a typo
+    // that slips past the catalogue-membership check above (e.g. a code that
+    // collides with WILDCARD_PERMISSION-shaped matching) would still silently
+    // skip the module axis of every gate that uses it.
+    const unresolved = [...GATED].filter((code) => code !== WILDCARD_PERMISSION && !getPermission(code));
+    expect(
+      unresolved,
+      `gate()/gateAny() codes getPermission cannot resolve, so their module check silently skips: ${unresolved.join(", ")}`,
+    ).toEqual([]);
   });
 
   it("LIMITATION (D116): a large minority of codes gate nothing, so the role editor overstates the product", () => {

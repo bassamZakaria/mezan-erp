@@ -14,7 +14,7 @@ import {
   type AuthContext,
 } from "@mezan/domain";
 import { createAttachmentSchema } from "@mezan/contracts";
-import { type AuthContextResolver } from "./permission-gate.js";
+import { moduleRefusalFor, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * المرفقات — `/attachments`. Files hang off a document (invoice, voucher, work
@@ -38,6 +38,20 @@ function canView(ctx: AuthContext, entityType: AttachmentEntityType): boolean {
 
 function canManage(ctx: AuthContext, entityType: AttachmentEntityType): boolean {
   return can(ctx, ATTACHMENT_ENTITY_PERMISSIONS[entityType].manage);
+}
+
+/**
+ * The module 403 for viewing `entityType`'s attachments, or `null` when
+ * licensed. `viewAny`'s tiers are all the same catalog module, so the first
+ * code stands in for the whole tier.
+ */
+function viewModuleRefusal(c: Context, entityType: AttachmentEntityType): Response | null {
+  return moduleRefusalFor(c, ATTACHMENT_ENTITY_PERMISSIONS[entityType].viewAny[0]!);
+}
+
+/** The module 403 for managing (upload/delete) `entityType`'s attachments, or `null` when licensed. */
+function manageModuleRefusal(c: Context, entityType: AttachmentEntityType): Response | null {
+  return moduleRefusalFor(c, ATTACHMENT_ENTITY_PERMISSIONS[entityType].manage);
 }
 
 function denied(c: Context, permission: string) {
@@ -95,6 +109,8 @@ export function createAttachmentsRoutes(
       if (!isAttachmentEntityType(entityType)) {
         return c.json({ error: "VALIDATION_ERROR", message: `Unknown entityType '${entityType}'.` }, 400);
       }
+      const moduleRefused = viewModuleRefusal(c, entityType);
+      if (moduleRefused) return moduleRefused;
       if (!canView(ctx, entityType)) return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[entityType].viewAny[0]!);
       const rows = entityId
         ? await deps.repo.list(entityType, entityId)
@@ -103,12 +119,16 @@ export function createAttachmentsRoutes(
     }
 
     const all = await deps.repo.listAll();
-    return c.json(all.filter((row) => canView(ctx, row.entityType)).map(serialize));
+    return c.json(
+      all.filter((row) => canView(ctx, row.entityType) && viewModuleRefusal(c, row.entityType) === null).map(serialize),
+    );
   });
 
   app.get("/:id", async (c) => {
     const found = await deps.repo.findById(c.req.param("id"));
     if (!found) return c.json({ error: "ATTACHMENT_NOT_FOUND", message: "Attachment not found." }, 404);
+    const moduleRefused = viewModuleRefusal(c, found.entityType);
+    if (moduleRefused) return moduleRefused;
     if (!canView(auth(c), found.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[found.entityType].viewAny[0]!);
     }
@@ -123,6 +143,8 @@ export function createAttachmentsRoutes(
   app.get("/:id/content", async (c) => {
     const content = await deps.repo.readContent(c.req.param("id"));
     if (!content) return c.json({ error: "ATTACHMENT_NOT_FOUND", message: "Attachment not found." }, 404);
+    const moduleRefused = viewModuleRefusal(c, content.attachment.entityType);
+    if (moduleRefused) return moduleRefused;
     if (!canView(auth(c), content.attachment.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[content.attachment.entityType].viewAny[0]!);
     }
@@ -136,6 +158,8 @@ export function createAttachmentsRoutes(
     const parsed = createAttachmentSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const ctx = auth(c);
+    const moduleRefused = manageModuleRefusal(c, parsed.data.entityType);
+    if (moduleRefused) return moduleRefused;
     if (!canManage(ctx, parsed.data.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[parsed.data.entityType].manage);
     }
@@ -162,6 +186,8 @@ export function createAttachmentsRoutes(
   app.delete("/:id", async (c) => {
     const found = await deps.repo.findById(c.req.param("id"));
     if (!found) return c.json({ error: "ATTACHMENT_NOT_FOUND", message: "Attachment not found." }, 404);
+    const moduleRefused = manageModuleRefusal(c, found.entityType);
+    if (moduleRefused) return moduleRefused;
     if (!canManage(auth(c), found.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[found.entityType].manage);
     }

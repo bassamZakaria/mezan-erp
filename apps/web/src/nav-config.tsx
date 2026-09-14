@@ -327,12 +327,36 @@ export function buildGoToCommandItems(t: Translate): CommandItem[] {
         id: `goto-${key}`,
         label: t(`nav.item.${key}` as AppTranslationKey),
         group: `${t("command.group.goTo")} · ${groupLabel}`,
+        keywords: COMMAND_KEYWORDS[key]?.map((k) => t(k as AppTranslationKey)),
         onSelect: () => {},
       });
     }
   }
   return items;
 }
+
+/**
+ * Report titles that live INSIDE a screen and therefore have no nav label of
+ * their own (§8.4).
+ *
+ * «قائمة الدخل» is a tab within «التقارير المالية», so typing its name into the
+ * command bar matched nothing — the bar searched nav labels and that name is
+ * not one. Attaching the titles as keywords beats minting a nav entry per
+ * statement, which would double the length of the reports group for no
+ * navigational gain: they all open the same screen.
+ */
+const COMMAND_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
+  "financial-reports": [
+    "finReports.incomeStatement",
+    "finReports.balanceSheet",
+    "finReports.cashFlow",
+    "finReports.vatReturn",
+    "finReports.withholdingTax",
+    "finReports.generalLedger",
+    "finReports.financialStatements",
+  ],
+  "trial-balance-report": ["finReports.trialBalance"],
+};
 
 export function buildTopNavItem(t: Translate): NavItem {
   return { key: "dashboard", label: t("nav.item.dashboard"), icon: navItemIcon("dashboard") };

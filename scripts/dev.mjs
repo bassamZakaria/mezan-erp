@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
 
 const fresh = process.argv.includes("--fresh");
-const dbPath = process.env.MEZAN_DB ?? "./mezan.db";
+const platformDir = process.env.MEZAN_PLATFORM_DIR ?? ".data/dev-platform";
 
 if (fresh) {
   const { rmSync } = await import("node:fs");
-  for (const suffix of ["", "-wal", "-shm"]) rmSync(`${dbPath}${suffix}`, { force: true });
-  console.log(`[dev] removed ${dbPath} (--fresh)`);
+  rmSync(platformDir, { recursive: true, force: true });
+  console.log(`[dev] removed ${platformDir} (--fresh)`);
 }
 
 const children = new Map();
@@ -48,6 +48,8 @@ process.on("SIGTERM", () => shutdown(0));
 
 run("server", "pnpm", ["exec", "tsx", "apps/server/src/index.ts"], {
   MEZAN_SEED_DEMO: "1",
-  MEZAN_DB: dbPath,
+  MEZAN_PLATFORM_DIR: platformDir,
+  MEZAN_PLATFORM_OWNER_EMAIL: "owner@mezan.local",
+  MEZAN_PLATFORM_OWNER_PASSWORD: "owner-password-123",
 });
 run("web", "pnpm", ["--filter", "web", "dev"], {});

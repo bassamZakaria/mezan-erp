@@ -14,21 +14,9 @@ import type { CloudEnv } from "./env.js";
 
 export interface CreateCloudAppOptions {
   readonly now?: () => Date;
-  /** Registered first, ahead of every route — e.g. `cloud.ts`'s shared demo Basic-auth wall. Omitted, every request passes through untouched. */
   readonly authMiddleware?: MiddlewareHandler;
-  /** Rewrites `index.html` once, right after it is read from disk — e.g. `cloud.ts`'s analytics-beacon injection. */
   readonly transformIndexHtml?: (html: string) => string;
-  /**
-   * The in-app backup scheduler (task C2): `start()` begins the timer and
-   * returns its `stop()`. Not implemented in this task — omitted, `close()`
-   * has nothing of its own to stop.
-   */
   readonly backups?: { start(): () => void };
-  /**
-   * Provisions the seeded demo tenant (task C3), called once at startup when
-   * `MEZAN_SEED_DEMO=1`. Not implemented in this task — omitted, the flag has
-   * no effect no matter its value.
-   */
   readonly seedDemo?: (deps: {
     readonly platform: PlatformHandle;
     readonly router: TenantRouter;
@@ -45,7 +33,6 @@ function generateOwnerPassword(): string {
   return randomBytes(10).toString("hex");
 }
 
-/** Same banner shape `apps/server/src/index.ts` prints the seeded admin PIN with. */
 function printGeneratedOwnerPassword(password: string): void {
   console.log("[cloud] ------------------------------------------------------------");
   console.log("[cloud] The platform owner was seeded with a GENERATED PASSWORD. It is");
@@ -55,12 +42,15 @@ function printGeneratedOwnerPassword(password: string): void {
   console.log("[cloud] ------------------------------------------------------------");
 }
 
-/**
- * Composes the platform database, the platform console API, the tenant
- * router, provisioning, dunning and (through the seams above) backups and the
- * seeded demo tenant into ONE app. `cloud.ts` and `index.ts` each add only
- * what is specific to their own deployment shape around this.
- */
+async function readIndexHtmlIfPresent(webDist: string): Promise<string | null> {
+  try {
+    return await readFile(path.join(webDist, "index.html"), "utf8");
+  } catch (err) {
+    if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  }
+}
+
 export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptions = {}): Promise<CloudApp> {
   const now = options.now ?? (() => new Date());
   mkdirSync(env.platformDir, { recursive: true });
@@ -117,14 +107,19 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   const root = new Hono();
 
+  // A health check must never depend on the demo password: register it
+  // before `authMiddleware`, or Render's probe gets 401 the moment
+  // MEZAN_DEMO_PASSWORD is set.
+  root.get("/healthz", (c) => c.text("ok"));
+
   if (options.authMiddleware) {
     root.use("/*", options.authMiddleware);
   }
 
-  root.get("/healthz", (c) => c.text("ok"));
-
   root.use("/api/*", requireOriginSecret(env.originSecret));
 
+  // `/api/platform` before `/api`: the tenant router's own catch-all would
+  // otherwise swallow the console's routes first.
   root.route("/api/platform", platformApp);
   root.route("/api", router.app);
 
@@ -133,17 +128,23 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     return c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 
-  const rawIndexHtml = await readFile(path.join(env.webDist, "index.html"), "utf8");
-  const indexHtml = options.transformIndexHtml ? options.transformIndexHtml(rawIndexHtml) : rawIndexHtml;
+  const rawIndexHtml = await readIndexHtmlIfPresent(env.webDist);
+  if (rawIndexHtml !== null) {
+    const indexHtml = options.transformIndexHtml ? options.transformIndexHtml(rawIndexHtml) : rawIndexHtml;
+    root.get("/", (c) => c.html(indexHtml));
+    root.get("/index.html", (c) => c.html(indexHtml));
+    root.use("/*", serveStatic({ root: env.webDist }));
+    root.notFound((c) => c.html(indexHtml));
+  } else {
+    root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية" }, 404));
+  }
 
-  root.get("/", (c) => c.html(indexHtml));
-  root.get("/index.html", (c) => c.html(indexHtml));
-  root.use("/*", serveStatic({ root: env.webDist }));
-  root.notFound((c) => c.html(indexHtml));
-
+  let closed = false;
   return {
     root,
     async close() {
+      if (closed) return;
+      closed = true;
       stopBackups?.();
       dunningTimer.stop();
       await router.close();

@@ -172,7 +172,10 @@ dialog, following the existing screen test style.
   platform user exists (a generated password is printed once, like the admin PIN), mounts
   `createPlatformRoutes` at `/api/platform` and `createTenantRouter` at `/api`. `MEZAN_SEED_DEMO=1`
   provisions tenant `demo` with the existing demo seed on an enterprise subscription.
-  `MEZAN_PLATFORM_DIR` defaults to `.data/platform`; `MEZAN_TENANT_DOMAIN` optional.
+  `MEZAN_PLATFORM_DIR` defaults to `.data/platform`; `MEZAN_TENANT_DOMAIN` optional. Exactly one
+  process may own a `MEZAN_PLATFORM_DIR` at a time — ECS's deployment min 0 / max 100 guarantees
+  that (the old task stops before the new one starts), and `MEZAN_SQLITE_EXCLUSIVE=1` makes a
+  second process that opens the same directory anyway fail fast instead of corrupting it.
 - `apps/server/src/index.ts` (dev): same wiring on `./.data/dev-platform`.
 - `scripts/env.mjs`: `MEZAN_PLATFORM_DIR=.data/<env>-platform`; `render.yaml`: `/tmp/platform`.
 - Seed prices become 490 / 980 / 1960 monthly and ten times yearly; the placeholder comment goes.

@@ -1,9 +1,3 @@
-/**
- * The environment contract every cloud entrypoint parses once at start
- * (docs/superpowers/plans/2026-09-14-saas-slice-c-deploy.md). Reading
- * `process.env` more than once per field would let two callers in the same
- * process disagree about what the deployment was configured with.
- */
 export interface CloudEnv {
   readonly platformDir: string;
   readonly tenantDomain?: string;

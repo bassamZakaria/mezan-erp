@@ -21,6 +21,8 @@ export interface TenantRouterOptions {
 
 export interface TenantRouter {
   readonly app: Hono;
+  /** Opens (or reuses) the tenant's own backend through the same cache the dispatcher uses. */
+  backendFor(code: string): Promise<BackendHandle>;
   invalidate(code: string): void;
   sweep(): Promise<void>;
   close(): Promise<void>;
@@ -118,6 +120,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
 
   return {
     app,
+    backendFor: (code) => cache.get(code),
     invalidate(code) { resolvers.get(code)?.invalidate(); },
     sweep: () => cache.sweep(),
     close: () => cache.close(),

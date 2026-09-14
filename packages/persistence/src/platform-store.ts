@@ -237,6 +237,7 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
   private readonly liveByTenant: Database.Statement;
   private readonly byTenant: Database.Statement;
   private readonly liveByPlan: Database.Statement;
+  private readonly listLiveByPlan: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(
@@ -257,6 +258,7 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
     this.liveByTenant = sqlite.prepare(`SELECT * FROM subscription WHERE tenant_id = ? AND status <> 'cancelled'`);
     this.byTenant = sqlite.prepare(`SELECT * FROM subscription WHERE tenant_id = ? ORDER BY created_at, id`);
     this.liveByPlan = sqlite.prepare(`SELECT 1 FROM subscription WHERE plan_id = ? AND status <> 'cancelled' LIMIT 1`);
+    this.listLiveByPlan = sqlite.prepare(`SELECT * FROM subscription WHERE plan_id = ? AND status <> 'cancelled' ORDER BY created_at, id`);
   }
 
   async findById(id: string): Promise<Subscription | null> {
@@ -275,6 +277,10 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
 
   async hasLiveByPlan(planId: string): Promise<boolean> {
     return this.liveByPlan.get(planId) !== undefined;
+  }
+
+  async listByPlan(planId: string): Promise<Subscription[]> {
+    return (this.listLiveByPlan.all(planId) as SubscriptionRow[]).map(toSubscription);
   }
 
   async save(s: Subscription): Promise<void> {

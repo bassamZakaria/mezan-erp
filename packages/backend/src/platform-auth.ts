@@ -27,6 +27,7 @@ export interface PlatformAuthDeps {
   readonly sessions: SessionRegistry;
   readonly now: () => Date;
   readonly loginThrottle?: LoginThrottle;
+  readonly onAuditError?: (err: unknown) => void;
 }
 
 export interface PlatformAuth {
@@ -44,7 +45,8 @@ function lockedOut(c: Context, seconds: number) {
 
 export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
   const { platform, sessions, now } = deps;
-  const throttle = deps.loginThrottle ?? createLoginThrottle();
+  const onAuditError = deps.onAuditError ?? ((err: unknown) => console.error(err));
+  const throttle = deps.loginThrottle ?? createLoginThrottle(() => now().getTime());
 
   function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {
     return recordSecurityEvent(platform.audit, {
@@ -56,15 +58,21 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
       severity,
       timestamp: now().toISOString(),
       details: { ...details, origin: requestOrigin(c) ?? "host" },
-    }).catch(() => undefined);
+    }).catch(onAuditError);
+  }
+
+  function roleOf(roleCode: string | null): PlatformRole | null {
+    if (roleCode === "platform-owner") return "owner";
+    if (roleCode === "platform-support") return "support";
+    return null;
   }
 
   function requirePlatform(role?: PlatformRole): MiddlewareHandler {
     return async (c, next) => {
       const token = readSessionToken(c);
       const grant = token ? sessions.find(token, requestOrigin(c)) : null;
-      if (!grant) return c.json({ error: "UNAUTHENTICATED" }, 401);
-      const userRole: PlatformRole = grant.roleCode === "platform-owner" ? "owner" : "support";
+      const userRole = grant ? roleOf(grant.roleCode) : null;
+      if (!grant || !userRole) return c.json({ error: "UNAUTHENTICATED" }, 401);
       if (role && userRole !== role) {
         return c.json({ error: "OWNER_ONLY", message: "هذا الإجراء لمالك المنصة فقط" }, 403);
       }

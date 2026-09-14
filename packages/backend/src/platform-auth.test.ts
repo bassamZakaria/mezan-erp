@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Hono } from "hono";
 import { createSessionRegistry } from "@mezan/api";
-import { createPlatformUser, type PlatformUser } from "@mezan/domain";
+import { ALL_SCOPE, createPlatformUser, type PlatformUser } from "@mezan/domain";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth } from "./platform-auth.js";
 
@@ -170,5 +170,78 @@ describe("createPlatformAuth", () => {
     const supportRes = await testApp.fetch(new Request("http://x/owner-only", { headers: { authorization: `Bearer ${supportToken}` } }));
     expect(supportRes.status).toBe(403);
     expect(await json(supportRes)).toEqual({ error: "OWNER_ONLY", message: "هذا الإجراء لمالك المنصة فقط" });
+  });
+
+  it("refuses a session whose roleCode is not a platform role, e.g. a tenant-style session", async () => {
+    const platform = await newPlatform();
+    const sessions = createSessionRegistry();
+    const auth = createPlatformAuth({ platform, sessions, now: FIXED_NOW });
+    const token = sessions.issue({ userId: "U-TENANT", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+
+    const testApp = new Hono();
+    testApp.get("/anything", auth.requirePlatform(), (c) => c.json({ ok: true }));
+
+    const res = await testApp.fetch(new Request("http://x/anything", { headers: { authorization: `Bearer ${token}` } }));
+    expect(res.status).toBe(401);
+    expect(await json(res)).toEqual({ error: "UNAUTHENTICATED" });
+  });
+
+  it("locks out repeated wrong passwords with 429 and a lockout body, driven by the injected clock", async () => {
+    const platform = await newPlatform();
+    await seedOwner(platform);
+    let currentTime = new Date("2026-01-01T00:00:00Z");
+    const sessions = createSessionRegistry();
+    const auth = createPlatformAuth({ platform, sessions, now: () => currentTime });
+
+    async function attempt(password: string) {
+      return auth.app.fetch(
+        new Request("http://x/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email: "owner@mezan.app", password }),
+        }),
+      );
+    }
+
+    for (let i = 0; i < 5; i++) {
+      expect((await attempt("wrong password")).status).toBe(401);
+    }
+    const lockedRes = await attempt("wrong password");
+    expect(lockedRes.status).toBe(429);
+    const body = (await json(lockedRes)) as { error: string; retryAfterSeconds: number };
+    expect(body.error).toBe("TOO_MANY_ATTEMPTS");
+    expect(body.retryAfterSeconds).toBeGreaterThan(0);
+    expect(lockedRes.headers.get("retry-after")).toBe(String(body.retryAfterSeconds));
+
+    // Advancing the INJECTED clock past the lock (not real time) proves the throttle reads `now`, not Date.now().
+    currentTime = new Date(currentTime.getTime() + (body.retryAfterSeconds + 1) * 1000);
+    const afterWaitRes = await attempt("correct horse battery");
+    expect(afterWaitRes.status).toBe(200);
+  });
+
+  it("logs an audit failure through onAuditError instead of swallowing it, and the login still succeeds", async () => {
+    const platform = await newPlatform();
+    await seedOwner(platform);
+    const auditErrors: unknown[] = [];
+    const brokenPlatform: PlatformHandle = {
+      ...platform,
+      audit: {
+        append: async () => { throw new Error("audit sink down"); },
+        query: platform.audit.query.bind(platform.audit),
+      },
+    };
+    const sessions = createSessionRegistry();
+    const auth = createPlatformAuth({ platform: brokenPlatform, sessions, now: FIXED_NOW, onAuditError: (err) => { auditErrors.push(err); } });
+
+    const res = await auth.app.fetch(
+      new Request("http://x/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "owner@mezan.app", password: "correct horse battery" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(auditErrors).toHaveLength(1);
+    expect((auditErrors[0] as Error).message).toBe("audit sink down");
   });
 });

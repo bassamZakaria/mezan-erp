@@ -54,7 +54,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
   const platformResolve = usePlatformResolve();
   const tenantMode = platformResolve.data?.mode;
-  const platformGateBlocked = platformResolve.isError && platformResolve.error?.status !== 404;
   const [tenantCode, setTenantCode] = useState(() => loadTenantCode() ?? "");
   const [resolvedCode, setResolvedCode] = useState(() => loadTenantCode() ?? "");
   const tenantCodeInvalid = tenantCode !== "" && !TENANT_CODE_RE.test(tenantCode);
@@ -116,15 +115,14 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     pinComplete &&
     !login.isPending &&
     lockedForSeconds === 0 &&
-    !tenantCodeInvalid &&
-    !platformGateBlocked;
+    !tenantCodeInvalid;
 
   function submit() {
     if (tenantMode === "code" && tenantCode.trim() === "") {
       setError(t("login.tenantRequired"));
       return;
     }
-    if (tenantCodeInvalid || platformGateBlocked) return;
+    if (tenantCodeInvalid) return;
     if (!canSubmit) return;
     // Guard the auto-submit against React re-running the effect for the same
     // completed PIN — otherwise a slow server turns one sign-in into several.
@@ -248,10 +246,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
         {platformResolve.isLoading ? (
           <p className="mt-[4px] text-2xs text-ink-faint">{t("login.platformChecking")}</p>
-        ) : platformGateBlocked ? (
-          <p role="alert" className="mt-[4px] text-2xs font-semibold text-danger-ink">
-            {t("login.platformUnreachable")}
-          </p>
         ) : null}
 
         {/* A session that ended says so, rather than looking like a fresh start

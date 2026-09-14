@@ -296,13 +296,41 @@ describe("LoginScreen — SaaS company code", () => {
     expect(await screen.findByText("جارٍ التحقق من المنشأة…")).toBeInTheDocument();
   });
 
-  it("disables submit and shows «تعذّر الوصول إلى الخادم» when /platform/resolve genuinely fails", async () => {
-    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ status: 500, body: {} }) }),
-    });
-    expect(await screen.findByText("تعذّر الوصول إلى الخادم")).toBeInTheDocument();
+  it("does not gate submission when /platform/resolve answers 500 — a normal sign-in still succeeds (regression: desktop and every existing transport never serve this route, so gating on any error hung sign-in forever)", async () => {
+    renderWithProviders(
+      <>
+        <LoginScreen onStartWizard={() => {}} />
+        <SessionProbe />
+      </>,
+      {
+        transport: stubTransport({
+          ...preAuth,
+          "GET /platform/resolve": () => ({ status: 500, body: {} }),
+          "POST /auth/login": () => ({ body: testAdminSession }),
+        }),
+      },
+    );
+    await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
+    expect(screen.queryByText("تعذّر الوصول إلى الخادم")).not.toBeInTheDocument();
     fillPin("123456");
-    expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "دخول" }));
+    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+  });
+
+  it("does not gate submission when /platform/resolve's fetch throws — a normal sign-in still succeeds", async () => {
+    const base = stubTransport({ ...preAuth, "POST /auth/login": () => ({ body: testAdminSession }) });
+    const transport: Transport = (path, init) =>
+      path.startsWith("/platform/resolve") ? Promise.reject(new Error("network down")) : base(path, init);
+    renderWithProviders(
+      <>
+        <LoginScreen onStartWizard={() => {}} />
+        <SessionProbe />
+      </>,
+      { transport },
+    );
+    fillPin("123456");
+    fireEvent.click(screen.getByRole("button", { name: "دخول" }));
+    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
   });
 
   it("does not gate submission when /platform/resolve simply doesn't exist (desktop/LAN backends, a plain 404)", async () => {

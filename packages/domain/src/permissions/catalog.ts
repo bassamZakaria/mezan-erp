@@ -51,10 +51,10 @@ export interface ModuleDef {
 }
 
 /** Bump when the catalog shape or contents change in a breaking way. */
-export const CATALOG_VERSION = 2 as const;
+export const CATALOG_VERSION = 3 as const;
 
 export const MODULES: readonly ModuleDef[] = [
-  { id: "sales", labelAr: "المبيعات", count: 27 },
+  { id: "sales", labelAr: "المبيعات", count: 28 },
   { id: "purchases", labelAr: "المشتريات", count: 31 },
   { id: "inventory", labelAr: "المخزون", count: 20 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
@@ -62,12 +62,6 @@ export const MODULES: readonly ModuleDef[] = [
   { id: "treasury", labelAr: "الخزينة", count: 19 },
   { id: "workflow", labelAr: "سير العمل", count: 5 },
   { id: "hr", labelAr: "الموارد البشرية", count: 32 },
-  // ONE code, and it is not a POS control at all: `pos.discount.approve` gates
-  // the discount ceiling on a SALES invoice (sales-invoices-routes.ts), which
-  // is why the module survives DEC-14's deletion of the other thirty-seven.
-  // The name is wrong and the gate is real; renaming it would break every
-  // grant that holds it, so it keeps the name it shipped with.
-  { id: "pos", labelAr: "نقطة البيع", count: 1 },
   { id: "crm", labelAr: "إدارة العملاء", count: 13 },
   { id: "installments", labelAr: "الأقساط", count: 7 },
   { id: "cheques", labelAr: "الأوراق المالية", count: 5 },
@@ -121,6 +115,16 @@ const ROWS: readonly Row[] = [
   ["sales.price_list.view"],
   ["sales.price_list.manage", "sales.price_list.view"],
   ["sales.price.override", "sales.invoice.create"],
+  /*
+   * Was `pos.discount.approve`, which is where it shipped and where it did not
+   * belong: it gates the discount ceiling on a SALES invoice, never a till.
+   * Under that name it survived DEC-14 as the last member of a module the
+   * platform does not license, so `licensedPermissions()` filtered it out of
+   * the role editor and the only way to hold it was the `*` wildcard — an
+   * enforced control nobody could grant. The route still accepts the old code
+   * so existing grants keep working.
+   */
+  ["sales.discount.approve", "sales.invoice.create"],
   ["sales.promotion.view"],
   ["sales.promotion.manage", "sales.promotion.view"],
 
@@ -277,12 +281,6 @@ const ROWS: readonly Row[] = [
   ["hr.leave_policy.edit", "hr.leave_policy.view"],
   ["hr.leave_policy.apply_preset", "hr.leave_policy.edit"],
   ["hr.leave_accrual.run", "hr.leave_policy.view"],
-
-  // 9. pos — 1
-  // The ONLY surviving POS code, and it guards a sales-invoice discount
-  // ceiling rather than a till (sales-invoices-routes.ts). It takes no `deps`
-  // because there is no POS document to see first.
-  ["pos.discount.approve"],
 
   // 10. crm — 13
   ["crm.lead.view"],

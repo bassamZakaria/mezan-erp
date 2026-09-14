@@ -515,12 +515,12 @@ describe("the discount ceiling and the giveaway gate", () => {
       }),
     );
     expect(overrideOnly.status).toBe(403);
-    expect(await overrideOnly.json()).toMatchObject({ permission: "pos.discount.approve" });
+    expect(await overrideOnly.json()).toMatchObject({ permission: "sales.discount.approve" });
 
     const allowed = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.invoice.create,sales.price.override,pos.discount.approve",
+        permissions: "sales.invoice.create,sales.price.override,sales.discount.approve",
         body: JSON.stringify(body),
       }),
     );
@@ -561,7 +561,7 @@ describe("the discount ceiling and the giveaway gate", () => {
       }),
     );
     expect(overCeiling.status).toBe(403);
-    expect(await overCeiling.json()).toMatchObject({ permission: "pos.discount.approve" });
+    expect(await overCeiling.json()).toMatchObject({ permission: "sales.discount.approve" });
   });
 
   it("lets an approver exceed the ceiling", async () => {
@@ -569,7 +569,7 @@ describe("the discount ceiling and the giveaway gate", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.invoice.create,pos.discount.approve",
+        permissions: "sales.invoice.create,sales.discount.approve",
         body: JSON.stringify(line({ discountType: "percent", discountPercent: 45 })),
       }),
     );
@@ -586,14 +586,14 @@ describe("the discount ceiling and the giveaway gate", () => {
       }),
     );
     expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ permission: "pos.discount.approve" });
+    expect(await res.json()).toMatchObject({ permission: "sales.discount.approve" });
   });
 
   /** Guards D87: an amount discount is measured against the ceiling as a percentage. */
   it("holds an amount discount to the ceiling exactly as the equivalent percent one", async () => {
     // 10 × 25.00 = 250.00. A 240.00 discount is 96% of the line — far above the
     // 20% ceiling — and typing it as «مبلغ» rather than «نسبة» used to walk past
-    // the ceiling and past pos.discount.approve entirely.
+    // the ceiling and past sales.discount.approve entirely.
     const { app } = await harnessWithCeiling(20);
     const refused = await app.fetch(
       req("/", {
@@ -603,12 +603,12 @@ describe("the discount ceiling and the giveaway gate", () => {
       }),
     );
     expect(refused.status).toBe(403);
-    expect(await refused.json()).toMatchObject({ permission: "pos.discount.approve" });
+    expect(await refused.json()).toMatchObject({ permission: "sales.discount.approve" });
 
     const approved = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.invoice.create,pos.discount.approve",
+        permissions: "sales.invoice.create,sales.discount.approve",
         body: JSON.stringify(line({ discountType: "amount", discountAmount: "240" })),
       }),
     );
@@ -635,7 +635,7 @@ describe("the discount ceiling and the giveaway gate", () => {
       }),
     );
     expect(overCeiling.status).toBe(403);
-    expect(await overCeiling.json()).toMatchObject({ permission: "pos.discount.approve" });
+    expect(await overCeiling.json()).toMatchObject({ permission: "sales.discount.approve" });
   });
 
   it("applies the ceiling to an amount discount on the header too", async () => {
@@ -650,7 +650,7 @@ describe("the discount ceiling and the giveaway gate", () => {
       }),
     );
     expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ permission: "pos.discount.approve" });
+    expect(await res.json()).toMatchObject({ permission: "sales.discount.approve" });
   });
 
   it("has no ceiling at all when the tenant configures none", async () => {

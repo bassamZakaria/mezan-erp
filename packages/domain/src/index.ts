@@ -251,6 +251,13 @@ export { normalizeForSearch, matchesSearch } from "./search/arabic.js";
 /** Filed VAT returns — the lock that stops a backdated document restating a submitted return. */
 export * from "./tax/vat-filing.js";
 
+/** النظام الضريبي المبسط (قانون 6 لسنة 2025) — the statutory table, the recorded election, and the comparison. */
+export * from "./tax/simplified-regime-schedule.js";
+export * from "./tax/simplified-regime.js";
+export * from "./tax/simplified-regime-election.js";
+export * from "./tax/simplified-regime-comparison.js";
+export * from "./tax/decree-420-books.js";
+
 /** المرفقات — files attached to a document or an entity (R1.4). */
 export * from "./attachments/index.js";
 

@@ -16,31 +16,33 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 231 permissions across 19 modules (DEC-14)", () => {
+  it("carries only what the product enforces — 231 permissions across 18 modules (DEC-14)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
-    // checks: the whole POS module bar `pos.discount.approve` (which is not a
-    // POS control at all — it guards the discount ceiling on a SALES invoice),
-    // the `dashboard` and `transactions` modules, per-voucher-type `.view`
-    // tiers over a single voucher list, print rights that are renderer-side,
-    // and the approvals DEC-2 made ROLE-based so a permission code could never
-    // honour them.
+    // checks: the `dashboard` and `transactions` modules, per-voucher-type
+    // `.view` tiers over a single voucher list, print rights that are
+    // renderer-side, and the approvals DEC-2 made ROLE-based so a permission
+    // code could never honour them.
+    //
+    // The POS module went with them, all thirty-eight codes. Thirty-seven named
+    // a till this build does not have. The thirty-eighth was checked — but it
+    // guards the discount ceiling on a SALES invoice, so it moved to
+    // `sales.discount.approve` rather than keeping a module alive around it.
     //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
     expect(PERMISSIONS).toHaveLength(231);
-    expect(MODULES).toHaveLength(19);
+    expect(MODULES).toHaveLength(18);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
     expect(summed).toBe(231);
   });
 
-  it("keeps `pos.discount.approve`, the one POS code a route actually gates", () => {
-    // The caution DEC-14 attached to "delete the whole pos module": one of the
-    // thirty-eight is checked, by `sales-invoices-routes.ts`, on the invoice
-    // discount ceiling. Deleting it would have taken the ceiling's approval
-    // path with it.
-    const pos = PERMISSIONS.filter((p) => p.module === "pos").map((p) => p.code);
-    expect(pos).toEqual(["pos.discount.approve"]);
+  it("has no `pos` module left, and the one code that was real lives under sales", () => {
+    // Keeping it as `pos.discount.approve` kept it UNGRANTABLE: `pos` is
+    // excluded from MODULE_CATALOG on purpose, and the role editor renders only
+    // licensed modules, so the only way to hold it was the `*` wildcard.
+    expect(PERMISSIONS.filter((p) => p.module === "pos")).toEqual([]);
+    expect(getPermission("sales.discount.approve")?.module).toBe("sales");
   });
 
   it("has no module left whose permissions are all gone", () => {
@@ -77,7 +79,7 @@ describe("permission catalog", () => {
   });
 
   it("derives module ownership from the code", () => {
-    expect(getPermission("pos.discount.approve")?.module).toBe("pos");
+    expect(getPermission("sales.discount.approve")?.module).toBe("sales");
     expect(getPermission("admin.tenant.settings.edit")?.module).toBe("admin");
     expect(getPermission("cheques.bounce")?.module).toBe("cheques");
   });

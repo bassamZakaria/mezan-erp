@@ -238,3 +238,6 @@ export function createVatReturnReport(
     },
   };
 }
+
+/** دفتر ملخص الضريبة — the tax-summary book required by قرار وزير المالية 420 لسنة 2025، المادة 3. */
+export const createDecree420TaxSummaryBook = createVatReturnReport;

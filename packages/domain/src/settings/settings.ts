@@ -86,7 +86,7 @@ export interface TenantSettings {
   readonly creditControlMode: CreditControlMode;
   /**
    * The line discount a salesperson may give unaided, as a percent. Above it
-   * the caller must additionally hold `pos.discount.approve` — the permission
+   * the caller must additionally hold `sales.discount.approve` — the permission
    * existed in the catalogue and was enforced nowhere, so a rep with plain
    * invoice-create could discount a line to nothing.
    *

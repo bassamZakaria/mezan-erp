@@ -104,3 +104,6 @@ export function createPurchasesByPeriodReport(
     },
   };
 }
+
+/** دفتر المشتريات — the purchases journal required by قرار وزير المالية 420 لسنة 2025، المادة 3. */
+export const createDecree420PurchasesJournal = createPurchasesByPeriodReport;

@@ -578,7 +578,7 @@ export function createSalesInvoicesRoutes(
   type DiscountInput = { readonly type: "percent"; readonly percent: number } | { readonly type: "amount"; readonly amount: string };
 
   /**
-   * `sales.price.override` and `pos.discount.approve` were catalogue
+   * `sales.price.override` and `sales.discount.approve` were catalogue
    * permissions enforced NOWHERE: a user holding plain `sales.invoice.create`
    * could zero a unit price or discount a line to nothing, with no ceiling and
    * no elevated permission. That is the invoice-side twin of the credit limit,
@@ -589,7 +589,7 @@ export function createSalesInvoicesRoutes(
    *     line — needs `sales.price.override`. It bites regardless of tenant
    *     configuration, because there is no reading under which selling for
    *     nothing is ordinary.
-   *   - a discount ABOVE the tenant's ceiling needs `pos.discount.approve`.
+   *   - a discount ABOVE the tenant's ceiling needs `sales.discount.approve`.
    *     The ceiling defaults to 100, so a tenant that has never set one is
    *     refused nothing it used to be allowed.
    *
@@ -633,7 +633,7 @@ export function createSalesInvoicesRoutes(
      * The ceiling is a PERCENTAGE, so an amount discount is converted to the
      * percentage of the line it actually represents before it is compared —
      * typing the same 96% giveaway as «مبلغ» rather than «نسبة» used to walk
-     * past the ceiling and past `pos.discount.approve` entirely (D87).
+     * past the ceiling and past `sales.discount.approve` entirely (D87).
      *
      * All bigint: `ceiling` becomes a 1e-6 scalar the same way money does, and
      * `discount/gross > ceiling/100` is cross-multiplied rather than divided,
@@ -666,21 +666,23 @@ export function createSalesInvoicesRoutes(
           : false);
     if (overCeiling) {
       /*
-       * NO module refusal here, deliberately.
+       * NO module refusal here, deliberately: this guards the discount ceiling
+       * on a SALES invoice and must stay reachable on every tenant.
        *
-       * `pos.discount.approve` is a misnamed catalogue code — it guards the
-       * discount ceiling on a SALES invoice, which has nothing to do with the
-       * POS module. And `pos` is excluded from `MODULE_CATALOG` on purpose
-       * (it has no domain, routes or persistence in this repo), so a module
-       * gate here answers MODULE_NOT_LICENSED for EVERY tenant: the ceiling
-       * becomes unapprovable by anyone, and an oversized discount is refused
-       * outright instead of being escalated. The scenarios catch exactly that.
+       * The code was `pos.discount.approve` until the rename. It named a till
+       * it never guarded, and `pos` is excluded from `MODULE_CATALOG` (no
+       * domain, routes or persistence), so `licensedPermissions()` filtered it
+       * out of the role editor — an enforced control nobody could be granted.
+       * The old code is still honoured so grants written before the rename
+       * keep working; it is out of the catalogue, so nothing new is granted
+       * under it. The refusal names the NEW code, because that is the one an
+       * administrator can actually tick.
        */
-      if (!(ctx && can(ctx, "pos.discount.approve"))) {
+      if (!(ctx && (can(ctx, "sales.discount.approve") || can(ctx, "pos.discount.approve")))) {
         return c.json(
           {
             error: "PERMISSION_DENIED",
-            permission: "pos.discount.approve",
+            permission: "sales.discount.approve",
             message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
           },
           403,

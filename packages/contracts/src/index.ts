@@ -1576,3 +1576,18 @@ export {
 } from "./cost-center.js";
 
 export { isoDateOrInstant, isoDay, ISO_DATE_PATTERNS } from "./iso-date.js";
+
+export {
+  simplifiedRegimeStateSchema,
+  recordSimplifiedRegimeSchema,
+  simplifiedRegimeElectionSchema,
+  statutoryBandSchema,
+  simplifiedRegimeFlagSchema,
+  concentrationClientSchema,
+  simplifiedRegimeStatusSchema,
+  type SimplifiedRegimeStateDTO,
+  type RecordSimplifiedRegimeDTO,
+  type SimplifiedRegimeElectionDTO,
+  type StatutoryBandDTO,
+  type SimplifiedRegimeStatusDTO,
+} from "./simplified-regime.js";

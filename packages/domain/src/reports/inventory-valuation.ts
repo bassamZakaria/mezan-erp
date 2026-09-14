@@ -131,3 +131,10 @@ export function createInventoryValuationReport(): ReportDefinition<
     },
   };
 }
+
+/**
+ * دفتر المخزون (الخامات والبضاعة) — the stock register required by قرار وزير
+ * المالية 420 لسنة 2025، المادة 3: quantity and value per item, which is what
+ * تقييم المخزون already is.
+ */
+export const createDecree420StockRegister = createInventoryValuationReport;

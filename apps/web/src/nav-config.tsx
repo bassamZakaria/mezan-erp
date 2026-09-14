@@ -139,6 +139,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
         defaultCollapsed: true,
         itemKeys: [
           "report-inventory-stock-levels",
+          "report-inventory-goods-in-transit",
           "report-inventory-movement",
           "report-inventory-ledger",
           "report-inventory-valuation",
@@ -188,8 +189,8 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     sections: [
       { key: "daily", itemKeys: ["journals"] },
       { key: "close", itemKeys: ["fiscal-periods", "reconciliation", "bank-reconciliation", "revaluation", "eta"] },
-      { key: "master", defaultCollapsed: true, itemKeys: ["coa", "cost-centers", "taxes", "exchange-rates"] },
-      { key: "reports", defaultCollapsed: true, itemKeys: ["trial-balance-report", "financial-reports", "cost-center-pl"] },
+      { key: "master", defaultCollapsed: true, itemKeys: ["coa", "cost-centers", "taxes", "tax-simplified-regime", "exchange-rates"] },
+      { key: "reports", defaultCollapsed: true, itemKeys: ["trial-balance-report", "financial-reports", "cost-center-pl", "report-simplified-regime-comparison"] },
     ],
   },
   {

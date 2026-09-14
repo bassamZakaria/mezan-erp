@@ -97,6 +97,11 @@ const ROLES = [
       "sales.invoice.view",
       "sales.invoice.view_all",
       "sales.invoice.confirm",
+      // «يعتمد ما يحتاج موافقة» in this role's own description. Until the code
+      // moved out of the POS module nobody could be granted it, so the ceiling
+      // escalated to a right that did not exist and the invoice was simply
+      // refused.
+      "sales.discount.approve",
       "sales.quote.view",
       "sales.return.view",
       "sales.return.confirm",

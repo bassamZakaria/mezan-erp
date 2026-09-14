@@ -111,3 +111,11 @@ export function createSalesByPeriodReport(
     },
   };
 }
+
+/**
+ * دفتر المبيعات — the sales journal every taxpayer under the simplified regime
+ * must keep (قرار وزير المالية 420 لسنة 2025، المادة 3). It is this report
+ * under its statutory name, not a second register: a book kept separately from
+ * the invoices it is meant to summarise is a book that can disagree with them.
+ */
+export const createDecree420SalesJournal = createSalesByPeriodReport;

@@ -91,7 +91,7 @@ describe("the permission catalogue against the routes that check it", () => {
     //
     //   - inline `can()` inside a handler, where the code is only known once a
     //     body or an entity is in hand: `sales.invoice.view_cost`,
-    //     `sales.price.override`, `pos.discount.approve` (the invoice discount
+    //     `sales.price.override`, `sales.discount.approve` (the invoice discount
     //     ceiling), `purchases.receipt.edit_cost`, `hr.employee.view_salary`;
     //   - `attachments/entity-type.ts`, which resolves a permission from the
     //     entity an attachment hangs on: `purchases.order.edit` is that
@@ -111,14 +111,15 @@ describe("the permission catalogue against the routes that check it", () => {
     expect(UNGATED.length).toBeLessThanOrEqual(13);
   });
 
-  it("keeps exactly one POS code, and it is the one a route checks", () => {
+  it("has no POS code left — the one that was real is now `sales.discount.approve`", () => {
     // The whole module was catalogued and had no route at all, which is why
-    // DEC-14 deleted it — except that `pos.discount.approve` is not a POS
-    // control: `sales-invoices-routes.ts` checks it on the SALES invoice
-    // discount ceiling, inline rather than through a gate, which is why this
-    // scanner still cannot see it.
-    const pos = ALL_PERMISSION_CODES.filter((code) => code.startsWith("pos."));
-    expect(pos).toEqual(["pos.discount.approve"]);
+    // DEC-14 deleted it. One of the thirty-eight WAS checked — but on the SALES
+    // invoice discount ceiling, not a till, and keeping it under the POS name
+    // kept it ungrantable: `pos` is deliberately absent from MODULE_CATALOG, so
+    // the role editor never rendered it and only the `*` wildcard could hold
+    // it. It moved to `sales`, where an administrator can tick it.
+    expect(ALL_PERMISSION_CODES.filter((code) => code.startsWith("pos."))).toEqual([]);
+    expect(ALL_PERMISSION_CODES).toContain("sales.discount.approve");
   });
 
   it("gates the per-voucher-type treasury codes DEC-14 kept, so they are controls and not labels", () => {

@@ -177,6 +177,8 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   journals: BookText,
   "fiscal-periods": CalendarRange,
   taxes: Percent,
+  "tax-simplified-regime": Scale,
+  "report-simplified-regime-comparison": GitCompare,
   "exchange-rates": ArrowRightLeft,
   revaluation: RefreshCw,
   reconciliation: GitCompare,

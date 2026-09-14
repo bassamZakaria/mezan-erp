@@ -333,3 +333,10 @@ export {
   type SqliteContractingSiteStoreHandle,
 } from "./contracting-site-store.js";
 export { createSqlitePlatformStores, type SqlitePlatformStoresHandle } from "./platform-store.js";
+
+export {
+  createSqliteSimplifiedRegimeStore,
+  createStandaloneSqliteSimplifiedRegimeStore,
+  readSimplifiedRegime,
+  type SqliteSimplifiedRegimeStoreHandle,
+} from "./simplified-regime-store.js";

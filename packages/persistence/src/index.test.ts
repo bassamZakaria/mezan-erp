@@ -85,8 +85,6 @@ describe("package index", () => {
       "createSqlitePayrollComponentRepository",
       "createSqliteWritedownRunRepository",
       "createSqliteProductTemplateStore",
-      "createSqliteApiKeyStore",
-      "createSqliteWebhookStores",
       "createSqliteLabelLayoutStore",
       "createSqliteItemCatalogStore",
       "createSqliteItemCatalogStores",

@@ -532,22 +532,16 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X30 — one confirm, many listeners
   // ---------------------------------------------------------------------------
-  await scenario("x30 · a document confirm notifies its rule and attempts its webhook, and neither can duplicate or roll back the document", async () => {
+  await scenario("x30 · a document confirm notifies its rule, and the listener can neither duplicate nor roll back the document", async () => {
     const rule = await req("POST", "/notification-rules", {
       id: "SCN-S-RULE-1", name: "تأكيد فاتورة مبيعات", eventCode: "SALES_INVOICE_CONFIRMED",
       recipientType: "user", recipientValue: "USER-ADMIN", priority: "normal", channels: ["in_app"], active: true,
     });
     check("a rule on a genuinely-emitted event is created", rule.status === 201, `status ${rule.status} ${JSON.stringify(rule.body).slice(0, 250)}`);
 
-    const hook = await req("POST", "/webhooks", {
-      name: "مشترك لا يستجيب", targetUrl: "http://127.0.0.1:9/never-listens", events: ["SALES_INVOICE_CONFIRMED"],
-    });
-    check("a webhook pointed at an endpoint that cannot answer is accepted", hook.status === 201, `status ${hook.status} ${JSON.stringify(hook.body).slice(0, 250)}`);
-    const hookId = hook.body?.id;
-
     const unreadBefore = rows((await req("GET", "/notifications", undefined, { "x-user-id": "USER-ADMIN" })).body).length;
     const sale = await serviceInvoice("SCN-S-INV-EVENT", [{ qty: "2", unitPrice: "250" }]);
-    check("the invoice confirms while a rule and a dead webhook both listen", sale.confirmed.status === 200, JSON.stringify(sale.confirmed.body).slice(0, 250));
+    check("the invoice confirms while a rule listens", sale.confirmed.status === 200, JSON.stringify(sale.confirmed.body).slice(0, 250));
     // The document-event bridge enriches asynchronously (create-backend.ts) — give its microtasks a turn.
     await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -560,14 +554,10 @@ export async function run(ctx: Ctx): Promise<void> {
     const other = rows((await req("GET", "/notifications", undefined, { "x-user-id": "USER-NOBODY" })).body);
     check("and a user no rule addresses gets nothing", other.length === 0, `other user's inbox=${other.length}`);
 
-    const deliveries = rows((await req("GET", `/webhooks/${hookId}/deliveries`)).body);
-    check("the failing delivery is recorded rather than swallowed", deliveries.length >= 1, `deliveries=${deliveries.length}`);
-    check("and every attempt is marked failed, not optimistically successful", deliveries.every((d: any) => d.success === false), JSON.stringify(deliveries).slice(0, 250));
-
     const invoice = (await req("GET", "/sales-invoices/SCN-S-INV-EVENT")).body;
     check("the document is untouched by its listeners: still confirmed", invoice?.status === "confirmed", `status=${invoice?.status}`);
     const entry = await journalOf("SCN-S-INV-EVENT");
-    checkEq("and posted exactly once, in full — a webhook that never answers must not duplicate or halve a journal entry", entry.debit, n(invoice?.totals?.grandTotal));
+    checkEq("and posted exactly once, in full — a listener must not duplicate or halve a journal entry", entry.debit, n(invoice?.totals?.grandTotal));
     const retry = await req("POST", "/sales-invoices/SCN-S-INV-EVENT/confirm", {});
     check("a second confirm is refused rather than posting again", retry.status === 409 || retry.status === 422, `status ${retry.status} ${JSON.stringify(retry.body).slice(0, 200)}`);
     checkEq("and the entry is exactly as it was", (await journalOf("SCN-S-INV-EVENT")).debit, entry.debit);

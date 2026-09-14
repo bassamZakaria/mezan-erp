@@ -89,9 +89,6 @@ import {
   type StockTransferDocLine,
   EventBus,
   NotificationRulesEngine,
-  WebhookDispatcher,
-  type WebhookRetryPolicy,
-  type WebhookTransportPort,
   type DocumentEventPublisher,
   type DocumentEventType,
   type EventCode,
@@ -184,14 +181,12 @@ import {
   createSqliteWorkflowConfigStore,
   createSqliteApprovalRequestStore,
   createDataMigrationTransactor,
-  createSqliteApiKeyStore,
   createSqliteBarcodeConfigStore,
   createSqliteUserPreferencesStore,
   createSqliteAuditSink,
   createSqliteLabelLayoutStore,
   createSqliteSequenceConfigStore,
   createSqliteSequenceStore,
-  createSqliteWebhookStores,
 } from "@mezan/persistence";
 import {
   EtaService,
@@ -227,7 +222,6 @@ import { createPreferencesRoutes } from "./preferences-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
-import { createFetchWebhookTransport, createHmacWebhookSigner } from "./webhook-transport.js";
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
@@ -777,16 +771,6 @@ export interface CreateBackendOptions {
    */
   readonly seedDemoData?: boolean;
   /**
-   * Outbound HTTP for the webhook dispatcher. Defaults to a real `fetch`
-   * sender; a test or a demo run passes a stub so nothing leaves the machine.
-   */
-  readonly webhookTransport?: WebhookTransportPort;
-  /**
-   * Overrides the dispatcher's bounded retry policy (3 attempts, 500ms then
-   * 2s, 10s per-attempt timeout). Tests shorten it; nothing else should.
-   */
-  readonly webhookRetry?: Partial<WebhookRetryPolicy>;
-  /**
    * Mounts the LAN multi-till routes (`/lan/*`).
    *
    * Supplied by apps/desktop, which is the only edition that binds a LAN
@@ -857,16 +841,26 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // but harmless to set repeatedly on the same connection.
   const { sqlite } = openSqliteConnection(dbPath, options.connection);
 
+  /*
+   * DEC-17 removed the API-key and webhook back end. Their stores are gone, so
+   * a new database never creates these tables — but an existing one still
+   * carries them, holding hashed keys and signing secrets for a surface that no
+   * longer exists. Dropping them here is the only migration step this repo has:
+   * every store builds its own schema on open, so there is no central runner to
+   * put it in. Safe to remove once no deployed database predates this commit.
+   */
+  for (const table of ["webhook_delivery", "webhook", "api_key"]) {
+    sqlite.exec(`DROP TABLE IF EXISTS ${table}`);
+  }
+
   const sequenceConfig = createSqliteSequenceConfigStore(sqlite);
   const sequenceCounters = createSqliteSequenceStore(sqlite);
   // The ONE audit sink for the whole backend. Without it the `audit_event`
   // table is never written and `/audit` reports an empty log.
   const auditSink = createSqliteAuditSink(sqlite);
-  const apiKeys = createSqliteApiKeyStore(sqlite);
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
   const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
-  const webhookStores = createSqliteWebhookStores(sqlite);
   const labelLayouts = createSqliteLabelLayoutStore(sqlite);
 
   const uow = createSqliteUnitOfWork(sqlite);
@@ -1014,28 +1008,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   eventBus.subscribeAll((event) => {
     void notificationEngine.handle(event).catch((error: unknown) => {
       console.error(`[notifications] engine failed handling "${event.code}"`, error);
-    });
-  });
-
-  // --- Webhook dispatcher — the SECOND subscriber on the same bus. It POSTs a
-  // signed body to every enabled subscription matching the fired code, retries
-  // with bounded backoff, and records each attempt. Deliberately detached: the
-  // handler returns immediately so a slow or broken receiver can never delay
-  // or fail the confirm that emitted the event. ---
-  const webhookDispatcher = new WebhookDispatcher({
-    webhooks: webhookStores.webhooks,
-    deliveries: webhookStores.deliveries,
-    transport: options.webhookTransport ?? createFetchWebhookTransport(),
-    signature: createHmacWebhookSigner(),
-    generateId: () => randomUUID(),
-    retry: options.webhookRetry,
-    onError: (error, context) => {
-      console.error(`[webhooks] dispatch failed for "${context.event.code}"`, error);
-    },
-  });
-  eventBus.subscribeAll((event) => {
-    void webhookDispatcher.handle(event).catch((error: unknown) => {
-      console.error(`[webhooks] dispatcher rejected handling "${event.code}"`, error);
     });
   });
 
@@ -2606,8 +2578,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: { store: auditSink },
     auditSink,
     barcodeConfigStore: barcodeConfig,
-    apiKeys: { repo: apiKeys },
-    webhooks: { webhooks: webhookStores.webhooks, deliveries: webhookStores.deliveries },
     taxRateRepo: taxRates,
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
@@ -3505,10 +3475,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     sequenceConfig,
     sequenceCounters,
     auditSink,
-    apiKeys,
     barcodeConfig,
     userPreferences,
-    webhookStores,
     labelLayouts,
   ];
 
@@ -3530,9 +3498,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     app,
     sessions,
     close() {
-      // Before the connection goes: retries waiting on a backoff pause would
-      // otherwise wake up against a closed store and throw while recording.
-      webhookDispatcher.stop();
       // Every store above shares the ONE `sqlite` connection opened at the
       // top of this function, so each store's own close() is a no-op (it
       // doesn't own the connection) — this loop is harmless belt-and-braces,

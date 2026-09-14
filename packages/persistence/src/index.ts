@@ -283,8 +283,6 @@ export {
   type SqliteProductTemplateStoreHandle,
 } from "./product-template-store.js";
 
-export { createSqliteApiKeyStore, type SqliteApiKeyStoreHandle } from "./api-key-store.js";
-export { createSqliteWebhookStores, type SqliteWebhookStoresHandle } from "./webhook-store.js";
 
 export {
   createSqliteLabelLayoutStore,

@@ -1481,28 +1481,6 @@ export {
 } from "./profile.js";
 
 export {
-  apiKeySchema,
-  createApiKeySchema,
-  createApiKeyResultSchema,
-  type ApiKeyDTO,
-  type CreateApiKeyDTO,
-  type CreateApiKeyResultDTO,
-} from "./api-keys.js";
-
-export {
-  webhookSchema,
-  createWebhookSchema,
-  updateWebhookSchema,
-  createWebhookResultSchema,
-  webhookDeliverySchema,
-  type WebhookDTO,
-  type CreateWebhookDTO,
-  type UpdateWebhookDTO,
-  type CreateWebhookResultDTO,
-  type WebhookDeliveryDTO,
-} from "./webhooks.js";
-
-export {
   gateStepSchema,
   workflowConfigSchema,
   createWorkflowConfigSchema,

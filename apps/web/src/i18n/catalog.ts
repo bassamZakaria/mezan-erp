@@ -753,7 +753,6 @@ const webAr = {
   "module.projects": "المشاريع",
   "module.contracting": "المقاولات",
 
-  // settings — API keys
 
   // settings — notification rules
   "notifRules.priority.low": "منخفضة",
@@ -5813,11 +5812,8 @@ const webAr = {
   "settingsGeneral.friday": "الجمعة",
   "settingsGeneral.saturday": "السبت",
 
-  // webhooks
 
-  // webhooks
 
-  // webhooks
 
   // firstRun
   "firstRun.activateTheLicence": "تفعيل الترخيص",
@@ -6523,12 +6519,10 @@ const webAr = {
   "eyebrow.sales.promotions": "المبيعات · العروض",
   "eyebrow.sales.quotations": "المبيعات · عروض الأسعار",
   "eyebrow.sales.returns": "المبيعات · المرتجعات",
-  "eyebrow.settings.apiKeys": "الإعدادات · مفاتيح API",
   "eyebrow.settings.branches": "الإعدادات · الفروع",
   "eyebrow.settings.numberingSequences": "الإعدادات · تسلسلات الترقيم",
   "eyebrow.settings.users": "الإعدادات · المستخدمون",
   "eyebrow.settings.warehouses": "الإعدادات · المستودعات",
-  "eyebrow.settings.webhooks": "الإعدادات · الويب هوك",
   "eyebrow.settings.workflow": "الإعدادات · سير العمل",
   "eyebrow.treasury.accounts": "الخزينة · الحسابات",
   "eyebrow.treasury.bankReconciliation": "الخزينة · المطابقة البنكية",
@@ -9330,7 +9324,6 @@ const webEn: Record<WebTranslationKey, string> = {
   "module.projects": "Projects",
   "module.contracting": "Contracting",
 
-  // settings — API keys
 
   // settings — notification rules
   "notifRules.priority.low": "Low",
@@ -14390,11 +14383,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "settingsGeneral.friday": "Friday",
   "settingsGeneral.saturday": "Saturday",
 
-  // webhooks
 
-  // webhooks
 
-  // webhooks
 
   // firstRun
   "firstRun.activateTheLicence": "Activate the licence",
@@ -15100,12 +15090,10 @@ const webEn: Record<WebTranslationKey, string> = {
   "eyebrow.sales.promotions": "Sales · Promotions",
   "eyebrow.sales.quotations": "Sales · Quotations",
   "eyebrow.sales.returns": "Sales · Returns",
-  "eyebrow.settings.apiKeys": "Settings · API keys",
   "eyebrow.settings.branches": "Settings · Branches",
   "eyebrow.settings.numberingSequences": "Settings · Numbering Sequences",
   "eyebrow.settings.users": "Settings · Users",
   "eyebrow.settings.warehouses": "Settings · Warehouses",
-  "eyebrow.settings.webhooks": "Settings · Webhooks",
   "eyebrow.settings.workflow": "Settings · Workflow",
   "eyebrow.treasury.accounts": "Treasury · Accounts",
   "eyebrow.treasury.bankReconciliation": "Treasury · Bank Reconciliation",

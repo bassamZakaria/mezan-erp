@@ -277,7 +277,7 @@ function serializeValue(value: unknown): string {
 
 /**
  * SHA-256 port. `node:crypto` may not be imported inside @mezan/domain (the
- * same boundary the webhook signature port exists for), so the primitive is
+ * same boundary a signing port exists for), so the primitive is
  * injected and this package only decides WHAT gets hashed.
  */
 export interface EtaReceiptUuidPort {

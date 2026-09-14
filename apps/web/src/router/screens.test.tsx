@@ -121,7 +121,10 @@ describe("real router integration (App + routes.tsx)", () => {
     await screen.findByRole("heading", { name: /مرحباً/ });
 
     fireEvent.click(screen.getByRole("button", { name: "المالية والإقفال" }));
-    fireEvent.click(screen.getByRole("button", { name: "دليل الحسابات" }));
+    // The الدليل والتعريفات shelf reaches 5 items with DEC-13's regime screen,
+    // past WorkspaceScreensBar's flatten-up-to-4, so it is a dropdown.
+    fireEvent.click(screen.getByRole("button", { name: "الدليل والتعريفات" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "دليل الحسابات" }));
     expect(await screen.findByRole("heading", { name: "دليل الحسابات" })).toBeInTheDocument();
   });
 });

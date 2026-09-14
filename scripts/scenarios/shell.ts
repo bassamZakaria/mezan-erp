@@ -190,8 +190,6 @@ const NAV_ENDPOINTS: readonly (readonly [string, string])[] = [
   ["settings-sequences", "/sequences"],
   ["settings-barcode", "/barcode-config"],
   ["settings-profile", "/profile"],
-  ["settings-api-keys", "/api-keys"],
-  ["settings-webhooks", "/webhooks"],
   ["audit", "/audit"],
   ["users", "/users"],
   ["roles", "/roles"],

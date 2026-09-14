@@ -214,11 +214,7 @@ export * from "./field-sales/index.js";
 // --- profile/ — self-service account profile (own name/email/phone/password/PIN) ---
 export * from "./profile/index.js";
 
-// --- api-keys/ — issued API keys, scoped from the permission catalog ---
-export * from "./api-keys/index.js";
 
-// --- webhooks/ — webhook subscriptions + delivery-attempt log ---
-export * from "./webhooks/index.js";
 
 // --- hr-shared/ — stable cross-domain seam (hr/master-data); attendance/leave/payroll depend on this, not hr/ directly ---
 export * from "./hr-shared/employee-ref.js";

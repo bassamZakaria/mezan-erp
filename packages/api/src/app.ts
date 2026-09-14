@@ -32,12 +32,9 @@ import {
   type AttachmentRepository,
   type EventCode,
   type AllocatableInvoiceRepository,
-  type ApiKeyRepository,
   type BarcodeConfigRepository,
   type AuditQueryPort,
   type AuditSink,
-  type WebhookDeliveryRepository,
-  type WebhookRepository,
   type LabelLayoutRepository,
   type Entitlements,
   type TaxRateRepository,
@@ -229,8 +226,6 @@ import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
-import { createApiKeysRoutes } from "./api-keys-routes.js";
-import { createWebhooksRoutes } from "./webhooks-routes.js";
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
   const entitlements: Entitlements = createEntitlements({
@@ -361,7 +356,7 @@ export interface CreateAppOptions {
   readonly sequences?: SequencesRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/barcode-config` when present. */
   readonly barcodeConfigStore?: BarcodeConfigRepository;
-  /** Shared audit sink for profile security events and API-key/webhook writes. */
+  /** Shared audit sink for profile security events. */
   readonly auditSink?: AuditSink;
   /**
    * The live session registry and the login throttle, so administrative acts
@@ -383,14 +378,6 @@ export interface CreateAppOptions {
    * probing left no trace at all.
    */
   readonly onPermissionRefused?: PermissionRefusalReporter;
-  /** Mounts `/api-keys` when present. */
-  readonly apiKeys?: { readonly repo: ApiKeyRepository; readonly resolveAuthContext?: AuthContextResolver };
-  /** Mounts `/webhooks` when present. */
-  readonly webhooks?: {
-    readonly webhooks: WebhookRepository;
-    readonly deliveries: WebhookDeliveryRepository;
-    readonly resolveAuthContext?: AuthContextResolver;
-  };
   /** Mounts `/audit` — the read-only audit query surface — when present. */
   readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
@@ -507,10 +494,9 @@ export interface CreateAppOptions {
   readonly notificationRuleRepo?: NotificationRuleRepository;
   /**
    * The event codes this deployment really publishes onto the event bus —
-   * what `/notification-rules/triggers` reports as `emitted`, and the set
-   * `/webhooks` will accept a subscription on. The composition root derives it
-   * from its own bridge wiring; omit it and every trigger is honestly reported
-   * as not-yet-emitted and the webhook check is off.
+   * what `/notification-rules/triggers` reports as `emitted`. The composition
+   * root derives it from its own bridge wiring; omit it and every trigger is
+   * honestly reported as not-yet-emitted.
    */
   readonly emittedEventCodes?: readonly EventCode[];
   /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
@@ -1725,27 +1711,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     }),
   );
   app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink));
-  if (options.apiKeys) {
-    app.route(
-      "/api-keys",
-      createApiKeysRoutes(options.apiKeys.repo, hasher, (options.apiKeys.resolveAuthContext ?? resolveAuth) ?? resolveAuth, options.auditSink),
-    );
-  }
-  if (options.webhooks) {
-    app.route(
-      "/webhooks",
-      createWebhooksRoutes(
-        {
-          webhooks: options.webhooks.webhooks,
-          deliveries: options.webhooks.deliveries,
-          emittedEventCodes: options.emittedEventCodes,
-        },
-        (options.webhooks.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
-        options.auditSink,
-      ),
-    );
-  }
-
   if (options.printTemplateConfig) {
     app.route(
       "/print-template-config",

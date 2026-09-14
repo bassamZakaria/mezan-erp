@@ -239,8 +239,6 @@ const READ_PATHS = [
   "/audit",
   "/profile",
   "/profile/activity",
-  "/api-keys",
-  "/webhooks",
   "/notification-rules",
   "/notification-rules/triggers",
   "/notifications",

@@ -117,7 +117,8 @@ function hashToken(token: string): string {
  * Expands any legal IPv6 text form to its 16 bytes, or null when it is not one.
  *
  * Same job as the function of this name in @mezan/backend's
- * webhook-transport.ts — duplicated rather than shared because this package may
+ * the outbound transport that used to live in packages/backend — kept here
+ * rather than shared because this package may
  * not depend on that one — and its comment's lesson applies verbatim:
  * `::ffff:127.0.0.1`, `::ffff:7f00:1` and `0:0:0:0:0:ffff:7f00:1` are ONE
  * address, and every version of that check which pattern-matched spellings
@@ -127,7 +128,7 @@ function hashToken(token: string): string {
  * separately, so `::` fills against a group count that is always eight. Counting
  * the tail apart from the placeholder that stands in for it in the text is how
  * `::ffff:192.168.1.5` ends up eighteen bytes long and unparseable — which,
- * over there, merely over-blocks a webhook destination, and here would have
+ * over there merely over-blocked an outbound destination, and here would have
  * dropped a dual-stack till back to comparing raw strings.
  */
 function ipv6Bytes(text: string): number[] | null {

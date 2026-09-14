@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, createEntitlements, type WebhookHttpRequest } from "@mezan/domain";
+import { ALL_SCOPE, createEntitlements } from "@mezan/domain";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -973,112 +973,6 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
     expect(note?.documentType).toBe("credit_note");
     // And the invoice's own submission is still there, untouched.
     expect(rows.some((r) => r.internalId === invoice.docNo && r.documentType === "invoice")).toBe(true);
-  });
-});
-
-/**
- * WebhookDispatcher is the SECOND subscriber on the shared EventBus
- * (create-backend.ts, right after the notification-rules engine) — this
- * proves it is actually wired end to end: a real subscription, a real
- * confirm, a real signed HTTP call (through the injected transport), and a
- * real delivery-attempt record, not just that the class exists.
- */
-describe("createBackend — webhook dispatcher wiring", () => {
-  it("a subscribed webhook receives a real HMAC-signed delivery when a sales invoice confirms, and the attempt is recorded", async () => {
-    const calls: WebhookHttpRequest[] = [];
-    const app = keep(
-      await createBackend({
-        dbPath: ":memory:",
-        webhookTransport: {
-          async send(request) {
-            calls.push(request);
-            return { statusCode: 200, errorMessage: null };
-          },
-        },
-      }),
-    );
-
-    const createHook = await post(
-      app,
-      "/webhooks",
-      { name: "ERP sync", targetUrl: "https://example.test/hooks/mezan", events: ["SALES_INVOICE_CONFIRMED"] },
-      admin(app),
-    );
-    expect(createHook.status).toBe(201);
-    const webhook = (await createHook.json()) as { id: string; secret: string };
-
-    await createCustomer(app, "cust-wh-1", "0");
-    await createServiceItem(app);
-    const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-wh-1", "cust-wh-1", "250.00"));
-    expect(create.status).toBe(201);
-    const confirm = await authedPost(app, "/sales-invoices/inv-wh-1/confirm", {});
-    expect(confirm.status).toBe(200);
-
-    // The dispatcher is fired detached from the confirm response, exactly like
-    // the notification engine — give its own async chain (webhooks.list ->
-    // transport.send -> recordWebhookDelivery) room to actually run.
-    for (let i = 0; i < 40 && calls.length === 0; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-
-    expect(calls).toHaveLength(1);
-    const sent = calls[0]!;
-    expect(sent.url).toBe("https://example.test/hooks/mezan");
-    expect(sent.headers["x-mezan-event"]).toBe("SALES_INVOICE_CONFIRMED");
-    const payload = JSON.parse(sent.body) as { event: string; webhookId: string; data: { documentNumber: string } };
-    expect(payload.event).toBe("SALES_INVOICE_CONFIRMED");
-    expect(payload.webhookId).toBe(webhook.id);
-    expect(payload.data.documentNumber).toBeTruthy();
-
-    // The signature must verify against the SAME plaintext secret the create
-    // response returned — a webhook whose signature a receiver cannot check is
-    // useless no matter how many bytes arrive.
-    const [tsField, sigField] = sent.headers["x-mezan-signature"]!.split(",");
-    const timestamp = tsField!.slice("t=".length);
-    expect(sent.headers["x-mezan-timestamp"]).toBe(timestamp);
-    const expectedDigest = createHmac("sha256", webhook.secret).update(`${timestamp}.${sent.body}`).digest("hex");
-    expect(sigField).toBe(`v1=${expectedDigest}`);
-
-    let deliveries: { success: boolean; statusCode: number | null; eventCode: string }[] = [];
-    for (let i = 0; i < 40 && deliveries.length === 0; i += 1) {
-      const res = await app.fetch(new Request(`http://local/webhooks/${webhook.id}/deliveries`, { headers: admin(app) }));
-      expect(res.status).toBe(200);
-      deliveries = (await res.json()) as typeof deliveries;
-      if (deliveries.length === 0) await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]).toMatchObject({ success: true, statusCode: 200, eventCode: "SALES_INVOICE_CONFIRMED" });
-  });
-
-  it("a webhook NOT subscribed to the fired event never gets called", async () => {
-    const calls: WebhookHttpRequest[] = [];
-    const app = keep(
-      await createBackend({
-        dbPath: ":memory:",
-        webhookTransport: {
-          async send(request) {
-            calls.push(request);
-            return { statusCode: 200, errorMessage: null };
-          },
-        },
-      }),
-    );
-    const createHook = await post(
-      app,
-      "/webhooks",
-      { name: "Unrelated", targetUrl: "https://example.test/hooks/other", events: ["PURCHASE_RETURN_CONFIRMED"] },
-      admin(app),
-    );
-    expect(createHook.status).toBe(201);
-
-    await createCustomer(app, "cust-wh-2", "0");
-    await createServiceItem(app);
-    await authedPost(app, "/sales-invoices", invoiceBody("inv-wh-2", "cust-wh-2", "100"));
-    const confirm = await authedPost(app, "/sales-invoices/inv-wh-2/confirm", {});
-    expect(confirm.status).toBe(200);
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(calls).toHaveLength(0);
   });
 });
 

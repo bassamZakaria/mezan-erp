@@ -3311,12 +3311,14 @@ describe("createBackend — GET /gl/balances-by-currency reads real open receiva
 });
 
 describe("createBackend — seedDemoData wires a real session and seeds through the real API", () => {
+  // The demo seed's ~15-user tenant exceeds the default resolver's 10 seats
+  // (A3's SEAT_LIMIT_REACHED), so every demo-seeded backend here supplies its
+  // own room to seed.
+  const demoEntitlements = () =>
+    createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+
   it("seeds more than zero customers, reachable over the real HTTP surface", async () => {
-    // The demo seed's ~15-user tenant exceeds the default resolver's 10 seats
-    // (A3's SEAT_LIMIT_REACHED), so this test supplies its own room to seed.
-    const resolveEntitlements = () =>
-      createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements });
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
     handles.push(handle);
     registries.set(handle.app, handle.sessions);
     const res = await handle.app.fetch(new Request("http://local/customers", { headers: admin(handle.app) }));
@@ -3332,7 +3334,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
    * confirms a live invoice the authority never hears about.
    */
   it("an approved progress certificate's invoice reaches the ETA queue exactly once", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
     handles.push(handle);
     registries.set(handle.app, handle.sessions);
     const app = handle.app;

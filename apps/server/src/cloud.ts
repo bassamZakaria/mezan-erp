@@ -1,48 +1,33 @@
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
-import { readFile } from "node:fs/promises";
-import { Hono } from "hono";
-import { createBackend } from "@mezan/backend";
-import { createEntitlements, MODULE_CATALOG } from "@mezan/domain";
+import type { Context, MiddlewareHandler } from "hono";
+import { parseEnv } from "./env.js";
+import { createCloudApp } from "./cloud-app.js";
 
 /**
- * Cloud demo mount: ONE origin serving the built web bundle at `/` and the
- * shared Hono app under `/api`, because apps/web/src/data/transport.ts calls
- * `/api` with no host of its own. Keep that prefix in step with this file.
- *
- * The database is deliberately container-local: the free host has an ephemeral
- * disk, so every restart reseeds the demo tenant from scratch.
+ * Cloud entrypoint: one origin serving the built web bundle at `/`, the
+ * platform console under `/api/platform`, and every tenant under `/api` —
+ * apps/web/src/data/transport.ts calls `/api` with no host of its own, so
+ * keep that prefix in step with this file.
  */
-const dbPath = process.env.MEZAN_DB ?? "/tmp/mezan-demo.db";
-const staticRoot = process.env.MEZAN_WEB_DIST ?? "./apps/web/dist";
-/**
- * The demo tenant seeds more accounts than the platform default's 10 seats
- * allow (A3's SEAT_LIMIT_REACHED). Slice C replaces this with the demo
- * tenant's real subscription; until then, seat/branch/warehouse caps stay off.
- */
-const resolveEntitlements = () =>
-  createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
-const { app } = await createBackend({ dbPath, seedDemoData: true, resolveEntitlements });
-
-const root = new Hono();
-root.get("/healthz", (c) => c.text("ok"));
+const env = parseEnv(process.env);
 
 /**
- * The demo tenant's PINs are published in the repo, so the URL itself is the
- * only thing standing between the public and a working ERP login. Set
- * MEZAN_DEMO_PASSWORD and the whole origin sits behind one shared credential
- * handed to clients; leave it unset and the demo is open.
+ * The demo tenant's PINs are published in the repo, so on the free-tier
+ * shared demo host the URL itself is the only thing standing between the
+ * public and a working ERP login. Set MEZAN_DEMO_PASSWORD and the whole
+ * origin sits behind one shared credential handed to clients; leave it unset
+ * and the demo is open.
  */
-const demoPassword = process.env.MEZAN_DEMO_PASSWORD;
-if (demoPassword) {
-  const expected = `Basic ${Buffer.from(`demo:${demoPassword}`).toString("base64")}`;
-  root.use("/*", async (c, next) => {
-    if (c.req.header("authorization") !== expected) {
-      return c.text("Unauthorized", 401, { "WWW-Authenticate": 'Basic realm="Mezan demo"' });
+const demoPassword = env.demoPassword;
+const authMiddleware: MiddlewareHandler | undefined = demoPassword
+  ? async (c: Context, next) => {
+      const expected = `Basic ${Buffer.from(`demo:${demoPassword}`).toString("base64")}`;
+      if (c.req.header("authorization") !== expected) {
+        return c.text("Unauthorized", 401, { "WWW-Authenticate": 'Basic realm="Mezan demo"' });
+      }
+      await next();
     }
-    await next();
-  });
-}
+  : undefined;
 
 /**
  * The analytics beacon is injected HERE, at the cloud mount, and never built
@@ -50,24 +35,16 @@ if (demoPassword) {
  * stay free of any outbound call. Unset the env var and the demo ships the
  * page untouched.
  */
-const analyticsToken = process.env.MEZAN_ANALYTICS_TOKEN;
-const analyticsTag = analyticsToken
-  ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: analyticsToken })}'></script>`
-  : "";
+const analyticsToken = env.analyticsToken;
+const transformIndexHtml = analyticsToken
+  ? (html: string) => {
+      const analyticsTag = `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: analyticsToken })}'></script>`;
+      return html.replace("</body>", `${analyticsTag}</body>`);
+    }
+  : undefined;
 
-const rawIndexHtml = await readFile(`${staticRoot}/index.html`, "utf8");
-const indexHtml = analyticsTag
-  ? rawIndexHtml.replace("</body>", `${analyticsTag}</body>`)
-  : rawIndexHtml;
+const { root } = await createCloudApp(env, { authMiddleware, transformIndexHtml });
 
-root.route("/api", app);
-root.get("/", (c) => c.html(indexHtml));
-root.get("/index.html", (c) => c.html(indexHtml));
-root.use("/*", serveStatic({ root: staticRoot }));
-
-root.notFound((c) => c.html(indexHtml));
-
-const port = Number(process.env.PORT ?? 8080);
 /**
  * SECURITY-RELEVANT, AND DELIBERATE: the second argument is dropped, so
  * @mezan/api's requestOrigin() sees no `incoming` socket and every session
@@ -81,6 +58,6 @@ const port = Number(process.env.PORT ?? 8080);
  * demo usable and gives up a control that was already blind at this mount.
  * The desktop and LAN mounts pass the socket through and keep the binding.
  */
-serve({ fetch: (request: Request) => root.fetch(request), port, hostname: "0.0.0.0" }, (info) => {
-  console.log(`[cloud] Mezan demo on :${info.port} (db: ${dbPath}, demo seed ON)`);
+serve({ fetch: (request: Request) => root.fetch(request), port: env.port, hostname: "0.0.0.0" }, (info) => {
+  console.log(`[cloud] Mezan platform on :${info.port} (platform dir: ${env.platformDir})`);
 });

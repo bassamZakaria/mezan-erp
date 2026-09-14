@@ -34,6 +34,7 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | 5 | Defects |
 | 6 | Decisions waiting on a human |
 | 7 | Beyond parity — the enhancement backlog (E1–E3) |
+| 9 | Small screens |
 | 8 | Shell follow-ups |
 
 ---
@@ -49,7 +50,7 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07. Three named buyer segments could not legally transact before it |
 | **Decisions (§6)** | Seven open (DEC-3 … DEC-7, DEC-19, DEC-20) |
 | **Beyond parity (§7)** | 27 candidates across E1–E3, none started; `enhancements` branch only |
-| **Shell follow-ups (§8)** | **7 of 8 done.** Only §8.3 (sidebar grouping) is left, and it is a judgement call with no defect behind it |
+| **Shell follow-ups (§8)** | **All 8 done** (2026-09-14) |
 
 ## 1.1 Signals
 
@@ -61,7 +62,8 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | «قريباً» placeholders outside HR | **0** | 2026-08-27 |
 | Reference screens still absent | ~14, all POS or POS-adjacent | 2026-08-26 audit |
 | `pnpm scenarios` | **6,697 passing, 0 failing** | 2026-09-14 |
-| `pnpm test` | **9,997 passing, 0 failing** over 856 files | 2026-09-14 |
+| `pnpm test:responsive` | **17 passing, 0 failing** at 390px and 360px | 2026-09-14 |
+| `pnpm test` | **10,110 passing, 0 failing** over 867 files | 2026-09-14 |
 | The four ledger invariants | all at exactly zero — trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs GL 1105 | 2026-08-27 |
 | Typecheck · lint · RTL · native controls · permission labels · theme colour-only | all passing | 2026-09-11 |
 | `pnpm smoke` | 240 read surfaces, all responded | 2026-09-14 |
@@ -1151,6 +1153,42 @@ All candidates trace to a requirement in `archive/enhancements/requirements.md` 
 
 ---
 
+# 9. Small screens
+
+
+**Done 2026-09-14.** `pnpm test:responsive` — 17 checks at 390px (iPhone 14/15) and
+360px (the narrowest Android still in real use), on a demo-seeded tenant because an empty
+list has no columns to overflow and would pass while proving nothing.
+
+The app did not work on a phone, and it was ONE cause rather than many: `WorkspaceRail`
+was a fixed 256px column, so a 390px screen had 134px left for the content and the PAGE
+scrolled sideways — the user dragged the whole layout to read one row, and the chrome went
+with it.
+
+- **The column is a drawer below 900px** — its own toggle, a scrim, a focus trap, Escape,
+  and close-on-navigate (a drawer left open over the screen it just opened is the commonest
+  way this pattern is got wrong). It also closes itself on a resize back to desktop, since
+  the toggle that dismisses it is hidden at that width. **Hiding the column was tried first
+  and is wrong**: it carries the brand, the workspace list and RailFooter's theme toggle,
+  notifications and user menu, so hiding it left no route to any of them and broke sign-in.
+- **`min-w-0` on `Panel` and `KpiTile`.** A grid child defaults to `min-width: auto` —
+  "at least as wide as my content" — so they refused to shrink below the 517px aging table
+  and the seven-digit figure they hold, and their own `overflow-x-auto` never got the
+  chance to scroll.
+- **The KPI tile shrinks below 420px** rather than the number wrapping: a money figure
+  never breaks mid-digit, by design.
+
+**The RTL trap, recorded because it cost an hour.** This app runs RTL, so overflowing
+content escapes past the LEFT edge and `getBoundingClientRect().right` stays inside the
+viewport the whole time. A right-edge-only detector reports nothing while the page is 149px
+too wide.
+
+**Still desktop-first by intent.** The rule the suite enforces is that wide content scrolls
+inside its OWN container — an ERP row has more columns than a phone has pixels, and no
+amount of stacking makes that readable. What must never scroll is the page.
+
+---
+
 # 8. Shell follow-ups
 
 
@@ -1162,7 +1200,7 @@ when the list still called them open, which is why each one now names its eviden
 |---|---|---|
 | 8.1 | A better Arabic typeface | **Done.** The face is Zain (`packages/ui/src/tokens/fonts.css`), a real Arabic family across the weight range, not the old `font-ar` fallback |
 | 8.2 | A real icon per sidebar item | **Done.** `nav-icons.tsx` maps 164 entries; the single-letter fallback is gone |
-| 8.3 | Organising the sidebar | **Open — a judgement call, not code.** 115 entries in 17 groups. Worth revisiting now that icons have landed, but it needs someone to decide what belongs together; there is no defect to fix |
+| 8.3 | Organising the sidebar | **Done — the restructure this asked for already happened.** The note describes a flat list of 115 entries in 17 groups. `nav-config.tsx` now holds **12 workspaces** carrying **17 sections** (`daily` / `master` / `reports` / `config` / `close`), with 27 sections collapsed by default so a workspace opens on the handful of screens used daily. Icons landed (§8.2) and `⌘K` searches across all of it including report titles (§8.4). Whether any SPECIFIC grouping is right is a product judgement, and this repo settles those against the running reference app, not by re-deciding them here |
 | 8.4 | Search in the sidebar | **Done 2026-09-14.** Answered as "no separate rail filter" — `⌘K` is the one search surface. What WAS broken is fixed: the bar matched nav labels with a raw `includes`, so «قائمة الدخل» (a tab inside «التقارير المالية», with no nav label of its own) returned nothing, and an unforgiving match missed on a hamza the user did not type. Commands carry keywords, and the filter runs through `matchesSearch` |
 | 8.5 | A customisable main dashboard | **Done 2026-09-14.** The four lower panels are addressable widgets; the screen renders the user's stored layout |
 | 8.6 | Somewhere to store per-user preferences | **Done.** `packages/domain/src/user-preferences` + `/preferences`, and it already modelled a dashboard layout before anything read it |

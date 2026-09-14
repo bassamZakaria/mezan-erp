@@ -92,12 +92,13 @@ describe("createTenantResolvers", () => {
 
     r.invalidate();
 
-    /**
-     * `findLiveByTenant` excludes cancelled subscriptions, so once cancelled
-     * there is no live subscription at all — `subscriptionLicenseState` maps
-     * "no subscription" to UNLICENSED, not READ_ONLY.
-     */
-    expect((await r.resolveLicenseState()).state).toBe("UNLICENSED");
+    const license = await r.resolveLicenseState();
+    expect(license.state).toBe("READ_ONLY");
+    expect(license.reason).toBe("SUBSCRIPTION_CANCELLED");
+
+    const entitlements = await r.resolveEntitlements();
+    expect(entitlements.plan).toBe("core");
+    expect(entitlements.activeModules).toContain("sales");
   });
 
   it("gives UNLICENSED_ENTITLEMENTS and state UNLICENSED for a tenant with no subscription", async () => {

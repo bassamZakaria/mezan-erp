@@ -115,6 +115,20 @@ describe("createBackendCache", () => {
     expect(cache.size).toBe(0);
   });
 
+  it("calls onEvict for each code a sweep evicts", async () => {
+    let t = 0;
+    const evicted: string[] = [];
+    const open = vi.fn(async (code: string) => ({ code, close: vi.fn() }));
+    const cache = createBackendCache({ open, idleMs: 1000, now: () => t, sweepEveryMs: 0, onEvict: (code) => evicted.push(code) });
+
+    await cache.get("a");
+    await cache.get("b");
+    t += 1001;
+    await cache.sweep();
+
+    expect(evicted.sort()).toEqual(["a", "b"]);
+  });
+
   it("closes everything open on close and rejects further get", async () => {
     const open = vi.fn(async (code: string) => ({ code, close: vi.fn() }));
     const cache = createBackendCache({ open, sweepEveryMs: 0 });

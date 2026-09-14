@@ -5,6 +5,8 @@ export interface BackendCacheOptions<H extends CachedHandle> {
   readonly idleMs?: number;
   readonly now?: () => number;
   readonly sweepEveryMs?: number;
+  /** Called for each code a sweep evicts, before its handle finishes closing. */
+  readonly onEvict?: (code: string) => void;
 }
 
 export interface BackendCache<H> {
@@ -32,6 +34,7 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
     for (const [code, entry] of entries) {
       if (entry.lastUsed <= cutoff) {
         entries.delete(code);
+        options.onEvict?.(code);
         due.push(entry.handle);
       }
     }

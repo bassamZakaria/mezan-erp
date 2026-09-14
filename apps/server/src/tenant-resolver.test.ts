@@ -8,11 +8,32 @@ describe("resolveTenantCode", () => {
     expect(resolveTenantCode(req({ host: "cyag.mezan.app" }), { tenantDomain: "mezan.app" })).toBe("cyag");
     expect(resolveTenantCode(req({ host: "CYAG.mezan.app:8080" }), { tenantDomain: "mezan.app" })).toBe("cyag");
   });
-  it("prefers x-forwarded-host over host", () => {
-    expect(resolveTenantCode(req({ host: "d1.cloudfront.net", "x-forwarded-host": "nile.mezan.app" }), { tenantDomain: "mezan.app" })).toBe("nile");
+  it("prefers x-forwarded-host over host when trusted", () => {
+    expect(
+      resolveTenantCode(req({ host: "d1.cloudfront.net", "x-forwarded-host": "nile.mezan.app" }), {
+        tenantDomain: "mezan.app",
+        trustForwardedHost: true,
+      }),
+    ).toBe("nile");
   });
-  it("takes the first host in a comma-separated x-forwarded-host", () => {
-    expect(resolveTenantCode(req({ "x-forwarded-host": "cyag.mezan.app, proxy.internal" }), { tenantDomain: "mezan.app" })).toBe("cyag");
+  it("takes the first host in a comma-separated x-forwarded-host when trusted", () => {
+    expect(
+      resolveTenantCode(req({ "x-forwarded-host": "cyag.mezan.app, proxy.internal" }), {
+        tenantDomain: "mezan.app",
+        trustForwardedHost: true,
+      }),
+    ).toBe("cyag");
+  });
+  it("ignores x-forwarded-host by default and reads Host instead", () => {
+    expect(
+      resolveTenantCode(req({ host: "nile.mezan.app", "x-forwarded-host": "cyag.mezan.app" }), { tenantDomain: "mezan.app" }),
+    ).toBe("nile");
+  });
+  it("ignores the x-mezan-tenant header when allowTenantHeader is false", () => {
+    expect(resolveTenantCode(req({ "x-mezan-tenant": "cyag" }), { allowTenantHeader: false })).toBeNull();
+    expect(
+      resolveTenantCode(req({ host: "mezan.app", "x-mezan-tenant": "nile" }), { tenantDomain: "mezan.app", allowTenantHeader: false }),
+    ).toBeNull();
   });
   it("gives null for the bare domain, a deeper label, or a host outside the domain", () => {
     expect(resolveTenantCode(req({ host: "mezan.app" }), { tenantDomain: "mezan.app" })).toBeNull();

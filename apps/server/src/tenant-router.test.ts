@@ -4,7 +4,8 @@ import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, type BackendHandle, type PlatformHandle } from "@mezan/backend";
-import { createTenant, activateTenant, archiveTenant, startSubscription } from "@mezan/domain";
+import { createSessionRegistry } from "@mezan/api";
+import { createTenant, activateTenant, archiveTenant, suspendTenant, startSubscription, changePlan } from "@mezan/domain";
 import type { SessionDTO } from "@mezan/contracts";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { TENANT_HEADER } from "./tenant-resolver.js";
@@ -58,10 +59,32 @@ async function seedPlatform() {
     platform.stores.tenants,
   );
 
+  const susp = await createTenant(
+    { id: "t-susp", code: "susp", nameAr: "موقوفة", ownerEmail: "owner@susp.example", now: T },
+    platform.stores.tenants,
+  );
+  await activateTenant({ id: susp.id, now: T }, platform.stores.tenants);
+  await startSubscription(
+    { id: "sub-susp", tenantId: susp.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T },
+    platform.stores.subscriptions,
+    platform.stores.plans,
+  );
+  await suspendTenant({ id: susp.id, now: T }, platform.stores.tenants);
+
   return platform;
 }
 
-function newRouter(platform: PlatformHandle, opts: { tenantDomain?: string } = {}): { router: TenantRouter; opened: BackendHandle[] } {
+function newRouter(
+  platform: PlatformHandle,
+  opts: {
+    tenantDomain?: string;
+    trustForwardedHost?: boolean;
+    allowTenantHeader?: boolean;
+    idleMs?: number;
+    ttlMs?: number;
+    now?: () => Date;
+  } = {},
+): { router: TenantRouter; opened: BackendHandle[] } {
   const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-tenant-router-"));
   dirs.push(dataDir);
   const opened: BackendHandle[] = [];
@@ -69,8 +92,12 @@ function newRouter(platform: PlatformHandle, opts: { tenantDomain?: string } = {
     platform,
     dataDir,
     tenantDomain: opts.tenantDomain,
+    trustForwardedHost: opts.trustForwardedHost,
+    allowTenantHeader: opts.allowTenantHeader,
+    idleMs: opts.idleMs,
+    ttlMs: opts.ttlMs,
     sweepEveryMs: 0,
-    now: () => new Date(T),
+    now: opts.now ?? (() => new Date(T)),
     openBackend: async (_code, _dbPath, resolvers) => {
       const handle = await createBackend({
         dbPath: ":memory:",
@@ -126,6 +153,14 @@ describe("createTenantRouter", () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ mode: "code", tenant: { code: "nile", nameAr: "النيل", nameEn: null } });
     });
+
+    it.each(["new", "old"])("gives tenant null for %s (provisioning/archived) even though the code is valid", async (code) => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform);
+      const res = await router.app.fetch(new Request("http://ignored/platform/resolve", { headers: { [TENANT_HEADER]: code } }));
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { tenant: unknown }).tenant).toBeNull();
+    });
   });
 
   describe("GET /tenant", () => {
@@ -134,7 +169,7 @@ describe("createTenantRouter", () => {
       const { router } = newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/tenant"));
       expect(res.status).toBe(400);
-      expect(await res.json()).toMatchObject({ error: "TENANT_REQUIRED" });
+      expect(await res.json()).toEqual({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" });
     });
 
     it("refuses with 404 TENANT_NOT_FOUND for an unknown code", async () => {
@@ -142,7 +177,7 @@ describe("createTenantRouter", () => {
       const { router } = newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "ghost" } }));
       expect(res.status).toBe(404);
-      expect(await res.json()).toMatchObject({ error: "TENANT_NOT_FOUND" });
+      expect(await res.json()).toEqual({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" });
     });
 
     it.each(["old", "new"])("refuses with 404 TENANT_NOT_FOUND for tenant %s (archived/provisioning)", async (code) => {
@@ -253,6 +288,129 @@ describe("createTenantRouter", () => {
       for (const handle of opened) {
         expect(handle.close).toHaveBeenCalledTimes(1);
       }
+    });
+  });
+
+  describe("dispatch preserves encoded path segments", () => {
+    function stubRouter(platform: PlatformHandle): { router: TenantRouter; captured: string[] } {
+      const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-tenant-router-stub-"));
+      dirs.push(dataDir);
+      const captured: string[] = [];
+      const stub = new Hono();
+      stub.all("/*", (c) => {
+        captured.push(new URL(c.req.raw.url).pathname);
+        return c.json({ ok: true });
+      });
+      const router = createTenantRouter({
+        platform,
+        dataDir,
+        sweepEveryMs: 0,
+        now: () => new Date(T),
+        openBackend: async () => ({ app: stub, sessions: createSessionRegistry(), close: vi.fn() }),
+      });
+      routers.push(router);
+      return { router, captured };
+    }
+
+    it("forwards a %2F-escaped path segment undecoded, direct and nested under a parent mount", async () => {
+      const platform = await seedPlatform();
+      const { router, captured } = stubRouter(platform);
+
+      await router.app.fetch(new Request("http://ignored/customers/a%2Fb", { headers: { [TENANT_HEADER]: "cyag" } }));
+
+      const parent = new Hono();
+      parent.route("/api", router.app);
+      await parent.fetch(new Request("http://ignored/api/customers/a%2Fb", { headers: { [TENANT_HEADER]: "cyag" } }));
+
+      expect(captured).toEqual(["/customers/a%2Fb", "/customers/a%2Fb"]);
+    });
+  });
+
+  describe("errors", () => {
+    it("answers 500 INTERNAL, in Arabic, for an unexpected thrown error", async () => {
+      const platform = await seedPlatform();
+      const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-tenant-router-err-"));
+      dirs.push(dataDir);
+      const router = createTenantRouter({
+        platform,
+        dataDir,
+        sweepEveryMs: 0,
+        now: () => new Date(T),
+        openBackend: async () => { throw new Error("boom"); },
+      });
+      routers.push(router);
+
+      const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "cyag" } }));
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: "INTERNAL", message: "حدث خطأ غير متوقع" });
+    });
+
+    it("maps a TENANT_NOT_FOUND thrown from opening the backend to the 404 body", async () => {
+      const platform = await seedPlatform();
+      const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-tenant-router-err2-"));
+      dirs.push(dataDir);
+      const router = createTenantRouter({
+        platform,
+        dataDir,
+        sweepEveryMs: 0,
+        now: () => new Date(T),
+        openBackend: async () => { throw new Error("TENANT_NOT_FOUND"); },
+      });
+      routers.push(router);
+
+      const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "cyag" } }));
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" });
+    });
+  });
+
+  describe("a suspended tenant", () => {
+    it("still dispatches reads (200) but has its writes refused by the licence gate", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform);
+
+      const readRes = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "susp" } }));
+      expect(readRes.status).toBe(200);
+
+      const writeRes = await router.app.fetch(
+        new Request("http://ignored/bootstrap/admin", {
+          method: "POST",
+          headers: { "content-type": "application/json", [TENANT_HEADER]: "susp" },
+          body: JSON.stringify({ nameAr: "المدير", email: "owner-susp@example.com", pin: "123456" }),
+        }),
+      );
+      expect(writeRes.status).toBe(403);
+      expect(await writeRes.json()).toMatchObject({ error: "LICENSE_READ_ONLY" });
+    });
+  });
+
+  describe("cache eviction", () => {
+    it("rebuilds a tenant's resolver after its backend is evicted for being idle", async () => {
+      const platform = await seedPlatform();
+      let t = new Date(T).getTime();
+      const { router } = newRouter(platform, { idleMs: 1000, ttlMs: 60_000, now: () => new Date(t) });
+
+      const firstToken = await bootstrapAdmin(router, "nile");
+      const staleRes = await router.app.fetch(
+        new Request("http://ignored/crm/leads", { headers: { authorization: `Bearer ${firstToken}`, [TENANT_HEADER]: "nile" } }),
+      );
+      expect(staleRes.status).toBe(403);
+
+      await changePlan({ id: "sub-nile", planId: "PLAN-BUSINESS", now: new Date(t).toISOString() }, platform.stores.subscriptions, platform.stores.plans);
+
+      const stillStaleRes = await router.app.fetch(
+        new Request("http://ignored/crm/leads", { headers: { authorization: `Bearer ${firstToken}`, [TENANT_HEADER]: "nile" } }),
+      );
+      expect(stillStaleRes.status).toBe(403);
+
+      t += 1001;
+      await router.sweep();
+
+      const freshToken = await bootstrapAdmin(router, "nile");
+      const freshRes = await router.app.fetch(
+        new Request("http://ignored/crm/leads", { headers: { authorization: `Bearer ${freshToken}`, [TENANT_HEADER]: "nile" } }),
+      );
+      expect(freshRes.status).toBe(200);
     });
   });
 });

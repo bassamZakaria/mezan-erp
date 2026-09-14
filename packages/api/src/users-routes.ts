@@ -338,6 +338,16 @@ export function createUsersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const entitlements = c.get("entitlements");
+    if (entitlements) {
+      const activeCount = (await uow.users.list()).filter((u) => u.status === "active").length;
+      if (activeCount >= entitlements.seats) {
+        return c.json(
+          { error: "SEAT_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للمستخدمين في باقتكم" },
+          409,
+        );
+      }
+    }
     const escalation = await refuseIfEscalating(c, parsed.data, null);
     if (escalation) return escalation;
     try {

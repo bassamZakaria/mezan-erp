@@ -31,6 +31,13 @@ export function createWarehousesRoutes(
     if (await store.findById(parsed.data.id)) {
       return c.json({ error: "ALREADY_EXISTS" }, 409);
     }
+    const limit = c.get("entitlements")?.limits?.warehouses;
+    if (limit !== undefined && (await store.findAll()).length >= limit) {
+      return c.json(
+        { error: "WAREHOUSE_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للمستودعات في باقتكم" },
+        409,
+      );
+    }
     try {
       const warehouse = createWarehouse(parsed.data);
       await store.save(warehouse);

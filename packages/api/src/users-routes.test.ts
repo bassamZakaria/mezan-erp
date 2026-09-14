@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createApp } from "./app.js";
 import { createSqliteUnitOfWork, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
-import { createAuthContext, ALL_SCOPE } from "@mezan/domain";
+import { createAuthContext, createEntitlements, ALL_SCOPE } from "@mezan/domain";
 
 const handles: SqliteUnitOfWorkHandle[] = [];
 afterEach(() => {
@@ -147,6 +147,94 @@ describe("users routes", () => {
     expect(updateRes.status).toBe(200);
     expect(((await json(updateRes)) as { nameAr: string }).nameAr).toBe("محمد الشهابي (محدث)");
     expect((await users.findById(created.id))?.passwordHash).toBe(hashBefore);
+  });
+});
+
+describe("seat cap (A3: seat, branch and warehouse caps)", () => {
+  function newAppWithSeats(seats: number) {
+    const uow = createSqliteUnitOfWork(":memory:");
+    handles.push(uow);
+    const ctx = createAuthContext({ userId: "u1", permissions: ["*"], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const resolveEntitlements = () =>
+      createEntitlements({ plan: "core", activeModules: [], features: {}, seats, expiresAt: null });
+    return { app: createApp(uow, { resolveAuthContext: () => ctx, resolveEntitlements }), users: uow.users };
+  }
+
+  it("refuses POST /users past the seat cap with SEAT_LIMIT_REACHED", async () => {
+    const { app } = newAppWithSeats(1);
+    const first = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(newUserBody),
+      }),
+    );
+    expect(first.status).toBe(201);
+
+    const second = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...newUserBody, email: "second@cyag.test" }),
+      }),
+    );
+    expect(second.status).toBe(409);
+    expect((await json(second)) as { error: string }).toMatchObject({
+      error: "SEAT_LIMIT_REACHED",
+      message: "وصلتم إلى الحد الأقصى للمستخدمين في باقتكم",
+    });
+  });
+
+  it("allows POST /users when seats have room", async () => {
+    const { app } = newAppWithSeats(2);
+    const first = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(newUserBody),
+      }),
+    );
+    expect(first.status).toBe(201);
+
+    const second = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...newUserBody, email: "second@cyag.test" }),
+      }),
+    );
+    expect(second.status).toBe(201);
+  });
+
+  it("does not count an inactive user against the seat cap", async () => {
+    const { app, users } = newAppWithSeats(1);
+    await users.save({
+      id: "u-inactive",
+      nameAr: "غير نشط",
+      nameEn: null,
+      email: "inactive@cyag.test",
+      phone: null,
+      passwordHash: "hashed:x",
+      pinHash: null,
+      roleId: null,
+      isCompanyAdmin: true,
+      employeeId: null,
+      branchScope: "*",
+      warehouseScope: "*",
+      status: "inactive",
+      photoUrl: null,
+      lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const res = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(newUserBody),
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 });
 

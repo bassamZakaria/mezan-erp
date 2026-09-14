@@ -136,12 +136,12 @@ function encodeHeader(value: string): string {
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
-function buildMessage(settings: TenantSettings, to: string): string {
+function buildMessage(settings: TenantSettings, to: string, message?: { subject: string; body: string }): string {
   const from = settings.smtpFromName
     ? `${encodeHeader(settings.smtpFromName)} <${settings.smtpFromEmail}>`
     : settings.smtpFromEmail;
-  const subject = encodeHeader("رسالة اختبار من ميزان — Mezan test message");
-  const body = [
+  const subject = encodeHeader(message?.subject ?? "رسالة اختبار من ميزان — Mezan test message");
+  const body = message?.body ?? [
     "تم إرسال هذه الرسالة من شاشة إعدادات البريد الإلكتروني للتأكد من صحة الإعداد.",
     "This message was sent from the email settings screen to verify the configuration.",
     "",
@@ -175,7 +175,11 @@ function isLoopbackHost(host: string): boolean {
   return normalized === "localhost" || normalized === "::1" || /^127\.\d+\.\d+\.\d+$/.test(normalized);
 }
 
-export async function sendTestEmail(settings: TenantSettings, to: string): Promise<TestEmailResultDTO> {
+export async function sendTestEmail(
+  settings: TenantSettings,
+  to: string,
+  message?: { subject: string; body: string },
+): Promise<TestEmailResultDTO> {
   if (!settings.smtpEnabled) {
     return { ok: false, stage: "disabled", message: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
   }
@@ -224,7 +228,7 @@ export async function sendTestEmail(settings: TenantSettings, to: string): Promi
     await session.expect("send", ["250"], `MAIL FROM:<${settings.smtpFromEmail}>`);
     await session.expect("send", ["250", "251"], `RCPT TO:<${to}>`);
     await session.expect("send", ["354"], "DATA");
-    session.write(buildMessage(settings, to));
+    session.write(buildMessage(settings, to, message));
     const accepted = await session.expect("send", ["250"], ".");
     session.expect("done", ["221"], "QUIT").catch(() => undefined);
 
@@ -239,4 +243,30 @@ export async function sendTestEmail(settings: TenantSettings, to: string): Promi
   } finally {
     session?.close();
   }
+}
+
+
+/**
+ * Sends one real notification email, reusing `sendTestEmail`'s whole session —
+ * the same TLS handling, the same refusal to put a password on a plain wire
+ * (D133), the same Arabic failure text.
+ *
+ * The RESULT SHAPE is what matters to the dispatcher, and it is deliberately
+ * three-valued rather than a boolean. A shop with no internet is this product's
+ * normal state, so "could not connect" must be distinguishable from "the server
+ * said no": the first is retried unchanged, the second is terminal. Collapsing
+ * them is how a queue either never drains or silently discards mail.
+ */
+export async function sendNotificationEmail(
+  settings: TenantSettings,
+  to: string,
+  message: { subject: string; body: string },
+): Promise<{ outcome: "sent" | "offline" | "rejected"; detail: string }> {
+  const result = await sendTestEmail(settings, to, message);
+  if (result.ok) return { outcome: "sent", detail: result.message };
+  // `connect` is the only stage that means "no path to the server". Everything
+  // else — a refused auth, a rejected recipient, a disabled configuration — is
+  // the server or the tenant saying no, and retrying it changes nothing.
+  const offline = result.stage === "connect";
+  return { outcome: offline ? "offline" : "rejected", detail: result.message };
 }

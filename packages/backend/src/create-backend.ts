@@ -9,6 +9,7 @@ import {
   type CreateAppOptions,
   type InstallmentCollectPort,
   type SessionRegistry,
+  sendNotificationEmail,
 } from "@mezan/api";
 import {
   ALL_SCOPE,
@@ -196,6 +197,8 @@ import {
   findLineTaxRate,
   convertToBase,
   createDefaultSettings,
+  NotificationDispatcher,
+  type NotificationTransport,
   type EtaBranchCodeRepository,
   type EtaUnitMappingRepository,
   type SalesInvoiceRepository,
@@ -3193,6 +3196,44 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     notificationRuleRepo: notificationRules,
     emittedEventCodes: emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping),
     notificationRepo: notifications,
+    /**
+     * Drains the outbound queue on an operator's request (ROADMAP §3.3).
+     *
+     * The transport is the SAME SMTP session the settings test-send uses, so
+     * it inherits the refusal to put a password on a plain wire (D133). Being
+     * offline leaves a message queued rather than failing it: a shop with no
+     * internet is this product's normal state, not an error.
+     */
+    notificationDrain: async () => {
+      const tenant = (await settings.get()) ?? createDefaultSettings();
+      const dispatcher = new NotificationDispatcher({
+        notifications,
+        recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
+        transports: [
+          {
+            channel: "email",
+            async send(notification, recipientEmail) {
+              if (!tenant.smtpEnabled) {
+                return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
+              }
+              if (!recipientEmail) {
+                // No address on the user. Terminal: the next drain would find
+                // the same missing address and try forever.
+                return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
+              }
+              const sent = await sendNotificationEmail(tenant, recipientEmail, {
+                subject: notification.title,
+                body: notification.body,
+              });
+              return sent.outcome === "sent"
+                ? { kind: "sent" }
+                : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
+            },
+          },
+        ],
+      });
+      return dispatcher.drain();
+    },
     workflow: { configs: workflowConfigs, requests: approvalRequests },
   });
 

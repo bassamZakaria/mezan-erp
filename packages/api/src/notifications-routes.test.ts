@@ -179,3 +179,40 @@ describe("an unidentified caller (D132)", () => {
     expect(await repo.countUnread("u-1")).toBe(0);
   });
 });
+
+describe("POST /notifications/drain — sending what is waiting (ROADMAP §3.3)", () => {
+  function drainApp(drain?: () => Promise<{ attempted: number; sent: number; stillQueued: number; failed: number; skipped: number }>) {
+    const repo = createSqliteNotificationStore();
+    handles.push(repo);
+    return createNotificationsRoutes(repo, insecureHeaderAuthContextResolver, { drain });
+  }
+
+  function post(path: string, permissions: string) {
+    return new Request(`http://local${path}`, {
+      method: "POST",
+      headers: new Headers({ "x-user-id": "u-1", "x-permissions": permissions }),
+    });
+  }
+
+  it("refuses a caller who cannot edit the settings — draining reaches the tenant's customers", async () => {
+    const app = drainApp(async () => ({ attempted: 0, sent: 0, stillQueued: 0, failed: 0, skipped: 0 }));
+    const res = await app.fetch(post("/drain", "notifications.view"));
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { permission: string }).permission).toBe("admin.settings.edit");
+  });
+
+  it("drains for a caller who can, and reports what happened", async () => {
+    const app = drainApp(async () => ({ attempted: 3, sent: 2, stillQueued: 1, failed: 0, skipped: 0 }));
+    const res = await app.fetch(post("/drain", "admin.settings.edit"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ attempted: 3, sent: 2, stillQueued: 1, failed: 0, skipped: 0 });
+  });
+
+  it("answers 503 with no transport wired, not 404 — the button exists either way", async () => {
+    // A 404 would read as "wrong URL" when the truth is "nothing is wired".
+    const app = drainApp(undefined);
+    const res = await app.fetch(post("/drain", "admin.settings.edit"));
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe("NOTIFICATION_TRANSPORT_UNAVAILABLE");
+  });
+});

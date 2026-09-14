@@ -103,7 +103,13 @@ export interface NotificationRuleRepository {
 export type NotificationReadStatus = "unread" | "read";
 
 /** Per-channel delivery status recorded at creation time. */
-export type NotificationChannelStatus = "delivered" | "queued";
+/**
+ * `delivered` is in-app (a row the user can read). `queued` is waiting for the
+ * dispatcher; `sent` was accepted by the transport; `failed` is terminal —
+ * rejected by the server, or abandoned as stale. Being offline is none of
+ * these: it leaves the status on `queued` (see `dispatcher.ts`).
+ */
+export type NotificationChannelStatus = "delivered" | "queued" | "sent" | "failed";
 
 /** A generated notification instance — one rule match × one recipient. */
 export interface Notification {

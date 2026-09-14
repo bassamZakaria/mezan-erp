@@ -542,6 +542,14 @@ export interface CreateAppOptions {
   readonly emittedEventCodes?: readonly EventCode[];
   /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
   readonly notificationRepo?: NotificationRepository;
+  /** Drains the outbound notification queue; omitted, `POST /notifications/drain` answers 503. */
+  readonly notificationDrain?: () => Promise<{
+    attempted: number;
+    sent: number;
+    stillQueued: number;
+    failed: number;
+    skipped: number;
+  }>;
   /**
    * Mounts `/sales-quotes` (docs/archive/catalog/01 "عروض الأسعار") when present. Its
    * `invoice` bridge (for "إنشاء من عرض سعر") is auto-filled from
@@ -1351,7 +1359,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.notificationRepo) {
-    app.route("/notifications", createNotificationsRoutes(options.notificationRepo, resolveAuth));
+    app.route(
+      "/notifications",
+      createNotificationsRoutes(options.notificationRepo, resolveAuth, { drain: options.notificationDrain }),
+    );
   }
   if (options.salesQuotes) {
     const salesQuotes = options.salesQuotes;

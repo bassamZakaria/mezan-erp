@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import {
+  can,
   markAllNotificationsRead,
   markNotificationRead,
   NotificationNotFoundError,
@@ -54,12 +55,54 @@ function handleDomainError(c: Context, err: unknown) {
  * back to sign in, and a write path that marked that pseudo-user inbox read
  * (D132).
  */
+export interface NotificationsRoutesOptions {
+  /**
+   * Drains the outbound queue. Omitted, `POST /notifications/drain` answers 503
+   * rather than 404: the button exists on the settings screen either way, and a
+   * 404 would read as "wrong URL" when the truth is "no transport is wired".
+   */
+  readonly drain?: () => Promise<{
+    attempted: number;
+    sent: number;
+    stillQueued: number;
+    failed: number;
+    skipped: number;
+  }>;
+}
+
 export function createNotificationsRoutes(
   repo: NotificationRepository,
   resolveAuthContext: AuthContextResolver,
+  options: NotificationsRoutesOptions = {},
 ) {
   const app = new Hono();
   app.use("*", createAuthenticatedGate(resolveAuthContext));
+
+  /**
+   * Sends what is waiting. Deliberately an OPERATOR ACTION, not a timer: a
+   * background sender that fires while nobody is watching is how a shop finds
+   * out it has been emailing its customers for a week (ROADMAP §3.3).
+   *
+   * Gated on `admin.settings.edit` — draining the queue reaches the tenant's
+   * customers, so it belongs with whoever configured the mail server, not with
+   * anyone who can read their own bell panel.
+   */
+  app.post("/drain", async (c) => {
+    const ctx = authContextOf(c);
+    if (!can(ctx, "admin.settings.edit")) {
+      return c.json(
+        { error: "PERMISSION_DENIED", permission: "admin.settings.edit", message: "إرسال الإشعارات المعلّقة يتطلب صلاحية تعديل الإعدادات." },
+        403,
+      );
+    }
+    if (!options.drain) {
+      return c.json(
+        { error: "NOTIFICATION_TRANSPORT_UNAVAILABLE", message: "لا توجد قناة إرسال خارجية موصولة على هذا الخادم." },
+        503,
+      );
+    }
+    return c.json(await options.drain());
+  });
 
   app.get("/", async (c) => {
     const ctx = authContextOf(c);

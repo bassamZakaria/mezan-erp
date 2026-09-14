@@ -81,3 +81,4 @@ export {
   createSecurityReportsRoutes,
   type SecurityReportsRoutesDeps,
 } from "./security-reports-routes.js";
+export { sendNotificationEmail } from "./smtp-client.js";

@@ -63,6 +63,8 @@ export async function recordPayment(
     throw new InvalidPaymentError([`subscription "${cmd.subscriptionId}" does not belong to tenant "${cmd.tenantId}"`]);
   }
 
+  const renewed = await renewSubscription({ id: cmd.subscriptionId, now }, subscriptions);
+
   const payment: Payment = {
     id: cmd.id,
     tenantId: cmd.tenantId,
@@ -77,6 +79,5 @@ export async function recordPayment(
   };
   await payments.save(payment);
 
-  const renewed = await renewSubscription({ id: cmd.subscriptionId, now: cmd.now }, subscriptions);
   return { payment, subscription: renewed };
 }

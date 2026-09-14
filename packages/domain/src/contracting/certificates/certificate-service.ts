@@ -934,7 +934,7 @@ export class CertificateService {
   async certify(idOrDocNo: string, actor: CertificateActor, certifiedAt?: string | null): Promise<CertificateView> {
     const current = await this.moveable(idOrDocNo, "measured", "certified");
     if (!(await this.waived(actor)) && current.preparedBy !== null && current.preparedBy === actor.userId) {
-      throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص من نفس الشخص الذي أعدّه.");
+      throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.");
     }
     const date = certifiedAt ?? this.today();
     if (!ISO_DATE.test(date)) throw new InvalidProgressCertificateError(["تاريخ اعتماد الاستشاري مطلوب بصيغة YYYY-MM-DD"]);
@@ -1000,12 +1000,12 @@ export class CertificateService {
     ]);
     if (!(await this.waived(actor))) {
       if (current.preparedBy !== null && current.preparedBy === actor.userId) {
-        throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص للصرف من نفس الشخص الذي أعدّه.");
+        throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص للصرف من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.");
       }
       if (current.certifiedBy !== null && current.certifiedBy === actor.userId) {
         throw new CertificateSegregationError(
           actor.userId,
-          "لا يجوز اعتماد المستخلص للصرف من نفس الاستشاري الذي اعتمد الحصر.",
+          "لا يجوز اعتماد المستخلص للصرف من نفس الاستشاري الذي اعتمد الحصر. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.",
         );
       }
     }

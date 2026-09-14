@@ -706,7 +706,7 @@ export class SubCertificateService {
     if (!(await this.waived(actor)) && current.preparedBy !== null && current.preparedBy === actor.userId) {
       throw new SubCertificateSegregationError(
         actor.userId,
-        "لا يجوز اعتماد مستخلص الباطن من نفس الشخص الذي أعدّه.",
+        "لا يجوز اعتماد مستخلص الباطن من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.",
       );
     }
     await this.refuseAll(current);
@@ -737,13 +737,13 @@ export class SubCertificateService {
       if (current.preparedBy !== null && current.preparedBy === actor.userId) {
         throw new SubCertificateSegregationError(
           actor.userId,
-          "لا يجوز اعتماد مستخلص الباطن للصرف من نفس الشخص الذي أعدّه.",
+          "لا يجوز اعتماد مستخلص الباطن للصرف من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.",
         );
       }
       if (current.certifiedBy !== null && current.certifiedBy === actor.userId) {
         throw new SubCertificateSegregationError(
           actor.userId,
-          "لا يجوز اعتماد مستخلص الباطن للصرف من نفس الشخص الذي اعتمد الحصر فنيًا.",
+          "لا يجوز اعتماد مستخلص الباطن للصرف من نفس الشخص الذي اعتمد الحصر فنيًا. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.",
         );
       }
     }

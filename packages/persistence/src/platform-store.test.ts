@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { Money, type Plan, type Subscription, type Tenant, type PlatformUser } from "@mezan/domain";
+import { Money, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
 import { createSqlitePlatformStores } from "./platform-store.js";
 
 const NOW = "2026-09-13T10:00:00.000Z";
@@ -22,6 +22,10 @@ const sub: Subscription = {
   createdAt: NOW, updatedAt: NOW,
 };
 const user: PlatformUser = { id: "U1", email: "root@mezan.app", passwordHash: "h", role: "owner", status: "active", createdAt: NOW };
+const payment: Payment = {
+  id: "PAY1", tenantId: "T1", subscriptionId: "S1", amount: Money.fromMajor("490.50"), currency: "EGP",
+  reference: "TRX-001", paidAt: NOW, recordedBy: "U1", note: null, createdAt: NOW,
+};
 
 describe("createSqlitePlatformStores", () => {
   it("round-trips every model, Money included, and finds by code and email", async () => {
@@ -46,10 +50,29 @@ describe("createSqlitePlatformStores", () => {
     expect(await stores.subscriptions.listByTenant("T1")).toEqual([sub]);
     expect(await stores.subscriptions.hasLiveByPlan("P1")).toBe(true);
     expect(await stores.subscriptions.hasLiveByPlan("P9")).toBe(false);
+    expect(await stores.subscriptions.listByPlan("P1")).toEqual([sub]);
+    expect(await stores.subscriptions.listByPlan("P9")).toEqual([]);
 
     expect(await stores.platformUsers.findByEmail("root@mezan.app")).toEqual(user);
     expect(await stores.platformUsers.findById("U1")).toEqual(user);
     expect(await stores.platformUsers.list()).toEqual([user]);
+
+    await stores.payments.save(payment);
+    expect(await stores.payments.findById("PAY1")).toEqual(payment);
+    const paymentList = await stores.payments.listByTenant("T1");
+    expect(paymentList).toEqual([payment]);
+    expect(paymentList[0]?.amount.equals(Money.fromMajor("490.50"))).toBe(true);
+    stores.close();
+  });
+
+  it("exposes its sqlite connection and lists payments newest paidAt first", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    expect(stores.sqlite.open).toBe(true);
+    await stores.payments.save({ ...payment, id: "PAY1", paidAt: "2026-09-01T00:00:00.000Z" });
+    await stores.payments.save({ ...payment, id: "PAY2", paidAt: "2026-09-10T00:00:00.000Z" });
+    await stores.payments.save({ ...payment, id: "PAY3", tenantId: "T2", paidAt: "2026-09-20T00:00:00.000Z" });
+    const list = await stores.payments.listByTenant("T1");
+    expect(list.map((x) => x.id)).toEqual(["PAY2", "PAY1"]);
     stores.close();
   });
 
@@ -64,6 +87,18 @@ describe("createSqlitePlatformStores", () => {
     expect(await stores.subscriptions.findLiveByTenant("T1")).toBeNull();
     expect(await stores.subscriptions.hasLiveByPlan("P1")).toBe(false);
     expect(await stores.subscriptions.listByTenant("T1")).toHaveLength(1);
+    expect(await stores.subscriptions.listByPlan("P1")).toEqual([]);
+    stores.close();
+  });
+
+  it("lists every live subscription across tenants on one plan, excluding cancelled ones", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.subscriptions.save(sub);
+    await stores.subscriptions.save({ ...sub, id: "S2", tenantId: "T2" });
+    await stores.subscriptions.save({ ...sub, id: "S3", tenantId: "T3", status: "cancelled", cancelledAt: NOW });
+    await stores.subscriptions.save({ ...sub, id: "S4", tenantId: "T4", planId: "P2" });
+    const rows = await stores.subscriptions.listByPlan("P1");
+    expect(rows.map((s) => s.id).sort()).toEqual(["S1", "S2"]);
     stores.close();
   });
 
@@ -94,6 +129,13 @@ describe("createSqlitePlatformStores", () => {
     await expect(stores.plans.save({ ...plan, id: "P2" })).rejects.toThrow(/UNIQUE/);
     await stores.platformUsers.save(user);
     await expect(stores.platformUsers.save({ ...user, id: "U2" })).rejects.toThrow(/UNIQUE/);
+    stores.close();
+  });
+
+  it("refuses a duplicate payment id — payments are append-only", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.payments.save(payment);
+    await expect(stores.payments.save({ ...payment, note: "second write" })).rejects.toThrow(/UNIQUE/);
     stores.close();
   });
 });

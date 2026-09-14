@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
-import { useLogin } from "../data/hooks";
-import { clearSessionExpired, sessionExpiredPending } from "../data/session";
+import { useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { clearSessionExpired, clearTenantCode, loadTenantCode, persistTenantCode, sessionExpiredPending } from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
 
 const PIN_LENGTH = 6;
+const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 
 /**
  * A wait a person can act on. "900 ثانية" is not one — past two minutes the
@@ -50,12 +52,67 @@ export interface LoginScreenProps {
 export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const { t, locale } = useAppTranslation();
   const login = useLogin();
+  const queryClient = useQueryClient();
 
-  const remembered = useMemo(() => readDeviceUsers(), []);
+  const platformResolve = usePlatformResolve();
+  const tenantMode = platformResolve.data?.mode;
+  const [tenantCode, setTenantCode] = useState(() => loadTenantCode() ?? "");
+  const [resolvedCode, setResolvedCode] = useState(() => loadTenantCode() ?? "");
+  const tenantCodeInvalid = tenantCode !== "" && !TENANT_CODE_RE.test(tenantCode);
+  const tenantInfo = useTenantInfo(tenantMode === "subdomain" ? null : resolvedCode || null, {
+    enabled: tenantMode === "subdomain" || resolvedCode !== "",
+  });
+  const tenantNotFound = resolvedCode !== "" && tenantInfo.isError && tenantInfo.error?.status === 404;
+
+  const [remembered, setRemembered] = useState<DeviceUser[]>(() => readDeviceUsers());
   const [selected, setSelected] = useState<DeviceUser | null>(remembered[0] ?? null);
   /** True once «آخر» is chosen, or when the device remembers nobody at all. */
   const [typing, setTyping] = useState(remembered.length === 0);
   const [username, setUsername] = useState(remembered[0]?.email ?? DEFAULT_USERNAME);
+
+  /**
+   * A different company's rows must never survive a tenant switch on the
+   * SAME browser tab: a "code" tenant shares one origin (and so one
+   * `QueryClient` cache) across every company, so clearing it — and
+   * re-reading `mezan.deviceUsers.<code>` for the face row — is what a
+   * `persistTenantCode`/`clearTenantCode` to a DIFFERENT value must do.
+   * Skipped when the code is unchanged, so a mere re-blur doesn't wipe the
+   * cache the screen just warmed up.
+   */
+  function switchTenantCode(apply: () => void) {
+    const before = loadTenantCode();
+    apply();
+    if (loadTenantCode() === before) return;
+    queryClient.clear();
+    const list = readDeviceUsers();
+    setRemembered(list);
+    setSelected(list[0] ?? null);
+    setTyping(list.length === 0);
+    setUsername(list[0]?.email ?? DEFAULT_USERNAME);
+    setPinDigits(Array(PIN_LENGTH).fill(""));
+    setError(null);
+  }
+
+  function handleTenantCodeChange(event: ChangeEvent<HTMLInputElement>) {
+    setTenantCode(event.target.value.toLowerCase());
+  }
+
+  function handleTenantCodeBlur() {
+    if (tenantCode === "") {
+      switchTenantCode(clearTenantCode);
+      setResolvedCode("");
+      return;
+    }
+    if (tenantCodeInvalid) return;
+    switchTenantCode(() => persistTenantCode(tenantCode));
+    setResolvedCode(tenantCode);
+  }
+
+  function handleChangeTenant() {
+    switchTenantCode(clearTenantCode);
+    setTenantCode("");
+    setResolvedCode("");
+  }
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
   // Pure read at mount, cleared in the effect below — see `session.ts` for why
   // the two are not one call.
@@ -78,9 +135,19 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const pin = pinDigits.join("");
   const pinComplete = pin.length === PIN_LENGTH && pinDigits.every((d) => d !== "");
   const identity = typing ? username.trim() : (selected?.email ?? "");
-  const canSubmit = identity !== "" && pinComplete && !login.isPending && lockedForSeconds === 0;
+  const canSubmit =
+    identity !== "" &&
+    pinComplete &&
+    !login.isPending &&
+    lockedForSeconds === 0 &&
+    !tenantCodeInvalid;
 
   function submit() {
+    if (tenantMode === "code" && tenantCode.trim() === "") {
+      setError(t("login.tenantRequired"));
+      return;
+    }
+    if (tenantCodeInvalid) return;
     if (!canSubmit) return;
     // Guard the auto-submit against React re-running the effect for the same
     // completed PIN — otherwise a slow server turns one sign-in into several.
@@ -175,6 +242,9 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     ? t("login.pin")
     : t("login.who.pinFor", { name: selected ? displayName(selected, locale) : "" });
 
+  const resolvedTenant = platformResolve.data?.tenant;
+  const tenantDisplayName = resolvedTenant ? (locale === "en" && resolvedTenant.nameEn ? resolvedTenant.nameEn : resolvedTenant.nameAr) : null;
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
       {/* The mark, oversized and barely there, anchors the empty quadrant
@@ -194,6 +264,14 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <span className="mz-disp text-[17px] font-bold text-ink">{t("shell.brand.name")}</span>
           <span className="ms-auto text-2xs text-ink-faint">{t("login.branchHint")}</span>
         </div>
+
+        {tenantMode === "subdomain" && tenantDisplayName ? (
+          <p className="mt-[4px] text-xs font-semibold text-ink">{tenantDisplayName}</p>
+        ) : null}
+
+        {platformResolve.isLoading ? (
+          <p className="mt-[4px] text-2xs text-ink-faint">{t("login.platformChecking")}</p>
+        ) : null}
 
         {/* A session that ended says so, rather than looking like a fresh start
             the user asked for. It sits above the face row, since that is where
@@ -272,6 +350,42 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               </span>
               <span className="w-full truncate text-center">{t("login.who.other")}</span>
             </button>
+          </div>
+        ) : null}
+
+        {tenantMode === "code" ? (
+          <div className="mt-[14px] flex flex-col gap-[6px]">
+            <label className="flex flex-col gap-[6px]">
+              <span className="text-xs font-semibold text-ink">{t("login.tenantCode")}</span>
+              <TextInput
+                value={tenantCode}
+                dir="ltr"
+                autoComplete="organization"
+                placeholder={t("login.tenantCodeHint")}
+                className="mz-lat"
+                invalid={tenantCodeInvalid}
+                onChange={handleTenantCodeChange}
+                onBlur={handleTenantCodeBlur}
+              />
+            </label>
+            {tenantCodeInvalid ? (
+              <p role="alert" className="text-2xs font-semibold text-danger-ink">
+                {t("login.tenantCodeInvalid")}
+              </p>
+            ) : resolvedCode !== "" && tenantInfo.data ? (
+              <div className="flex items-center justify-between gap-[8px]">
+                <span className="text-2xs text-ink-muted">{tenantInfo.data.name}</span>
+                <button type="button" onClick={handleChangeTenant} className="text-2xs text-ink-muted hover:underline">
+                  {t("login.changeTenant")}
+                </button>
+              </div>
+            ) : tenantNotFound ? (
+              <p role="alert" className="text-2xs font-semibold text-danger-ink">
+                {t("login.tenantNotFound")}
+              </p>
+            ) : (
+              <span className="text-2xs text-ink-faint">{t("login.tenantCodeHint")}</span>
+            )}
           </div>
         ) : null}
 

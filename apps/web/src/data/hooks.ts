@@ -357,6 +357,8 @@ export class ApiError extends Error {
      * person typing.
      */
     readonly retryAfterSeconds?: number,
+    /** The server's machine-readable error code (e.g. `TENANT_NOT_FOUND`), when it sent one. */
+    readonly code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -375,10 +377,15 @@ export function useLogin() {
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res
-          .json<{ message?: string; retryAfterSeconds?: number }>()
-          .catch(() => ({}))) as { message?: string; retryAfterSeconds?: number };
-        throw new ApiError(res.status, err.message ?? t("api.signInFailed"), undefined, err.retryAfterSeconds);
+        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number };
+        const err = await res.json<LoginError>().catch((): LoginError => ({}));
+        const message =
+          err.error === "TENANT_REQUIRED"
+            ? t("login.tenantRequired")
+            : err.error === "TENANT_NOT_FOUND"
+              ? t("login.tenantNotFound")
+              : (err.message ?? t("api.signInFailed"));
+        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds, err.error);
       }
       return res.json<SessionDTO>();
     },
@@ -394,7 +401,7 @@ export function useBootstrapSeed() {
   return useMutation<BootstrapSeedResultDTO, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/bootstrap/seed", { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, t("api.theCoreDataCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theCoreDataCouldNot"));
       return res.json<BootstrapSeedResultDTO>();
     },
     onSuccess: (counts) => queryClient.setQueryData(["bootstrap", "status"], counts),
@@ -402,15 +409,41 @@ export function useBootstrapSeed() {
 }
 
 /** Pre-login tenant identity (ungated) — the name the login screen and first-run wizard show. */
-export function useTenantInfo(): UseQueryResult<{ name: string }, ApiError> {
+export function useTenantInfo(
+  code?: string | null,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<{ name: string }, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<{ name: string }, ApiError>({
-    queryKey: ["tenant"],
+    queryKey: ["tenant", code ?? null],
+    enabled: options.enabled ?? true,
     queryFn: async () => {
       const res = await request("/tenant");
-      if (!res.ok) throw new ApiError(res.status, t("api.theCompanySDetailsCould"));
+      if (!res.ok) {
+        type TenantError = { message?: string };
+        const err = await res.json<TenantError>().catch((): TenantError => ({}));
+        throw new ApiError(res.status, err.message ?? t("api.theCompanySDetailsCould"));
+      }
       return res.json<{ name: string }>();
+    },
+  });
+}
+
+export interface PlatformResolveDTO {
+  readonly mode: "subdomain" | "code";
+  readonly tenant: { readonly code: string; readonly nameAr: string; readonly nameEn: string | null } | null;
+}
+
+export function usePlatformResolve(): UseQueryResult<PlatformResolveDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useQuery<PlatformResolveDTO, ApiError>({
+    queryKey: ["platform", "resolve"],
+    queryFn: async () => {
+      const res = await request("/platform/resolve");
+      if (!res.ok) throw await loaderError(res, t("api.theCompanySDetailsCould"));
+      return res.json<PlatformResolveDTO>();
     },
   });
 }
@@ -423,7 +456,7 @@ export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, Api
     queryKey: ["bootstrap", "status"],
     queryFn: async () => {
       const res = await request("/bootstrap/status");
-      if (!res.ok) throw new ApiError(res.status, t("api.theCoreDataStatusCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theCoreDataStatusCould"));
       return res.json<BootstrapSeedResultDTO>();
     },
   });
@@ -442,7 +475,7 @@ export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
     queryKey: ["entitlements"],
     queryFn: async () => {
       const res = await request("/entitlements");
-      if (!res.ok) throw new ApiError(res.status, t("api.licenceDetailsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.licenceDetailsCouldNotBe"));
       return res.json<EntitlementsDTO>();
     },
   });
@@ -488,7 +521,7 @@ export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<
       if (range.toDate) params.set("toDate", range.toDate);
       const qs = params.toString();
       const res = await request(`/dashboard/summary${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.dashboardDataCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.dashboardDataCouldNotBe"));
       return res.json<DashboardSummaryDTO>();
     },
   });
@@ -497,6 +530,26 @@ export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<
 async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
   const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
   return body.message ?? fallback;
+}
+
+/**
+ * The shared error path for every plain GET query below. A 403 whose body
+ * carries `error: "MODULE_NOT_LICENSED"` refuses with the server's own
+ * Arabic `message` naming the missing module (e.g. «وحدة الموارد البشرية
+ * غير مفعّلة في باقتكم») — that must reach the screen, not the generic
+ * "تعذّر تحميل…" `fallback` every other failure keeps.
+ */
+async function loaderError(res: { status: number; json<T>(): Promise<T> }, fallback: string): Promise<ApiError> {
+  if (res.status === 403) {
+    const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as {
+      error?: string;
+      message?: string;
+    };
+    if (body.error === "MODULE_NOT_LICENSED" && body.message) {
+      return new ApiError(res.status, body.message, undefined, undefined, body.error);
+    }
+  }
+  return new ApiError(res.status, fallback);
 }
 
 /** الأصناف (docs/archive/catalog/03) — list, create, edit. */
@@ -530,7 +583,7 @@ export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[],
     queryFn: async () => {
       const qs = itemParams(filter).toString();
       const res = await request(`/items${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.itemsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"));
       return res.json<ItemDTO[]>();
     },
   });
@@ -551,7 +604,7 @@ export function useItemCounts(filter: ItemListFilter = {}): UseQueryResult<ListC
     queryFn: async () => {
       const qs = itemParams(rest).toString();
       const res = await request(`/items/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.itemsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -567,7 +620,7 @@ export function useItemStats(filter: ItemListFilter = {}): UseQueryResult<ListSt
     queryFn: async () => {
       const qs = itemParams(filter).toString();
       const res = await request(`/items/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.itemsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -632,7 +685,7 @@ export function useCustomers(filter: CustomerListFilter = {}): UseQueryResult<Cu
     queryFn: async () => {
       const qs = customerParams(filter).toString();
       const res = await request(`/customers${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.customersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.customersCouldNotBeLoaded"));
       return res.json<CustomerDTO[]>();
     },
   });
@@ -649,7 +702,7 @@ export function useCustomerCounts(filter: CustomerListFilter = {}): UseQueryResu
     queryFn: async () => {
       const qs = customerParams(rest).toString();
       const res = await request(`/customers/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.customersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.customersCouldNotBeLoaded"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -665,7 +718,7 @@ export function useCustomerStats(filter: CustomerListFilter = {}): UseQueryResul
     queryFn: async () => {
       const qs = customerParams(filter).toString();
       const res = await request(`/customers/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.customersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.customersCouldNotBeLoaded"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -721,7 +774,7 @@ export function useSuppliers(filter: SupplierListFilter = {}): UseQueryResult<Su
     queryFn: async () => {
       const qs = supplierParams(filter).toString();
       const res = await request(`/suppliers${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.suppliersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.suppliersCouldNotBeLoaded"));
       return res.json<SupplierDTO[]>();
     },
   });
@@ -738,7 +791,7 @@ export function useSupplierCounts(filter: SupplierListFilter = {}): UseQueryResu
     queryFn: async () => {
       const qs = supplierParams(rest).toString();
       const res = await request(`/suppliers/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.suppliersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.suppliersCouldNotBeLoaded"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -754,7 +807,7 @@ export function useSupplierStats(filter: SupplierListFilter = {}): UseQueryResul
     queryFn: async () => {
       const qs = supplierParams(filter).toString();
       const res = await request(`/suppliers/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.suppliersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.suppliersCouldNotBeLoaded"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -797,7 +850,7 @@ export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/accounts");
-      if (!res.ok) throw new ApiError(res.status, t("api.theChartOfAccountsCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"));
       return res.json<AccountDTO[]>();
     },
   });
@@ -840,7 +893,7 @@ export function useTreasuryAccounts(): UseQueryResult<TreasuryAccountDTO[], ApiE
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/treasury-accounts");
-      if (!res.ok) throw new ApiError(res.status, t("api.treasuryAccountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"));
       return res.json<TreasuryAccountDTO[]>();
     },
   });
@@ -883,7 +936,7 @@ export function usePriceLists(): UseQueryResult<PriceListDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/price-lists");
-      if (!res.ok) throw new ApiError(res.status, t("api.priceListsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.priceListsCouldNotBe"));
       return res.json<PriceListDTO[]>();
     },
   });
@@ -915,7 +968,7 @@ export function usePromotions(): UseQueryResult<PromotionDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/promotions");
-      if (!res.ok) throw new ApiError(res.status, t("api.promotionsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.promotionsCouldNotBeLoaded"));
       return res.json<PromotionDTO[]>();
     },
   });
@@ -930,7 +983,7 @@ export function usePromotionUsageReport(): UseQueryResult<PromotionUsageRowDTO[]
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/promotions/report");
-      if (!res.ok) throw new ApiError(res.status, t("api.thePromotionUsageReportCould"));
+      if (!res.ok) throw await loaderError(res, t("api.thePromotionUsageReportCould"));
       return res.json<PromotionUsageRowDTO[]>();
     },
   });
@@ -989,7 +1042,7 @@ export function useSalesQuotes(filter: SalesQuoteListFilter = {}): UseQueryResul
     queryFn: async () => {
       const qs = salesQuoteParams(filter).toString();
       const res = await request(`/sales-quotes${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.quotesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.quotesCouldNotBeLoaded"));
       return res.json<SalesQuoteRecord[]>();
     },
   });
@@ -1009,7 +1062,7 @@ export function useSalesQuoteCounts(filter: SalesQuoteListFilter = {}): UseQuery
     queryFn: async () => {
       const qs = salesQuoteParams(rest).toString();
       const res = await request(`/sales-quotes/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.quotesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.quotesCouldNotBeLoaded"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -1025,7 +1078,7 @@ export function useSalesQuoteStats(filter: SalesQuoteListFilter = {}): UseQueryR
     queryFn: async () => {
       const qs = salesQuoteParams(filter).toString();
       const res = await request(`/sales-quotes/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.quotesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.quotesCouldNotBeLoaded"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -1170,7 +1223,7 @@ export function useJournalEntries(filter: JournalEntryListFilter = {}): UseQuery
     queryFn: async () => {
       const qs = journalEntryParams(filter).toString();
       const res = await request(`/gl/journal-entries${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.journalEntriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.journalEntriesCouldNotBe"));
       return res.json<JournalEntryDTO[]>();
     },
   });
@@ -1187,7 +1240,7 @@ export function useJournalEntryCounts(filter: JournalEntryListFilter = {}): UseQ
     queryFn: async () => {
       const qs = journalEntryParams(rest).toString();
       const res = await request(`/gl/journal-entries/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.journalEntriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.journalEntriesCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -1203,7 +1256,7 @@ export function useJournalEntryStats(filter: JournalEntryListFilter = {}): UseQu
     queryFn: async () => {
       const qs = journalEntryParams(filter).toString();
       const res = await request(`/gl/journal-entries/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.journalEntriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.journalEntriesCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -1248,7 +1301,7 @@ export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/users");
-      if (!res.ok) throw new ApiError(res.status, t("api.usersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.usersCouldNotBeLoaded"));
       return res.json<UserDTO[]>();
     },
   });
@@ -1305,7 +1358,7 @@ export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/roles");
-      if (!res.ok) throw new ApiError(res.status, t("api.rolesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.rolesCouldNotBeLoaded"));
       return res.json<RoleDTO[]>();
     },
   });
@@ -1386,7 +1439,7 @@ export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/settings");
-      if (!res.ok) throw new ApiError(res.status, t("api.settingsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"));
       return res.json<TenantSettingsDTO>();
     },
   });
@@ -1419,7 +1472,7 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/branches");
-      if (!res.ok) throw new ApiError(res.status, t("api.branchesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"));
       return res.json<BranchDTO[]>();
     },
   });
@@ -1494,7 +1547,7 @@ export function useCheques(filters: ChequeListFilters = {}): UseQueryResult<Cheq
     queryFn: async () => {
       const qs = chequeParams(filters).toString();
       const res = await request(`/cheques${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.chequesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.chequesCouldNotBeLoaded"));
       return res.json<ChequeDTO[]>();
     },
   });
@@ -1511,7 +1564,7 @@ export function useChequeCounts(filter: ChequeListFilters = {}): UseQueryResult<
     queryFn: async () => {
       const qs = chequeParams(rest).toString();
       const res = await request(`/cheques/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.chequesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.chequesCouldNotBeLoaded"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -1527,7 +1580,7 @@ export function useChequeStats(filter: ChequeListFilters = {}): UseQueryResult<L
     queryFn: async () => {
       const qs = chequeParams(filter).toString();
       const res = await request(`/cheques/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.chequesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.chequesCouldNotBeLoaded"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -1623,7 +1676,7 @@ export function useBankStatements(filters: BankStatementListFilters = {}): UseQu
       if (filters.toDate) params.set("toDate", filters.toDate);
       const qs = params.toString();
       const res = await request(`/bank-statements${qs === "" ? "" : `?${qs}`}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.bankStatementsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.bankStatementsCouldNotBe"));
       return res.json<BankStatementListItemDTO[]>();
     },
   });
@@ -1637,7 +1690,7 @@ export function useBankStatement(id: string | null): UseQueryResult<BankStatemen
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/bank-statements/${id}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theBankStatementCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theBankStatementCouldNot"));
       return res.json<BankStatementDetailDTO>();
     },
   });
@@ -1657,7 +1710,7 @@ export function useStatementColumnMapping(treasuryAccountId: string | null): Use
     queryFn: async () => {
       const res = await request(`/bank-statements/column-mapping/${treasuryAccountId}`);
       if (res.status === 404) return null;
-      if (!res.ok) throw new ApiError(res.status, t("api.theColumnMappingCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theColumnMappingCouldNot"));
       return res.json<StatementColumnMappingDTO>();
     },
   });
@@ -1675,7 +1728,7 @@ export function useStatementMatchCandidates(statementId: string | null): UseQuer
     enabled: session !== null && statementId !== null,
     queryFn: async () => {
       const res = await request(`/bank-statements/${statementId}/candidates`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theMatchableEntriesCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theMatchableEntriesCouldNot"));
       return res.json<MatchCandidateDTO[]>();
     },
   });
@@ -1775,7 +1828,7 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/gl/journal-entries/${id}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theJournalEntryCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theJournalEntryCouldNot"));
       return res.json<JournalEntryDTO>();
     },
   });
@@ -1790,7 +1843,7 @@ export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/warehouses");
-      if (!res.ok) throw new ApiError(res.status, t("api.warehousesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"));
       return res.json<WarehouseDTO[]>();
     },
   });
@@ -1859,7 +1912,7 @@ export function useVoucherCounts(filter: VoucherListQueryDTO = {}): UseQueryResu
     queryFn: async () => {
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.vouchersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -1875,7 +1928,7 @@ export function useVoucherStats(filter: VoucherListQueryDTO = {}): UseQueryResul
     queryFn: async () => {
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.vouchersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -1890,7 +1943,7 @@ export function useVouchers(filter: VoucherListQueryDTO = {}): UseQueryResult<Vo
     queryFn: async () => {
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.vouchersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"));
       return res.json<VoucherRowDTO[]>();
     },
   });
@@ -1910,7 +1963,7 @@ export function useVoucherDetail(id: string | null): UseQueryResult<VoucherDetai
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/vouchers/${id}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theVoucherCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.theVoucherCouldNotBe"));
       return res.json<VoucherDetailDTO>();
     },
   });
@@ -2017,7 +2070,7 @@ export function useOpenInvoices(kind?: "sales" | "purchase", partyId?: string | 
       if (partyId) params.set("partyId", partyId);
       const qs = params.toString();
       const res = await request(`/open-invoices${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.openInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.openInvoicesCouldNotBe"));
       return res.json<OpenInvoiceDTO[]>();
     },
   });
@@ -2060,7 +2113,7 @@ export function usePurchaseOrders(filter: PurchaseOrderListFilter = {}): UseQuer
     queryFn: async () => {
       const qs = purchaseOrderParams(filter).toString();
       const res = await request(`/purchases/orders${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseOrdersCouldNotBe"));
       return res.json<PurchaseOrderDTO[]>();
     },
   });
@@ -2077,7 +2130,7 @@ export function usePurchaseOrderCounts(filter: PurchaseOrderListFilter = {}): Us
     queryFn: async () => {
       const qs = purchaseOrderParams(rest).toString();
       const res = await request(`/purchases/orders/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseOrdersCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -2093,7 +2146,7 @@ export function usePurchaseOrderStats(filter: PurchaseOrderListFilter = {}): Use
     queryFn: async () => {
       const qs = purchaseOrderParams(filter).toString();
       const res = await request(`/purchases/orders/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseOrdersCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -2165,7 +2218,7 @@ export function useGoodsReceipts(filter: GoodsReceiptListFilter = {}): UseQueryR
     queryFn: async () => {
       const qs = goodsReceiptParams(filter).toString();
       const res = await request(`/purchases/receipts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.goodsReceiptsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.goodsReceiptsCouldNotBe"));
       return res.json<GoodsReceiptDTO[]>();
     },
   });
@@ -2182,7 +2235,7 @@ export function useGoodsReceiptCounts(filter: GoodsReceiptListFilter = {}): UseQ
     queryFn: async () => {
       const qs = goodsReceiptParams(rest).toString();
       const res = await request(`/purchases/receipts/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.goodsReceiptsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.goodsReceiptsCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -2198,7 +2251,7 @@ export function useGoodsReceiptStats(filter: GoodsReceiptListFilter = {}): UseQu
     queryFn: async () => {
       const qs = goodsReceiptParams(filter).toString();
       const res = await request(`/purchases/receipts/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.goodsReceiptsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.goodsReceiptsCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -2261,7 +2314,7 @@ export function usePurchaseInvoices(filter: PurchaseInvoiceListQueryDTO = {}): U
     queryFn: async () => {
       const qs = purchaseInvoiceParams(filter).toString();
       const res = await request(`/purchases/invoices${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"));
       return res.json<PurchaseInvoiceDTO[]>();
     },
   });
@@ -2278,7 +2331,7 @@ export function usePurchaseInvoiceCounts(filter: PurchaseInvoiceListQueryDTO = {
     queryFn: async () => {
       const qs = purchaseInvoiceParams(rest).toString();
       const res = await request(`/purchases/invoices/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -2293,7 +2346,7 @@ export function usePurchaseInvoiceStats(filter: PurchaseInvoiceListQueryDTO = {}
     queryFn: async () => {
       const qs = purchaseInvoiceParams(filter).toString();
       const res = await request(`/purchases/invoices/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"));
       return res.json<PurchaseInvoiceStatsDTO>();
     },
   });
@@ -2415,7 +2468,7 @@ export function useSalesInvoices(filter: SalesInvoiceListQueryDTO = {}): UseQuer
     queryFn: async () => {
       const qs = salesInvoiceParams(filter).toString();
       const res = await request(`/sales-invoices${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"));
       return res.json<SalesInvoiceDTO[]>();
     },
   });
@@ -2453,7 +2506,7 @@ export function useSalesInvoice(idOrDocNo: string | null): UseQueryResult<SalesI
     enabled: session !== null && idOrDocNo !== null,
     queryFn: async () => {
       const res = await request(`/sales-invoices/${encodeURIComponent(idOrDocNo ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"));
       return res.json<SalesInvoiceDTO>();
     },
   });
@@ -2475,7 +2528,7 @@ export function useSalesInvoiceCounts(filter: SalesInvoiceListQueryDTO = {}): Us
     queryFn: async () => {
       const qs = salesInvoiceParams(rest).toString();
       const res = await request(`/sales-invoices/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -2493,7 +2546,7 @@ export function useSalesInvoiceStats(filter: SalesInvoiceListQueryDTO = {}): Use
     queryFn: async () => {
       const qs = salesInvoiceParams(rest).toString();
       const res = await request(`/sales-invoices/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"));
       return res.json<SalesInvoiceStatsDTO>();
     },
   });
@@ -2564,7 +2617,7 @@ export function useLeads(): UseQueryResult<LeadDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/leads");
-      if (!res.ok) throw new ApiError(res.status, t("api.leadsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.leadsCouldNotBeLoaded"));
       return res.json<LeadDTO[]>();
     },
   });
@@ -2630,7 +2683,7 @@ export function useOpportunities(): UseQueryResult<OpportunityDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/opportunities");
-      if (!res.ok) throw new ApiError(res.status, t("api.opportunitiesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.opportunitiesCouldNotBeLoaded"));
       return res.json<OpportunityDTO[]>();
     },
   });
@@ -2672,7 +2725,7 @@ export function usePipelineStages(): UseQueryResult<PipelineStageDTO[], ApiError
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/pipeline-stages");
-      if (!res.ok) throw new ApiError(res.status, t("api.pipelineStagesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.pipelineStagesCouldNotBe"));
       return res.json<PipelineStageDTO[]>();
     },
   });
@@ -2714,7 +2767,7 @@ export function useCrmActivities(): UseQueryResult<ActivityDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/activities");
-      if (!res.ok) throw new ApiError(res.status, t("api.activitiesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.activitiesCouldNotBeLoaded"));
       return res.json<ActivityDTO[]>();
     },
   });
@@ -2774,7 +2827,7 @@ export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/projects");
-      if (!res.ok) throw new ApiError(res.status, t("api.projectsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.projectsCouldNotBeLoaded"));
       return res.json<ProjectDTO[]>();
     },
   });
@@ -2834,7 +2887,7 @@ export function useAssetCategories(): UseQueryResult<AssetCategoryDTO[], ApiErro
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/assets/categories");
-      if (!res.ok) throw new ApiError(res.status, t("api.assetCategoriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.assetCategoriesCouldNotBe"));
       return res.json<AssetCategoryDTO[]>();
     },
   });
@@ -2884,7 +2937,7 @@ export function useAssets(filter: AssetListFilter = {}): UseQueryResult<AssetDTO
     queryFn: async () => {
       const qs = assetParams(filter).toString();
       const res = await request(`/assets${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theAssetRegisterCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAssetRegisterCouldNot"));
       return res.json<AssetDTO[]>();
     },
   });
@@ -2901,7 +2954,7 @@ export function useAssetCounts(filter: AssetListFilter = {}): UseQueryResult<Lis
     queryFn: async () => {
       const qs = assetParams(rest).toString();
       const res = await request(`/assets/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theAssetRegisterCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAssetRegisterCouldNot"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -2917,7 +2970,7 @@ export function useAssetStats(filter: AssetListFilter = {}): UseQueryResult<List
     queryFn: async () => {
       const qs = assetParams(filter).toString();
       const res = await request(`/assets/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theAssetRegisterCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAssetRegisterCouldNot"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -2984,7 +3037,7 @@ export function useDepreciationRuns(): UseQueryResult<DepreciationRunDTO[], ApiE
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/assets/depreciation/runs");
-      if (!res.ok) throw new ApiError(res.status, t("api.depreciationRunsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.depreciationRunsCouldNotBe"));
       return res.json<DepreciationRunDTO[]>();
     },
   });
@@ -3033,7 +3086,7 @@ export function useWritedownRuns(): UseQueryResult<WritedownRunDTO[], ApiError> 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/inventory/writedown-runs");
-      if (!res.ok) throw new ApiError(res.status, t("api.inventoryWriteDownRunsCould"));
+      if (!res.ok) throw await loaderError(res, t("api.inventoryWriteDownRunsCould"));
       return res.json<WritedownRunDTO[]>();
     },
   });
@@ -3079,7 +3132,7 @@ export function useProductTemplates(): UseQueryResult<ProductTemplateDTO[], ApiE
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/inventory/product-templates");
-      if (!res.ok) throw new ApiError(res.status, t("api.productTemplatesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.productTemplatesCouldNotBe"));
       return res.json<ProductTemplateDTO[]>();
     },
   });
@@ -3107,7 +3160,7 @@ export function useTemplateVariants(templateId: string | null): UseQueryResult<P
     enabled: session !== null && templateId !== null,
     queryFn: async () => {
       const res = await request(`/inventory/product-templates/${templateId}/variants`);
-      if (!res.ok) throw new ApiError(res.status, t("api.variantsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.variantsCouldNotBeLoaded"));
       return res.json<ProductTemplateVariantDTO[]>();
     },
   });
@@ -3198,7 +3251,7 @@ export function useVanTrips(): UseQueryResult<VanTripDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/field/van-trips");
-      if (!res.ok) throw new ApiError(res.status, t("api.vanTripsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.vanTripsCouldNotBe"));
       return res.json<VanTripDTO[]>();
     },
   });
@@ -3298,7 +3351,7 @@ export function useBoms(): UseQueryResult<BomRecord[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/boms");
-      if (!res.ok) throw new ApiError(res.status, t("api.billsOfMaterialsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.billsOfMaterialsCouldNot"));
       return res.json<BomRecord[]>();
     },
   });
@@ -3441,7 +3494,7 @@ export function useWorkOrders(filter: WorkOrderListFilter = {}): UseQueryResult<
     queryFn: async () => {
       const qs = workOrderParams(filter).toString();
       const res = await request(`/manufacturing/work-orders${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.workOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"));
       return res.json<WorkOrderRecord[]>();
     },
   });
@@ -3458,7 +3511,7 @@ export function useWorkOrderCounts(filter: WorkOrderListFilter = {}): UseQueryRe
     queryFn: async () => {
       const qs = workOrderParams(rest).toString();
       const res = await request(`/manufacturing/work-orders/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.workOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -3474,7 +3527,7 @@ export function useWorkOrderStats(filter: WorkOrderListFilter = {}): UseQueryRes
     queryFn: async () => {
       const qs = workOrderParams(filter).toString();
       const res = await request(`/manufacturing/work-orders/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.workOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -3511,7 +3564,7 @@ export function useWorkOrderActivity(id: string | null): UseQueryResult<WorkOrde
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/manufacturing/work-orders/${id}/activity`);
-      if (!res.ok) throw new ApiError(res.status, t("api.workOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"));
       return res.json<WorkOrderActivity>();
     },
   });
@@ -3567,7 +3620,7 @@ export function useWorkStations(): UseQueryResult<WorkStationDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/work-stations");
-      if (!res.ok) throw new ApiError(res.status, t("api.workStationsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workStationsCouldNotBe"));
       return res.json<WorkStationDTO[]>();
     },
   });
@@ -3757,7 +3810,7 @@ export function useConfigurableProducts(): UseQueryResult<ConfigurableProductRec
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/configurable-products");
-      if (!res.ok) throw new ApiError(res.status, t("api.configurableProductsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.configurableProductsCouldNotBe"));
       return res.json<ConfigurableProductRecord[]>();
     },
   });
@@ -3834,7 +3887,7 @@ export function useConfigInstances(): UseQueryResult<ConfigInstanceRecord[], Api
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/config-instances");
-      if (!res.ok) throw new ApiError(res.status, t("api.customOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.customOrdersCouldNotBe"));
       return res.json<ConfigInstanceRecord[]>();
     },
   });
@@ -3924,7 +3977,7 @@ export function useCostCenters(): UseQueryResult<CostCenterDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/cost-centers");
-      if (!res.ok) throw new ApiError(res.status, t("api.costCentresCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.costCentresCouldNotBe"));
       return res.json<CostCenterDTO[]>();
     },
   });
@@ -3967,7 +4020,7 @@ export function useFiscalPeriods(): UseQueryResult<FiscalPeriodDTO[], ApiError> 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/fiscal-periods");
-      if (!res.ok) throw new ApiError(res.status, t("api.financialPeriodsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.financialPeriodsCouldNotBe"));
       return res.json<FiscalPeriodDTO[]>();
     },
   });
@@ -4033,7 +4086,7 @@ export function useYearEndClosePreview(year: number | null): UseQueryResult<Year
     queryFn: async () => {
       const res = await request(`/gl/year-end-close/${year}/preview`);
       if (res.status === 409 || res.status === 422) return null;
-      if (!res.ok) throw new ApiError(res.status, t("api.theYearEndCloseCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theYearEndCloseCouldNot"));
       return res.json<YearEndClosePreviewDTO>();
     },
   });
@@ -4054,7 +4107,7 @@ export function useYearEndCloseEntry(year: number | null): UseQueryResult<Journa
     queryFn: async () => {
       const res = await request(`/gl/journal-entries/${encodeURIComponent(`YEAR-CLOSE:${year}`)}`);
       if (res.status === 404) return null;
-      if (!res.ok) throw new ApiError(res.status, t("api.theJournalEntryCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theJournalEntryCouldNot"));
       return res.json<JournalEntryDTO>();
     },
   });
@@ -4096,7 +4149,7 @@ export function useTaxRates(): UseQueryResult<TaxRateDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/tax-rates");
-      if (!res.ok) throw new ApiError(res.status, t("api.taxesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.taxesCouldNotBeLoaded"));
       return res.json<TaxRateDTO[]>();
     },
   });
@@ -4142,7 +4195,7 @@ export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/exchange-rates");
-      if (!res.ok) throw new ApiError(res.status, t("api.exchangeRatesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.exchangeRatesCouldNotBe"));
       return res.json<ExchangeRateDTO[]>();
     },
   });
@@ -4189,7 +4242,7 @@ export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResu
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/cost-center-pl?fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.costCentreProfitabilityCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.costCentreProfitabilityCouldNot"));
       return res.json<CostCenterPnLReportDTO>();
     },
   });
@@ -4237,7 +4290,7 @@ export function useReconciliation(): UseQueryResult<ReconciliationReportDTO, Api
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/reconciliation");
-      if (!res.ok) throw new ApiError(res.status, t("api.theReconciliationCouldNotBe2"));
+      if (!res.ok) throw await loaderError(res, t("api.theReconciliationCouldNotBe2"));
       return res.json<ReconciliationReportDTO>();
     },
   });
@@ -4260,7 +4313,7 @@ export function useEtaConfig(): UseQueryResult<EtaConfigResponse, ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/config");
-      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
       return res.json<EtaConfigResponse>();
     },
   });
@@ -4288,7 +4341,7 @@ export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResu
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/eta/submissions${status ? `?status=${status}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theSubmissionQueueCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theSubmissionQueueCouldNot"));
       return res.json<EtaSubmissionDTO[]>();
     },
   });
@@ -4359,7 +4412,7 @@ export function useEtaActivityCodes(): UseQueryResult<EtaActivityCodeDTO[], ApiE
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/activity-codes");
-      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
       return res.json<EtaActivityCodeDTO[]>();
     },
   });
@@ -4373,7 +4426,7 @@ export function useEtaUnitCodes(): UseQueryResult<EtaUnitCodeDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/unit-codes");
-      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
       return res.json<EtaUnitCodeDTO[]>();
     },
   });
@@ -4399,7 +4452,7 @@ export function useEtaBranchCodes(): UseQueryResult<EtaBranchCodeRowDTO[], ApiEr
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/branch-codes");
-      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
       return res.json<EtaBranchCodeRowDTO[]>();
     },
   });
@@ -4440,7 +4493,7 @@ export function useEtaItemMappings(filter: { q?: string; unmappedOnly?: boolean 
       if (filter.unmappedOnly) params.set("unmapped", "1");
       const suffix = params.toString();
       const res = await request(`/eta/item-mappings${suffix ? `?${suffix}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
       return res.json<EtaItemMappingsResponse>();
     },
   });
@@ -4471,7 +4524,7 @@ export function useEtaUnitMappings(): UseQueryResult<EtaUnitMappingRowDTO[], Api
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/unit-mappings");
-      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
       return res.json<EtaUnitMappingRowDTO[]>();
     },
   });
@@ -4519,7 +4572,7 @@ export function useEtaTaxSubTypes(): UseQueryResult<EtaTaxSubTypeRowDTO[], ApiEr
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/tax-subtypes");
-      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
       return res.json<EtaTaxSubTypeRowDTO[]>();
     },
   });
@@ -4580,7 +4633,7 @@ export function useStockAdjustment(id: string | null): UseQueryResult<StockAdjus
     retry: false,
     queryFn: async () => {
       const res = await request(`/inventory/stock-adjustments/${encodeURIComponent(id ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"));
       return res.json<StockAdjustmentDocumentDTO>();
     },
   });
@@ -4595,7 +4648,7 @@ export function useStockAdjustments(filter: StockAdjustmentFilter = {}): UseQuer
     queryFn: async () => {
       const qs = stockAdjustmentParams(filter).toString();
       const res = await request(`/inventory/stock-adjustments${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"));
       return res.json<StockAdjustmentDocumentDTO[]>();
     },
   });
@@ -4612,7 +4665,7 @@ export function useStockAdjustmentCounts(filter: StockAdjustmentFilter = {}): Us
     queryFn: async () => {
       const qs = stockAdjustmentParams(rest).toString();
       const res = await request(`/inventory/stock-adjustments/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -4628,7 +4681,7 @@ export function useStockAdjustmentStats(filter: StockAdjustmentFilter = {}): Use
     queryFn: async () => {
       const qs = stockAdjustmentParams(filter).toString();
       const res = await request(`/inventory/stock-adjustments/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -4675,7 +4728,7 @@ export function useStockTransfer(id: string | null): UseQueryResult<StockTransfe
     retry: false,
     queryFn: async () => {
       const res = await request(`/inventory/stock-transfers/${encodeURIComponent(id ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.stockTransfersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"));
       return res.json<StockTransferDocumentDTO>();
     },
   });
@@ -4690,7 +4743,7 @@ export function useStockTransfers(filter: StockDocumentListFilter = {}): UseQuer
     queryFn: async () => {
       const qs = stockDocumentParams(filter).toString();
       const res = await request(`/inventory/stock-transfers${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.stockTransfersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"));
       return res.json<StockTransferDocumentDTO[]>();
     },
   });
@@ -4707,7 +4760,7 @@ export function useStockTransferCounts(filter: StockDocumentListFilter = {}): Us
     queryFn: async () => {
       const qs = stockDocumentParams(rest).toString();
       const res = await request(`/inventory/stock-transfers/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.stockTransfersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -4723,7 +4776,7 @@ export function useStockTransferStats(filter: StockDocumentListFilter = {}): Use
     queryFn: async () => {
       const qs = stockDocumentParams(filter).toString();
       const res = await request(`/inventory/stock-transfers/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.stockTransfersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -4788,7 +4841,7 @@ export function usePhysicalCounts(filter: PhysicalCountFilter = {}): UseQueryRes
     queryFn: async () => {
       const qs = physicalCountParams(filter).toString();
       const res = await request(`/inventory/physical-counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.physicalCountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.physicalCountsCouldNotBe"));
       return res.json<PhysicalCountDTO[]>();
     },
   });
@@ -4805,7 +4858,7 @@ export function usePhysicalCountCounts(filter: PhysicalCountFilter = {}): UseQue
     queryFn: async () => {
       const qs = physicalCountParams(rest).toString();
       const res = await request(`/inventory/physical-counts/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.physicalCountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.physicalCountsCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -4821,7 +4874,7 @@ export function usePhysicalCountStats(filter: PhysicalCountFilter = {}): UseQuer
     queryFn: async () => {
       const qs = physicalCountParams(filter).toString();
       const res = await request(`/inventory/physical-counts/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.physicalCountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.physicalCountsCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -4918,7 +4971,7 @@ export function useStockBalance(filter: StockBalanceFilter = {}): UseQueryResult
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/inventory/stock-balance${filter.warehouseId ? `?warehouseId=${filter.warehouseId}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theStockBalanceCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theStockBalanceCouldNot"));
       const body = await res.json<{ rows: StockBalanceRowDTO[] }>();
       return body.rows;
     },
@@ -4952,7 +5005,7 @@ export function useAccountLedger(accountId: string | null): UseQueryResult<Accou
     enabled: session !== null && accountId !== null,
     queryFn: async () => {
       const res = await request(`/gl/accounts/${encodeURIComponent(accountId!)}/ledger`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theAccountLedgerCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAccountLedgerCouldNot"));
       return res.json<AccountLedgerRecord>();
     },
   });
@@ -4996,7 +5049,7 @@ export function useItemStock(itemId: string | null): UseQueryResult<
     enabled: session !== null && itemId !== null,
     queryFn: async () => {
       const res = await request(`/inventory/items/${encodeURIComponent(itemId!)}/stock`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theStockBalanceCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theStockBalanceCouldNot"));
       return res.json<{ positions: ItemStockPositionRecord[]; layers: ItemCostLayerRecord[] }>();
     },
   });
@@ -5056,7 +5109,7 @@ export function useRfqs(filter: RfqListFilter = {}): UseQueryResult<PurchaseRfqD
     queryFn: async () => {
       const qs = rfqParams(filter).toString();
       const res = await request(`/rfqs${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.requestsForQuotationCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.requestsForQuotationCouldNot"));
       return res.json<PurchaseRfqDTO[]>();
     },
   });
@@ -5073,7 +5126,7 @@ export function useRfqCounts(filter: RfqListFilter = {}): UseQueryResult<ListCou
     queryFn: async () => {
       const qs = rfqParams(rest).toString();
       const res = await request(`/rfqs/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.requestsForQuotationCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.requestsForQuotationCouldNot"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -5089,7 +5142,7 @@ export function useRfqStats(filter: RfqListFilter = {}): UseQueryResult<ListStat
     queryFn: async () => {
       const qs = rfqParams(filter).toString();
       const res = await request(`/rfqs/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.requestsForQuotationCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.requestsForQuotationCouldNot"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -5104,7 +5157,7 @@ export function useRfqQuotes(rfqId: string | null): UseQueryResult<RfqQuoteDTO[]
     enabled: session !== null && rfqId !== null,
     queryFn: async () => {
       const res = await request(`/rfqs/${rfqId}/quotes`);
-      if (!res.ok) throw new ApiError(res.status, t("api.supplierQuotesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.supplierQuotesCouldNotBe"));
       return res.json<RfqQuoteDTO[]>();
     },
   });
@@ -5119,7 +5172,7 @@ export function useRfqComparison(rfqId: string | null): UseQueryResult<RfqCompar
     enabled: session !== null && rfqId !== null,
     queryFn: async () => {
       const res = await request(`/rfqs/${rfqId}/comparison`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theQuoteComparisonCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theQuoteComparisonCouldNot"));
       return res.json<RfqComparisonRecord>();
     },
   });
@@ -5241,7 +5294,7 @@ export function useSalesReturns(filter: SalesReturnListFilter = {}): UseQueryRes
     queryFn: async () => {
       const qs = salesReturnParams(filter).toString();
       const res = await request(`/sales-returns${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.salesReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"));
       return res.json<SalesReturnDocumentDTO[]>();
     },
   });
@@ -5258,7 +5311,7 @@ export function useSalesReturnCounts(filter: SalesReturnListFilter = {}): UseQue
     queryFn: async () => {
       const qs = salesReturnParams(rest).toString();
       const res = await request(`/sales-returns/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.salesReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -5274,7 +5327,7 @@ export function useSalesReturnStats(filter: SalesReturnListFilter = {}): UseQuer
     queryFn: async () => {
       const qs = salesReturnParams(filter).toString();
       const res = await request(`/sales-returns/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.salesReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -5355,7 +5408,7 @@ export function usePurchaseReturns(filter: PurchaseReturnListFilter = {}): UseQu
     queryFn: async () => {
       const qs = purchaseReturnParams(filter).toString();
       const res = await request(`/purchase-returns${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseReturnsCouldNotBe"));
       return res.json<PurchaseReturnDocumentDTO[]>();
     },
   });
@@ -5372,7 +5425,7 @@ export function usePurchaseReturnCounts(filter: PurchaseReturnListFilter = {}): 
     queryFn: async () => {
       const qs = purchaseReturnParams(rest).toString();
       const res = await request(`/purchase-returns/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseReturnsCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -5388,7 +5441,7 @@ export function usePurchaseReturnStats(filter: PurchaseReturnListFilter = {}): U
     queryFn: async () => {
       const qs = purchaseReturnParams(filter).toString();
       const res = await request(`/purchase-returns/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseReturnsCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -5446,7 +5499,7 @@ export function useLandedCosts(status?: DocumentStatusDTO): UseQueryResult<Lande
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/landed-costs${qs}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.landedCostDocumentsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.landedCostDocumentsCouldNot"));
       return res.json<LandedCostDocumentDTO[]>();
     },
   });
@@ -5522,7 +5575,7 @@ export function useInstallmentPlans(filter: InstallmentPlanListFilter = {}): Use
     queryFn: async () => {
       const qs = installmentPlanParams(filter).toString();
       const res = await request(`/installments/plans${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.instalmentPlansCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.instalmentPlansCouldNotBe"));
       return res.json<InstallmentPlanDocumentDTO[]>();
     },
   });
@@ -5539,7 +5592,7 @@ export function useInstallmentPlanCounts(filter: InstallmentPlanListFilter = {})
     queryFn: async () => {
       const qs = installmentPlanParams(rest).toString();
       const res = await request(`/installments/plans/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.instalmentPlansCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.instalmentPlansCouldNotBe"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -5555,7 +5608,7 @@ export function useInstallmentPlanStats(filter: InstallmentPlanListFilter = {}):
     queryFn: async () => {
       const qs = installmentPlanParams(filter).toString();
       const res = await request(`/installments/plans/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.instalmentPlansCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.instalmentPlansCouldNotBe"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -5644,7 +5697,7 @@ export function useFollowUps(filters: FollowUpListFilters = {}): UseQueryResult<
     queryFn: async () => {
       const qs = followUpParams(filters).toString();
       const res = await request(`/installments/follow-ups${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.collectionFollowUpsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.collectionFollowUpsCouldNot"));
       return res.json<CollectionFollowUpDTO[]>();
     },
   });
@@ -5661,7 +5714,7 @@ export function useFollowUpCounts(filter: FollowUpListFilters = {}): UseQueryRes
     queryFn: async () => {
       const qs = followUpParams(rest).toString();
       const res = await request(`/installments/follow-ups/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.collectionFollowUpsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.collectionFollowUpsCouldNot"));
       return res.json<ListCountsDTO>();
     },
   });
@@ -5677,7 +5730,7 @@ export function useFollowUpStats(filter: FollowUpListFilters = {}): UseQueryResu
     queryFn: async () => {
       const qs = followUpParams(filter).toString();
       const res = await request(`/installments/follow-ups/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.collectionFollowUpsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.collectionFollowUpsCouldNot"));
       return res.json<ListStatsDTO>();
     },
   });
@@ -5737,7 +5790,7 @@ export function useDepartments(): UseQueryResult<DepartmentDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/departments");
-      if (!res.ok) throw new ApiError(res.status, t("api.departmentsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.departmentsCouldNotBeLoaded"));
       return res.json<DepartmentDTO[]>();
     },
   });
@@ -5779,7 +5832,7 @@ export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/job-titles");
-      if (!res.ok) throw new ApiError(res.status, t("api.jobTitlesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"));
       return res.json<JobTitleDTO[]>();
     },
   });
@@ -5821,7 +5874,7 @@ export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/employees");
-      if (!res.ok) throw new ApiError(res.status, t("api.employeesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"));
       return res.json<EmployeeDTO[]>();
     },
   });
@@ -5835,7 +5888,7 @@ export function useEmployeeContracts(employeeId: string | null): UseQueryResult<
     enabled: session !== null && employeeId !== null,
     queryFn: async () => {
       const res = await request(`/hr/employees/${employeeId}/contracts`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theEmployeeSContractsCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theEmployeeSContractsCould"));
       return res.json<ContractDTO[]>();
     },
   });
@@ -5922,7 +5975,7 @@ export function useContracts(): UseQueryResult<ContractDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/contracts");
-      if (!res.ok) throw new ApiError(res.status, t("api.contractsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.contractsCouldNotBeLoaded"));
       return res.json<ContractDTO[]>();
     },
   });
@@ -5970,7 +6023,7 @@ export function useHolidays(year: number): UseQueryResult<HolidayDTO[], ApiError
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/hr/holidays?year=${year}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.publicHolidaysCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.publicHolidaysCouldNotBe"));
       return res.json<HolidayDTO[]>();
     },
   });
@@ -6030,7 +6083,7 @@ export function useMyLeave(): UseQueryResult<MyLeaveDTO, ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-requests/me");
-      if (!res.ok) throw new ApiError(res.status, t("api.yourLeaveCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.yourLeaveCouldNotBe"));
       return res.json<MyLeaveDTO>();
     },
   });
@@ -6083,7 +6136,7 @@ export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/dashboard");
-      if (!res.ok) throw new ApiError(res.status, t("api.theHrDashboardCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theHrDashboardCouldNot"));
       return res.json<HrDashboardSummaryDTO>();
     },
   });
@@ -6427,7 +6480,7 @@ export function usePrintTemplateConfig(): UseQueryResult<PrintTemplateConfigDTO,
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/print-template-config");
-      if (!res.ok) throw new ApiError(res.status, t("api.thePrintTemplateCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.thePrintTemplateCouldNot"));
       return res.json<PrintTemplateConfigDTO>();
     },
   });
@@ -6499,7 +6552,7 @@ export function useDataMigrationStatus(): UseQueryResult<DataMigrationStatusDTO,
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/data-migration/status");
-      if (!res.ok) throw new ApiError(res.status, t("api.theDataMigrationStatusCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theDataMigrationStatusCould"));
       return res.json<DataMigrationStatusDTO>();
     },
   });
@@ -6648,7 +6701,7 @@ export function useWorkflowConfigs(): UseQueryResult<WorkflowConfigDTO[], ApiErr
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/workflow/configs");
-      if (!res.ok) throw new ApiError(res.status, t("api.workflowSettingsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workflowSettingsCouldNotBe"));
       return res.json<WorkflowConfigDTO[]>();
     },
   });
@@ -6710,7 +6763,7 @@ export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiE
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending");
-      if (!res.ok) throw new ApiError(res.status, t("api.pendingApprovalsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"));
       return res.json<ApprovalRequestDTO[]>();
     },
   });
@@ -6725,7 +6778,7 @@ export function useMyApprovalRequests(): UseQueryResult<ApprovalRequestDTO[], Ap
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/workflow/requests/mine");
-      if (!res.ok) throw new ApiError(res.status, t("api.pendingApprovalsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"));
       return res.json<ApprovalRequestDTO[]>();
     },
   });
@@ -6740,7 +6793,7 @@ export function useMyApprovalDecisions(): UseQueryResult<ApprovalRequestDTO[], A
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/workflow/requests/acted");
-      if (!res.ok) throw new ApiError(res.status, t("api.pendingApprovalsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"));
       return res.json<ApprovalRequestDTO[]>();
     },
   });
@@ -6756,7 +6809,7 @@ export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending-count");
-      if (!res.ok) throw new ApiError(res.status, t("api.thePendingApprovalCountCould"));
+      if (!res.ok) throw await loaderError(res, t("api.thePendingApprovalCountCould"));
       const body = await res.json<{ count: number }>();
       return body.count;
     },
@@ -6811,7 +6864,7 @@ export function useItemUnits(): UseQueryResult<ItemUnitDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-units");
-      if (!res.ok) throw new ApiError(res.status, t("api.unitsOfMeasureCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.unitsOfMeasureCouldNot"));
       return res.json<ItemUnitDTO[]>();
     },
   });
@@ -6854,7 +6907,7 @@ export function useItemCategories(): UseQueryResult<ItemCategoryDTO[], ApiError>
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-categories");
-      if (!res.ok) throw new ApiError(res.status, t("api.itemCategoriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"));
       return res.json<ItemCategoryDTO[]>();
     },
   });
@@ -6869,7 +6922,7 @@ export function useItemBrands(): UseQueryResult<ItemBrandDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-brands");
-      if (!res.ok) throw new ApiError(res.status, t("api.itemCategoriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"));
       return res.json<ItemBrandDTO[]>();
     },
   });
@@ -6884,7 +6937,7 @@ export function useItemSeasons(): UseQueryResult<ItemSeasonDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-seasons");
-      if (!res.ok) throw new ApiError(res.status, t("api.itemCategoriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"));
       return res.json<ItemSeasonDTO[]>();
     },
   });
@@ -6947,7 +7000,7 @@ export function useAttendance(filters: AttendanceFilters): UseQueryResult<Attend
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/hr/attendance${attendanceQueryString(filters)}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theAttendanceRecordCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAttendanceRecordCouldNot"));
       return res.json<AttendanceEntryDTO[]>();
     },
   });
@@ -6961,7 +7014,7 @@ export function useAttendanceSummary(employeeId: string | null, from: string, to
     enabled: session !== null && employeeId !== null,
     queryFn: async () => {
       const res = await request(`/hr/attendance/summary?employeeId=${encodeURIComponent(employeeId ?? "")}&from=${from}&to=${to}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.theAttendanceSummaryCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAttendanceSummaryCouldNot"));
       return res.json<AttendanceSummaryDTO>();
     },
   });
@@ -7009,7 +7062,7 @@ export function useLeavePolicies(): UseQueryResult<LeavePolicyDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-policies");
-      if (!res.ok) throw new ApiError(res.status, t("api.leavePoliciesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.leavePoliciesCouldNotBe"));
       return res.json<LeavePolicyDTO[]>();
     },
   });
@@ -7023,7 +7076,7 @@ export function useLeavePolicyPresets(): UseQueryResult<LeavePolicyPresetDTO[], 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-policies/presets");
-      if (!res.ok) throw new ApiError(res.status, t("api.thePresetsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.thePresetsCouldNotBe"));
       return res.json<LeavePolicyPresetDTO[]>();
     },
   });
@@ -7094,7 +7147,7 @@ export function useLeaveBalances(employeeId: string | null, year: number): UseQu
       const params = new URLSearchParams({ year: String(year) });
       if (employeeId) params.set("employeeId", employeeId);
       const res = await request(`/hr/leave-balances?${params.toString()}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.leaveBalancesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.leaveBalancesCouldNotBe"));
       return res.json<LeaveBalanceDTO[]>();
     },
   });
@@ -7122,7 +7175,7 @@ export function useLeaveAccrualBatches(runType: string | null): UseQueryResult<L
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/hr/leave-accrual-batches${runType ? `?runType=${runType}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.accrualBatchesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.accrualBatchesCouldNotBe"));
       return res.json<LeaveAccrualBatchDTO[]>();
     },
   });
@@ -7173,7 +7226,7 @@ export function useLeaveRequests(filters: LeaveRequestFilters): UseQueryResult<L
       if (filters.to) params.set("to", filters.to);
       const query = params.toString();
       const res = await request(`/hr/leave-requests${query === "" ? "" : `?${query}`}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.leaveRequestsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.leaveRequestsCouldNotBe"));
       return res.json<LeaveRequestDTO[]>();
     },
   });
@@ -7195,7 +7248,7 @@ export function useLeaveRequestCounts(): UseQueryResult<LeaveRequestCountsDTO, A
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-requests/counts");
-      if (!res.ok) throw new ApiError(res.status, t("api.theLeaveRequestSummaryCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theLeaveRequestSummaryCould"));
       return res.json<LeaveRequestCountsDTO>();
     },
   });
@@ -7241,7 +7294,7 @@ export function useAccountRouting(): UseQueryResult<AccountRoutingDTO, ApiError>
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/accounting/account-routing");
-      if (!res.ok) throw new ApiError(res.status, t("api.theChartOfAccountsCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"));
       return res.json<AccountRoutingDTO>();
     },
   });
@@ -7272,7 +7325,7 @@ export function useTaxGroups(): UseQueryResult<TaxGroupDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/tax-groups");
-      if (!res.ok) throw new ApiError(res.status, t("api.taxesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.taxesCouldNotBeLoaded"));
       return res.json<TaxGroupDTO[]>();
     },
   });
@@ -7333,7 +7386,7 @@ export function useItemAvailability(itemId: string, warehouseId: string): UseQue
     enabled: session !== null && itemId !== "" && warehouseId !== "",
     queryFn: async () => {
       const res = await request(`/inventory/availability?itemId=${encodeURIComponent(itemId)}&warehouseId=${encodeURIComponent(warehouseId)}`);
-      if (!res.ok) throw new ApiError(res.status, t("api.itemAvailabilityCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.itemAvailabilityCouldNotBe"));
       return res.json<ItemAvailabilityDTO>();
     },
   });
@@ -7348,7 +7401,7 @@ export function useAllowedCurrencies(): UseQueryResult<AllowedCurrenciesDTO, Api
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/settings/currencies");
-      if (!res.ok) throw new ApiError(res.status, t("api.settingsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"));
       return res.json<AllowedCurrenciesDTO>();
     },
   });
@@ -7373,7 +7426,7 @@ export function useEntityAudit(entityType: string, entityId: string): UseQueryRe
       const res = await request(
         `/audit?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}&limit=100`,
       );
-      if (!res.ok) throw new ApiError(res.status, t("api.auditCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.auditCouldNotBeLoaded"));
       const body = await res.json<{ events?: AuditEventDTO[] } | AuditEventDTO[]>();
       return Array.isArray(body) ? body : (body.events ?? []);
     },
@@ -7393,7 +7446,7 @@ export function usePurchaseInvoiceFulfilment(invoiceId: string | null): UseQuery
     enabled: session !== null && invoiceId !== null,
     queryFn: async () => {
       const res = await request(`/purchases/invoices/${encodeURIComponent(invoiceId ?? "")}/fulfilment`);
-      if (!res.ok) throw new ApiError(res.status, t("api.purchaseInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"));
       return res.json<PurchaseInvoiceFulfilmentDTO>();
     },
   });
@@ -7456,7 +7509,7 @@ export function useItemMovements(
           const res = await request(
             `/inventory/movements?itemId=${encodeURIComponent(itemId ?? "")}&warehouseId=${encodeURIComponent(warehouseId)}`,
           );
-          if (!res.ok) throw new ApiError(res.status, t("api.stockMovementsCouldNotBe"));
+          if (!res.ok) throw await loaderError(res, t("api.stockMovementsCouldNotBe"));
           return res.json<StockMovementRowDTO[]>();
         }),
       );
@@ -7476,7 +7529,7 @@ export function useImportableDepartments(): UseQueryResult<ImportableDepartmentD
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/cost-centers/importable-departments");
-      if (!res.ok) throw new ApiError(res.status, t("api.costCentresCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.costCentresCouldNotBe"));
       return res.json<ImportableDepartmentDTO[]>();
     },
   });
@@ -7552,7 +7605,7 @@ export function usePartyBalancesByCurrency(): UseQueryResult<PartyCurrencyBalanc
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/gl/balances-by-currency");
-      if (!res.ok) throw new ApiError(res.status, t("api.balancesByCurrencyCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.balancesByCurrencyCouldNot"));
       return res.json<PartyCurrencyBalanceReportDTO>();
     },
   });
@@ -7619,7 +7672,7 @@ export function useVans(): UseQueryResult<VanDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/field/vans");
-      if (!res.ok) throw new ApiError(res.status, t("api.vansCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.vansCouldNotBeLoaded"));
       return res.json<VanDTO[]>();
     },
   });
@@ -7666,7 +7719,7 @@ export function useTreasuryAccountStats(): UseQueryResult<TreasuryAccountStatsDT
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/treasury-accounts/stats");
-      if (!res.ok) throw new ApiError(res.status, t("api.treasuryAccountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"));
       return res.json<TreasuryAccountStatsDTO>();
     },
   });

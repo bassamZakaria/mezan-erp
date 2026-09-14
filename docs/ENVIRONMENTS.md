@@ -3,12 +3,26 @@
 Four places Mezan runs. Each is the same code; what differs is the entrypoint,
 the database, and who can reach it.
 
-| Environment | Where | Entrypoint | Database | Branch |
+| Environment | Where | Entrypoint | Platform dir | Branch |
 | --- | --- | --- | --- | --- |
-| dev | `localhost:5173` + `:3000` | vite dev server proxying `apps/server/src/index.ts` | `./mezan.db` | whatever you have checked out |
-| testing | `localhost:4101` | `apps/server/src/cloud.ts` | `.data/testing.db` | `testing` |
-| staging | `localhost:4102` | `apps/server/src/cloud.ts` | `.data/staging.db` | `main` |
-| demo | <https://mezan-demo.onrender.com> | `apps/server/src/cloud.ts` in Docker | `/tmp/mezan-demo.db` | see [DEPLOY-DEMO.md](DEPLOY-DEMO.md) |
+| dev | `localhost:5173` + `:3000` | vite dev server proxying `apps/server/src/index.ts` | `.data/dev-platform` | whatever you have checked out |
+| testing | `localhost:4101` | `apps/server/src/cloud.ts` | `.data/testing-platform` | `testing` |
+| staging | `localhost:4102` | `apps/server/src/cloud.ts` | `.data/staging-platform` | `main` |
+| demo | <https://mezan-demo.onrender.com> | `apps/server/src/cloud.ts` in Docker | `/tmp/platform` | see [DEPLOY-DEMO.md](DEPLOY-DEMO.md) |
+
+Every environment now runs the same multi-tenant entrypoint (`createCloudApp`,
+`apps/server/src/cloud-app.ts`): a platform database at `<platform dir>/platform.db`
+holding tenants, plans and subscriptions, and one SQLite file per tenant under
+`<platform dir>/tenants/`. `MEZAN_SEED_DEMO=1` provisions the seeded demo tenant
+(code `demo`) once; `MEZAN_PLATFORM_OWNER_EMAIL` / `MEZAN_PLATFORM_OWNER_PASSWORD`
+seed the first platform owner, who signs in at `/platform/login` to create and
+manage tenants. See the environment contract table in
+`docs/superpowers/plans/2026-09-14-saas-slice-c-deploy.md` for every variable.
+
+Every open tenant, plus the platform database itself, is snapshotted on a timer
+into `<platform dir>/backups/` (`MEZAN_BACKUP_INTERVAL_MINUTES`, default 15).
+On the demo host that directory sits under `/tmp` and is lost on restart; on
+AWS a sidecar syncs it to S3 — see the `apps/mezan` README in `cyag-devops`.
 
 ## Running testing and staging locally
 
@@ -17,11 +31,11 @@ pnpm env:testing         # builds the web bundle, serves it on :4101
 pnpm env:staging         # same, on :4102
 ```
 
-Both reseed nothing on restart — the SQLite file under `.data/` persists, so
-data you enter survives a restart. To start from a clean seeded tenant:
+Both reseed nothing on restart — the platform directory under `.data/` persists,
+so data you enter survives a restart. To start from a clean seeded demo tenant:
 
 ```sh
-pnpm env:testing:fresh   # deletes .data/testing.db first
+pnpm env:testing:fresh   # deletes .data/testing-platform first
 pnpm env:staging:fresh
 ```
 
@@ -31,11 +45,17 @@ Skip the rebuild when only backend code changed:
 node scripts/env.mjs testing --no-build
 ```
 
-Both can run at once — different ports, different database files. Nothing
-entered in one is visible in the other.
+Both can run at once — different ports, different platform directories.
+Nothing entered in one is visible in the other.
 
-Sign in as `admin@cyag.example` with PIN `123456`. Neither environment is
-password-protected, matching dev; `.data/` is gitignored.
+Two logins, both seeded automatically by `scripts/env.mjs`:
+
+| Login | Where | Credentials |
+| --- | --- | --- |
+| Platform owner | `/platform/login` | `owner@mezan.local` / `owner-password-123` |
+| Demo tenant | company code `demo`, then the login screen | `admin@cyag.example` with PIN `123456` |
+
+Neither environment is password-protected, matching dev; `.data/` is gitignored.
 
 ### Why these run cloud.ts, not `pnpm dev`
 
@@ -58,7 +78,10 @@ hosted testing box is one service away:
 
    | Key | Value |
    | --- | --- |
-   | `MEZAN_DB` | `/tmp/mezan-testing.db` |
+   | `MEZAN_PLATFORM_DIR` | `/tmp/platform` |
+   | `MEZAN_SEED_DEMO` | `1` |
+   | `MEZAN_PLATFORM_OWNER_EMAIL` | `owner@mezan.local` |
+   | `MEZAN_PLATFORM_OWNER_PASSWORD` | a password you choose |
    | `NODE_OPTIONS` | `--max-old-space-size=400` |
    | `MEZAN_SEED_ADMIN_PIN` | `123456` |
 

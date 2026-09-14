@@ -3,12 +3,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   authHeaders,
   clearSessionExpired,
+  clearTenantCode,
   loadPersistedScopeSelection,
   loadPersistedSession,
+  loadTenantCode,
   markSessionExpired,
   NO_SCOPE_SELECTION,
   persistScopeSelection,
   persistSession,
+  persistTenantCode,
   sessionExpiredPending,
   type ScopeSelection,
   type Session,
@@ -17,6 +20,7 @@ import {
 const SESSION_KEY = "mezan.session";
 const SCOPE_KEY = "mezan.scopeSelection";
 const EXPIRED_KEY = "mezan.sessionExpired";
+const TENANT_CODE_KEY = "mezan.tenantCode";
 
 const validSession: Session = {
   userId: "USER-1",
@@ -120,9 +124,48 @@ describe("persistScopeSelection", () => {
   });
 });
 
+describe("tenant code", () => {
+  it("returns null when nothing is stored", () => {
+    expect(loadTenantCode()).toBeNull();
+  });
+
+  it("persistTenantCode lower-cases and trims before storing", () => {
+    persistTenantCode(" Cyag ");
+    expect(localStorage.getItem(TENANT_CODE_KEY)).toBe("cyag");
+    expect(loadTenantCode()).toBe("cyag");
+  });
+
+  it("clearTenantCode removes it", () => {
+    persistTenantCode("cyag");
+    clearTenantCode();
+    expect(loadTenantCode()).toBeNull();
+  });
+
+  it("strips everything outside [a-z0-9-] so a non-ASCII value can never reach a header", () => {
+    persistTenantCode("سياج");
+    expect(loadTenantCode()).toBe("");
+  });
+
+  it("strips spaces and punctuation from an otherwise-valid code", () => {
+    persistTenantCode("Cy ag!");
+    expect(loadTenantCode()).toBe("cyag");
+  });
+
+  it("survives a logout (persisting a null session leaves it in place)", () => {
+    persistTenantCode("cyag");
+    persistSession(null);
+    expect(loadTenantCode()).toBe("cyag");
+  });
+});
+
 describe("authHeaders", () => {
-  it("returns no headers for a signed-out caller", () => {
+  it("returns no headers for a signed-out caller with no tenant code stored", () => {
     expect(authHeaders(null)).toEqual({});
+  });
+
+  it("includes x-mezan-tenant when a company code is stored, even for a signed-out caller", () => {
+    persistTenantCode("Cyag");
+    expect(authHeaders(null)).toEqual({ "x-mezan-tenant": "cyag" });
   });
 
   it("sends the bearer token and the session's full scope with no selection", () => {
@@ -130,6 +173,16 @@ describe("authHeaders", () => {
       authorization: "Bearer TOKEN-1",
       "x-branch-scope": "BR-1",
       "x-warehouse-scope": "*",
+    });
+  });
+
+  it("adds x-mezan-tenant alongside the session headers when a company code is stored", () => {
+    persistTenantCode("nile");
+    expect(authHeaders(validSession)).toEqual({
+      authorization: "Bearer TOKEN-1",
+      "x-branch-scope": "BR-1",
+      "x-warehouse-scope": "*",
+      "x-mezan-tenant": "nile",
     });
   });
 

@@ -232,10 +232,7 @@ function defaultEntitlementsResolver(): EntitlementsResolver {
     plan: "ENTERPRISE",
     activeModules: MODULE_CATALOG,
     features: {},
-    // Every dev/test composition without its own resolveEntitlements — demo
-    // seed's ~15-user tenant included — runs on this default; a low cap here
-    // is a global seat limit the moment A3's SEAT_LIMIT_REACHED check lands.
-    seats: 999,
+    seats: 10,
     expiresAt: null,
   });
   return () => entitlements;

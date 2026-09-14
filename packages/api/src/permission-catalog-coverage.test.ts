@@ -41,9 +41,15 @@ function gatedCodes(): ReadonlySet<string> {
       }
       // `gate(...)`, `gateAny(...)`, and `permission(...)` — the last is what
       // `lan/routes.ts` calls its `createPermissionGate` binding, and a gate is
-      // a gate whatever the local const is named.
-      for (const match of source.matchAll(/(?:gate(?:Any)?|permission)\(\s*((?:(?:"[a-z_.]+"|[A-Z][A-Z0-9_]*)\s*,?\s*)+)\)/g)) {
-        const args = match[1] ?? "";
+      // a gate whatever the local const is named. `moduleRefusalFor(c, "...")`
+      // is the inline check a route makes when the code is only known once an
+      // entity is in hand (attachments-routes.ts, sales-invoices-routes.ts) —
+      // its first argument is the context, not a permission code, so it gets
+      // its own alternative rather than joining the leading-argument group.
+      for (const match of source.matchAll(
+        /(?:gate(?:Any)?|permission)\(\s*((?:(?:"[a-z_.]+"|[A-Z][A-Z0-9_]*)\s*,?\s*)+)\)|moduleRefusalFor\(\s*[A-Za-z_$][\w$]*\s*,\s*((?:(?:"[a-z_.]+"|[A-Z][A-Z0-9_]*)\s*,?\s*)+)\)/g,
+      )) {
+        const args = match[1] ?? match[2] ?? "";
         for (const code of args.matchAll(/"([a-z_.]+)"/g)) found.add(code[1] as string);
         for (const name of args.matchAll(/\b([A-Z][A-Z0-9_]*)\b/g)) {
           const resolved = constants.get(name[1] as string);

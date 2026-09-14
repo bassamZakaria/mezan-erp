@@ -1,4 +1,5 @@
 import type { SessionDTO } from "@mezan/contracts";
+import { loadTenantCode } from "../data/session";
 
 /**
  * WHO IS ON THIS DEVICE.
@@ -14,6 +15,18 @@ import type { SessionDTO } from "@mezan/contracts";
  */
 const KEY = "mezan.deviceUsers";
 const LIMIT = 3;
+
+/**
+ * A SaaS "code" tenant shares ONE browser origin across every company, so a
+ * plain `mezan.deviceUsers` key would print one tenant's staff on another
+ * tenant's login screen. Namespaced by the tenant code once one is stored;
+ * the desktop build (and cloud "subdomain" mode, one origin per tenant
+ * already) never has a code here, so it keeps the old unscoped key.
+ */
+function storageKey(): string {
+  const code = loadTenantCode();
+  return code ? `${KEY}.${code}` : KEY;
+}
 
 export interface DeviceUser {
   email: string;
@@ -35,7 +48,7 @@ function initialsOf(name: string): string {
 
 export function readDeviceUsers(): DeviceUser[] {
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(storageKey());
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -61,7 +74,7 @@ export function rememberDeviceUser(session: SessionDTO): void {
   };
   try {
     const rest = readDeviceUsers().filter((u) => u.email !== entry.email);
-    window.localStorage.setItem(KEY, JSON.stringify([entry, ...rest].slice(0, LIMIT)));
+    window.localStorage.setItem(storageKey(), JSON.stringify([entry, ...rest].slice(0, LIMIT)));
   } catch {
     // Remembering is a convenience; failing to remember is not a login failure.
   }

@@ -77,11 +77,26 @@ async function buildRig(): Promise<Rig> {
     return { tenant: active, adminEmail: cmd.ownerEmail, adminPin: "482913" };
   };
 
+  const provisionRetry = async ({ tenantId }: { tenantId: string }): Promise<ProvisionResultDTO> => {
+    const nowIso = FIXED_NOW().toISOString();
+    const tenant = await activateTenant({ id: tenantId, now: nowIso }, platform.stores.tenants);
+    const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
+    if (!live) {
+      await startSubscription(
+        { id: idOf(), tenantId: tenant.id, planId: "PLAN-CORE", billingCycle: "monthly", trial: false, now: nowIso },
+        platform.stores.subscriptions,
+        platform.stores.plans,
+      );
+    }
+    return { tenant, adminEmail: tenant.ownerEmail, adminPin: null };
+  };
+
   const app = createPlatformRoutes({
     platform,
     auth,
     now: FIXED_NOW,
     provisionTenant,
+    provisionRetry,
     invalidateEntitlements: (code: string) => { invalidated.push(code); },
     idOf,
   });
@@ -451,5 +466,81 @@ describe("createPlatformRoutes", () => {
     expect(res.status).toBe(200);
     expect(auditErrors).toHaveLength(1);
     expect((auditErrors[0] as Error).message).toBe("audit sink down");
+  });
+
+  it("retries provisioning for a tenant stuck in `provisioning`, returning the DTO and invalidating", async () => {
+    const rig = await buildRig();
+    const nowIso = FIXED_NOW().toISOString();
+    const tenant = await createTenant(
+      { id: "T-STUCK", code: "stuck", nameAr: "منشأة عالقة", ownerEmail: "stuck@example.com", now: nowIso },
+      rig.platform.stores.tenants,
+    );
+    expect(tenant.status).toBe("provisioning");
+
+    const res = await rig.app.fetch(req(`/tenants/${tenant.id}/provision`, rig.ownerToken, { method: "POST" }));
+    expect(res.status).toBe(200);
+    const body = (await json(res)) as ProvisionResultDTO;
+    expect(body.tenant.status).toBe("active");
+    expect(body.adminPin).toBeNull();
+    expect(rig.invalidated).toContain("stuck");
+
+    const rows = await rig.platform.audit.query("security");
+    expect(rows.some((r) => r.action === "TENANT_PROVISION_RETRIED")).toBe(true);
+  });
+
+  it("409s a provision retry on a tenant that is not `provisioning`", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/provision`, rig.ownerToken, { method: "POST" }));
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ error: "TENANT_NOT_PROVISIONING" });
+  });
+
+  it("a provisioning failure on create returns 422 with the tenant id in the body, instead of 500", async () => {
+    const rig = await buildRig();
+    class FakeProvisioningError extends Error {
+      readonly code = "TENANT_PROVISIONING_FAILED";
+      constructor(readonly tenantId: string) {
+        super("تعذّر تجهيز المنشأة");
+      }
+    }
+    const failingApp = createPlatformRoutes({
+      platform: rig.platform,
+      auth: rig.auth,
+      now: FIXED_NOW,
+      provisionTenant: async () => { throw new FakeProvisioningError("T-FAILED"); },
+      invalidateEntitlements: () => undefined,
+    });
+
+    const res = await failingApp.fetch(
+      req("/tenants", rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({
+          code: "zzz", nameAr: "س", ownerEmail: "z@z.com", ownerNameAr: "س", planId: "PLAN-CORE", billingCycle: "monthly", trial: false,
+        }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(await json(res)).toMatchObject({ error: "TENANT_PROVISIONING_FAILED", tenantId: "T-FAILED" });
+  });
+
+  it("501s a provision retry when the deployment has not wired `provisionRetry`", async () => {
+    const rig = await buildRig();
+    const nowIso = FIXED_NOW().toISOString();
+    const tenant = await createTenant(
+      { id: "T-NOWIRE", code: "nowire", nameAr: "بلا ربط", ownerEmail: "nowire@example.com", now: nowIso },
+      rig.platform.stores.tenants,
+    );
+    const unwiredApp = createPlatformRoutes({
+      platform: rig.platform,
+      auth: rig.auth,
+      now: FIXED_NOW,
+      provisionTenant: async () => { throw new Error("not used in this test"); },
+      invalidateEntitlements: () => undefined,
+    });
+
+    const res = await unwiredApp.fetch(req(`/tenants/${tenant.id}/provision`, rig.ownerToken, { method: "POST" }));
+    expect(res.status).toBe(501);
+    expect(await json(res)).toMatchObject({ error: "PROVISION_RETRY_UNAVAILABLE" });
   });
 });

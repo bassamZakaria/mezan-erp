@@ -94,6 +94,23 @@ export function useCreateTenantMutation() {
   });
 }
 
+export function useRetryProvisionMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProvisionResultDTO, PlatformApiError, string>({
+    mutationFn: async (tenantId) => {
+      const res = await request(`/tenants/${tenantId}/provision`, { method: "POST" });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.tenantDetail.retryProvision.error.generic")));
+      return res.json<ProvisionResultDTO>();
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["platform", "tenants"] });
+      queryClient.invalidateQueries({ queryKey: ["platform", "tenants", result.tenant.id] });
+    },
+  });
+}
+
 export function useSuspendTenantMutation() {
   return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/suspend`, () => undefined, "platform.tenantDetail.suspend");
 }

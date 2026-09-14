@@ -2,11 +2,11 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
-import type { BillingCycleDTO, SubscriptionStatusDTO } from "@mezan/contracts";
+import type { BillingCycleDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
-import { usePlatformApi } from "./api";
+import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import {
   useArchiveTenantMutation,
@@ -14,6 +14,7 @@ import {
   useChangePlanMutation,
   usePlansQuery,
   useResumeTenantMutation,
+  useRetryProvisionMutation,
   useSuspendTenantMutation,
   useTenantQuery,
 } from "./hooks";
@@ -73,11 +74,14 @@ export function TenantDetailPage() {
   const archiveTenant = useArchiveTenantMutation();
   const changePlan = useChangePlanMutation();
   const cancelSubscription = useCancelSubscriptionMutation();
+  const retryProvision = useRetryProvisionMutation();
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [planPickerId, setPlanPickerId] = useState("");
+  const [retryResult, setRetryResult] = useState<ProvisionResultDTO | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   const summary = tenantQuery.data;
   if (!summary) {
@@ -106,6 +110,21 @@ export function TenantDetailPage() {
 
       {isOwner ? (
         <div className="flex flex-wrap gap-[9px]">
+          {tenant.status === "provisioning" ? (
+            <Button
+              variant="primary"
+              disabled={retryProvision.isPending}
+              onClick={() => {
+                setRetryError(null);
+                retryProvision.mutate(tenant.id, {
+                  onSuccess: (res) => setRetryResult(res),
+                  onError: (err) => setRetryError(err instanceof PlatformApiError ? err.message : t("platform.tenantDetail.retryProvision.error.generic")),
+                });
+              }}
+            >
+              {retryProvision.isPending ? t("platform.tenantDetail.retrying") : t("platform.tenantDetail.retryProvision")}
+            </Button>
+          ) : null}
           {canSuspendTenant(tenant.status) ? (
             <Button variant="default" disabled={suspendTenant.isPending} onClick={() => suspendTenant.mutate(tenant.id)}>
               {t("platform.tenantDetail.suspend")}
@@ -122,6 +141,28 @@ export function TenantDetailPage() {
             </Button>
           ) : null}
         </div>
+      ) : null}
+
+      {retryError ? (
+        <Card className="p-[16px]">
+          <p role="alert" className="text-[12.5px] font-semibold text-danger-ink">{retryError}</p>
+        </Card>
+      ) : null}
+      {retryResult ? (
+        <Card className="p-[16px]">
+          <div className="flex flex-col gap-[10px]">
+            <p className="text-[12.5px] text-ink-muted">{t("platform.newTenant.result.hint")}</p>
+            <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
+              <div>
+                <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminPin")}</span>
+                <code dir="ltr" className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink">
+                  {retryResult.adminPin ?? t("platform.newTenant.result.pinKept")}
+                </code>
+              </div>
+            </div>
+            <p role="alert" className="text-[11.5px] font-semibold text-warning-ink">{t("platform.newTenant.result.oneTime")}</p>
+          </div>
+        </Card>
       ) : null}
 
       <Card className="p-[16px]">

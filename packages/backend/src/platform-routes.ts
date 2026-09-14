@@ -66,6 +66,8 @@ export interface CreatePlatformRoutesOptions {
   readonly auth: PlatformAuth;
   readonly now: () => Date;
   readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }) => Promise<ProvisionResultDTO>;
+  /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional so a caller that has not wired it yet still typechecks; the route answers 501 until it is supplied. */
+  readonly provisionRetry?: (input: { tenantId: string }) => Promise<ProvisionResultDTO>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
   readonly onAuditError?: (err: unknown) => void;
@@ -133,7 +135,19 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
   };
 }
 
+/** Duck-typed against `apps/server/src/provision-tenant.ts`'s `TenantProvisioningError` — `@mezan/backend` cannot import an `apps/*` class, so a provisioning failure is recognised by shape (`.code === "TENANT_PROVISIONING_FAILED"` plus the tenant id it left in `provisioning`) instead of `instanceof`. */
+function asProvisioningFailure(err: unknown): { readonly message: string; readonly tenantId: string } | null {
+  if (!(err instanceof Error)) return null;
+  const shape = err as unknown as Record<string, unknown>;
+  if (shape.code !== "TENANT_PROVISIONING_FAILED" || typeof shape.tenantId !== "string") return null;
+  return { message: err.message, tenantId: shape.tenantId };
+}
+
 function domainErrorResponse(c: Context, err: unknown): Response {
+  const provisioningFailure = asProvisioningFailure(err);
+  if (provisioningFailure) {
+    return c.json({ error: "TENANT_PROVISIONING_FAILED", message: provisioningFailure.message, tenantId: provisioningFailure.tenantId }, 422);
+  }
   if (
     err instanceof TenantNotFoundError ||
     err instanceof PlanNotFoundError ||
@@ -167,7 +181,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 }
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
-  const { platform, auth, now, provisionTenant, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, invalidateEntitlements, idOf = randomUUID } = options;
   const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
 
@@ -232,6 +246,24 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       invalidateEntitlements(result.tenant.code);
       await audit(c, "TENANT_PROVISIONED", result.tenant.id, { code: result.tenant.code });
       return c.json(result, 201);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/provision", requireOwner, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (tenant.status !== "provisioning") {
+        return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" }, 409);
+      }
+      if (!provisionRetry) {
+        return c.json({ error: "PROVISION_RETRY_UNAVAILABLE", message: "إعادة تجهيز المنشأة غير متاحة في هذه البيئة." }, 501);
+      }
+      const result = await provisionRetry({ tenantId: tenant.id });
+      invalidateEntitlements(result.tenant.code);
+      await audit(c, "TENANT_PROVISION_RETRIED", result.tenant.id, { code: result.tenant.code });
+      return c.json(result, 200);
     } catch (err) {
       return domainErrorResponse(c, err);
     }

@@ -8444,10 +8444,12 @@ passes, filing any deviation exactly like the rest of this document.
 - **PLT-SAAS-08** — Subdomain mode: a hosts-file tenant logs in with no
   company-code field.
   **Pre**: Add `127.0.0.1 cyag.mezan.test` to `/etc/hosts`. Start a second
-  instance on another port with `MEZAN_TENANT_DOMAIN=mezan.test` set, pointed
-  at the same platform dir so `cyag` already exists, e.g.
-  `MEZAN_TENANT_DOMAIN=mezan.test PORT=4103 MEZAN_PLATFORM_DIR=.data/testing-platform
-  pnpm exec tsx apps/server/src/cloud.ts`.
+  instance on another port with `MEZAN_TENANT_DOMAIN=mezan.test` set and its
+  OWN platform dir (one process per data directory, always), e.g.
+  `MEZAN_TENANT_DOMAIN=mezan.test PORT=4103 MEZAN_PLATFORM_DIR=.data/subdomain-platform
+  MEZAN_SEED_DEMO=1 pnpm exec tsx apps/server/src/cloud.ts`, and use the seeded
+  `demo` tenant. Chrome resolves `*.localhost` to loopback without a hosts entry,
+  so `MEZAN_TENANT_DOMAIN=localhost` and `http://demo.localhost:4103` also work.
   **Steps**: Open `http://cyag.mezan.test:4103`.
   **Assert**: `GET /platform/resolve` answers
   `{"mode":"subdomain","tenant":{"code":"cyag",...}}`; the login screen
@@ -8457,6 +8459,21 @@ passes, filing any deviation exactly like the rest of this document.
   typing the code.
 
 ---
+
+### Run record — 2026-09-14, `pnpm env:testing:fresh` on :4101, Chrome
+
+| ID | Result | Notes |
+|---|---|---|
+| PLT-SAAS-01 | pass, one defect | Owner signed in; the console stayed on `/platform/login` with an empty pane and the rail links were relative (`/platform/login/tenants`). Fixed the same day (console lands on tenants, absolute rail links). |
+| PLT-SAAS-02 | pass | `cyag` created on business with a trial; `POST /api/platform/tenants` 201; PIN shown once with a copy button; the list refreshed with the new row. |
+| PLT-SAAS-03 | pass | Code field, email and PIN; auto-submit on the sixth digit; landed on the dashboard as أحمد سياج. |
+| PLT-SAAS-04 | pass at the API, two defects in the UI | `GET /api/hr/dashboard` answered 403 `MODULE_NOT_LICENSED`. The rail still listed «الأشخاص» and «التصنيع», and the screen showed a generic load error instead of the Arabic refusal. Both fixed the same day. |
+| PLT-SAAS-05 | pass | Payment INSTAPAY-1001 of 980.00 recorded (201); period end moved 14/10/2026 → 14/11/2026; entitlements expiry followed. |
+| PLT-SAAS-06 | pass | Suspend from the console; the tenant app raised the read-only banner within the 60-second poll; `POST /api/customers` 403 with the Arabic read-only message inline; every read 200. Resume restored it. |
+| PLT-SAAS-07 | pass | Same server, same session tab: `cyag` listed no customers, then switching the code to `demo` listed 27. |
+| PLT-SAAS-08 | pass at the API | Second instance with `MEZAN_TENANT_DOMAIN=localhost` on :4103: `/api/platform/resolve` with host `demo.localhost` → subdomain mode and tenant `demo`; `POST /api/auth/login` with that host and no header succeeded and `GET /api/customers` returned 27 rows; without the host the same login answered 400 `TENANT_REQUIRED`. The code-field-hidden branch is covered by `LoginScreen.test.tsx`; the Chrome extension refuses `*.localhost` navigation, so the screen itself was not driven. |
+
+Found by the final code review the same day and fixed: cached tenant answers and the remembered-users list survived a sign-out and a code switch (cross-tenant leak in one browser); the CloudFront origin secret was never set; a failed provisioning could not be retried from the console.
 
 # 12. Shell, dashboard and reports
 

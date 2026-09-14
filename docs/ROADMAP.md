@@ -437,6 +437,14 @@ and label a purchase return correctly.
 The build plan for the deferred areas — HR/Payroll (27 tasks), POS (26 tasks) and the
 Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated here.
 
+SaaS follow-ups after the 2026-09-14 browser run (none blocks a sale): subscription-level
+suspend/resume has API routes but no console button; `GET /platform/resolve` answers a tenant's
+name to anyone who knows its code; a generated platform-owner password is printed to the server
+log once by design (set `MEZAN_PLATFORM_OWNER_PASSWORD` to avoid it); the console's remembered
+tenant is per browser, not per operator. Test-only gaps recorded by the reviewers: no end-to-end
+cloud-app → router → gate test, no test that a sign-out clears cached tenant data, plan-editor
+decimal-price body and 422 rendering, tenants-list loading/failed states.
+
 Cloud-1 #6–8 (models only) and Cloud-3 #13 landed 2026-09-13 as `packages/domain/src/platform`,
 `packages/persistence/src/platform-store.ts` and `createPlatform` in `packages/backend`: tenant,
 plan and subscription records, one SQLite database per tenant, and the two derivations that

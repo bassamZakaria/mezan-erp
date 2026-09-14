@@ -118,21 +118,25 @@ export function persistScopeSelection(selection: ScopeSelection): void {
 
 const TENANT_CODE_STORAGE_KEY = "mezan.tenantCode";
 
-/** Persists the SaaS company code, lower-cased, so `authHeaders` can send it as `x-mezan-tenant`. */
+/**
+ * `x-mezan-tenant` travels as an HTTP header, which `Headers.set` can only
+ * encode as a ByteString — any character outside it (an Arabic code, an
+ * emoji) throws at request time and takes every subsequent call down with
+ * it. Stripping to the header-safe slug alphabet here is what keeps that
+ * failure from ever reaching `authHeaders`.
+ */
 export function persistTenantCode(code: string): void {
   const storage = getSessionStorage();
   if (!storage) return;
-  storage.setItem(TENANT_CODE_STORAGE_KEY, code.trim().toLowerCase());
+  storage.setItem(TENANT_CODE_STORAGE_KEY, code.trim().toLowerCase().replace(/[^a-z0-9-]/g, ""));
 }
 
-/** The last persisted company code, or `null` when none is stored (subdomain deployments never need one). */
 export function loadTenantCode(): string | null {
   const storage = getSessionStorage();
   if (!storage) return null;
   return storage.getItem(TENANT_CODE_STORAGE_KEY);
 }
 
-/** Clears the stored company code — the «تغيير المنشأة» action. */
 export function clearTenantCode(): void {
   const storage = getSessionStorage();
   if (!storage) return;

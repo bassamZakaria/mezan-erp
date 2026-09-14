@@ -140,6 +140,22 @@ describe("tenant code", () => {
     clearTenantCode();
     expect(loadTenantCode()).toBeNull();
   });
+
+  it("strips everything outside [a-z0-9-] so a non-ASCII value can never reach a header", () => {
+    persistTenantCode("سياج");
+    expect(loadTenantCode()).toBe("");
+  });
+
+  it("strips spaces and punctuation from an otherwise-valid code", () => {
+    persistTenantCode("Cy ag!");
+    expect(loadTenantCode()).toBe("cyag");
+  });
+
+  it("survives a logout (persisting a null session leaves it in place)", () => {
+    persistTenantCode("cyag");
+    persistSession(null);
+    expect(loadTenantCode()).toBe("cyag");
+  });
 });
 
 describe("authHeaders", () => {

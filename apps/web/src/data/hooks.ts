@@ -276,7 +276,6 @@ import type {
   LanSessionsListDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { loadTenantCode } from "./session";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -354,6 +353,8 @@ export class ApiError extends Error {
      * person typing.
      */
     readonly retryAfterSeconds?: number,
+    /** The server's machine-readable error code (e.g. `TENANT_NOT_FOUND`), when it sent one. */
+    readonly code?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -372,10 +373,15 @@ export function useLogin() {
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res
-          .json<{ message?: string; retryAfterSeconds?: number }>()
-          .catch(() => ({}))) as { message?: string; retryAfterSeconds?: number };
-        throw new ApiError(res.status, err.message ?? t("api.signInFailed"), undefined, err.retryAfterSeconds);
+        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number };
+        const err = await res.json<LoginError>().catch((): LoginError => ({}));
+        const message =
+          err.error === "TENANT_REQUIRED"
+            ? t("login.tenantRequired")
+            : err.error === "TENANT_NOT_FOUND"
+              ? t("login.tenantNotFound")
+              : (err.message ?? t("api.signInFailed"));
+        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds, err.error);
       }
       return res.json<SessionDTO>();
     },
@@ -398,24 +404,21 @@ export function useBootstrapSeed() {
   });
 }
 
-/**
- * Pre-login tenant identity (ungated) — the name the login screen and
- * first-run wizard show. `enabled` defaults to `true` (desktop/LAN callers,
- * where no company code applies); the SaaS login screen passes it explicitly
- * so the request only fires once a company code is known. The query key
- * includes the stored code so switching companies doesn't reuse a stale
- * cached name.
- */
-export function useTenantInfo(options: { enabled?: boolean } = {}): UseQueryResult<{ name: string }, ApiError> {
+/** Pre-login tenant identity (ungated) — the name the login screen and first-run wizard show. */
+export function useTenantInfo(
+  code?: string | null,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<{ name: string }, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<{ name: string }, ApiError>({
-    queryKey: ["tenant", loadTenantCode()],
+    queryKey: ["tenant", code ?? null],
     enabled: options.enabled ?? true,
     queryFn: async () => {
       const res = await request("/tenant");
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
+        type TenantError = { message?: string };
+        const err = await res.json<TenantError>().catch((): TenantError => ({}));
         throw new ApiError(res.status, err.message ?? t("api.theCompanySDetailsCould"));
       }
       return res.json<{ name: string }>();
@@ -423,14 +426,6 @@ export function useTenantInfo(options: { enabled?: boolean } = {}): UseQueryResu
   });
 }
 
-/**
- * How this deployment names its tenant (ungated, called before any session
- * exists): `"subdomain"` when the host itself carries the company (the
- * platform-hosted default), `"code"` when the login screen must ask for it.
- * `tenant` is the platform's own record for whatever the request already
- * resolved to — populated in subdomain mode, `null` in code mode until a
- * code is typed.
- */
 export interface PlatformResolveDTO {
   readonly mode: "subdomain" | "code";
   readonly tenant: { readonly code: string; readonly nameAr: string; readonly nameEn: string | null } | null;

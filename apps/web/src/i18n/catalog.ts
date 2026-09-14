@@ -386,6 +386,9 @@ const webAr = {
   "login.changeTenant": "تغيير المنشأة",
   "login.tenantNotFound": "المنشأة غير موجودة",
   "login.tenantRequired": "حدّد رمز المنشأة",
+  "login.tenantCodeInvalid": "رمز المنشأة غير صالح",
+  "login.platformChecking": "جارٍ التحقق من المنشأة…",
+  "login.platformUnreachable": "تعذّر الوصول إلى الخادم",
 
   "dashboard.eyebrow": "نظرة عامة",
   "dashboard.greeting": "مرحباً، {name} · طاب يومك",
@@ -7552,6 +7555,9 @@ const webEn: Record<WebTranslationKey, string> = {
   "login.changeTenant": "Change company",
   "login.tenantNotFound": "Company not found",
   "login.tenantRequired": "Enter your company code",
+  "login.tenantCodeInvalid": "Invalid company code",
+  "login.platformChecking": "Checking your company…",
+  "login.platformUnreachable": "Could not reach the server",
 
   "dashboard.eyebrow": "Overview",
   "dashboard.greeting": "Welcome, {name} · have a good day",

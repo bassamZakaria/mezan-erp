@@ -8,6 +8,7 @@ import {
 } from "@mezan/ui";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
 import { useBootstrapSeed, useBootstrapStatus, useCreateFirstAdmin, useTenantInfo } from "../data/hooks";
+import { loadTenantCode } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
@@ -102,7 +103,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
 
   const seedMutation = useBootstrapSeed();
   const seedStatus = useBootstrapStatus();
-  const tenantName = useTenantInfo().data?.name ?? "";
+  const tenantName = useTenantInfo(loadTenantCode()).data?.name ?? "";
   const createAdmin = useCreateFirstAdmin();
 
   const [licenseKey, setLicenseKey] = useState("");

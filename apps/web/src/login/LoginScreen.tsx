@@ -7,6 +7,7 @@ import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
 
 const PIN_LENGTH = 6;
+const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 
 /**
  * A wait a person can act on. "900 ثانية" is not one — past two minutes the
@@ -51,27 +52,36 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const { t, locale } = useAppTranslation();
   const login = useLogin();
 
-  /**
-   * SaaS company code — only meaningful when the deployment can't tell the
-   * tenant from the host (`/platform/resolve` mode `"code"`). Kept as its own
-   * state, seeded from storage, so typing it re-triggers `useTenantInfo`
-   * (its query key reads the same storage) without a page reload.
-   */
   const platformResolve = usePlatformResolve();
   const tenantMode = platformResolve.data?.mode;
+  const platformGateBlocked = platformResolve.isError && platformResolve.error?.status !== 404;
   const [tenantCode, setTenantCode] = useState(() => loadTenantCode() ?? "");
-  const tenantInfo = useTenantInfo({ enabled: tenantMode === "subdomain" || tenantCode !== "" });
-  const tenantNotFound = tenantCode !== "" && tenantInfo.isError && tenantInfo.error?.status === 404;
+  const [resolvedCode, setResolvedCode] = useState(() => loadTenantCode() ?? "");
+  const tenantCodeInvalid = tenantCode !== "" && !TENANT_CODE_RE.test(tenantCode);
+  const tenantInfo = useTenantInfo(tenantMode === "subdomain" ? null : resolvedCode || null, {
+    enabled: tenantMode === "subdomain" || resolvedCode !== "",
+  });
+  const tenantNotFound = resolvedCode !== "" && tenantInfo.isError && tenantInfo.error?.status === 404;
 
   function handleTenantCodeChange(event: ChangeEvent<HTMLInputElement>) {
-    const next = event.target.value.toLowerCase();
-    setTenantCode(next);
-    persistTenantCode(next);
+    setTenantCode(event.target.value.toLowerCase());
+  }
+
+  function handleTenantCodeBlur() {
+    if (tenantCode === "") {
+      clearTenantCode();
+      setResolvedCode("");
+      return;
+    }
+    if (tenantCodeInvalid) return;
+    persistTenantCode(tenantCode);
+    setResolvedCode(tenantCode);
   }
 
   function handleChangeTenant() {
     clearTenantCode();
     setTenantCode("");
+    setResolvedCode("");
   }
 
   const remembered = useMemo(() => readDeviceUsers(), []);
@@ -101,13 +111,20 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const pin = pinDigits.join("");
   const pinComplete = pin.length === PIN_LENGTH && pinDigits.every((d) => d !== "");
   const identity = typing ? username.trim() : (selected?.email ?? "");
-  const canSubmit = identity !== "" && pinComplete && !login.isPending && lockedForSeconds === 0;
+  const canSubmit =
+    identity !== "" &&
+    pinComplete &&
+    !login.isPending &&
+    lockedForSeconds === 0 &&
+    !tenantCodeInvalid &&
+    !platformGateBlocked;
 
   function submit() {
     if (tenantMode === "code" && tenantCode.trim() === "") {
       setError(t("login.tenantRequired"));
       return;
     }
+    if (tenantCodeInvalid || platformGateBlocked) return;
     if (!canSubmit) return;
     // Guard the auto-submit against React re-running the effect for the same
     // completed PIN — otherwise a slow server turns one sign-in into several.
@@ -120,14 +137,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       {
         onSuccess: (session) => rememberDeviceUser(session),
         onError: (err) => {
-          // The server only ever answers in Arabic (docs/CLAUDE.md: Arabic
-          // messages, English error codes); it has no locale to render an
-          // English one, so these two known statuses get the client's own
-          // translation instead of the raw message. Every other failure
-          // (wrong PIN, lockout) keeps the server's message verbatim.
-          if (err.status === 404) setError(t("login.tenantNotFound"));
-          else if (err.status === 400 && tenantMode === "code") setError(t("login.tenantRequired"));
-          else setError(err.message || t("login.error.generic"));
+          setError(err.message || t("login.error.generic"));
           if (err.status === 429 && typeof err.retryAfterSeconds === "number") {
             setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds)));
           }
@@ -209,6 +219,9 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     ? t("login.pin")
     : t("login.who.pinFor", { name: selected ? displayName(selected, locale) : "" });
 
+  const resolvedTenant = platformResolve.data?.tenant;
+  const tenantDisplayName = resolvedTenant ? (locale === "en" && resolvedTenant.nameEn ? resolvedTenant.nameEn : resolvedTenant.nameAr) : null;
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
       {/* The mark, oversized and barely there, anchors the empty quadrant
@@ -229,10 +242,16 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <span className="ms-auto text-2xs text-ink-faint">{t("login.branchHint")}</span>
         </div>
 
-        {/* Subdomain deployments already know the tenant from the host, so
-            there is nothing to type — just the name, for confirmation. */}
-        {tenantMode === "subdomain" && platformResolve.data?.tenant ? (
-          <p className="mt-[4px] text-xs font-semibold text-ink">{platformResolve.data.tenant.nameAr}</p>
+        {tenantMode === "subdomain" && tenantDisplayName ? (
+          <p className="mt-[4px] text-xs font-semibold text-ink">{tenantDisplayName}</p>
+        ) : null}
+
+        {platformResolve.isLoading ? (
+          <p className="mt-[4px] text-2xs text-ink-faint">{t("login.platformChecking")}</p>
+        ) : platformGateBlocked ? (
+          <p role="alert" className="mt-[4px] text-2xs font-semibold text-danger-ink">
+            {t("login.platformUnreachable")}
+          </p>
         ) : null}
 
         {/* A session that ended says so, rather than looking like a fresh start
@@ -325,10 +344,16 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
                 autoComplete="organization"
                 placeholder={t("login.tenantCodeHint")}
                 className="mz-lat"
+                invalid={tenantCodeInvalid}
                 onChange={handleTenantCodeChange}
+                onBlur={handleTenantCodeBlur}
               />
             </label>
-            {tenantCode !== "" && tenantInfo.data ? (
+            {tenantCodeInvalid ? (
+              <p role="alert" className="text-2xs font-semibold text-danger-ink">
+                {t("login.tenantCodeInvalid")}
+              </p>
+            ) : resolvedCode !== "" && tenantInfo.data ? (
               <div className="flex items-center justify-between gap-[8px]">
                 <span className="text-2xs text-ink-muted">{tenantInfo.data.name}</span>
                 <button type="button" onClick={handleChangeTenant} className="text-2xs text-ink-muted hover:underline">

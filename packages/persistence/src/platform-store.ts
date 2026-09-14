@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
+  type Payment, type PaymentRepository,
   type Plan, type PlanRepository,
   type PlatformUser, type PlatformUserRepository,
   type Subscription, type SubscriptionRepository,
@@ -74,6 +75,20 @@ CREATE TABLE IF NOT EXISTS platform_user (
   created_at     TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_user_email ON platform_user(email);
+
+CREATE TABLE IF NOT EXISTS payment (
+  id              TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  subscription_id TEXT NOT NULL,
+  amount          INTEGER NOT NULL,
+  currency        TEXT NOT NULL,
+  reference       TEXT NOT NULL,
+  paid_at         TEXT NOT NULL,
+  recorded_by     TEXT NOT NULL,
+  note            TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_payment_tenant ON payment(tenant_id, paid_at);
 `;
 
 interface TenantRow {
@@ -322,11 +337,61 @@ class SqlitePlatformUserStore implements PlatformUserRepository {
   }
 }
 
+interface PaymentRow {
+  id: string; tenant_id: string; subscription_id: string; amount: number; currency: Payment["currency"];
+  reference: string; paid_at: string; recorded_by: string; note: string | null; created_at: string;
+}
+
+function toPayment(r: PaymentRow): Payment {
+  return {
+    id: r.id, tenantId: r.tenant_id, subscriptionId: r.subscription_id, amount: Money.fromScaled(r.amount),
+    currency: r.currency, reference: r.reference, paidAt: r.paid_at, recordedBy: r.recorded_by,
+    note: r.note, createdAt: r.created_at,
+  };
+}
+
+class SqlitePaymentStore implements PaymentRepository {
+  private readonly upsert: Database.Statement;
+  private readonly byId: Database.Statement;
+  private readonly byTenant: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.upsert = sqlite.prepare(
+      `INSERT INTO payment (id, tenant_id, subscription_id, amount, currency, reference, paid_at, recorded_by, note, created_at)
+       VALUES (@id, @tenantId, @subscriptionId, @amount, @currency, @reference, @paidAt, @recordedBy, @note, @createdAt)
+       ON CONFLICT(id) DO UPDATE SET
+         tenant_id = @tenantId, subscription_id = @subscriptionId, amount = @amount, currency = @currency,
+         reference = @reference, paid_at = @paidAt, recorded_by = @recordedBy, note = @note, created_at = @createdAt`,
+    );
+    this.byId = sqlite.prepare(`SELECT * FROM payment WHERE id = ?`);
+    this.byTenant = sqlite.prepare(`SELECT * FROM payment WHERE tenant_id = ? ORDER BY paid_at DESC, id DESC`);
+  }
+
+  async findById(id: string): Promise<Payment | null> {
+    const row = this.byId.get(id) as PaymentRow | undefined;
+    return row ? toPayment(row) : null;
+  }
+
+  async listByTenant(tenantId: string): Promise<Payment[]> {
+    return (this.byTenant.all(tenantId) as PaymentRow[]).map(toPayment);
+  }
+
+  async save(p: Payment): Promise<void> {
+    this.upsert.run({
+      id: p.id, tenantId: p.tenantId, subscriptionId: p.subscriptionId, amount: p.amount.toScaledNumber(),
+      currency: p.currency, reference: p.reference, paidAt: p.paidAt, recordedBy: p.recordedBy,
+      note: p.note, createdAt: p.createdAt,
+    });
+  }
+}
+
 export interface SqlitePlatformStoresHandle {
   readonly tenants: TenantRepository;
   readonly plans: PlanRepository;
   readonly subscriptions: SubscriptionRepository;
   readonly platformUsers: PlatformUserRepository;
+  readonly payments: PaymentRepository;
+  readonly sqlite: Database.Database;
   close(): void;
 }
 
@@ -338,6 +403,8 @@ export function createSqlitePlatformStores(path: SqliteConnectionInput = ":memor
     plans: new SqlitePlanStore(sqlite),
     subscriptions: new SqliteSubscriptionStore(sqlite),
     platformUsers: new SqlitePlatformUserStore(sqlite),
+    payments: new SqlitePaymentStore(sqlite),
+    sqlite,
     close: () => { if (owned) sqlite.close(); },
   };
 }

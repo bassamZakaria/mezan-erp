@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { Money, type Plan, type Subscription, type Tenant, type PlatformUser } from "@mezan/domain";
+import { Money, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
 import { createSqlitePlatformStores } from "./platform-store.js";
 
 const NOW = "2026-09-13T10:00:00.000Z";
@@ -22,6 +22,10 @@ const sub: Subscription = {
   createdAt: NOW, updatedAt: NOW,
 };
 const user: PlatformUser = { id: "U1", email: "root@mezan.app", passwordHash: "h", role: "owner", status: "active", createdAt: NOW };
+const payment: Payment = {
+  id: "PAY1", tenantId: "T1", subscriptionId: "S1", amount: Money.fromMajor("490.50"), currency: "EGP",
+  reference: "TRX-001", paidAt: NOW, recordedBy: "U1", note: null, createdAt: NOW,
+};
 
 describe("createSqlitePlatformStores", () => {
   it("round-trips every model, Money included, and finds by code and email", async () => {
@@ -50,6 +54,23 @@ describe("createSqlitePlatformStores", () => {
     expect(await stores.platformUsers.findByEmail("root@mezan.app")).toEqual(user);
     expect(await stores.platformUsers.findById("U1")).toEqual(user);
     expect(await stores.platformUsers.list()).toEqual([user]);
+
+    await stores.payments.save(payment);
+    expect(await stores.payments.findById("PAY1")).toEqual(payment);
+    const paymentList = await stores.payments.listByTenant("T1");
+    expect(paymentList).toEqual([payment]);
+    expect(paymentList[0]?.amount.equals(Money.fromMajor("490.50"))).toBe(true);
+    stores.close();
+  });
+
+  it("exposes its sqlite connection and lists payments newest paidAt first", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    expect(stores.sqlite.open).toBe(true);
+    await stores.payments.save({ ...payment, id: "PAY1", paidAt: "2026-09-01T00:00:00.000Z" });
+    await stores.payments.save({ ...payment, id: "PAY2", paidAt: "2026-09-10T00:00:00.000Z" });
+    await stores.payments.save({ ...payment, id: "PAY3", tenantId: "T2", paidAt: "2026-09-20T00:00:00.000Z" });
+    const list = await stores.payments.listByTenant("T1");
+    expect(list.map((x) => x.id)).toEqual(["PAY2", "PAY1"]);
     stores.close();
   });
 

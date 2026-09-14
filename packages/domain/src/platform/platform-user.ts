@@ -59,3 +59,53 @@ export async function createPlatformUser(
   await repo.save(user);
   return user;
 }
+
+export interface VerifyPlatformLoginCommand {
+  readonly email: string;
+  readonly password: string;
+}
+
+/** Never used to authenticate; only to spend the same hasher cost an unknown or inactive account would. */
+const DECOY_SECRET = "mezan-platform-login-timing-decoy";
+
+/**
+ * Mirrors auth-routes.ts's decoy verification: an unknown email or an
+ * inactive account must cost the caller exactly the same one `hasher.verify`
+ * call a wrong password would, so the response time never answers "does this
+ * account exist" for free.
+ */
+export async function verifyPlatformLogin(
+  cmd: VerifyPlatformLoginCommand,
+  repo: PlatformUserRepository,
+  hasher: SecretHasher,
+): Promise<PlatformUser | null> {
+  const email = normalizeEmail(cmd.email);
+  const user = await repo.findByEmail(email);
+  const ok =
+    user && user.status === "active"
+      ? await hasher.verify(cmd.password, user.passwordHash)
+      : (await hasher.verify(cmd.password, await hasher.hash(DECOY_SECRET)), false);
+  return user && ok ? user : null;
+}
+
+export interface DeactivatePlatformUserCommand {
+  readonly id: string;
+  readonly actorId: string;
+}
+
+export async function deactivatePlatformUser(
+  cmd: DeactivatePlatformUserCommand,
+  repo: PlatformUserRepository,
+): Promise<PlatformUser> {
+  if (cmd.id === cmd.actorId) throw new InvalidPlatformUserError(["لا يمكنك تعطيل حسابك"]);
+  const user = await repo.findById(cmd.id);
+  if (!user) throw new InvalidPlatformUserError([`platform user "${cmd.id}" not found`]);
+  if (user.role === "owner" && user.status === "active") {
+    const users = await repo.list();
+    const activeOwners = users.filter((u) => u.role === "owner" && u.status === "active");
+    if (activeOwners.length <= 1) throw new InvalidPlatformUserError(["لا يمكن تعطيل آخر مالك للمنصة"]);
+  }
+  const next: PlatformUser = { ...user, status: "inactive" };
+  await repo.save(next);
+  return next;
+}

@@ -388,6 +388,31 @@ describe("AppLayout — command palette", () => {
   });
 });
 
+describe("AppLayout — nav entitlements", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  it("hides a workspace whose module the plan does not license — a sales+accounting plan shows no الأشخاص or التصنيع in the rail", async () => {
+    const businessEntitlements: EntitlementsDTO = { ...entitlements, activeModules: ["sales", "accounting"] };
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /entitlements": () => ({ body: businessEntitlements }),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+    });
+    renderLayout(transport, ["/dashboard"]);
+
+    const rail = await screen.findByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    // Licensed workspaces stay put once the query resolves.
+    await waitFor(() => expect(within(rail).getByRole("button", { name: "المالية والإقفال" })).toBeInTheDocument());
+    expect(within(rail).getByRole("button", { name: "البيع والتحصيل" })).toBeInTheDocument();
+    // Unlicensed ones (hr, manufacturing) never reach the rail.
+    expect(within(rail).queryByRole("button", { name: "الأشخاص" })).not.toBeInTheDocument();
+    expect(within(rail).queryByRole("button", { name: "التصنيع" })).not.toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — role editor cancel", () => {
   afterEach(() => {
     persistSession(null);

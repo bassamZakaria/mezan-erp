@@ -11,7 +11,14 @@ import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { LicenceStatusNotice } from "./lan/ConnectedDevicesPanel";
-import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, PINNED_NAV_ITEM_KEYS } from "./nav-config";
+import {
+  buildCommandItems,
+  buildGoToCommandItems,
+  buildNavGroups,
+  buildTopNavItem,
+  filterNavGroupsByEntitlements,
+  PINNED_NAV_ITEM_KEYS,
+} from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
@@ -252,6 +259,14 @@ export function AppLayout() {
     }));
   }, [navigate, pendingApprovalCount, unreadNotificationCount, t]);
 
+  /**
+   * The rail's own view of `groups`, with any screen whose module the plan
+   * doesn't license removed. Kept separate from `groups` because the pinned
+   * direct-nav items (صندوق الوارد، الموافقات) come off سير العمل, which is
+   * always licensed and must never depend on this filter's timing.
+   */
+  const licensedGroups = useMemo(() => filterNavGroupsByEntitlements(groups, entitlements), [groups, entitlements]);
+
   // "Workspace" here is the top-level grouping `nav-config.tsx` already names:
   // the two-row top bar switches between them in row one instead of a left
   // rail, and ROW TWO renders the active one's own screens. الإعداد والصلاحيات
@@ -291,12 +306,12 @@ export function AppLayout() {
    */
   const workspaceGroups = useMemo(
     () =>
-      groups
+      licensedGroups
         .map((group) => ({ ...group, items: group.items.filter((item) => !PINNED_NAV_ITEM_KEYS.includes(item.key)) }))
         // A group may carry all of its screens in sections and none directly —
         // التقارير does — so an empty `items` is not an empty group.
         .filter((group) => navGroupItems(group).length > 0),
-    [groups],
+    [licensedGroups],
   );
 
   /**
@@ -542,7 +557,7 @@ export function AppLayout() {
       workspaceGroups={workspaceGroups}
       // Every group, الإعداد والصلاحيات included — «كل الشاشات» is the
       // unfiltered map, so a screen no workspace tab shows is still browsable.
-      allScreensGroups={groups}
+      allScreensGroups={licensedGroups}
       onShowHelp={() => setShortcutsOpen(true)}
       user={shellUser}
       commandItems={routedCommandItems}

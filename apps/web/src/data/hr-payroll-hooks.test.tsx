@@ -27,7 +27,7 @@ import {
   useRequestEmployeeAdvance,
   useUpdatePayrollComponent,
 } from "./hr-payroll-hooks";
-import { ApiError } from "./hooks";
+import { ApiError, useHrDashboard } from "./hooks";
 
 function makeWrapper(transport: Transport, session = testAdminSession) {
   const queryClient = createQueryClient();
@@ -269,5 +269,27 @@ describe("payroll components (['hr','payroll','components'] + also invalidates [
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(seenPath).toBe("/hr/payroll/components/PC-1");
     expect(seenBody).toEqual({ nameAr: "مكافأة معدّلة" });
+  });
+});
+
+describe("useHrDashboard — module-licence refusal", () => {
+  it("surfaces the server's own MODULE_NOT_LICENSED message, not the generic loader failure", async () => {
+    const transport = stubTransport({
+      "GET /hr/dashboard": () => ({
+        status: 403,
+        body: { error: "MODULE_NOT_LICENSED", module: "hr", message: "وحدة الموارد البشرية غير مفعّلة في باقتكم" },
+      }),
+    });
+    const { result } = renderHook(() => useHrDashboard(), { wrapper: makeWrapper(transport).Wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error).toBeInstanceOf(ApiError);
+    expect(result.current.error?.message).toBe("وحدة الموارد البشرية غير مفعّلة في باقتكم");
+  });
+
+  it("keeps the generic translated failure for a plain 500", async () => {
+    const transport = stubTransport({ "GET /hr/dashboard": () => ({ status: 500, body: {} }) });
+    const { result } = renderHook(() => useHrDashboard(), { wrapper: makeWrapper(transport).Wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).not.toBe("وحدة الموارد البشرية غير مفعّلة في باقتكم");
   });
 });

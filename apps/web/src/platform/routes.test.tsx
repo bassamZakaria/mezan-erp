@@ -30,4 +30,23 @@ describe("routes — /platform/*", () => {
     );
     expect(await screen.findByRole("heading", { name: "تسجيل دخول المنصة" })).toBeInTheDocument();
   });
+
+  it("redirects an already signed-in operator away from /platform/login and gives the rail absolute hrefs", async () => {
+    localStorage.setItem(
+      "mezan.platform.session",
+      JSON.stringify({ token: "TEST-TOKEN", user: { id: "PU-1", email: "owner@mezan.example", role: "owner" } }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createMemoryRouter(routes, { initialEntries: ["/platform/login"] });
+    render(
+      <AppI18nProvider>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </AppI18nProvider>,
+    );
+    expect(await screen.findByRole("heading", { name: "المنشآت" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "المنشآت" })).toHaveAttribute("href", "/platform/tenants");
+    expect(screen.getByRole("link", { name: "الباقات" })).toHaveAttribute("href", "/platform/plans");
+  });
 });

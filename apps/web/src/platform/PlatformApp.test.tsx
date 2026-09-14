@@ -49,4 +49,16 @@ describe("PlatformApp", () => {
     fireEvent.click(screen.getByRole("button", { name: "تسجيل الخروج" }));
     expect(screen.getByRole("heading", { name: "تسجيل دخول المنصة" })).toBeInTheDocument();
   });
+
+  it("redirects a signed-in operator who lands on /platform/login to /platform/tenants", () => {
+    renderApp({ transport: stubPlatformTransport({}), initialSession: testPlatformSession, route: "/platform/login" });
+    expect(screen.getByRole("heading", { name: "المنشآت" })).toBeInTheDocument();
+  });
+
+  it("gives every rail link an absolute path, not one relative to the current screen", () => {
+    renderApp({ transport: stubPlatformTransport({}), initialSession: testPlatformSession, route: "/platform/tenants" });
+    expect(screen.getByRole("link", { name: "المنشآت" })).toHaveAttribute("href", "/platform/tenants");
+    expect(screen.getByRole("link", { name: "الباقات" })).toHaveAttribute("href", "/platform/plans");
+    expect(screen.getByRole("link", { name: "المشغّلون" })).toHaveAttribute("href", "/platform/users");
+  });
 });

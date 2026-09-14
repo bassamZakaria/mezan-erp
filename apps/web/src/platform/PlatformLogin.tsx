@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useNavigate } from "react-router";
 import { useMutation } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput } from "@mezan/ui";
 import type { PlatformSessionDTO } from "@mezan/contracts";
@@ -14,6 +15,7 @@ import { PlatformApiError, usePlatformApi } from "./api";
 export function PlatformLogin() {
   const { t } = useAppTranslation();
   const { request, setSession } = usePlatformApi();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +35,10 @@ export function PlatformLogin() {
       }
       return res.json<PlatformSessionDTO>();
     },
-    onSuccess: (session) => setSession(session),
+    onSuccess: (session) => {
+      setSession(session);
+      navigate("/platform/tenants", { replace: true });
+    },
     onError: (err) => {
       // A 401 is always a wrong email/password, whatever the server's own
       // wording — this screen names that refusal itself rather than trusting

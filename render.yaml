@@ -13,8 +13,10 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
     envVars:
-      - key: MEZAN_DB
-        value: /tmp/mezan-demo.db
+      - key: MEZAN_PLATFORM_DIR
+        value: /tmp/platform
+      - key: MEZAN_SEED_DEMO
+        value: "1"
       # The free plan caps the instance at 512 MB and the seeded process sits
       # around 375 MB; without a heap ceiling V8 grows into the OOM killer.
       - key: NODE_OPTIONS
@@ -23,6 +25,13 @@ services:
       # keeps the fallback admin predictable — it is not a secret.
       - key: MEZAN_SEED_ADMIN_PIN
         value: "123456"
+      # MEZAN_PLATFORM_OWNER_EMAIL / _PASSWORD are `sync: false`: the
+      # blueprint stops and asks for a value before it will deploy, so the
+      # platform owner's login is never committed to the repo.
+      - key: MEZAN_PLATFORM_OWNER_EMAIL
+        sync: false
+      - key: MEZAN_PLATFORM_OWNER_PASSWORD
+        sync: false
       # MEZAN_DEMO_PASSWORD is deliberately NOT declared here: a `sync: false`
       # var makes the blueprint stop and ask for a value before it will deploy.
       # Add it in the dashboard afterwards to put the demo behind basic auth.

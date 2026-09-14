@@ -8330,6 +8330,132 @@ severe finding in this pass and is not yet tracked as D1–D6. Everything else
 above is either a smaller UI gap or a fixture-data defect in
 `test-fixtures/data-migration/`, not a product defect.
 
+### 20 — SaaS platform console (`/platform`) and multi-tenant login
+
+Sources: `docs/superpowers/specs/2026-09-14-saas-completion-design.md` §1-3,
+`docs/superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Code:
+`apps/web/src/platform/*` (`PlatformApp`, `PlatformLogin`, `TenantsPage`,
+`NewTenantDialog`, `TenantDetailPage`, `RecordPaymentDialog`, `PlansPage`),
+`apps/web/src/login/LoginScreen.tsx` (the company-code field),
+`apps/server/src/{cloud-app,tenant-router,tenant-resolver,provision-tenant,
+tenant-entitlements}.ts`, `packages/api/src/module-gate.ts`,
+`packages/domain/src/platform/derive.ts`.
+
+This is a different "platform" than the rest of this section: sections 1-19
+above audit each tenant's own الإعدادات screens, while this one is the
+operator-facing console that creates and manages tenants. Unlike the rest of
+this SPA (see "How this build's navigation actually works" at the top of this
+section), `/platform` DOES have real URL routing (`react-router`,
+`PlatformApp.tsx`) — it is a second app, mounted before the tenant app, with
+its own session in `localStorage` (`mezan.platform.session`), entirely apart
+from a tenant user's session.
+
+These eight scenarios are new with slice C's deploy and proof work and have
+not yet had their first browser pass — see the C5 task in
+`docs/superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Run them on
+`pnpm env:testing:fresh` (which seeds the platform owner and the `demo`
+tenant automatically, `scripts/env.mjs`) and tick each with the date once it
+passes, filing any deviation exactly like the rest of this document.
+
+- **PLT-SAAS-01** — Platform owner signs in.
+  **Pre**: `pnpm env:testing:fresh` running. `scripts/env.mjs` seeds the
+  platform owner from `MEZAN_PLATFORM_OWNER_EMAIL`/`_PASSWORD` =
+  `owner@mezan.local` / `owner-password-123`. Open `/platform/login`.
+  **Steps**: Enter the owner email and password, click "دخول".
+  **Assert**: Redirects into the console at `/platform/tenants`; the sidebar
+  shows المنشآت / الباقات / المشغّلون and "تسجيل الخروج" (`platform.nav.*`);
+  the list shows only the seeded demo tenant `demo` (`MEZAN_SEED_DEMO=1`).
+
+- **PLT-SAAS-02** — Create tenant `cyag` on the business plan with a trial.
+  **Pre**: Signed in as the platform owner from PLT-SAAS-01.
+  **Steps**: Click "منشأة جديدة"; fill الكود = `cyag`, الاسم بالعربية =
+  "شركة سياج", اسم مالك الحساب, البريد الإلكتروني لمالك الحساب; set الباقة =
+  الأعمال (business); leave فترة تجريبية on; click "إنشاء المنشأة".
+  **Assert**: A result panel shows the tenant code, the admin email and a
+  one-time PIN (`ProvisionResultDTO.adminPin`) with a warning that it will
+  never be shown again — copy it down for PLT-SAAS-03. Closing the panel
+  returns to the list; `cyag` now appears with status "نشطة" and licence
+  "تجريبي" (`platform.subscriptionStatus.trialing`).
+
+- **PLT-SAAS-03** — Tenant owner signs in with the company code and the
+  one-time PIN.
+  **Pre**: Sign out of `/platform` (a separate session from the tenant app);
+  open the ordinary login screen.
+  **Steps**: In رمز المنشأة enter `cyag`, wait for the tenant name to resolve;
+  enter the admin email from PLT-SAAS-02 and the PIN it returned.
+  **Assert**: Signs in to `cyag`'s own dashboard — a company with none of the
+  `demo` tenant's seed data (fresh, empty lists everywhere). The company code
+  persists in `localStorage` (`login.tenantCode`) across a reload.
+
+- **PLT-SAAS-04** — Business-plan entitlements: HR is licensed nowhere in the
+  API, but not yet hidden from the nav.
+  **Pre**: Signed in as `cyag`'s owner (PLT-SAAS-03). `cyag`'s plan
+  (`BUSINESS_MODULES`, `packages/backend/src/create-platform.ts`) excludes
+  `hr` and `manufacturing`.
+  **Steps**: Call `GET /api/hr/employees` (or any `/hr/*` route) with header
+  `x-mezan-tenant: cyag` and the session token — from the browser's network
+  panel, or a direct fetch.
+  **Assert**: 403 `{"error":"MODULE_NOT_LICENSED","module":"hr","message":
+  "وحدة الموارد البشرية غير مفعّلة في باقتكم"}` (`packages/api/src/
+  module-gate.ts`'s `moduleRefusal`). **Note, verified by reading the code**:
+  the sidebar itself does NOT filter by `GET /entitlements`'s modules list —
+  `AppLayout.tsx` fetches `entitlements` but never uses it to hide a nav
+  group, so الموارد البشرية still shows for a business-plan tenant and only
+  403s once clicked. If reproduced live, record this nav-vs-API mismatch as a
+  new defect rather than assuming the spec's "nav shows only business
+  modules" already holds client-side.
+
+- **PLT-SAAS-05** — Operator records a payment; the subscription period
+  advances.
+  **Pre**: Signed back in to `/platform` as the owner; open `cyag`'s tenant
+  detail page, note the current نهاية الفترة date.
+  **Steps**: Click "تسجيل دفعة"; fill المبلغ (> 0) and المرجع, leave تاريخ
+  الدفع = today; click "تسجيل الدفعة".
+  **Assert**: Panel closes; the payment appears in the الدفعات table; نهاية
+  الفترة advances by one billing period from the payment
+  (`recordPayment` → `renewSubscription`, `packages/domain/src/platform/
+  subscription.ts`); حالة الاشتراك reads "نشط" (no longer "تجريبي" once a
+  real payment lands).
+
+- **PLT-SAAS-06** — Operator suspends `cyag`; writes refuse in Arabic, reads
+  still work.
+  **Pre**: `cyag` active, from PLT-SAAS-05.
+  **Steps**: On `cyag`'s tenant detail page, click "إيقاف المنشأة". Then, as
+  `cyag`'s owner (company code `cyag`), sign in and try to save any document
+  (e.g. confirm a new sales invoice).
+  **Assert**: Tenant status flips to "موقوفة"; the owner can still sign in
+  and the tenant's lists still load — the tenant router still dispatches a
+  suspended tenant (`apps/server/src/tenant-router.ts`, §1.2 of the spec); the
+  write is refused with 403 `LICENSE_READ_ONLY` and the Arabic message
+  "الترخيص غير فعّال حاليًا، والبرنامج في وضع القراءة فقط…"
+  (`packages/api/src/license-gate.ts`; `derive.ts`'s reason is
+  `TENANT_SUSPENDED`). Resume it afterwards ("استئناف المنشأة") to avoid
+  polluting later scenarios.
+
+- **PLT-SAAS-07** — A second tenant never sees the first tenant's data.
+  **Pre**: Signed in as the platform owner.
+  **Steps**: Create a second tenant, code `nile` (any plan, no trial needed).
+  Sign in as `nile`'s owner with its own one-time PIN; open العملاء.
+  **Assert**: Zero customers — none of `cyag`'s or `demo`'s seeded/created
+  customers appear; `nile`'s SQLite file is a distinct
+  `<platform dir>/tenants/nile.db` from `cyag`'s and `demo`'s
+  (`apps/server/src/backend-cache.ts` opens one handle per code).
+
+- **PLT-SAAS-08** — Subdomain mode: a hosts-file tenant logs in with no
+  company-code field.
+  **Pre**: Add `127.0.0.1 cyag.mezan.test` to `/etc/hosts`. Start a second
+  instance on another port with `MEZAN_TENANT_DOMAIN=mezan.test` set, pointed
+  at the same platform dir so `cyag` already exists, e.g.
+  `MEZAN_TENANT_DOMAIN=mezan.test PORT=4103 MEZAN_PLATFORM_DIR=.data/testing-platform
+  pnpm exec tsx apps/server/src/cloud.ts`.
+  **Steps**: Open `http://cyag.mezan.test:4103`.
+  **Assert**: `GET /platform/resolve` answers
+  `{"mode":"subdomain","tenant":{"code":"cyag",...}}`; the login screen
+  renders with NO رمز المنشأة field at all (`LoginScreen.tsx`'s
+  `tenantMode === "subdomain"` branch hides it); signing in with the admin
+  email and PIN reaches `cyag` directly, the same as PLT-SAAS-03 but without
+  typing the code.
+
 ---
 
 # 12. Shell, dashboard and reports

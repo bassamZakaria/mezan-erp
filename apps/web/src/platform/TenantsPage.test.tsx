@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { useLocation } from "react-router";
 import type { PlanDTO, TenantSummaryDTO } from "@mezan/contracts";
+import type { Transport } from "../data/transport";
 import { TenantsPage } from "./TenantsPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 import type { PlatformSession } from "./session";
@@ -122,6 +123,55 @@ describe("TenantsPage", () => {
     expect(screen.queryByRole("button", { name: "منشأة جديدة" })).not.toBeInTheDocument();
   });
 
+  it("shows a loading skeleton before the tenants arrive, then the rows", async () => {
+    let resolveTenants: (result: { status: number; body: unknown }) => void = () => {};
+    const pending = new Promise<{ status: number; body: unknown }>((resolve) => {
+      resolveTenants = resolve;
+    });
+    const plansTransport = stubPlatformTransport({ "GET /plans": () => ({ body: [plan] }) });
+    const transport: Transport = async (path, init) => {
+      if (path === "/tenants" && (init?.method ?? "GET").toUpperCase() === "GET") {
+        const result = await pending;
+        return {
+          status: result.status,
+          ok: result.status < 400,
+          json: async <T,>() => result.body as T,
+          text: async () => JSON.stringify(result.body),
+        };
+      }
+      return plansTransport(path, init);
+    };
+    renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
+
+    expect(screen.getByText("جارٍ التحميل…")).toBeInTheDocument();
+    expect(screen.queryByText("acme")).not.toBeInTheDocument();
+
+    resolveTenants({ status: 200, body: [tenantSummary] });
+    expect(await screen.findByText("acme")).toBeInTheDocument();
+  });
+
+  it("surfaces the server's message in the error banner when the tenants fail to load", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants": () => ({ status: 500, body: { error: "INTERNAL", message: "تعذّر تحميل المنشآت." } }),
+      "GET /plans": () => ({ body: [plan] }),
+    });
+    renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل المنشآت.");
+    expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+    expect(screen.queryByText("acme")).not.toBeInTheDocument();
+  });
+
+  it("shows the empty state once loaded with no tenants — never while still loading or failed", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants": () => ({ body: [] }),
+      "GET /plans": () => ({ body: [plan] }),
+    });
+    renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
+
+    expect(await screen.findByText("لا توجد منشآت بعد.")).toBeInTheDocument();
+  });
+
   it("opens the create dialog, submits, and shows the one-time admin PIN with a copy button", async () => {
     let posted: unknown = null;
     const transport = stubPlatformTransport({
@@ -156,6 +206,37 @@ describe("TenantsPage", () => {
     expect(within(dialog).getByText("owner@newco.test")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "نسخ" })).toBeInTheDocument();
     expect(posted).toMatchObject({ code: "newco", nameAr: "شركة جديدة", planId: "plan-1", ownerEmail: "owner@newco.test" });
+  });
+
+  it("the one-time PIN is unreachable after the result panel is closed", async () => {
+    const transport = stubPlatformTransport({
+      ...baseHandlers(),
+      "POST /tenants": () => ({
+        status: 201,
+        body: {
+          tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "newco", status: "active" },
+          adminEmail: "owner@newco.test",
+          adminPin: "482910",
+        },
+      }),
+    });
+    renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "منشأة جديدة" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("الكود"), { target: { value: "newco" } });
+    fireEvent.change(within(dialog).getByLabelText("الاسم بالعربية"), { target: { value: "شركة جديدة" } });
+    fireEvent.change(within(dialog).getByLabelText("اسم مالك الحساب"), { target: { value: "مالك الحساب" } });
+    fireEvent.change(within(dialog).getByLabelText("البريد الإلكتروني لمالك الحساب"), { target: { value: "owner@newco.test" } });
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "الباقة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: "باقة النمو — growth" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "إنشاء المنشأة" }));
+
+    expect(await within(dialog).findByText("482910")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "إغلاق" }));
+
+    expect(screen.queryByText("482910")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("navigates to the tenant detail page on row click", async () => {

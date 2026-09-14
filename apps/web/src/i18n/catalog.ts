@@ -7228,7 +7228,6 @@ const webAr = {
   "platform.recordPayment.saving": "جارٍ الحفظ…",
   "platform.recordPayment.error.required": "المبلغ والمرجع مطلوبان.",
   "platform.recordPayment.error.generic": "تعذّر تسجيل الدفعة.",
-  "platform.tenantDetail.eyebrow": "المنشأة",
   "platform.tenantDetail.back": "الرجوع إلى المنشآت",
   "platform.tenantDetail.ownerEmail": "بريد المالك",
   "platform.tenantDetail.subscription": "الاشتراك",
@@ -7320,6 +7319,16 @@ const webAr = {
   "platform.operators.form.save": "إنشاء",
   "platform.operators.form.saving": "جارٍ الإنشاء…",
   "platform.operators.form.saveFailed": "تعذّر إنشاء المشغّل.",
+  "platform.tenants.loadFailed": "تعذّر تحميل المنشآت.",
+  "platform.tenantDetail.entitlements": "الاستحقاقات",
+  "platform.tenantDetail.noEntitlements": "لا توجد استحقاقات",
+  "platform.tenantDetail.entitlementsPlanCode": "رمز الباقة",
+  "platform.tenantDetail.entitlementsModules": "الوحدات المفعّلة",
+  "platform.tenantDetail.entitlementsSeats": "المقاعد",
+  "platform.tenantDetail.entitlementsBranches": "الفروع المسموح بها",
+  "platform.tenantDetail.entitlementsWarehouses": "المخازن المسموح بها",
+  "platform.tenantDetail.entitlementsExpiry": "تاريخ الانتهاء",
+  "platform.tenantDetail.entitlementsNoExpiry": "بلا تاريخ انتهاء",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -14552,7 +14561,6 @@ const webEn: Record<WebTranslationKey, string> = {
   "platform.recordPayment.saving": "Saving…",
   "platform.recordPayment.error.required": "Amount and reference are required.",
   "platform.recordPayment.error.generic": "The payment could not be recorded.",
-  "platform.tenantDetail.eyebrow": "Tenant",
   "platform.tenantDetail.back": "Back to tenants",
   "platform.tenantDetail.ownerEmail": "Owner email",
   "platform.tenantDetail.subscription": "Subscription",
@@ -14644,6 +14652,16 @@ const webEn: Record<WebTranslationKey, string> = {
   "platform.operators.form.save": "Create",
   "platform.operators.form.saving": "Creating…",
   "platform.operators.form.saveFailed": "Could not create the operator.",
+  "platform.tenants.loadFailed": "Tenants could not be loaded.",
+  "platform.tenantDetail.entitlements": "Entitlements",
+  "platform.tenantDetail.noEntitlements": "No entitlements",
+  "platform.tenantDetail.entitlementsPlanCode": "Plan code",
+  "platform.tenantDetail.entitlementsModules": "Active modules",
+  "platform.tenantDetail.entitlementsSeats": "Seats",
+  "platform.tenantDetail.entitlementsBranches": "Branches allowed",
+  "platform.tenantDetail.entitlementsWarehouses": "Warehouses allowed",
+  "platform.tenantDetail.entitlementsExpiry": "Expires",
+  "platform.tenantDetail.entitlementsNoExpiry": "No expiry",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

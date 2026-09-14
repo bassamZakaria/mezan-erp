@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Button, DocumentList, useFormat, type DocumentListColumn } from "@mezan/ui";
+import { Button, Card, DocumentList, useFormat, type DocumentListColumn } from "@mezan/ui";
 import type { TenantSummaryDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
@@ -61,6 +61,16 @@ export function TenantsPage() {
 
   return (
     <>
+      {tenantsQuery.isError ? (
+        <Card className="mb-[14px] p-[14px_16px]">
+          <p role="alert" className="text-[13px] font-semibold text-danger-ink">
+            {tenantsQuery.error.message}
+          </p>
+          <Button size="sm" className="mt-[8px]" onClick={() => tenantsQuery.refetch()}>
+            {t("common.retry")}
+          </Button>
+        </Card>
+      ) : null}
       <DocumentList<TenantSummaryDTO>
         title={t("platform.nav.tenants")}
         actions={
@@ -76,6 +86,8 @@ export function TenantsPage() {
         onRowClick={(row) => navigate(`/platform/tenants/${row.tenant.id}`)}
         page={1}
         pageCount={1}
+        loading={tenantsQuery.isLoading}
+        loadFailed={tenantsQuery.isError}
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("platform.tenants.empty")}</div>}
       />
       {isOwner ? <NewTenantDialog open={dialogOpen} onClose={() => setDialogOpen(false)} plans={plansQuery.data ?? []} /> : null}

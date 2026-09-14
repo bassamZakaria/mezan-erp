@@ -29,6 +29,15 @@ const plan: PlanDTO = {
 
 const plan2: PlanDTO = { ...plan, id: "plan-2", code: "scale", nameAr: "باقة التوسع", nameEn: "Scale" };
 
+const entitlementsFixture: NonNullable<TenantSummaryDTO["entitlements"]> = {
+  plan: "growth",
+  activeModules: ["sales", "inventory"],
+  features: {},
+  seats: 8,
+  expiresAt: "2026-11-15T00:00:00.000Z",
+  limits: { branches: 1, warehouses: 2 },
+};
+
 function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOverrides: Partial<NonNullable<TenantSummaryDTO["subscription"]>> = {}): TenantSummaryDTO {
   return {
     tenant: {
@@ -102,6 +111,35 @@ describe("TenantDetailPage", () => {
     expect(screen.getByText("01/10/2026")).toBeInTheDocument();
   });
 
+  it("shows an honest «لا توجد استحقاقات» when entitlements is null", async () => {
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    expect(await screen.findByText("لا توجد استحقاقات")).toBeInTheDocument();
+  });
+
+  it("shows the entitlements preview: plan code, module chips, seats, limits and expiry", async () => {
+    const summary = { ...makeSummary(), entitlements: entitlementsFixture };
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    expect(await screen.findByText("growth")).toBeInTheDocument();
+    expect(screen.getByText("المبيعات")).toBeInTheDocument();
+    expect(screen.getByText("المخزون")).toBeInTheDocument();
+    expect(screen.getByText("8")).toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("15/11/2026")).toBeInTheDocument();
+    expect(screen.queryByText("لا توجد استحقاقات")).not.toBeInTheDocument();
+  });
+
   it("shows suspend and archive for an active tenant, not resume, for an owner", async () => {
     const summary = makeSummary();
     const transport = stubPlatformTransport({
@@ -144,6 +182,53 @@ describe("TenantDetailPage", () => {
     expect(screen.queryByRole("combobox", { name: "تغيير الباقة" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "إلغاء الاشتراك" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "تسجيل دفعة" })).not.toBeInTheDocument();
+  });
+
+  it("archiving asks for confirmation, and confirming posts the archive", async () => {
+    let archived = false;
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: archived ? { ...summary, tenant: { ...summary.tenant, status: "archived" } } : summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/archive": () => {
+        archived = true;
+        return { body: { ...summary, tenant: { ...summary.tenant, status: "archived" } } };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "أرشفة المنشأة" }));
+    const confirmDialog = screen.getByRole("dialog");
+    expect(within(confirmDialog).getByText("أرشفة المنشأة؟")).toBeInTheDocument();
+    expect(archived).toBe(false);
+
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "أرشفة المنشأة" }));
+    expect(await screen.findByText("مؤرشفة")).toBeInTheDocument();
+    expect(archived).toBe(true);
+  });
+
+  it("cancelling the subscription asks for confirmation, and confirming posts the cancellation", async () => {
+    let cancelled = false;
+    const summary = makeSummary();
+    const cancelledSubscription = { ...summary.subscription!, status: "cancelled" as const };
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: cancelled ? { ...summary, subscription: cancelledSubscription } : summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/subscription/cancel": () => {
+        cancelled = true;
+        return { body: { ...summary, subscription: cancelledSubscription } };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إلغاء الاشتراك" }));
+    const confirmDialog = screen.getByRole("dialog");
+    expect(within(confirmDialog).getByText("إلغاء الاشتراك؟")).toBeInTheDocument();
+    expect(cancelled).toBe(false);
+
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "إلغاء الاشتراك" }));
+    expect(await screen.findByText("ملغى")).toBeInTheDocument();
+    expect(cancelled).toBe(true);
   });
 
   it("«تسجيل دفعة» posts the payment and refreshes the tenant summary", async () => {

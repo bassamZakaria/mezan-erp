@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { Button, Card, ConfirmDialog, Money, Select, useFormat } from "@mezan/ui";
+import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
+import { MODULES } from "@mezan/domain";
 import type { BillingCycleDTO, SubscriptionStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { moduleLabel } from "../domain-labels";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
@@ -47,6 +49,15 @@ function canCancelSubscription(status: SubscriptionStatusDTO): boolean {
   return status !== "cancelled";
 }
 
+/** `MODULE_CATALOG`/entitlement ids are the permission catalog's `MODULES` ids, except its one differing entry (`financial_papers` → `cheques`) — mirrors `PlanEditor.tsx`'s own mapping. */
+const CATALOG_MODULE_ID: Readonly<Record<string, string>> = { financial_papers: "cheques" };
+
+function entitlementModuleLabel(id: string, t: (key: AppTranslationKey) => string): string {
+  const catalogId = CATALOG_MODULE_ID[id] ?? id;
+  const entry = MODULES.find((m) => m.id === catalogId);
+  return entry ? moduleLabel(entry, t) : id;
+}
+
 /** «تفاصيل المنشأة» — a routed page (not an overlay: this is a document, not a short form), reached from `TenantsPage`'s row click. */
 export function TenantDetailPage() {
   const { t } = useAppTranslation();
@@ -73,7 +84,7 @@ export function TenantDetailPage() {
     return <div className="p-8 text-center text-sm text-ink-muted">{tenantQuery.isError ? t("platform.tenantDetail.notFound") : t("common.loading")}</div>;
   }
 
-  const { tenant, subscription, plan, licenseState, payments } = summary;
+  const { tenant, subscription, plan, licenseState, entitlements, payments } = summary;
   const planOptions = (plansQuery.data ?? [])
     .filter((p) => p.status === "active" && p.id !== subscription?.planId)
     .map((p) => ({ value: p.id, label: `${p.nameAr} — ${p.code}` }));
@@ -120,10 +131,10 @@ export function TenantDetailPage() {
             <Fact label={t("platform.tenantDetail.plan")} value={`${plan.nameAr} — ${plan.code}`} />
             <Fact label={t("platform.tenantDetail.billingCycle")} value={t(BILLING_CYCLE_LABEL[subscription.billingCycle])} />
             <Fact label={t("platform.tenantDetail.subscriptionStatus")} value={t(SUBSCRIPTION_STATUS_LABEL[subscription.status])} />
-            <Fact label={t("platform.tenantDetail.periodStart")} value={format.date(subscription.currentPeriodStart)} />
-            <Fact label={t("platform.tenantDetail.periodEnd")} value={format.date(subscription.currentPeriodEnd)} />
-            {subscription.trialEndsAt ? <Fact label={t("platform.tenantDetail.trialEndsAt")} value={format.date(subscription.trialEndsAt)} /> : null}
-            <Fact label={t("platform.tenantDetail.graceDays")} value={String(subscription.graceDays)} />
+            <Fact numeric label={t("platform.tenantDetail.periodStart")} value={format.date(subscription.currentPeriodStart)} />
+            <Fact numeric label={t("platform.tenantDetail.periodEnd")} value={format.date(subscription.currentPeriodEnd)} />
+            {subscription.trialEndsAt ? <Fact numeric label={t("platform.tenantDetail.trialEndsAt")} value={format.date(subscription.trialEndsAt)} /> : null}
+            <Fact numeric label={t("platform.tenantDetail.graceDays")} value={String(subscription.graceDays)} />
 
             {isOwner ? (
               <div className="mt-[6px] flex flex-wrap items-center gap-[9px] border-t border-border pt-[12px]">
@@ -163,6 +174,37 @@ export function TenantDetailPage() {
           </div>
         ) : (
           <p className="text-[12.5px] text-ink-muted">{t("platform.tenantDetail.noSubscription")}</p>
+        )}
+      </Card>
+
+      <Card className="p-[16px]">
+        <h2 className="mb-[12px] text-[13px] font-bold text-ink">{t("platform.tenantDetail.entitlements")}</h2>
+        {entitlements ? (
+          <div className="flex flex-col gap-[10px]">
+            <Fact label={t("platform.tenantDetail.entitlementsPlanCode")} value={entitlements.plan} />
+            <Fact numeric label={t("platform.tenantDetail.entitlementsSeats")} value={String(entitlements.seats)} />
+            {entitlements.limits ? (
+              <>
+                <Fact numeric label={t("platform.tenantDetail.entitlementsBranches")} value={String(entitlements.limits.branches)} />
+                <Fact numeric label={t("platform.tenantDetail.entitlementsWarehouses")} value={String(entitlements.limits.warehouses)} />
+              </>
+            ) : null}
+            <Fact
+              numeric={entitlements.expiresAt !== null}
+              label={t("platform.tenantDetail.entitlementsExpiry")}
+              value={entitlements.expiresAt ? format.date(entitlements.expiresAt) : t("platform.tenantDetail.entitlementsNoExpiry")}
+            />
+            <div>
+              <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.tenantDetail.entitlementsModules")}</span>
+              <div className="flex flex-wrap gap-[6px]">
+                {entitlements.activeModules.map((id) => (
+                  <StatusPill key={id} label={entitlementModuleLabel(id, t)} tone="neutral" />
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[12.5px] text-ink-muted">{t("platform.tenantDetail.noEntitlements")}</p>
         )}
       </Card>
 
@@ -215,11 +257,11 @@ export function TenantDetailPage() {
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ label, value, numeric = false }: { label: string; value: string; numeric?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-[10px] text-[12.5px]">
       <span className="text-ink-muted">{label}</span>
-      <span className="mz-num font-semibold text-ink">{value}</span>
+      <span className={numeric ? "mz-num font-semibold text-ink" : "font-semibold text-ink"}>{value}</span>
     </div>
   );
 }

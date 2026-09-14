@@ -1131,6 +1131,7 @@ export interface JournalEntryDTO {
     memo: string | null;
     projectId?: string | null;
     costCategory?: CostCategoryDTO | null;
+    branchId?: string | null;
   }>;
 }
 

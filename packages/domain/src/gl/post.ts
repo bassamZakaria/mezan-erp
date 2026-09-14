@@ -50,6 +50,8 @@ export interface JournalLineInput {
   readonly projectId?: string | null;
   /** فئة التكلفة — rejected without a `projectId`, because a category with no project is a figure nothing can roll up. */
   readonly costCategory?: JournalLine["costCategory"];
+  /** بُعد الفرع (DEC-20). Nullable — a line with no branch lands in the statements' «غير مخصص» bucket. */
+  readonly branchId?: string | null;
 }
 
 /** Command to create/post a journal entry. */
@@ -127,6 +129,7 @@ function toLine(input: JournalLineInput): JournalLine {
     taxRatePercent: input.taxRatePercent ?? null,
     projectId: input.projectId ?? null,
     costCategory: input.costCategory ?? null,
+    branchId: input.branchId ?? null,
   };
 }
 

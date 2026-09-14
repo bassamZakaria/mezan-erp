@@ -45,6 +45,7 @@ function line(
     date,
     source: "system",
     accountId,
+    branchId: null,
     costCenterId: null,
     projectId: "PRJ-1",
     costCategory,

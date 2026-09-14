@@ -122,6 +122,7 @@ function serialize(entry: JournalEntry) {
       taxRatePercent: l.taxRatePercent ?? null,
       projectId: l.projectId ?? null,
       costCategory: l.costCategory ?? null,
+      branchId: l.branchId ?? null,
     })),
   };
 }
@@ -292,6 +293,7 @@ export function createGlRoutes(
             fxRate: l.fxRate ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
           })),
         },
         postingDeps(c),
@@ -447,6 +449,7 @@ export function createGlRoutes(
             fxRate: l.fxRate ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
           })),
         },
         postingDeps(c),

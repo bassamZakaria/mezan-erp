@@ -55,6 +55,8 @@ export interface PostedLineFilter {
   readonly costCenterId?: string;
   /** Restrict to lines carrying this project dimension (D-01). */
   readonly projectId?: string;
+  /** Restrict to lines carrying this branch dimension (DEC-20). */
+  readonly branchId?: string;
 }
 
 /** One posted journal line with its full dimensional context. */
@@ -67,6 +69,8 @@ export interface PostedLine {
   readonly costCenterId: string | null;
   readonly projectId: string | null;
   readonly costCategory: CostCategory | null;
+  /** بُعد الفرع (DEC-20). Null on every line no path has filled yet — the statements report those as «غير مخصص». */
+  readonly branchId: string | null;
   readonly currency: string | null;
   readonly fxRate: string | null;
   readonly memo: string | null;

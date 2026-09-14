@@ -58,6 +58,10 @@ export function buildSalesInvoiceGlPosting(
   // the whole sale, not just its cost side. Sales documents never set
   // `costCategory`: the COGS line is a cost of the SALE, not a project cost.
   const projectTag = { projectId: invoice.projectId ?? null };
+  // بُعد الفرع (DEC-20), on EVERY leg of the sale — receivable, revenue, VAT,
+  // COGS and inventory. A branch P&L that saw only the revenue side would
+  // report the branch's sales at full margin.
+  const branchTag = { branchId: invoice.branchId ?? null };
 
   // --- Revenue side ---
   // Grouped by revenue account AND by the rate the line was taxed at, so a
@@ -125,6 +129,6 @@ export function buildSalesInvoiceGlPosting(
     sourceDocNumber: invoice.docNo,
     date: invoice.date,
     memo: `فاتورة مبيعات ${invoice.docNo ?? invoice.id} — ${invoice.customerNameAr}`,
-    lines: [...debits, ...credits],
+    lines: [...debits, ...credits].map((l) => ({ ...l, ...branchTag })),
   };
 }

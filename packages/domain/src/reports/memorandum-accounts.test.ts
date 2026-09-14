@@ -67,7 +67,7 @@ describe("ميزان المراجعة — a posted 9100/9200 pair", () => {
     const a = runReport(report, { asOfDate: YEAR_END }, before);
     const b = runReport(report, { asOfDate: YEAR_END }, after);
     if (!a.ok || !b.ok) throw new Error("expected success");
-    expect(a.grandTotals).toEqual({ debit: 452400, credit: 452400 });
+    expect(a.grandTotals).toEqual({ debit: 452400, credit: 452400, unattributed: 0 });
     expect(b.grandTotals).toEqual(a.grandTotals);
     expect(b.reconciliation?.diff).toBe(0);
   });

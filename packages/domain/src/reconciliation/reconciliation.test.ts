@@ -6,7 +6,7 @@ import { computeBalanceReconciliation, findUnlinkedControlLines } from "./reconc
 function line(overrides: Partial<PostedLine>): PostedLine {
   return {
     entryId: "e", entryNo: "JE-000001", date: "2026-08-10", source: "system",
-    accountId: "1200", costCenterId: null, projectId: null, costCategory: null, currency: null, fxRate: null, memo: null,
+    accountId: "1200", branchId: null, costCenterId: null, projectId: null, costCategory: null, currency: null, fxRate: null, memo: null,
     debit: Money.zero(), credit: Money.zero(), ...overrides,
   };
 }

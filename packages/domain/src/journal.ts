@@ -63,6 +63,13 @@ export interface JournalLine {
   readonly projectId?: string | null;
   /** فئة التكلفة — materials / labour / equipment / subcontract / indirect. Only meaningful with `projectId`. */
   readonly costCategory?: CostCategory | null;
+  /**
+   * بُعد الفرع — the branch this line belongs to (DEC-20). Nullable and filled
+   * path by path: manual journals, payroll, depreciation and the year-end close
+   * carry no document branch at all, so the branch statements always show an
+   * explicit «غير مخصص» bucket rather than dropping what has no branch.
+   */
+  readonly branchId?: string | null;
 }
 
 /**

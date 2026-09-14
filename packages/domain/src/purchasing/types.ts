@@ -83,6 +83,8 @@ export interface PurchaseGlPostingLine {
   readonly projectId?: string | null;
   /** فئة التكلفة — only meaningful with `projectId`. */
   readonly costCategory?: CostCategory | null;
+  /** بُعد الفرع (DEC-20) — the branch the invoice was raised in. Dropped here, it is gone for good. */
+  readonly branchId?: string | null;
   /**
    * The VAT rate this line was charged at (14, 5, 0…). Carried on the input-VAT
    * line so the VAT return reports the rates actually charged instead of

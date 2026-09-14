@@ -30,6 +30,12 @@ export const glJournalLineSchema = z.object({
   projectId: z.string().min(1).nullish(),
   /** فئة التكلفة — only with `projectId`; the engine refuses one without the other. */
   costCategory: costCategorySchema.nullish(),
+  /**
+   * بُعد الفرع (DEC-20). A zod object strips what it does not declare, so a
+   * branch the screen sends and this schema omits vanishes behind a cheerful
+   * 201 — the same way the voucher's cost centre (D26) once did.
+   */
+  branchId: z.string().min(1).nullish(),
 });
 
 /** Create (and post) a journal entry. */

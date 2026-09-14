@@ -28,6 +28,7 @@ import {
   useJournalEntries,
   useJournalEntryCounts,
   useJournalEntryStats,
+  useBranches,
   useProjects,
   useReverseJournalEntry,
   type JournalEntryDTO,
@@ -104,12 +105,13 @@ interface LineDraft {
   credit: number;
   projectId: string;
   costCategory: CostCategoryDTO | "";
+  branchId: string;
 }
 
 let lineSeq = 0;
 function blankLine(): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, accountId: "", memo: "", debit: 0, credit: 0, projectId: "", costCategory: "" };
+  return { key: `l${lineSeq}`, accountId: "", memo: "", debit: 0, credit: 0, projectId: "", costCategory: "", branchId: "" };
 }
 
 /** Projects still open for new spend/income — a finished or cancelled project cannot take new lines. */
@@ -124,10 +126,12 @@ export function JournalsScreen() {
   const { t } = useAppTranslation();
   const accountsQuery = useAccounts();
   const projectsQuery = useProjects();
+  const branchesQuery = useBranches();
   const createJournalEntry = useCreateJournalEntry();
   const reverseJournalEntry = useReverseJournalEntry();
   const accounts = accountsQuery.data ?? EMPTY;
   const projects = projectsQuery.data ?? EMPTY;
+  const branches = branchesQuery.data ?? EMPTY;
 
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
@@ -178,6 +182,11 @@ export function JournalsScreen() {
     const map = new Map(projects.map((p) => [p.id, `${p.code} — ${nameOf(p)}`]));
     return (id: string | null | undefined) => (id ? (map.get(id) ?? id) : null);
   }, [projects, nameOf]);
+
+  const branchLabel = useMemo(() => {
+    const map = new Map(branches.map((b) => [b.id, `${b.code} — ${b.name}`]));
+    return (id: string | null | undefined) => (id ? (map.get(id) ?? id) : null);
+  }, [branches]);
 
   const documents = query.data ?? [];
 
@@ -302,6 +311,7 @@ export function JournalsScreen() {
                         <tr>
                           <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.account")}</th>
                           <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.description")}</th>
+                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.branch")}</th>
                           <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.project")}</th>
                           <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.costCategory")}</th>
                           <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
@@ -313,6 +323,7 @@ export function JournalsScreen() {
                           <tr key={i} className="border-b border-border last:border-b-0">
                             <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId)}</td>
                             <td className="px-[15px] py-[11px] text-ink-muted">{l.memo ?? "—"}</td>
+                            <td className="px-[15px] py-[11px] text-ink-muted">{branchLabel(l.branchId) ?? t("journals.unattributedBranch")}</td>
                             <td className="px-[15px] py-[11px] text-ink-muted">{projectLabel(l.projectId) ?? "—"}</td>
                             <td className="px-[15px] py-[11px] text-ink-muted">{l.costCategory ? t(`costCategory.${l.costCategory}` as AppTranslationKey) : "—"}</td>
                             <td className="px-[15px] py-[11px] text-end">{toMajor(l.debit) !== 0 ? <MoneyDisplay value={toMajor(l.debit)} /> : "—"}</td>
@@ -322,7 +333,7 @@ export function JournalsScreen() {
                       </tbody>
                       <tfoot>
                         <tr className="bg-surface-2 font-bold">
-                          <td className="px-[15px] py-[11px]" colSpan={4}>
+                          <td className="px-[15px] py-[11px]" colSpan={5}>
                             <StatusPill label={balanced ? t("journals.balanced") : t("journals.outOfBalance")} tone={balanced ? "success" : "danger"} />
                           </td>
                           <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={totals.debit} /></td>
@@ -486,6 +497,7 @@ function CreateJournalView({
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const projectsQuery = useProjects();
+  const branchesQuery = useBranches();
   const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([blankLine(), blankLine()]);
@@ -495,6 +507,9 @@ function CreateJournalView({
   const projectOptions: EntityPickerOption[] = (projectsQuery.data ?? [])
     .filter((p) => OPEN_PROJECT_STATUSES.has(p.status))
     .map((p) => ({ id: p.id, label: `${p.code} — ${nameOf(p)}` }));
+  const branchOptions: EntityPickerOption[] = (branchesQuery.data ?? [])
+    .filter((b) => b.active)
+    .map((b) => ({ id: b.id, label: `${b.code} — ${b.name}` }));
   const costCategoryOptions = [
     { value: "", label: t("common.none") },
     ...COST_CATEGORY_VALUES.map((c) => ({ value: c, label: t(`costCategory.${c}` as AppTranslationKey) })),
@@ -535,6 +550,7 @@ function CreateJournalView({
           memo: l.memo.trim() === "" ? null : l.memo.trim(),
           projectId: l.projectId || null,
           costCategory: l.projectId && l.costCategory ? l.costCategory : null,
+          branchId: l.branchId || null,
         })),
       });
       onDone();
@@ -581,6 +597,7 @@ function CreateJournalView({
                   <tr>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.account")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.description")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.branch")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.project")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.costCategory")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
@@ -609,6 +626,15 @@ function CreateJournalView({
                           value={line.memo}
                           onChange={(e) => updateLine(i, { memo: e.target.value })}
                           placeholder={t("journals.describeTheLine")}
+                        />
+                      </td>
+                      <td className="px-[12px] py-[8px]">
+                        <EntityPicker
+                          className="min-w-[150px]"
+                          value={branchOptions.find((o) => o.id === line.branchId) ?? null}
+                          onChange={(o) => updateLine(i, { branchId: o?.id ?? "" })}
+                          options={branchOptions}
+                          placeholder={t("journals.unattributedBranch")}
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">

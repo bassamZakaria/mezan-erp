@@ -7,7 +7,14 @@ import {
   classifyAccount,
   moneyToNumber,
   netBalancesByAccount,
+  unattributedNetBalancesByAccount,
 } from "./gl-shared.js";
+import {
+  BRANCH_STATEMENT_NOTE_AR,
+  BRANCH_STATEMENT_PARAM_FIELD,
+  UNATTRIBUTED_BRANCH_LABEL,
+  branchIdParamSchema,
+} from "./branch-filter.js";
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
@@ -22,6 +29,8 @@ import { diffOf, sumRows } from "./kpi.js";
 
 export interface BalanceSheetParams {
   readonly asOfDate: string;
+  /** الفرع — "" for every branch, a branch id, or the «غير مخصص» bucket (DEC-20). */
+  readonly branchId: string;
 }
 
 export interface BalanceSheetRow {
@@ -35,10 +44,17 @@ export interface BalanceSheetRow {
   readonly amount: number;
   /** Which side of A = L + E the row belongs to. */
   readonly side: "asset" | "liability-equity";
+  /**
+   * «غير مخصص» — the part of this row's balance carrying no branch, on the
+   * same natural-balance sign convention. Unchanged by the branch parameter
+   * (DEC-20), so a branch position can always be read against the entity's.
+   */
+  readonly unattributed: number;
 }
 
 const paramsSchema = z.object({
   asOfDate: isoDateParamSchema,
+  branchId: branchIdParamSchema,
 });
 
 const ASSET_SECTIONS: AccountSection[] = ["cash", "current-asset", "non-current-asset"];
@@ -67,16 +83,18 @@ export function createBalanceSheetReport(
   return {
     id: "accounting.balance-sheet",
     titleAr: "الميزانية العمومية",
-    descriptionAr: "الأصول والالتزامات وحقوق الملكية حتى تاريخ محدد — تتحقق من معادلة الأصول = الالتزامات + حقوق الملكية.",
+    descriptionAr:
+      "الأصول والالتزامات وحقوق الملكية حتى تاريخ محدد — تتحقق من معادلة الأصول = الالتزامات + حقوق الملكية. " + BRANCH_STATEMENT_NOTE_AR,
     paramsSchema,
-    defaultParams: { asOfDate: defaultAsOfDate },
-    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }],
+    defaultParams: { asOfDate: defaultAsOfDate, branchId: "" },
+    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }, BRANCH_STATEMENT_PARAM_FIELD],
     showGrandTotal: false,
     rowKey: (row) => row.rowId,
     columns: [
       { key: "code", header: "رقم الحساب", format: "text", value: (row) => row.code },
       { key: "nameAr", header: "الحساب", format: "text", value: (row) => row.nameAr },
       { key: "amount", header: "الرصيد", format: "money", align: "end", total: true, value: (row) => row.amount },
+      { key: "unattributed", header: UNATTRIBUTED_BRANCH_LABEL, format: "money", align: "end", total: true, value: (row) => row.unattributed },
     ],
     group: {
       key: (row) => row.sectionKey,
@@ -100,14 +118,23 @@ export function createBalanceSheetReport(
       captionAr: "أقسام الميزانية بمجاميعها — نفس المجاميع الفرعية المطبوعة في الجدول.",
     },
     run: (params, ctx) => {
-      const balances = netBalancesByAccount(ctx.journalEntries, { to: params.asOfDate });
+      const window = { to: params.asOfDate };
+      const balances = netBalancesByAccount(ctx.journalEntries, window, {
+        branchScope: ctx.branchScope,
+        branchId: params.branchId,
+      });
+      const unattributedBalances = unattributedNetBalancesByAccount(ctx.journalEntries, window, {
+        branchScope: ctx.branchScope,
+      });
       const rows: BalanceSheetRow[] = [];
       let retainedEarnings = 0;
+      let unattributedRetainedEarnings = 0;
 
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
         const section = classifyAccount(account, ctx.cashAccountIds);
         const net = moneyToNumber(balances.get(account.id) ?? Money.zero());
+        const unattributedNet = moneyToNumber(unattributedBalances.get(account.id) ?? Money.zero());
 
         // حسابات نظامية are off balance sheet by definition: the pair is
         // self-balancing, so including it would add the same contingent face
@@ -117,9 +144,10 @@ export function createBalanceSheetReport(
         // into retained earnings (net income to date), added under equity below.
         if (section === "revenue" || section === "expense") {
           retainedEarnings += -net;
+          unattributedRetainedEarnings += -unattributedNet;
           continue;
         }
-        if (net === 0) continue;
+        if (net === 0 && unattributedNet === 0) continue;
 
         const isAsset = ASSET_SECTIONS.includes(section);
         // Assets are debit-normal (net>0); liabilities/equity credit-normal
@@ -134,10 +162,11 @@ export function createBalanceSheetReport(
           sectionLabel: ACCOUNT_SECTION_LABELS[section],
           amount,
           side: isAsset ? "asset" : "liability-equity",
+          unattributed: isAsset ? unattributedNet : -unattributedNet,
         });
       }
 
-      if (retainedEarnings !== 0) {
+      if (retainedEarnings !== 0 || unattributedRetainedEarnings !== 0) {
         rows.push({
           rowId: "_retained-earnings",
           code: "",
@@ -147,6 +176,7 @@ export function createBalanceSheetReport(
           sectionLabel: ACCOUNT_SECTION_LABELS.equity,
           amount: retainedEarnings,
           side: "liability-equity",
+          unattributed: unattributedRetainedEarnings,
         });
       }
 

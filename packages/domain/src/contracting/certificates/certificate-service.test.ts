@@ -132,6 +132,7 @@ class DimensionalLedger extends InMemoryLedgerRepository {
           entryNo: entry.entryNo ?? null,
           date: entry.date,
           source: entry.source ?? "manual",
+          branchId: line.branchId ?? null,
           accountId: line.accountId,
           costCenterId: line.costCenterId ?? null,
           projectId: line.projectId ?? null,

@@ -30,6 +30,7 @@ function line(accountId: string, costCenterId: string | null, debit: string, cre
     date: "2026-08-10",
     source: "manual",
     accountId,
+    branchId: null,
     costCenterId,
     projectId: null,
     costCategory: null,

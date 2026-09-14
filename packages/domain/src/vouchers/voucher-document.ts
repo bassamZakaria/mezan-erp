@@ -264,7 +264,9 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       sourceDocNumber: doc.docNo,
       date: doc.date,
       memo: doc.memo,
-      lines: buildVoucherLines(line),
+      // بُعد الفرع (DEC-20) on both legs: a branch cash statement that saw the
+      // counterparty leg but not the treasury one would not balance.
+      lines: buildVoucherLines(line).map((l) => ({ ...l, branchId: line.branchId ?? null })),
     };
   },
 

@@ -1,6 +1,7 @@
 import type { Account, AccountType } from "../accounts/account.js";
 import { YEAR_END_CLOSE_DOC_TYPE, type JournalEntry } from "../journal.js";
 import { Money } from "../money/index.js";
+import { UNATTRIBUTED_BRANCH_ID, matchesStatementBranch, withinBranchScope } from "./branch-filter.js";
 
 /**
  * Shared GL helpers for the financial-statement reports
@@ -21,6 +22,13 @@ export interface GlReportContext {
    * {@link classifyAccount} falls back to. Authoritative when given.
    */
   readonly cashAccountIds?: readonly string[];
+  /**
+   * The branches this caller is allowed to see (DEC-20). Undefined = every
+   * branch. AUTHORITY, applied before the reader's own `branchId` parameter
+   * narrows anything, so a scoped caller cannot widen out of it by asking for
+   * a branch they do not hold.
+   */
+  readonly branchScope?: readonly string[];
 }
 
 /**
@@ -122,6 +130,15 @@ export interface DateRange {
   readonly to?: string;
 }
 
+/** Options {@link netBalancesByAccount} accepts. */
+export interface NetBalanceOptions {
+  readonly excludeYearEndClose?: boolean;
+  /** The caller's branch authority; undefined = every branch. Unattributable lines always stay visible. */
+  readonly branchScope?: readonly string[];
+  /** The reader's branch filter: "" = every branch, {@link UNATTRIBUTED_BRANCH_ID} = only what carries none. */
+  readonly branchId?: string;
+}
+
 function inRange(date: string, range: DateRange): boolean {
   if (range.from !== undefined && date < range.from) return false;
   if (range.to !== undefined && date > range.to) return false;
@@ -152,23 +169,48 @@ export function isYearEndClose(entry: JournalEntry): boolean {
  *
  * `excludeYearEndClose` drops the closing entry — pass it for a performance
  * statement (income, cash flow), never for a position one (balance sheet).
+ * `branchScope` is the caller's authority and `branchId` the reader's own
+ * filter; both cut at the LINE, never at the entry (DEC-20).
  */
 export function netBalancesByAccount(
   journalEntries: readonly JournalEntry[],
   range: DateRange = {},
-  options: { readonly excludeYearEndClose?: boolean } = {},
+  options: NetBalanceOptions = {},
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
+  const branchId = options.branchId ?? "";
   for (const entry of journalEntries) {
     if (!isLedgerEffective(entry)) continue;
     if (options.excludeYearEndClose === true && isYearEndClose(entry)) continue;
     if (!inRange(entry.date, range)) continue;
     for (const line of entry.lines) {
+      // Per LINE, not per entry: a document-driven entry stamps its branch on
+      // every leg, but one manual journal may legitimately split across two
+      // branches, and cutting at the entry would hand both to whichever branch
+      // the first line named (DEC-20).
+      if (!withinBranchScope(line.branchId, options.branchScope)) continue;
+      if (!matchesStatementBranch(line.branchId, branchId)) continue;
       const net = line.debit.add(line.credit.negate());
       balances.set(line.accountId, (balances.get(line.accountId) ?? Money.zero()).add(net));
     }
   }
   return balances;
+}
+
+/**
+ * Net movement per account of everything carrying NO branch, over the same
+ * window and under the same authority scope.
+ *
+ * Never narrowed by the reader's branch parameter: this is the reconciling item
+ * that makes branch figures add up to the entity, so a filter able to hide it
+ * would defeat the point of showing it (DEC-20).
+ */
+export function unattributedNetBalancesByAccount(
+  journalEntries: readonly JournalEntry[],
+  range: DateRange = {},
+  options: Omit<NetBalanceOptions, "branchId"> = {},
+): Map<string, Money> {
+  return netBalancesByAccount(journalEntries, range, { ...options, branchId: UNATTRIBUTED_BRANCH_ID });
 }
 
 /** Net (debit − credit) movement for a single account over `range`, as a number. */

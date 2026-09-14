@@ -7,7 +7,15 @@ import {
   isCashAccount,
   moneyToNumber,
   netBalancesByAccount,
+  unattributedNetBalancesByAccount,
 } from "./gl-shared.js";
+import {
+  BRANCH_STATEMENT_NOTE_AR,
+  BRANCH_STATEMENT_PARAM_FIELD,
+  UNATTRIBUTED_BRANCH_ID,
+  UNATTRIBUTED_BRANCH_LABEL,
+  branchIdParamSchema,
+} from "./branch-filter.js";
 import { COMPARISON_LABEL_AR, type ComparisonMode, comparativeRange } from "./comparative-period.js";
 import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
@@ -28,6 +36,8 @@ export interface CashFlowParams {
   readonly periodFrom: string;
   readonly periodTo: string;
   readonly compareTo: ComparisonMode;
+  /** الفرع — "" for every branch, a branch id, or the «غير مخصص» bucket (DEC-20). */
+  readonly branchId: string;
 }
 
 export type CashFlowActivity = "operating" | "investing" | "financing";
@@ -46,11 +56,22 @@ export interface CashFlowRow {
   readonly priorAmount: number;
   /** `amount − priorAmount`. Positive always means more cash in. */
   readonly variance: number;
+  /**
+   * «غير مخصص» — this line's flow carrying no branch at all. Unchanged by the
+   * branch parameter: it is what a branch's cash flow has to be read alongside
+   * before the branches add up to the entity (DEC-20).
+   */
+  readonly unattributed: number;
 }
 
 const DATE = isoDateParamSchema;
 const paramsSchema = z
-  .object({ periodFrom: DATE, periodTo: DATE, compareTo: z.enum(["previous", "lastYear"]).default("previous") })
+  .object({
+    periodFrom: DATE,
+    periodTo: DATE,
+    compareTo: z.enum(["previous", "lastYear"]).default("previous"),
+    branchId: branchIdParamSchema,
+  })
   .refine((p) => p.periodFrom <= p.periodTo, {
     message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",
     path: ["periodFrom"],
@@ -93,21 +114,26 @@ export function cashFlowNetChange(rows: readonly CashFlowRow[]): number {
   return sumRows(rows, (row) => row.amount);
 }
 
-type CashFlowRowCore = Omit<CashFlowRow, "priorAmount" | "variance">;
+type CashFlowRowCore = Omit<CashFlowRow, "priorAmount" | "variance" | "unattributed">;
 
-function cashFlowRows(range: { from: string; to: string }, ctx: GlReportContext): CashFlowRowCore[] {
+function cashFlowRows(range: { from: string; to: string }, ctx: GlReportContext, branchId: string): CashFlowRowCore[] {
+  // Authority and the reader's filter travel together into every one of the
+  // three queries below. Bounding only the period movement by branch while
+  // leaving the opening/closing cash unbounded would break the report's own
+  // tie-out (صافي التغير = الختامي − الافتتاحي) on every branch run.
+  const branchOpts = { branchScope: ctx.branchScope, branchId };
   // The year-end close is excluded: it moves the whole result into retained
   // earnings without touching cash, so counting it would zero the net income
   // this statement starts from AND report the same figure again as a financing
   // inflow. The cash opening/closing balances below keep every entry — the
   // close posts nothing to a cash account, and the tie-out must stay exact.
-  const periodBalances = netBalancesByAccount(ctx.journalEntries, { from: range.from, to: range.to }, { excludeYearEndClose: true });
+  const periodBalances = netBalancesByAccount(ctx.journalEntries, { from: range.from, to: range.to }, { ...branchOpts, excludeYearEndClose: true });
 
   const cashAccounts = ctx.accounts.filter((a) => !a.isHeader && isCashAccount(a, ctx.cashAccountIds));
   const cashIds = new Set(cashAccounts.map((a) => a.id));
 
-  const openingBalances = netBalancesByAccount(ctx.journalEntries, { to: dayBefore(range.from) });
-  const closingBalances = netBalancesByAccount(ctx.journalEntries, { to: range.to });
+  const openingBalances = netBalancesByAccount(ctx.journalEntries, { to: dayBefore(range.from) }, branchOpts);
+  const closingBalances = netBalancesByAccount(ctx.journalEntries, { to: range.to }, branchOpts);
   const openingCash = sumOver(cashAccounts, openingBalances);
   const closingCash = sumOver(cashAccounts, closingBalances);
 
@@ -159,14 +185,16 @@ function cashFlowRows(range: { from: string; to: string }, ctx: GlReportContext)
 }
 
 export function createCashFlowReport(
-  defaultParams: Omit<CashFlowParams, "compareTo"> & Partial<Pick<CashFlowParams, "compareTo">>,
+  defaultParams: Omit<CashFlowParams, "compareTo" | "branchId"> & Partial<Pick<CashFlowParams, "compareTo" | "branchId">>,
 ): ReportDefinition<CashFlowParams, CashFlowRow, GlReportContext> {
   return {
     id: "accounting.cash-flow",
     titleAr: "التدفقات النقدية",
-    descriptionAr: "قائمة التدفقات النقدية بالطريقة غير المباشرة — الأنشطة التشغيلية والاستثمارية والتمويلية، من الرصيد الافتتاحي إلى الختامي.",
+    descriptionAr:
+      "قائمة التدفقات النقدية بالطريقة غير المباشرة — الأنشطة التشغيلية والاستثمارية والتمويلية، من الرصيد الافتتاحي إلى الختامي. " +
+      BRANCH_STATEMENT_NOTE_AR,
     paramsSchema,
-    defaultParams: { compareTo: "previous", ...defaultParams },
+    defaultParams: { compareTo: "previous", branchId: "", ...defaultParams },
     paramFields: [
       { kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
       {
@@ -178,6 +206,7 @@ export function createCashFlowReport(
           { value: "lastYear", label: COMPARISON_LABEL_AR.lastYear },
         ],
       },
+      BRANCH_STATEMENT_PARAM_FIELD,
     ],
     rowKey: (row) => row.rowId,
     columns: [
@@ -185,6 +214,7 @@ export function createCashFlowReport(
       { key: "amount", header: "التدفق النقدي", format: "money", align: "end", total: true, value: (row) => row.amount },
       { key: "priorAmount", header: "فترة المقارنة", format: "money", align: "end", total: true, value: (row) => row.priorAmount },
       { key: "variance", header: "التغيّر", format: "variance", align: "end", total: true, value: (row) => row.variance },
+      { key: "unattributed", header: UNATTRIBUTED_BRANCH_LABEL, format: "money", align: "end", total: true, value: (row) => row.unattributed },
     ],
     group: {
       key: (row) => row.activity,
@@ -208,14 +238,22 @@ export function createCashFlowReport(
       captionAr: "صافي التدفق النقدي في كل نشاط — تشغيلي واستثماري وتمويلي.",
     },
     run: (params, ctx) => {
-      const current = cashFlowRows({ from: params.periodFrom, to: params.periodTo }, ctx);
-      const prior = cashFlowRows(comparativeRange({ from: params.periodFrom, to: params.periodTo }, params.compareTo), ctx);
+      const window = { from: params.periodFrom, to: params.periodTo };
+      const current = cashFlowRows(window, ctx, params.branchId);
+      const prior = cashFlowRows(comparativeRange(window, params.compareTo), ctx, params.branchId);
       const priorById = new Map(prior.map((row) => [row.rowId, row.amount]));
+      // The same statement run over the «غير مخصص» bucket alone, matched line
+      // by line. Never narrowed by `params.branchId` — a branch column only
+      // adds up to the entity once this one is read beside it (DEC-20).
+      const unattributedById = new Map(
+        cashFlowRows(window, ctx, UNATTRIBUTED_BRANCH_ID).map((row) => [row.rowId, row.amount]),
+      );
 
       const rows: CashFlowRow[] = current.map((row) => ({
         ...row,
         priorAmount: priorById.get(row.rowId) ?? 0,
         variance: row.amount - (priorById.get(row.rowId) ?? 0),
+        unattributed: unattributedById.get(row.rowId) ?? 0,
       }));
 
       // A line that had flow only in the comparison window still belongs in a
@@ -226,7 +264,15 @@ export function createCashFlowReport(
       const closing = current[0]?.closingCash ?? 0;
       for (const row of prior) {
         if (seen.has(row.rowId)) continue;
-        rows.push({ ...row, amount: 0, openingCash: opening, closingCash: closing, priorAmount: row.amount, variance: -row.amount });
+        rows.push({
+          ...row,
+          amount: 0,
+          openingCash: opening,
+          closingCash: closing,
+          priorAmount: row.amount,
+          variance: -row.amount,
+          unattributed: unattributedById.get(row.rowId) ?? 0,
+        });
       }
 
       rows.sort((a, b) => ACTIVITY_ORDER.indexOf(a.activity) - ACTIVITY_ORDER.indexOf(b.activity));

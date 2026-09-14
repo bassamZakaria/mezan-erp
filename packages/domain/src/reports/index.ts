@@ -293,4 +293,12 @@ export {
   type Form41ReturnRow,
 } from "./form41-return.js";
 export { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+export {
+  BRANCH_STATEMENT_NOTE_AR,
+  BRANCH_STATEMENT_PARAM_FIELD,
+  UNATTRIBUTED_BRANCH_ID,
+  UNATTRIBUTED_BRANCH_LABEL,
+  matchesStatementBranch,
+  withinBranchScope,
+} from "./branch-filter.js";
 export { isoDateParamSchema, isRealIsoDate } from "./iso-date.js";

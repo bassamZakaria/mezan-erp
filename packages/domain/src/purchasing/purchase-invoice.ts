@@ -508,13 +508,17 @@ export function buildInvoicePosting(
   lines.push({ accountId: accounts.payableAccountId, debit: Money.zero(), credit: payable, ...fxTag });
 
   const projectId = invoice.projectId ?? null;
+  // بُعد الفرع (DEC-20) — the invoice header already carries the branch that
+  // raised it, so every leg (inventory/GRNI, freight, expense, input VAT, AP)
+  // is attributed rather than landing in «غير مخصص».
+  const branchId = invoice.branchId ?? null;
   return {
     sourceDocType: "PURCHASE_INVOICE",
     sourceDocId: invoice.id,
     sourceDocNumber: invoice.number,
     date: invoice.date,
     memo: `فاتورة مشتريات ${invoice.number}`,
-    lines: lines.map((l) => ({ ...l, projectId })),
+    lines: lines.map((l) => ({ ...l, projectId, branchId })),
   };
 }
 

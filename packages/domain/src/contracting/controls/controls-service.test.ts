@@ -37,6 +37,7 @@ class FakeLedger {
       date,
       source: "system",
       accountId,
+      branchId: null,
       costCenterId: null,
       projectId,
       costCategory: null,

@@ -46,6 +46,8 @@ export const journalDocumentLineSchema = z.object({
   costCenterId: z.string().min(1).nullish(),
   projectId: z.string().min(1).nullish(),
   costCategory: costCategorySchema.nullish(),
+  /** بُعد الفرع (DEC-20) — optional per line; omitted means «غير مخصص». */
+  branchId: z.string().min(1).nullish(),
 });
 
 /** Create a journal document (draft or to post in one step). */

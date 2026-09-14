@@ -7162,6 +7162,16 @@ const webAr = {
   "devices.lanFingerprintDesktopOnly": "لا تُعرف بصمة الشهادة إلا على الجهاز المستضيف نفسه.",
   "devices.copyFingerprint": "نسخ البصمة",
   "devices.fingerprintCopied": "تم نسخ البصمة.",
+  "platform.brand.name": "منصة Mezan",
+  "platform.login.title": "تسجيل دخول المنصة",
+  "platform.login.email": "البريد الإلكتروني",
+  "platform.login.password": "كلمة المرور",
+  "platform.login.submit": "دخول",
+  "platform.login.error.generic": "تعذّر تسجيل الدخول",
+  "platform.nav.tenants": "المنشآت",
+  "platform.nav.plans": "الباقات",
+  "platform.nav.operators": "المشغّلون",
+  "platform.nav.signOut": "تسجيل الخروج",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -14328,6 +14338,16 @@ const webEn: Record<WebTranslationKey, string> = {
   "devices.lanFingerprintDesktopOnly": "The certificate fingerprint is only knowable on the host machine itself.",
   "devices.copyFingerprint": "Copy fingerprint",
   "devices.fingerprintCopied": "Fingerprint copied.",
+  "platform.brand.name": "Mezan Platform",
+  "platform.login.title": "Platform sign-in",
+  "platform.login.email": "Email",
+  "platform.login.password": "Password",
+  "platform.login.submit": "Sign in",
+  "platform.login.error.generic": "Sign-in failed.",
+  "platform.nav.tenants": "Tenants",
+  "platform.nav.plans": "Plans",
+  "platform.nav.operators": "Operators",
+  "platform.nav.signOut": "Sign out",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

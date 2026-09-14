@@ -1,0 +1,104 @@
+import { useState, type FormEvent } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { BrandMark, Button, Copyright, TextInput } from "@mezan/ui";
+import type { PlatformSessionDTO } from "@mezan/contracts";
+import { useAppTranslation } from "../i18n";
+import { PlatformApiError, usePlatformApi } from "./api";
+
+/**
+ * The platform console's own door — email + password, not the desktop's
+ * device-PIN flow (`LoginScreen`). An operator signs into ONE shared
+ * dashboard from wherever they are, not into a specific till, so there is no
+ * remembered-face row and no PIN to auto-submit.
+ */
+export function PlatformLogin() {
+  const { t } = useAppTranslation();
+  const { request, setSession } = usePlatformApi();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const login = useMutation<PlatformSessionDTO, PlatformApiError, { email: string; password: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) {
+        const errBody = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
+        throw new PlatformApiError(res.status, errBody.message ?? t("platform.login.error.generic"));
+      }
+      return res.json<PlatformSessionDTO>();
+    },
+    onSuccess: (session) => setSession(session),
+    onError: (err) => setError(err.message),
+  });
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (email.trim() === "" || password === "" || login.isPending) return;
+    setError(null);
+    login.mutate({ email: email.trim(), password });
+  }
+
+  return (
+    <div dir="rtl" className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
+      <BrandMark
+        aria-hidden
+        className="pointer-events-none fixed bottom-[-70px] end-[-40px] h-[320px] w-[320px] text-brand opacity-10"
+      />
+      <form
+        onSubmit={handleSubmit}
+        noValidate
+        className="relative w-full max-w-[380px] rounded-lg border border-border bg-surface p-[28px] pb-[18px] shadow-2"
+      >
+        <div className="flex items-center gap-[10px]">
+          <BrandMark className="h-[30px] w-[30px] flex-none text-brand" />
+          <span className="mz-disp text-[17px] font-bold text-ink">{t("platform.brand.name")}</span>
+        </div>
+
+        <h2 className="mt-[14px] font-display text-[21px] font-bold leading-[1.35] text-ink">
+          {t("platform.login.title")}
+        </h2>
+
+        <label className="mt-[14px] flex flex-col gap-[6px]">
+          <span className="text-xs font-semibold text-ink">{t("platform.login.email")}</span>
+          <TextInput
+            type="email"
+            value={email}
+            autoComplete="username"
+            className="mz-lat"
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </label>
+
+        <label className="mt-[14px] flex flex-col gap-[6px]">
+          <span className="text-xs font-semibold text-ink">{t("platform.login.password")}</span>
+          <TextInput
+            type="password"
+            value={password}
+            autoComplete="current-password"
+            className="mz-lat"
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+
+        {error ? (
+          <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
+            {error}
+          </p>
+        ) : null}
+
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={email.trim() === "" || password === "" || login.isPending}
+          className="mt-[16px] w-full justify-center py-[12px]"
+        >
+          {t("platform.login.submit")}
+        </Button>
+
+        <div className="mt-[10px] border-t border-border pt-[10px] text-center">
+          <Copyright />
+        </div>
+      </form>
+    </div>
+  );
+}

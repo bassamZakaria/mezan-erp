@@ -173,6 +173,7 @@ import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-re
 import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./reconciliation-routes.js";
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
+import type { DocumentEventPublisher } from "@mezan/domain";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
@@ -684,6 +685,8 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
     /** Audit sink for the chain's confirm/cancel records; falls back to `options.auditSink`. */
     readonly audit?: AuditSink;
+    /** Publishes the chain's confirm/cancel events (DEC-5). Omit it and purchases stay silent. */
+    readonly events?: DocumentEventPublisher;
     readonly now?: () => string;
   };
   /**
@@ -1574,6 +1577,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
                 }
               : undefined),
           audit: purchases.audit ?? options.auditSink,
+          events: purchases.events,
           now: purchases.now,
         },
         purchases.resolveAuthContext ?? resolveAuth,

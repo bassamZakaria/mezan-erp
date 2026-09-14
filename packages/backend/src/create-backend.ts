@@ -49,6 +49,7 @@ import {
   type ContractBillingRoutingPort,
   createTreasuryLedgerReader,
   VoucherService,
+  VOUCHER_DOC_TYPE,
   type TreasuryTransferInput,
   DocumentService,
   createDocumentWorkflowGate,
@@ -1885,6 +1886,32 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   } satisfies DocumentEventMapping;
   const returnsEventBridge = createDocumentEventBridge(eventBus, returnsEventMapping);
 
+  /*
+   * The purchase chain is not a `DocumentService`, so it never had a publisher
+   * and five catalogued codes had no producer at all (DEC-5). Routing the chain
+   * through the document framework would have touched receipt→PO status
+   * propagation, invoice-from-receipt auto-fill, the `layers` cancel path and
+   * D75's landed-cost accounting — a large blast radius for a notification
+   * feature — so it gets a publisher of its own instead. A later migration
+   * reuses this same port.
+   */
+  const purchasesEventMapping = {
+    PURCHASE_ORDER: { DOCUMENT_CONFIRMED: "PURCHASE_ORDER_CONFIRMED" },
+    GOODS_RECEIPT: { DOCUMENT_CONFIRMED: "PURCHASE_RECEIPT_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RECEIPT_VOIDED" },
+    PURCHASE_INVOICE: { DOCUMENT_CONFIRMED: "PURCHASE_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_INVOICE_VOIDED" },
+  } satisfies DocumentEventMapping;
+  const purchasesEventBridge = createDocumentEventBridge(eventBus, purchasesEventMapping);
+
+  /*
+   * `VoucherService` has declared an `events` port since it was written and
+   * nothing ever passed one, so `CASH_VOUCHER_CONFIRMED` was a sixth silent
+   * code — catalogued, selectable in a notification rule, and unreachable.
+   */
+  const voucherEventMapping = {
+    [VOUCHER_DOC_TYPE]: { DOCUMENT_CONFIRMED: "CASH_VOUCHER_CONFIRMED" },
+  } satisfies DocumentEventMapping;
+  const voucherEventBridge = createDocumentEventBridge(eventBus, voucherEventMapping);
+
   const salesReturnEvents = fanOutDocumentEvents(
     returnsEventBridge,
     createReturnEtaEnqueueBridge({
@@ -2661,6 +2688,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
         },
       },
+      events: voucherEventBridge,
     },
     purchases: {
       itemCheck: items,
@@ -2677,6 +2705,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       exchangeRates,
       baseCurrency: "EGP",
       audit: auditSink,
+      events: purchasesEventBridge,
       // «من إيصال استلام» omits lines, so the route builds them from the receipt
       // — and without this port every one of those lines was taxed at 0% (D50).
       resolveTaxRate: async (itemId) => (await items.findById(itemId))?.taxRatePercent ?? 0,
@@ -3336,7 +3365,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
     },
     notificationRuleRepo: notificationRules,
-    emittedEventCodes: emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping),
+    emittedEventCodes: emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping, purchasesEventMapping, voucherEventMapping),
     notificationRepo: notifications,
     /**
      * Drains the outbound queue on an operator's request (ROADMAP §3.3).

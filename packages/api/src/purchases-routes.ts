@@ -5,6 +5,7 @@ import {
   Qty,
   NextNumberService,
   createPurchaseOrder,
+  type DocumentEventPublisher,
   confirmPurchaseOrder,
   cancelPurchaseOrder,
   purchaseOrderSubtotal,
@@ -141,6 +142,18 @@ export interface PurchasesRoutesDeps {
   readonly glReverse?: PurchaseGlReversalPort;
   /** Append-only audit sink; when present every confirm/cancel below is recorded on the `sensitive` stream. */
   readonly audit?: AuditSink;
+  /**
+   * Publishes the purchase chain's domain events (DEC-5). The chain is not a
+   * `DocumentService`, so it has no publisher of its own and five catalogued
+   * event codes had no producer at all: a notification rule an admin saved on
+   * «تم إرسال أمر شراء للمورد» could never fire, and a webhook integrator saw
+   * purchases as dead.
+   *
+   * Fire-and-forget, exactly like the bridges the document framework uses: a
+   * bus failure must NEVER fail a confirm. Omit it and the chain is silent,
+   * which is what it was before.
+   */
+  readonly events?: DocumentEventPublisher;
   /**
    * Pay a supplier straight off the invoice: creates, confirms and allocates a
    * real سند صرف. Omit it and `POST /invoices/:id/payments` answers 503 rather
@@ -493,6 +506,20 @@ export function createPurchasesRoutes(
     }
   });
 
+  /**
+   * A bus failure must never fail a confirm: the document is already posted by
+   * the time this runs, and throwing here would report an error for work that
+   * succeeded.
+   */
+  function emit(type: "DOCUMENT_CONFIRMED" | "DOCUMENT_CANCELLED", docType: string, docId: string, docNo: string | null): void {
+    if (!deps.events) return;
+    try {
+      deps.events.publish({ type, docType, docId, docNo, occurredAt: deps.now?.() ?? new Date().toISOString() });
+    } catch (error: unknown) {
+      console.error(`[purchases] event publish failed for ${docType}/${type}`, error);
+    }
+  }
+
   app.post("/orders/:id/confirm", gate("purchases.order.confirm"), async (c) => {
     try {
       const order = await confirmPurchaseOrder(c.req.param("id"), {
@@ -500,6 +527,7 @@ export function createPurchasesRoutes(
         audit: audit(c),
         actor: actor(c),
       });
+      emit("DOCUMENT_CONFIRMED", "PURCHASE_ORDER", order.id, order.number);
       return c.json(serializeOrder(order));
     } catch (err) {
       return handleDomainError(c, err);
@@ -513,6 +541,7 @@ export function createPurchasesRoutes(
         audit: audit(c),
         actor: actor(c),
       });
+      emit("DOCUMENT_CANCELLED", "PURCHASE_ORDER", order.id, order.number);
       return c.json(serializeOrder(order));
     } catch (err) {
       return handleDomainError(c, err);
@@ -673,6 +702,7 @@ export function createPurchasesRoutes(
         actor: actor(c),
         now: deps.now,
       });
+      emit("DOCUMENT_CONFIRMED", "GOODS_RECEIPT", receipt.id, receipt.number);
       return c.json(serializeReceipt(receipt));
     } catch (err) {
       return handleDomainError(c, err);
@@ -693,6 +723,7 @@ export function createPurchasesRoutes(
           actor: actor(c),
           now: deps.now,
         });
+        emit("DOCUMENT_CANCELLED", "GOODS_RECEIPT", receipt.id, receipt.number);
         return c.json(serializeReceipt(receipt));
       } catch (err) {
         return handleDomainError(c, err);
@@ -1139,6 +1170,7 @@ export function createPurchasesRoutes(
         actor: actor(c),
         now: deps.now,
       });
+      emit("DOCUMENT_CONFIRMED", "PURCHASE_INVOICE", invoice.id, invoice.number);
       return c.json(serializeInvoice(invoice));
     } catch (err) {
       return handleDomainError(c, err);
@@ -1160,6 +1192,7 @@ export function createPurchasesRoutes(
           actor: actor(c),
           now: deps.now,
         });
+        emit("DOCUMENT_CANCELLED", "PURCHASE_INVOICE", invoice.id, invoice.number);
         return c.json(serializeInvoice(invoice));
       } catch (err) {
         return handleDomainError(c, err);

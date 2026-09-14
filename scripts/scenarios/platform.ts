@@ -429,8 +429,23 @@ export async function run(ctx: Ctx): Promise<void> {
   await ctx.scenario("platform / webhooks — only emitted events may be subscribed", async () => {
     const events = await req("GET", "/webhooks/events", undefined, {});
     const codes = new Set((events.body?.events ?? []).map((e: any) => e.code));
-    check("exactly 5 events are offered as deliverable", codes.size === 5, [...codes].join(","));
-    for (const c of ["SALES_INVOICE_CONFIRMED", "SALES_INVOICE_VOIDED", "SALES_RETURN_CONFIRMED", "PURCHASE_RETURN_CONFIRMED", "PURCHASE_RETURN_VOIDED"]) {
+    // 5 → 11 with DEC-5: the purchase chain and the treasury voucher both got a
+    // publisher, so five purchase codes and CASH_VOUCHER_CONFIRMED stopped being
+    // catalogued-but-unproducible.
+    check("exactly 11 events are offered as deliverable", codes.size === 11, [...codes].join(","));
+    for (const c of [
+      "SALES_INVOICE_CONFIRMED",
+      "SALES_INVOICE_VOIDED",
+      "SALES_RETURN_CONFIRMED",
+      "PURCHASE_RETURN_CONFIRMED",
+      "PURCHASE_RETURN_VOIDED",
+      "PURCHASE_ORDER_CONFIRMED",
+      "PURCHASE_RECEIPT_CONFIRMED",
+      "PURCHASE_RECEIPT_VOIDED",
+      "PURCHASE_INVOICE_CONFIRMED",
+      "PURCHASE_INVOICE_VOIDED",
+      "CASH_VOUCHER_CONFIRMED",
+    ]) {
       check(`"${c}" is offered as deliverable`, codes.has(c), [...codes].join(","));
     }
 

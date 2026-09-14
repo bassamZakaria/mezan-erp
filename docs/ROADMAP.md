@@ -441,7 +441,9 @@ SaaS follow-ups after the 2026-09-14 browser run (none blocks a sale): subscript
 suspend/resume has API routes but no console button; `GET /platform/resolve` answers a tenant's
 name to anyone who knows its code; a generated platform-owner password is printed to the server
 log once by design (set `MEZAN_PLATFORM_OWNER_PASSWORD` to avoid it); the console's remembered
-tenant is per browser, not per operator. Test-only gaps recorded by the reviewers: no end-to-end
+tenant is per browser, not per operator; screens with their own loader (the HR dashboard,
+reached only by URL now that the rail hides the module) still show a generic load error on a
+403 `MODULE_NOT_LICENSED` instead of the server's Arabic refusal. Test-only gaps recorded by the reviewers: no end-to-end
 cloud-app → router → gate test, no test that a sign-out clears cached tenant data, plan-editor
 decimal-price body and 422 rendering, tenants-list loading/failed states.
 

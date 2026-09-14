@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { ALL_SCOPE, can, createAuthContext, type AuthContext } from "@mezan/domain";
+import { ALL_SCOPE, can, createAuthContext, getPermission, isModuleLicensed, type AuthContext } from "@mezan/domain";
+import { moduleRefusal } from "./module-gate.js";
 
 /** Resolves the calling {@link AuthContext} for one request. */
 export type AuthContextResolver = (c: Context) => AuthContext | Promise<AuthContext>;
@@ -161,6 +162,11 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
     return async function permissionGate(c, next) {
       const ctx = await resolveAuthContext(c);
       if (!ctx.authenticated) return unauthenticated(c);
+      const entitlements = c.get("entitlements");
+      const permissionDef = getPermission(permission);
+      if (entitlements && permissionDef && !isModuleLicensed(permissionDef.module, entitlements)) {
+        return c.json(moduleRefusal(permissionDef.module), 403);
+      }
       if (!can(ctx, permission)) {
         refuse(c, ctx, permission);
         return c.json(
@@ -192,6 +198,16 @@ export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver)
     return async function anyPermissionGate(c, next) {
       const ctx = await resolveAuthContext(c);
       if (!ctx.authenticated) return unauthenticated(c);
+      const entitlements = c.get("entitlements");
+      if (entitlements) {
+        const permissionDefs = permissions.map((permission) => getPermission(permission));
+        const everyModuleUnlicensed =
+          permissionDefs.length > 0 &&
+          permissionDefs.every((def) => def && !isModuleLicensed(def.module, entitlements));
+        if (everyModuleUnlicensed) {
+          return c.json(moduleRefusal(permissionDefs[0]!.module), 403);
+        }
+      }
       if (!permissions.some((permission) => can(ctx, permission))) {
         refuse(c, ctx, permissions[0] ?? "");
         return c.json(

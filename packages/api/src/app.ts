@@ -111,7 +111,7 @@ import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import { sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
-import type { EntitlementsResolver } from "./module-gate.js";
+import { entitlementsBinding, type EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
 import { createPermissionGate, insecureHeaderAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 import {
@@ -852,6 +852,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // — or silently steal — each other's forensic trail. Registered before every
   // route so a refusal anywhere below reaches it.
   if (options.onPermissionRefused) app.use("*", permissionRefusalReporting(options.onPermissionRefused));
+
+  // Binds this request's entitlements so every permission gate below can
+  // refuse an unlicensed module (permission-gate.ts) — the module gate was
+  // exported and unit-tested but never wired to a route until this mount.
+  app.use("*", entitlementsBinding(resolveEntitlements));
 
   // A session token presented from an address it was not issued to. The
   // REFUSAL happens in session-auth.ts regardless of this mount (the resolver

@@ -2712,6 +2712,10 @@ describe("resolveEntitlements", () => {
     expect(body.plan).toBe("core");
     expect(body.activeModules).toEqual(["sales"]);
     expect(body.seats).toBe(1);
+
+    const refused = await app.fetch(new Request("http://local/hr/employees", { headers: admin(app) }));
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr" });
   });
 
   it("defaults to the full ENTERPRISE catalog when omitted", async () => {

@@ -48,6 +48,19 @@ export interface SqliteOpenOptions {
    * encrypted — so that combination throws instead.
    */
   readonly key?: string;
+  /**
+   * Opens the database in `locking_mode = EXCLUSIVE`, which is what makes WAL
+   * usable on a network filesystem: WAL normally coordinates readers and
+   * writers through a shared-memory index file, which NFS cannot provide, and
+   * SQLite only skips that index when one connection holds the file
+   * exclusively. The cloud edition (apps/server on an EFS data directory,
+   * MEZAN_SQLITE_EXCLUSIVE=1) is exactly that shape: one task, one writer.
+   *
+   * The cost is that no second process can open the file at all while this
+   * connection lives — which is why desktop and LAN, where a backup or a
+   * second till may want the file, leave it off.
+   */
+  readonly exclusive?: boolean;
 }
 
 /**
@@ -114,6 +127,11 @@ export function openSqliteConnection(
   // Before every other statement, WAL included: SQLite3MultipleCiphers only
   // honours `PRAGMA key` while the database header is still unread.
   if (options.key !== undefined) applyKey(sqlite, options.key);
+  // ORDER MATTERS: locking_mode must be EXCLUSIVE before the database enters
+  // WAL. Set afterwards it is accepted but does not take effect until the next
+  // time WAL is re-entered, so the shared-memory index NFS cannot serve is
+  // created anyway and the first write fails on the network filesystem.
+  if (options.exclusive === true) sqlite.pragma("locking_mode = EXCLUSIVE");
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("busy_timeout = 5000");
   installSchemaSync(sqlite);

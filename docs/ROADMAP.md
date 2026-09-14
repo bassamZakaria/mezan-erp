@@ -46,9 +46,9 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
 | **Open now (§3)** | **Nothing.** Row menus answered (no), contracting complete, outbound notification delivery landed 2026-09-14 |
 | **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
-| **Defects (§5)** | **0 open as defects** of the 80 filed (D66–D145): 75 fixed, 4 partial, 1 moved to a decision. Every remaining open half is a DECISION with its options stated, not code waiting to be written — D79 (a `taxRateId` on the invoice line), D90 → DEC-19 (in-transit transfers), D111 → DEC-20 (a branch dimension on the GL), D116 (the catalogue overstates a descoped POS), D138 (cross-branch staff reassignment) |
-| **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07. Three named buyer segments could not legally transact before it |
-| **Decisions (§6)** | Seven open (DEC-3 … DEC-7, DEC-19, DEC-20) |
+| **Defects (§5)** | **0 open** of the 83 filed (D66–D148). The three filed on 2026-09-14 are closed with the decisions that found them: D146 (an item marked FIFO was valued WAC), D147 (a rep holding `view_own` saw an empty list because an employee id was compared to a user id), D148 (consumer e-receipts parked awaiting a seal the regime does not require). Every open half that used to be a decision is now taken — D90 → DEC-19, D111 → DEC-20, D116 → DEC-14 |
+| **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07 — but nothing *called* the receipt path until DEC-9 wired the producer on 2026-09-14. Law 6/2025's simplified regime is built and deliberately unclaimed (DEC-13) |
+| **Decisions (§6)** | **None open.** All fourteen taken 2026-09-14 against the persona panel and recorded in §6.4 with the option chosen, what other platforms do, who dissented, and the cost of reversal. Three scope questions remain in §6.3 — they are pricing calls, not code |
 | **Beyond parity (§7)** | 27 candidates across E1–E3, none started; `enhancements` branch only |
 | **Shell follow-ups (§8)** | **All 8 done** (2026-09-14) |
 
@@ -1369,6 +1369,65 @@ naming the article, never a hardcoded constant; liability is presented as an **e
 source cited; the ≥90% concentration is **flagged to the user, not decided by the code**. The
 Decree 420 five books are named exports of reports that already exist — no new registers.
 
+##### What shipped
+
+`SIMPLIFIED_REGIME_SCHEDULES`, selected by `simplifiedRegimeScheduleOn(day)`. Each schedule
+carries `effectiveFrom`/`effectiveTo`, and every figure inside is a `StatutoryValue<T>` of
+`{ value, source }` naming the law and article — bands carry their own source each. **An
+amendment is appended as a new schedule, never edited in place**, so any figure Mezan ever
+displayed is still explicable by the table in force that day.
+
+It is a code table rather than a tenant-editable row, deliberately: statutory data a user can
+edit is statutory data a user can get wrong. The bands are served to the client so the screen
+can print the citation beside the number.
+
+The election screen **records what was filed on Form 1/10**; it cannot perform an election. The
+regime is irrevocable for five years and no click in this product may cause that.
+
+The Decree 420 books are aliases over existing reports — `createDecree420SalesJournal` over
+sales-by-period, `…PurchasesJournal` over purchases-by-period, `…StockRegister` over
+inventory-valuation, `…TaxSummaryBook` over the VAT return. The fixed-asset register has no
+`ReportDefinition` at all, so its registry entry carries `reportId: null` and points at the live
+asset screen rather than naming a report that does not exist.
+
+Smoked against the seeded demo: turnover 9,711,769.89 → the 1.0% band → 97,117.70 estimated,
+client concentration 23.09% (no flag); the comparison prices 97,117.70 simplified against
+162,878.32 normal.
+
+##### Not built, and why
+
+- **Pricing the other exemptions** — stamp duty, development fee, dividend tax, capital gains,
+  advance payments. Each is listed with its article and its money column left **null**, because
+  Mezan does not hold the facts to price them and a plausible figure is a bug.
+- **A branch filter on the comparison.** Invoices carry a branch; journal lines carry one only
+  where DEC-20's attribution has reached that posting path. Filtering would narrow the turnover
+  side fully and the profit side partly, which is worse than not offering it.
+- **Enforcement of quarterly filing.** `recordVatFiling` gained an optional `expectedPeriodMode`
+  that refuses a wrong-length window; nothing passes it yet.
+- **A new permission.** It reuses `admin.settings.view`/`.edit` rather than growing the catalogue
+  DEC-14 had just cut.
+
+**Withholding suppression DID ship**, after the fact: a regime tenant is now refused on a voucher
+that withholds, rather than silently zeroed. The operator typed a number, and a number that
+vanishes without a word is how a wrong filing gets signed.
+
+##### Six numbers nobody verified against a primary source
+
+1. **Band boundary inclusivity.** Read as inclusive-lower/exclusive-upper, so exactly 500,000
+   sits at 0.5%. Checked only against secondary summaries.
+2. **What «حجم الأعمال» means.** Taken as invoiced revenue after discount and **before VAT**.
+   Whether VAT, sales returns or exports belong in the base is unconfirmed. **This is the single
+   biggest exposure, and the reason every figure is stamped `estimate: true`.**
+3. **The quarterly due date.** Read literally as "within one month of quarter end" — same day next
+   month, clamped. Egyptian deadlines are usually written "by the end of the following month",
+   which would be later. The earlier, safer reading was taken.
+4. **The 22.5% normal-regime rate** (Law 91/2005) is from memory, not a fetched source. It sits in
+   the schedule with its citation so one edit corrects it.
+5. **The monthly VAT due date is deliberately `null`** — no sourced rule was found and none was
+   invented. The screen says so.
+6. **Scope of the withholding exemption** — whether the taxpayer is exempt from *suffering* it,
+   from *applying* it, or both.
+
 ---
 
 #### DEC-14 — Delete the codes that name what does not exist. Wire the ones that name a real route gated on the wrong code. "Hide" was never a decision — POS is already hidden by licensing.
@@ -1543,6 +1602,26 @@ subscription and a migration to drop two tables; the event bus, `DocumentEventPu
 notification subscriber stay untouched. Reversal is a git revert plus the DEC-5 work that would have
 been needed anyway.
 
+##### What shipped, and the thing worth more than the deletion
+
+The two domain packages, the two contracts, the two stores, the two route files, the transport, the
+dispatcher's bus subscription and the seeding are gone. Because every store builds its own schema on
+open and this repo has no central migration runner, the dropped tables are dropped where the
+connection opens — an existing books file was still carrying hashed API keys and webhook signing
+secrets for a surface that no longer exists.
+
+**The webhook routes were the only audit writer that ever stamped a branch on its row.** Removing
+them would have left `AuditEvent.branchId` — a decision recorded in this very section — and the audit
+screen's branch filter with no producer at all: a column nothing fills and a filter over an empty
+dimension. That is the identical failure this whole sweep has been closing, arrived at by deleting
+rather than by building.
+
+So every administrative audit record now carries the branch, read off the caller's own resolved scope
+rather than off anything they send. An all-branch caller resolves to null and stays visible
+unfiltered, exactly as before. The scenario that proved branch-scoped auditing used webhook
+registration as its vehicle; it uses a role write now, and still asserts that a specific-branch filter
+excludes both another branch and the branchless rows.
+
 ---
 
 #### DEC-18 — Two named axes (cost centre and project), and stop. Branch becomes the third only via DEC-20. No generic dimension engine.
@@ -1622,6 +1701,36 @@ and abandoned at zero cost.** The shape is known: D97 is the precedent.
 **Hard sequencing rule:** do not ship the filter on any statement before the fill lands for the
 sales, purchase and treasury paths. A filter over an empty dimension is the "silently does nothing"
 failure D111 warned about.
+
+##### What shipped — all five steps
+
+`branchId` on `JournalLine`, `JournalLineInput`, `PostedLine` and `PostedLineFilter`, plus the
+`journal_line.branch_id` column and its index. The migration guard is the D97 recipe already used for
+`project_id`: read `PRAGMA table_info(journal_line)` at store construction, `ALTER TABLE … ADD COLUMN`
+when absent. Nullable, so every line in an existing books file reads back unattributed.
+
+**Carrying a branch now:** sales invoice on all legs (AR, revenue, VAT, COGS, inventory), purchase
+invoice (inventory/GRNI, freight, expense, input VAT, AP), treasury voucher on both legs, and the
+manual journal per line, through a picker over the real branch register.
+
+**Still null:** payroll, depreciation, contracting, and both return documents — a return's branch has
+to come from the source-invoice snapshot. No field was added that nothing fills.
+
+Step 5 shipped because step 3 had landed. `branchScopeOf` is authority and is applied first;
+`branchId` is presentation. **«غير مخصص» is an always-present, footer-totalled column computed without
+the branch parameter**, so no filter can hide the reconciling item — the chartered accountant's
+condition, enforced in code rather than promised. All four statements print the scope caveat in their
+own `descriptionAr`: a management view, not statutory branch books, with no due-to/due-from clearing.
+
+##### A real bug the invariants caught: the year-end close dropped the branch
+
+`year-end-close.ts` grouped only by `projectId`, so closing a year swept each branch's result into an
+unattributed retained-earnings line while that branch's own P&L accounts kept a mirror of what they
+had earned. **A branch's balance sheet stopped balancing the day the year closed.** It now buckets by
+(project, branch), and retained-earnings lines are emitted unconditionally — a profitable branch and a
+loss-making one can net to a zero company result while each still needs its own line.
+
+The four zero-invariants read exactly `0.000000` before and after.
 
 ---
 

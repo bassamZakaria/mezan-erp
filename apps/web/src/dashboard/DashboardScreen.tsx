@@ -79,7 +79,15 @@ interface PanelProps {
 
 function Panel({ title, hint, step, reduced, children }: PanelProps) {
   return (
-    <Card className="flex flex-col p-[18px_20px]" style={riseStyle(step, reduced)}>
+    /*
+     * `min-w-0` is load-bearing, not tidiness. A grid item defaults to
+     * `min-width: auto`, which means "at least as wide as my content" — so a
+     * panel holding a 517px table refused to shrink below 517px inside a 390px
+     * phone, and the `overflow-x-auto` wrapper INSIDE it never got the chance
+     * to scroll: the panel simply pushed the page sideways instead. Every
+     * screen with a wide child in a grid or flex row needs this.
+     */
+    <Card className="flex min-w-0 flex-col p-[18px_20px]" style={riseStyle(step, reduced)}>
       <h3 className="font-display text-md font-bold text-ink">{title}</h3>
       <div className="mb-[14px] mt-[2px] text-2xs text-ink-faint">{hint}</div>
       {children}

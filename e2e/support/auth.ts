@@ -17,6 +17,38 @@ const SEED_ADMIN_PIN = "123456";
 export async function loginAsDemoUser(page: Page): Promise<void> {
   await page.goto("/");
 
+  /*
+   * A freshly seeded tenant is SEEDED but not CLAIMED, and an unclaimed tenant
+   * opens the first-run wizard over the login screen
+   * (`AppLayout.tsx` — `bootstrapStatus.data?.claimed === false`). The e2e
+   * backend runs on `:memory:` and is therefore unclaimed on every start, so
+   * every spec in this suite landed on «معالج الإعداد الأولي» and timed out
+   * waiting for a PIN box that was never on screen.
+   *
+   * The wizard is dismissed rather than completed: these specs want the SEEDED
+   * admin and the seeded chart of accounts, not a tenant the wizard just built,
+   * and cancelling is exactly the path a real operator takes when the install
+   * was already provisioned for them.
+   */
+  const dismissWizard = page.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" });
+  const firstPinBox = page.getByLabel("رمز PIN رقم 1");
+
+  // Waited for, not probed: `page.goto` resolves before the bootstrap query
+  // settles, so an instant `isVisible()` check runs while NEITHER the wizard
+  // nor the login screen is on the page yet, and always answers false.
+  await Promise.race([
+    dismissWizard.waitFor({ state: "visible", timeout: 20_000 }),
+    firstPinBox.waitFor({ state: "visible", timeout: 20_000 }),
+  ]).catch(() => undefined);
+
+  if (await dismissWizard.isVisible().catch(() => false)) {
+    await dismissWizard.click();
+  }
+
+  // Whichever branch ran, the login screen is the thing we act on next, so wait
+  // for it explicitly rather than letting the race decide we are ready.
+  await firstPinBox.waitFor({ state: "visible", timeout: 20_000 });
+
   const email = page.getByRole("textbox", { name: "البريد الإلكتروني" });
   if (await email.isVisible().catch(() => false)) {
     await email.fill(SEED_ADMIN_EMAIL);

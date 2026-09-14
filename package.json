@@ -32,7 +32,8 @@
     "lint:permission-labels": "node scripts/check-permission-labels.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:fuzz": "vitest run --testNamePattern=fuzz"
+    "test:fuzz": "vitest run --testNamePattern=fuzz",
+    "test:responsive": "playwright test --config=playwright.responsive.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

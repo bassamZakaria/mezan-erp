@@ -23,7 +23,7 @@ export function useTenantsQuery(): UseQueryResult<TenantSummaryDTO[], PlatformAp
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/tenants");
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.tenants.empty")));
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.tenants.loadFailed")));
       return res.json<TenantSummaryDTO[]>();
     },
   });
@@ -51,7 +51,7 @@ export function usePlansQuery(): UseQueryResult<PlanDTO[], PlatformApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/plans");
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.newTenant.error.generic")));
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.plans.loadFailed")));
       return res.json<PlanDTO[]>();
     },
   });

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi, ApiProvider } from "../data/ApiContext";
@@ -191,8 +191,35 @@ describe("LoginScreen — SaaS company code", () => {
     fireEvent.blur(input);
     await screen.findByText("Cyag");
     fireEvent.click(screen.getByRole("button", { name: "تغيير المنشأة" }));
-    expect(screen.getByLabelText("رمز المنشأة")).toHaveValue("");
+    // Changing the code clears the query cache (see the test below), so
+    // `/platform/resolve` — and with it this very field — refetches for a
+    // tick before it settles back in.
+    expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("");
     expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
+  });
+
+  it("switching the company code clears the query cache and re-reads the face row under the new tenant — one browser origin serves every 'code' tenant, so a stale query or a rival company's remembered faces must not survive the switch", async () => {
+    localStorage.setItem("mezan.tenantCode", "cyag");
+    localStorage.setItem(
+      "mezan.deviceUsers.cyag",
+      JSON.stringify([{ email: "old@cyag.example", nameAr: "قديم", initials: "ق", role: "member" }]),
+    );
+    const clearSpy = vi.spyOn(QueryClient.prototype, "clear");
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", tenant: null } }) }),
+    });
+    expect(await screen.findByRole("radio", { name: /قديم/ })).toBeInTheDocument();
+
+    const input = await screen.findByLabelText("رمز المنشأة");
+    fireEvent.change(input, { target: { value: "nile" } });
+    fireEvent.blur(input);
+
+    await screen.findByText("Cyag"); // the stub's /tenant handler, re-fired for the new code
+    expect(clearSpy).toHaveBeenCalled();
+    expect(screen.queryByRole("radio", { name: /قديم/ })).not.toBeInTheDocument();
+    // cyag's own remembered faces are untouched — only nile's login screen stops reading them.
+    expect(localStorage.getItem("mezan.deviceUsers.cyag")).not.toBeNull();
+    clearSpy.mockRestore();
   });
 
   it("shows «المنشأة غير موجودة» inline once the typed code fails to resolve", async () => {

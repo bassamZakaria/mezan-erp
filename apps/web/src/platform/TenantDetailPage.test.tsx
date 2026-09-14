@@ -184,6 +184,35 @@ describe("TenantDetailPage", () => {
     expect(screen.queryByRole("button", { name: "تسجيل دفعة" })).not.toBeInTheDocument();
   });
 
+  it("shows the server's own refusal message when a transition is rejected — the click used to just do nothing", async () => {
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/suspend": () => ({
+        status: 409,
+        body: { error: "INVALID_TENANT_TRANSITION", message: 'لا يمكن نقل المنشأة من الحالة "active" إلى "suspended"' },
+      }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إيقاف المنشأة" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent('لا يمكن نقل المنشأة من الحالة "active" إلى "suspended"');
+  });
+
+  it("falls back to the mapped catalog string when the server sends only a bare VALIDATION_ERROR code", async () => {
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/suspend": () => ({ status: 400, body: { error: "VALIDATION_ERROR", details: {} } }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إيقاف المنشأة" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("تحقق من الحقول المدخلة.");
+  });
+
   it("archiving asks for confirmation, and confirming posts the archive", async () => {
     let archived = false;
     const summary = makeSummary();

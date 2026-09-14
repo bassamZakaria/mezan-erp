@@ -1,4 +1,5 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AppShell, SkeletonTable, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
@@ -113,6 +114,7 @@ function initialsFor(fullName: string, unknown: string): string {
 
 export function AppLayout() {
   const { session, setSession, request } = useApi();
+  const queryClient = useQueryClient();
   const profile = useProfile();
   const { t, locale } = useAppTranslation();
   const [showWizard, setShowWizard] = useState(false);
@@ -381,7 +383,11 @@ export function AppLayout() {
     void request("/auth/logout", { method: "POST" }).catch(() => undefined);
     setActiveScreen("dashboard");
     setSession(null);
-  }, [request, setSession, setActiveScreen]);
+    // Every cached answer belonged to the tenant/user who just signed out —
+    // without this, the next person's screens rendered under someone else's
+    // rows until each query happened to refetch on its own.
+    queryClient.clear();
+  }, [request, setSession, setActiveScreen, queryClient]);
 
   const routedTopNavItem = useMemo(() => {
     const topNavItem = buildTopNavItem(t);

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
 import { clearSessionExpired, clearTenantCode, loadTenantCode, persistTenantCode, sessionExpiredPending } from "../data/session";
@@ -51,6 +52,7 @@ export interface LoginScreenProps {
 export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const { t, locale } = useAppTranslation();
   const login = useLogin();
+  const queryClient = useQueryClient();
 
   const platformResolve = usePlatformResolve();
   const tenantMode = platformResolve.data?.mode;
@@ -62,32 +64,55 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   });
   const tenantNotFound = resolvedCode !== "" && tenantInfo.isError && tenantInfo.error?.status === 404;
 
+  const [remembered, setRemembered] = useState<DeviceUser[]>(() => readDeviceUsers());
+  const [selected, setSelected] = useState<DeviceUser | null>(remembered[0] ?? null);
+  /** True once «آخر» is chosen, or when the device remembers nobody at all. */
+  const [typing, setTyping] = useState(remembered.length === 0);
+  const [username, setUsername] = useState(remembered[0]?.email ?? DEFAULT_USERNAME);
+
+  /**
+   * A different company's rows must never survive a tenant switch on the
+   * SAME browser tab: a "code" tenant shares one origin (and so one
+   * `QueryClient` cache) across every company, so clearing it — and
+   * re-reading `mezan.deviceUsers.<code>` for the face row — is what a
+   * `persistTenantCode`/`clearTenantCode` to a DIFFERENT value must do.
+   * Skipped when the code is unchanged, so a mere re-blur doesn't wipe the
+   * cache the screen just warmed up.
+   */
+  function switchTenantCode(apply: () => void) {
+    const before = loadTenantCode();
+    apply();
+    if (loadTenantCode() === before) return;
+    queryClient.clear();
+    const list = readDeviceUsers();
+    setRemembered(list);
+    setSelected(list[0] ?? null);
+    setTyping(list.length === 0);
+    setUsername(list[0]?.email ?? DEFAULT_USERNAME);
+    setPinDigits(Array(PIN_LENGTH).fill(""));
+    setError(null);
+  }
+
   function handleTenantCodeChange(event: ChangeEvent<HTMLInputElement>) {
     setTenantCode(event.target.value.toLowerCase());
   }
 
   function handleTenantCodeBlur() {
     if (tenantCode === "") {
-      clearTenantCode();
+      switchTenantCode(clearTenantCode);
       setResolvedCode("");
       return;
     }
     if (tenantCodeInvalid) return;
-    persistTenantCode(tenantCode);
+    switchTenantCode(() => persistTenantCode(tenantCode));
     setResolvedCode(tenantCode);
   }
 
   function handleChangeTenant() {
-    clearTenantCode();
+    switchTenantCode(clearTenantCode);
     setTenantCode("");
     setResolvedCode("");
   }
-
-  const remembered = useMemo(() => readDeviceUsers(), []);
-  const [selected, setSelected] = useState<DeviceUser | null>(remembered[0] ?? null);
-  /** True once «آخر» is chosen, or when the device remembers nobody at all. */
-  const [typing, setTyping] = useState(remembered.length === 0);
-  const [username, setUsername] = useState(remembered[0]?.email ?? DEFAULT_USERNAME);
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
   // Pure read at mount, cleared in the effect below — see `session.ts` for why
   // the two are not one call.

@@ -15,8 +15,9 @@
  * navigate/intent wiring is what's under test here, not any particular screen.
  */
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import type { EntitlementsDTO, RoleDTO, UserDTO } from "@mezan/contracts";
 import { AppLayout } from "./AppLayout";
@@ -410,6 +411,27 @@ describe("AppLayout — nav entitlements", () => {
     // Unlicensed ones (hr, manufacturing) never reach the rail.
     expect(within(rail).queryByRole("button", { name: "الأشخاص" })).not.toBeInTheDocument();
     expect(within(rail).queryByRole("button", { name: "التصنيع" })).not.toBeInTheDocument();
+  });
+});
+
+describe("AppLayout — sign out", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  it("clears every cached query — a stale answer from the session that just signed out must not render under the next one", async () => {
+    const clearSpy = vi.spyOn(QueryClient.prototype, "clear");
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+      "POST /auth/logout": () => ({ body: {} }),
+    });
+    renderLayout(transport, ["/dashboard"]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "تسجيل الخروج" }));
+    expect(clearSpy).toHaveBeenCalled();
+    clearSpy.mockRestore();
   });
 });
 

@@ -72,4 +72,65 @@ describe("createPlatform", () => {
     expect(enterprise.createdAt).toBe("2026-01-01T00:00:00.000Z");
     platform.close();
   });
+
+  it("seeds one owner when the table is empty", async () => {
+    const platform = await createPlatform({
+      dbPath: ":memory:",
+      now: FIXED_NOW,
+      owner: { email: "root@mezan.app", password: "correct horse battery" },
+    });
+    expect(platform.ownerSeeded).toBe(true);
+    const users = await platform.stores.platformUsers.list();
+    expect(users).toHaveLength(1);
+    expect(users[0]?.email).toBe("root@mezan.app");
+    expect(users[0]?.role).toBe("owner");
+    expect(users[0]?.status).toBe("active");
+    platform.close();
+  });
+
+  it("never seeds a second owner", async () => {
+    const { sqlite: db } = openSqliteConnection(":memory:");
+    const first = await createPlatform({
+      dbPath: db,
+      now: FIXED_NOW,
+      owner: { email: "root@mezan.app", password: "correct horse battery" },
+    });
+    first.close();
+    const second = await createPlatform({
+      dbPath: db,
+      now: FIXED_NOW,
+      owner: { email: "someone-else@mezan.app", password: "correct horse battery" },
+    });
+    expect(second.ownerSeeded).toBe(false);
+    expect(await second.stores.platformUsers.list()).toHaveLength(1);
+    second.close();
+  });
+
+  it("without an owner option, never seeds and reports ownerSeeded false", async () => {
+    const platform = await createPlatform({ dbPath: ":memory:", now: FIXED_NOW });
+    expect(platform.ownerSeeded).toBe(false);
+    expect(await platform.stores.platformUsers.list()).toHaveLength(0);
+    platform.close();
+  });
+
+  it("exposes an audit sink on the same connection", async () => {
+    const platform = await createPlatform({ dbPath: ":memory:", now: FIXED_NOW });
+    await platform.audit.append({
+      stream: "security", module: "platform", entityType: "PLATFORM_USER", entityId: "U1",
+      action: "PLATFORM_LOGIN_SUCCEEDED", actor: "U1", branchId: null,
+      timestamp: "2026-01-01T00:00:00.000Z", severity: "INFO", details: null,
+    });
+    const rows = await platform.audit.query("security");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.action).toBe("PLATFORM_LOGIN_SUCCEEDED");
+    platform.close();
+  });
+
+  it("exposes a hasher, defaulting to a real scrypt hasher", async () => {
+    const platform = await createPlatform({ dbPath: ":memory:", now: FIXED_NOW });
+    const hash = await platform.hasher.hash("some secret");
+    expect(hash.startsWith("scrypt$")).toBe(true);
+    expect(await platform.hasher.verify("some secret", hash)).toBe(true);
+    platform.close();
+  });
 });

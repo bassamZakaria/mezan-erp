@@ -24,9 +24,10 @@ export {
   type SubscriptionLicenseState, type SubscriptionLicenseStateName, type SubscriptionLicenseReason,
 } from "./derive.js";
 export {
-  createPlatformUser, MIN_PLATFORM_PASSWORD_LENGTH,
+  createPlatformUser, verifyPlatformLogin, deactivatePlatformUser, MIN_PLATFORM_PASSWORD_LENGTH,
   type PlatformUser, type PlatformRole, type PlatformUserStatus,
   type PlatformUserRepository, type CreatePlatformUserCommand,
+  type VerifyPlatformLoginCommand, type DeactivatePlatformUserCommand,
 } from "./platform-user.js";
 export {
   recordPayment,

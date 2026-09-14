@@ -1,13 +1,22 @@
-import { createPlan, MODULE_CATALOG, Money, type CreatePlanCommand } from "@mezan/domain";
-import { createSqlitePlatformStores, type SqlitePlatformStoresHandle, type SqliteConnectionInput } from "@mezan/persistence";
+import { randomUUID } from "node:crypto";
+import { createPlan, createPlatformUser, MODULE_CATALOG, Money, type AuditSink, type CreatePlanCommand, type SecretHasher } from "@mezan/domain";
+import {
+  createSqlitePlatformStores, createSqliteAuditSink, createScryptHasher,
+  type SqlitePlatformStoresHandle, type SqliteConnectionInput,
+} from "@mezan/persistence";
 
 export interface CreatePlatformOptions {
   readonly dbPath?: SqliteConnectionInput;
   readonly now?: () => Date;
+  readonly owner?: { readonly email: string; readonly password: string };
+  readonly hasher?: SecretHasher;
 }
 
 export interface PlatformHandle {
   readonly stores: SqlitePlatformStoresHandle;
+  readonly audit: AuditSink;
+  readonly hasher: SecretHasher;
+  readonly ownerSeeded: boolean;
   seedPlansIfEmpty(): Promise<void>;
   close(): void;
 }
@@ -42,6 +51,8 @@ export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
 export async function createPlatform(options: CreatePlatformOptions = {}): Promise<PlatformHandle> {
   const stores = createSqlitePlatformStores(options.dbPath ?? ":memory:");
   const now = options.now ?? (() => new Date());
+  const hasher = options.hasher ?? createScryptHasher();
+  const audit = createSqliteAuditSink(stores.sqlite);
   const seedPlansIfEmpty = async () => {
     const stamp = now().toISOString();
     for (const plan of PLATFORM_SEED_PLANS) {
@@ -50,5 +61,26 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     }
   };
   await seedPlansIfEmpty();
-  return { stores, seedPlansIfEmpty, close: () => stores.close() };
+
+  let ownerSeeded = false;
+  if (options.owner) {
+    const existing = await stores.platformUsers.list();
+    if (existing.length === 0) {
+      await createPlatformUser(
+        { id: randomUUID(), email: options.owner.email, password: options.owner.password, role: "owner", now: now().toISOString() },
+        stores.platformUsers,
+        hasher,
+      );
+      ownerSeeded = true;
+    }
+  }
+
+  return {
+    stores,
+    audit,
+    hasher,
+    ownerSeeded,
+    seedPlansIfEmpty,
+    close: () => { stores.close(); audit.close(); },
+  };
 }

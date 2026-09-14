@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createPlan, createPlatformUser, MODULE_CATALOG, Money, type AuditSink, type CreatePlanCommand, type SecretHasher } from "@mezan/domain";
 import {
   createSqlitePlatformStores, createSqliteAuditSink, createScryptHasher,
-  type SqlitePlatformStoresHandle, type SqliteConnectionInput,
+  type SqlitePlatformStoresHandle, type SqliteConnectionInput, type SqliteOpenOptions,
 } from "@mezan/persistence";
 
 export interface CreatePlatformOptions {
@@ -10,6 +10,7 @@ export interface CreatePlatformOptions {
   readonly now?: () => Date;
   readonly owner?: { readonly email: string; readonly password: string };
   readonly hasher?: SecretHasher;
+  readonly connection?: SqliteOpenOptions;
 }
 
 export interface PlatformHandle {
@@ -49,7 +50,7 @@ export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
 ];
 
 export async function createPlatform(options: CreatePlatformOptions = {}): Promise<PlatformHandle> {
-  const stores = createSqlitePlatformStores(options.dbPath ?? ":memory:");
+  const stores = createSqlitePlatformStores(options.dbPath ?? ":memory:", options.connection);
   const now = options.now ?? (() => new Date());
   const hasher = options.hasher ?? createScryptHasher();
   const audit = createSqliteAuditSink(stores.sqlite);

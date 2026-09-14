@@ -1,0 +1,5 @@
+environment          = "demo"
+domain               = "example.invalid"
+tenant_domain        = "example.invalid"
+image_tag            = "latest"
+platform_owner_email = "owner@example.invalid"

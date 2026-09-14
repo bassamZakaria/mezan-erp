@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { openSqliteConnection, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
 import {
   Money,
   type Payment, type PaymentRepository,
@@ -393,8 +393,11 @@ export interface SqlitePlatformStoresHandle {
   close(): void;
 }
 
-export function createSqlitePlatformStores(path: SqliteConnectionInput = ":memory:"): SqlitePlatformStoresHandle {
-  const { sqlite, owned } = openSqliteConnection(path);
+export function createSqlitePlatformStores(
+  path: SqliteConnectionInput = ":memory:",
+  options: SqliteOpenOptions = {},
+): SqlitePlatformStoresHandle {
+  const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
   return {
     tenants: new SqliteTenantStore(sqlite),

@@ -529,13 +529,32 @@ and label a purchase return correctly.
 The build plan for the deferred areas — HR/Payroll (27 tasks), POS (26 tasks) and the
 Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated here.
 
+SaaS follow-ups after the 2026-09-14 browser run (none blocks a sale): subscription-level
+suspend/resume has API routes but no console button; `GET /platform/resolve` answers a tenant's
+name to anyone who knows its code; a generated platform-owner password is printed to the server
+log once by design (set `MEZAN_PLATFORM_OWNER_PASSWORD` to avoid it); the console's remembered
+tenant is per browser, not per operator; screens with their own loader (the HR dashboard,
+reached only by URL now that the rail hides the module) still show a generic load error on a
+403 `MODULE_NOT_LICENSED` instead of the server's Arabic refusal. Test-only gaps recorded by the reviewers: no end-to-end
+cloud-app → router → gate test, no test that a sign-out clears cached tenant data, plan-editor
+decimal-price body and 422 rendering, tenants-list loading/failed states.
+
 Cloud-1 #6–8 (models only) and Cloud-3 #13 landed 2026-09-13 as `packages/domain/src/platform`,
 `packages/persistence/src/platform-store.ts` and `createPlatform` in `packages/backend`: tenant,
 plan and subscription records, one SQLite database per tenant, and the two derivations that
-feed the existing entitlements and licence-state gates. Per-request tenant routing, onboarding,
-the platform console and billing remain open — see
-`superpowers/specs/2026-09-13-saas-tenant-models-design.md`. Seeded plan prices are zero until
-the owner sets them.
+feed the existing entitlements and licence-state gates. Per-request tenant routing, onboarding
+and the platform console landed 2026-09-14 on `SASS` — see
+`superpowers/specs/2026-09-14-saas-completion-design.md`. Seeded plan prices are zero until
+Cloud-3's remaining task (the demo tenant and price seed) lands.
+
+Slice C (deploy, seed and proof) is landing alongside it: `apps/server/src/cloud-app.ts`
+composes the platform database, the platform API, the tenant router, provisioning, dunning and
+in-app backups from `MEZAN_*` env vars — the contract is in
+`superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Local (`pnpm env:testing`/`:staging`),
+Render and the AWS container image now all run this one entrypoint, each seeding its own
+platform owner and demo tenant (code `demo`) from `MEZAN_SEED_DEMO` — see `ENVIRONMENTS.md` and
+`DEPLOY-DEMO.md`. The eight scenarios `PLT-SAAS-01..08` are written down in `TESTING.md` §11;
+they still need a live-browser pass before this slice is called proven.
 
 ---
 

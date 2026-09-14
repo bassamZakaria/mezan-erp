@@ -236,6 +236,121 @@ describe("seat cap (A3: seat, branch and warehouse caps)", () => {
     );
     expect(res.status).toBe(201);
   });
+
+  async function seedInactiveUser(users: ReturnType<typeof newAppWithSeats>["users"], id: string, email: string) {
+    await users.save({
+      id,
+      nameAr: "غير نشط",
+      nameEn: null,
+      email,
+      phone: null,
+      passwordHash: "hashed:x",
+      pinHash: null,
+      roleId: null,
+      isCompanyAdmin: false,
+      employeeId: null,
+      branchScope: "*",
+      warehouseScope: "*",
+      status: "inactive",
+      photoUrl: null,
+      lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
+  }
+
+  it("refuses POST /users/:id/activate past the seat cap, and leaves the account inactive", async () => {
+    const { app, users } = newAppWithSeats(1);
+    const first = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(newUserBody),
+      }),
+    );
+    expect(first.status).toBe(201);
+    await seedInactiveUser(users, "u-inactive-1", "inactive1@cyag.test");
+
+    const res = await app.fetch(new Request("http://x/users/u-inactive-1/activate", { method: "POST" }));
+    expect(res.status).toBe(409);
+    expect((await json(res)) as { error: string }).toMatchObject({ error: "SEAT_LIMIT_REACHED" });
+    expect((await users.findById("u-inactive-1"))?.status).toBe("inactive");
+  });
+
+  it("allows POST /users/:id/activate when seats have room", async () => {
+    const { app, users } = newAppWithSeats(2);
+    const first = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(newUserBody),
+      }),
+    );
+    expect(first.status).toBe(201);
+    await seedInactiveUser(users, "u-inactive-2", "inactive2@cyag.test");
+
+    const res = await app.fetch(new Request("http://x/users/u-inactive-2/activate", { method: "POST" }));
+    expect(res.status).toBe(200);
+    expect((await users.findById("u-inactive-2"))?.status).toBe("active");
+  });
+
+  it("refuses a PUT that reactivates an inactive user past the seat cap, and leaves them inactive", async () => {
+    const { app, users } = newAppWithSeats(1);
+    const first = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(newUserBody),
+      }),
+    );
+    expect(first.status).toBe(201);
+    await seedInactiveUser(users, "u-inactive-3", "inactive3@cyag.test");
+
+    const res = await app.fetch(
+      new Request("http://x/users/u-inactive-3", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...newUserBody,
+          email: "inactive3@cyag.test",
+          isCompanyAdmin: true,
+          roleId: null,
+          status: "active",
+        }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect((await json(res)) as { error: string }).toMatchObject({ error: "SEAT_LIMIT_REACHED" });
+    expect((await users.findById("u-inactive-3"))?.status).toBe("inactive");
+  });
+
+  it("a PUT that keeps a user inactive is unaffected by the seat cap", async () => {
+    const { app, users } = newAppWithSeats(1);
+    const first = await app.fetch(
+      new Request("http://x/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(newUserBody),
+      }),
+    );
+    expect(first.status).toBe(201);
+    await seedInactiveUser(users, "u-inactive-4", "inactive4@cyag.test");
+
+    const res = await app.fetch(
+      new Request("http://x/users/u-inactive-4", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...newUserBody,
+          email: "inactive4@cyag.test",
+          isCompanyAdmin: true,
+          roleId: null,
+          status: "inactive",
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect((await users.findById("u-inactive-4"))?.status).toBe("inactive");
+  });
 });
 
 describe("who may make themselves a company admin (D86 — closed by PR #54, S2)", () => {

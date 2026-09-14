@@ -102,6 +102,14 @@ export class InvalidSubscriptionTransitionError extends Error {
   }
 }
 
+export class InvalidPaymentError extends Error {
+  readonly code = "INVALID_PAYMENT";
+  constructor(readonly reasons: string[]) {
+    super(reasons.join("; "));
+    this.name = "InvalidPaymentError";
+  }
+}
+
 export class InvalidPlatformUserError extends Error {
   readonly code = "INVALID_PLATFORM_USER";
   constructor(readonly reasons: string[]) {
@@ -115,5 +123,13 @@ export class PlatformUserEmailTakenError extends Error {
   constructor(readonly email: string) {
     super(`البريد "${email}" مستخدم بالفعل`);
     this.name = "PlatformUserEmailTakenError";
+  }
+}
+
+export class PlatformUserNotFoundError extends Error {
+  readonly code = "PLATFORM_USER_NOT_FOUND";
+  constructor(readonly id: string) {
+    super(`مستخدم المنصة "${id}" غير موجود`);
+    this.name = "PlatformUserNotFoundError";
   }
 }

@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
-import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { openSqliteConnection, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
 import {
   Money,
+  type Payment, type PaymentRepository,
   type Plan, type PlanRepository,
   type PlatformUser, type PlatformUserRepository,
   type Subscription, type SubscriptionRepository,
@@ -74,6 +75,20 @@ CREATE TABLE IF NOT EXISTS platform_user (
   created_at     TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_user_email ON platform_user(email);
+
+CREATE TABLE IF NOT EXISTS payment (
+  id              TEXT PRIMARY KEY,
+  tenant_id       TEXT NOT NULL,
+  subscription_id TEXT NOT NULL,
+  amount          INTEGER NOT NULL,
+  currency        TEXT NOT NULL,
+  reference       TEXT NOT NULL,
+  paid_at         TEXT NOT NULL,
+  recorded_by     TEXT NOT NULL,
+  note            TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_payment_tenant ON payment(tenant_id, paid_at);
 `;
 
 interface TenantRow {
@@ -222,6 +237,7 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
   private readonly liveByTenant: Database.Statement;
   private readonly byTenant: Database.Statement;
   private readonly liveByPlan: Database.Statement;
+  private readonly listLiveByPlan: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(
@@ -242,6 +258,7 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
     this.liveByTenant = sqlite.prepare(`SELECT * FROM subscription WHERE tenant_id = ? AND status <> 'cancelled'`);
     this.byTenant = sqlite.prepare(`SELECT * FROM subscription WHERE tenant_id = ? ORDER BY created_at, id`);
     this.liveByPlan = sqlite.prepare(`SELECT 1 FROM subscription WHERE plan_id = ? AND status <> 'cancelled' LIMIT 1`);
+    this.listLiveByPlan = sqlite.prepare(`SELECT * FROM subscription WHERE plan_id = ? AND status <> 'cancelled' ORDER BY created_at, id`);
   }
 
   async findById(id: string): Promise<Subscription | null> {
@@ -260,6 +277,10 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
 
   async hasLiveByPlan(planId: string): Promise<boolean> {
     return this.liveByPlan.get(planId) !== undefined;
+  }
+
+  async listByPlan(planId: string): Promise<Subscription[]> {
+    return (this.listLiveByPlan.all(planId) as SubscriptionRow[]).map(toSubscription);
   }
 
   async save(s: Subscription): Promise<void> {
@@ -322,22 +343,75 @@ class SqlitePlatformUserStore implements PlatformUserRepository {
   }
 }
 
+interface PaymentRow {
+  id: string; tenant_id: string; subscription_id: string; amount: number; currency: Payment["currency"];
+  reference: string; paid_at: string; recorded_by: string; note: string | null; created_at: string;
+}
+
+function toPayment(r: PaymentRow): Payment {
+  return {
+    id: r.id, tenantId: r.tenant_id, subscriptionId: r.subscription_id, amount: Money.fromScaled(r.amount),
+    currency: r.currency, reference: r.reference, paidAt: r.paid_at, recordedBy: r.recorded_by,
+    note: r.note, createdAt: r.created_at,
+  };
+}
+
+class SqlitePaymentStore implements PaymentRepository {
+  private readonly insert: Database.Statement;
+  private readonly byId: Database.Statement;
+  private readonly byTenant: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    /** Payments are append-only: no ON CONFLICT — a reused id is a bug and must reject, never silently overwrite the row it is renewing a subscription against. */
+    this.insert = sqlite.prepare(
+      `INSERT INTO payment (id, tenant_id, subscription_id, amount, currency, reference, paid_at, recorded_by, note, created_at)
+       VALUES (@id, @tenantId, @subscriptionId, @amount, @currency, @reference, @paidAt, @recordedBy, @note, @createdAt)`,
+    );
+    this.byId = sqlite.prepare(`SELECT * FROM payment WHERE id = ?`);
+    this.byTenant = sqlite.prepare(`SELECT * FROM payment WHERE tenant_id = ? ORDER BY paid_at DESC, id DESC`);
+  }
+
+  async findById(id: string): Promise<Payment | null> {
+    const row = this.byId.get(id) as PaymentRow | undefined;
+    return row ? toPayment(row) : null;
+  }
+
+  async listByTenant(tenantId: string): Promise<Payment[]> {
+    return (this.byTenant.all(tenantId) as PaymentRow[]).map(toPayment);
+  }
+
+  async save(p: Payment): Promise<void> {
+    this.insert.run({
+      id: p.id, tenantId: p.tenantId, subscriptionId: p.subscriptionId, amount: p.amount.toScaledNumber(),
+      currency: p.currency, reference: p.reference, paidAt: p.paidAt, recordedBy: p.recordedBy,
+      note: p.note, createdAt: p.createdAt,
+    });
+  }
+}
+
 export interface SqlitePlatformStoresHandle {
   readonly tenants: TenantRepository;
   readonly plans: PlanRepository;
   readonly subscriptions: SubscriptionRepository;
   readonly platformUsers: PlatformUserRepository;
+  readonly payments: PaymentRepository;
+  readonly sqlite: Database.Database;
   close(): void;
 }
 
-export function createSqlitePlatformStores(path: SqliteConnectionInput = ":memory:"): SqlitePlatformStoresHandle {
-  const { sqlite, owned } = openSqliteConnection(path);
+export function createSqlitePlatformStores(
+  path: SqliteConnectionInput = ":memory:",
+  options: SqliteOpenOptions = {},
+): SqlitePlatformStoresHandle {
+  const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),
     subscriptions: new SqliteSubscriptionStore(sqlite),
     platformUsers: new SqlitePlatformUserStore(sqlite),
+    payments: new SqlitePaymentStore(sqlite),
+    sqlite,
     close: () => { if (owned) sqlite.close(); },
   };
 }

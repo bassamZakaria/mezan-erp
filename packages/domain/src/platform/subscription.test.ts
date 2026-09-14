@@ -44,6 +44,9 @@ function subs(): SubscriptionRepository & { rows: Map<string, Subscription> } {
     async hasLiveByPlan(planId) {
       return [...rows.values()].some((s) => s.planId === planId && s.status !== "cancelled");
     },
+    async listByPlan(planId) {
+      return [...rows.values()].filter((s) => s.planId === planId && s.status !== "cancelled");
+    },
     async save(s) { rows.set(s.id, s); },
   };
 }

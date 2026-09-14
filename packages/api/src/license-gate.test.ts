@@ -13,6 +13,13 @@ const READ_ONLY: LicenseStateView = {
   reason: "EXPIRED_PAST_GRACE",
 };
 
+const UNLICENSED: LicenseStateView = {
+  state: "UNLICENSED",
+  canWrite: false,
+  usable: true,
+  reason: "NO_SUBSCRIPTION",
+};
+
 function appWith(state: LicenseStateView): Hono {
   const app = new Hono();
   app.use("*", createWriteGate(() => state));
@@ -20,6 +27,7 @@ function appWith(state: LicenseStateView): Hono {
   app.post("/sales-invoices", (c) => c.json({ created: true }, 201));
   app.post("/auth/login", (c) => c.json({ token: "t" }));
   app.post("/license/activate", (c) => c.json({ activated: true }));
+  app.post("/bootstrap/admin", (c) => c.json({ created: true }, 201));
   return app;
 }
 
@@ -47,6 +55,13 @@ describe("createWriteGate (license read-only enforcement)", () => {
   it("still allows license activation while read-only, so the lockout can be lifted", async () => {
     const res = await appWith(READ_ONLY).request("/license/activate", { method: "POST" });
     expect(res.status).toBe(200);
+  });
+
+  it("still allows /bootstrap/admin while READ_ONLY or UNLICENSED, so a never-licensed tenant can still be provisioned", async () => {
+    const readOnlyRes = await appWith(READ_ONLY).request("/bootstrap/admin", { method: "POST" });
+    expect(readOnlyRes.status).toBe(201);
+    const unlicensedRes = await appWith(UNLICENSED).request("/bootstrap/admin", { method: "POST" });
+    expect(unlicensedRes.status).toBe(201);
   });
 
   it("passes mutations through untouched when the license can write", async () => {

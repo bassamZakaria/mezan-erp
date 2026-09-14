@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, createEntitlements } from "@mezan/domain";
+import { ALL_SCOPE, createEntitlements, MODULE_CATALOG } from "@mezan/domain";
+import { openSqliteConnection } from "@mezan/persistence";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -3310,8 +3311,14 @@ describe("createBackend — GET /gl/balances-by-currency reads real open receiva
 });
 
 describe("createBackend — seedDemoData wires a real session and seeds through the real API", () => {
+  // The demo seed's ~15-user tenant exceeds the default resolver's 10 seats
+  // (A3's SEAT_LIMIT_REACHED), so every demo-seeded backend here supplies its
+  // own room to seed.
+  const demoEntitlements = () =>
+    createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+
   it("seeds more than zero customers, reachable over the real HTTP surface", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
     handles.push(handle);
     registries.set(handle.app, handle.sessions);
     const res = await handle.app.fetch(new Request("http://local/customers", { headers: admin(handle.app) }));
@@ -3327,7 +3334,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
    * confirms a live invoice the authority never hears about.
    */
   it("an approved progress certificate's invoice reaches the ETA queue exactly once", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
     handles.push(handle);
     registries.set(handle.app, handle.sessions);
     const app = handle.app;
@@ -3378,5 +3385,45 @@ describe("resolveEntitlements", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { plan: string };
     expect(body.plan).toBe("ENTERPRISE");
+  });
+});
+
+describe("backupTo", () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes a verified, openable copy of the live database to the destination path", async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "mezan-backup-test-"));
+    const handle = await createBackend({ dbPath: path.join(dir, "mezan.db") });
+    handles.push(handle);
+    registries.set(handle.app, handle.sessions);
+
+    expect(
+      (
+        await handle.app.fetch(
+          new Request("http://local/items", {
+            method: "POST",
+            headers: { "content-type": "application/json", ...admin(handle.app) },
+            body: JSON.stringify({ id: "item-1", code: "ITEM-1", nameAr: "منتج 1", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }),
+          }),
+        )
+      ).status,
+    ).toBe(201);
+
+    const destination = path.join(dir, "backup.sqlite");
+    await handle.backupTo(destination);
+
+    expect(existsSync(destination)).toBe(true);
+    const { sqlite: copy } = openSqliteConnection(destination);
+    try {
+      expect(copy.pragma("integrity_check", { simple: true })).toBe("ok");
+      const item = copy.prepare("SELECT code FROM item WHERE id = ?").get("item-1") as { code: string } | undefined;
+      expect(item?.code).toBe("ITEM-1");
+    } finally {
+      copy.close();
+    }
   });
 });

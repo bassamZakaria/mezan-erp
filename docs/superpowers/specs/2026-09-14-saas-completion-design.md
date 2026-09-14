@@ -18,12 +18,14 @@ gates and browser proof pass.
 
 ### 1.1 Resolver
 `apps/server/src/tenant-resolver.ts`: `resolveTenantCode(request, { tenantDomain })`.
-- The host is `x-forwarded-host` when present (CloudFront rewrites `Host` to the origin's, so
-  the edge copies the viewer host into that header), else `Host`; the port is stripped.
+- The host is `Host`, or `x-forwarded-host` when `trustForwardedHost` is on (CloudFront rewrites
+  `Host` to the origin's, so the edge copies the viewer host into that header; only a deployment
+  behind such a proxy turns this on). The port is stripped.
 - If `tenantDomain` is set and the host ends with `.<tenantDomain>`, the code is the
   label before it, lower-cased. A host that is exactly the domain, or has a deeper label, resolves
   to null.
-- Otherwise the `x-mezan-tenant` header, trimmed and lower-cased; absent means null.
+- Otherwise the `x-mezan-tenant` header, trimmed and lower-cased, when `allowTenantHeader` is on
+  (default); absent means null.
 - A resolved code that fails `isValidSlug` is treated as null.
 
 ### 1.2 Router
@@ -53,8 +55,9 @@ serialised per code so two concurrent first requests share one handle.
 returns `{ resolveEntitlements, resolveLicenseState }`. Both read the tenant, its live
 subscription and the plan from the platform stores, cached per tenant for `ttlMs`
 (default 30 s), and call `deriveEntitlements` / `subscriptionLicenseState`. A tenant with no
-live subscription yields `UNLICENSED_ENTITLEMENTS` (no modules, 0 seats) and licence
-`UNLICENSED`. `invalidate(code)` is exposed so the platform routes drop the cache after a
+live subscription derives its modules from its most recent subscription so reads keep working,
+while the licence state (READ_ONLY after cancellation or lapse) refuses writes; only a tenant
+that never had a subscription is `UNLICENSED` with `UNLICENSED_ENTITLEMENTS`. `invalidate(code)` is exposed so the platform routes drop the cache after a
 change.
 
 `createBackend` gains `resolveEntitlements?: EntitlementsResolver`, passed to `createApp`
@@ -134,6 +137,11 @@ Every mutation invalidates the tenant's entitlement cache and writes the platfor
    stored by the platform.
 On any failure after step 1 the tenant stays `provisioning` with the error in the response; the
 operator can retry `POST /tenants/:id/provision`, which re-runs steps 2 to 3 idempotently.
+Activation is the LAST step, so the router never dispatches to a tenant whose admin does not
+exist yet. `/bootstrap/*` sits on the licence write-gate allowlist so seeding and the admin claim
+work on a still-unlicensed tenant; both routes close themselves (seed is a no-op once non-empty,
+admin refuses once claimed). Known trade-off: an unclaimed tenant suspended mid-provision can
+still be claimed through `/bootstrap/admin` by whoever holds its code until it is archived.
 
 ### 2.5 Dunning sweep
 `runDunningSweep(platform, now)`: every `active` subscription whose `currentPeriodEnd` < now →
@@ -164,7 +172,10 @@ dialog, following the existing screen test style.
   platform user exists (a generated password is printed once, like the admin PIN), mounts
   `createPlatformRoutes` at `/api/platform` and `createTenantRouter` at `/api`. `MEZAN_SEED_DEMO=1`
   provisions tenant `demo` with the existing demo seed on an enterprise subscription.
-  `MEZAN_PLATFORM_DIR` defaults to `.data/platform`; `MEZAN_TENANT_DOMAIN` optional.
+  `MEZAN_PLATFORM_DIR` defaults to `.data/platform`; `MEZAN_TENANT_DOMAIN` optional. Exactly one
+  process may own a `MEZAN_PLATFORM_DIR` at a time — ECS's deployment min 0 / max 100 guarantees
+  that (the old task stops before the new one starts), and `MEZAN_SQLITE_EXCLUSIVE=1` makes a
+  second process that opens the same directory anyway fail fast instead of corrupting it.
 - `apps/server/src/index.ts` (dev): same wiring on `./.data/dev-platform`.
 - `scripts/env.mjs`: `MEZAN_PLATFORM_DIR=.data/<env>-platform`; `render.yaml`: `/tmp/platform`.
 - Seed prices become 490 / 980 / 1960 monthly and ten times yearly; the placeholder comment goes.

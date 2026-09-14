@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { entitlementsSchema } from "./entitlements.js";
+import { nonNegativeMoneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the platform console
@@ -10,7 +11,7 @@ import { entitlementsSchema } from "./entitlements.js";
  * non-empty string rather than against `MODULE_CATALOG`.
  */
 
-const positiveDecimalString = z.string().regex(/^\d+(\.\d{1,6})?$/, "must be a non-negative decimal string with at most 6 decimals");
+const positiveDecimalString = nonNegativeMoneyString;
 /**
  * Rejects "0" and "0.00" via exact bigint digits, never a float — a float
  * equality check would mis-round on the scale-1e-6 boundary. The digit guard

@@ -13,7 +13,7 @@ const starterPlan: PlanDTO = {
   code: "starter",
   nameAr: "الأساسية",
   nameEn: "Starter",
-  modules: ["dashboard"],
+  modules: ["sales"],
   features: {},
   seatsIncluded: 5,
   branchesIncluded: 1,
@@ -50,7 +50,7 @@ describe("PlanEditor", () => {
     fireEvent.change(screen.getByLabelText("الكود"), { target: { value: "pro" } });
     fireEvent.change(screen.getByLabelText("الاسم بالعربية"), { target: { value: "المتقدمة" } });
     fireEvent.change(screen.getByLabelText("الاسم بالإنجليزية"), { target: { value: "Pro" } });
-    fireEvent.click(screen.getByRole("button", { name: "لوحة التحكم" }));
+    fireEvent.click(screen.getByRole("button", { name: "المبيعات" }));
     fireEvent.change(screen.getByLabelText("السعر الشهري (جنيه)"), { target: { value: "900" } });
     fireEvent.blur(screen.getByLabelText("السعر الشهري (جنيه)"));
     fireEvent.change(screen.getByLabelText("السعر السنوي (جنيه)"), { target: { value: "9000" } });
@@ -61,7 +61,7 @@ describe("PlanEditor", () => {
       code: "pro",
       nameAr: "المتقدمة",
       nameEn: "Pro",
-      modules: ["dashboard"],
+      modules: ["sales"],
       seatsIncluded: 1,
       branchesIncluded: 1,
       warehousesIncluded: 1,

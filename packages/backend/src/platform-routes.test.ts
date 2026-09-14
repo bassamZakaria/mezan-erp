@@ -158,7 +158,7 @@ describe("createPlatformRoutes", () => {
     expect(detail.licenseState.canWrite).toBe(true);
     expect(detail.subscription?.status).toBe("active");
     expect(detail.entitlements?.plan).toBe("core");
-    expect(detail.entitlements?.activeModules).toContain("dashboard");
+    expect(detail.entitlements?.activeModules).toContain("sales");
     expect(detail.payments).toEqual([]);
   });
 
@@ -279,7 +279,7 @@ describe("createPlatformRoutes", () => {
       req("/plans", rig.ownerToken, {
         method: "POST",
         body: JSON.stringify({
-          code: "starter", nameAr: "المبتدئة", nameEn: "Starter", modules: ["dashboard"],
+          code: "starter", nameAr: "المبتدئة", nameEn: "Starter", modules: ["sales"],
           seatsIncluded: 1, branchesIncluded: 1, warehousesIncluded: 1,
           priceMonthly: "100.00", priceYearly: "1000.00", trialDays: 7, isPublic: true, sortOrder: 0,
         }),
@@ -294,7 +294,7 @@ describe("createPlatformRoutes", () => {
       req(`/plans/${created.id}`, rig.ownerToken, {
         method: "PUT",
         body: JSON.stringify({
-          code: "ignored-code", nameAr: "المبتدئة الجديدة", nameEn: "Starter", modules: ["dashboard"],
+          code: "ignored-code", nameAr: "المبتدئة الجديدة", nameEn: "Starter", modules: ["sales"],
           seatsIncluded: 2, branchesIncluded: 1, warehousesIncluded: 1,
           priceMonthly: "150.00", priceYearly: "1500.00", trialDays: 7, isPublic: true, sortOrder: 0,
         }),
@@ -359,7 +359,7 @@ describe("createPlatformRoutes", () => {
       ["POST", `/tenants/${id}/suspend`, undefined],
       ["POST", `/tenants/${id}/subscription/cancel`, undefined],
       ["POST", `/tenants/${id}/payments`, JSON.stringify({ amount: "1.00", reference: "r", paidAt: "2026-01-01T00:00:00.000Z" })],
-      ["POST", "/plans", JSON.stringify({ code: "x", nameAr: "س", nameEn: "x", modules: ["dashboard"], seatsIncluded: 1, branchesIncluded: 1, warehousesIncluded: 1, priceMonthly: "0", priceYearly: "0", trialDays: 0, isPublic: true, sortOrder: 0 })],
+      ["POST", "/plans", JSON.stringify({ code: "x", nameAr: "س", nameEn: "x", modules: ["sales"], seatsIncluded: 1, branchesIncluded: 1, warehousesIncluded: 1, priceMonthly: "0", priceYearly: "0", trialDays: 0, isPublic: true, sortOrder: 0 })],
       ["POST", "/users", JSON.stringify({ email: "x@mezan.app", password: "correct horse battery", role: "support" })],
       ["POST", `/users/PU-SUPPORT/deactivate`, undefined],
     ];

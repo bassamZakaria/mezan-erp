@@ -179,7 +179,7 @@ describe("createCloudApp", () => {
         method: "POST",
         headers: authed,
         body: JSON.stringify({
-          code: "doomed", nameAr: "محكوم عليها", nameEn: "Doomed", modules: ["dashboard"],
+          code: "doomed", nameAr: "محكوم عليها", nameEn: "Doomed", modules: ["sales"],
           seatsIncluded: 1, branchesIncluded: 1, warehousesIncluded: 1,
           priceMonthly: "0", priceYearly: "0", trialDays: 0, isPublic: true, sortOrder: 99,
         }),

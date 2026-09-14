@@ -13,7 +13,7 @@ const starterPlan: PlanDTO = {
   code: "starter",
   nameAr: "الأساسية",
   nameEn: "Starter",
-  modules: ["dashboard", "sales"],
+  modules: ["accounting", "sales"],
   features: {},
   seatsIncluded: 5,
   branchesIncluded: 1,

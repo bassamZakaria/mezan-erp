@@ -6,9 +6,10 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type MiddlewareHandler } from "hono";
 import { createPlatform, createPlatformAuth, createPlatformRoutes, type PlatformHandle } from "@mezan/backend";
 import { createSessionRegistry } from "@mezan/api";
-import type { CreateTenantRequestDTO, ProvisionResultDTO } from "@mezan/contracts";
+import { TenantNotFoundError } from "@mezan/domain";
+import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
-import { provisionTenant } from "./provision-tenant.js";
+import { provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { startDunningTimer } from "./dunning.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
@@ -89,11 +90,34 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const provisionTenantForRoutes = (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> =>
     provisionTenant(cmd, { platform, router, now });
 
+  const provisionRetryForRoutes = async (input: { tenantId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
+    const tenant = await platform.stores.tenants.findById(input.tenantId);
+    if (!tenant) throw new TenantNotFoundError(input.tenantId);
+    const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
+    const planId = live?.planId ?? input.planId;
+    const billingCycle = live?.billingCycle ?? input.billingCycle;
+    if (!planId || !billingCycle) throw new PlanRequiredError();
+    return provisionTenant(
+      {
+        code: tenant.code,
+        nameAr: tenant.nameAr,
+        nameEn: tenant.nameEn,
+        ownerEmail: tenant.ownerEmail,
+        ownerNameAr: input.ownerNameAr ?? tenant.nameAr,
+        planId,
+        billingCycle,
+        trial: live ? live.status === "trialing" : (input.trial ?? false),
+      },
+      { platform, router, now },
+    );
+  };
+
   const platformApp = createPlatformRoutes({
     platform,
     auth,
     now,
     provisionTenant: provisionTenantForRoutes,
+    provisionRetry: provisionRetryForRoutes,
     invalidateEntitlements: router.invalidate,
   });
 

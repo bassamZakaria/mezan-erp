@@ -4,6 +4,7 @@ import type {
   CreateTenantRequestDTO,
   PlanDTO,
   ProvisionResultDTO,
+  ProvisionRetryRequestDTO,
   RecordPaymentRequestDTO,
   TenantSummaryDTO,
 } from "@mezan/contracts";
@@ -98,9 +99,9 @@ export function useRetryProvisionMutation() {
   const { t } = useAppTranslation();
   const { request } = usePlatformApi();
   const queryClient = useQueryClient();
-  return useMutation<ProvisionResultDTO, PlatformApiError, string>({
-    mutationFn: async (tenantId) => {
-      const res = await request(`/tenants/${tenantId}/provision`, { method: "POST" });
+  return useMutation<ProvisionResultDTO, PlatformApiError, { tenantId: string; body?: ProvisionRetryRequestDTO }>({
+    mutationFn: async ({ tenantId, body }) => {
+      const res = await request(`/tenants/${tenantId}/provision`, { method: "POST", ...(body ? { body: JSON.stringify(body) } : {}) });
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformError(res, t("platform.tenantDetail.retryProvision.error.generic")));
       return res.json<ProvisionResultDTO>();
     },

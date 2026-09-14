@@ -168,6 +168,60 @@ describe("createCloudApp", () => {
     expect(tenantLoginRes.status).toBe(200);
   });
 
+  it("retries a tenant whose provisioning failed on a retired plan, through the route, ending active", async () => {
+    const env = testEnv();
+    const app = await boot(env);
+    const token = await platformLogin(app, "owner@mezan.local", "owner-password-123");
+    const authed = { "content-type": "application/json", authorization: `Bearer ${token}` };
+
+    const doomedPlanRes = await app.root.fetch(
+      new Request("http://cloud.internal/api/platform/plans", {
+        method: "POST",
+        headers: authed,
+        body: JSON.stringify({
+          code: "doomed", nameAr: "محكوم عليها", nameEn: "Doomed", modules: ["dashboard"],
+          seatsIncluded: 1, branchesIncluded: 1, warehousesIncluded: 1,
+          priceMonthly: "0", priceYearly: "0", trialDays: 0, isPublic: true, sortOrder: 99,
+        }),
+      }),
+    );
+    expect(doomedPlanRes.status).toBe(201);
+    const doomedPlan = (await doomedPlanRes.json()) as { id: string };
+    const retireRes = await app.root.fetch(
+      new Request(`http://cloud.internal/api/platform/plans/${doomedPlan.id}/retire`, { method: "POST", headers: authed }),
+    );
+    expect(retireRes.status).toBe(200);
+
+    const createRes = await app.root.fetch(
+      new Request("http://cloud.internal/api/platform/tenants", {
+        method: "POST",
+        headers: authed,
+        body: JSON.stringify({
+          code: "retryco", nameAr: "شركة الإعادة", ownerEmail: "owner@retryco.example",
+          ownerNameAr: "منى إبراهيم", planId: doomedPlan.id, billingCycle: "monthly", trial: false,
+        }),
+      }),
+    );
+    expect(createRes.status).toBe(422);
+    const failure = (await createRes.json()) as { error: string; tenantId: string };
+    expect(failure.error).toBe("TENANT_PROVISIONING_FAILED");
+    expect(failure.tenantId).toBeTruthy();
+
+    const retryRes = await app.root.fetch(
+      new Request(`http://cloud.internal/api/platform/tenants/${failure.tenantId}/provision`, {
+        method: "POST",
+        headers: authed,
+        body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }),
+      }),
+    );
+    expect(retryRes.status).toBe(200);
+    const retried = (await retryRes.json()) as { tenant: { status: string }; adminEmail: string; adminPin: string | null };
+    expect(retried.tenant.status).toBe("active");
+    expect(retried.adminEmail).toBe("owner@retryco.example");
+    // The admin account was already created on the first, failed attempt (before the retired plan blew up subscription start) — the retry finds it claimed and does not re-issue a PIN.
+    expect(retried.adminPin).toBeNull();
+  });
+
   describe("with MEZAN_ORIGIN_SECRET set", () => {
     it("refuses a request under /api/platform without the origin header", async () => {
       const app = await boot(testEnv({ originSecret: "top-secret" }));

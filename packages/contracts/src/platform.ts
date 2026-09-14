@@ -85,6 +85,13 @@ export const createTenantRequestSchema = z.object({
   trial: z.boolean(),
 });
 
+export const provisionRetryRequestSchema = z.object({
+  planId: z.string().min(1).optional(),
+  billingCycle: billingCycleSchema.optional(),
+  trial: z.boolean().optional(),
+  ownerNameAr: z.string().min(1).optional(),
+});
+
 export const provisionResultSchema = z.object({
   tenant: tenantSchema,
   adminEmail: z.string().min(1),
@@ -230,6 +237,7 @@ export type TenantStatusDTO = z.infer<typeof tenantStatusSchema>;
 export type TenantDTO = z.infer<typeof tenantSchema>;
 export type BillingCycleDTO = z.infer<typeof billingCycleSchema>;
 export type CreateTenantRequestDTO = z.infer<typeof createTenantRequestSchema>;
+export type ProvisionRetryRequestDTO = z.infer<typeof provisionRetryRequestSchema>;
 export type ProvisionResultDTO = z.infer<typeof provisionResultSchema>;
 export type StartSubscriptionRequestDTO = z.infer<typeof startSubscriptionRequestSchema>;
 export type ChangePlanRequestDTO = z.infer<typeof changePlanRequestSchema>;

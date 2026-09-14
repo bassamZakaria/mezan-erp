@@ -43,6 +43,7 @@ import {
 } from "@mezan/domain";
 import {
   createTenantRequestSchema,
+  provisionRetryRequestSchema,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
   recordPaymentRequestSchema,
@@ -50,6 +51,7 @@ import {
   planUpdateRequestSchema,
   createPlatformUserRequestSchema,
   type CreateTenantRequestDTO,
+  type ProvisionRetryRequestDTO,
   type ProvisionResultDTO,
   type TenantSummaryDTO,
   type TenantDTO,
@@ -66,8 +68,8 @@ export interface CreatePlatformRoutesOptions {
   readonly auth: PlatformAuth;
   readonly now: () => Date;
   readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }) => Promise<ProvisionResultDTO>;
-  /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional so a caller that has not wired it yet still typechecks; the route answers 501 until it is supplied. */
-  readonly provisionRetry?: (input: { tenantId: string }) => Promise<ProvisionResultDTO>;
+  /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
+  readonly provisionRetry?: (input: { tenantId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
   readonly onAuditError?: (err: unknown) => void;
@@ -135,18 +137,20 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
   };
 }
 
-/** Duck-typed against `apps/server/src/provision-tenant.ts`'s `TenantProvisioningError` — `@mezan/backend` cannot import an `apps/*` class, so a provisioning failure is recognised by shape (`.code === "TENANT_PROVISIONING_FAILED"` plus the tenant id it left in `provisioning`) instead of `instanceof`. */
-function asProvisioningFailure(err: unknown): { readonly message: string; readonly tenantId: string } | null {
+/** Codes for the `apps/server`-only error classes (`provision-tenant.ts`'s `TenantProvisioningError` and `PlanRequiredError`) that map to 422 here. `@mezan/backend` cannot import an `apps/*` class, so each is recognised by shape (`.code` plus, for a provisioning failure, the tenant id it left in `provisioning`) instead of `instanceof`. */
+const SERVER_DOMAIN_ERROR_CODES = new Set(["TENANT_PROVISIONING_FAILED", "PLAN_REQUIRED"]);
+
+function asServerDomainFailure(err: unknown): { readonly code: string; readonly message: string; readonly tenantId?: string } | null {
   if (!(err instanceof Error)) return null;
   const shape = err as unknown as Record<string, unknown>;
-  if (shape.code !== "TENANT_PROVISIONING_FAILED" || typeof shape.tenantId !== "string") return null;
-  return { message: err.message, tenantId: shape.tenantId };
+  if (typeof shape.code !== "string" || !SERVER_DOMAIN_ERROR_CODES.has(shape.code)) return null;
+  return { code: shape.code, message: err.message, ...(typeof shape.tenantId === "string" ? { tenantId: shape.tenantId } : {}) };
 }
 
 function domainErrorResponse(c: Context, err: unknown): Response {
-  const provisioningFailure = asProvisioningFailure(err);
-  if (provisioningFailure) {
-    return c.json({ error: "TENANT_PROVISIONING_FAILED", message: provisioningFailure.message, tenantId: provisioningFailure.tenantId }, 422);
+  const serverFailure = asServerDomainFailure(err);
+  if (serverFailure) {
+    return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
   }
   if (
     err instanceof TenantNotFoundError ||
@@ -252,15 +256,16 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   });
 
   app.post("/tenants/:id/provision", requireOwner, async (c) => {
+    const raw = await c.req.json().catch(() => ({}));
+    const parsed = provisionRetryRequestSchema.safeParse(raw);
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const tenant = await requireTenant(c.req.param("id"));
       if (tenant.status !== "provisioning") {
         return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" }, 409);
       }
-      if (!provisionRetry) {
-        return c.json({ error: "PROVISION_RETRY_UNAVAILABLE", message: "إعادة تجهيز المنشأة غير متاحة في هذه البيئة." }, 501);
-      }
-      const result = await provisionRetry({ tenantId: tenant.id });
+      if (!provisionRetry) throw new Error("provisionRetry dependency is not configured");
+      const result = await provisionRetry({ tenantId: tenant.id, ...parsed.data });
       invalidateEntitlements(result.tenant.code);
       await audit(c, "TENANT_PROVISION_RETRIED", result.tenant.id, { code: result.tenant.code });
       return c.json(result, 200);

@@ -5,6 +5,7 @@ import { MODULES } from "@mezan/domain";
 import type { BillingCycleDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
+import { SelectField, ToggleField } from "../settings/form-controls";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
@@ -82,6 +83,10 @@ export function TenantDetailPage() {
   const [planPickerId, setPlanPickerId] = useState("");
   const [retryResult, setRetryResult] = useState<ProvisionResultDTO | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [showRetryPicker, setShowRetryPicker] = useState(false);
+  const [retryPlanId, setRetryPlanId] = useState("");
+  const [retryBillingCycle, setRetryBillingCycle] = useState<BillingCycleDTO>("monthly");
+  const [retryTrial, setRetryTrial] = useState(true);
 
   const summary = tenantQuery.data;
   if (!summary) {
@@ -92,6 +97,25 @@ export function TenantDetailPage() {
   const planOptions = (plansQuery.data ?? [])
     .filter((p) => p.status === "active" && p.id !== subscription?.planId)
     .map((p) => ({ value: p.id, label: `${p.nameAr} — ${p.code}` }));
+  const retryPlanOptions = (plansQuery.data ?? []).filter((p) => p.status === "active").map((p) => ({ value: p.id, label: `${p.nameAr} — ${p.code}` }));
+  const cycleOptions: { value: BillingCycleDTO; label: string }[] = [
+    { value: "monthly", label: t("platform.billingCycle.monthly") },
+    { value: "yearly", label: t("platform.billingCycle.yearly") },
+  ];
+
+  function submitRetry(body?: { planId: string; billingCycle: BillingCycleDTO; trial: boolean }) {
+    setRetryError(null);
+    retryProvision.mutate(
+      { tenantId: tenant.id, ...(body ? { body } : {}) },
+      {
+        onSuccess: (res) => {
+          setRetryResult(res);
+          setShowRetryPicker(false);
+        },
+        onError: (err) => setRetryError(err instanceof PlatformApiError ? err.message : t("platform.tenantDetail.retryProvision.error.generic")),
+      },
+    );
+  }
 
   return (
     <div className="flex flex-col gap-[16px]">
@@ -114,13 +138,7 @@ export function TenantDetailPage() {
             <Button
               variant="primary"
               disabled={retryProvision.isPending}
-              onClick={() => {
-                setRetryError(null);
-                retryProvision.mutate(tenant.id, {
-                  onSuccess: (res) => setRetryResult(res),
-                  onError: (err) => setRetryError(err instanceof PlatformApiError ? err.message : t("platform.tenantDetail.retryProvision.error.generic")),
-                });
-              }}
+              onClick={() => (subscription ? submitRetry() : setShowRetryPicker(true))}
             >
               {retryProvision.isPending ? t("platform.tenantDetail.retrying") : t("platform.tenantDetail.retryProvision")}
             </Button>
@@ -141,6 +159,37 @@ export function TenantDetailPage() {
             </Button>
           ) : null}
         </div>
+      ) : null}
+
+      {tenant.status === "provisioning" && showRetryPicker && !subscription ? (
+        <Card className="p-[16px]">
+          <h2 className="mb-[12px] text-[13px] font-bold text-ink">{t("platform.tenantDetail.retryProvision")}</h2>
+          <div className="flex flex-col gap-[14px]">
+            <SelectField label={t("platform.newTenant.plan")} value={retryPlanId} onChange={setRetryPlanId} options={retryPlanOptions} />
+            <SelectField
+              label={t("platform.newTenant.billingCycle")}
+              value={retryBillingCycle}
+              onChange={(v) => setRetryBillingCycle(v as BillingCycleDTO)}
+              options={cycleOptions}
+            />
+            <ToggleField label={t("platform.newTenant.trial")} checked={retryTrial} onChange={setRetryTrial} />
+            <div className="flex justify-end gap-[9px] border-t border-border pt-[14px]">
+              <Button variant="ghost" onClick={() => setShowRetryPicker(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={retryPlanId === "" || retryProvision.isPending}
+                onClick={() => {
+                  if (retryPlanId === "") return;
+                  submitRetry({ planId: retryPlanId, billingCycle: retryBillingCycle, trial: retryTrial });
+                }}
+              >
+                {retryProvision.isPending ? t("platform.tenantDetail.retrying") : t("platform.tenantDetail.retryProvision")}
+              </Button>
+            </div>
+          </div>
+        </Card>
       ) : null}
 
       {retryError ? (

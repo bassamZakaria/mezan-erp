@@ -40,6 +40,16 @@ export class TenantProvisioningError extends Error {
   }
 }
 
+/** A retry has no live subscription to resume and no plan in the request body to fall back to — nothing tells `startSubscription` what to start. */
+export class PlanRequiredError extends Error {
+  readonly code = "PLAN_REQUIRED";
+
+  constructor() {
+    super("حدّد الباقة لإعادة التجهيز");
+    this.name = "PlanRequiredError";
+  }
+}
+
 function defaultPinOf(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }

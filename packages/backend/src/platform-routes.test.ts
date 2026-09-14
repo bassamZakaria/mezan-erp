@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "@mezan/api";
 import { createPlatformUser, createTenant, activateTenant, startSubscription } from "@mezan/domain";
-import type { CreateTenantRequestDTO, ProvisionResultDTO } from "@mezan/contracts";
+import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
 import { createPlatformRoutes } from "./platform-routes.js";
@@ -77,13 +77,13 @@ async function buildRig(): Promise<Rig> {
     return { tenant: active, adminEmail: cmd.ownerEmail, adminPin: "482913" };
   };
 
-  const provisionRetry = async ({ tenantId }: { tenantId: string }): Promise<ProvisionResultDTO> => {
+  const provisionRetry = async ({ tenantId, planId, billingCycle, trial }: { tenantId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
     const nowIso = FIXED_NOW().toISOString();
     const tenant = await activateTenant({ id: tenantId, now: nowIso }, platform.stores.tenants);
     const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
     if (!live) {
       await startSubscription(
-        { id: idOf(), tenantId: tenant.id, planId: "PLAN-CORE", billingCycle: "monthly", trial: false, now: nowIso },
+        { id: idOf(), tenantId: tenant.id, planId: planId ?? "PLAN-CORE", billingCycle: billingCycle ?? "monthly", trial: trial ?? false, now: nowIso },
         platform.stores.subscriptions,
         platform.stores.plans,
       );
@@ -524,7 +524,7 @@ describe("createPlatformRoutes", () => {
     expect(await json(res)).toMatchObject({ error: "TENANT_PROVISIONING_FAILED", tenantId: "T-FAILED" });
   });
 
-  it("501s a provision retry when the deployment has not wired `provisionRetry`", async () => {
+  it("fails loudly on a provision retry when the deployment has not wired `provisionRetry`, never a silent 200", async () => {
     const rig = await buildRig();
     const nowIso = FIXED_NOW().toISOString();
     const tenant = await createTenant(
@@ -540,7 +540,6 @@ describe("createPlatformRoutes", () => {
     });
 
     const res = await unwiredApp.fetch(req(`/tenants/${tenant.id}/provision`, rig.ownerToken, { method: "POST" }));
-    expect(res.status).toBe(501);
-    expect(await json(res)).toMatchObject({ error: "PROVISION_RETRY_UNAVAILABLE" });
+    expect(res.status).toBe(500);
   });
 });

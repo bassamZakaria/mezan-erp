@@ -511,6 +511,12 @@ POS (9 screens + 2 reports), `/settings/shifts`, a standalone label-templates
 screen, statutory payroll computation. Payroll must stay visibly flagged rather
 than silently computing a wrong net.
 
+**The HR module itself is NOT out of scope** — DEC-12. It is built and licensable:
+`packages/domain/src/hr`, 31 gated routes, the `people` workspace, and `hr` in
+`MODULE_CATALOG`. It is simply excluded from the seeded plans and from the v1 pitch.
+Only the statutory computation is deferred. `.claude/agents/hr-payroll.md` and
+`.claude/agents/product.md` still carry the older "HR is descoped" wording.
+
 ## 4.2 Do not copy
 
 X1–X8 in `archive/reference-parity/REQUIREMENTS.md` and C1–C13 in
@@ -674,11 +680,20 @@ comparing two numbers that must agree.
 
 ---
 
+### Filed 2026-09-14 by the decision panels
+
+| # | Defect | Evidence | State |
+|---|---|---|---|
+| D147 | **A sales rep holding only `view_own` sees no invoices at all.** The `view_own` tier compares `invoice.salespersonId` against `actorOf(c)`, which is a **user id**, while the employee picker that sets the field stores an **`Employee.id`**. The two id spaces never collide, so the filter matches nothing and a real rep gets an empty list rather than their own book. The link needed to fix it already exists — `User.employeeId`, resolved this way by `hr-routes.ts:268-273`. The scenario that should have caught it passes **vacuously**: `[].every(...)` is `true` on the zero rows the confirmer is shown. Found by the ledger panel while settling DEC-7. This is DEC-2's shape a second time — one kind of id compared against another, with the mismatch invisible because the wrong answer is an empty list rather than an error | `packages/api/src/sales-invoices-routes.ts:386,733,876`; the picker at `apps/web/src/screens/SalesInvoicesScreen.tsx:506-514`; the vacuous assertion at `scripts/scenarios/seams.ts:939-959` | reported |
+| D148 | **Consumer e-receipts are parked waiting for a seal the regime does not require, and the reporting window is the disputed figure.** Two findings in one row because they share a fix. (a) `EtaService.submit` checks `config.signingMethod === "eseal"` for **every** `documentType`, so a tenant who has configured an e-seal has their consumer receipts held on `pending_signature` — but the ETA requires no e-signature on a receipt, so the hold can never clear and the receipt is never filed. (b) `ETA_RECEIPT_REPORTING_WINDOW_HOURS = 72` is a defaulted parameter rather than configuration, and the ETA's own POS FAQ says the window is **24 hours**; 72 comes from secondary compliance vendors. A receipt submitted past the authority's real window is rejected outright. Found by the compliance panel while settling DEC-9 | `packages/domain/src/eta/service.ts:235`, `packages/domain/src/eta/receipt.ts:308` | reported |
+
+---
+
 ### Filed 2026-09-14 while settling §6.3
 
 | # | Defect | Evidence | State |
 |---|---|---|---|
-| D146 | **An item marked FIFO is valued WAC.** `costingMethod` is a real field — `z.enum(["WAC", "FIFO"])` on the wire, a column on `item`, round-tripped by the store, settable on an item, a product template and a data-migration import — and **no valuation path reads it**. Grepping the domain, backend and persistence for `costingMethod` outside its own definition and storage returns only writes. The stock ledger values every position weighted-average regardless, so a tenant who deliberately sets FIFO on an item gets WAC costing, a WAC unit cost on every issue, and a WAC figure in the valuation report — with a screen telling them otherwise. Found while checking whether §6.3's "FIFO-in-v1 scope" was still an open decision: it is not a decision, it is this. The failure shape is the one this repo keeps shipping — a configurable field no code path reads, indistinguishable on screen from an enforced one (DEC-1's `minAmount`, D72's purchasing toggles, D116's permissions) | `packages/contracts/src/items.ts:18`, `packages/persistence/src/item-store.ts:106,223`, and the absence of any reader in `packages/domain/src/inventory/` | reported |
+| D146 | **An item marked FIFO is valued WAC.** `costingMethod` is a real field — `z.enum(["WAC", "FIFO"])` on the wire, a column on `item`, round-tripped by the store, settable on an item, a product template and a data-migration import — and **no valuation path reads it**. Grepping the domain, backend and persistence for `costingMethod` outside its own definition and storage returns only writes. The stock ledger values every position weighted-average regardless, so a tenant who deliberately sets FIFO on an item gets WAC costing, a WAC unit cost on every issue, and a WAC figure in the valuation report — with a screen telling them otherwise. Found while checking whether §6.3's "FIFO-in-v1 scope" was still an open decision: it is not a decision, it is this. The failure shape is the one this repo keeps shipping — a configurable field no code path reads, indistinguishable on screen from an enforced one (DEC-1's `minAmount`, D72's purchasing toggles, D116's permissions) | `packages/contracts/src/items.ts:18`, `packages/persistence/src/item-store.ts:106,223`, and the absence of any reader in `packages/domain/src/inventory/` | fixed 2026-09-14 — the contract is split in two. `costingMethodSchema` still accepts FIFO so rows already carrying it stay readable; `settableCostingMethodSchema` accepts only WAC and now guards every write path — create, update, product templates and the migration importer. The item screen drops the FIFO option and keeps the label, so a legacy item still renders its real stored value |
 
 ---
 
@@ -856,10 +871,22 @@ three of the five named buyer segments could legally transact at all.
 
 A separate ETA mandate from e-invoicing, in force since 15 September 2025, and this build
 had nothing for it: retail, restaurants and pharmacies could not legally ring a consumer
-sale. `EtaDocumentType` now carries `receipt`, the queue reports AFTER the sale inside the
-**72-hour** window rather than clearing before it, the printed receipt carries a QR
-(`packages/ui/src/print/qr.ts`, `QrCode.tsx`), and a reprint is **idempotent** — it
-reproduces the same UUID and QR rather than minting a second submission.
+sale. `EtaDocumentType` now carries `receipt`, the queue reports AFTER the sale rather than
+clearing before it, the printed receipt carries a QR (`packages/ui/src/print/qr.ts`,
+`QrCode.tsx`), and a reprint is **idempotent** — it reproduces the same UUID and QR rather
+than minting a second submission.
+
+**The window is 24 hours, not 72 — corrected 2026-09-14.** The ETA's own POS FAQ says a
+receipt must be reported «خلال 24 ساعة من إصداره», and Daftra's guide agrees; the 72-hour
+figure this section previously asserted comes from secondary compliance vendors. Because the
+two sources disagree and only one is primary, the window is now configuration defaulting to
+24 rather than a constant — see D148 and DEC-9.
+
+**Until DEC-9 lands, none of this is reachable.** `POST /eta/receipts` has no caller in the
+web app, and the confirm bridge sends a customer without a `taxNumber` as receiver type `"P"`
+on an **e-invoice**, never as a receipt — so the QR, the idempotent reprint and the queue are
+built and unwired. The claim above describes mechanism that exists, not behaviour a user can
+reach.
 
 The offline-first architecture is an advantage here rather than a liability, and it is
 worth saying so in a demo: a shop with no internet keeps selling and the queue drains
@@ -913,109 +940,35 @@ said explicitly.
 
 ## 6.1 Open
 
-#### DEC-19 — Should a stock transfer have an in-transit leg? (was D90)
+**None.** The fourteen decisions that stood here and in §6.2 were all put to a persona panel
+on 2026-09-14 and taken; each is recorded in §6.4 with the option chosen, what other
+platforms do, who dissented, and what it would cost to reverse. Three scope questions remain
+in §6.3, and they are product-pricing calls rather than decisions blocked in code.
 
-A transfer posts both legs on one confirm, so goods can never be recorded as in
-transit or short on arrival. Filed as a defect; it is not one, for two reasons.
+**How these were approved.** Each decision went to the subset of the persona panel whose
+profile actually bears the consequence — the ledger decisions to `accountant`,
+`chartered-accountant`, `internal-auditor`, `cost-accountant`, `reports-analyst`,
+`warehouse-keeper` and the affected buyer personas; the compliance decisions to `tax-expert`,
+`implementation-consultant`, `support-agent`, `it-admin` and `security-officer`; the strategy
+decisions to `product`, `owner` and the seven buyer personas. Convergence of the panel was
+taken as the approval. Dissents are recorded rather than resolved away, because a dissent is
+the argument the next person needs when the decision is revisited.
 
-The reference app behaves the same way and the catalog documents it as
-deliberate — «لا يمكن إلغاء تحويل مؤكد … لعكس الحركة أنشئ تحويلاً جديداً
-بالاتجاه المعاكس». And a receiving-side confirm introduces shortfalls, which
-means a transfer can create a LOSS: today it is valuation-neutral by
-construction (`StockLedgerService.postTransfer` receives at the source's own
-moving average) and declares no `buildGlPosting` at all.
+**Two caveats that survive the approval**, and are held regardless of what the panel said:
 
-| Option | Effect |
-|---|---|
-| Leave it one-step | Matches the reference and the catalog. A van or a lorry in motion is invisible, and a short arrival is reconciled by a second adjustment that names no cause. **Smallest blast radius — it is today's behaviour.** |
-| Add a transit location and a receiving confirm | Real goods-in-transit. Needs a transit warehouse per route, an `in_transit` document state, a per-line received quantity, and — the part that is not a UI change — an accounting answer for the shortfall: which account absorbs goods that left and never arrived, and who may approve it. |
-
-**A shortfall is the whole decision.** Everything else is mechanism.
-
-#### DEC-20 — Does the GL get a branch dimension? (the open half of D111)
-
-`reports-routes.ts` now takes a branch parameter and enforces the caller's scope.
-The seven financial statements cannot follow: **a journal entry carries no branch
-anywhere in the model.** `reports/branch-filter.ts` says so in its own
-doc-comment and deliberately declares no branch parameter for them, rather than
-offering a filter that would silently do nothing.
-
-| Option | Effect |
-|---|---|
-| Leave the statements tenant-wide | Honest today. A four-branch retailer cannot produce a per-branch income statement at all, which is the first thing such an owner asks for. |
-| Add `branchId` to the journal line, beside `costCenterId` | The statements become branch-filterable. Touches every posting path — sales, purchases, treasury, inventory, payroll, manufacturing — and every document has to decide which branch its lines belong to. The dimension already exists on the line for cost centres (D97), so the shape is known. |
-| Derive the branch from the source document | No schema change, but a manual journal entry has no source document, and every report would carry a join that silently drops those entries. |
-
-#### DEC-3 — `recordPayment` and the allocation sub-ledger are two stores of the same fact
-
-Tracked as **D1** in `archive/defect-register.md`, with a reproduction. The UI prefers
-allocations and the aging reports take the larger of the two, but the backend
-can still record one collection twice. Converging `recordPayment` onto
-allocations removes the fallback entirely — the decision is whether to do that
-migration now or keep the two-store read-preference until the collections screen
-is rebuilt.
-
-#### DEC-4 — The promotion discount reduces the revenue credit
-
-Surfaced when promotions were persisted onto documents, and deliberately not
-taken then: the discount currently reduces the revenue credit rather than
-posting to a contra-revenue "discounts granted" account. That is a
-chart-of-accounts call, not an application-code call — it changes what the
-income statement shows for gross revenue.
-
-#### DEC-5 — The purchase chain emits no events
-
-This build emits **5 of the 39 catalogued events**. The number is derived live
-from the bridge mappings in `create-backend.ts`, and
-`/notification-rules/triggers` and `/webhooks/events` agree with it exactly. The
-purchase order/receipt/invoice chain publishes nothing because it is not a
-`DocumentService` and so has no `DocumentEventPublisher`.
-
-The decision: route the purchase chain through `DocumentService`, give it a
-publisher of its own, or accept that purchase events cannot be subscribed to.
-Inventing bridges for it without deciding was declined.
-
-#### DEC-6 — Leave-policy presets carry inferred statutory numbers
-
-Annual 21 and sick 180 are solid; **casual 7 and paternity 1 under Law 14/2025
-are the least certain** and want a legal review before release. Each line cites
-its article. Not an engineering decision — it needs someone who can read the
-law.
-
-#### DEC-7 — Sales-by-salesperson needs a schema change, not report code
-
-The report needs a rep field on sales invoices. Adding it is a schema migration
-plus a field on every invoice-creating surface; the alternative is deriving the
-rep from the document's `createdBy`, which is the person who typed it, not
-necessarily the person who sold it.
-
----
+- **DEC-6 rests on unverified statutory numbers.** Nothing in the leave-policy preset was
+  checked against the primary text of Law 14/2025 — the Gazette text could not be read, and
+  every article number cited comes from press and law-firm summaries. The preset is therefore
+  implemented as effective-dated, provenance-stamped, editable data marked «غير مُتحقَّق منه»,
+  never as an asserted fact.
+- **DEC-13 is built but not claimed.** A regime computation with the wrong turnover base is a
+  tax exposure for the buyer, not a marketing miss. It ships quietly and is marketed only
+  after a محاسب قانوني signs off on the base.
 
 ## 6.2 Proposed, not yet opened
 
-Eleven decisions are proposed in `artifacts/best-erp-in-egypt.html` §14, each with its
-options stated. They are recorded here by reference rather than transcribed, because none
-has been put to anyone yet:
-
-- **DEC-8** which QuickBooks is the baseline — and Intuit is retiring non-Enterprise
-  Desktop, which erodes the evidence base under one of the options over time
-- **DEC-9** does the e-receipt build assume POS
-- **DEC-10** ship without a wired e-seal
-- **DEC-11** is contracting in scope — the research behind it is `archive/contracting/`
-- **DEC-12** does HR come back, and against what
-- **DEC-13** do we claim Law 6/2025 support, and when
-- **DEC-14** hide or delete the cut screens
-- **DEC-15** is the desktop bet a moat or a shrinking segment
-- **DEC-16** does POS come back into v1
-- **DEC-17** finish or delete the API and webhook back end — it cannot stay as it is, built
-  and consumed by nothing (§5.2 lists it as open by decision for exactly this reason)
-- **DEC-18** how many dimension axes beyond the single cost centre
-
-Taking any of them means moving it into §6.1 or §6.4 with the option chosen and why.
-
-**DEC-15 and DEC-16 are the two that decide what product this is**, and **DEC-13 is the one
-with a clock on it** — no competitor models the Law 6/2025 turnover regime today, and any of
-them could build it in a sprint.
+**None.** All eleven proposed in `artifacts/best-erp-in-egypt.html` §14 were opened and taken
+on 2026-09-14. See §6.4.
 
 ## 6.3 Longer-standing product decisions
 
@@ -1036,6 +989,564 @@ Eight were carried here from `archive/plan.md` §6.3. **Measured against the cod
 So three remain, and each is a scope or pricing question rather than anything blocked in code.
 
 ## 6.4 Decided
+
+### Taken 2026-09-14 — the fourteen carried decisions
+
+Each entry states the option chosen, the evidence that decided it, and the cost of reversing
+it. Where a decision turned out to describe a codebase that no longer exists, that is said.
+
+---
+
+#### DEC-3 — Moot: the allocation sub-ledger is already the single writer
+
+`POST /:id/payments` creates and confirms a real collection voucher and allocates it
+(`sales-invoices-routes.ts:1055-1095`); `assertCollectable` validates and writes nothing
+(`sales-invoices/service.ts:512-538`); `applyAllocatedSettlement` is the only writer of
+`amountPaid` (`service.ts:748-770`), called from allocate *and* unallocate. The migration
+this decision asked about had already happened, under F60/F82 — §6.1's text described a
+build that no longer existed.
+
+Residue, deliberately kept: `reports/aging-customers.ts:178-179` still takes
+`max(allocated, amountPaid)`. **Do not remove it** — historical-import invoices carry
+`amountPaid` with no allocation (`sales-invoices/historical-import.ts:42,133`), and the max
+correctly picks it up. Two doc comments (`aging-customers.ts:16`, `sales-by-customer.ts:16`)
+still cite a `recordPayment` that no longer exists; hygiene only.
+
+**Panel:** `accountant` and `chartered-accountant` backed closing it — one writer, one fact.
+`internal-auditor`'s only reservation was the surviving fallback read, which the import case
+justifies. **No migration. Record only.**
+
+---
+
+#### DEC-4 — The discount stays netted into the revenue credit. No contra-revenue account.
+
+**What other platforms do:** QuickBooks Online is the outlier — it auto-creates a *Discounts
+given* contra-income account. Xero reduces the line and records no discount account (users
+are still asking for one). Odoo nets line discounts into price and keeps separate accounts
+only for *cash* (early-payment) discounts. Zoho applies transaction-level discounts with no
+contra posting. Daftra documents no contra account.
+
+**Why net:** EAS/IFRS 15 measures revenue net of trade discounts, so today's posting *is* the
+standard. Sales returns already debit 4100 directly (`create-backend.ts:301`,
+`sales-returns/sales-return-document.ts:201`), so a discount contra without a returns contra
+would be half a policy. And the discounts are already visible off the ledger —
+`totals.ts:103-108` carries `lineDiscountTotal` and `promotionDiscountTotal`, and
+`sales-by-salesperson.ts:47` reports `promotionDiscount` per row.
+
+**Panel:** `chartered-accountant` and `accountant` backed net. `reports-analyst` dissented
+wanting discounts visible — they are, in the reports above. `internal-auditor` dissented on
+discount abuse — a GL total does not catch that; a per-user exception report does.
+
+**Reversal cost:** a chart-of-accounts template line, one bucket in `gl.ts`, and the returns
+twin. Posted history stays net, which is acceptable because the two conventions differ only
+in presentation. **Not implemented, by choice.**
+
+---
+
+#### DEC-5 — Give the purchase chain a publisher of its own; no `DocumentService` migration
+
+The build emits exactly 5 of 39 catalogued events. Five purchase codes have no producer.
+`confirmPurchaseOrder` / `confirmGoodsReceipt` / `confirmPurchaseInvoice` are plain functions
+called from `purchases-routes.ts:476, 644, 1095`, and `PurchasesRoutesDeps` has no `events`
+port. The precedent already exists outside the document framework:
+`vouchers/voucher-service.ts:129` declares `events?: DocumentEventPublisher` — and
+`create-backend` never passes it, so `CASH_VOUCHER_CONFIRMED` is a **sixth** silent code.
+
+**Why not the framework migration:** routing the purchase chain through `DocumentService`
+touches receipt→PO status propagation, invoice-from-receipt auto-fill, the `layers` cancel
+path and D75's landed-cost accounting. High blast radius for a notification feature.
+Accepting no purchase events instead would leave seven catalogued, UI-selectable triggers
+permanently decorative — the D5 shape again.
+
+**Panel:** `implementation-consultant`, `support-agent` and `it-admin` backed it (webhook
+integrators see purchases as dead today). `chartered-accountant` dissented, preferring the
+framework migration so audit, numbering, gate and events stay one thing; accepted the
+publisher as interim because the audit sink already records purchase confirms independently.
+`security-officer`: fire-and-forget only — a bus failure must never fail a confirm.
+
+**Reversal cost:** near zero; the bridge mapping is data, and a later migration reuses the
+same port. **Implement:** `events?: DocumentEventPublisher` on `PurchasesRoutesDeps`; publish
+`DOCUMENT_CONFIRMED`/`DOCUMENT_CANCELLED` for `PURCHASE_ORDER`, `GOODS_RECEIPT`,
+`PURCHASE_INVOICE`; add `purchasesEventMapping` beside `returnsEventMapping` and include it
+in `emittedEventCodesOf` → 10 of 39. Wire `vouchers.events` in the same pass.
+
+---
+
+#### DEC-6 — Provenance-stamped, effective-dated presets marked «غير مُتحقَّق منه». No line asserts a number as fact.
+
+**§6.1's claim that "annual 21 and sick 180 are solid" is wrong and is corrected here.** The
+sick figure of 180 days is the **2003** law's number. Law 14/2025 restructures sick leave into
+tiers — 3 months at 100%, 6 at 85%, 3 at 75%, up to 12 months per three-year cycle. The
+preset is not solid; it is stale.
+
+| Line | Preset today | Best evidence | Confidence |
+|---|---|---|---|
+| Casual | 7/yr | Art. 128: max 7/year, max 2 per occurrence, deducted from annual | High on the figures, medium on the article number |
+| Paternity | 1 day | Art. 129: one paid day, max 3 times in service, **not** deducted from annual | Medium-high; article number unverified |
+| Maternity | 120 days, 3× | Art. 54: four months, ≥45 after birth, 3 times | High |
+| Annual | 21, monthly accrual | 15 days in year one (after 6 months), 21 from year two, 30 after 10 years or age 50, 45 if disabled; carry-over capped at 2 years | High on figures — but **the preset ignores the 15-day first year and the 2-year carry cap** |
+| Sick | 180 | Tiered as above under the 2025 law | **The preset is wrong** |
+| Effective | 2025-09-01 | Art. 13 of the issuing law: first of the month after 90 days from publication | Consistent |
+
+**Nothing above was verified against primary text.** Wikisource truncated before the leave
+chapter, the ECSS PDF was unreadable, manshurat.org timed out. Article numbers 124/128/129/131
+are secondary-source.
+
+**Panel:** `hr-payroll` notes the engine cannot express the two rules that matter (the 2-day
+per-occurrence cap, the 3-per-service cap on paternity, the 15-day first year), so 7 and 1 are
+entitlements the code will **over-grant**; would delete the 2025 sick line rather than flag it.
+`chartered-accountant`: a product printing «إجباري قانوناً» beside an unverified number
+creates liability for the buyer's payroll. `implementation-consultant` and `support-agent`:
+the consultant must see which rows are unverified before training staff.
+
+**Urgency is low — HR's statutory computation is descoped (§4.1), so nothing here blocks v1.**
+**Implement when HR returns:** `LeavePolicyPresetLine` gains `source` and `verified`; the
+matrix and the preset dropdown render «غير مُتحقَّق منه»; the sick line changes to the tiered
+structure or is dropped; annual gains a first-year rule. **Recorded now, built later.**
+
+---
+
+#### DEC-7 — Already built as a real `Employee` field. Keep it — and fix the `view_own` gate.
+
+**What other platforms do:** QuickBooks Online has no rep field (a custom field plus a filtered
+report is the documented workaround). Xero has none. Zoho Books has the field and the report.
+Daftra ships *both* "sales by staff" (who typed it) and "sales by salesperson" as separate
+reports — the Egyptian incumbent treats `createdBy` as a different question, not a substitute.
+
+**§6.1's text described a schema change that had already landed.** `salespersonId` is an
+`Employee.id` (`sales-invoices/sales-invoice.ts:160-167`), on the contract
+(`contracts/src/sales-invoice.ts:78`), bound through a real employee picker
+(`SalesInvoicesScreen.tsx:506-514, 815-820`), and the report exists with an explicit
+«غير محدد» row (`reports/sales-by-salesperson.ts:11-28`).
+
+**Defect found and filed as D147:** the `view_own` tier compares `invoice.salespersonId` to
+`actorOf(c)`, which is a **user id**, at `sales-invoices-routes.ts:386, 733, 876`. The picker
+stores an **employee id**, so a real rep holding only `view_own` sees nothing. The scenario at
+`scripts/scenarios/seams.ts:939-959` passes vacuously — `[].every(...)` is true on the zero
+rows the confirmer gets. The link already exists: `User.employeeId` (`users/user.ts:39`),
+resolved by `hr-routes.ts:268-273`. This is the twin of DEC-2's shape: one kind of id compared
+against another.
+
+**Panel:** `owner`, `reports-analyst` and `client-wholesale` backed the entity field —
+commission runs on it. `internal-auditor` rejected `createdBy` as a proxy: it credits the
+clerk and makes rep-level exception reporting meaningless.
+
+**Noted, not built:** quotes carry no rep, so `convert-to-invoice`
+(`sales-quotes-routes.ts:59-64`) produces an unattributed draft. Acceptable.
+
+---
+
+#### DEC-8 — The baseline is QuickBooks Online Plus for interaction, Desktop **Enterprise** for depth, stated explicitly
+
+**What changed under the old framing:** Intuit stopped selling new Pro Plus / Premier Plus /
+Mac Plus on 30 Sep 2024, and Desktop 2024 is the last non-Enterprise release (supported to
+30 Sep 2027). **Enterprise has no announced end date and is still sold to new customers.** All
+13 "QBD-only" screens in the screen ledger — assemblies, multi-site transfers, price levels,
+landed cost, barcode, physical count, sales-by-rep, fixed-asset manager — are Enterprise
+features, so the retirement erodes nothing under them.
+
+QuickBooks has no Arabic and is not sold in Egypt; an Egyptian buyer never compares to it. The
+baseline is an engineering yardstick, not a competitor.
+
+**Panel:** `product` — the three-question rule already demotes QuickBooks to "how thin", not
+"whether". `owner` is indifferent, having never heard of it. **Dissent:** `client-accounting-office`
+wanted "Online Plus only" for the discipline of fewer screens; overruled because Online has no
+goods receipt, and honest WAC costing needs one — a ledger invariant, not taste.
+
+**Outstanding:** the `docs/quickbooks-baseline/` live audit the artifact asks for has still
+never been done. Every QuickBooks claim in this repo is from documentation, not a live tenant.
+**Record only.**
+
+---
+
+#### DEC-9 — Build the receipt producer into the sales-invoice confirm path. Nothing assumes a POS *screen*; everything assumes a registered POS *device*.
+
+**What the law requires:** the ETA's own POS FAQ says an accounting system can be registered as
+a software POS and treated as SW POS; every device needs a serial and an activation; e-receipts
+need **no** e-signature; and the reporting window is **24 hours**. Daftra's guide agrees on all
+three. Secondary compliance vendors say 72 hours — **the primary source says 24, and the figure
+is disputed enough that it must be configuration, not a constant.** Mandate: Resolution 281/2025,
+all B2C from 15 Sept 2025.
+
+**What the build actually did — four findings, all verified:**
+
+1. **No producer.** `POST /eta/receipts` (`eta-routes.ts:442`) has **no caller in the web app**.
+   The confirm bridge (`create-backend.ts:477, 598`) sends a customer without a `taxNumber` as
+   receiver type `"P"` on an **e-invoice**, never as a receipt. The QR, the idempotent reprint
+   and the queue are a built-and-unwired feature — the D5 shape again. `etaQrValue`
+   (`ui/src/print/types.ts:266`) is never produced.
+2. **The device serial is caller-supplied** per request (`issueReceiptSchema.seller.deviceSerialNumber`);
+   `EtaConfig` has no device field. The till identity the authority binds to is whatever the
+   client sends.
+3. **Receipts are wrongly gated by the seal.** `EtaService.submit` (`eta/service.ts:235`) checks
+   `signingMethod === "eseal"` for every `documentType`, so a tenant with a seal parks consumer
+   receipts on `pending_signature` awaiting a signature the regime does not require.
+4. **`ETA_RECEIPT_REPORTING_WINDOW_HOURS = 72`** (`eta/receipt.ts:308`) is a defaulted parameter,
+   not config, and 72 is the disputed figure.
+
+Findings 3 and 4 are compliance defects, filed as **D148**.
+
+**Panel:** `client-retail`, `client-pharmacy` and `client-restaurant` all backed it — they
+cannot ring a consumer sale legally without it, and were told POS is last. Retail insists on one
+device serial **per branch**. `tax-expert` backed it and filed 3 and 4 as defects.
+`implementation-consultant`: the serial and the POS credentials must be a settings field, not an
+API argument. No dissent; nobody wanted a third receipt-only screen.
+
+**Reversal cost:** none — when POS lands it calls the same `enqueueReceipt`.
+
+---
+
+#### DEC-10 — Ship. Claim e-receipt compliance only. Sell e-invoicing as "pre-production until your signing agent is installed", never as sealed.
+
+**What the law requires:** production e-invoices (document v1.0) must carry the issuer's CAdES
+seal from a USB token or HSM; v0.9 is pre-production with signature validation off. E-receipts
+need no seal. Daftra ships a token-signing path the user unlocks with the token PIN. Qoyod is
+not live in Egypt at all.
+
+**The build is already honest:** `signingMethod: "eseal"` → `unavailableEsealSigningPort()`
+throws → the row parks on `pending_signature` with the reason (`eta/signing.ts:44-69`,
+`service.ts:235-250`); the ETA screen shows «في انتظار الختم» and a test-mode pill when the
+environment is preproduction (`EtaScreen.tsx:925-938`).
+
+**Panel:** `tax-expert` — allowed to sell, forbidden to say "compliant e-invoicing"; a v1.0
+document that is never filed is a penalty, and the customer must know before go-live that the
+seal is theirs to buy. `chartered-accountant` agrees on condition the statement is in writing on
+the rollout sheet, and would rather hold the claim entirely — **overruled**, because the receipt
+regime is claimable and is exactly what the three blocked B2C segments buy. `security-officer`
+sets the constraints for the eventual agent: the PIN is never persisted in SQLite, signing is
+out-of-process, and the token lives on the machine running the backend. `it-admin`: a USB token
+is the desktop-native answer; HSM only for volume.
+
+**The sentence the consultant must say before contract** (now in the ETA screen's help text):
+
+> «ميزان يُعدّ فواتيرك الإلكترونية ويرسل إيصالات المستهلك للمصلحة بنفسه، أما فاتورة B2B فلا
+> تُرسَل إلى الإنتاج إلا بعد توصيل ختمك الإلكتروني (توكن أو HSM تشتريه أنت من مقدّم معتمد)
+> بوكيل التوقيع الذي لم يُشحن بعد — وحتى ذلك الحين ستظهر كل فاتورة بوضوح «في انتظار الختم
+> الإلكتروني» ولن تُعدّ مُقدَّمة للمصلحة.»
+
+> "Mezan prepares your e-invoices and reports consumer e-receipts to the Tax Authority itself;
+> B2B invoices are not filed to production until your own e-seal (a token or HSM you buy from an
+> accredited provider) is connected through the signing agent, which is not yet shipped — until
+> then every invoice shows «في انتظار الختم الإلكتروني» and is not considered filed."
+
+**Reversal cost:** none — supplying the signing port is purely additive.
+
+---
+
+#### DEC-11 — Contracting stays in scope, as a licensable module. Building it was right.
+
+**What other platforms do:** Daftra ships مستخلصات المقاولات and خصم ضمان الأعمال — so
+contracting is **not** a Daftra gap and must not be sold as one. Of fourteen Egyptian and Gulf
+products surveyed, none advertises خطابات الضمان. QuickBooks and Odoo both fail at retainage and
+at progress certificates; Odoo's `stock.move` carries no analytic dimension. The Law 157/2025 +
+MoF 418/2025 dual VAT regime (14% full recovery versus 14% on a 36% transitional basis, keyed on
+contract date) is modelled in Slice 1; no competitor was found claiming to model the transitional
+basis, but that is an unverified absence.
+
+**Panel:** `client-contractor` — the module answers every dealbreaker in its profile.
+`client-accounting-office` — the EAS 48 recognition run and the `/reconciliation` endpoint
+proving ten control rows is what wins a bureau referral. `product` — it is a beyond-catalog
+surface, but it was built as its own workspace and entitlement, so it does not distort the core.
+**Dissent:** `support-agent` — the certificate's three-person rule will generate "why can't I
+approve my own certificate" calls in one-man firms; answered by the tenant `singleOperatorMode`
+switch, but **that switch needs to be in the first-run wizard, not buried**.
+
+**Reversal cost:** the highest in this set short of DEC-15 — it would mean deleting `projectId`
+and `costCategory` from `journal_line` and ten posting paths. A migration, not a revert.
+**Positioning constraint: do not claim contracting as a Daftra gap.**
+
+---
+
+#### DEC-12 — HR stays built and licensable, stays out of the default plans and the v1 pitch. Statutory payroll returns only against Egyptian statute, with DEC-6's legal review as a hard prerequisite.
+
+**The framing was wrong.** HR is not "15 screens waiting to come back" — it is **built**:
+`packages/domain/src/hr` (employees, contracts, attendance, leave, payroll runs, advances), 31
+gated routes across `hr-routes.ts`, `hr-payroll-routes.ts` and `hr-time-leave-routes.ts`, the
+`people` workspace in `nav-config.tsx:196-205`, and `hr` in `MODULE_CATALOG`. The seeded plans
+already exclude it. What is absent is the **statutory computation**, and the payslip says so.
+
+**What the statute requires:** income tax brackets 0–27.5% with an EGP 20,000 exemption; social
+insurance 11% employee / 18.75% employer on an insurable wage capped between EGP 2,300 and
+14,500 and rising 15%/yr to 2027; plus 1% / 3.25% health. Daftra includes HR in every plan and
+markets payroll — but it could **not** be verified from Daftra's own pages that it computes these
+automatically for Egypt. Treat "competitors show a payslip" as plausible, not proven.
+
+**Panel:** `hr-payroll` — the one structural requirement is that rates are effective-dated data,
+not constants; today's `payroll-component.ts` is already the right shape. `owner` would not pay
+for a payroll that prints an incomplete net, but is fine with it as an unlicensed module.
+`implementation-consultant` — a client migrating from Daftra asks on day one, and the honest
+answer ("employees, leave, advances yes; net pay no") is sellable. `client-restaurant` (35 staff)
+needs attendance and shifts more than tax. **Dissent:** `product` wanted the workspace out of the
+nav entirely to match §4.1 — **rejected**, because the module is real and licence-gated, and
+pulling a working workspace to satisfy a stale scope line is exactly the "lost in a merge"
+failure the working agreement warns about.
+
+**Stale text to fix:** §4.1 should say *statutory payroll computation* is out of scope, not "HR".
+`.claude/agents/hr-payroll.md` and `.claude/agents/product.md` still say the HR module is
+descoped. **Reversal cost:** a plan row. The real cost is a wrong net on a payslip, so the gate
+is legal review, not engineering.
+
+---
+
+#### DEC-13 — Build Law 6/2025 now, quietly. Claim it only once the pieces below exist and an accountant has signed off on the turnover base.
+
+**What the regime requires** (verified): effective 1 Mar 2025; turnover ≤ EGP 20m; income tax on
+**gross turnover** at 0.4% (<500k) / 0.5% (500k–2m) / 0.75% (2–3m) / 1% (3–10m) / 1.5% (10–20m);
+election by Form 1/10, irrevocable five years, withdrawal by Form 1/11; annual return on Form 20;
+**VAT return quarterly**, due within one month of quarter end; payroll tax annual; **exempt from
+withholding and advance payments**, stamp duty, development fees, dividend and capital-gains tax;
+audit deferred five years; a 20% overshoot grace for one year at 1.5%; excluded if ≥90% of revenue
+comes from one or two clients. Entry requires having joined e-invoicing/e-receipt. Records under
+**MoF Decree 420/2025 Art. 3**: fixed-asset register, raw-materials stock register, sales journal,
+purchases journal, tax-summary book.
+
+**Does any competitor model it?** Searches across Daftra, Qoyod, Zoho Books Egypt, Odoo
+`l10n_eg`, Wafeq, AccFlex and Al-Ameen returned **zero hits** for a turnover-band computation, a
+regime election, quarterly VAT under the regime, or a regime-comparison screen. This is a negative
+search result, not proof — the artifact's "none of twenty-six" claim is consistent with it but
+remains unverified against live tenants.
+
+**Repo fact:** nothing existed. A grep for `regime` or `Law 6` in `packages/domain/src` returned
+nothing outside docs; `tax/vat-filing.ts` had no monthly/quarterly notion.
+
+**Panel:** `tax-expert` — this is the one feature that changes what a buyer *pays*, and the
+mechanics are two days, but the modelling needs a محاسب قانوني. `owner` — "show me what I'd pay
+under each regime" is the first screen that makes an owner rather than an accountant care.
+`client-accounting-office` — 60 clients, most under 20m; a bureau elects for dozens at once.
+`client-retail`, `client-restaurant`, `client-pharmacy` are all eligible, and the e-receipt entry
+condition is met by the §5.4 build. **Dissent:** `product` argued "quietly, then claim" rather than
+"market now" — **accepted**, because a claimed regime with the wrong turnover base is a tax
+exposure. `support-agent`: the election is irrevocable for five years, so **the screen must never
+let a click elect** — it records what was filed on Form 1/10.
+
+**Binding build conditions:** every statutory number is effective-dated data with a `source`
+naming the article, never a hardcoded constant; liability is presented as an **estimate** with its
+source cited; the ≥90% concentration is **flagged to the user, not decided by the code**. The
+Decree 420 five books are named exports of reports that already exist — no new registers.
+
+---
+
+#### DEC-14 — Delete the codes that name what does not exist. Wire the ones that name a real route gated on the wrong code. "Hide" was never a decision — POS is already hidden by licensing.
+
+**Two repo facts that changed the question.** `platform/module-catalog.ts` already excludes
+`pos`, and the role editor renders only `licensedModules(entitlements)` — so the 37 POS codes are
+**already invisible** on any licence the platform issues. What *is* visible and overstated today
+is `dashboard.*` and `transactions.*`, because they sit in `ALWAYS_LICENSED_MODULES`, plus the
+treasury per-type codes any licensed tenant can tick. A script over every `packages/api` route file
+plus desktop IPC found **80 of ~298 codes gated by no API route**, three of which are gated by
+desktop IPC and are fine.
+
+**Panel:** `it-admin` — a checkbox that changes nothing is the worst kind: the admin ticks it,
+tests, and concludes the product is broken. Delete beats hide. `owner` — "can I stop a staff
+member from refunding a customer?" is today **no**, because all ten voucher types gate on one
+code; that is the one place to wire rather than delete. `support-agent` — every phantom permission
+is a ticket. `product` — deleting POS rows is not a scope decision; DEC-16 keeps POS out and a
+catalogue row is not a module. **Dissent:** `implementation-consultant` wanted the POS rows kept
+for the day POS returns; **rejected** — they are transcribed in `docs/archive/catalog/09` and a
+revert is one commit.
+
+**Delete (55):** all 37 `pos.*`; `dashboard.view`/`.export`; `transactions.view`/`.view_all`;
+`accounting.journal.approve` and `treasury.customer_refund.approve` (approval is role-based by
+DEC-2, so a permission-coded approve can never be honoured); `sales.invoice.print` and
+`inventory.label.print` (printing is renderer-side from data the holder can already view — a
+server cannot enforce it); `sales.customer.merge`; `crm.lead.assign` and `crm.lead.view_own`
+(leads have no owner field, so neither can be evaluated); `installments.collection.create`
+(duplicate of `installments.collect`); `hr.payroll.run`; `hr.leave_accrual.year_end` and
+`.migrate_open`; `hr.employee.view_personal`; `admin.branches.deactivate` and
+`admin.warehouses.deactivate`; `admin.modules.view`/`.manage`; `assets.depreciation.void`;
+`purchases.invoice.delete_draft`, `purchases.landed_cost.delete_draft`, `purchases.landed_cost.edit`;
+`treasury.transfer.view` and `treasury.customer_refund.view`; and the four
+`treasury.*_adjustment.create` / `balance_transfer.create` codes.
+
+**Keep and wire (9)** — these are the live half of D116, not DEC-14:
+`treasury.customer_refund.create/confirm/void` and `treasury.transfer.create/confirm/void`
+(`vouchers-routes.ts:430/509/533` gates every voucher type on `treasury.cash_voucher.*`; refund is
+money out to a customer and both `owner` and `internal-auditor` want it separable);
+`sales.return.view_own` and `purchases.invoice.view_own` (`attachments/entity-type.ts:33,37`
+already treats them as view tiers and `sales-invoices-routes.ts:775` shows the three-tier pattern,
+but the list routes gate on `.view` alone, so a `view_own` holder gets 403);
+`contracting.certificate.collect` (designed as the fourth right, seeded, gated nowhere —
+collection currently rides `treasury.cash_voucher.create`).
+
+**Keep as is (4)** — an API-only grep and D116 both under-counted these: `admin.backup.view`,
+`admin.backup.restore` and `admin.tenant.settings.edit` are gated in `desktop/src/main/restore-ipc.ts`,
+the only place a restore can happen; `purchases.order.edit` is consumed as the `manage` right for
+PO attachments. Note there is **no PO edit route at all** — a separate functional question.
+
+---
+
+#### DEC-15 — The desktop bet is a moat for a specific buyer. Fund the offline story, not cloud parity.
+
+**Evidence for.** The 7 Jul 2025 Ramses Exchange fire took national connectivity to 62% then
+**44%** overnight, with POS terminals and banking apps down across 20 of 27 governorates; the
+facility carries ~40% of Egypt's traffic and WE holds ~80% of fixed broadband in a market rated
+"Very Poor" for competition. Load-shedding ran 1–5 hours a day through 2023–24 — a power cut kills
+a router before it kills a laptop on battery. Fixed broadband is 12.96m subscriptions against ~26m
+households.
+
+**Evidence for distrust of hosted books: could not be verified with survey data.** The proxy is
+what the incumbents had to build — Daftra ships a Windows "POS Desktop Application (Online &
+Offline)" because its cloud POS could not survive the counter; Al-Ameen and Al-Afdal still sell
+Windows desktop accounting with local databases and ETA integration. The desktop category is alive
+in Egypt at the low end; Intuit's retreat is a US mid-market story.
+
+**Evidence against.** Cloud ERP for Egyptian SMEs is a growing market and 60% of SMEs say they want
+digital tools — vendor-sponsored figures, none of which measure the sub-20m shop.
+
+**Panel:** `owner` — "my internet fails" is item 4 in the profile, and the pitch lands only if the
+product *tells the story* (a status line: sold offline, N receipts queued, next drain).
+`client-wholesale` — "anything that needs the internet" is a listed dealbreaker. `it-admin` — the
+moat is only as real as the restore drill, and §5.2's key-card residual (backups unrecoverable on
+new hardware without a paper key) is what turns "offline" into "lost the books". **Dissent:**
+`client-accounting-office` — single-tenant desktop forces one install per client and no remote view
+of 60 sets of books; for a bureau the desktop bet is a **cost**, and the SaaS models slice is the
+answer. `product` agrees: the bet is per buyer, not per company.
+
+**Reversal cost: the highest in this set — the architecture is the product.**
+**Backlog consequence:** E1-06 (verified backup and restore drills) and the key-card recovery path
+come **before** any E3 cloud-parity item. ENH-E3-01 (remote glance) waits.
+
+---
+
+#### DEC-16 — POS stays out of v1. Say so in positioning. The e-receipt obligation is met without it.
+
+**What other platforms do:** Daftra puts cloud POS in every plan (489.50–1,960 EGP/mo annual), with
+offline hardware POS only on Premium. Foodics dominates restaurant POS in Egypt with offline mode.
+The ETA e-receipt mandate requires POS **or ERP** integration, and shops under 50 receipts/month may
+use the portal.
+
+**The legal obligation does not need a till.** §5.4 already has `EtaDocumentType.receipt`, the
+post-clearance queue, the QR on print and the idempotent reprint — all on the sales-invoice path,
+and DEC-9 wires the producer.
+
+**Panel:** `owner` wants the counter but will not pay for a v1 that slips — and the 26-task plan
+starts with a mandatory hardware design spike for a screen with **no reference implementation
+anywhere**. `client-retail` is told plainly in its own profile to keep its current till; its real
+asks (branch scope, per-branch stock, daily cash close) are built. `client-restaurant` needs recipes
+and the kitchen store more, and Foodics owns that counter anyway. `client-pharmacy` sells through a
+till it already owns. `product` — POS is the one sanctioned net-new surface and the highest design
+risk in the plan. **Dissent:** `owner` and `client-retail` both want the roadmap to name a date;
+`support-agent` warns that "no POS" must be stated in the **first** sales conversation or it becomes
+the most common refund request.
+
+**Positioning line:** "Mezan runs the books, stock and branches behind your existing till; every
+consumer sale it records is an e-receipt." **Reversal cost:** reversing a "no" costs nothing;
+reversing a half-built POS costs a design spike done wrong.
+
+---
+
+#### DEC-17 — Delete the API-key and webhook back end. Keep the event bus. Rebuild integration as a licensable module when the cloud edition has a public HTTP surface.
+
+**What other platforms do:** Daftra publishes a REST API and Zapier/Make webhooks; Zoho Books has
+in-app webhooks; QuickBooks Online and Xero have webhook APIs. **Every one of them is cloud** — the
+API is reachable because the server is on the internet.
+
+**The repo facts that decide it.** On desktop the only network surface is the LAN socket, and
+`desktop/src/main/lan-host.ts:128-134` allow-lists exactly `/auth/login`, `/auth/logout`, `/tenant`,
+`/health` and `/lan/*` — `/api-keys` and `/webhooks` are unreachable from anything but the host's own
+IPC. Nothing authenticates a request by API key; `session-auth.ts` is session-only. The dispatcher
+is the second subscriber on the event bus and only ever sees 5 of 39 events. The two screens were
+already deleted (F129). What remains is `domain/{api-keys,webhooks}`, `contracts/{api-keys,webhooks}.ts`,
+`persistence/{api-key-store,webhook-store}.ts`, `api/{api-keys,webhooks}-routes.ts` (345 lines), and
+the options in `app.ts:385-395, 1719-1738`.
+
+**Panel:** `it-admin` — an outbound dispatcher that POSTs signed bodies from a shop laptop is a
+surface nobody can see or turn off from the UI now that the screens are gone. `security-officer` —
+the day the LAN allow-list widens to serve a second machine, an unreached `/api-keys` route becomes a
+reached one. `product` — "finish as a module" means opening the LAN socket to `/api/*` with key auth,
+and that is the cloud edition's job, not v1's. `client-accounting-office` wants data *portability*,
+which is a different feature and already exists. **Dissent:** `owner` — the comparison-grid row
+"API: no" will be used against us by Daftra's sales; **accepted as the price**, stated in positioning
+as "integrations arrive with the cloud edition".
+
+**It cannot stay: built, used by nobody, reachable by nothing.** Deleting costs the dispatcher's bus
+subscription and a migration to drop two tables; the event bus, `DocumentEventPublisher` and the
+notification subscriber stay untouched. Reversal is a git revert plus the DEC-5 work that would have
+been needed anyway.
+
+---
+
+#### DEC-18 — Two named axes (cost centre and project), and stop. Branch becomes the third only via DEC-20. No generic dimension engine.
+
+**What other platforms do:** Xero caps at **2** active tracking categories by design. QuickBooks
+Online: class per line plus location per transaction = **2**. Zoho has unlimited reporting tags, but
+tags are not a posting model. Only Business Central (8) and Odoo's analytic plans go further, and
+neither is a target.
+
+**The GL line already carries `costCenterId` and `projectId`** (`gl/ledger.ts:55-57, 66-68`;
+`persistence/ledger-store.ts:59, 475`) — the same count as the baseline.
+
+**Panel:** `cost-accountant` asked for a department axis; the cost centre already links 1:1 to a
+department (`cost-centers/cost-center.ts:35-36`), so it is derivable. `accountant` backed two: each
+axis is another field every clerk must fill, or every report shows "unallocated". **Dissent:**
+`reports-analyst` wants percentage splits, Odoo-style — **rejected**, no comparator the buyer knows
+has it.
+
+**Reversal cost:** zero; adding an axis later is the D97 recipe. **Record only.**
+
+---
+
+#### DEC-19 — Keep the one-step transfer document. The in-transit leg is a TRANSIT warehouse, and a shortfall is a SHORTAGE adjustment on it. Both already exist.
+
+**What other platforms do:** QuickBooks Enterprise transfers are instant, and transit tracking is
+"currently unavailable". Xero core has no locations at all. Zoho Inventory has Initiate Transfer →
+In Transit → mark transferred, whole-order, with no per-line shortfall. Odoo uses two pickings
+through a transit location. **Daftra requires «قبول التحويل» at the receiving branch and raises a
+«تحويلات لم تستلم» alert** — the Egyptian incumbent does have a receiving side.
+
+**Panel:** `warehouse-keeper` and `internal-auditor` both hold "a transfer that can vanish" as a
+dealbreaker; `client-wholesale` (6 vans) says van loading is where shrinkage hides; `owner`'s third
+question is "is anyone stealing". `cost-accountant` and `chartered-accountant` objected to a
+receiving confirm that admits shortfalls inside a valuation-neutral document: **the loss must be a
+named, gated, posted adjustment, not a silent delta.** Both sides are satisfied by mechanism that
+already exists.
+
+**The resolution:** `WAREHOUSE_TYPES` already has `TRANSIT` — «مستودع وسيط» (`settings/warehouse.ts:18-25`)
+— and the `SHORTAGE` reason posts Dr 5073 / Cr 1200 (`inventory/reasons.ts:95-101`, tenant-routable
+at `create-backend.ts:326-337`) and passes the adjustment approval gate. So **dispatch** = transfer
+A→TRANSIT, **arrival** = transfer TRANSIT→B, **shortfall** = a SHORTAGE adjustment on TRANSIT: a loss
+with a cause, an approver and a GL entry. The transfer document stays valuation-neutral and matches
+the catalog.
+
+**The one gap versus Daftra is the alert.** On-hand in TRANSIT-type warehouses is «بضاعة قيد التحويل»;
+`reports/inventory-stock-levels.ts:35,56` already takes a `warehouseId`, so a dashboard tile or a saved
+view over TRANSIT warehouses is the whole build. **Do not** add an `in_transit` state or a
+receive-with-shortfall confirm.
+
+---
+
+#### DEC-20 — Add a nullable `branchId` to the journal line, beside `costCenterId`/`projectId`, filled path by path. The statements get a branch filter with a mandatory «غير مخصص» bucket.
+
+**What other platforms do:** Zoho Books stamps a branch on every sales, purchase, bank and **manual
+journal** transaction and offers P&L compared by branch. QuickBooks Online: one location per
+transaction, P&L by Location. Xero: a tracking category. Daftra filters sales reports by branch but
+documents no per-branch income statement. **Every comparator that has branches puts the branch on the
+entry; none derives it from the source document.**
+
+**"Derive from source" is rejected** for the reason §6.1 already gave: manual journals
+(`documents/journal-document.ts`), payroll, depreciation and year-end close have no document branch,
+and the join would silently drop them.
+
+**Panel:** `client-retail` (4 shops) and `owner` — per-branch P&L is the first question asked.
+`reports-analyst` — "a report locked to all branches is unusable in a 4-branch business".
+**`chartered-accountant` objected conditionally: a partially-filled dimension gives branch P&Ls that
+do not sum to the entity unless the unattributed bucket is always shown. Never hide it.**
+**`accountant` objected on scope: inter-branch cash and stock movements need due-to/due-from clearing
+accounts to make branch books balance. A dimension is a management view, not statutory branch books —
+say so in the docs.**
+
+**Blast radius is real** — 9 `buildGlPosting` document types plus ~12 direct posting services
+(`voucher-service`, `cheque-service`, `post-payroll-run`, `post-depreciation-run`, `year-end-close`,
+contracting ×5, landed costs, writedowns) — **but it is additive and nullable, so it can be staged
+and abandoned at zero cost.** The shape is known: D97 is the precedent.
+
+**Hard sequencing rule:** do not ship the filter on any statement before the fill lands for the
+sales, purchase and treasury paths. A filter over an empty dimension is the "silently does nothing"
+failure D111 warned about.
+
+---
+
+### Taken earlier
 
 | # | Decision | Taken |
 |---|---|---|

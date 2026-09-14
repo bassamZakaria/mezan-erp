@@ -137,6 +137,11 @@ Every mutation invalidates the tenant's entitlement cache and writes the platfor
    stored by the platform.
 On any failure after step 1 the tenant stays `provisioning` with the error in the response; the
 operator can retry `POST /tenants/:id/provision`, which re-runs steps 2 to 3 idempotently.
+Activation is the LAST step, so the router never dispatches to a tenant whose admin does not
+exist yet. `/bootstrap/*` sits on the licence write-gate allowlist so seeding and the admin claim
+work on a still-unlicensed tenant; both routes close themselves (seed is a no-op once non-empty,
+admin refuses once claimed). Known trade-off: an unclaimed tenant suspended mid-provision can
+still be claimed through `/bootstrap/admin` by whoever holds its code until it is archived.
 
 ### 2.5 Dunning sweep
 `runDunningSweep(platform, now)`: every `active` subscription whose `currentPeriodEnd` < now →

@@ -82,6 +82,20 @@ Contracts: `limits: z.object({ branches: z.number().int().nonnegative(), warehou
 
 ---
 
+### Task A2b: wire the module gate (found during A2: built, never called)
+
+**Files:** `packages/api/src/permission-gate.ts`, `packages/api/src/module-gate.ts`, `packages/api/src/app.ts`, `packages/api/src/module-gate.test.ts` (extend) and `packages/backend/src/create-backend.test.ts` (one end-to-end case).
+
+The module gate is exported and unit-tested but no route calls it, so an unlicensed module has never been refused. Wire it the way refusal reporting is wired: a middleware mounted once by `createApp` binds the request's entitlements on the Hono context, and the permission gates read it.
+
+- [ ] **Step 1: Failing tests.** In `module-gate.test.ts`: `entitlementsBinding(resolver)` sets `c.get("entitlements")`. In a new describe using `createApp` (or the backend test harness): with a resolver giving `activeModules: ["sales"]`, a route gated on `hr.employee.view` returns 403 `{ error: "MODULE_NOT_LICENSED", module: "hr", message: "وحدة الموارد البشرية غير مفعّلة في باقتكم" }` even for the `"*"` admin; a route gated on `sales.invoice.view` passes the module check; a route gated on `admin.users.view` passes (always-licensed module); with no binding at all (desktop, tests that build routes directly) nothing is refused. In `create-backend.test.ts`: the A2 case now asserts `GET /hr/employees` (or the hr route the file already uses) is 403 `MODULE_NOT_LICENSED` under `activeModules: ["sales"]`.
+- [ ] **Step 2: Run, fail.**
+- [ ] **Step 3: Implement.** `module-gate.ts`: `declare module "hono" { interface ContextVariableMap { entitlements?: Entitlements } }`; `export function entitlementsBinding(resolve: EntitlementsResolver): MiddlewareHandler` that sets `entitlements` when the resolver returns one; `export function moduleRefusal(moduleId: string)` returning the 403 body with the Arabic message «وحدة <labelAr> غير مفعّلة في باقتكم» using `MODULES.find(m => m.id === moduleId)?.labelAr` from the catalog (fall back to the id). `permission-gate.ts`: in `createPermissionGate` and `createAnyPermissionGate`, before the permission check, `const ent = c.get("entitlements"); const def = getPermission(code); if (ent && def && !isModuleLicensed(def.module, ent)) return c.json(moduleRefusal(def.module), 403);` (for the any-gate, refuse only when every candidate permission's module is unlicensed). `app.ts`: `app.use("*", entitlementsBinding(resolveEntitlements))` right after `permissionRefusalReporting`. `isModuleLicensed` already maps `cheques` → `financial_papers` and passes the always-licensed set.
+- [ ] **Step 4: Run + typecheck.** Also run `npx vitest run packages/api packages/backend` since every gated route is affected; the default resolver serves all nineteen modules so nothing should change.
+- [ ] **Step 5: Commit** `fix(api): the module gate was built and never wired; every permission now checks its module`
+
+---
+
 ### Task A3: seat, branch and warehouse caps
 
 **Files:** `packages/api/src/users-routes.ts`, `branches-routes.ts`, `warehouses-routes.ts`, `app.ts`, tests beside each (`users-routes.test.ts` exists? check; else add `capacity-caps.test.ts` in `packages/api/src`).

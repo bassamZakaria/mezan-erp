@@ -10,6 +10,7 @@ import type { CreateTenantRequestDTO, ProvisionResultDTO } from "@mezan/contract
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant } from "./provision-tenant.js";
 import { startDunningTimer } from "./dunning.js";
+import { createBackupScheduler } from "./backup-scheduler.js";
 import type { CloudEnv } from "./env.js";
 
 export interface CreateCloudAppOptions {
@@ -20,8 +21,10 @@ export interface CreateCloudAppOptions {
   readonly transformIndexHtml?: (html: string) => string;
   /**
    * The in-app backup scheduler (task C2): `start()` begins the timer and
-   * returns its `stop()`. Not implemented in this task — omitted, `close()`
-   * has nothing of its own to stop.
+   * returns its `stop()`. Defaults to `createBackupScheduler` from
+   * `./backup-scheduler.js`, wired to this app's own platform, router and
+   * `env.platformDir` — a caller only needs this seam to substitute a stub
+   * (tests) or a different implementation.
    */
   readonly backups?: { start(): () => void };
   /**
@@ -110,9 +113,17 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     onError: (err) => console.error("[cloud] dunning sweep failed", err),
   });
 
+  const backups = options.backups ?? createBackupScheduler({
+    platform,
+    router,
+    dir: env.platformDir,
+    intervalMs: env.backupIntervalMinutes * 60_000,
+    now,
+    onError: (err) => console.error("[cloud] backup run failed", err),
+  });
   let stopBackups: (() => void) | undefined;
-  if (env.backupIntervalMinutes > 0 && options.backups) {
-    stopBackups = options.backups.start();
+  if (env.backupIntervalMinutes > 0) {
+    stopBackups = backups.start();
   }
 
   const root = new Hono();

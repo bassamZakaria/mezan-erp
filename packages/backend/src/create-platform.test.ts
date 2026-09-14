@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, it, expect } from "vitest";
 import { MODULE_CATALOG, Money, type Plan } from "@mezan/domain";
 import { createSqlitePlatformStores, openSqliteConnection } from "@mezan/persistence";
 import { createPlatform, PLATFORM_SEED_PLANS } from "./create-platform.js";
@@ -132,5 +135,32 @@ describe("createPlatform", () => {
     expect(hash.startsWith("scrypt$")).toBe(true);
     expect(await platform.hasher.verify("some secret", hash)).toBe(true);
     platform.close();
+  });
+
+  describe("backupTo", () => {
+    let dir: string;
+
+    afterEach(() => {
+      if (dir) rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("writes a verified, openable copy of the live platform database to the destination path", async () => {
+      dir = mkdtempSync(path.join(tmpdir(), "mezan-platform-backup-test-"));
+      const platform = await createPlatform({ dbPath: path.join(dir, "platform.db"), now: FIXED_NOW });
+
+      const destination = path.join(dir, "backup.sqlite");
+      await platform.backupTo(destination);
+
+      expect(existsSync(destination)).toBe(true);
+      const { sqlite: copy } = openSqliteConnection(destination);
+      try {
+        expect(copy.pragma("integrity_check", { simple: true })).toBe("ok");
+        const plan = copy.prepare("SELECT code FROM plan WHERE code = ?").get("core") as { code: string } | undefined;
+        expect(plan?.code).toBe("core");
+      } finally {
+        copy.close();
+      }
+      platform.close();
+    });
   });
 });

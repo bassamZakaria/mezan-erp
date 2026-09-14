@@ -44,6 +44,8 @@ export interface TenantRouter {
   invalidate(code: string): void;
   sweep(): Promise<void>;
   close(): Promise<void>;
+  /** Codes with a currently open (cached) tenant backend — an idle-evicted or never-opened tenant is absent. */
+  openTenants(): string[];
 }
 
 export function tenantDbPath(dataDir: string, dbFile: string): string {
@@ -147,6 +149,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     invalidate(code) { resolvers.get(code)?.invalidate(); },
     sweep: () => cache.sweep(),
     close: () => cache.close(),
+    openTenants: () => cache.openCodes(),
   };
 }
 

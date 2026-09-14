@@ -475,6 +475,13 @@ export interface BackendHandle {
    * accepts from a client.
    */
   readonly sessions: SessionRegistry;
+  /**
+   * Copies the live database to `destination` via better-sqlite3's online
+   * backup API — safe to call while the app keeps serving writes, since the
+   * backup reads through SQLite's own consistent snapshot rather than
+   * pausing the connection.
+   */
+  backupTo(destination: string): Promise<void>;
   close(): void;
 }
 
@@ -2077,6 +2084,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   return {
     app,
     sessions,
+    backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     close() {
       // Before the connection goes: retries waiting on a backoff pause would
       // otherwise wake up against a closed store and throw while recording.

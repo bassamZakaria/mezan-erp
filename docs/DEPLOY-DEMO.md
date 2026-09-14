@@ -2,10 +2,17 @@
 
 A single container serves the built web bundle at `/`, the platform console at
 `/api/platform`, and every tenant under `/api` — the prefix
-`apps/web/src/data/transport.ts` already calls. The platform database and every
-tenant's SQLite file live under `/tmp/platform`, so the host's ephemeral disk is
-not a problem: every restart re-seeds the platform owner and the demo tenant
-from scratch. Anything a client types is lost when the instance restarts.
+`apps/web/src/data/transport.ts` already calls. The Render free instance has no
+persistent disk, so the platform database and every tenant's SQLite file live
+under `/tmp/platform` by design: every restart re-seeds the platform owner and
+the demo tenant from scratch. Anything a client types is lost when the instance
+restarts — the demo is deliberately ephemeral, not a bug to fix.
+
+The container runs with `NODE_ENV=production` (set in the `Dockerfile`), which
+makes `@mezan/backend`'s `resolveSeedAdminSecrets` randomise the fallback admin
+PIN on every reseed — fine for a real production tenant, useless for a demo
+nobody can log in to. `render.yaml` sets `MEZAN_SEED_ADMIN_PIN=123456` so the
+demo tenant keeps the known PIN documented below across every restart.
 
 ## Render (no credit card)
 

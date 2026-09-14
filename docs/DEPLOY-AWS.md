@@ -74,6 +74,15 @@ Tenants are created from that console. A tenant with code `cyag` is reachable
 at `https://cyag.<domain>` with no company code to type, because the wildcard
 record and the wildcard certificate both cover it.
 
+CloudFront sends every `/api/*` request to the API origin with a generated
+`x-mezan-origin` header, and the app 403s any request that lacks it
+(`apps/server/src/env.ts` reads `MEZAN_ORIGIN_SECRET`,
+`tenant-router.ts` enforces it). This means the API Gateway endpoint itself
+(`terraform output -raw api_endpoint`, if you call it directly) refuses every
+request with `403 ORIGIN_REQUIRED` — only traffic that has come through
+CloudFront can reach the API. That is intentional and needs no configuration;
+the secret is generated and wired end to end by Terraform.
+
 ## 5. Redeploying
 
 `.github/workflows/deploy-aws.yml` does it on every push to `main`. It needs

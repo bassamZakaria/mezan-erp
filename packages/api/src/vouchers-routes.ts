@@ -97,6 +97,14 @@ export type VoucherRoutesDeps = Omit<VoucherServiceDeps, "events"> & {
   readonly idGen?: () => string;
   /** The cheque register a «شيك» voucher writes into (D81). */
   readonly cheques?: VoucherChequeRegistrationPort;
+  /**
+   * Whether Law 6/2025's simplified regime binds a payment dated `day`. A
+   * taxpayer inside it is exempt from withholding tax, so the route refuses a
+   * voucher that withholds rather than posting a liability to the authority
+   * that the authority does not recognise (DEC-13). Omit it and nothing is
+   * refused, which is the behaviour for every tenant outside the regime.
+   */
+  readonly simplifiedRegimeActiveOn?: (day: string) => Promise<boolean>;
 };
 
 function serialize(doc: VoucherDocument) {
@@ -518,6 +526,26 @@ export function createVouchersRoutes(
     const d = parsed.data;
     const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
     if (refusal) return refusal;
+    /*
+     * Law 6/2025 exempts a taxpayer inside the simplified regime from
+     * withholding tax. Accepting a withholding amount anyway would post a
+     * liability to an authority that does not recognise it, and the figure
+     * would then travel into the filing. Refused rather than silently zeroed:
+     * the operator typed a number, and a number that vanishes without a word
+     * is how a wrong filing gets signed (DEC-13).
+     */
+    if (d.withholdingAmount && Money.fromMajor(d.withholdingAmount).scaled !== 0n && deps.simplifiedRegimeActiveOn) {
+      if (await deps.simplifiedRegimeActiveOn(d.date)) {
+        return c.json(
+          {
+            error: "WITHHOLDING_NOT_ALLOWED_UNDER_SIMPLIFIED_REGIME",
+            message:
+              "المنشأة مسجّلة في النظام الضريبي المبسط (قانون ٦ لسنة ٢٠٢٥) وهي معفاة من الخصم والتحصيل، فلا يجوز خصم ضريبة على هذا السند.",
+          },
+          422,
+        );
+      }
+    }
     try {
       const svc = serviceFor(c);
       /**

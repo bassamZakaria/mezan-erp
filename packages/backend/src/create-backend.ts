@@ -50,6 +50,8 @@ import {
   createTreasuryLedgerReader,
   VoucherService,
   VOUCHER_DOC_TYPE,
+  NO_SIMPLIFIED_REGIME,
+  simplifiedRegimeActiveOn,
   type TreasuryTransferInput,
   DocumentService,
   createDocumentWorkflowGate,
@@ -2659,6 +2661,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         },
       },
       events: voucherEventBridge,
+      // Law 6/2025 exempts a regime taxpayer from withholding, so the route
+      // refuses a voucher that withholds rather than posting a liability the
+      // authority does not recognise (DEC-13).
+      simplifiedRegimeActiveOn: async (day: string) =>
+        simplifiedRegimeActiveOn((await simplifiedRegime.get()) ?? NO_SIMPLIFIED_REGIME, day),
     },
     purchases: {
       itemCheck: items,

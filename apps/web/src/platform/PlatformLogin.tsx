@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput } from "@mezan/ui";
 import type { PlatformSessionDTO } from "@mezan/contracts";
@@ -17,6 +17,12 @@ export function PlatformLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+
+  // Mirrors `LoginScreen`'s imperative-ref focusing: the door has exactly one
+  // useful first keystroke, and it belongs in the email field, not wherever
+  // the browser happens to have last put focus.
+  useEffect(() => emailRef.current?.focus(), []);
 
   const login = useMutation<PlatformSessionDTO, PlatformApiError, { email: string; password: string }>({
     mutationFn: async (body) => {
@@ -28,7 +34,14 @@ export function PlatformLogin() {
       return res.json<PlatformSessionDTO>();
     },
     onSuccess: (session) => setSession(session),
-    onError: (err) => setError(err.message),
+    onError: (err) => {
+      // A 401 is always a wrong email/password, whatever the server's own
+      // wording — this screen names that refusal itself rather than trusting
+      // a server message that may not exist (or may leak which of the two
+      // fields was wrong). Every other status keeps the server's message.
+      setError(err.status === 401 ? t("platform.login.error.invalidCredentials") : err.message);
+      setPassword("");
+    },
   });
 
   function handleSubmit(event: FormEvent) {
@@ -61,6 +74,7 @@ export function PlatformLogin() {
         <label className="mt-[14px] flex flex-col gap-[6px]">
           <span className="text-xs font-semibold text-ink">{t("platform.login.email")}</span>
           <TextInput
+            ref={emailRef}
             type="email"
             value={email}
             autoComplete="username"

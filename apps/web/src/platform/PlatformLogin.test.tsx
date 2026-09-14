@@ -14,9 +14,13 @@ function SessionProbe() {
 const okTransport = () =>
   stubPlatformTransport({ "POST /auth/login": () => ({ body: testPlatformSession }) });
 
+// Deliberately NOT the catalog's own wording — the login screen must show its
+// own «بيانات الدخول غير صحيحة» on a 401 regardless of what the server said,
+// so a stub that echoed the catalog string back would let that requirement
+// pass by coincidence rather than prove it.
 const denyTransport = () =>
   stubPlatformTransport({
-    "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "بيانات الدخول غير صحيحة" } }),
+    "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "server says something else entirely" } }),
   });
 
 describe("PlatformLogin", () => {
@@ -24,7 +28,7 @@ describe("PlatformLogin", () => {
     localStorage.clear();
   });
 
-  it("renders the email and password fields and a disabled submit until both are filled", () => {
+  it("renders the platform sign-in heading with the submit button disabled at rest", () => {
     renderWithPlatformProviders(<PlatformLogin />, { transport: okTransport() });
     expect(screen.getByRole("heading", { name: "تسجيل دخول المنصة" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
@@ -46,12 +50,13 @@ describe("PlatformLogin", () => {
     expect(JSON.parse(localStorage.getItem("mezan.platform.session") ?? "null")).toEqual(testPlatformSession);
   });
 
-  it("shows «بيانات الدخول غير صحيحة» when the backend rejects the credentials", async () => {
+  it("shows the console's own «بيانات الدخول غير صحيحة» on a 401, not the server's message, and clears the password", async () => {
     renderWithPlatformProviders(<PlatformLogin />, { transport: denyTransport() });
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "owner@mezan.example" } });
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "wrong-pass" } });
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("بيانات الدخول غير صحيحة");
+    expect(screen.getByLabelText("كلمة المرور")).toHaveValue("");
   });
 });

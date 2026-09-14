@@ -64,4 +64,25 @@ describe("PlatformApiProvider", () => {
     screen.getByRole("button", { name: "fire" }).click();
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent("owner@mezan.example"));
   });
+
+  it("without an injected transport, reaches /api/platform/* over fetch with the bearer header", async () => {
+    const fetchSpy = vi.fn(async (_input: string, _init?: RequestInit) => new Response(JSON.stringify({}), { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      render(
+        <PlatformApiProvider initialSession={testPlatformSession}>
+          <SessionAndRequestProbe path="/tenants" />
+        </PlatformApiProvider>,
+      );
+      screen.getByRole("button", { name: "fire" }).click();
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      const call = fetchSpy.mock.calls[0];
+      if (!call) throw new Error("fetch was not called");
+      const [url, init] = call;
+      expect(url).toMatch(/^\/api\/platform\//);
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer TEST-PLATFORM-TOKEN");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

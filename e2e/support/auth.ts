@@ -33,21 +33,50 @@ export async function loginAsDemoUser(page: Page): Promise<void> {
   const dismissWizard = page.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" });
   const firstPinBox = page.getByLabel("رمز PIN رقم 1");
 
-  // Waited for, not probed: `page.goto` resolves before the bootstrap query
-  // settles, so an instant `isVisible()` check runs while NEITHER the wizard
-  // nor the login screen is on the page yet, and always answers false.
-  await Promise.race([
-    dismissWizard.waitFor({ state: "visible", timeout: 20_000 }),
-    firstPinBox.waitFor({ state: "visible", timeout: 20_000 }),
-  ]).catch(() => undefined);
-
-  if (await dismissWizard.isVisible().catch(() => false)) {
-    await dismissWizard.click();
+  /*
+   * POLLED, not raced.
+   *
+   * This used to be a `Promise.race` of two 20-second `waitFor`s, then a single
+   * `isVisible()` probe of the wizard, then a final 20-second wait for the PIN
+   * box. On a developer machine the app is up in under a second and it always
+   * worked. On a CI runner it is the dominant cause of failure: 48 of the 55
+   * failures in the first real e2e run on CI came out of this one function.
+   *
+   * The race has three ways to lose, and they compound on a cold runner:
+   *
+   *   1. If neither element appears inside 20s — Vite compiling on the first
+   *      request, the API still seeding `:memory:` — BOTH promises reject, the
+   *      `.catch` swallows it, and the code walks on as though it had waited.
+   *   2. The `isVisible()` that follows is a single instantaneous probe. It runs
+   *      at whatever moment the race happened to give up, which on a slow boot
+   *      is BEFORE the wizard has painted. It answers false, so the wizard is
+   *      never dismissed.
+   *   3. The final wait then sits for 20 more seconds on a PIN box that is
+   *      behind the wizard nobody clicked, and times out at auth.ts:50.
+   *
+   * So it fails exactly when the machine is slow, which is exactly what CI is.
+   *
+   * Polling removes all three. It re-checks both elements every 250ms, dismisses
+   * the wizard WHENEVER it shows up rather than at one guessed instant, tolerates
+   * a click that did not take (the wizard is simply still there next tick), and
+   * gives the whole thing one honest budget instead of three stacked ones.
+   */
+  const READY_BUDGET_MS = 60_000;
+  const deadline = Date.now() + READY_BUDGET_MS;
+  while (Date.now() < deadline) {
+    if (await firstPinBox.isVisible().catch(() => false)) break;
+    if (await dismissWizard.isVisible().catch(() => false)) {
+      // Not fatal if it misses: a click that lands mid-render leaves the wizard
+      // up, and the next pass simply clicks it again.
+      await dismissWizard.click({ timeout: 5_000 }).catch(() => undefined);
+    }
+    await page.waitForTimeout(250);
   }
 
-  // Whichever branch ran, the login screen is the thing we act on next, so wait
-  // for it explicitly rather than letting the race decide we are ready.
-  await firstPinBox.waitFor({ state: "visible", timeout: 20_000 });
+  // The loop above exits on the PIN box OR on the budget. Assert it explicitly,
+  // so a timeout here means "the login screen never arrived in 60s" rather than
+  // a confusing failure three lines later.
+  await firstPinBox.waitFor({ state: "visible", timeout: 10_000 });
 
   const email = page.getByRole("textbox", { name: "البريد الإلكتروني" });
   if (await email.isVisible().catch(() => false)) {

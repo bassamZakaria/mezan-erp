@@ -11,6 +11,9 @@ describe("resolveTenantCode", () => {
   it("prefers x-forwarded-host over host", () => {
     expect(resolveTenantCode(req({ host: "d1.cloudfront.net", "x-forwarded-host": "nile.mezan.app" }), { tenantDomain: "mezan.app" })).toBe("nile");
   });
+  it("takes the first host in a comma-separated x-forwarded-host", () => {
+    expect(resolveTenantCode(req({ "x-forwarded-host": "cyag.mezan.app, proxy.internal" }), { tenantDomain: "mezan.app" })).toBe("cyag");
+  });
   it("gives null for the bare domain, a deeper label, or a host outside the domain", () => {
     expect(resolveTenantCode(req({ host: "mezan.app" }), { tenantDomain: "mezan.app" })).toBeNull();
     expect(resolveTenantCode(req({ host: "a.b.mezan.app" }), { tenantDomain: "mezan.app" })).toBeNull();
@@ -19,6 +22,9 @@ describe("resolveTenantCode", () => {
   it("falls back to the x-mezan-tenant header, trimmed and lower-cased", () => {
     expect(resolveTenantCode(req({ host: "localhost:4101", "x-mezan-tenant": " Cyag " }), {})).toBe("cyag");
     expect(resolveTenantCode(req({ host: "mezan.app", "x-mezan-tenant": "nile" }), { tenantDomain: "mezan.app" })).toBe("nile");
+  });
+  it("lower-cases and trims inner whitespace-padded upper case in the header", () => {
+    expect(resolveTenantCode(req({ "x-mezan-tenant": "  NiLe  " }), {})).toBe("nile");
   });
   it("rejects a code that is not a slug", () => {
     expect(resolveTenantCode(req({ "x-mezan-tenant": "no spaces" }), {})).toBeNull();

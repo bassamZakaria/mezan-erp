@@ -21,17 +21,21 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
   const now = options.now ?? Date.now;
   const entries = new Map<string, { handle: Promise<H>; lastUsed: number }>();
   let closed = false;
-  const timer = options.sweepEveryMs === 0 ? null : setInterval(() => void sweep(), options.sweepEveryMs ?? 60_000);
+  const timer = options.sweepEveryMs === 0
+    ? null
+    : setInterval(() => { sweep().catch(() => undefined); }, options.sweepEveryMs ?? 60_000);
   timer?.unref();
 
   async function sweep(): Promise<void> {
     const cutoff = now() - idleMs;
+    const due: Array<Promise<H>> = [];
     for (const [code, entry] of entries) {
       if (entry.lastUsed <= cutoff) {
         entries.delete(code);
-        await (await entry.handle).close();
+        due.push(entry.handle);
       }
     }
+    await Promise.allSettled(due.map((handle) => handle.then((h) => h.close())));
   }
 
   return {
@@ -42,14 +46,19 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
       if (existing) { existing.lastUsed = now(); return existing.handle; }
       const entry = { handle: options.open(code), lastUsed: now() };
       entries.set(code, entry);
-      try { return await entry.handle; } catch (err) { entries.delete(code); throw err; }
+      try {
+        return await entry.handle;
+      } catch (err) {
+        if (entries.get(code) === entry) entries.delete(code);
+        throw err;
+      }
     },
     sweep,
     async close() {
       closed = true;
       if (timer) clearInterval(timer);
       const open = [...entries.values()]; entries.clear();
-      for (const entry of open) await (await entry.handle).close();
+      await Promise.allSettled(open.map((entry) => entry.handle.then((h) => h.close())));
     },
   };
 }

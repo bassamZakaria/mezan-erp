@@ -3,7 +3,7 @@ import { createSessionRegistry } from "@mezan/api";
 import { createPlatformUser, createTenant, activateTenant, startSubscription } from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
-import { createPlatformAuth } from "./platform-auth.js";
+import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
 import { createPlatformRoutes } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
@@ -19,6 +19,7 @@ async function json(res: Response) {
 
 interface Rig {
   readonly platform: PlatformHandle;
+  readonly auth: PlatformAuth;
   readonly app: ReturnType<typeof createPlatformRoutes>;
   readonly ownerToken: string;
   readonly supportToken: string;
@@ -85,7 +86,7 @@ async function buildRig(): Promise<Rig> {
     idOf,
   });
 
-  return { platform, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
+  return { platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
 }
 
 function req(path: string, token: string, init: RequestInit = {}) {
@@ -170,7 +171,7 @@ describe("createPlatformRoutes", () => {
     expect(archiveRes.status).toBe(200);
     expect(((await json(archiveRes)) as { tenant: { status: string } }).tenant.status).toBe("archived");
 
-    expect(rig.invalidated).toEqual(["acme", "acme", "acme"]);
+    expect(rig.invalidated).toEqual(["acme", "acme", "acme", "acme"]);
 
     const rows = await rig.platform.audit.query("security");
     const actions = rows.map((r) => r.action);
@@ -185,7 +186,6 @@ describe("createPlatformRoutes", () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);
     const id = body.tenant.id;
-    // Tenant is "active"; resume is only legal from "suspended".
     const res = await rig.app.fetch(req(`/tenants/${id}/resume`, rig.ownerToken, { method: "POST" }));
     expect(res.status).toBe(409);
     expect(await json(res)).toMatchObject({ error: "INVALID_TENANT_TRANSITION" });
@@ -214,7 +214,6 @@ describe("createPlatformRoutes", () => {
 
     const cancelRes = await rig.app.fetch(req(`/tenants/${id}/subscription/cancel`, rig.ownerToken, { method: "POST" }));
     expect(cancelRes.status).toBe(200);
-    // A cancelled subscription is no longer "live", so the summary carries none.
     expect(((await json(cancelRes)) as { subscription: unknown }).subscription).toBeNull();
   });
 
@@ -255,6 +254,8 @@ describe("createPlatformRoutes", () => {
 
     const rows = await rig.platform.audit.query("security");
     expect(rows.some((r) => r.action === "PAYMENT_RECORDED")).toBe(true);
+    expect(rig.invalidated).toContain("acme");
+    expect(rig.invalidated.filter((code) => code === "acme").length).toBeGreaterThanOrEqual(2);
   });
 
   it("creates, updates (ignoring code) and retires a plan", async () => {
@@ -358,5 +359,97 @@ describe("createPlatformRoutes", () => {
     const rig = await buildRig();
     const res = await rig.app.fetch(new Request("http://x/tenants"));
     expect(res.status).toBe(401);
+  });
+
+  it("starts a subscription for a tenant with none, invalidating its cache, and refuses a second start with 409", async () => {
+    const rig = await buildRig();
+    const nowIso = FIXED_NOW().toISOString();
+    const tenant = await createTenant(
+      { id: "T-NOSUB", code: "nosub", nameAr: "بلا اشتراك", ownerEmail: "nosub@example.com", now: nowIso },
+      rig.platform.stores.tenants,
+    );
+    await activateTenant({ id: tenant.id, now: nowIso }, rig.platform.stores.tenants);
+    const planList = await plans(rig);
+    const corePlan = planList.find((p) => p.code === "core")!;
+
+    const startRes = await rig.app.fetch(
+      req(`/tenants/${tenant.id}/subscription`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ planId: corePlan.id, billingCycle: "monthly", trial: false }),
+      }),
+    );
+    expect(startRes.status).toBe(201);
+    const started = (await json(startRes)) as { subscription: { status: string; planId: string } | null };
+    expect(started.subscription?.status).toBe("active");
+    expect(started.subscription?.planId).toBe(corePlan.id);
+    expect(rig.invalidated).toContain("nosub");
+
+    const secondRes = await rig.app.fetch(
+      req(`/tenants/${tenant.id}/subscription`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ planId: corePlan.id, billingCycle: "monthly", trial: false }),
+      }),
+    );
+    expect(secondRes.status).toBe(409);
+    expect(await json(secondRes)).toMatchObject({ error: "TENANT_ALREADY_SUBSCRIBED" });
+  });
+
+  it("invalidates every tenant subscribed to a plan when it is updated or retired", async () => {
+    const rig = await buildRig();
+    await provisionOne(rig);
+    rig.invalidated.length = 0;
+
+    const planListRes = await rig.app.fetch(req("/plans", rig.ownerToken));
+    const allPlans = (await json(planListRes)) as Array<{
+      id: string; code: string; nameAr: string; nameEn: string; modules: string[]; seatsIncluded: number;
+      branchesIncluded: number; warehousesIncluded: number; trialDays: number; isPublic: boolean; sortOrder: number;
+    }>;
+    const corePlan = allPlans.find((p) => p.code === "core")!;
+
+    const updateRes = await rig.app.fetch(
+      req(`/plans/${corePlan.id}`, rig.ownerToken, {
+        method: "PUT",
+        body: JSON.stringify({
+          nameAr: corePlan.nameAr, nameEn: corePlan.nameEn, modules: corePlan.modules,
+          seatsIncluded: corePlan.seatsIncluded, branchesIncluded: corePlan.branchesIncluded, warehousesIncluded: corePlan.warehousesIncluded,
+          priceMonthly: "10.00", priceYearly: "100.00", trialDays: corePlan.trialDays, isPublic: corePlan.isPublic, sortOrder: corePlan.sortOrder,
+        }),
+      }),
+    );
+    expect(updateRes.status).toBe(200);
+    expect(rig.invalidated).toEqual(["acme"]);
+
+    rig.invalidated.length = 0;
+    const retireRes = await rig.app.fetch(req(`/plans/${corePlan.id}/retire`, rig.ownerToken, { method: "POST" }));
+    expect(retireRes.status).toBe(200);
+    expect(rig.invalidated).toEqual(["acme"]);
+  });
+
+  it("logs an audit failure through onAuditError instead of swallowing it, and the request still succeeds", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const id = body.tenant.id;
+
+    const auditErrors: unknown[] = [];
+    const brokenPlatform: PlatformHandle = {
+      ...rig.platform,
+      audit: {
+        append: async () => { throw new Error("audit sink down"); },
+        query: rig.platform.audit.query.bind(rig.platform.audit),
+      },
+    };
+    const brokenApp = createPlatformRoutes({
+      platform: brokenPlatform,
+      auth: rig.auth,
+      now: FIXED_NOW,
+      provisionTenant: async () => { throw new Error("not used in this test"); },
+      invalidateEntitlements: () => undefined,
+      onAuditError: (err) => { auditErrors.push(err); },
+    });
+
+    const res = await brokenApp.fetch(req(`/tenants/${id}/suspend`, rig.ownerToken, { method: "POST" }));
+    expect(res.status).toBe(200);
+    expect(auditErrors).toHaveLength(1);
+    expect((auditErrors[0] as Error).message).toBe("audit sink down");
   });
 });

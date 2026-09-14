@@ -50,6 +50,8 @@ describe("createSqlitePlatformStores", () => {
     expect(await stores.subscriptions.listByTenant("T1")).toEqual([sub]);
     expect(await stores.subscriptions.hasLiveByPlan("P1")).toBe(true);
     expect(await stores.subscriptions.hasLiveByPlan("P9")).toBe(false);
+    expect(await stores.subscriptions.listByPlan("P1")).toEqual([sub]);
+    expect(await stores.subscriptions.listByPlan("P9")).toEqual([]);
 
     expect(await stores.platformUsers.findByEmail("root@mezan.app")).toEqual(user);
     expect(await stores.platformUsers.findById("U1")).toEqual(user);
@@ -85,6 +87,18 @@ describe("createSqlitePlatformStores", () => {
     expect(await stores.subscriptions.findLiveByTenant("T1")).toBeNull();
     expect(await stores.subscriptions.hasLiveByPlan("P1")).toBe(false);
     expect(await stores.subscriptions.listByTenant("T1")).toHaveLength(1);
+    expect(await stores.subscriptions.listByPlan("P1")).toEqual([]);
+    stores.close();
+  });
+
+  it("lists every live subscription across tenants on one plan, excluding cancelled ones", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.subscriptions.save(sub);
+    await stores.subscriptions.save({ ...sub, id: "S2", tenantId: "T2" });
+    await stores.subscriptions.save({ ...sub, id: "S3", tenantId: "T3", status: "cancelled", cancelledAt: NOW });
+    await stores.subscriptions.save({ ...sub, id: "S4", tenantId: "T4", planId: "P2" });
+    const rows = await stores.subscriptions.listByPlan("P1");
+    expect(rows.map((s) => s.id).sort()).toEqual(["S1", "S2"]);
     stores.close();
   });
 

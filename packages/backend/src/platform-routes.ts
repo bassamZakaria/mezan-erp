@@ -35,6 +35,7 @@ import {
   InvalidPaymentError,
   InvalidPlatformUserError,
   PlatformUserEmailTakenError,
+  PlatformUserNotFoundError,
   type Tenant,
   type Plan,
   type Payment,
@@ -67,6 +68,7 @@ export interface CreatePlatformRoutesOptions {
   readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }) => Promise<ProvisionResultDTO>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
+  readonly onAuditError?: (err: unknown) => void;
 }
 
 function serializeTenant(t: Tenant): TenantDTO {
@@ -131,9 +133,13 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
   };
 }
 
-/** `*NotFound` → 404, `Invalid*` → 422, every other known conflict → 409. Anything else rethrows to a 500. */
 function domainErrorResponse(c: Context, err: unknown): Response {
-  if (err instanceof TenantNotFoundError || err instanceof PlanNotFoundError || err instanceof SubscriptionNotFoundError) {
+  if (
+    err instanceof TenantNotFoundError ||
+    err instanceof PlanNotFoundError ||
+    err instanceof SubscriptionNotFoundError ||
+    err instanceof PlatformUserNotFoundError
+  ) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (
@@ -162,12 +168,24 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
   const { platform, auth, now, provisionTenant, invalidateEntitlements, idOf = randomUUID } = options;
+  const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
 
   async function requireTenant(id: string): Promise<Tenant> {
     const tenant = await platform.stores.tenants.findById(id);
     if (!tenant) throw new TenantNotFoundError(id);
     return tenant;
+  }
+
+  /** Invalidates every tenant currently subscribed to this plan — a plan edit changes what they are entitled to. */
+  async function invalidateTenantsOnPlan(planId: string): Promise<void> {
+    const subscriptions = await platform.stores.subscriptions.listByPlan(planId);
+    const codes = new Set<string>();
+    for (const subscription of subscriptions) {
+      const tenant = await platform.stores.tenants.findById(subscription.tenantId);
+      if (tenant) codes.add(tenant.code);
+    }
+    for (const code of codes) invalidateEntitlements(code);
   }
 
   async function audit(c: Context, action: string, entityId: string | null, details: Record<string, unknown>) {
@@ -181,7 +199,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       severity: "INFO",
       timestamp: nowIso(),
       details: { ...details, origin: requestOrigin(c) ?? "host" },
-    }).catch(() => undefined);
+    }).catch(onAuditError);
   }
 
   const requireAny = auth.requirePlatform();
@@ -211,6 +229,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     const platformUser = c.get("platformUser")!;
     try {
       const result = await provisionTenant({ ...parsed.data, actorId: platformUser.id });
+      invalidateEntitlements(result.tenant.code);
       await audit(c, "TENANT_PROVISIONED", result.tenant.id, { code: result.tenant.code });
       return c.json(result, 201);
     } catch (err) {
@@ -351,6 +370,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         platform.stores.payments,
         platform.stores.subscriptions,
       );
+      invalidateEntitlements(tenant.code);
       await audit(c, "PAYMENT_RECORDED", tenant.id, { paymentId: result.payment.id, amount: parsed.data.amount });
       return c.json(await tenantSummary(platform, tenant, nowIso()), 201);
     } catch (err) {
@@ -397,6 +417,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         },
         platform.stores.plans,
       );
+      await invalidateTenantsOnPlan(plan.id);
       await audit(c, "PLAN_CREATED", plan.id, { code: plan.code });
       return c.json(serializePlan(plan), 201);
     } catch (err) {
@@ -419,6 +440,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         platform.stores.plans,
         (planId) => platform.stores.subscriptions.hasLiveByPlan(planId),
       );
+      await invalidateTenantsOnPlan(plan.id);
       await audit(c, "PLAN_UPDATED", plan.id, { code: plan.code });
       return c.json(serializePlan(plan));
     } catch (err) {
@@ -429,6 +451,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.post("/plans/:id/retire", requireOwner, async (c) => {
     try {
       const plan = await retirePlan({ id: c.req.param("id") }, platform.stores.plans);
+      await invalidateTenantsOnPlan(plan.id);
       await audit(c, "PLAN_RETIRED", plan.id, { code: plan.code });
       return c.json(serializePlan(plan));
     } catch (err) {

@@ -700,8 +700,8 @@ comparing two numbers that must agree.
 
 | # | Defect | Evidence | State |
 |---|---|---|---|
-| D147 | **A sales rep holding only `view_own` sees no invoices at all.** The `view_own` tier compares `invoice.salespersonId` against `actorOf(c)`, which is a **user id**, while the employee picker that sets the field stores an **`Employee.id`**. The two id spaces never collide, so the filter matches nothing and a real rep gets an empty list rather than their own book. The link needed to fix it already exists — `User.employeeId`, resolved this way by `hr-routes.ts:268-273`. The scenario that should have caught it passes **vacuously**: `[].every(...)` is `true` on the zero rows the confirmer is shown. Found by the ledger panel while settling DEC-7. This is DEC-2's shape a second time — one kind of id compared against another, with the mismatch invisible because the wrong answer is an empty list rather than an error | `packages/api/src/sales-invoices-routes.ts:386,733,876`; the picker at `apps/web/src/screens/SalesInvoicesScreen.tsx:506-514`; the vacuous assertion at `scripts/scenarios/seams.ts:939-959` | reported |
-| D148 | **Consumer e-receipts are parked waiting for a seal the regime does not require, and the reporting window is the disputed figure.** Two findings in one row because they share a fix. (a) `EtaService.submit` checks `config.signingMethod === "eseal"` for **every** `documentType`, so a tenant who has configured an e-seal has their consumer receipts held on `pending_signature` — but the ETA requires no e-signature on a receipt, so the hold can never clear and the receipt is never filed. (b) `ETA_RECEIPT_REPORTING_WINDOW_HOURS = 72` is a defaulted parameter rather than configuration, and the ETA's own POS FAQ says the window is **24 hours**; 72 comes from secondary compliance vendors. A receipt submitted past the authority's real window is rejected outright. Found by the compliance panel while settling DEC-9 | `packages/domain/src/eta/service.ts:235`, `packages/domain/src/eta/receipt.ts:308` | reported |
+| D147 | **A sales rep holding only `view_own` sees no invoices at all.** The `view_own` tier compares `invoice.salespersonId` against `actorOf(c)`, which is a **user id**, while the employee picker that sets the field stores an **`Employee.id`**. The two id spaces never collide, so the filter matches nothing and a real rep gets an empty list rather than their own book. The link needed to fix it already exists — `User.employeeId`, resolved this way by `hr-routes.ts:268-273`. The scenario that should have caught it passes **vacuously**: `[].every(...)` is `true` on the zero rows the confirmer is shown. Found by the ledger panel while settling DEC-7. This is DEC-2's shape a second time — one kind of id compared against another, with the mismatch invisible because the wrong answer is an empty list rather than an error | `packages/api/src/sales-invoices-routes.ts:386,733,876`; the picker at `apps/web/src/screens/SalesInvoicesScreen.tsx:506-514`; the vacuous assertion at `scripts/scenarios/seams.ts:939-959` | fixed 2026-09-14 — the routes resolve the caller's `Employee.id` through a `users` port before narrowing, on the list, the counts, the KPI strip and the detail route, and fail closed on the existing sentinel when the link cannot be resolved. The scenario now raises an invoice against a user the seed really links to an employee and asserts at least one row comes back, so an empty list fails it |
+| D148 | **Consumer e-receipts are parked waiting for a seal the regime does not require, and the reporting window is the disputed figure.** Two findings in one row because they share a fix. (a) `EtaService.submit` checks `config.signingMethod === "eseal"` for **every** `documentType`, so a tenant who has configured an e-seal has their consumer receipts held on `pending_signature` — but the ETA requires no e-signature on a receipt, so the hold can never clear and the receipt is never filed. (b) `ETA_RECEIPT_REPORTING_WINDOW_HOURS = 72` is a defaulted parameter rather than configuration, and the ETA's own POS FAQ says the window is **24 hours**; 72 comes from secondary compliance vendors. A receipt submitted past the authority's real window is rejected outright. Found by the compliance panel while settling DEC-9 | `packages/domain/src/eta/service.ts:235`, `packages/domain/src/eta/receipt.ts:308` | fixed 2026-09-14 — `submit` no longer takes the `eseal` branch for a `receipt`, and the window is an `EtaConfig` field defaulting to **24**. Fixed alongside DEC-9's producer, which is what made either of them reachable: until a consumer sale actually enqueued a receipt, neither the seal hold nor the window could fire on anything |
 
 ---
 
@@ -1210,6 +1210,35 @@ API argument. No dissent; nobody wanted a third receipt-only screen.
 
 **Reversal cost:** none — when POS lands it calls the same `enqueueReceipt`.
 
+##### What shipped, and three more things that were wrong
+
+A consumer sale now produces a receipt end to end: a customer with no `taxNumber` confirms an
+invoice, and `GET /eta/receipts/{docNo}` answers with a real SHA-256 UUID, a `qrValue` carrying
+`/receipts/search/{uuid}/share/`, and a payload whose device serial and branch code both came
+from branch configuration rather than from the caller.
+
+Three defects surfaced that the panel's reading had not reached, each of which would have left
+the feature inert:
+
+- **The UUID port was never wired.** `new EtaService(...)` omitted `receiptUuid`, so every
+  receipt would have thrown `ETA_RECEIPT_UUID_UNAVAILABLE` the moment a producer existed.
+  Routing the bridge alone would have produced nothing.
+- **`etaDocumentTypeSchema` had no `"receipt"` member** even though the domain has carried it all
+  along, and the ETA screen was casting around the gap.
+- **The print page matched on `invoice.id` while the queue keys on `docNo`**, so `etaUuid` never
+  rendered on a single confirmed invoice — the QR the regime requires was unreachable for the
+  same reason the receipt was.
+
+Also: `dueSoon` was hard-coded to 24 hours, which at a 24-hour window marks every pending receipt
+urgent; it now scales to the configured window. The device secret follows the existing
+`hasClientSecret` precedent — sealed at rest, never returned by any route. A branch with no
+registered device refuses with `ETA_DEVICE_SERIAL_NOT_REGISTERED` in both languages, and the
+invoice confirm still succeeds, because a queue failure must never fail a confirm.
+
+The D5 scenario now asserts `queued invoices + queued receipts === live sales invoices`, that the
+B2C half is non-empty, and that every queued receipt carries the SHA-256 its printed QR encodes —
+the split the old single-queue assertion could not express.
+
 ---
 
 #### DEC-10 — Ship. Claim e-receipt compliance only. Sell e-invoicing as "pre-production until your signing agent is installed", never as sealed.
@@ -1388,6 +1417,40 @@ collection currently rides `treasury.cash_voucher.create`).
 `admin.backup.restore` and `admin.tenant.settings.edit` are gated in `desktop/src/main/restore-ipc.ts`,
 the only place a restore can happen; `purchases.order.edit` is consumed as the `manage` right for
 PO attachments. Note there is **no PO edit route at all** — a separate functional question.
+
+##### What shipped, and the one thing the decision got wrong
+
+**231 permissions across 18 modules**, down from 298 across 21. `CATALOG_VERSION` 1 → 3. Both
+`dashboard` and `transactions` are gone from the catalogue, from `ALWAYS_LICENSED_MODULES`, from
+`MODULE_CATALOG` and from the platform's seeded plans. 36 stale grant lines came out of the demo
+seed, and 18 orphaned `perm.entity.*` keys came out of both locales. The coverage scanner's
+ungated cap fell from 89 to **13**.
+
+The delete list said "all 37 `pos.*`" and attached a caution to verify first. **The caution was
+right, and the count was wrong: there were 38, and one of them is checked.**
+`sales-invoices-routes.ts` reads it on the sales-invoice discount ceiling *inline* rather than
+through `gate()`/`gateAny()`, which is exactly why the coverage scanner — which only reads gate
+call sites — reported the whole module as gating nothing. Deleting it would have made an oversized
+discount refused outright instead of escalated, and six route tests plus a scenario would have
+caught it.
+
+Keeping it was right; keeping its name was not. Under `pos.discount.approve` it sat in a module
+that is deliberately never licensed, and the role editor renders only licensed modules — so the
+one real control in POS was **ungrantable by anyone except the `*` wildcard**. That is D116's
+failure inverted: not a configurable field no code reads, but an enforced rule no screen can
+grant. It reads identically to the user, who meets a refusal with no way to resolve it.
+
+It is now **`sales.discount.approve`**, in the module whose document it actually guards. The route
+still honours the old code so grants written before the rename keep working; the old code is out
+of the catalogue, so nothing new is granted under it. `SUPERVISOR` — «مشرف المبيعات», seeded with
+the description «يعتمد ما يحتاج موافقة» — now holds it, which it could not before. The `pos`
+module is empty and gone.
+
+Two wirings were tightened beyond the brief, both because the brief would have been too wide:
+the voucher routes take a second narrow check on the actual voucher type after the `gateAny`, or
+a `treasury.customer_refund.create` holder could have raised any voucher type; and
+`sales.return.view_own` narrows by **warehouse** scope, because `FrameworkDocument` records no
+creator — the same resolution quotes already reached under D70.
 
 ---
 

@@ -31,9 +31,16 @@ function gatedCodes(): ReadonlySet<string> {
       const source = readFileSync(join(dir, file.name), "utf8");
       // `gate(...)`, `gateAny(...)`, and `permission(...)` — the last is what
       // `lan/routes.ts` calls its `createPermissionGate` binding, and a gate is
-      // a gate whatever the local const is named.
-      for (const match of source.matchAll(/(?:gate(?:Any)?|permission)\(\s*((?:"[a-z_.]+"\s*,?\s*)+)\)/g)) {
-        for (const code of (match[1] ?? "").matchAll(/"([a-z_.]+)"/g)) found.add(code[1] as string);
+      // a gate whatever the local const is named. `moduleRefusalFor(c, "...")`
+      // is the inline check a route makes when the code is only known once an
+      // entity is in hand (attachments-routes.ts, sales-invoices-routes.ts) —
+      // its first argument is the context, not a permission code, so it gets
+      // its own alternative rather than joining the leading-string-only group.
+      for (const match of source.matchAll(
+        /(?:gate(?:Any)?|permission)\(\s*((?:"[a-z_.]+"\s*,?\s*)+)\)|moduleRefusalFor\(\s*[A-Za-z_$][\w$]*\s*,\s*((?:"[a-z_.]+"\s*,?\s*)+)\)/g,
+      )) {
+        const codes = match[1] ?? match[2] ?? "";
+        for (const code of codes.matchAll(/"([a-z_.]+)"/g)) found.add(code[1] as string);
       }
     }
   };

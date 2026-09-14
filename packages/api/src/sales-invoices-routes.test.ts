@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { Hono } from "hono";
 import {
   Money,
   Qty,
@@ -8,12 +9,29 @@ import {
   createSalesInvoiceStockHook,
   postJournalEntry,
   applyAllocatedSettlement,
+  createEntitlements,
   type Account,
 } from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "@mezan/persistence";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
+import { entitlementsBinding } from "./module-gate.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
+
+/**
+ * Mirrors how `createApp` mounts `entitlementsBinding` in front of every
+ * route (Task A2b) — the harness below builds routes directly, so without
+ * this wrap `c.get("entitlements")` is never set and a module-licensing
+ * regression at a `moduleRefusalFor` call site would pass here and only
+ * surface once mounted for real.
+ */
+function wrapWithEntitlements(app: Hono, activeModules: string[]) {
+  const entitlements = createEntitlements({ plan: "core", activeModules, features: {}, seats: 1, expiresAt: null });
+  const wrapper = new Hono();
+  wrapper.use("*", entitlementsBinding(() => entitlements));
+  wrapper.route("/", app);
+  return wrapper;
+}
 const AR = "1300";
 const REVENUE = "4000";
 const TAX = "2200";
@@ -350,6 +368,30 @@ describe("the discount ceiling and the giveaway gate", () => {
     );
     expect(overCeiling.status).toBe(403);
     expect(await overCeiling.json()).toMatchObject({ permission: "pos.discount.approve" });
+  });
+
+  it("still answers the approval refusal for an over-ceiling discount on a tenant not licensed for pos — pos.discount.approve is a sales ceiling, not a POS feature", async () => {
+    const { app } = await harnessWithCeiling(20);
+    const bound = wrapWithEntitlements(app, ["sales"]);
+
+    const refused = await bound.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create",
+        body: JSON.stringify(line({ discountType: "percent", discountPercent: 21 })),
+      }),
+    );
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ error: "PERMISSION_DENIED", permission: "pos.discount.approve" });
+
+    const allowed = await bound.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.invoice.create,pos.discount.approve",
+        body: JSON.stringify(line({ discountType: "percent", discountPercent: 21 })),
+      }),
+    );
+    expect(allowed.status).toBe(201);
   });
 
   it("lets an approver exceed the ceiling", async () => {

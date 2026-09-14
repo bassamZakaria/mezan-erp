@@ -520,19 +520,19 @@ export function createSalesInvoicesRoutes(
     const overCeiling =
       body.lines.some((line) => line.discountType === "percent" && (line.discountPercent ?? 0) > ceiling) ||
       (body.discount?.type === "percent" && body.discount.percent > ceiling);
-    if (overCeiling) {
-      const moduleRefused = moduleRefusalFor(c, "pos.discount.approve");
-      if (moduleRefused) return moduleRefused;
-      if (!(ctx && can(ctx, "pos.discount.approve"))) {
-        return c.json(
-          {
-            error: "PERMISSION_DENIED",
-            permission: "pos.discount.approve",
-            message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
-          },
-          403,
-        );
-      }
+    // `pos.discount.approve` is a discount-approval ceiling the SALES module
+    // uses, not a POS feature — `pos` is not in MODULE_CATALOG at all (no
+    // domain, routes or persistence exist for it yet), so a `moduleRefusalFor`
+    // check here would refuse this on every edition regardless of permission.
+    if (overCeiling && !(ctx && can(ctx, "pos.discount.approve"))) {
+      return c.json(
+        {
+          error: "PERMISSION_DENIED",
+          permission: "pos.discount.approve",
+          message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
+        },
+        403,
+      );
     }
     return null;
   }

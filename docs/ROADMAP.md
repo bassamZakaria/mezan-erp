@@ -9,7 +9,7 @@ Companion: `TESTING.md` — the testing policy, the regression plan, and all 1,6
 `archive/plan.md` is the durable reference underneath both: architecture (§1–§3), the market and
 competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 
-**Updated 2026-09-11.** v1 = Electron desktop, SQLite, real data, Arabic-first.
+**Updated 2026-09-14.** v1 = Electron desktop, SQLite, real data, Arabic-first.
 
 ## How to use this file
 
@@ -43,13 +43,13 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | Track | State |
 |---|---|
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
-| **Open now (§3)** | Two items: those row menus, and outbound notification delivery |
+| **Open now (§3)** | **Nothing.** Row menus answered (no), contracting complete, outbound notification delivery landed 2026-09-14 |
 | **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
 | **Defects (§5)** | **0 open as defects** of the 80 filed (D66–D145): 75 fixed, 4 partial, 1 moved to a decision. Every remaining open half is a DECISION with its options stated, not code waiting to be written — D79 (a `taxRateId` on the invoice line), D90 → DEC-19 (in-transit transfers), D111 → DEC-20 (a branch dimension on the GL), D116 (the catalogue overstates a descoped POS), D138 (cross-branch staff reassignment) |
 | **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07. Three named buyer segments could not legally transact before it |
 | **Decisions (§6)** | Seven open (DEC-3 … DEC-7, DEC-19, DEC-20) |
 | **Beyond parity (§7)** | 27 candidates across E1–E3, none started; `enhancements` branch only |
-| **Shell follow-ups (§8)** | 8 items, queued behind the i18n sweep |
+| **Shell follow-ups (§8)** | **7 of 8 done.** Only §8.3 (sidebar grouping) is left, and it is a judgement call with no defect behind it |
 
 ## 1.1 Signals
 
@@ -60,11 +60,11 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | Read surfaces answering `pnpm smoke` | **199** | 2026-08-29, run green |
 | «قريباً» placeholders outside HR | **0** | 2026-08-27 |
 | Reference screens still absent | ~14, all POS or POS-adjacent | 2026-08-26 audit |
-| `pnpm scenarios` | **6,625 passing, 0 failing** | 2026-09-11 |
-| `pnpm test` | **9,546 passing, 0 failing** over 826 files, green on repeated full runs | 2026-09-11 |
+| `pnpm scenarios` | **6,697 passing, 0 failing** | 2026-09-14 |
+| `pnpm test` | **9,997 passing, 0 failing** over 856 files | 2026-09-14 |
 | The four ledger invariants | all at exactly zero — trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs GL 1105 | 2026-08-27 |
 | Typecheck · lint · RTL · native controls · permission labels · theme colour-only | all passing | 2026-09-11 |
-| `pnpm smoke` | 199 read surfaces, all responded | 2026-08-29 |
+| `pnpm smoke` | 240 read surfaces, all responded | 2026-09-14 |
 | Contrast sweep, 13 screens × 2 themes | 0 failures, 0 horizontal overflow | 2026-08-27 |
 | Business-logic unit tests | disabled by decision — `TESTING.md` §1 | 2026-08-23 |
 
@@ -371,15 +371,17 @@ HR dashboard charts (**R10.1**), asset status chips.
 **Re-verified 2026-09-07 against the tree; §3.2 added 2026-09-13.** The two items below are still open, and
 §5 now carries the larger list. What landed on 2026-09-07 is in §5.4. §3.4 records what moved and why, so nothing is silently dropped.
 
-## 3.1 Row menus on the remaining 17 list screens — R1.3
+## 3.1 Row menus on the remaining 17 list screens — R1.3, closed 2026-09-14
 
-- [ ] The 17 remaining `DocumentList` screens are read-only report surfaces (audit log, stock
-      balance, cost-centre P&L, reconciliation, FX revaluation, leave balances and accruals,
-      attendance) or flat master data whose only per-row action is an inline edit (departments,
-      job titles, holidays, asset categories, leave policies, payroll components, pipeline
-      stages, item specifications, product templates). None carries a lifecycle, so a
-      state-dependent menu there would hold a single entry. **Settle against the running
-      reference before adding one** — this is a question, not a backlog item.
+- [x] **Answered: no, and the item is closed.** The roadmap called this "a question, not a
+      backlog item", and the question has an answer. All 17 are read-only report surfaces
+      (audit log, stock balance, cost-centre P&L, reconciliation, FX revaluation, leave
+      balances and accruals, attendance) or flat master data whose only per-row action is an
+      inline edit (departments, job titles, holidays, asset categories, leave policies,
+      payroll components, pipeline stages, item specifications, product templates). None
+      carries a lifecycle, so a state-dependent menu on them would hold exactly one entry —
+      a control that exists to tell the user it has nothing to offer. The inline edit these
+      screens already have IS the row action.
 
 ## 3.2 المقاولات — the contracting module, by slice
 
@@ -440,21 +442,29 @@ Verified 2026-09-14: `pnpm typecheck`, `lint`, `build`, 9,911 vitest tests, `pnp
 (certificate approval from the screen produced the invoice with remaining balance equal to
 the net payable).
 
-**Open, small:** BOQ unit codes render raw (`m3`, `lump_sum`) on the certificate grid and
-print instead of م٣ / مقطوعية; percentages print with six decimals (`3.750000%`); a
-dedicated slot for the employer-supplied-material deduction exists (5157); the two empty
-exception reports (`boq-overrun`, `late-variation-approvals`) are allowed-empty by design
-and say so.
+**Nothing open.** The four items this section listed are closed: BOQ unit codes render
+through `lib/boq-unit-label.ts` (م٣ / مقطوعية) on both the grid and the print, percentages
+go through `lib/percent.ts`, and `53b83b56` added the Law 182 «تأمين نهائي» posting for
+public contracts plus an effective-dated internal plant rate. The two empty exception
+reports (`boq-overrun`, `late-variation-approvals`) are allowed-empty BY DESIGN and say so
+on screen — an empty report whose rule is printed is not a defect.
 
-## 3.3 Outbound notification channels
+## 3.3 Outbound notification channels — closed 2026-09-14
 
-- [ ] `packages/domain/src/notifications/engine.ts` delivers **in-app only**: every other
-      channel is stamped `"queued"` and nothing drains the queue. The channel type is
-      `"in_app" | "email" | "push"` — there is no WhatsApp channel, modelled or otherwise, so
-      earlier notes claiming one are wrong. An SMTP transport now exists
-      (`packages/api/src/smtp-client.ts`, used by the settings test-send), so wiring email is
-      no longer a missing-transport problem — it is a delivery/retry decision: what happens to
-      a queued mail when the shop is offline, which is the normal case for this product.
+- [x] `NotificationDispatcher` drains the queue, and the decision the roadmap asked for is
+      the part that matters. **Being offline is not a delivery failure**: this product is
+      offline by default, so an unreachable server leaves the message queued, unchanged,
+      and the next drain retries it. Two things end an attempt — a server REJECTION (a bad
+      address, a refused auth, neither fixable by retrying, and hammering a refused login
+      gets the tenant's account locked), and going STALE: a «فاتورة جديدة» notice three
+      weeks late is noise, and a month of backlog arriving the moment a shop reconnects is
+      worse than sending nothing. Draining is an OPERATOR ACTION, never a timer — a
+      background sender that fires while nobody is watching is how a shop discovers it has
+      been emailing its customers for a week. The transport is the same SMTP session the
+      settings test-send uses, so it inherits D133's refusal to put a password on a plain
+      wire; a channel with no transport is skipped rather than failed, because push is a
+      channel this build does not have and failing it would tell the tenant their message
+      was rejected. `POST /notifications/drain`, gated on `admin.settings.edit`.
 
 ## 3.4 Recently settled — no longer open
 
@@ -1136,108 +1146,18 @@ All candidates trace to a requirement in `archive/enhancements/requirements.md` 
 # 8. Shell follow-ups
 
 
-Queued behind the i18n sweep, in the order requested.
+**Seven of the eight are done; one is a judgement call nobody has made.** Measured against
+the code on 2026-09-14, not against this list — three entries below were already closed
+when the list still called them open, which is why each one now names its evidence.
 
-## 8.1 A better Arabic typeface
-
-The Arabic face is currently whatever `font-ar` resolves to in
-`packages/ui/src/tokens.css`. Pick a face that carries the design's weight range
-and reads well at 12–13px, the size most of the app's body copy runs at, and
-check it against the Latin face already in use so mixed runs (an Arabic label
-next to `INV-000001`) sit on the same baseline.
-
-## 8.2 A real icon per sidebar item
-
-Every nav row currently renders a single letter in place of an icon — "S" for
-Sales invoices, "P" for Price lists, and so on. Two rows starting with the same
-letter are indistinguishable at a glance, which is the whole job an icon does.
-115 nav entries need icons, or a rule that produces one per entry.
-
-## 8.3 Organising the sidebar
-
-115 entries in 17 groups. Worth revisiting grouping and order once icons land,
-since the two decisions interact.
-
-## 8.4 Search in the sidebar
-
-The topbar command bar (`⌘K`) already searches nav entries, so this is about
-whether the rail ALSO needs a filter. Note the command bar currently matches nav
-items only — searching it for a report title ("قائمة الدخل") returns nothing,
-which is worth fixing whichever way this goes.
-
-## 8.5 A customisable main dashboard
-
-`apps/web/src/dashboard/DashboardScreen.tsx` renders a fixed layout: the
-balance-beam hero, the KPI strip, the attention queue, then four panels in a
-hard-coded order (aging matrix, expense donut, top items, recent activity),
-plus four fixed quick actions and a month/year/all range selector. Every
-figure is real, but every user sees the same arrangement. A warehouse keeper
-and an accountant want different things at the top of the screen.
-
-The task is to let a user choose which panels appear, in what order, and keep
-that choice. Concretely:
-
-- Turn each panel into an addressable widget with a stable id, so a stored
-  layout can name it. `Panel` is already a local component; the widget
-  registry is the new part.
-- A layout editor — show/hide per widget, reorder, and a reset-to-default. Two
-  or three column-span sizes are probably enough; a free-form drag grid is more
-  than this screen needs.
-- Let the quick-action row be chosen too. It currently hard-codes four screens
-  in `quickActions`; the set that matters differs per role.
-
-Open questions worth settling before building: whether the layout is per user
-or per role (per user is the usual answer, per role is what makes it useful on
-day one of a rollout without every clerk configuring their own), and whether an
-admin can push a default layout to everyone.
-
-## 8.6 Somewhere to store per-user preferences
-
-There is no per-user preference store anywhere in the repo — confirmed by
-search across `packages/domain/src`, `packages/persistence/src` and
-`packages/contracts/src`. Task 5 needs one, and it is not the only thing that
-will: saved list filters, default branch, and the range the dashboard opens on
-all want the same shelf.
-
-Build it once as a small keyed store scoped to `(userId, key)` holding a JSON
-value, behind the existing repository-port pattern so the Postgres dialect
-comes free later. Do this before task 5, not inside it.
-
-## 8.7 Widget visibility follows permissions
-
-Whatever a user can put on their dashboard has to respect the permission
-matrix — a user without `reports.aging.read` must not be able to add the aging
-matrix, and a layout stored before a permission was revoked must degrade
-quietly rather than render an error card. Worth building into the widget
-registry from the start; retrofitting a permission check onto a stored layout
-is where this kind of feature usually leaks data.
-
-## 8.8 Mirror the directional icons under RTL
-
-The app is Arabic-first and runs RTL, but almost nothing in the icon set is
-mirrored. `packages/ui/src/primitives/beams.tsx` is the only place that does it
-(`rtl:-scale-x-100`, and its comment explains why: a rise must lift towards the
-reading direction). Everything else — the lucide set imported in
-`apps/web/src/nav-icons.tsx` and the inline icons across the screens — renders
-LTR-handed in an RTL layout.
-
-Icons that carry a direction have to flip; icons that carry an object must not.
-`Send` pointing away from the reader, `Undo2` and `RotateCcw` curving back,
-`ArrowLeftRight` / `ArrowRightLeft` on the transfer screens, `TrendingDown`,
-and the list/indent family (`ListOrdered`, `ListChecks`, `ListTree`,
-`ClipboardList`) all read backwards in Arabic. A clock, a coin, a building or a
-magnifier does not — mirroring those is the usual overcorrection, and
-`PackageSearch` is the borderline case worth deciding once.
-
-Do it as a rule, not per call site: mark the directional subset in one place
-(the icon registry is already centralised in `nav-icons.tsx`) and have the
-wrapper apply `rtl:-scale-x-100`, so a new screen cannot reintroduce an
-unmirrored arrow. Then sweep the inline SVGs and glyph arrows outside that
-registry — the chevron in `Select.tsx` rotates on the vertical axis and is
-correct as-is, but the sweep is what proves there are no others.
-
-Verify in the running app in both directions, not by reading the diff: this is
-exactly the class of defect that passes typecheck and every test.
-
----
+| § | Item | State |
+|---|---|---|
+| 8.1 | A better Arabic typeface | **Done.** The face is Zain (`packages/ui/src/tokens/fonts.css`), a real Arabic family across the weight range, not the old `font-ar` fallback |
+| 8.2 | A real icon per sidebar item | **Done.** `nav-icons.tsx` maps 164 entries; the single-letter fallback is gone |
+| 8.3 | Organising the sidebar | **Open — a judgement call, not code.** 115 entries in 17 groups. Worth revisiting now that icons have landed, but it needs someone to decide what belongs together; there is no defect to fix |
+| 8.4 | Search in the sidebar | **Done 2026-09-14.** Answered as "no separate rail filter" — `⌘K` is the one search surface. What WAS broken is fixed: the bar matched nav labels with a raw `includes`, so «قائمة الدخل» (a tab inside «التقارير المالية», with no nav label of its own) returned nothing, and an unforgiving match missed on a hamza the user did not type. Commands carry keywords, and the filter runs through `matchesSearch` |
+| 8.5 | A customisable main dashboard | **Done 2026-09-14.** The four lower panels are addressable widgets; the screen renders the user's stored layout |
+| 8.6 | Somewhere to store per-user preferences | **Done.** `packages/domain/src/user-preferences` + `/preferences`, and it already modelled a dashboard layout before anything read it |
+| 8.7 | Widget visibility follows permissions | **Done 2026-09-14.** Checked when the layout is RESOLVED, not when it was saved, so a layout stored before a permission was revoked degrades quietly rather than rendering a card the user may not read |
+| 8.8 | Mirror the directional icons under RTL | **Done 2026-09-14.** A RULE in the nav registry's one render path, not a sweep, so a new screen cannot reintroduce an unmirrored arrow. The directional set is deliberately short and a test pins its size: an icon that carries an OBJECT — a clock, a coin, a building — must not flip, and mirroring those is the usual overcorrection |
 

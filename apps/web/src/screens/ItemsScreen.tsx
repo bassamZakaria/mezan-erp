@@ -22,7 +22,7 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import type { AlternateUnitDTO, CostingMethodDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
+import type { AlternateUnitDTO, CostingMethodDTO, CreateItemDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
 import { ITEM_TYPES, itemTypeTracksStock } from "@mezan/domain";
 import {
   useAccounts,
@@ -255,7 +255,7 @@ function validateDraft(
   return null;
 }
 
-function draftToItem(draft: ItemDraft, id: string): ItemDTO {
+function draftToItem(draft: ItemDraft, id: string): CreateItemDTO & { status: ItemStatusDTO } {
   return {
     id,
     code: draft.code,
@@ -272,7 +272,12 @@ function draftToItem(draft: ItemDraft, id: string): ItemDTO {
     seasonId: draft.seasonId === "" ? null : draft.seasonId,
     // Blank values are absent values, not a specification set to "".
     specifications: draft.specifications.filter((spec) => spec.value.trim() !== ""),
-    costingMethod: draft.costingMethod,
+    /*
+     * Only WAC is settable (D146). An item already stored as FIFO keeps that
+     * value: sending nothing leaves it alone, where sending "WAC" would quietly
+     * rewrite the user's data on an unrelated edit.
+     */
+    ...(draft.costingMethod === "WAC" ? { costingMethod: "WAC" as const } : {}),
     salePrice: draft.salePrice === null ? null : draft.salePrice.toFixed(2),
     costPrice: draft.costPrice === null ? null : draft.costPrice.toFixed(2),
     taxRatePercent: draft.taxRatePercent,
@@ -1270,7 +1275,11 @@ export function ItemsScreen() {
               onChange={(v) => setDraft((d) => ({ ...d, costingMethod: v as CostingMethodDTO }))}
               options={[
                 { value: "WAC", label: t(COSTING_KEY.WAC) },
-                { value: "FIFO", label: t(COSTING_KEY.FIFO) },
+                /* No FIFO option: the valuation engine is weighted-average
+                   end to end and nothing reads this field, so offering the
+                   choice told the user something untrue (D146). The label
+                   stays in COSTING_KEY so an item already stored as FIFO
+                   still renders its real value. */
               ]}
             />
             <div className="sm:col-span-2">

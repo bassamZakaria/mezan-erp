@@ -209,6 +209,7 @@ describe("label maps", () => {
       equity: "حقوق الملكية",
       revenue: "الإيرادات",
       expense: "المصروفات",
+      memorandum: "حسابات نظامية",
     });
   });
 
@@ -222,6 +223,7 @@ describe("label maps", () => {
       equity: "حقوق الملكية",
       revenue: "الإيرادات",
       expense: "المصروفات",
+      memorandum: "حسابات نظامية",
     });
   });
 });

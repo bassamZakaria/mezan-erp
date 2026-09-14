@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import type { SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { aggregateItemSales } from "./sales-item-aggregation.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * المبيعات حسب الصنف — Sales by Item (docs/archive/catalog/08-reports.md): top
@@ -25,11 +27,19 @@ export interface SalesByItemContext {
    * itself.
    */
   readonly postedRevenue?: (params: { dateFrom: string; dateTo: string }) => number;
+  /**
+   * Whether a line's revenue account is one the chart KNOWS is not revenue —
+   * a contract BILLING rather than a sale (see `aggregateItemSales`).
+   * Optional: omit it and every line counts, which is right for a tenant with
+   * no contracting documents.
+   */
+  readonly isContractBilling?: (accountId: string) => boolean;
 }
 
 export interface SalesByItemParams {
   readonly dateFrom: string;
   readonly dateTo: string;
+  readonly branchId: string;
 }
 
 export interface SalesByItemRow {
@@ -43,8 +53,9 @@ export interface SalesByItemRow {
 }
 
 const paramsSchema = z.object({
-  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
-  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  dateFrom: isoDateParamSchema,
+  dateTo: isoDateParamSchema,
+  branchId: branchIdParamSchema,
 });
 
 export function createSalesByItemReport(
@@ -56,8 +67,8 @@ export function createSalesByItemReport(
     titleAr: "المبيعات حسب الصنف",
     descriptionAr: "ما هي الأصناف الأعلى إيراداً في الفترة المحددة.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo },
-    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }],
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, branchId: "" },
+    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.itemId,
     columns: [
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
@@ -69,7 +80,9 @@ export function createSalesByItemReport(
      * The report sums invoice lines; the GL holds what those invoices posted
      * to revenue. They are two independent paths to the same number, so a
      * difference means one of them is wrong — which is the only reason to
-     * show a reconciliation at all.
+     * show a reconciliation at all. Both sides read the SAME fact: what a
+     * sales invoice credited to the revenue accounts its counted lines named.
+     * A contract billing line is absent from both.
      */
     reconciliation: {
       labelAr: "إيرادات التقرير مقابل المرحَّل في دفتر الأستاذ",
@@ -91,7 +104,8 @@ export function createSalesByItemReport(
       { key: "topShare", labelAr: "حصة أعلى صنف", format: "percent", value: (rows) => rows[0]?.contributionPercent ?? 0 },
     ],
     run: (params, ctx) => {
-      const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
+      const inBranch = ctx.invoices.filter((invoice) => matchesBranch(invoice.branchId, params.branchId));
+      const aggregates = aggregateItemSales(inBranch, params.dateFrom, params.dateTo, "exc", ctx.isContractBilling);
       const namesEn = new Map((ctx.items ?? []).map((i) => [i.id, i.nameEn ?? null]));
       const totalRevenue = sumRows(aggregates, (a) => a.revenue);
       return aggregates

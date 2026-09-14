@@ -19,6 +19,7 @@ import {
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import type {
+  CostCategoryDTO,
   GoodsReceiptDTO,
   LandedCostDistributionMethodDTO,
   LandedCostTypeDTO,
@@ -40,6 +41,7 @@ import {
   usePurchaseInvoiceCounts,
   usePurchaseInvoiceFulfilment,
   usePurchaseInvoiceStats,
+  useProjects,
   useSuppliers,
   useTreasuryAccounts,
   useUsers,
@@ -98,6 +100,15 @@ const LINE_KIND_KEY: Record<PurchaseInvoiceLineDTO["kind"], AppTranslationKey> =
   freight: "purchaseInvoices.kind.freight",
 };
 
+const COST_CATEGORY_VALUES = ["materials", "labour", "equipment", "subcontract", "indirect"] as const satisfies readonly CostCategoryDTO[];
+const COST_CATEGORY_KEY: Record<CostCategoryDTO, AppTranslationKey> = {
+  materials: "costCategory.materials",
+  labour: "costCategory.labour",
+  equipment: "costCategory.equipment",
+  subcontract: "costCategory.subcontract",
+  indirect: "costCategory.indirect",
+};
+
 const num = (v: string) => Number(v);
 const lineBase = (l: PurchaseInvoiceLineDTO) => Number(l.qty) * Number(l.unitCost);
 const lineTax = (l: PurchaseInvoiceLineDTO) => (lineBase(l) * l.taxRatePercent) / 100;
@@ -109,6 +120,7 @@ interface DraftLine {
   unitCost: number;
   taxRatePercent: number;
   description: string;
+  costCategory: CostCategoryDTO | null;
 }
 
 interface PreviewLine {
@@ -122,12 +134,14 @@ function InvoiceDetail({
   invoice,
   supplierName,
   itemName,
+  projectName,
   onBack,
   onConfirm,
 }: {
   invoice: PurchaseInvoiceDTO;
   supplierName: (id: string) => string;
   itemName: (id: string | null) => string;
+  projectName: (id: string | null) => string;
   onBack: () => void;
   onConfirm: () => void;
 }) {
@@ -225,6 +239,7 @@ function InvoiceDetail({
         { label: t("purchaseInvoices.detail.dueDate"), value: invoice.dueDate?.split("-").reverse().join("/") ?? "—" },
         { label: t("purchaseInvoices.detail.supplierInvoiceNo"), value: invoice.supplierInvoiceNumber ?? "—" },
         { label: t("purchaseInvoices.detail.source"), value: invoice.receiptId ? t("purchaseInvoices.source.fromReceipt") : t("purchaseInvoices.source.manual") },
+        { label: t("common.project"), value: projectName(invoice.projectId) },
         { label: t("purchaseInvoices.detail.grandTotal"), value: <MoneyValue value={num(invoice.total)} /> },
         { label: t("purchaseInvoices.pay.paid"), value: <MoneyValue value={paid} /> },
         { label: t("purchaseInvoices.pay.remaining"), value: <MoneyValue value={remaining} />, valueTone: remaining > 0 ? "danger" : "default" },
@@ -247,6 +262,7 @@ function InvoiceDetail({
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
                     <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
                     <th className="px-[12px] py-[9px] text-start">{t("common.type")}</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("common.costCategory")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("common.qty")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("purchaseInvoices.col.receivedQty")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("purchaseInvoices.col.consumedQty")}</th>
@@ -264,6 +280,7 @@ function InvoiceDetail({
                       <tr key={i} className="border-b border-border last:border-b-0">
                         <td className="px-[12px] py-[10px]">{l.kind === "inventory" ? itemName(l.itemId) : (l.description ?? kindLabel(l.kind))}</td>
                         <td className="px-[12px] py-[10px]">{kindLabel(l.kind)}</td>
+                        <td className="px-[12px] py-[10px]">{l.costCategory ? t(COST_CATEGORY_KEY[l.costCategory]) : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.qty} /></td>
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.receivedQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.consumedQty} /> : "—"}</td>
@@ -277,7 +294,7 @@ function InvoiceDetail({
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-border font-semibold">
-                    <td className="px-[12px] py-[10px]" colSpan={8}>{t("purchaseInvoices.totalsRow")}</td>
+                    <td className="px-[12px] py-[10px]" colSpan={9}>{t("purchaseInvoices.totalsRow")}</td>
                     <td className="px-[12px] py-[10px] text-end">
                       <div><MoneyValue value={num(invoice.subtotal)} showUnit={false} /></div>
                       <div className="text-ink-muted"><MoneyValue value={num(invoice.tax)} showUnit={false} /></div>
@@ -441,12 +458,14 @@ export function PurchaseInvoicesScreen() {
   const receiptsQuery = useGoodsReceipts();
   const suppliersQuery = useSuppliers();
   const itemsQuery = useItems();
+  const projectsQuery = useProjects();
   const createInvoice = useCreatePurchaseInvoice();
   const confirmInvoice = useConfirmPurchaseInvoice();
 
   const receipts = receiptsQuery.data ?? [];
   const suppliers = suppliersQuery.data ?? EMPTY;
   const items = itemsQuery.data ?? EMPTY;
+  const projects = projectsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
@@ -456,6 +475,18 @@ export function PurchaseInvoicesScreen() {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));
     return (id: string | null) => (id ? (map.get(id) ?? id) : "—");
   }, [items]);
+  const projectName = useMemo(() => {
+    const map = new Map(projects.map((p) => [p.id, p.nameAr]));
+    return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
+  }, [projects, t]);
+  /** Only a live project can absorb new cost — a project already closed or cancelled stays out of the picker (D-01). */
+  const projectOptions: EntityPickerOption[] = useMemo(
+    () =>
+      projects
+        .filter((p) => p.status === "planned" || p.status === "active" || p.status === "on_hold")
+        .map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code })),
+    [projects],
+  );
 
   const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
   // A finished good is produced, not bought; a recipe is neither.
@@ -553,7 +584,8 @@ export function PurchaseInvoicesScreen() {
       return definition ? { value: code, label: `${code} — ${locale === "en" ? definition.nameEn : definition.nameAr}` } : { value: code, label: code };
     });
   }, [allowedCurrencies, baseCurrency, locale]);
-  const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
+  const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "", costCategory: null }]);
+  const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   const selected = selectedId === null ? null : (invoices.find((inv) => inv.id === selectedId || inv.number === selectedId) ?? null);
@@ -636,7 +668,8 @@ export function PurchaseInvoicesScreen() {
     setPickedReceipt(null);
     setDate(todayIso());
     setSupplierInvoiceNumber("");
-    setLines([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
+    setLines([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "", costCategory: null }]);
+    setProject(null);
     setFormError(null);
     subPage.open(...(supplierId ? ["new", supplierId] : ["new"]));
   }
@@ -674,6 +707,7 @@ export function PurchaseInvoicesScreen() {
           supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
           currency,
           receiptId: receipt.id,
+          projectId: project?.id ?? null,
         });
       } else {
         if (!supplier) return;
@@ -687,6 +721,7 @@ export function PurchaseInvoicesScreen() {
           warehouseId: workingLocation.warehouseId ?? "",
           supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
           currency,
+          projectId: project?.id ?? null,
           lines: usable.map((l) => ({
             itemId: l.kind === "inventory" ? l.itemId : null,
             description: l.description.trim() === "" ? null : l.description.trim(),
@@ -694,6 +729,7 @@ export function PurchaseInvoicesScreen() {
             qty: String(l.qty),
             unitCost: String(l.unitCost || 0),
             taxRatePercent: l.taxRatePercent,
+            costCategory: l.kind === "inventory" ? null : l.costCategory,
           })),
         });
       }
@@ -798,7 +834,9 @@ export function PurchaseInvoicesScreen() {
                       onClick={() =>
                         setLines((prev) =>
                           prev.map((l, j) =>
-                            j === i ? { ...l, kind, ...(kind === "inventory" ? {} : { itemId: "", taxRatePercent: 0 }) } : l,
+                            j === i
+                              ? { ...l, kind, ...(kind === "inventory" ? { itemId: l.itemId, costCategory: null } : { itemId: "", taxRatePercent: 0 }) }
+                              : l,
                           ),
                         )
                       }
@@ -842,6 +880,21 @@ export function PurchaseInvoicesScreen() {
                   <NumberField label={t("purchaseInvoices.field.cost")} value={line.unitCost} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, unitCost: v } : l)))} />
                   <NumberField label={t("purchaseInvoices.col.taxPct")} value={line.taxRatePercent} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, taxRatePercent: v } : l)))} />
                 </div>
+                {line.kind !== "inventory" ? (
+                  <div className="mt-[10px]">
+                    <SelectField
+                      label={t("common.costCategory")}
+                      value={line.costCategory ?? ""}
+                      onChange={(v) =>
+                        setLines((prev) =>
+                          prev.map((l, j) => (j === i ? { ...l, costCategory: v === "" ? null : (v as CostCategoryDTO) } : l)),
+                        )
+                      }
+                      options={[{ value: "", label: t("common.none") }, ...COST_CATEGORY_VALUES.map((c) => ({ value: c, label: t(COST_CATEGORY_KEY[c]) }))]}
+                      disabled={project === null}
+                    />
+                  </div>
+                ) : null}
                 {lines.length > 1 ? (
                   <div className="mt-[8px] flex justify-end">
                     <Button onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>{t("purchaseInvoices.deleteLine")}</Button>
@@ -849,7 +902,7 @@ export function PurchaseInvoicesScreen() {
                 ) : null}
               </div>
             ))}
-            <Button onClick={() => setLines((prev) => [...prev, { itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }])}>{t("purchaseInvoices.addLine")}</Button>
+            <Button onClick={() => setLines((prev) => [...prev, { itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "", costCategory: null }])}>{t("purchaseInvoices.addLine")}</Button>
             <div className="flex items-center justify-between border-t border-border pt-[10px]">
               <span className="text-[12.5px] text-ink-muted">{t("purchaseInvoices.subtotalBeforeTax")}</span>
               <MoneyValue value={manualSubtotal} />
@@ -862,6 +915,17 @@ export function PurchaseInvoicesScreen() {
             <TextField label={t("purchaseInvoices.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
             <TextField label={t("purchaseInvoices.detail.supplierInvoiceNo")} value={supplierInvoiceNumber} onChange={setSupplierInvoiceNumber} />
             <SelectField label={t("salesInvoices.field.currency")} value={currency} onChange={setCurrency} options={currencyOptions} />
+            <EntityPicker
+              label={t("common.project")}
+              value={project}
+              onChange={(opt) => {
+                setProject(opt);
+                if (!opt) setLines((prev) => prev.map((l) => ({ ...l, costCategory: null })));
+              }}
+              options={projectOptions}
+              placeholder={t("common.noProject")}
+              emptyMessage={t("common.noProject")}
+            />
             <div className="flex justify-end gap-[9px]">
               <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
               <Button variant="primary" onClick={save} disabled={!canSave}>{t("purchaseInvoices.saveDraft")}</Button>
@@ -877,7 +941,7 @@ export function PurchaseInvoicesScreen() {
   if (selected) {
     return (
       <>
-        <InvoiceDetail invoice={selected} supplierName={supplierName} itemName={itemName} onBack={() => subPage.close()} onConfirm={() => confirmSelected(selected.id)} />
+        <InvoiceDetail invoice={selected} supplierName={supplierName} itemName={itemName} projectName={projectName} onBack={() => subPage.close()} onConfirm={() => confirmSelected(selected.id)} />
       </>
     );
   }

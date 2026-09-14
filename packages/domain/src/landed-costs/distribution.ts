@@ -10,6 +10,7 @@
 
 import { Money, Qty, allocate } from "../money/index.js";
 import { extend, unitCostOf } from "../inventory/wac-math.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import { EmptyLandedCostTargetsError, ZeroLandedCostWeightError } from "./errors.js";
 
 /** docs/archive/catalog/02 §"نوع التكلفة *" on the cost-line table. */
@@ -25,6 +26,14 @@ export interface LandedCostItemEntry {
   readonly costType: LandedCostType;
   readonly description: string;
   readonly amount: Money;
+  /**
+   * The freight/customs/clearance vendor this charge is owed to.
+   *
+   * Optional because a landed cost can legitimately be an internal charge with
+   * no third party behind it, and because documents raised before this existed
+   * carry none. Without it the liability sat in the GL against nobody (D75).
+   */
+  readonly supplierId?: string | null;
 }
 
 /** One target item on the linked purchase invoice, before allocation. */
@@ -42,6 +51,10 @@ export interface LandedCostAllocationTarget {
    * confirmed document still states the basis it was allocated on.
    */
   readonly weight: Qty;
+  /** بُعد المشروع — every line of a confirmed landed-cost document carries the same document-wide value (D-01). */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`; defaults to "materials" on the inventory debit. */
+  readonly costCategory?: CostCategory | null;
 }
 
 /** A target line after allocation — what a `LandedCostLine` (the document type's line shape) carries. */

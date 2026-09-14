@@ -490,6 +490,7 @@ interface SupplierDraft {
   email: string;
   contactPerson: string;
   taxNumber: string;
+  bankAccount: string;
   category: string;
   notes: string;
   paymentTermsDays: number;
@@ -509,6 +510,7 @@ const BLANK_DRAFT: SupplierDraft = {
   email: "",
   contactPerson: "",
   taxNumber: "",
+  bankAccount: "",
   category: "",
   notes: "",
   paymentTermsDays: 30,
@@ -531,6 +533,7 @@ function draftFromSupplier(supplier: SupplierDTO): SupplierDraft {
     email: supplier.email ?? "",
     contactPerson: supplier.contactPerson ?? "",
     taxNumber: supplier.taxNumber ?? "",
+    bankAccount: supplier.bankAccount ?? "",
     category: supplier.category ?? "",
     notes: supplier.notes ?? "",
     paymentTermsDays: supplier.paymentTermsDays,
@@ -591,6 +594,7 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
                 { label: t("common.email"), value: supplier.email ?? t("common.none") },
                 { label: t("suppliers.detail.contactPerson"), value: supplier.contactPerson ?? t("common.none") },
                 { label: t("common.taxNumber"), value: supplier.taxNumber ?? t("common.none") },
+                { label: t("suppliers.field.bankAccount"), value: supplier.bankAccount ?? t("common.none") },
                 { label: t("suppliers.detail.address"), value: address === "" ? t("common.none") : address },
               ].map((row) => (
                 <div key={row.label} className="rounded-lg border border-border bg-surface p-[13px_15px]">
@@ -726,6 +730,7 @@ export function SuppliersScreen() {
       email: draft.email.trim() === "" ? null : draft.email.trim(),
       contactPerson: draft.contactPerson.trim() === "" ? null : draft.contactPerson.trim(),
       taxNumber: draft.taxNumber.trim() === "" ? null : draft.taxNumber.trim(),
+      bankAccount: draft.bankAccount.trim() === "" ? null : draft.bankAccount.trim(),
       category: draft.category.trim() === "" ? null : draft.category.trim(),
       notes: draft.notes.trim() === "" ? null : draft.notes.trim(),
       paymentTermsDays: draft.paymentTermsDays,
@@ -782,6 +787,7 @@ export function SuppliersScreen() {
       <TextField label={t("suppliers.field.nameEn")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
       <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
       <TextField label={t("suppliers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" />
+      <TextField label={t("suppliers.field.bankAccount")} value={draft.bankAccount} onChange={(v) => setDraft((d) => ({ ...d, bankAccount: v }))} />
       <TextField label={t("suppliers.field.contactPerson")} value={draft.contactPerson} onChange={(v) => setDraft((d) => ({ ...d, contactPerson: v }))} />
       <TextField label={t("suppliers.field.city")} value={draft.addressCity} onChange={(v) => setDraft((d) => ({ ...d, addressCity: v }))} />
       <TextField label={t("suppliers.field.district")} value={draft.addressDistrict} onChange={(v) => setDraft((d) => ({ ...d, addressDistrict: v }))} />

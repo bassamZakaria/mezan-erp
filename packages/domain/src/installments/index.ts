@@ -45,7 +45,17 @@ export {
 } from "./follow-up.js";
 
 export {
+  collectInstallment,
+  outstandingOf,
+  type CollectInstallmentCommand,
+  type CollectInstallmentResult,
+} from "./collect.js";
+
+export {
   InvalidInstallmentScheduleError,
   FollowUpNotFoundError,
   InvalidFollowUpTransitionError,
+  InstallmentPlanNotCollectableError,
+  InstallmentLineNotCollectableError,
+  InstallmentOverpaymentError,
 } from "./errors.js";

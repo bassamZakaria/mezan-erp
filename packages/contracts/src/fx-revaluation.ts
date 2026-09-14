@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /** Wire contract for FX revaluation (docs/archive/catalog/04 "إعادة تقييم العملات الأجنبية"). */
 
 /** Request to preview/post a revaluation as of a closing date. */
 export const fxRevaluationRequestSchema = z.object({
   /** Posting date (period end). */
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   /** Optional currency filter; empty = revalue all open foreign currencies. */
   currencies: z.array(z.string().min(1)).optional(),
   /** العكس التلقائي — default true (auto-reverse next day). */

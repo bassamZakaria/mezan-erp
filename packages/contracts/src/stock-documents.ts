@@ -1,6 +1,9 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { adjustmentReasonSchema } from "./inventory.js";
+import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for the phase4/inventory-ops document layer built on the
@@ -12,8 +15,10 @@ import { adjustmentReasonSchema } from "./inventory.js";
  * inventory.ts / journal.ts) — never floats.
  */
 
-const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see moneyString — one guard for every exact-decimal field on the wire (D126). */
+const decimalString = moneyString;
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 // --- Stock Adjustment document ---------------------------------------------
 
@@ -29,9 +34,17 @@ export const stockAdjustmentDocLineSchema = z.object({
 /** Create a stock-adjustment draft. All lines must share one warehouse + one reason. */
 export const createStockAdjustmentSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().optional(),
   lines: z.array(stockAdjustmentDocLineSchema).min(1),
+  /**
+   * بُعد المشروع — the contracting project this adjustment's stock movement
+   * belongs to (D-01). One project, one category per adjustment: a stock-out
+   * adjustment issuing material to a site names both here, not per line.
+   */
+  projectId: z.string().min(1).nullish(),
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  costCategory: costCategorySchema.nullish(),
 });
 
 export const stockAdjustmentDocumentSchema = z.object({
@@ -45,6 +58,8 @@ export const stockAdjustmentDocumentSchema = z.object({
   createdAt: z.string(),
   confirmedAt: z.string().nullable(),
   journalEntryId: z.string().nullable(),
+  projectId: z.string().nullish(),
+  costCategory: costCategorySchema.nullish(),
 });
 
 // --- Stock Transfer document ------------------------------------------------
@@ -59,7 +74,7 @@ export const stockTransferDocLineSchema = z.object({
 /** Create a stock-transfer draft. All lines must share one source + one destination warehouse. */
 export const createStockTransferSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().optional(),
   lines: z.array(stockTransferDocLineSchema).min(1),
 });
@@ -119,7 +134,7 @@ export const physicalCountVarianceSummarySchema = z.object({
 export const startPhysicalCountSchema = z.object({
   id: z.string().min(1),
   warehouseId: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().optional(),
   itemIds: z.array(z.string().min(1)).min(1),
   blind: z.boolean().optional(),

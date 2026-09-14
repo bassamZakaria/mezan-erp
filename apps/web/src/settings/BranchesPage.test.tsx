@@ -183,8 +183,8 @@ describe("BranchesPage", () => {
 
   it("rolls up stock from every warehouse linked to the branch, merging the same item's quantity and value", async () => {
     const warehouses: WarehouseDTO[] = [
-      { id: "wh-1", code: "WH1", name: "مخزن 1", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
-      { id: "wh-2", code: "WH2", name: "مخزن 2", nameEn: null, branchId: "b1", type: "MAIN", isDefault: false, active: true },
+      { id: "wh-1", code: "WH1", name: "مخزن 1", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
+      { id: "wh-2", code: "WH2", name: "مخزن 2", nameEn: null, branchId: "b1", type: "MAIN", isDefault: false, active: true, projectId: null, custodianUserId: null },
     ];
     const items: ItemDTO[] = [
       {
@@ -345,7 +345,7 @@ describe("BranchesPage", () => {
 
   it("BranchInventoryTab: a failed fetch shows a retry control that re-issues the request", async () => {
     const warehouses: WarehouseDTO[] = [
-      { id: "wh-1", code: "WH1", name: "مخزن 1", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
+      { id: "wh-1", code: "WH1", name: "مخزن 1", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
     ];
     let stockCalls = 0;
     let failStock = true;

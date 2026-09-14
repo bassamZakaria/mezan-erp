@@ -45,6 +45,7 @@ export {
 export {
   ExpiredStockError,
   NegativeStockError,
+  UncostedDeficitIssueError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
 } from "./errors.js";

@@ -1,26 +1,57 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createApp,
   createLoginThrottle,
   createSessionAuthContextResolver,
   createSessionRegistry,
+  createSimplifiedRegimeRoutes,
   type App,
   type PermissionRefusal,
   type CreateAppOptions,
+  type InstallmentCollectPort,
   type SessionRegistry,
+  sendNotificationEmail,
 } from "@mezan/api";
 import {
   ALL_SCOPE,
+  SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
   InvalidSalesInvoicePaymentError,
   InvalidPurchaseDocumentError,
   postJournalEntry,
+  reverseJournalEntry,
   resolvePrice,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
+  SalesInvoiceService,
+  CertificateService,
+  SubcontractService,
+  SubCertificateService,
+  createPurchaseInvoice,
+  confirmPurchaseInvoice,
+  type PurchaseGlPosting,
+  type PurchaseGlPostingPort,
+  type SubCertificateInvoicingPort,
+  type SubcontractSupplierPort,
+  type SubcontractVoucherPort,
+  type ClientCertifiedQuantityPort,
+  type SubcontractConsumptionPort,
+  type SubcontractRetentionInvoicingPort,
+  CERTIFICATE_WORKS_ITEM_ID,
+  RETENTION_RELEASE_ITEM_ID,
+  GuaranteeService,
+  type CertificateInvoicingPort,
+  type RetentionReleaseInvoicingPort,
+  type CertificateGuaranteePort,
+  type ContractGuaranteePort,
+  isGuaranteeOutstanding,
+  type ContractBillingRoutingPort,
   createTreasuryLedgerReader,
   VoucherService,
+  VOUCHER_DOC_TYPE,
+  NO_SIMPLIFIED_REGIME,
+  simplifiedRegimeActiveOn,
   type TreasuryTransferInput,
   DocumentService,
   createDocumentWorkflowGate,
@@ -29,6 +60,7 @@ import {
   createSalesReturnDocumentType,
   createPurchaseReturnDocumentType,
   createLandedCostDocumentType,
+  LANDED_COST_DOC_TYPE,
   LandedCostService,
   installmentPlanDocumentType,
   stockAdjustmentDocumentType,
@@ -39,6 +71,7 @@ import {
   PhysicalCountService,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
+  purchaseInvoiceLineTax,
   salesInvoiceBaseGrandTotal,
   type OpenPartyDocument,
   purchaseInvoiceTotal,
@@ -52,14 +85,12 @@ import {
   getAdjustmentReasonDefinition,
   type AdjustmentReason,
   type AccountRouting,
+  costToDateOf,
   routedAccountId,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
   EventBus,
   NotificationRulesEngine,
-  WebhookDispatcher,
-  type WebhookRetryPolicy,
-  type WebhookTransportPort,
   type DocumentEventPublisher,
   type DocumentEventType,
   type EventCode,
@@ -73,6 +104,7 @@ import {
   createSqliteAccountRepository,
   createSqliteSettingsStore,
   createSqliteVatFilingStore,
+  createSqliteSimplifiedRegimeStore,
   createSqliteBranchStore,
   createSqliteWarehouseStore,
   createSqliteCustomerRepository,
@@ -103,7 +135,15 @@ import {
   createSqlitePipelineStageRepository,
   createSqliteActivityRepository,
   createSqliteProjectRepository,
+  createSqliteWorksContractStore,
+  createSqliteContractingSiteStore,
+  createSqliteGuaranteeStore,
+  createSqliteProgressCertificateStore,
+  createSqliteSubcontractStore,
+  createSqliteContractingRecognitionStore,
+  createSqliteContractingControlsStore,
   createSqliteAssetCategoryRepository,
+  createSqliteAssetInternalRateHistoryRepository,
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
   createSqliteVanTripRepository,
@@ -143,25 +183,36 @@ import {
   createSqliteWorkflowConfigStore,
   createSqliteApprovalRequestStore,
   createDataMigrationTransactor,
-  createSqliteApiKeyStore,
   createSqliteBarcodeConfigStore,
   createSqliteUserPreferencesStore,
   createSqliteAuditSink,
   createSqliteLabelLayoutStore,
   createSqliteSequenceConfigStore,
   createSqliteSequenceStore,
-  createSqliteWebhookStores,
 } from "@mezan/persistence";
 import {
   EtaService,
   DuplicateEtaSubmissionError,
   resolveEtaVatSubType,
+  findLineTaxRate,
+  convertToBase,
   createDefaultSettings,
+  NotificationDispatcher,
+  type NotificationTransport,
+  type EtaBranchCode,
   type EtaBranchCodeRepository,
+  type EtaReceiptLineInput,
   type EtaUnitMappingRepository,
+  type SalesInvoice,
+  type SalesInvoiceTotals,
+  type SalesInvoiceLineTotals,
+  type TaxRate,
   type SalesInvoiceRepository,
+  type SalesReturnLine,
+  type DocumentRepository,
   type SalesInvoiceLine,
   type CustomerRepository,
+  type Item,
   type ItemRepository,
   type TaxRateRepository,
   extend as extendQtyByPrice,
@@ -173,7 +224,6 @@ import { createPreferencesRoutes } from "./preferences-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
-import { createFetchWebhookTransport, createHmacWebhookSigner } from "./webhook-transport.js";
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
@@ -303,10 +353,20 @@ function adjustmentGlAccountsForReason(
  * The GL accounts التكاليف الإضافية posts against — the freight/customs
  * accrual reuses trade payables (2100) as its clearing account; no dedicated
  * "accrued landed cost" leaf exists in the template.
+ *
+ * `unabsorbedCostAccountId` is تكلفة البضاعة المباعة (5100, `item_type.cogs`).
+ * A landed cost that arrives after the goods were sold cannot raise the basis
+ * of stock that is gone, so that part is a period cost and is reclassified out
+ * of 1200 into 5100 — otherwise GL inventory exceeds the valuation report by
+ * exactly that figure, permanently (D84).
  */
 const LANDED_COST_GL_ACCOUNTS = {
   inventoryAccountId: "1200",
-  accruedLandedCostPayableId: "2100",
+  // 2130 تكاليف إضافية مستحقة, NOT 2100 ذمم موردين تجاريين. Crediting the AP
+  // CONTROL account with no supplier document behind it made the AP sub-ledger
+  // and GL 2100 disagree by every landed cost posted (D75).
+  accruedLandedCostPayableId: "2130",
+  unabsorbedCostAccountId: "5100",
 };
 
 /**
@@ -384,6 +444,14 @@ function createDocumentEventBridge(
  * Deliberately fire-and-forget, like the notification and webhook bridges: a
  * queueing failure must never fail the confirm that emitted it. A document
  * already queued (a re-confirm after an approval) is not an error.
+ *
+ * WHICH DOCUMENT gets built is decided by the customer, not by a setting: a
+ * customer with a tax registration number is a B2B sale and becomes an
+ * e-invoice; one without is a consumer sale and becomes an e-RECEIPT, which is
+ * a separate authority mandate with its own payload, its own post-sale
+ * reporting window and no e-seal. Filing a consumer sale as an invoice with
+ * receiver type "P" reported it as something it is not, and meant the receipt
+ * path — built in full — had no producer at all.
  */
 function createEtaEnqueueBridge(deps: {
   readonly eta: EtaService;
@@ -412,16 +480,39 @@ function createEtaEnqueueBridge(deps: {
         ]);
         const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
         const lineItems = await Promise.all(invoice.lines.map((line: SalesInvoiceLine) => deps.items.findById(line.itemId)));
+        const branchMapping = branchCodes.find((b) => b.branchId === invoice.branchId) ?? null;
+
+        if (!customer?.taxNumber) {
+          await enqueueSalesInvoiceAsReceipt({
+            eta: deps.eta,
+            invoice,
+            totals,
+            lineTotals,
+            lineItems,
+            taxRates,
+            unitByCode,
+            branchMapping,
+            issueDateTime: event.occurredAt,
+          });
+          return;
+        }
+
         await deps.eta.enqueue({
           internalId: invoice.docNo ?? invoice.id,
           documentType: "invoice",
           issueDateTime: event.occurredAt,
-          branchCode: branchCodes.find((b) => b.branchId === invoice.branchId)?.etaBranchCode ?? null,
+          branchCode: branchMapping?.etaBranchCode ?? null,
           receiver: {
-            registrationNumber: customer?.taxNumber ?? null,
+            registrationNumber: customer.taxNumber,
             name: invoice.customerNameAr,
-            type: customer?.taxNumber ? "B" : "P",
+            type: "B",
           },
+          // The document's OWN currency and the rate it was booked at. Filing
+          // every line as EGP misstated a foreign invoice to the authority
+          // (D78), and the payload refuses a foreign document with no rate
+          // rather than sending one at par.
+          currency: invoice.currency,
+          exchangeRate: invoice.fxRate ?? null,
           lines: invoice.lines.map((line: SalesInvoiceLine, index: number) => {
             const lt = lineTotals.get(line.lineId);
             const item = lineItems[index] ?? null;
@@ -429,13 +520,18 @@ function createEtaEnqueueBridge(deps: {
             // quantity and unit price below are both per entered unit, so
             // filing the base unit code would misstate the quantity sold.
             const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
-            const taxRate = taxRates.find((r) => r.status === "active" && r.rate === line.taxRatePercent);
+            const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
             return {
               description: line.itemNameAr,
               itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
               quantity: line.qty.toString(),
               unitType: unitByCode.get(unitCode) ?? unitCode,
               unitPrice: line.unitPrice.toString(),
+              // On a foreign document the authority wants the sold amount AND
+              // its pound equivalent; on an EGP one they are the same number.
+              unitPriceEgp: invoice.fxRate
+                ? convertToBase(line.unitPrice, invoice.fxRate).toString()
+                : line.unitPrice.toString(),
               netTotal: (lt?.taxableBase ?? Money.zero()).toString(),
               taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, line.taxRatePercent),
               taxRate: String(line.taxRatePercent),
@@ -445,6 +541,190 @@ function createEtaEnqueueBridge(deps: {
           totalNet: totals.taxableTotal.toString(),
           totalTax: totals.taxTotal.toString(),
           totalAmount: totals.grandTotal.toString(),
+        });
+      })().catch((error: unknown) => {
+        if (error instanceof DuplicateEtaSubmissionError) return;
+        console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
+      });
+    },
+  };
+}
+
+/** The till a stored receipt was issued from, read back out of its payload. */
+function receiptDeviceOf(payload: unknown): string {
+  const seller = (payload as { seller?: { deviceSerialNumber?: unknown } } | null)?.seller;
+  return typeof seller?.deviceSerialNumber === "string" ? seller.deviceSerialNumber : "";
+}
+
+/**
+ * A consumer sale as the authority's e-receipt.
+ *
+ * The device serial comes off the BRANCH's registration, never off the caller:
+ * the authority binds the receipt to the till it has on file, and a branch with
+ * no registered device cannot issue one — `enqueueReceipt` refuses rather than
+ * reporting a blank serial.
+ */
+async function enqueueSalesInvoiceAsReceipt(args: {
+  readonly eta: EtaService;
+  readonly invoice: SalesInvoice;
+  readonly totals: SalesInvoiceTotals;
+  readonly lineTotals: ReadonlyMap<string, SalesInvoiceLineTotals>;
+  readonly lineItems: readonly (Item | null)[];
+  readonly taxRates: readonly TaxRate[];
+  readonly unitByCode: ReadonlyMap<string, string>;
+  readonly branchMapping: EtaBranchCode | null;
+  readonly issueDateTime: string;
+}): Promise<void> {
+  const { invoice, totals, lineTotals, lineItems, taxRates, unitByCode, branchMapping } = args;
+
+  const lines: EtaReceiptLineInput[] = invoice.lines.map((line: SalesInvoiceLine, index: number) => {
+    const lt = lineTotals.get(line.lineId);
+    const item = lineItems[index] ?? null;
+    const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
+    const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
+    const discount = (lt?.lineDiscount ?? Money.zero())
+      .add(lt?.promotionDiscount ?? Money.zero())
+      .add(lt?.invoiceDiscount ?? Money.zero());
+    return {
+      internalCode: item?.code ?? line.itemId,
+      description: line.itemNameAr,
+      // EXTERNAL CONTRACT: the authority's coding schemes on a receipt line are
+      // "EGS" and "GS1"; a GPC-coded item is the GS1 scheme under its own name.
+      itemType: item?.etaCodeType === "GPC" ? "GS1" : "EGS",
+      itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
+      unitType: unitByCode.get(unitCode) ?? unitCode,
+      quantity: line.qty.toString(),
+      unitPrice: line.unitPrice.toString(),
+      totalSale: (lt?.gross ?? Money.zero()).toString(),
+      netSale: (lt?.taxableBase ?? Money.zero()).toString(),
+      total: (lt?.total ?? Money.zero()).toString(),
+      commercialDiscount: discount.scaled === 0n ? undefined : discount.toString(),
+      taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, line.taxRatePercent),
+      taxRate: String(line.taxRatePercent),
+      taxAmount: (lt?.tax ?? Money.zero()).toString(),
+    };
+  });
+
+  const totalDiscount = totals.lineDiscountTotal
+    .add(totals.promotionDiscountTotal)
+    .add(totals.invoiceDiscountTotal);
+
+  const deviceSerialNumber = branchMapping?.deviceSerialNumber ?? "";
+
+  // EXTERNAL CONTRACT: previousUUID chains the receipts OF ONE DEVICE, which is
+  // how the authority detects a receipt that was printed and never reported.
+  // Chaining across devices would make every till's chain look broken.
+  const previous = (await args.eta.list())
+    .filter((s) => s.documentType === "receipt" && s.etaUuid && receiptDeviceOf(s.payload) === deviceSerialNumber)
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+    .at(-1);
+
+  await args.eta.enqueueReceipt({
+    internalId: invoice.docNo ?? invoice.id,
+    issueDateTime: args.issueDateTime,
+    receiptType: "sale",
+    previousUuid: previous?.etaUuid ?? null,
+    currency: invoice.currency,
+    exchangeRate: invoice.fxRate ?? undefined,
+    seller: { deviceSerialNumber, branchCode: branchMapping?.etaBranchCode ?? null },
+    // B2C: the buyer stays anonymous — a walk-in has no registration number and
+    // the authority accepts the receipt without one.
+    buyer: { type: "P", id: null, name: invoice.customerNameAr },
+    // Mezan does not yet record HOW a sale was paid, so the only two states it
+    // can tell the authority truthfully are "settled at the till" and "not".
+    paymentMethod: invoice.amountPaid.scaled >= totals.grandTotal.scaled ? "cash" : "other",
+    lines,
+    totalSales: totals.grossTotal.toString(),
+    totalCommercialDiscount: totalDiscount.scaled === 0n ? undefined : totalDiscount.toString(),
+    netAmount: totals.taxableTotal.toString(),
+    totalAmount: totals.grandTotal.toString(),
+    taxTotals: [{ taxType: "T1", amount: totals.taxTotal.toString() }],
+  });
+}
+
+/**
+ * Queues a confirmed SALES RETURN to the authority as an إشعار دائن (credit
+ * note) — D77/D122.
+ *
+ * The invoice bridge above reacts only to `docType === "SALES_INVOICE"`, so a
+ * confirmed return reached the queue through nothing at all, even though the
+ * queue has always handled `credit_note` correctly when fed directly. A return
+ * that never reaches the authority leaves the customer's filed VAT overstated
+ * by the credit, which is the half of a return that a tax inspection notices.
+ *
+ * ONLY sales returns. A purchase return is a credit note the SUPPLIER issues to
+ * us — their filing obligation, not ours — and filing it here would declare a
+ * document this company never raised.
+ */
+function createReturnEtaEnqueueBridge(deps: {
+  readonly eta: EtaService;
+  readonly returns: Pick<DocumentRepository<SalesReturnLine>, "findById">;
+  readonly customers: Pick<CustomerRepository, "findById">;
+  readonly items: Pick<ItemRepository, "findById">;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly branchCodes: EtaBranchCodeRepository;
+  readonly unitMappings: EtaUnitMappingRepository;
+}): DocumentEventPublisher {
+  return {
+    publish(event) {
+      if (event.type !== "DOCUMENT_CONFIRMED" || event.docType !== "SALES_RETURN") return;
+      void (async () => {
+        const config = await deps.eta.getConfig();
+        if (!config.autoSubmitOnConfirm) return;
+        const doc = await deps.returns.findById(event.docId);
+        if (!doc || doc.lines.length === 0) return;
+
+        const first = doc.lines[0];
+        if (!first) return;
+        const customer = await deps.customers.findById(first.customerId);
+        const [taxRates, branchCodes, unitMappings] = await Promise.all([
+          deps.taxRates.list(),
+          deps.branchCodes.list(),
+          deps.unitMappings.list(),
+        ]);
+        const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
+        const lineItems = await Promise.all(doc.lines.map((line) => deps.items.findById(line.itemId)));
+
+        let totalNet = Money.zero();
+        let totalTax = Money.zero();
+        const lines = doc.lines.map((line, index) => {
+          const item = lineItems[index] ?? null;
+          const net = extendQtyByPrice(line.qty, line.unitPrice);
+          const rate = line.taxRatePercent ?? 0;
+          totalNet = totalNet.add(net);
+          totalTax = totalTax.add(line.taxAmount);
+          return {
+            description: item?.nameAr ?? line.itemId,
+            itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
+            quantity: line.qty.toString(),
+            unitType: unitByCode.get(item?.baseUnitCode ?? "") ?? item?.baseUnitCode ?? "",
+            unitPrice: line.unitPrice.toString(),
+            netTotal: net.toString(),
+            taxSubType: resolveEtaVatSubType(findLineTaxRate(taxRates, rate)?.etaSubType, rate),
+            taxRate: String(rate),
+            taxAmount: line.taxAmount.toString(),
+          };
+        });
+
+        // Every line of a return belongs to one invoice (the document type
+        // enforces it), so the note references exactly that one.
+        const referenced = [...new Set(doc.lines.map((l) => l.sourceInvoiceNumber ?? l.sourceInvoiceId))];
+
+        await deps.eta.enqueue({
+          internalId: doc.docNo ?? doc.id,
+          documentType: "credit_note",
+          issueDateTime: event.occurredAt,
+          branchCode: branchCodes[0]?.etaBranchCode ?? null,
+          receiver: {
+            registrationNumber: customer?.taxNumber ?? null,
+            name: customer?.nameAr ?? first.customerId,
+            type: customer?.taxNumber ? "B" : "P",
+          },
+          referencedDocumentIds: referenced,
+          lines,
+          totalNet: totalNet.toString(),
+          totalTax: totalTax.toString(),
+          totalAmount: totalNet.add(totalTax).toString(),
         });
       })().catch((error: unknown) => {
         if (error instanceof DuplicateEtaSubmissionError) return;
@@ -500,16 +780,6 @@ export interface CreateBackendOptions {
    */
   readonly seedDemoData?: boolean;
   /**
-   * Outbound HTTP for the webhook dispatcher. Defaults to a real `fetch`
-   * sender; a test or a demo run passes a stub so nothing leaves the machine.
-   */
-  readonly webhookTransport?: WebhookTransportPort;
-  /**
-   * Overrides the dispatcher's bounded retry policy (3 attempts, 500ms then
-   * 2s, 10s per-attempt timeout). Tests shorten it; nothing else should.
-   */
-  readonly webhookRetry?: Partial<WebhookRetryPolicy>;
-  /**
    * Mounts the LAN multi-till routes (`/lan/*`).
    *
    * Supplied by apps/desktop, which is the only edition that binds a LAN
@@ -553,6 +823,14 @@ export interface CreateBackendOptions {
  * over HTTP, the Vite dev plugin mounts as middleware, and Electron calls over
  * IPC — one app, three transports, no behavioural difference.
  */
+/**
+ * ذمم العملاء — the control account every AR path in this composition names
+ * (the reconciliation report's own control id, the voucher counterparty, the
+ * opening-balance receivable). The certificate's invoice and its deductions
+ * entry both have to land on THIS one or the sub-ledger and GL 1105 drift.
+ */
+const CERTIFICATE_AR_ACCOUNT_ID = "1105";
+
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
   const dbPath = options.dbPath ?? ":memory:";
 
@@ -572,21 +850,32 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // but harmless to set repeatedly on the same connection.
   const { sqlite } = openSqliteConnection(dbPath, options.connection);
 
+  /*
+   * DEC-17 removed the API-key and webhook back end. Their stores are gone, so
+   * a new database never creates these tables — but an existing one still
+   * carries them, holding hashed keys and signing secrets for a surface that no
+   * longer exists. Dropping them here is the only migration step this repo has:
+   * every store builds its own schema on open, so there is no central runner to
+   * put it in. Safe to remove once no deployed database predates this commit.
+   */
+  for (const table of ["webhook_delivery", "webhook", "api_key"]) {
+    sqlite.exec(`DROP TABLE IF EXISTS ${table}`);
+  }
+
   const sequenceConfig = createSqliteSequenceConfigStore(sqlite);
   const sequenceCounters = createSqliteSequenceStore(sqlite);
   // The ONE audit sink for the whole backend. Without it the `audit_event`
   // table is never written and `/audit` reports an empty log.
   const auditSink = createSqliteAuditSink(sqlite);
-  const apiKeys = createSqliteApiKeyStore(sqlite);
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
   const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
-  const webhookStores = createSqliteWebhookStores(sqlite);
   const labelLayouts = createSqliteLabelLayoutStore(sqlite);
 
   const uow = createSqliteUnitOfWork(sqlite);
   const settings = createSqliteSettingsStore(sqlite);
   const vatFilings = createSqliteVatFilingStore(sqlite);
+  const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);
   const branches = createSqliteBranchStore(sqlite);
   const warehouses = createSqliteWarehouseStore(sqlite);
   const accounts = createSqliteAccountRepository(sqlite);
@@ -608,7 +897,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const salesQuotes = createSqliteSalesQuoteStore(sqlite);
   const exchangeRates = createSqliteExchangeRateRepository(sqlite);
   const etaStore = createSqliteEtaStore(sqlite);
-  const etaService = new EtaService({ config: etaStore.config, submissions: etaStore.submissions });
+  const etaService = new EtaService({
+    config: etaStore.config,
+    submissions: etaStore.submissions,
+    // EXTERNAL CONTRACT: the e-receipt UUID is the SHA-256 of the authority's
+    // canonical serialization of the document, computed by the till before the
+    // paper is printed. Without this port no consumer sale can be receipted at
+    // all — the service refuses rather than inventing an identifier.
+    receiptUuid: { compute: async (canonical) => createHash("sha256").update(canonical, "utf8").digest("hex") },
+  });
   const hasher = createScryptHasher();
 
   // --- phase9/operational-reports — read-only repositories the /reports routes aggregate over,
@@ -637,8 +934,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const pipelineStages = createSqlitePipelineStageRepository(sqlite);
   const activities = createSqliteActivityRepository(sqlite);
   const projects = createSqliteProjectRepository(sqlite);
+  const worksContracts = createSqliteWorksContractStore(sqlite);
+  const contractingSiteStore = createSqliteContractingSiteStore(sqlite);
+  const guarantees = createSqliteGuaranteeStore(sqlite);
+  const progressCertificates = createSqliteProgressCertificateStore(sqlite);
+  const subcontracts = createSqliteSubcontractStore(sqlite);
+  const recognitionRuns = createSqliteContractingRecognitionStore(sqlite);
+  const retentionReleases = createSqliteContractingControlsStore(sqlite);
   const assetCategories = createSqliteAssetCategoryRepository(sqlite);
   const assets = createSqliteAssetRepository(sqlite);
+  const assetRateHistory = createSqliteAssetInternalRateHistoryRepository(sqlite);
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
   const vanTrips = createSqliteVanTripRepository(sqlite);
 
@@ -715,28 +1020,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     });
   });
 
-  // --- Webhook dispatcher — the SECOND subscriber on the same bus. It POSTs a
-  // signed body to every enabled subscription matching the fired code, retries
-  // with bounded backoff, and records each attempt. Deliberately detached: the
-  // handler returns immediately so a slow or broken receiver can never delay
-  // or fail the confirm that emitted the event. ---
-  const webhookDispatcher = new WebhookDispatcher({
-    webhooks: webhookStores.webhooks,
-    deliveries: webhookStores.deliveries,
-    transport: options.webhookTransport ?? createFetchWebhookTransport(),
-    signature: createHmacWebhookSigner(),
-    generateId: () => randomUUID(),
-    retry: options.webhookRetry,
-    onError: (error, context) => {
-      console.error(`[webhooks] dispatch failed for "${context.event.code}"`, error);
-    },
-  });
-  eventBus.subscribeAll((event) => {
-    void webhookDispatcher.handle(event).catch((error: unknown) => {
-      console.error(`[webhooks] dispatcher rejected handling "${event.code}"`, error);
-    });
-  });
-
   // --- w8/workflow-ui — إعدادات الموافقات chain-builder + الموافقات inbox
   // (docs/archive/catalog/09 §سير العمل). `workflowConfigs` is also the REAL
   // `resolveConfig` behind `createDocumentWorkflowGate` below — a tenant that
@@ -746,9 +1029,58 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const workflowConfigs = createSqliteWorkflowConfigStore(sqlite);
   const approvalRequests = createSqliteApprovalRequestStore(sqlite);
 
+  /**
+   * The contracting control and contract-cost accounts, resolved through the
+   * routing store, whose journal lines MUST name a project. A hand-written
+   * entry that moved 1230 or 2160 with no `projectId` produced a figure no
+   * project report could roll up and no module could reconcile.
+   *
+   * The memorandum pair, the restricted-cash margin and «خسائر عقود متوقعة»
+   * are deliberately NOT in the set: a forfeited خطاب ضمان ابتدائي belongs to a
+   * TENDER, which by construction has no project yet.
+   */
+  const PROJECT_REQUIRED_ROUTING_KEYS = [
+    "contracting.wip",
+    "contracting.contract_asset",
+    "contracting.contract_liability",
+    "contracting.billings",
+    "contracting.retention_receivable",
+    "contracting.retention_payable",
+    "contracting.customer_advances",
+    "contracting.cost_of_revenue",
+    "contracting.social_insurance",
+    "contracting.social_insurance_withheld",
+    "contracting.employer_materials",
+    "contracting.stamp_duty",
+    "contracting.utilities",
+    "contracting.onerous_provision",
+    "contracting.wht_receivable",
+    "contracting.wht_payable",
+    "contracting.subcontractor_advances",
+  ] as const;
+  const projectRequiredAccountIds = new Set<string>(
+    (
+      await Promise.all(
+        PROJECT_REQUIRED_ROUTING_KEYS.map(async (key) =>
+          routedAccountId(await accountRouting.get(), key),
+        ),
+      )
+    ).filter((id): id is string => id !== null),
+  );
+  // `audit` so every posting this composition makes — the contracting module's
+  // included — leaves a forensic row naming the entry, its date and its actor.
   // vatFilings rides along so a DOCUMENT confirm is gated by a filed return
   // exactly as a hand-written journal entry is (D29).
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering, vatFilings };
+  const salesInvoiceGl = {
+    ledger,
+    accounts,
+    periods: fiscalPeriods,
+    numbering: ledger.numbering,
+    vatFilings,
+    projects,
+    projectRequiredAccountIds,
+    audit: auditSink,
+  };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -766,23 +1098,96 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
     gl: createInventoryGlPostingHook(salesInvoiceGl),
+    // The last-resort cost for an issue out of a position that holds nothing
+    // and was never received anywhere. Without it such an issue was written at
+    // zero and COGS was understated by the whole deficit (D101).
+    fallbackUnitCost: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
   });
-  const documentGl = createJournalGlHook(salesInvoiceGl);
-  const documentWorkflowGate = createDocumentWorkflowGate(
-    (actionType) => workflowConfigs.resolveSync(actionType),
-    approvalRequests,
-  );
+  /**
+   * The expense accounts a contract's التكلفة حتى تاريخه must NOT count:
+   * غرامة التأخير (a deduction from the price — counting it would raise the
+   * percentage of completion for being late), the plant-recovery contra of a
+   * cost already in WIP, the run's own onerous-loss line, and the
+   * inventory-adjustment accounts 5060–5080, which are shrinkage rather than
+   * anything built. Everything else expense-type still counts.
+   */
+  const contractingCostExclusions = async (): Promise<ReadonlySet<string>> => {
+    const routing = await accountRouting.get();
+    const excluded = new Set<string>([
+      routedAccountId(routing, "contracting.late_penalty") ?? "5910",
+      routedAccountId(routing, "contracting.plant_recovery") ?? "5160",
+      routedAccountId(routing, "contracting.onerous_loss") ?? "5930",
+    ]);
+    for (const account of await accounts.list()) {
+      if (account.type === "expense" && account.code >= "5060" && account.code <= "5080") excluded.add(account.id);
+    }
+    return excluded;
+  };
 
-  // Returns' notification events carry only `documentNumber` (the generic
-  // framework doesn't expose a uniform customer/amount field across every
-  // document flavour) — a rule can still target them, its template just
-  // won't have `{{customerName}}`/`{{amount}}` to substitute.
-  const returnsEventMapping = {
-    SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
-    PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
-  } satisfies DocumentEventMapping;
-  const returnsEventBridge = createDocumentEventBridge(eventBus, returnsEventMapping);
+  /**
+   * التكلفة حتى تاريخه for a project on the recognition run's own basis. The
+   * cost-overrun exception report reads it through THIS function rather than
+   * summing the ledger itself, so the report and the run can never disagree
+   * about what a contract has cost.
+   */
+  const contractingProjectCostToDate = async (projectId: string, toDate: string): Promise<Money> => {
+    const [routing, accountList, excluded, lines] = await Promise.all([
+      accountRouting.get(),
+      accounts.list(),
+      contractingCostExclusions(),
+      ledger.listLines?.({ projectId, toDate }) ?? [],
+    ]);
+    const expenseAccountIds = new Set(accountList.filter((a) => a.type === "expense").map((a) => a.id));
+    return costToDateOf(
+      lines,
+      expenseAccountIds,
+      {
+        wip: routedAccountId(routing, "contracting.wip") ?? "1230",
+        onerousLoss: routedAccountId(routing, "contracting.onerous_loss") ?? "5930",
+        plantRecovery: routedAccountId(routing, "contracting.plant_recovery") ?? "5160",
+      },
+      excluded,
+    );
+  };
 
+  // المقاولات 4A — site issues/receipts move stock through the branch transit
+  // store, consumption relieves it into WIP, and plant hours post their own
+  // entry. It shares `stockService` and `salesInvoiceGl` so the movements and
+  // the postings land in the SAME ledger every other document writes to.
+  const siteService = new SiteService({
+    issues: contractingSiteStore.issues,
+    receipts: contractingSiteStore.receipts,
+    consumptions: contractingSiteStore.consumptions,
+    custody: contractingSiteStore.custody,
+    equipmentLogs: contractingSiteStore.equipmentLogs,
+    warehouses,
+    projects,
+    assets,
+    assetRateHistory,
+    stockLedger: stockService,
+    gl: salesInvoiceGl,
+    audit: auditSink,
+    numbering: ledger.numbering,
+    accountRouting,
+    transaction: (fn) => contractingSiteStore.transaction(fn),
+    // A boqLineId on a consumption or a plant-hours log must name a real BOQ
+    // line, or the consumed-vs-theoretical comparison silently drops the row.
+    boqLines: {
+      exists: async (boqLineId) => {
+        for (const contract of await worksContracts.listContracts()) {
+          if ((await worksContracts.listBoqLines(contract.id)).some((line) => line.id === boqLineId)) return true;
+        }
+        return false;
+      },
+    },
+    // A project running under a live works contract is measured against its
+    // جدول الكميات, so consumption on it MUST name the line it was spent on or
+    // it never reaches انحراف الاستهلاك.
+    worksContracts: {
+      hasActiveContract: async (projectId) =>
+        (await worksContracts.listContracts({ projectId })).some((c) => c.status === "active"),
+    },
+  });
   // Sales invoices are the one document type the catalog's own email-template
   // preview names explicitly ("تم إنشاء الفاتورة INV-000123 بقيمة 1,150.00 ج.م
   // للعميل" — docs/archive/catalog/09 §البريد الإلكتروني), so this bridge enriches the
@@ -814,13 +1219,699 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }),
   );
 
+  /**
+   * D-03's billing arrow, enforced on EVERY sales invoice and not just the ones
+   * a certificate raises: a project running a LIVE cost_to_cost works contract
+   * recognises revenue from the monthly EAS 48 run, so an ordinary invoice on
+   * it must credit البللينغ 2165 rather than إيرادات — otherwise the same work
+   * is counted twice, once by the invoice and once by the run.
+   *
+   * `revenueAccountIds` is the tenant's own chart, so a retention-release line
+   * (whose "revenue" account is the retention asset) and a billings line are
+   * left exactly where they are.
+   */
+  const contractBillingRouting: ContractBillingRoutingPort = {
+    async resolve(projectId) {
+      const live = (await worksContracts.listContracts()).find(
+        (contract) =>
+          contract.projectId === projectId &&
+          contract.status === "active" &&
+          contract.recognitionPolicy === "cost_to_cost",
+      );
+      if (!live) return null;
+      const [routing, chart] = await Promise.all([accountRouting.get(), accounts.list()]);
+      const billingsAccountId = routedAccountId(routing, "contracting.billings") ?? "2165";
+      return {
+        billingsAccountId,
+        revenueAccountIds: new Set(chart.filter((a) => a.type === "revenue").map((a) => a.id)),
+        memoAr: `عقد مقاولات بنظام نسبة الإتمام — الإيراد يُعترف به بمسيرة EAS 48 الشهرية، وهذه الفاتورة تُرحّل إلى حساب فواتير المستخلصات (${billingsAccountId}).`,
+      };
+    },
+  };
+
+  /**
+   * المستخلص 2 — the certificate BILLS through the EXISTING sales-invoice
+   * engine (D-02). The certificate stays its own document and the invoice a
+   * thin derived one, so AR, aging, ETA and voucher allocation are reused
+   * unchanged.
+   *
+   * INVARIANT: `settle` bumps the invoice's allocated total by exactly what
+   * the deductions entry credited to AR. The GL and the receivables
+   * sub-ledger move together, or the invoice reads as owing the gross while
+   * the control account holds the net.
+   */
+  const certificateInvoicing: CertificateInvoicingPort = {
+    async issue(cmd) {
+      const [customer, branchList, warehouseList, routing] = await Promise.all([
+        customers.findById(cmd.customerId),
+        branches.findAll(),
+        warehouses.findAll(),
+        accountRouting.get(),
+      ]);
+      const branchId = branchList[0]?.id;
+      const warehouseId = warehouseList[0]?.id;
+      if (!branchId || !warehouseId) {
+        throw new Error("لا يمكن إصدار فاتورة المستخلص قبل تعريف فرع ومستودع واحد على الأقل.");
+      }
+      const invoiceId = `${cmd.certificateId}-INV`;
+      const service = new SalesInvoiceService({
+        repo: salesInvoices,
+        numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
+        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        stock: createSalesInvoiceStockHook(stockService),
+        allocatable: vouchers.invoices,
+        audit: auditSink,
+        // INVARIANT: the SAME publisher the /sales/invoices routes use. A
+        // derived invoice confirmed without it is a live invoice the ETA queue
+        // never hears about (D5) — the authority sees the tenant's certificate
+        // billing simply missing.
+        events: salesInvoiceEvents,
+        // The REAL actor, not "system": this invoice is a live receivable, and
+        // its audit row named nobody.
+        actor: cmd.actor ?? "system",
+      });
+      await service.createDraft({
+        id: invoiceId,
+        date: cmd.date,
+        dueDate: cmd.dueDate,
+        customerId: cmd.customerId,
+        customerNameAr: customer?.nameAr ?? cmd.customerId,
+        warehouseId,
+        branchId,
+        projectId: cmd.projectId,
+        currency: "EGP",
+        notes: cmd.memoAr,
+        arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
+        taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        lines: [
+          {
+            lineId: `${invoiceId}-L1`,
+            itemId: CERTIFICATE_WORKS_ITEM_ID,
+            itemNameAr: cmd.lineDescriptionAr,
+            isStock: false,
+            qty: Qty.fromMajor("1"),
+            unitPrice: cmd.amount,
+            // The invoice engine takes a percent, so the transitional basis is
+            // carried as its EFFECTIVE rate (14% × 36% = 5.04%) and the basis
+            // itself is stated in the memo — there is no second rate field to
+            // put "36% of value" in.
+            taxRatePercent: Number(cmd.taxRatePercent),
+            revenueAccountId: cmd.revenueAccountId,
+          },
+        ],
+      });
+      const confirmed = await service.confirm(invoiceId, { actor: cmd.actor ?? "system" });
+      const totals = salesInvoiceTotals(confirmed.invoice);
+      return {
+        invoiceId,
+        invoiceDocNo: confirmed.invoice.docNo ?? invoiceId,
+        arAccountId: confirmed.invoice.arAccountId,
+        total: salesInvoiceBaseGrandTotal(totals, confirmed.invoice.fxRate),
+      };
+    },
+    async status(invoiceId) {
+      const invoice = await salesInvoices.findById(invoiceId);
+      if (!invoice) return null;
+      const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
+      const sub = await vouchers.invoices.findById(invoiceId);
+      const allocated = sub?.allocated ?? Money.zero();
+      return {
+        invoiceId,
+        docNo: invoice.docNo,
+        total,
+        amountPaid: allocated,
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        dueDate: invoice.dueDate,
+        status: invoice.status,
+      };
+    },
+    async settle(invoiceId, amount) {
+      const sub = await vouchers.invoices.findById(invoiceId);
+      if (!sub) return;
+      await vouchers.invoices.save({ ...sub, allocated: Money.fromScaled(sub.allocated.scaled + amount.scaled) });
+    },
+    /**
+     * The void, mirroring /sales/invoices/:id/void: a LINKED reversing entry
+     * (never an edit or a delete), the invoice moved to «معكوس», and the
+     * receivable sub-ledger row zeroed so it leaves AR with the control
+     * account. The certificate's own lines are never stock, so there is
+     * nothing to put back into the store.
+     */
+    async voidInvoice(invoiceId, date, reasonAr) {
+      const invoice = await salesInvoices.findById(invoiceId);
+      if (!invoice) return;
+      if (invoice.status === "reversed" || invoice.status === "cancelled") return;
+      if (invoice.journalEntryId) {
+        await reverseJournalEntry(invoice.journalEntryId, salesInvoiceGl, {
+          reversalId: `${invoice.id}:void`,
+          date,
+          memo: `عكس فاتورة مستخلص ${invoice.docNo ?? invoice.id} — ${reasonAr}`,
+        });
+      }
+      await salesInvoices.update({ ...invoice, status: "reversed" });
+      const sub = await vouchers.invoices.findById(invoiceId);
+      if (sub) await vouchers.invoices.save({ ...sub, total: Money.zero(), allocated: Money.zero() });
+    },
+  };
+
+  /**
+   * خطاب ضمان الدفعة المقدمة reduces in step with recovery (Law 182/2018
+   * Art. 44). Optional: a contract with no advance guarantee on the register
+   * simply has nothing to reduce.
+   */
+  /**
+   * التأمين النهائي (قانون ١٨٢ لسنة ٢٠١٨): the outstanding خطابات حسن التنفيذ
+   * a public contract's 5% security is covered by. `reduced` counts — a letter
+   * stepped down is still the employer's security for what is left of it.
+   */
+  const contractPerformanceGuarantees: ContractGuaranteePort = {
+    async listPerformanceGuarantees(contractId) {
+      return (await guarantees.list())
+        .filter((g) => g.contractId === contractId && g.kind === "performance" && isGuaranteeOutstanding(g))
+        .map((g) => ({ id: g.id, docNo: g.docNo, currentValue: g.currentValue, expiryDate: g.expiryDate }));
+    },
+  };
+
+  const certificateGuarantees: CertificateGuaranteePort = {
+    async reduceAdvanceGuarantee({ contractId, projectId, date, amount, sourceRef, actor }) {
+      const live = (await guarantees.list()).find(
+        (g) =>
+          // The register links a letter to a project OR to a contract, and the
+          // advance guarantee is commonly filed against the project — matching
+          // only on contractId leaves it never reducing at all.
+          (g.contractId === contractId || (g.contractId === null && g.projectId === projectId)) &&
+          g.kind === "advance" &&
+          (g.status === "active" || g.status === "reduced") &&
+          g.currentValue.scaled > 0n,
+      );
+      if (!live) return;
+      const capped = amount.scaled > live.currentValue.scaled ? live.currentValue : amount;
+      const service = new GuaranteeService({
+        guarantees,
+        treasuryAccounts,
+        accounts,
+        projects,
+        routing: accountRouting,
+        gl: salesInvoiceGl,
+        audit: auditSink,
+      });
+      await service.reduce(live.id, {
+        date,
+        amount: capped,
+        reason: "خصم الدفعة المقدمة من المستخلص",
+        sourceRef,
+        userId: actor ?? null,
+      });
+    },
+    async restoreAdvanceGuarantee({ contractId, projectId, date, amount, sourceRef }) {
+      const live = (await guarantees.list()).find(
+        (g) =>
+          (g.contractId === contractId || (g.contractId === null && g.projectId === projectId)) &&
+          g.kind === "advance" &&
+          (g.status === "active" || g.status === "reduced"),
+      );
+      if (!live) return;
+      const headroom = live.faceValue.scaled - live.currentValue.scaled;
+      if (headroom <= 0n) return;
+      const capped = amount.scaled > headroom ? Money.fromScaled(headroom) : amount;
+      const service = new GuaranteeService({
+        guarantees,
+        treasuryAccounts,
+        accounts,
+        projects,
+        routing: accountRouting,
+        gl: salesInvoiceGl,
+        audit: auditSink,
+      });
+      await service.restore(live.id, {
+        date,
+        amount: capped,
+        reason: "إلغاء مستخلص — استرجاع تخفيض الدفعة المقدمة",
+        sourceRef,
+      });
+    },
+  };
+
+  /**
+   * الإفراج عن المحتجزات 5B — the release becomes a RECEIVABLE, not a new sale.
+   * The generated invoice carries one non-stock, zero-tax line whose "revenue"
+   * account is the RETENTION account, so the invoice's own posting is the
+   * Dr 1105 / Cr 1150 reclass and the AR sub-ledger moves by exactly what the
+   * control account did.
+   *
+   * INVARIANT: `dueDate` is the RELEASE EVENT, never the release date and never
+   * the certificate's — retention aged as ordinary AR reads 120-days-overdue
+   * the day it is created (design §06).
+   */
+  const retentionInvoicing: RetentionReleaseInvoicingPort = {
+    async issue(cmd) {
+      const [customer, branchList, warehouseList, routing] = await Promise.all([
+        customers.findById(cmd.customerId),
+        branches.findAll(),
+        warehouses.findAll(),
+        accountRouting.get(),
+      ]);
+      const branchId = branchList[0]?.id;
+      const warehouseId = warehouseList[0]?.id;
+      if (!branchId || !warehouseId) {
+        throw new Error("لا يمكن إصدار مستند الإفراج عن المحتجزات قبل تعريف فرع ومستودع واحد على الأقل.");
+      }
+      const invoiceId = `${cmd.releaseId}-INV`;
+      const service = new SalesInvoiceService({
+        repo: salesInvoices,
+        numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
+        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        stock: createSalesInvoiceStockHook(stockService),
+        allocatable: vouchers.invoices,
+        audit: auditSink,
+        // INVARIANT: the same publisher the /sales/invoices routes use — see the certificate's port above.
+        events: salesInvoiceEvents,
+        // The REAL actor, not "system": this invoice is a live receivable, and
+        // its audit row named nobody.
+        actor: cmd.actor ?? "system",
+      });
+      await service.createDraft({
+        id: invoiceId,
+        date: cmd.date,
+        dueDate: cmd.dueDate,
+        customerId: cmd.customerId,
+        customerNameAr: customer?.nameAr ?? cmd.customerId,
+        warehouseId,
+        branchId,
+        projectId: cmd.projectId,
+        currency: "EGP",
+        notes: cmd.memoAr,
+        arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
+        taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        lines: [
+          {
+            lineId: `${invoiceId}-L1`,
+            itemId: cmd.itemId,
+            itemNameAr: cmd.lineDescriptionAr,
+            isStock: false,
+            qty: Qty.fromMajor("1"),
+            unitPrice: cmd.amount,
+            // No VAT: the works were taxed on the certificate that withheld
+            // this money. Taxing the release again would charge it twice.
+            taxRatePercent: 0,
+            revenueAccountId: cmd.retentionAccountId,
+          },
+        ],
+      });
+      const confirmed = await service.confirm(invoiceId, { actor: cmd.actor ?? "system" });
+      const totals = salesInvoiceTotals(confirmed.invoice);
+      return {
+        invoiceId,
+        invoiceDocNo: confirmed.invoice.docNo ?? invoiceId,
+        arAccountId: confirmed.invoice.arAccountId,
+        total: salesInvoiceBaseGrandTotal(totals, confirmed.invoice.fxRate),
+      };
+    },
+    async status(invoiceId) {
+      const invoice = await salesInvoices.findById(invoiceId);
+      if (!invoice) return null;
+      const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
+      const sub = await vouchers.invoices.findById(invoiceId);
+      const allocated = sub?.allocated ?? Money.zero();
+      return {
+        invoiceId,
+        docNo: invoice.docNo,
+        total,
+        amountPaid: allocated,
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        dueDate: invoice.dueDate,
+        status: invoice.status,
+      };
+    },
+  };
+
+  /**
+   * فصل المهام — read per call, never captured. The wildcard admin is bound by
+   * preparer ≠ certifier ≠ approver like everyone else UNLESS the tenant has
+   * turned on «وضع المشغّل الواحد», which a genuinely one-person install does
+   * and nobody else should.
+   */
+  const segregationWaived = async (actor: { wildcardAdmin: boolean }): Promise<boolean> => {
+    if (!actor.wildcardAdmin) return false;
+    const tenant = (await settings.get()) ?? createDefaultSettings();
+    return tenant.contractingSingleOperatorMode;
+  };
+
+  const certificateDeps = {
+    store: progressCertificates,
+    contracts: worksContracts,
+    numbering: ledger.numbering,
+    gl: salesInvoiceGl,
+    routing: accountRouting,
+    invoicing: certificateInvoicing,
+    guarantees: certificateGuarantees,
+    accounts,
+    projects,
+    cbeCreditDiscountRatePercent: async () => {
+      const tenant = (await settings.get()) ?? createDefaultSettings();
+      const rate = tenant.contractingCbeCreditDiscountRatePercent;
+      return rate === null ? null : String(rate);
+    },
+    audit: auditSink,
+    segregationWaived,
+  };
+  const certificateService = new CertificateService(certificateDeps);
+
+  /**
+   * عقود الباطن — slice 3. The mirror of the certificate wiring above, with
+   * every engine reused rather than re-implemented: a real purchase invoice
+   * through the purchasing module, the real AP allocation sub-ledger, the real
+   * voucher store for the advance, and the CLIENT certificates as the ceiling.
+   */
+  const subcontractPurchaseGl: PurchaseGlPostingPort = {
+    post: async (posting: PurchaseGlPosting) => {
+      await postJournalEntry(
+        {
+          id: `PI-JE:${posting.sourceDocId}`,
+          date: posting.date,
+          memo: posting.memo,
+          source: "system",
+          sourceDocType: posting.sourceDocType,
+          sourceDocId: posting.sourceDocId,
+          sourceDocNumber: posting.sourceDocNumber ?? null,
+          lines: posting.lines.map((l) => ({
+            accountId: l.accountId,
+            debit: l.debit,
+            credit: l.credit,
+            currency: l.currency ?? null,
+            fxRate: l.fxRate ?? null,
+            taxRatePercent: l.taxRatePercent ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
+          })),
+        },
+        salesInvoiceGl,
+      );
+    },
+  };
+
+  /**
+   * INVARIANT: `settle` bumps the purchase invoice's allocated total by exactly
+   * what the deductions entry debited to AP. The GL and the payables sub-ledger
+   * move together, or the invoice reads as owing the gross while the control
+   * account holds the net.
+   */
+  /**
+   * INVARIANT: a subcontract's invoice is booked in the PROJECT's own branch
+   * and site store, resolved from مستودع الموقع. Falling back to the first
+   * branch in the list put every project's cost in the head-office branch and
+   * made per-branch reporting silently wrong.
+   */
+  const projectPosting = async (projectId: string): Promise<{ branchId: string; warehouseId: string }> => {
+    const siteStore = (await warehouses.findAll()).find(
+      (w) => w.type === "SITE" && w.projectId === projectId && w.active,
+    );
+    if (!siteStore) {
+      throw new Error(
+        `لا يمكن إصدار مستند على المشروع "${projectId}" قبل تعريف مستودع موقع له — الفرع والمستودع يُقرآن منه.`,
+      );
+    }
+    return { branchId: siteStore.branchId, warehouseId: siteStore.id };
+  };
+
+  const subCertificateInvoicing: SubCertificateInvoicingPort = {
+    async issue(cmd) {
+      const { branchId, warehouseId } = await projectPosting(cmd.projectId);
+      const invoiceId = `${cmd.certificateId}-PINV`;
+      await createPurchaseInvoice(
+        {
+          id: invoiceId,
+          supplierId: cmd.supplierId,
+          date: cmd.date,
+          dueDate: cmd.dueDate,
+          supplierInvoiceNumber: cmd.certificateDocNo,
+          branchId,
+          warehouseId,
+          currency: "EGP",
+          notes: cmd.memoAr,
+          projectId: cmd.projectId,
+          createdBy: cmd.actor ?? "system",
+          lines: [
+            {
+              itemId: null,
+              kind: "expense",
+              description: cmd.lineDescriptionAr,
+              qty: Qty.fromMajor("1"),
+              unitCost: cmd.amount,
+              // The invoice engine takes a percent, so the transitional basis is
+              // carried as its EFFECTIVE rate and the basis itself is stated in
+              // the memo.
+              taxRatePercent: Number(cmd.taxRatePercent),
+              costCategory: "subcontract",
+            },
+          ],
+        },
+        { invoices: purchaseInvoices, numbering: ledger.numbering },
+      );
+      const { invoice } = await confirmPurchaseInvoice(invoiceId, {
+        invoices: purchaseInvoices,
+        stock: stockService,
+        gl: subcontractPurchaseGl,
+        // The expense account is the SUBCONTRACT's: a subcontractor's certified
+        // work is أعمال تحت التنفيذ (1230), relieved to cost of contract revenue
+        // by the monthly recognition run, never a period expense on 5910.
+        accounts: { ...PURCHASE_GL_ACCOUNTS, expenseAccountId: cmd.expenseAccountId },
+        allocatable: vouchers.invoices,
+        exchangeRates,
+        baseCurrency: "EGP",
+        audit: auditSink,
+        actor: cmd.actor ?? "system",
+      });
+      return {
+        invoiceId,
+        invoiceDocNo: invoice.number,
+        apAccountId: PURCHASE_GL_ACCOUNTS.payableAccountId,
+        total: purchaseInvoiceBaseTotal(invoice),
+      };
+    },
+    async status(invoiceId) {
+      const invoice = await purchaseInvoices.findById(invoiceId);
+      if (!invoice) return null;
+      const total = purchaseInvoiceBaseTotal(invoice);
+      const sub = await vouchers.invoices.findById(invoiceId);
+      const allocated = sub?.allocated ?? Money.zero();
+      return {
+        invoiceId,
+        docNo: invoice.number,
+        total,
+        amountPaid: allocated,
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        dueDate: invoice.dueDate,
+        status: invoice.status,
+      };
+    },
+    async settle(invoiceId, amount) {
+      const sub = await vouchers.invoices.findById(invoiceId);
+      if (!sub) return;
+      await vouchers.invoices.save({ ...sub, allocated: Money.fromScaled(sub.allocated.scaled + amount.scaled) });
+    },
+  };
+
+  /**
+   * INVARIANT: الإفراج عن محتجزات الباطن is a purchase invoice whose single
+   * expense line debits 2195, so its own posting is Dr 2195 / Cr AP: the AP
+   * sub-ledger moves with GL 2100 and a payment voucher can settle it. Its due
+   * date is the release EVENT, not the invoice date plus payment terms.
+   */
+  const subcontractRetentionInvoicing: SubcontractRetentionInvoicingPort = {
+    async issue(cmd) {
+      const { branchId, warehouseId } = await projectPosting(cmd.projectId);
+      const invoiceId = `${cmd.releaseId}-PINV`;
+      await createPurchaseInvoice(
+        {
+          id: invoiceId,
+          supplierId: cmd.supplierId,
+          date: cmd.date,
+          dueDate: cmd.dueDate,
+          supplierInvoiceNumber: cmd.subcontractDocNo,
+          branchId,
+          warehouseId,
+          currency: "EGP",
+          notes: cmd.memoAr,
+          projectId: cmd.projectId,
+          createdBy: cmd.actor ?? "system",
+          lines: [
+            {
+              itemId: null,
+              kind: "expense",
+              description: cmd.lineDescriptionAr,
+              qty: Qty.fromMajor("1"),
+              unitCost: cmd.amount,
+              taxRatePercent: 0,
+            },
+          ],
+        },
+        { invoices: purchaseInvoices, numbering: ledger.numbering },
+      );
+      const { invoice } = await confirmPurchaseInvoice(invoiceId, {
+        invoices: purchaseInvoices,
+        stock: stockService,
+        gl: subcontractPurchaseGl,
+        accounts: { ...PURCHASE_GL_ACCOUNTS, expenseAccountId: cmd.retentionAccountId },
+        allocatable: vouchers.invoices,
+        exchangeRates,
+        baseCurrency: "EGP",
+        audit: auditSink,
+        actor: cmd.actor ?? "system",
+      });
+      return {
+        invoiceId,
+        invoiceDocNo: invoice.number,
+        journalEntryId: `PI-JE:${invoiceId}`,
+      };
+    },
+  };
+
+  const subcontractSuppliers: SubcontractSupplierPort = {
+    async find(supplierId) {
+      const supplier = await suppliers.findById(supplierId);
+      if (!supplier) return null;
+      return {
+        id: supplier.id,
+        nameAr: supplier.nameAr,
+        taxNumber: supplier.taxNumber,
+        bankAccount: supplier.bankAccount,
+      };
+    },
+  };
+
+  const subcontractVouchers: SubcontractVoucherPort = {
+    async find(voucherId) {
+      const doc = await vouchers.documents.findById(voucherId);
+      const line = doc?.lines[0];
+      if (!doc || !line) return null;
+      return {
+        id: doc.id,
+        docNo: doc.docNo,
+        date: doc.date,
+        amount: line.amount,
+        supplierId: line.supplierId ?? null,
+        counterpartyGlAccountId: line.counterpartyGlAccountId ?? null,
+        status: doc.status,
+        direction: line.direction,
+      };
+    },
+  };
+
+  /**
+   * The back-to-back ceiling. Only certificates the consultant has SIGNED count
+   * — a quantity still at حصر is one nobody outside the company has agreed to —
+   * and the latest one carries the cumulative, so it is the one that is read.
+   */
+  const clientCertifiedQuantities: ClientCertifiedQuantityPort = {
+    async certifiedCumulativeByBoqLine(contractId) {
+      const signed = (await progressCertificates.listByContract(contractId)).filter(
+        (c) =>
+          c.status === "certified" || c.status === "approved_for_payment" || c.status === "invoiced",
+      );
+      const latest = signed.length === 0 ? null : signed[signed.length - 1];
+      const map = new Map<string, Qty>();
+      for (const line of latest?.workLines ?? []) {
+        map.set(line.boqLineId, line.cumulativeQty);
+      }
+      return map;
+    },
+  };
+
+  const subcontractConsumptions: SubcontractConsumptionPort = {
+    async materialsIssuedTo(subcontractId) {
+      const rows = await contractingSiteStore.consumptions.list({ subcontractId, status: "confirmed" });
+      return Money.sum(rows.map((r) => r.totalCost));
+    },
+  };
+
+  const subcontractDeps = {
+    store: subcontracts,
+    contracts: worksContracts,
+    numbering: ledger.numbering,
+    gl: salesInvoiceGl,
+    routing: accountRouting,
+    suppliers: subcontractSuppliers,
+    vouchers: subcontractVouchers,
+    retentionInvoicing: subcontractRetentionInvoicing,
+    audit: auditSink,
+  };
+  const subCertificateDeps = {
+    store: subcontracts,
+    contracts: worksContracts,
+    numbering: ledger.numbering,
+    gl: salesInvoiceGl,
+    routing: accountRouting,
+    invoicing: subCertificateInvoicing,
+    suppliers: subcontractSuppliers,
+    clientCertificates: clientCertifiedQuantities,
+    consumptions: subcontractConsumptions,
+    audit: auditSink,
+    segregationWaived,
+  };
+
+
+  const documentGl = createJournalGlHook(salesInvoiceGl);
+  const documentWorkflowGate = createDocumentWorkflowGate(
+    (actionType) => workflowConfigs.resolveSync(actionType),
+    approvalRequests,
+  );
+
+  // Returns' notification events carry only `documentNumber` (the generic
+  // framework doesn't expose a uniform customer/amount field across every
+  // document flavour) — a rule can still target them, its template just
+  // won't have `{{customerName}}`/`{{amount}}` to substitute.
+  const returnsEventMapping = {
+    SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
+    PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
+  } satisfies DocumentEventMapping;
+  const returnsEventBridge = createDocumentEventBridge(eventBus, returnsEventMapping);
+
+  /*
+   * The purchase chain is not a `DocumentService`, so it never had a publisher
+   * and five catalogued codes had no producer at all (DEC-5). Routing the chain
+   * through the document framework would have touched receipt→PO status
+   * propagation, invoice-from-receipt auto-fill, the `layers` cancel path and
+   * D75's landed-cost accounting — a large blast radius for a notification
+   * feature — so it gets a publisher of its own instead. A later migration
+   * reuses this same port.
+   */
+  const purchasesEventMapping = {
+    PURCHASE_ORDER: { DOCUMENT_CONFIRMED: "PURCHASE_ORDER_CONFIRMED" },
+    GOODS_RECEIPT: { DOCUMENT_CONFIRMED: "PURCHASE_RECEIPT_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RECEIPT_VOIDED" },
+    PURCHASE_INVOICE: { DOCUMENT_CONFIRMED: "PURCHASE_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_INVOICE_VOIDED" },
+  } satisfies DocumentEventMapping;
+  const purchasesEventBridge = createDocumentEventBridge(eventBus, purchasesEventMapping);
+
+  /*
+   * `VoucherService` has declared an `events` port since it was written and
+   * nothing ever passed one, so `CASH_VOUCHER_CONFIRMED` was a sixth silent
+   * code — catalogued, selectable in a notification rule, and unreachable.
+   */
+  const voucherEventMapping = {
+    [VOUCHER_DOC_TYPE]: { DOCUMENT_CONFIRMED: "CASH_VOUCHER_CONFIRMED" },
+  } satisfies DocumentEventMapping;
+  const voucherEventBridge = createDocumentEventBridge(eventBus, voucherEventMapping);
+
+  const salesReturnEvents = fanOutDocumentEvents(
+    returnsEventBridge,
+    createReturnEtaEnqueueBridge({
+      eta: etaService,
+      returns: salesReturnStore,
+      customers,
+      items,
+      taxRates,
+      branchCodes: etaStore.branchCodes,
+      unitMappings: etaStore.unitMappings,
+    }),
+  );
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
     numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
-    events: returnsEventBridge,
+    events: salesReturnEvents,
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
@@ -836,7 +1927,34 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: documentGl,
     workflow: documentWorkflowGate,
   });
-  const landedCosts = new LandedCostService(landedCostDocuments, stockService);
+  const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
+    postUnabsorbed: async (posting) => {
+      await postJournalEntry(
+        {
+          id: posting.entryId,
+          date: posting.date,
+          memo: posting.memo,
+          source: "system",
+          sourceDocType: LANDED_COST_DOC_TYPE,
+          sourceDocId: posting.sourceDocId,
+          sourceDocNumber: posting.sourceDocNumber,
+          lines: [
+            {
+              accountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
+              debit: posting.amount,
+              credit: Money.zero(),
+            },
+            {
+              accountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
+              debit: Money.zero(),
+              credit: posting.amount,
+            },
+          ],
+        },
+        salesInvoiceGl,
+      );
+    },
+  });
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
     repo: installmentPlans,
     numbering: { next: (opts) => ledger.numbering.next("INSTALLMENT_PLAN", { branchId: opts?.branchId }) },
@@ -1025,6 +2143,20 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       if (doc.status !== "confirmed") continue;
       arScaled -= salesReturnGrandTotal(doc).scaled;
     }
+    /**
+     * An approved مستخلص credits AR by its deductions block — retention, the
+     * advance recovered, WHT, social insurance and the rest — against the
+     * invoice it generated. The control account moves; the sub-ledger has to
+     * follow it, or every tenant that ever approved a certificate reads a
+     * false mismatch for the whole deduction.
+     */
+    for (const certificate of await progressCertificates.list()) {
+      // A VOIDED certificate has had its deductions entry mirrored, so the
+      // control account is back where it was and the sub-ledger must not
+      // subtract them a second time.
+      if (certificate.status === "voided") continue;
+      arScaled -= certificate.postedDeductionsTotal.scaled;
+    }
 
     let apScaled = 0n;
     for (const inv of purchInvoices) {
@@ -1046,24 +2178,141 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       if (doc.status !== "confirmed") continue;
       apScaled -= purchaseReturnGrandTotal(doc).scaled;
     }
-    for (const doc of landedCostDocs) {
-      if (doc.status !== "confirmed") continue;
-      // costItems is denormalized onto EVERY target line, so summing per line
-      // multiplies the document's total by its line count. One document, one
-      // credit to AP — take the cost items from any single line.
-      const costItems = doc.lines[0]?.costItems;
-      if (costItems) apScaled += totalLandedCost(costItems).scaled;
+    /**
+     * An approved مستخلص باطن DEBITS AP by its deductions block — the retention
+     * withheld from the subcontractor, the advance recovered, the WHT owed to
+     * the ETA and the rest — against the purchase invoice it generated. The
+     * control account moves; the sub-ledger has to follow it or every tenant
+     * that ever approved a sub certificate reads a false mismatch for the whole
+     * deduction.
+     *
+     * A retention RELEASE is NOT added here: it is itself a purchase invoice
+     * (Dr 2195 / Cr AP), already counted with every other confirmed one above.
+     */
+    for (const certificate of await subcontracts.listCertificates()) {
+      apScaled -= certificate.postedDeductionsTotal.scaled;
     }
+    // Landed costs are deliberately NOT added here any more. They used to be,
+    // to compensate for the document crediting GL 2100 — so the invariant
+    // "tied" only because the sub-ledger figure was inflated to match a GL
+    // entry that never belonged in AP (D75). The accrual now goes to 2130, and
+    // this figure is again what it claims to be: what real supplier documents
+    // say is owed.
 
     let inventoryScaled = 0n;
     for (const snap of snapshots) {
       inventoryScaled += snap.totalValue.scaled;
     }
 
+    /**
+     * المقاولات — six more control accounts, each read from the MODULE's own
+     * store the same way the poster moved the ledger. Without these rows the
+     * whole contracting module stood outside the one instrument that proves a
+     * sub-ledger and its control account still agree, which is the only reason
+     * the certificate, the subcontract and the site store can be trusted.
+     */
+    const [certificates, subContracts, subCerts, releases, consumptions, equipmentLogs, runs, routing] =
+      await Promise.all([
+        progressCertificates.list(),
+        subcontracts.list(),
+        subcontracts.listCertificates(),
+        retentionReleases.list(),
+        contractingSiteStore.consumptions.list({ status: "confirmed" }),
+        contractingSiteStore.equipmentLogs.list({ status: "confirmed" }),
+        recognitionRuns.list(),
+        accountRouting.get(),
+      ]);
+    const account = (key: string, fallback: string): string => routedAccountId(routing, key) ?? fallback;
+
+    /** Only a certificate whose deductions entry is actually on the ledger, and was not reversed. */
+    const postedCertificates = certificates.filter((c) => c.journalEntryId !== null && c.status !== "voided");
+    const postedSubCertificates = subCerts.filter((c) => c.journalEntryId !== null);
+    const postedRuns = runs.filter((r) => r.status === "posted");
+    const deduction = (
+      rows: readonly { key: string; thisCertificate: Money }[],
+      key: string,
+    ): bigint => rows.find((d) => d.key === key)?.thisCertificate.scaled ?? 0n;
+
+    let retentionReceivableScaled = 0n;
+    for (const c of postedCertificates) retentionReceivableScaled += deduction(c.computed.deductions, "retention");
+    for (const r of releases) {
+      if (r.status === "released") retentionReceivableScaled -= r.amount.scaled;
+    }
+
+    let retentionPayableScaled = 0n;
+    for (const c of postedSubCertificates) retentionPayableScaled += deduction(c.computed.deductions, "retention");
+    for (const sub of subContracts) {
+      for (const release of sub.retentionReleases) retentionPayableScaled -= release.amount.scaled;
+    }
+
+    /**
+     * دفعات مقدمة من العملاء: the advance voucher credits it, every certificate
+     * that recovers part of the advance debits it. The advance is received once
+     * and recovered many times, so both halves have to be read.
+     */
+    const advanceAccountId = account("contracting.customer_advances", "2160");
+    let customerAdvancesScaled = 0n;
+    for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
+      const line = doc.lines[0];
+      if (!line || line.counterpartyGlAccountId !== advanceAccountId) continue;
+      customerAdvancesScaled += line.direction === "receipt" ? line.amount.scaled : -line.amount.scaled;
+    }
+    for (const c of postedCertificates) {
+      customerAdvancesScaled -= deduction(c.computed.deductions, "advanceRecovery");
+    }
+
+    /**
+     * أعمال تحت التنفيذ: what the site store consumed into it, what the plant
+     * logs charged to it, and what the subcontractors' certified work put into
+     * it — less what the monthly recognition run has already relieved.
+     */
+    let wipScaled = 0n;
+    for (const row of consumptions) wipScaled += row.totalCost.scaled;
+    for (const log of equipmentLogs) wipScaled += log.amount.scaled;
+    for (const c of postedSubCertificates) wipScaled += c.computed.invoiceBase.scaled;
+    for (const run of postedRuns) wipScaled -= run.wipRelieved.scaled;
+
+    /**
+     * فواتير مستخلصات على العقود: what the certificates of cost-to-cost
+     * contracts billed, less what each run has reclassified out of 2165.
+     */
+    const billingsAccountId = account("contracting.billings", "2165");
+    let billingsScaled = 0n;
+    for (const inv of invoices) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      const lineTotals = salesInvoiceTotals(inv).lines;
+      inv.lines.forEach((line, index) => {
+        if (line.revenueAccountId !== billingsAccountId) return;
+        const base = lineTotals[index]?.taxableBase;
+        if (base) billingsScaled += base.scaled;
+      });
+    }
+    for (const run of postedRuns) billingsScaled -= run.billedInPeriod.scaled;
+
+    /** أصل/التزام العقد: the latest posted run per contract IS the position. */
+    const latestRunByContract = new Map<string, (typeof postedRuns)[number]>();
+    for (const run of postedRuns) {
+      const seen = latestRunByContract.get(run.contractId);
+      if (!seen || run.periodEnd > seen.periodEnd) latestRunByContract.set(run.contractId, run);
+    }
+    let contractAssetScaled = 0n;
+    let contractLiabilityScaled = 0n;
+    for (const run of latestRunByContract.values()) {
+      contractAssetScaled += run.contractAsset.scaled;
+      contractLiabilityScaled += run.contractLiability.scaled;
+    }
+
     return [
       { key: "inventory", label: "تقييم المخزون مقابل دفتر الأستاذ", controlAccountId: "1200", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(inventoryScaled) },
       { key: "ar", label: "ذمم العملاء مقابل دفتر الأستاذ", controlAccountId: "1105", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(arScaled) },
       { key: "ap", label: "ذمم الموردين مقابل دفتر الأستاذ", controlAccountId: "2100", naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(apScaled) },
+      { key: "contracting_retention_receivable", label: "محتجزات لدى العملاء مقابل دفتر الأستاذ", controlAccountId: account("contracting.retention_receivable", "1150"), naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(retentionReceivableScaled) },
+      { key: "contracting_retention_payable", label: "محتجزات مقاولي الباطن مقابل دفتر الأستاذ", controlAccountId: account("contracting.retention_payable", "2195"), naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(retentionPayableScaled) },
+      { key: "contracting_customer_advances", label: "دفعات مقدمة من العملاء مقابل دفتر الأستاذ", controlAccountId: advanceAccountId, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(customerAdvancesScaled) },
+      { key: "contracting_wip", label: "أعمال تحت التنفيذ مقابل دفتر الأستاذ", controlAccountId: account("contracting.wip", "1230"), naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(wipScaled) },
+      { key: "contracting_billings", label: "فواتير مستخلصات على العقود مقابل دفتر الأستاذ", controlAccountId: billingsAccountId, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(billingsScaled) },
+      { key: "contracting_contract_asset", label: "أصل العقد مقابل دفتر الأستاذ", controlAccountId: account("contracting.contract_asset", "1170"), naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(contractAssetScaled) },
+      { key: "contracting_contract_liability", label: "التزام العقد مقابل دفتر الأستاذ", controlAccountId: account("contracting.contract_liability", "2175"), naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(contractLiabilityScaled) },
     ];
   }
 
@@ -1092,6 +2341,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     accounts,
     periods: fiscalPeriods,
     numbering: ledger.numbering,
+    projects,
     treasuryAccounts,
     allocations: vouchers.allocations,
     invoices: vouchers.invoices,
@@ -1106,6 +2356,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     accounts,
     periods: fiscalPeriods,
     numbering: ledger.numbering,
+    projects,
     treasuryAccounts,
     allocations: vouchers.allocations,
     invoices: vouchers.invoices,
@@ -1246,6 +2497,62 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }).catch(() => undefined);
   };
 
+  /**
+   * تحصيل من عميل — creates and CONFIRMS a real collection voucher and
+   * allocates it to the invoice, so the money lands in a treasury account, AR
+   * is credited in the ledger, and the invoice's amountPaid follows from the
+   * allocation. It used to increment amountPaid and post nothing (D1). Shared
+   * by the sales invoice screen and the instalment collection route.
+   */
+  const collectFromCustomer: InstallmentCollectPort = async (input) => {
+    const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
+    if (!treasury?.glAccountId) {
+      throw new InvalidSalesInvoicePaymentError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
+    }
+    const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
+    const service = new VoucherService({
+      documents: vouchers.documents,
+      ledger,
+      accounts,
+      periods: fiscalPeriods,
+      numbering: ledger.numbering,
+      projects,
+      treasuryAccounts,
+      allocations: vouchers.allocations,
+      invoices: vouchers.invoices,
+      settings,
+      settlement: {
+        applySettled: async ({ invoiceId, kind, settled }) => {
+          if (kind !== "sales") return;
+          await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
+        },
+      },
+      audit: auditSink,
+      actor: input.actor,
+    });
+    await service.createVoucher({
+      id: voucherId,
+      date: input.date,
+      memo: input.memo ?? undefined,
+      voucherType: "customer_collection",
+      amount: input.amount,
+      branchId: input.branchId,
+      paymentMethod: input.paymentMethod,
+      treasuryAccountId: input.treasuryAccountId,
+      treasuryGlAccountId: treasury.glAccountId,
+      counterpartyGlAccountId: "1105",
+      customerId: input.customerId,
+      referenceNo: input.referenceNo ?? null,
+    });
+    await service.confirmVoucher(voucherId);
+    await service.allocate(voucherId, {
+      allocationId: `${voucherId}:A1`,
+      invoiceId: input.invoiceId,
+      amount: input.amount,
+    });
+    return { voucherId };
+  };
+
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },
@@ -1280,8 +2587,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: { store: auditSink },
     auditSink,
     barcodeConfigStore: barcodeConfig,
-    apiKeys: { repo: apiKeys },
-    webhooks: { webhooks: webhookStores.webhooks, deliveries: webhookStores.deliveries },
     taxRateRepo: taxRates,
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
@@ -1324,7 +2629,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
+      projects,
       audit: auditSink,
+      // The HAND-WRITTEN journal is exactly where an uncategorised movement on
+      // a contracting control account gets in, so the same set guards it.
+      projectRequiredAccountIds,
       vatFilings,
       openPartyDocuments: () => collectOpenPartyDocuments(),
       baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
@@ -1343,6 +2652,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
+      projects,
       treasuryAccounts,
       // Without this the treasury guard reads its own hardcoded default and both
       // سياسة الخزينة switches on the settings screen do nothing (D19).
@@ -1357,6 +2667,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
         },
       },
+      events: voucherEventBridge,
+      // Law 6/2025 exempts a regime taxpayer from withholding, so the route
+      // refuses a voucher that withholds rather than posting a liability the
+      // authority does not recognise (DEC-13).
+      simplifiedRegimeActiveOn: async (day: string) =>
+        simplifiedRegimeActiveOn((await simplifiedRegime.get()) ?? NO_SIMPLIFIED_REGIME, day),
     },
     purchases: {
       itemCheck: items,
@@ -1373,6 +2689,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       exchangeRates,
       baseCurrency: "EGP",
       audit: auditSink,
+      events: purchasesEventBridge,
       // «من إيصال استلام» omits lines, so the route builds them from the receipt
       // — and without this port every one of those lines was taxed at 0% (D50).
       resolveTaxRate: async (itemId) => (await items.findById(itemId))?.taxRatePercent ?? 0,
@@ -1394,6 +2711,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           accounts,
           periods: fiscalPeriods,
           numbering: ledger.numbering,
+          projects,
           treasuryAccounts,
           allocations: vouchers.allocations,
           invoices: vouchers.invoices,
@@ -1456,64 +2774,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       workflow: documentWorkflowGate,
       audit: auditSink,
       events: salesInvoiceEvents,
+      // The tenant's real chart, so an invoice cannot name an account it does
+      // not have — the browser fills any unmapped item from constants (D108).
+      accounts,
       allocatable: vouchers.invoices,
+      contractBilling: contractBillingRouting,
       // The customer's own price list, consulted SERVER-side. The engine
       // (resolvePrice) always existed and no route called it, so the whole
       // pricing order held only in the browser (D35).
-      /**
-       * تحصيل من عميل — the invoice screen's collect action. It creates and
-       * CONFIRMS a real collection voucher and allocates it to the invoice, so
-       * the money lands in a treasury account, AR is credited in the ledger,
-       * and the invoice's amountPaid follows from the allocation. It used to
-       * increment amountPaid and post nothing (D1).
-       */
-      collect: async (input) => {
-        const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
-        if (!treasury?.glAccountId) {
-          throw new InvalidSalesInvoicePaymentError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
-        }
-        const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
-        const service = new VoucherService({
-          documents: vouchers.documents,
-          ledger,
-          accounts,
-          periods: fiscalPeriods,
-          numbering: ledger.numbering,
-          treasuryAccounts,
-          allocations: vouchers.allocations,
-          invoices: vouchers.invoices,
-          settings,
-          settlement: {
-            applySettled: async ({ invoiceId, kind, settled }) => {
-              if (kind !== "sales") return;
-              await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
-            },
-          },
-          audit: auditSink,
-          actor: input.actor,
-        });
-        await service.createVoucher({
-          id: voucherId,
-          date: input.date,
-          memo: input.memo ?? undefined,
-          voucherType: "customer_collection",
-          amount: input.amount,
-          branchId: input.branchId,
-          paymentMethod: input.paymentMethod,
-          treasuryAccountId: input.treasuryAccountId,
-          treasuryGlAccountId: treasury.glAccountId,
-          counterpartyGlAccountId: "1105",
-          customerId: input.customerId,
-          referenceNo: input.referenceNo ?? null,
-        });
-        await service.confirmVoucher(voucherId);
-        await service.allocate(voucherId, {
-          allocationId: `${voucherId}:A1`,
-          invoiceId: input.invoiceId,
-          amount: input.amount,
-        });
-        return { voucherId };
-      },
+      collect: collectFromCustomer,
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
           // تفعيل قوائم الأسعار (settings §"الرقابة الائتمانية"): with price
@@ -1556,6 +2825,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
+      projects,
       exchangeRates,
       // فائض/عجز الصندوق double as the FX gain/loss accounts (postable leaves in the standard COA).
       gainAccountId: "4900",
@@ -1612,14 +2882,87 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     projects: {
       projects,
       costCenters,
+      ledger,
+      accounts,
+      routing: accountRouting,
+      worksContracts,
+      recognitionRuns,
+    },
+    contractingContracts: {
+      store: worksContracts,
+      numbering: ledger.numbering,
+      projects,
+      customers,
+      // Slice 2's مستخلص ختامي check: a contract closes on a final
+      // certificate, so one with certificates still in flight — or with none
+      // of them final — is refused rather than quietly closed.
+      completionGuard: (contractId) => certificateService.completionRefusal(contractId),
+      guarantees: contractPerformanceGuarantees,
+    },
+    contractingCertificates: certificateDeps,
+    contractingSubcontracts: { subcontracts: subcontractDeps, certificates: subCertificateDeps },
+    contractingSite: { service: siteService },
+    // تشغيل الاعتراف بالإيراد reads billings, WIP and the contract position
+    // straight off the posted ledger and posts back through the same engine, so
+    // the run can never disagree with the accounts it is derived from.
+    // تقارير الاستثناءات الستة وتقويم المحتجزات 5B — every report is assembled
+    // from the OTHER slices' own ports (certificates, contracts, site) and the
+    // posted ledger, so nothing here re-queries what they already answer.
+    contractingControls: {
+      releases: retentionReleases,
+      contracts: worksContracts,
+      certificates: progressCertificates,
+      gl: salesInvoiceGl,
+      numbering: ledger.numbering,
+      routing: accountRouting,
+      invoicing: retentionInvoicing,
+      site: siteService,
+      equipmentLogs: contractingSiteStore.equipmentLogs,
+      projects,
+      // The payable half of the retention: the sub side has its own clock, and
+      // an early release to a subcontractor is the same exception as one to a
+      // client.
+      subcontracts: { list: () => new SubcontractService(subcontractDeps).list() },
+      guarantees: contractPerformanceGuarantees,
+      projectCostToDate: contractingProjectCostToDate,
+      releaseItemId: RETENTION_RELEASE_ITEM_ID,
+      segregationWaived,
+      audit: auditSink,
+    },
+    contractingRecognition: {
+      runs: recognitionRuns,
+      contracts: worksContracts,
+      accounts,
+      ledger,
+      routing: accountRouting,
+      gl: salesInvoiceGl,
+      audit: auditSink,
+      costExcludedAccountIds: contractingCostExclusions,
+    },
+    // خطابات الضمان posts the memorandum pair AND the restricted-cash margin
+    // through the SAME GL engine every other document uses, so the register's
+    // outstanding total and the 9100 balance can never drift apart.
+    contractingGuarantees: {
+      guarantees,
+      treasuryAccounts,
+      treasuryAccountsList: treasuryAccounts,
+      accounts,
+      projects,
+      projectsList: projects,
+      routing: accountRouting,
+      gl: salesInvoiceGl,
+      audit: auditSink,
+      contracts: { exists: async (id) => (await worksContracts.findContractById(id)) !== null },
     },
     fixedAssets: {
       categories: assetCategories,
       assets,
+      rateHistory: assetRateHistory,
       runs: depreciationRuns,
       gl: salesInvoiceGl,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
       settings,
+      audit: auditSink,
     },
     inventoryWritedown: {
       runs: writedownRuns,
@@ -1809,11 +3152,24 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
             }
           }
+          // The tax the line was ACTUALLY charged — after line, promotion and
+          // header discounts, and zero when the customer is tax-exempt. Handing
+          // the return a zero here credited no VAT at all and left it no rate
+          // to group the posting by (D76).
+          const chargedTax = new Map<string, { tax: Money; rate: number }>();
+          const invoiceTotals = salesInvoiceTotals(invoice);
+          for (const [i, line] of invoice.lines.entries()) {
+            chargedTax.set(line.lineId, {
+              tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
+              rate: line.taxRatePercent,
+            });
+          }
           return {
             id: invoice.id,
             number: invoice.docNo ?? invoice.id,
             customerId: invoice.customerId,
             warehouseId: invoice.warehouseId,
+            projectId: invoice.projectId,
             date: invoice.date,
             status: "confirmed" as const,
             // A return is quoted in BASE units, because that is what it puts
@@ -1826,8 +3182,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               qty: l.baseQty,
               alreadyReturnedQty: returnedByItem.get(l.itemId) ?? Qty.zero(),
               unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
-              unitCost: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
-              taxAmount: Money.zero(),
+              // The line's captured moving-average COST, not its price. This
+              // read `l.unitPrice` — the same expression as the line above —
+              // so «مرتجع من فاتورة», the route the screen uses, restocked
+              // every return at the SELLING price: inventory overstated and
+              // the COGS reversal wrong by the whole margin (D145).
+              unitCost:
+                l.unitCost === null
+                  ? Money.zero()
+                  : unitCostOf(extendQtyByPrice(l.qty, l.unitCost), l.baseQty),
+              taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
+              taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
             })),
           };
         },
@@ -1869,6 +3234,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             accounts,
             periods: fiscalPeriods,
             numbering: ledger.numbering,
+            projects,
             treasuryAccounts,
             allocations: vouchers.allocations,
             invoices: vouchers.invoices,
@@ -1928,14 +3294,23 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                 qty: l.qty,
                 alreadyReturnedQty: returnedByItem.get(l.itemId as string) ?? Qty.zero(),
                 unitCost: l.unitCost,
-                taxAmount: Money.zero(),
+                // The input VAT the line actually carried, and the rate that
+                // produced it — a return with neither credits no VAT back and
+                // gives the VAT return nothing to group by (D76).
+                taxAmount: purchaseInvoiceLineTax(l),
+                taxRatePercent: l.taxRatePercent,
               })),
           };
         },
       },
     },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
-    installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },
+    installments: {
+      plans: installmentPlanDocuments,
+      plansRepo: installmentPlans,
+      followUps,
+      collect: collectFromCustomer,
+    },
     reports: {
       allocatable: vouchers.invoices,
       // The customer aging ladder has to net every credit the GL already
@@ -1963,6 +3338,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // مبيعات المندوبين reads the same van-trip store /field/van-trips writes.
       vanTrips,
       employees: hrEmployees,
+      // إقرار الخصم والتحصيل covers both halves: tax withheld on a payment
+      // voucher and tax withheld on a subcontractor's certified bill.
+      subCertificates: subcontracts,
     },
     financialReports: {
       ledger,
@@ -1971,8 +3349,46 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
     },
     notificationRuleRepo: notificationRules,
-    emittedEventCodes: emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping),
+    emittedEventCodes: emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping, purchasesEventMapping, voucherEventMapping),
     notificationRepo: notifications,
+    /**
+     * Drains the outbound queue on an operator's request (ROADMAP §3.3).
+     *
+     * The transport is the SAME SMTP session the settings test-send uses, so
+     * it inherits the refusal to put a password on a plain wire (D133). Being
+     * offline leaves a message queued rather than failing it: a shop with no
+     * internet is this product's normal state, not an error.
+     */
+    notificationDrain: async () => {
+      const tenant = (await settings.get()) ?? createDefaultSettings();
+      const dispatcher = new NotificationDispatcher({
+        notifications,
+        recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
+        transports: [
+          {
+            channel: "email",
+            async send(notification, recipientEmail) {
+              if (!tenant.smtpEnabled) {
+                return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
+              }
+              if (!recipientEmail) {
+                // No address on the user. Terminal: the next drain would find
+                // the same missing address and try forever.
+                return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
+              }
+              const sent = await sendNotificationEmail(tenant, recipientEmail, {
+                subject: notification.title,
+                body: notification.body,
+              });
+              return sent.outcome === "sent"
+                ? { kind: "sent" }
+                : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
+            },
+          },
+        ],
+      });
+      return dispatcher.drain();
+    },
     workflow: { configs: workflowConfigs, requests: approvalRequests },
   });
 
@@ -1993,6 +3409,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // supplied is how four inventory-ops routes 404'd live while their files
   // existed. The store is created above, always.
   app.route("/preferences", createPreferencesRoutes({ store: userPreferences, uow }, resolveAuthContext));
+  // النظام الضريبي المبسط (قانون 6 لسنة 2025). Mounted unconditionally beside
+  // the settings bag it belongs with: the record of what the taxpayer filed on
+  // Form 1/10, the estimated liability, and the regime comparison.
+  app.route(
+    "/tax/simplified-regime",
+    createSimplifiedRegimeRoutes(
+      { regime: simplifiedRegime, salesInvoices, customers, accounts, ledger },
+      resolveAuthContext,
+    ),
+  );
 
   const closers = [
     uow,
@@ -2027,6 +3453,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     pipelineStages,
     activities,
     projects,
+    worksContracts,
+    guarantees,
+    recognitionRuns,
     assetCategories,
     assets,
     depreciationRuns,
@@ -2060,10 +3489,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     sequenceConfig,
     sequenceCounters,
     auditSink,
-    apiKeys,
     barcodeConfig,
     userPreferences,
-    webhookStores,
     labelLayouts,
   ];
 
@@ -2086,9 +3513,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     sessions,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     close() {
-      // Before the connection goes: retries waiting on a backoff pause would
-      // otherwise wake up against a closed store and throw while recording.
-      webhookDispatcher.stop();
       // Every store above shares the ONE `sqlite` connection opened at the
       // top of this function, so each store's own close() is a no-op (it
       // doesn't own the connection) — this loop is harmless belt-and-braces,

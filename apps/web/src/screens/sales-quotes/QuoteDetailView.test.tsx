@@ -18,7 +18,7 @@ const branches: BranchDTO[] = [
   { id: "MAIN", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
 ];
 const warehouses: WarehouseDTO[] = [
-  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true },
+  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
 ];
 const items: ItemDTO[] = [
   {
@@ -117,19 +117,18 @@ describe("QuoteDetailView", () => {
   });
 
   it(
-    "DEFECT: the working-location default warehouse never actually applies, even when a " +
-      "real default warehouse exists — `const [warehouseId] = useState(workingLocation." +
-      "warehouseId ?? \"\")` (QuoteDetailView.tsx) captures `workingLocation.warehouseId` " +
-      "ONLY at the FIRST render, before `useBranches`/`useWarehouses` have resolved (both " +
-      "start undefined), so it permanently locks in `\"\"` and never re-syncs once the data " +
-      "arrives. Every accepted quote's convert flow blocks on 'اختر المستودع.' and forces a " +
-      "manual re-pick, even though the tenant has an obvious, resolvable default warehouse.",
+    "D107: the working-location default warehouse applies once the queries resolve, so an " +
+      "accepted quote converts without a manual re-pick",
     async () => {
       const { getConvertBody } = renderDetail(quote({ status: "accepted" }));
-      // A real, resolvable default warehouse (MAIN-WH, isDefault: true) exists — yet:
+      // A real, resolvable default warehouse (MAIN-WH, isDefault: true) exists.
+      await waitFor(() =>
+        expect(screen.getByRole("combobox", { name: "المستودع *" })).toHaveTextContent(/المخزن الرئيسي/),
+      );
       fireEvent.click(screen.getByRole("button", { name: "إنشاء الفاتورة" }));
-      expect(await screen.findByText("اختر المستودع.")).toBeInTheDocument();
-      expect(getConvertBody()).toBeNull();
+      await waitFor(() => expect(getConvertBody()).not.toBeNull());
+      expect((getConvertBody() as Record<string, unknown>).warehouseId).toBe("MAIN-WH");
+      expect(screen.queryByText("اختر المستودع.")).not.toBeInTheDocument();
     },
   );
 

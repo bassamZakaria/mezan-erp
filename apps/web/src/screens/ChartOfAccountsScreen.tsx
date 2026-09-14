@@ -48,6 +48,7 @@ const TYPE_KEY: Record<AccountTypeDTO, AppTranslationKey> = {
   equity: "coa.type.equity",
   revenue: "coa.type.revenue",
   expense: "coa.type.expense",
+  memorandum: "coa.type.memorandum",
 };
 
 const NATURAL_BALANCE_KEY: Record<NaturalBalanceDTO, AppTranslationKey> = { debit: "coa.natural.debit", credit: "coa.natural.credit" };

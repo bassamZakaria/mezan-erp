@@ -852,13 +852,13 @@ export async function run(ctx: Ctx): Promise<void> {
     );
   });
 
-  await scenario("a giveaway needs sales.price.override, and a discount above the tenant ceiling needs pos.discount.approve", async () => {
+  await scenario("a giveaway needs sales.price.override, and a discount above the tenant ceiling needs sales.discount.approve", async () => {
     const customer = await customerOf("CUST-DEMO-1");
     const item = await itemOf("ITEM-DEMO-1");
     // Plain invoice-create, nothing else — the exact holder the finding names.
     const clerk = { "x-permissions": "sales.invoice.create,sales.invoice.view", "x-user-id": "SCN-USER-SELLER" };
     const withOverride = { "x-permissions": "sales.invoice.create,sales.invoice.view,sales.price.override", "x-user-id": "SCN-USER-SELLER" };
-    const withApproval = { "x-permissions": "sales.invoice.create,sales.invoice.view,pos.discount.approve", "x-user-id": "SCN-USER-SUPERVISOR" };
+    const withApproval = { "x-permissions": "sales.invoice.create,sales.invoice.view,sales.discount.approve", "x-user-id": "SCN-USER-SUPERVISOR" };
 
     function body(id: string, over: Record<string, unknown> = {}) {
       return {
@@ -942,12 +942,12 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const overCeiling = await req("POST", "/sales-invoices", body("SCN-INV-DISC-30B", { discountType: "percent", discountPercent: 30 }), clerk);
     check(
-      "once a ceiling exists, a discount above it needs pos.discount.approve",
-      overCeiling.status === 403 && overCeiling.body?.permission === "pos.discount.approve",
+      "once a ceiling exists, a discount above it needs sales.discount.approve",
+      overCeiling.status === 403 && overCeiling.body?.permission === "sales.discount.approve",
       `status ${overCeiling.status} body ${JSON.stringify(overCeiling.body)}`,
     );
     const approved = await req("POST", "/sales-invoices", body("SCN-INV-DISC-30C", { discountType: "percent", discountPercent: 30 }), withApproval);
-    check("and a holder of pos.discount.approve may still raise it", approved.status === 201, `status ${approved.status} body ${JSON.stringify(approved.body).slice(0, 200)}`);
+    check("and a holder of sales.discount.approve may still raise it", approved.status === 201, `status ${approved.status} body ${JSON.stringify(approved.body).slice(0, 200)}`);
 
     // Later modules share this tenant: a ceiling left behind would refuse
     // documents they have always been allowed to raise.

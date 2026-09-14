@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contract for price lists (docs/archive/catalog/01 "قوائم الأسعار"). Money is
@@ -11,7 +12,7 @@ export const priceListLineSchema = z.object({
   unitCode: z.string().nullish(),
   /** Volume threshold this tier's price applies from. Omitted means the base tier ("0"). */
   minQty: z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string").optional(),
-  price: z.string(),
+  price: moneyString,
 });
 
 /** What the server serialises back: every tier carries its threshold explicitly. */
@@ -19,7 +20,7 @@ export const priceListLineViewSchema = z.object({
   itemId: z.string().min(1),
   unitCode: z.string().nullable(),
   minQty: z.string(),
-  price: z.string(),
+  price: moneyString,
 });
 
 export const priceListSchema = z.object({

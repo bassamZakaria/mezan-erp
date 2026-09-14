@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarDay } from "./dates.js";
+import { calendarDay, toTenantDay } from "./dates.js";
 
 /**
  * The bug this exists to stop coming back: a period boundary is a DAY and a
@@ -29,5 +29,41 @@ describe("calendarDay", () => {
   it("does not repair a malformed value — that is its validator's job", () => {
     expect(calendarDay("2026-08")).toBe("2026-08");
     expect(calendarDay("")).toBe("");
+  });
+});
+
+describe("toTenantDay", () => {
+  it("returns a day-shaped value untouched, whatever the zone", () => {
+    expect(toTenantDay("2026-08-31", "Africa/Cairo")).toBe("2026-08-31");
+    expect(toTenantDay("2026-08-31", "Pacific/Kiritimati")).toBe("2026-08-31");
+  });
+
+  it("resolves an instant in the tenant zone, not in UTC", () => {
+    // Cairo is +03:00 in August (DST is back since 2023) and +02:00 in December.
+    expect(toTenantDay("2026-08-31T03:10:33.016Z", "Africa/Cairo")).toBe("2026-08-31");
+    expect(toTenantDay("2026-08-31T20:00:00.000Z", "Africa/Cairo")).toBe("2026-08-31");
+    expect(toTenantDay("2026-12-31T20:00:00.000Z", "Africa/Cairo")).toBe("2026-12-31");
+  });
+
+  it("moves an instant onto the NEXT day when it is already tomorrow in Cairo", () => {
+    expect(toTenantDay("2026-09-30T23:59:59.999Z", "Africa/Cairo")).toBe("2026-10-01");
+    expect(toTenantDay("2026-12-31T23:59:59.999Z", "Africa/Cairo")).toBe("2027-01-01");
+  });
+
+  it("moves an instant onto the PREVIOUS day for a tenant west of UTC", () => {
+    expect(toTenantDay("2026-08-01T00:00:00.000Z", "America/New_York")).toBe("2026-07-31");
+  });
+
+  it("defaults to Cairo when no zone is given", () => {
+    expect(toTenantDay("2026-09-30T23:59:59.999Z")).toBe("2026-10-01");
+  });
+
+  it("falls back to the UTC day rather than throwing on a timezone nobody knows", () => {
+    expect(toTenantDay("2026-08-31T03:10:33.016Z", "Africa/Atlantis")).toBe("2026-08-31");
+  });
+
+  it("does not repair a malformed value — that is its validator's job", () => {
+    expect(toTenantDay("not a date", "Africa/Cairo")).toBe("not a date");
+    expect(toTenantDay("2026-08", "Africa/Cairo")).toBe("2026-08");
   });
 });

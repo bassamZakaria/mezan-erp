@@ -9,9 +9,9 @@ import {
 } from "./warehouse.js";
 
 describe("warehouse type catalog", () => {
-  it("has exactly the 5 documented types, in catalog order", () => {
-    expect(WAREHOUSE_TYPES).toEqual(["MAIN", "TRANSIT", "RETURNS", "PRODUCTION", "VAN"]);
-    expect(WAREHOUSE_TYPE_DEFINITIONS).toHaveLength(5);
+  it("has the 5 documented types in catalog order, plus the contracting site store", () => {
+    expect(WAREHOUSE_TYPES).toEqual(["MAIN", "TRANSIT", "RETURNS", "PRODUCTION", "VAN", "SITE"]);
+    expect(WAREHOUSE_TYPE_DEFINITIONS).toHaveLength(6);
   });
 
   it("resolves the Arabic label for each type", () => {
@@ -41,6 +41,36 @@ describe("createWarehouse", () => {
 
   it("rejects a missing branchId", () => {
     expect(() => createWarehouse({ id: "w1", code: "WH", name: "x", branchId: "" })).toThrow(InvalidWarehouseError);
+  });
+
+  it("creates a SITE warehouse carrying its project and its custodian", () => {
+    const wh = createWarehouse({
+      id: "w3",
+      code: "WH-SITE",
+      name: "مستودع موقع برج الأمل",
+      branchId: "b1",
+      type: "SITE",
+      projectId: "PRJ-1",
+      custodianUserId: "u-7",
+    });
+    expect(wh.type).toBe("SITE");
+    expect(wh.projectId).toBe("PRJ-1");
+    expect(wh.custodianUserId).toBe("u-7");
+  });
+
+  it("rejects a SITE warehouse with no project or no custodian", () => {
+    expect(() =>
+      createWarehouse({ id: "w4", code: "WH-SITE2", name: "موقع", branchId: "b1", type: "SITE", custodianUserId: "u-7" }),
+    ).toThrow(InvalidWarehouseError);
+    expect(() =>
+      createWarehouse({ id: "w5", code: "WH-SITE3", name: "موقع", branchId: "b1", type: "SITE", projectId: "PRJ-1" }),
+    ).toThrow(InvalidWarehouseError);
+  });
+
+  it("rejects a project or a custodian on a warehouse that is not a site store", () => {
+    expect(() =>
+      createWarehouse({ id: "w6", code: "WH-X", name: "رئيسي", branchId: "b1", projectId: "PRJ-1" }),
+    ).toThrow(InvalidWarehouseError);
   });
 });
 

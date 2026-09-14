@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { z } from "zod";
 import {
   ETA_ACTIVITY_CODES,
   ETA_UNIT_CODES,
@@ -9,12 +10,15 @@ import {
   suggestEtaUnitCode,
   DuplicateEtaSubmissionError,
   EtaExclusionReasonRequiredError,
+  EtaDeviceSerialNotRegisteredError,
   EtaOfflineError,
+  EtaReceiptUuidUnavailableError,
   EtaSubmissionNotFoundError,
   InvalidEtaTransitionError,
   type EtaBranchCodeRepository,
   type EtaConfig,
   type EtaReadinessCounts,
+  type EtaReceiptInput,
   type EtaSubmission,
   type EtaSubmissionStatus,
   type EtaUnitMappingRepository,
@@ -90,6 +94,7 @@ function serializeConfig(config: EtaConfig, counts?: EtaReadinessCounts) {
       signingMethod: config.signingMethod,
       clientId: config.clientId,
       hasClientSecret: config.hasClientSecret,
+      receiptReportingWindowHours: config.receiptReportingWindowHours,
     },
     readiness: computeEtaReadiness(config, counts),
   };
@@ -125,7 +130,86 @@ function handleError(c: Context, err: unknown): Response {
   if (err instanceof EtaExclusionReasonRequiredError) return c.json({ error: err.code, message: err.message }, 400);
   // The stubbed online transmit refusing offline is an expected, non-fatal state.
   if (err instanceof EtaOfflineError) return c.json({ error: err.code, message: err.message }, 202);
+  // No UUID service means no receipt can be issued at all — a configuration
+  // gap, not a bad request, and it must not read as one.
+  if (err instanceof EtaReceiptUuidUnavailableError) return c.json({ error: err.code, message: err.message }, 501);
+  // A till whose device is not registered must be told so, loudly — not have a
+  // receipt filed with a blank serial the authority will not accept.
+  if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message }, 409);
   throw err;
+}
+
+
+/**
+ * Money on an e-receipt travels as an exact decimal string, never a float —
+ * the till has already rounded, and re-parsing through a JS number is how a
+ * receipt total stops matching the drawer.
+ */
+const AMOUNT = z.string().regex(/^-?\d+(\.\d+)?$/, "المبلغ يجب أن يكون رقماً عشرياً");
+
+const receiptLineSchema = z.object({
+  internalCode: z.string().min(1),
+  description: z.string().min(1),
+  itemType: z.string().min(1),
+  itemCode: z.string().min(1),
+  unitType: z.string().min(1),
+  quantity: AMOUNT,
+  unitPrice: AMOUNT,
+  totalSale: AMOUNT,
+  netSale: AMOUNT,
+  total: AMOUNT,
+  commercialDiscount: AMOUNT.optional(),
+  itemDiscount: AMOUNT.optional(),
+  taxSubType: z.string().min(1),
+  taxRate: z.string(),
+  taxAmount: AMOUNT,
+});
+
+const issueReceiptSchema = z.object({
+  internalId: z.string().min(1),
+  issueDateTime: z.string().min(1),
+  receiptType: z.enum(["sale", "refund"]),
+  previousUuid: z.string().nullable().default(null),
+  currency: z.string().optional(),
+  exchangeRate: AMOUNT.optional(),
+  referenceOldUuid: z.string().nullable().optional(),
+  // The till identity is NOT caller-supplied: the branch says which device the
+  // authority has registered, and the serial and branch code are read from it.
+  seller: z.object({
+    branchId: z.string().min(1),
+    syndicateLicenseNumber: z.string().nullable().optional(),
+  }),
+  buyer: z.object({
+    type: z.enum(["B", "P", "F"]),
+    id: z.string().nullable().default(null),
+    name: z.string().nullable().default(null),
+    mobileNumber: z.string().nullable().optional(),
+  }),
+  paymentMethod: z.enum(["cash", "card", "wallet", "transfer", "other"]),
+  lines: z.array(receiptLineSchema).min(1),
+  totalSales: AMOUNT,
+  totalCommercialDiscount: AMOUNT.optional(),
+  totalItemsDiscount: AMOUNT.optional(),
+  netAmount: AMOUNT,
+  feesAmount: AMOUNT.optional(),
+  totalAmount: AMOUNT,
+  taxTotals: z.array(z.object({ taxType: z.string().min(1), amount: AMOUNT })),
+});
+
+/**
+ * The till the authority has registered for this branch. A receipt is bound to
+ * a device serial, so a branch with none cannot issue one at all.
+ */
+async function resolveReceiptDevice(
+  deps: EtaRoutesDeps,
+  branchId: string,
+): Promise<{ readonly deviceSerialNumber: string; readonly etaBranchCode: string | null }> {
+  const mapping = deps.branchCodes
+    ? (await deps.branchCodes.list()).find((m) => m.branchId === branchId)
+    : undefined;
+  const serial = mapping?.deviceSerialNumber?.trim() ?? "";
+  if (serial === "") throw new EtaDeviceSerialNotRegisteredError(branchId);
+  return { deviceSerialNumber: serial, etaBranchCode: mapping?.etaBranchCode ?? null };
 }
 
 /**
@@ -148,6 +232,9 @@ function handleError(c: Context, err: unknown): Response {
  *   PUT  /unit-mappings/:unitCode      map one unit
  *   POST /unit-mappings/apply-suggestions تطبيق الاقتراحات
  *   GET  /tax-subtypes                 أنواع الضريبة الفرعية per tax rate
+ *   GET  /receipts/summary             ما لم يُبلَّغ من الإيصالات + ما تجاوز مهلة الإبلاغ
+ *   POST /receipts                     إصدار إيصال إلكتروني (idempotent — a reprint reuses the UUID)
+ *   GET  /receipts/:internalId         إعادة طباعة — the stored UUID and QR
  * Permissions: eta.view (reads), eta.submit (config write + submit), eta.cancel (exclude).
  */
 export function createEtaRoutes(
@@ -203,16 +290,22 @@ export function createEtaRoutes(
   app.get("/branch-codes", gate("accounting.eta.view"), async (c) => {
     if (!deps.branches || !deps.branchCodes) return c.json([]);
     const [branches, codes] = await Promise.all([deps.branches.findAll(), deps.branchCodes.list()]);
-    const byId = new Map(codes.map((m) => [m.branchId, m.etaBranchCode]));
+    const byId = new Map(codes.map((m) => [m.branchId, m]));
     return c.json(
       branches
         .filter((b) => b.active)
-        .map((b) => ({
-          branchId: b.id,
-          branchCode: b.code,
-          branchName: b.name,
-          etaBranchCode: byId.get(b.id) ?? null,
-        })),
+        .map((b) => {
+          const mapping = byId.get(b.id) ?? null;
+          return {
+            branchId: b.id,
+            branchCode: b.code,
+            branchName: b.name,
+            etaBranchCode: mapping?.etaBranchCode ?? null,
+            deviceSerialNumber: mapping?.deviceSerialNumber ?? null,
+            posClientId: mapping?.posClientId ?? null,
+            hasPosClientSecret: mapping?.hasPosClientSecret ?? false,
+          };
+        }),
     );
   });
 
@@ -223,9 +316,32 @@ export function createEtaRoutes(
     const branchId = c.req.param("branchId");
     const branch = await deps.branches.findById(branchId);
     if (!branch) return c.json({ error: "BRANCH_NOT_FOUND", message: `Branch ${branchId} does not exist` }, 404);
-    const etaBranchCode = parsed.data.etaBranchCode.trim();
-    await deps.branchCodes.save({ branchId, etaBranchCode });
-    return c.json({ branchId, branchCode: branch.code, branchName: branch.name, etaBranchCode });
+    const current = (await deps.branchCodes.list()).find((m) => m.branchId === branchId) ?? null;
+    const { posClientSecret, ...patch } = parsed.data;
+    const etaBranchCode = patch.etaBranchCode.trim();
+    const deviceSerialNumber =
+      patch.deviceSerialNumber !== undefined
+        ? (patch.deviceSerialNumber?.trim() || null)
+        : (current?.deviceSerialNumber ?? null);
+    const posClientId =
+      patch.posClientId !== undefined ? (patch.posClientId?.trim() || null) : (current?.posClientId ?? null);
+    await deps.branchCodes.save({
+      branchId,
+      etaBranchCode,
+      deviceSerialNumber,
+      posClientId,
+      hasPosClientSecret: current?.hasPosClientSecret ?? false,
+    });
+    if (posClientSecret) await deps.branchCodes.setPosClientSecret(branchId, posClientSecret);
+    return c.json({
+      branchId,
+      branchCode: branch.code,
+      branchName: branch.name,
+      etaBranchCode,
+      deviceSerialNumber,
+      posClientId,
+      hasPosClientSecret: !!posClientSecret || (current?.hasPosClientSecret ?? false),
+    });
   });
 
   app.get("/item-mappings", gate("accounting.eta.view"), async (c) => {
@@ -364,6 +480,51 @@ export function createEtaRoutes(
     );
   });
 
+
+  /**
+   * الإيصال الإلكتروني — the B2C receipt surface. A receipt is REPORTED after
+   * the sale, so these three routes are the offline path: issue (and print),
+   * reprint, and see how much of the queue has aged past the window.
+   */
+  app.get("/receipts/summary", gate("accounting.eta.view"), async (c) => {
+    return c.json(await service.receiptQueueSummary());
+  });
+
+  app.post("/receipts", gate("accounting.eta.submit"), async (c) => {
+    const parsed = issueReceiptSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const { seller, ...rest } = parsed.data;
+      const device = await resolveReceiptDevice(deps, seller.branchId);
+      const printed = await service.enqueueReceipt({
+        ...rest,
+        seller: {
+          deviceSerialNumber: device.deviceSerialNumber,
+          branchCode: device.etaBranchCode,
+          syndicateLicenseNumber: seller.syndicateLicenseNumber ?? null,
+        },
+      } as EtaReceiptInput);
+      return c.json({
+        submission: serializeSubmission(printed.submission),
+        uuid: printed.uuid,
+        qrValue: printed.qrValue,
+      });
+    } catch (err) {
+      return handleError(c, err);
+    }
+  });
+
+  app.get("/receipts/:internalId", gate("accounting.eta.view"), async (c) => {
+    const printed = await service.receiptForPrint(c.req.param("internalId"));
+    if (!printed) {
+      return c.json({ error: "ETA_SUBMISSION_NOT_FOUND", message: "لا يوجد إيصال إلكتروني بهذا الرقم." }, 404);
+    }
+    return c.json({
+      submission: serializeSubmission(printed.submission, { payload: true }),
+      uuid: printed.uuid,
+      qrValue: printed.qrValue,
+    });
+  });
 
   app.get("/submissions", gate("accounting.eta.view"), async (c) => {
     const status = c.req.query("status") as EtaSubmissionStatus | undefined;

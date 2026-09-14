@@ -4,6 +4,7 @@
  */
 
 import type { Money, Qty } from "../money/index.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 
 export interface SourcePurchaseInvoiceLine {
   readonly itemId: string;
@@ -15,6 +16,8 @@ export interface SourcePurchaseInvoiceLine {
   readonly taxAmount: Money;
   /** The VAT rate this line was charged at, carried onto the return line (D76). */
   readonly taxRatePercent?: number | null;
+  /** فئة التكلفة this line was invoiced under — a return inherits it (D-01). */
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface SourcePurchaseInvoice {
@@ -25,6 +28,8 @@ export interface SourcePurchaseInvoice {
   readonly date: string;
   readonly status: "confirmed" | "partial" | "paid";
   readonly lines: readonly SourcePurchaseInvoiceLine[];
+  /** بُعد المشروع — a return built from this invoice inherits it (D-01). */
+  readonly projectId?: string | null;
 }
 
 /** Resolves a confirmed purchase invoice by id. Implemented by the real invoices module (or a demo/test double) once wired in. */

@@ -7,6 +7,7 @@ import {
   DocumentList,
   DocumentStatusStepper,
   EmptyState,
+  EntityPicker,
   IconButton,
   Money as MoneyDisplay,
   RowMenu,
@@ -15,10 +16,11 @@ import {
   TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
+  type EntityPickerOption,
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { AccountDTO, DocumentStatusDTO, StockAdjustmentDocumentDTO } from "@mezan/contracts";
+import type { AccountDTO, CostCategoryDTO, DocumentStatusDTO, ProjectDTO, StockAdjustmentDocumentDTO } from "@mezan/contracts";
 import {
   Money,
   Qty,
@@ -36,6 +38,7 @@ import {
   useCreateStockAdjustment,
   useItems,
   useJournalEntry,
+  useProjects,
   useStockAdjustment,
   useStockAdjustments,
   useStockAdjustmentCounts,
@@ -45,7 +48,7 @@ import {
 } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useDocumentEffectText } from "../lib/document-effects";
 import { useEntityName } from "../lib/entity-names";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
@@ -117,6 +120,11 @@ interface LineDraft {
   unitCost: number;
 }
 
+/** Projects still open for new spend/income — a finished or cancelled project cannot take new lines. */
+const OPEN_PROJECT_STATUSES = new Set<ProjectDTO["status"]>(["planned", "active", "on_hold"]);
+
+const COST_CATEGORY_VALUES: readonly CostCategoryDTO[] = ["materials", "labour", "equipment", "subcontract", "indirect"];
+
 let lineSeq = 0;
 function blankLine(direction: StockMovementDirection): LineDraft {
   lineSeq += 1;
@@ -154,9 +162,17 @@ export function StockAdjustmentsScreen() {
   const stats = useStockAdjustmentStats(filter).data ?? {};
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
+  const projectsQuery = useProjects();
   const documents = query.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
   const items = itemsQuery.data ?? [];
+  const projects = projectsQuery.data ?? [];
+
+  function projectLabel(id: string | null | undefined): string | null {
+    if (!id) return null;
+    const p = projects.find((pr) => pr.id === id);
+    return p ? `${p.code} — ${nameOf(p)}` : id;
+  }
 
   function warehouseLabel(id: string): string {
     return nameOf(warehouses.find((w) => w.id === id), id);
@@ -330,6 +346,10 @@ export function StockAdjustmentsScreen() {
             { label: t("stockAdj.reason"), value: domainLabel(def) },
             { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
             { label: t("stockAdj.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
+            ...(selected.projectId ? [{ label: t("common.project"), value: projectLabel(selected.projectId) ?? selected.projectId }] : []),
+            ...(selected.costCategory
+              ? [{ label: t("common.costCategory"), value: t(`costCategory.${selected.costCategory}` as AppTranslationKey) }]
+              : []),
           ]}
           effects={effects.effects.map((e) => {
             const { text, detail } = effectText(e);
@@ -596,9 +616,12 @@ function CreateAdjustmentView({
   const reasonLabel = reasonLabelOf(reason);
   const createAdjustment = useCreateStockAdjustment();
   const confirmAdjustment = useConfirmStockAdjustment();
+  const projectsQuery = useProjects();
   const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
   const [warehouseId, setWarehouseId] = useState(warehouses?.[0]?.id ?? "");
+  const [projectId, setProjectId] = useState("");
+  const [costCategory, setCostCategory] = useState<CostCategoryDTO | "">("");
   const defaultDirection: StockMovementDirection = reason.direction === "OUT" ? "OUT" : "IN";
   const [lines, setLines] = useState<LineDraft[]>([
     initialItemId ? { ...blankLine(defaultDirection), itemId: initialItemId } : blankLine(defaultDirection),
@@ -617,6 +640,13 @@ function CreateAdjustmentView({
     [itemList, nameOf, t],
   );
   const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
+  const projectOptions: EntityPickerOption[] = (projectsQuery.data ?? [])
+    .filter((p) => OPEN_PROJECT_STATUSES.has(p.status))
+    .map((p) => ({ id: p.id, label: `${p.code} — ${nameOf(p)}` }));
+  const costCategoryOptions = [
+    { value: "", label: t("common.none") },
+    ...COST_CATEGORY_VALUES.map((c) => ({ value: c, label: t(`costCategory.${c}` as AppTranslationKey) })),
+  ];
 
   function updateLine(index: number, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -650,6 +680,8 @@ function CreateAdjustmentView({
           qty: String(l.qty),
           unitCost: l.direction === "IN" ? String(l.unitCost) : undefined,
         })),
+        projectId: projectId || null,
+        costCategory: projectId && costCategory ? costCategory : null,
       });
       await confirmAdjustment.mutateAsync(draft.id);
       onDone();
@@ -684,6 +716,26 @@ function CreateAdjustmentView({
             <TextField label={t("stockAdj.adjustmentDate")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
             <SelectField label={t("stockAdj.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} />
             <TextField label={t("common.notes")} value={memo} onChange={setMemo} placeholder={t("stockAdj.describeTheAdjustment")} />
+            <div>
+              <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("common.project")}</div>
+              <EntityPicker
+                label={undefined}
+                value={projectOptions.find((o) => o.id === projectId) ?? null}
+                onChange={(o) => {
+                  setProjectId(o?.id ?? "");
+                  if (!o) setCostCategory("");
+                }}
+                options={projectOptions}
+                placeholder={t("common.noProject")}
+              />
+            </div>
+            <SelectField
+              label={t("common.costCategory")}
+              value={costCategory}
+              onChange={(v) => setCostCategory(v as CostCategoryDTO | "")}
+              options={costCategoryOptions}
+              disabled={!projectId}
+            />
           </Card>
 
           <Card className="overflow-hidden">

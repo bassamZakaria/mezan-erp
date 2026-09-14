@@ -46,6 +46,7 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "CUSTOMER_REFUND", labelAr: "استرداد عميل", prefix: "CRF-", padLength: 6, annualReset: false },
   { code: "DELIVERY_ORDER", labelAr: "أمر توصيل", prefix: "DLV-", padLength: 6, annualReset: false },
   { code: "EMPLOYEE", labelAr: "موظف", prefix: "EMP-", padLength: 4, annualReset: false },
+  { code: "EMPLOYMENT_CONTRACT", labelAr: "عقد عمل", prefix: "ECT-", padLength: 4, annualReset: false },
   { code: "EMPLOYEE_ADVANCE", labelAr: "سلفة موظف", prefix: "ADV-", padLength: 6, annualReset: false },
   { code: "GOODS_RECEIPT", labelAr: "استلام بضاعة", prefix: "GR-", padLength: 6, annualReset: false },
   { code: "INSTALLMENT_PLAN", labelAr: "خطة أقساط", prefix: "IP-", padLength: 6, annualReset: false },
@@ -74,6 +75,18 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "WORK_ORDER", labelAr: "أمر تصنيع", prefix: "WO-", padLength: 4, annualReset: false },
   { code: "STOCK_ADJUSTMENT", labelAr: "تسوية مخزون", prefix: "ADJ-", padLength: 6, annualReset: false },
   { code: "STOCK_TRANSFER", labelAr: "تحويل مخزون", prefix: "TRF-", padLength: 6, annualReset: false },
+  // المقاولات — docs/artifacts/mezan-contracting-designs.html §03, the document model.
+  { code: "VARIATION_ORDER", labelAr: "أمر تغيير", prefix: "VO-", padLength: 4, annualReset: false },
+  { code: "PROGRESS_CERTIFICATE", labelAr: "مستخلص", prefix: "MST-", padLength: 6, annualReset: false },
+  { code: "SUBCONTRACT", labelAr: "عقد باطن", prefix: "SUB-", padLength: 4, annualReset: false },
+  { code: "SUBCONTRACT_CERTIFICATE", labelAr: "مستخلص مقاول باطن", prefix: "SMST-", padLength: 6, annualReset: false },
+  { code: "SITE_ISSUE", labelAr: "إذن صرف للموقع", prefix: "ISS-", padLength: 6, annualReset: false },
+  { code: "SITE_RECEIPT", labelAr: "استلام بالموقع", prefix: "SRC-", padLength: 6, annualReset: false },
+  { code: "MATERIAL_CONSUMPTION", labelAr: "استهلاك مواد", prefix: "CON-", padLength: 6, annualReset: false },
+  { code: "EQUIPMENT_LOG", labelAr: "تشغيل معدات", prefix: "EQL-", padLength: 6, annualReset: false },
+  { code: "REVENUE_RECOGNITION_RUN", labelAr: "اعتراف بالإيراد", prefix: "RR-", padLength: 6, annualReset: false },
+  { code: "RETENTION_RELEASE", labelAr: "إفراج عن محتجزات", prefix: "RET-", padLength: 6, annualReset: false },
+  { code: "LETTER_OF_GUARANTEE", labelAr: "خطاب ضمان", prefix: "LG-", padLength: 6, annualReset: false },
 ] as const satisfies readonly SequenceDefinition[];
 
 export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];

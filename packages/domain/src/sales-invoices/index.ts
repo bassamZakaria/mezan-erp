@@ -63,6 +63,8 @@ export {
   applyAllocatedSettlement,
   type SalesInvoiceServiceDeps,
   type SalesInvoicePricingDeps,
+  type ContractBillingRouting,
+  type ContractBillingRoutingPort,
   type SalesInvoiceTaxPolicy,
   type PricingVariance,
   type SalesInvoiceCreditControlDeps,

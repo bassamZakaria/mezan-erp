@@ -20,6 +20,7 @@ describe("supplierSchema", () => {
     addressCity: null,
     addressDistrict: null,
     addressStreet: null,
+    bankAccount: null,
   };
 
   it("accepts a minimal valid supplier and preserves every field verbatim", () => {

@@ -45,7 +45,7 @@ describe("ميزان المراجعة — Trial Balance", () => {
   it("nets to zero (Σ debit = Σ credit) as of year end", () => {
     const outcome = runReport(report, { asOfDate: YEAR_END }, ctx);
     if (!outcome.ok) throw new Error("expected success");
-    expect(outcome.grandTotals).toEqual({ debit: 452400, credit: 452400 });
+    expect(outcome.grandTotals).toEqual({ debit: 452400, credit: 452400, unattributed: 0 });
     expect(outcome.reconciliation?.withinTolerance).toBe(true);
     expect(outcome.reconciliation?.diff).toBe(0);
   });

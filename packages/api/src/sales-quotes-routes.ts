@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import {
   Money,
   Qty,
+  can,
   type DocumentNumberingHook,
   type DocumentGlHook,
   SalesQuoteService,
@@ -33,6 +34,7 @@ import {
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import {
   createPermissionGate,
+  createAnyPermissionGate,
   getAuthContext,
   type AuthContextResolver,
   branchScopeOf,
@@ -165,6 +167,26 @@ export function createSalesQuotesRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
+
+  /*
+   * A quote records no author, so `sales.quote.view_own` cannot be evaluated by
+   * who wrote it. The narrowing that IS available is the branch scope the
+   * session already carries, so a `view_own` caller sees the quotes inside
+   * their own branch scope — and one carrying the all-branch sentinel is shown
+   * nothing rather than the whole tenant, because widening a gate without a
+   * narrowing key is a leak.
+   */
+  const ownVisibilityOnly = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? !can(ctx, "sales.quote.view") : false;
+  };
+
+  const visibleQuotes = <T extends { readonly branchId: string }>(c: Context, rows: readonly T[]): readonly T[] => {
+    const branches = branchScopeOf(c);
+    if (ownVisibilityOnly(c) && !branches) return [];
+    return withinScope(rows, branches, (r) => r.branchId);
+  };
   const idGen = deps.idGen ?? (() => randomUUID());
 
   function service(c: Context): SalesQuoteService {
@@ -278,10 +300,9 @@ export function createSalesQuotesRoutes(
   async function listFilteredQuotes(svc: SalesQuoteService, c: Context, filter: QuoteListFilter): Promise<readonly SalesQuote[]> {
     const { status, branchId, search, ...dateFilter } = filter;
     const stored = status && !DERIVED_QUOTE_FILTERS.has(status) ? status : undefined;
-    let rows = withinScope(
+    let rows = visibleQuotes(
+      c,
       await svc.list({ ...dateFilter, ...(stored ? { status: stored } : {}) } as Parameters<SalesQuoteService["list"]>[0]),
-      branchScopeOf(c),
-      (q) => q.branchId,
     );
     if (branchId) rows = rows.filter((q) => q.branchId === branchId);
     const term = search?.trim().toLowerCase();
@@ -297,7 +318,7 @@ export function createSalesQuotesRoutes(
     return rows;
   }
 
-  app.get("/", gate("sales.quote.view"), async (c) => {
+  app.get("/", gateAny("sales.quote.view", "sales.quote.view_own"), async (c) => {
     const parsed = parseQuoteListQuery(c);
     if (!parsed.ok) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
@@ -312,7 +333,7 @@ export function createSalesQuotesRoutes(
    * chip has to say how many rows it WOULD show, so counting the already
    * status-filtered set would render every chip but the active one as zero.
    */
-  app.get("/counts", gate("sales.quote.view"), async (c) => {
+  app.get("/counts", gateAny("sales.quote.view", "sales.quote.view_own"), async (c) => {
     const parsed = parseQuoteListQuery(c);
     if (!parsed.ok) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
@@ -343,7 +364,7 @@ export function createSalesQuotesRoutes(
    * summed here in `Money` over the whole filtered set — the screen used to
    * add `Number(grandTotal)` across every quote it held.
    */
-  app.get("/stats", gate("sales.quote.view"), async (c) => {
+  app.get("/stats", gateAny("sales.quote.view", "sales.quote.view_own"), async (c) => {
     const parsed = parseQuoteListQuery(c);
     if (!parsed.ok) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
@@ -367,10 +388,11 @@ export function createSalesQuotesRoutes(
     });
   });
 
-  app.get("/:id", gate("sales.quote.view"), async (c) => {
+  app.get("/:id", gateAny("sales.quote.view", "sales.quote.view_own"), async (c) => {
     const svc = service(c);
     const quote = await svc.findById(c.req.param("id"));
     if (!quote) return c.json({ error: "NOT_FOUND" }, 404);
+    if (visibleQuotes(c, [quote]).length === 0) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(quote, totalsFor(svc, quote)));
   });
 

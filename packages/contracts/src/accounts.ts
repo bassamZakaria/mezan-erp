@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Wire contract for the Chart of Accounts (docs/archive/catalog/04 "دليل الحسابات"). */
-export const accountTypeSchema = z.enum(["asset", "liability", "equity", "revenue", "expense"]);
+export const accountTypeSchema = z.enum(["asset", "liability", "equity", "revenue", "expense", "memorandum"]);
 export const naturalBalanceSchema = z.enum(["debit", "credit"]);
 export const accountStatusSchema = z.enum(["active", "inactive"]);
 

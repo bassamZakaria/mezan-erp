@@ -7,6 +7,7 @@ import type { Item } from "../items/item.js";
 import type { Warehouse } from "../settings/warehouse.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countRows, maxOf } from "./kpi.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
 
 /**
  * انحراف تقييم المخزون — Inventory Valuation Drift (docs/archive/catalog/08-reports.md):
@@ -34,6 +35,7 @@ export interface InventoryDriftContext {
 
 export interface InventoryDriftParams {
   readonly type: "" | "value" | "qty";
+  readonly branchId: string;
 }
 
 export interface InventoryDriftRow {
@@ -50,7 +52,7 @@ export interface InventoryDriftRow {
   readonly typeLabel: string;
 }
 
-const paramsSchema = z.object({ type: z.enum(["", "value", "qty"]) });
+const paramsSchema = z.object({ type: z.enum(["", "value", "qty"]), branchId: branchIdParamSchema });
 
 export function createInventoryDriftReport(): ReportDefinition<
   InventoryDriftParams,
@@ -62,7 +64,7 @@ export function createInventoryDriftReport(): ReportDefinition<
     titleAr: "انحراف تقييم المخزون",
     descriptionAr: "الأصناف التي اختلفت فيها مصادر تقييم التكلفة الثلاثة (المتوسط المحسوب، الكاش، طبقات التكلفة).",
     paramsSchema,
-    defaultParams: { type: "" },
+    defaultParams: { type: "", branchId: "" },
     paramFields: [
       {
         kind: "select",
@@ -74,6 +76,7 @@ export function createInventoryDriftReport(): ReportDefinition<
           { value: "qty", label: "فارق كمية فقط" },
         ],
       },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,
     columns: [
@@ -102,9 +105,11 @@ export function createInventoryDriftReport(): ReportDefinition<
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
+      const branchOf = branchOfWarehouse(ctx.warehouses);
       const rows: InventoryDriftRow[] = [];
 
       for (const snapshot of ctx.snapshots) {
+        if (!matchesBranch(branchOf(snapshot.warehouseId), params.branchId)) continue;
         const positionMovements = ctx.movements.filter(
           (m) => m.itemId === snapshot.itemId && m.warehouseId === snapshot.warehouseId,
         );

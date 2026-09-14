@@ -24,7 +24,7 @@ export interface PlatformHandle {
   close(): void;
 }
 
-const CORE_MODULES = ["dashboard", "accounting", "sales", "purchases", "inventory", "treasury", "transactions", "workflow", "audit", "admin", "notifications"];
+const CORE_MODULES = ["accounting", "sales", "purchases", "inventory", "treasury", "workflow", "audit", "admin", "notifications"];
 const BUSINESS_MODULES = [...CORE_MODULES, "crm", "installments", "financial_papers", "field", "assets", "projects"];
 
 type SeedPlan = Omit<CreatePlanCommand, "now">;

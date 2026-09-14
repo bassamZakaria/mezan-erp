@@ -1,9 +1,13 @@
 import { z } from "zod";
+import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
+import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /** Wire contracts for Landed Costs (التكاليف الإضافية، docs/archive/catalog/02). */
 
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const landedCostTypeSchema = z.enum(["SHIPPING", "CUSTOMS", "INSURANCE", "CLEARANCE", "OTHER"]);
 export const landedCostDistributionMethodSchema = z.enum(["BY_VALUE", "BY_QUANTITY", "BY_WEIGHT"]);
@@ -12,6 +16,8 @@ export const landedCostItemEntrySchema = z.object({
   costType: landedCostTypeSchema,
   description: z.string(),
   amount: positiveDecimalString,
+  /** The freight/customs vendor this charge is owed to, so the accrual has a name on it (D75). */
+  supplierId: z.string().min(1).nullish(),
 });
 
 export const landedCostTargetSchema = z.object({
@@ -23,6 +29,8 @@ export const landedCostTargetSchema = z.object({
   unitCost: positiveDecimalString,
   /** Shipped weight of the line — the basis BY_WEIGHT allocates on (R4.7). */
   weight: positiveDecimalString.default("0"),
+  /** فئة التكلفة — only meaningful with the document's `projectId`; defaults to "materials" on the inventory debit (D-01). */
+  costCategory: costCategorySchema.nullish(),
 });
 
 /**
@@ -33,11 +41,13 @@ export const landedCostTargetSchema = z.object({
  */
 export const createLandedCostSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().default(""),
   distributionMethod: landedCostDistributionMethodSchema,
   costItems: z.array(landedCostItemEntrySchema).min(1),
   targets: z.array(landedCostTargetSchema).min(1),
+  /** بُعد المشروع — the contracting project this landed cost's absorption belongs to (D-01). */
+  projectId: z.string().min(1).nullable().optional(),
 });
 
 export const landedCostLineSchema = z.object({
@@ -52,6 +62,9 @@ export const landedCostLineSchema = z.object({
   newUnitCost: positiveDecimalString,
   distributionMethod: landedCostDistributionMethodSchema,
   costItems: z.array(landedCostItemEntrySchema),
+  /** بُعد المشروع — every line of a confirmed landed-cost document carries the same document-wide value (D-01). */
+  projectId: z.string().min(1).nullable().optional(),
+  costCategory: costCategorySchema.nullish(),
 });
 
 export const landedCostDocumentSchema = z.object({

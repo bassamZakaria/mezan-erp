@@ -278,7 +278,7 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
               المجموع الفرعي
             </span>
             <span
-              class="inline-flex items-baseline gap-[5px]"
+              class="inline-flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[1px]"
             >
               <span
                 class="mz-num"
@@ -301,7 +301,7 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
               إجمالي الخصم
             </span>
             <span
-              class="inline-flex items-baseline gap-[5px]"
+              class="inline-flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[1px]"
             >
               <span
                 class="mz-num"
@@ -325,7 +325,7 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
                (14%)
             </span>
             <span
-              class="inline-flex items-baseline gap-[5px]"
+              class="inline-flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[1px]"
             >
               <span
                 class="mz-num"
@@ -347,7 +347,7 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
               الإجمالي
             </span>
             <span
-              class="inline-flex items-baseline gap-[5px]"
+              class="inline-flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[1px]"
             >
               <span
                 class="mz-num"

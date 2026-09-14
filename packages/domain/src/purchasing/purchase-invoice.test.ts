@@ -484,6 +484,58 @@ describe("buildInvoicePosting", () => {
     const withoutGrni = buildInvoicePosting(invoice, ACCOUNTS);
     expect(withoutGrni.lines.find((l) => l.debit.scaled > 0n)?.accountId).toBe("1300-inventory");
   });
+
+  it("carries the header projectId on every line and costCategory only on the cost (inventory/freight/expense) lines", () => {
+    const invoice: PurchaseInvoice = {
+      id: "pi-1",
+      number: "PI-000001",
+      supplierId: "sup-1",
+      date: "2026-08-23",
+      dueDate: null,
+      supplierInvoiceNumber: null,
+      branchId: "MAIN",
+      warehouseId: WH,
+      currency: "EGP",
+      notes: null,
+      receiptId: null,
+      projectId: "proj-1",
+      lines: [
+        { itemId: "item-A", description: null, kind: "inventory", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("100"), taxRatePercent: 14, batchNo: null, expiryDate: null, costCategory: "materials" },
+      ],
+      status: "draft",
+      fxRate: null,
+      createdBy: "system",
+      createdAt: now(),
+    };
+    const posting = buildInvoicePosting(invoice, ACCOUNTS);
+    expect(posting.lines.every((l) => l.projectId === "proj-1")).toBe(true);
+    const inventoryLine = posting.lines.find((l) => l.accountId === "1300-inventory");
+    const payableLine = posting.lines.find((l) => l.accountId === "2100-ap");
+    const taxLine = posting.lines.find((l) => l.accountId === "1360-input-vat");
+    expect(inventoryLine?.costCategory).toBe("materials");
+    expect(payableLine?.costCategory).toBeUndefined();
+    expect(taxLine?.costCategory).toBeUndefined();
+  });
+});
+
+describe("createPurchaseInvoice — projectId / costCategory validation", () => {
+  it("refuses a line costCategory when the invoice carries no projectId", async () => {
+    const invoices = new InMemoryPurchaseInvoices();
+    const numbering = makeNumbering();
+    await expect(
+      createPurchaseInvoice(
+        {
+          id: "pi-1",
+          supplierId: "sup-1",
+          date: "2026-08-23",
+          branchId: "MAIN",
+          warehouseId: WH,
+          lines: [{ itemId: "item-A", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("100"), costCategory: "materials" }],
+        },
+        { invoices, numbering },
+      ),
+    ).rejects.toThrow(InvalidPurchaseDocumentError);
+  });
 });
 
 describe("cancelPurchaseInvoice — restores both sides", () => {

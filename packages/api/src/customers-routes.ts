@@ -1,17 +1,30 @@
+import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  AccountNotFoundError,
   createCustomer,
   updateCustomer,
+  HeaderAccountNotPostableError,
+  InactiveAccountError,
   InvalidCustomerError,
   matchesSearch,
   Money,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
   recordSensitiveEvent,
+  VatPeriodAlreadyFiledError,
   type AuditSink,
   type Customer,
   type CustomerRepository,
 } from "@mezan/domain";
 import { createCustomerSchema, updateCustomerSchema } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import {
+  branchScopeOf,
+  createPermissionGate,
+  getAuthContext,
+  withinScope,
+  type AuthContextResolver,
+} from "./permission-gate.js";
 
 /** Resolves a price list by id, so `priceListId` can be checked against the real resource. */
 export interface CustomerPriceListLookup {
@@ -36,10 +49,34 @@ export interface CustomerReceivablesSource {
   outstandingByCustomer(): Promise<ReadonlyMap<string, Money>>;
 }
 
+/**
+ * Posts a customer's opening balance to the AR control account — debit
+ * receivables, credit opening-balance equity — through the same period-gated,
+ * numbered, audited posting path every other document uses.
+ *
+ * Every migration starts by typing in the shop's existing debtors. Without
+ * this the figure lived on the customer record and in the outstanding rollup
+ * only, so the AR sub-ledger exceeded GL 1105 by the sum of the opening
+ * balances from day one and nothing ever closed the gap (D142).
+ *
+ * `amount` is signed and is a DELTA: on create it is the whole opening
+ * balance, on edit it is the difference from what was already posted, so the
+ * sub-ledger and the control account stay equal after a correction. A negative
+ * figure (a customer in credit) reverses the two sides.
+ */
+export type CustomerOpeningBalancePoster = (posting: {
+  readonly entryId: string;
+  readonly customerId: string;
+  readonly customerName: string;
+  readonly date: string;
+  readonly amount: Money;
+}) => Promise<void>;
+
 /** Wire representation of a customer — a plain JSON-safe projection with Money as decimal strings. */
 function serialize(customer: Customer) {
   return {
     id: customer.id,
+    branchId: customer.branchId,
     code: customer.code,
     nameAr: customer.nameAr,
     nameEn: customer.nameEn,
@@ -68,7 +105,21 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof InvalidCustomerError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
   }
+  if (
+    err instanceof AccountNotFoundError ||
+    err instanceof HeaderAccountNotPostableError ||
+    err instanceof InactiveAccountError ||
+    err instanceof NoFiscalPeriodForDateError ||
+    err instanceof PeriodNotOpenForPostingError ||
+    err instanceof VatPeriodAlreadyFiledError
+  ) {
+    return c.json({ error: err.code, message: err.message }, 422);
+  }
   throw err;
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 /**
@@ -83,6 +134,7 @@ export function createCustomersRouter(
   audit?: AuditSink,
   priceLists?: CustomerPriceListLookup,
   receivables?: CustomerReceivablesSource,
+  openingBalanceGl?: CustomerOpeningBalancePoster,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -158,8 +210,19 @@ export function createCustomersRouter(
    * the parameter was not read by any list route at all, so every screen
    * filtered in the browser with a raw `includes` that forgave nothing (D32).
    */
-  async function listFilteredCustomers(filter: CustomerListFilter): Promise<readonly Customer[]> {
-    let rows: readonly Customer[] = await repo.findAll();
+  async function listFilteredCustomers(c: Context, filter: CustomerListFilter): Promise<readonly Customer[]> {
+    /*
+     * The caller's branch scope decides what they may see at all (D71): a
+     * customer record carried no branch, so every rep saw the whole company's
+     * customer book — the asset a departing rep walks out with. No query
+     * parameter widens this.
+     *
+     * `withinScope` keeps a customer with NO branch visible to everyone, which
+     * is deliberate: every record written before the column existed has none,
+     * and hiding them would empty the screen for a branch-scoped user rather
+     * than protect anything.
+     */
+    let rows: readonly Customer[] = withinScope(await repo.findAll(), branchScopeOf(c), (customer) => customer.branchId);
     if (filter.status === "active") rows = rows.filter((customer) => customer.active);
     else if (filter.status === "inactive") rows = rows.filter((customer) => !customer.active);
     if (filter.priceListId) rows = rows.filter((customer) => customer.priceListId === filter.priceListId);
@@ -187,11 +250,30 @@ export function createCustomersRouter(
     );
   }
 
+  /**
+   * Posts the movement in a customer's opening balance to the AR control
+   * account. Called on create (against a zero prior) and on edit (against what
+   * was already posted), so a corrected opening balance moves 1105 by the
+   * difference instead of leaving the sub-ledger ahead of its control (D142).
+   */
+  async function postOpeningBalance(customer: Customer, alreadyPosted: Money, date: string): Promise<void> {
+    if (!openingBalanceGl) return;
+    const delta = customer.openingBalance.add(alreadyPosted.negate());
+    if (delta.scaled === 0n) return;
+    await openingBalanceGl({
+      entryId: `CUST-OPEN-JE:${customer.id}:${randomUUID()}`,
+      customerId: customer.id,
+      customerName: customer.nameAr,
+      date,
+      amount: delta,
+    });
+  }
+
   app.get("/", gate("sales.customer.view"), async (c) => {
     const filter = parseCustomerListQuery(c);
     const unavailable = receivablesMissing(c, filter);
     if (unavailable) return unavailable;
-    return c.json((await listFilteredCustomers(filter)).map(serialize));
+    return c.json((await listFilteredCustomers(c, filter)).map(serialize));
   });
 
   /**
@@ -205,7 +287,7 @@ export function createCustomersRouter(
     const unavailable = receivablesMissing(c, filter);
     if (unavailable) return unavailable;
     const { status: _ignored, ...withoutStatus } = filter;
-    const customers = await listFilteredCustomers(withoutStatus);
+    const customers = await listFilteredCustomers(c, withoutStatus);
     let active = 0;
     for (const customer of customers) if (customer.active) active += 1;
     return c.json({ all: customers.length, active, inactive: customers.length - active });
@@ -220,7 +302,7 @@ export function createCustomersRouter(
     const filter = parseCustomerListQuery(c);
     const unavailable = receivablesMissing(c, filter);
     if (unavailable) return unavailable;
-    const customers = await listFilteredCustomers(filter);
+    const customers = await listFilteredCustomers(c, filter);
     const outstanding = await outstandingByCustomer();
     let active = 0;
     let creditLimits = Money.zero();
@@ -241,6 +323,11 @@ export function createCustomersRouter(
   app.get("/:id", gate("sales.customer.view"), async (c) => {
     const customer = await repo.findById(c.req.param("id"));
     if (!customer) return c.json({ error: "NOT_FOUND" }, 404);
+    // 404 rather than 403: an id outside the caller's scope must not confirm
+    // that the record exists.
+    if (withinScope([customer], branchScopeOf(c), (row) => row.branchId).length === 0) {
+      return c.json({ error: "NOT_FOUND" }, 404);
+    }
     return c.json(serialize(customer));
   });
 
@@ -259,12 +346,19 @@ export function createCustomersRouter(
       return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة." }, 422);
     }
     try {
-      const { openingBalance, creditLimit, ...rest } = parsed.data;
+      const { openingBalance, openingBalanceDate, creditLimit, ...rest } = parsed.data;
+      // A caller scoped to exactly one branch stamps it; a tenant-wide caller
+      // leaves the record shared, which is what the all-branch sentinel means.
+      const scope = branchScopeOf(c);
       const customer = createCustomer({
         ...rest,
+        branchId: rest.branchId ?? (scope?.length === 1 ? scope[0] : null),
         openingBalance: openingBalance !== undefined ? Money.fromMajor(openingBalance) : undefined,
         creditLimit: creditLimit !== undefined ? Money.fromMajor(creditLimit) : undefined,
       });
+      // The GL post goes FIRST: a refused period must leave behind no customer
+      // carrying an opening balance the control account never heard about.
+      await postOpeningBalance(customer, Money.zero(), openingBalanceDate ?? today());
       await repo.save(customer);
       await record(c, customer, "CREATE");
       return c.json(serialize(customer), 201);
@@ -296,13 +390,14 @@ export function createCustomersRouter(
       // actually supplied one — updateCustomer does a blind `{ ...current,
       // ...patch }` merge, so an explicit `undefined` value would clobber the
       // existing Money field instead of leaving it untouched.
-      const { openingBalance, creditLimit, ...rest } = parsed.data;
+      const { openingBalance, openingBalanceDate, creditLimit, ...rest } = parsed.data;
       const patch: Parameters<typeof updateCustomer>[1] = {
         ...rest,
         ...(openingBalance !== undefined ? { openingBalance: Money.fromMajor(openingBalance) } : {}),
         ...(creditLimit !== undefined ? { creditLimit: Money.fromMajor(creditLimit) } : {}),
       };
       const next = updateCustomer(current, patch);
+      await postOpeningBalance(next, current.openingBalance, openingBalanceDate ?? today());
       await repo.save(next);
       await record(c, next, "UPDATE", current);
       return c.json(serialize(next));

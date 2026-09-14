@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the manufacturing module (docs/archive/catalog/07): قوائم المواد
@@ -7,8 +8,10 @@ import { z } from "zod";
  * wire as EXACT decimal strings — never floats.
  */
 
-const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see moneyString — one guard for every exact-decimal field on the wire (D126). */
+const decimalString = moneyString;
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 const isoDate = z.string().min(1);
 
 export const activationStatusSchema = z.enum(["active", "inactive"]);
@@ -106,6 +109,8 @@ export const createWorkOrderSchema = z.object({
   scheduledStartDate: isoDate,
   scheduledEndDate: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  /** بُعد المشروع — the contracting project this work order belongs to. */
+  projectId: z.string().nullable().optional(),
 });
 
 /**

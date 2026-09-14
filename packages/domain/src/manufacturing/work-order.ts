@@ -176,6 +176,12 @@ export interface WorkOrder {
   readonly issuedAt: string | null;
   readonly receivedAt: string | null;
   readonly completedAt: string | null;
+  /**
+   * بُعد المشروع — the contracting project this run belongs to. The finished
+   * good still goes to inventory at completion (no cost category here); the
+   * project only picks up cost when the product is later issued to it.
+   */
+  readonly projectId: string | null;
 }
 
 export interface WorkOrderRepository {
@@ -222,6 +228,7 @@ export interface CreateWorkOrderCommand {
   readonly notes?: string | null;
   readonly createdBy?: string;
   readonly configInstanceId?: string | null;
+  readonly projectId?: string | null;
 }
 
 export interface CreateWorkOrderDeps {
@@ -315,6 +322,7 @@ export async function createWorkOrder(
     issuedAt: null,
     receivedAt: null,
     completedAt: null,
+    projectId: command.projectId ?? null,
   };
   await deps.workOrders.create(order);
   return order;
@@ -778,7 +786,8 @@ export async function logWorkOrderWaste(
       sourceDocType: "WORK_ORDER",
       sourceDocId: order.id,
       sourceDocNumber: order.number,
-      date: at,
+      // The GL is dated with a DAY; `at` is an ISO instant.
+      date: at.slice(0, 10),
       memo: `فاقد أمر التصنيع ${order.number}`,
       // Scrap can be logged many times on one order, so the ref carries the
       // waste id (which is already unique per call) rather than the order's.
@@ -918,7 +927,7 @@ export async function receiveWorkOrderProduct(
       sourceDocType: "WORK_ORDER",
       sourceDocId: order.id,
       sourceDocNumber: order.number,
-      date: occurredAt,
+      date: occurredAt.slice(0, 10),
       memo: `تحميل الفاقد الطبيعي على المنتج — أمر التصنيع ${order.number}`,
       // Once per order: the stage guard admits exactly one receipt.
       entryRef: `WO-RECEIVE-JE:${order.id}`,
@@ -990,8 +999,8 @@ export function buildWorkOrderGlPosting(
     if (net === 0n) continue;
     lines.push(
       net > 0n
-        ? { accountId, debit: Money.fromScaled(net), credit: Money.zero() }
-        : { accountId, debit: Money.zero(), credit: Money.fromScaled(-net) },
+        ? { accountId, debit: Money.fromScaled(net), credit: Money.zero(), projectId: order.projectId }
+        : { accountId, debit: Money.zero(), credit: Money.fromScaled(-net), projectId: order.projectId },
     );
   }
   if (lines.length < 2) return null;
@@ -1019,7 +1028,7 @@ export async function completeWorkOrder(
   if (order.stage !== "product_received") throw new WorkOrderStageError("complete", order.stage);
 
   const completedAt = nowIso(deps);
-  const posting = buildWorkOrderGlPosting(order, deps.accounts, completedAt);
+  const posting = buildWorkOrderGlPosting(order, deps.accounts, completedAt.slice(0, 10));
   if (posting) await deps.gl.post(posting);
 
   const updated: WorkOrder = {

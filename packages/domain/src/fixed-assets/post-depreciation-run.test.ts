@@ -77,6 +77,8 @@ function asset(id: string, overrides: Partial<Asset> = {}): Asset {
     depreciationExpenseAccountId: null,
     accumulatedDepreciationAccountId: null,
     notes: null,
+    projectId: null,
+    internalHourlyRate: null,
     ...overrides,
   };
 }
@@ -269,6 +271,37 @@ describe("postDepreciationRun", () => {
     const entry = await h.ledger.findById("DEP-JE:run-2");
     expect(entry!.lines.find((l) => l.accountId === "5499")!.debit.toString()).toBe("100.000000");
     expect(entry!.lines.find((l) => l.accountId === "1599")!.credit.toString()).toBe("100.000000");
+  });
+
+  it("posts a project-assigned asset's expense line with its projectId and costCategory equipment, and the credit line with projectId only", async () => {
+    await h.assets.create(
+      asset("a5", {
+        acquisitionCost: Money.fromMajor("1200.00"),
+        usefulLifeMonths: 12,
+        projectId: "proj-1",
+      }),
+    );
+    await h.runs.create({
+      id: "run-3",
+      period: "2026-03",
+      branchId: null,
+      status: "draft",
+      lines: [{ assetId: "a5", amount: Money.fromMajor("100.00"), projectId: "proj-1", costCategory: "equipment" }],
+      totalAmount: Money.fromMajor("100.00"),
+      journalEntryId: null,
+      createdAt: "2026-03-31T00:00:00.000Z",
+      postedAt: null,
+    });
+
+    await postDepreciationRun("run-3", h.deps);
+
+    const entry = await h.ledger.findById("DEP-JE:run-3");
+    const expenseLine = entry!.lines.find((l) => l.accountId === "5400-1");
+    const accumulatedLine = entry!.lines.find((l) => l.accountId === "1590-1");
+    expect(expenseLine!.projectId).toBe("proj-1");
+    expect(expenseLine!.costCategory).toBe("equipment");
+    expect(accumulatedLine!.projectId).toBe("proj-1");
+    expect(accumulatedLine!.costCategory ?? null).toBeNull();
   });
 
   it("rejects posting a non-draft run", async () => {

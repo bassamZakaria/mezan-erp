@@ -18,6 +18,7 @@ const BANK_ACCOUNT: TreasuryAccountDTO = {
   glAccountId: "1310",
   openingBalance: "0.000000",
   openingBalanceDate: null,
+  guaranteeFacilityLimit: null,
   status: "active",
 };
 

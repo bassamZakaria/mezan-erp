@@ -94,14 +94,19 @@ describe("FinancialReportsScreen (real GL API wiring)", () => {
     await waitFor(() => expect(screen.getByText("الأصول = الالتزامات + حقوق الملكية")).toBeInTheDocument());
   });
 
-  it("shows the output-vs-input VAT chart computed from the server rows", async () => {
-    // The report definition declares a `chart` (packages/domain/src/reports/vat-return.ts),
-    // and ReportScreen renders the declared chart in place of `renderSummary` whenever one
-    // is present — so the net-payable summary line never reaches the DOM on this tab.
+  it("shows the output-vs-input VAT chart AND the net-payable line together (D68)", async () => {
+    // The VAT return declares a `chart` and the screen also passes `renderSummary`.
+    // ReportScreen used to prefer the chart, so «صافي الضريبة المستحقة الدفع» —
+    // the one figure the return exists to produce — never reached the DOM.
     renderWithProviders(<FinancialReportsScreen />, { transport: fullTransport(), initialSession: testAdminSession });
     fireEvent.click(screen.getByRole("tab", { name: "إقرار ضريبة القيمة المضافة" }));
     await waitFor(() => expect(screen.getByText(/الفرق بينهما هو صافي الإقرار/)).toBeInTheDocument());
     expect(screen.getAllByText("ضريبة المخرجات (المبيعات)").length).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(
+        screen.getByText(/صافي الضريبة (المستحقة الدفع|القابلة للاسترداد)/),
+      ).toBeInTheDocument(),
+    );
   });
 
   it("gates the on-demand general ledger behind عرض التقرير", async () => {

@@ -24,7 +24,14 @@ import {
   DuplicateJournalEntryError,
   ExpiredStockError,
   NegativeStockError,
+  UncostedDeficitIssueError,
   CreditLimitExceededError,
+  JournalEntryNotFoundError,
+  JournalEntryNotPostedError,
+  JournalEntryAlreadyReversedError,
+  assertSalesInvoiceTransition,
+  isSalesInvoiceTerminal,
+  type DocumentStockHook,
   type AppliedSalesInvoicePromotion,
   type SalesInvoice,
   type SalesInvoiceDiscount,
@@ -43,7 +50,9 @@ import {
   type CreditCheckResult,
   can,
   type SalesInvoicePricingDeps,
+  type ContractBillingRoutingPort,
   type SalesInvoiceTaxPolicy,
+  type UserRepository,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
@@ -54,8 +63,10 @@ import {
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
 import type { CurrencyCheck } from "./currency-policy.js";
+import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -88,6 +99,18 @@ export interface SalesInvoiceRoutesDeps {
   /** Refuses a document currency the tenant has not enabled (settings §"عام"). */
   readonly currencyCheck?: CurrencyCheck;
   /**
+   * The tenant's real chart of accounts, so an invoice cannot name a GL
+   * account the tenant does not have (D108).
+   *
+   * The browser fills any unmapped item's accounts from constants — 1105 /
+   * 2200 / 4100 / 5100 / 1200, the ids the seed template happens to use — and
+   * nothing checked them. On a tenant whose chart differs, the invoice posted
+   * to whatever those codes meant there, or to an account that did not exist.
+   * Omit the port and the check is skipped, the way every other cross-aggregate
+   * check here degrades rather than refusing to mount.
+   */
+  readonly accounts?: { findById(id: string): Promise<{ readonly isHeader: boolean; readonly status: string } | null> };
+  /**
    * Exchange rates, so a foreign-currency invoice posts its base value at the
    * approved rate of its own date and tags the receivable line for revaluation
    * (D24). Omit and a non-base currency is refused rather than posted 1:1.
@@ -95,6 +118,12 @@ export interface SalesInvoiceRoutesDeps {
   readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
   /** The tenant's base currency; defaults to EGP. */
   readonly baseCurrency?: string;
+  /**
+   * Contracting's billing re-route: an ordinary invoice on a project running a
+   * live cost_to_cost works contract credits 2165, not revenue, so the monthly
+   * EAS 48 run stays the only thing that recognises. Omit and nothing moves.
+   */
+  readonly contractBilling?: ContractBillingRoutingPort;
   /**
    * Turns a collection recorded on the invoice into a real confirmed collection
    * voucher, allocated to that invoice. Without it the route refuses rather
@@ -112,6 +141,13 @@ export interface SalesInvoiceRoutesDeps {
     memo?: string | null;
     actor?: string;
   }) => Promise<{ voucherId: string }>;
+  /**
+   * Puts the issued stock back when a confirmed invoice is voided. Bind it with
+   * `createInventoryStockHook(stockLedger)` — the same adapter the returns and
+   * transfer documents use. Without it a void that would move stock answers 503
+   * rather than reversing the GL and leaving the warehouse permanently short.
+   */
+  readonly stockRestore?: DocumentStockHook;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -120,6 +156,14 @@ export interface SalesInvoiceRoutesDeps {
    * while the invoice went on reporting its full total as outstanding.
    */
   readonly returns?: { list(): Promise<readonly SalesReturnDocument[]> };
+  /**
+   * Resolves the caller's linked `Employee.id`. `view_own` narrows on
+   * `salespersonId`, which holds an employee id, not a user id — without this
+   * port the two id spaces are compared directly and a real rep matches
+   * nothing (D147). Omit it and a `view_own` caller is shown no invoices at
+   * all rather than the whole tenant.
+   */
+  readonly users?: Pick<UserRepository, "findById">;
   readonly events?: DocumentEventPublisher;
   readonly now?: () => string;
   /** Generates an invoice id when the request omits one. Defaults to a UUID. */
@@ -184,12 +228,17 @@ function serializeTotals(totals: SalesInvoiceTotals) {
  * What the invoice still owes. Shared by `serialize` and the counts/stats
  * endpoints so a row's own "remaining" and the KPI strip's total can never
  * be computed two different ways.
+ *
+ * A cancelled or reversed invoice owes NOTHING — a void reverses the AR
+ * posting, so an invoice that went on reporting a remaining balance would put
+ * the invoice screen at odds with the receivable the ledger actually carries.
  */
 function remainingOf(
   invoice: SalesInvoice,
   totals: SalesInvoiceTotals,
   returnedCredit: Money = Money.zero(),
 ): Money {
+  if (isSalesInvoiceTerminal(invoice.status)) return Money.zero();
   return totals.grandTotal.add(invoice.amountPaid.negate()).add(returnedCredit.negate());
 }
 
@@ -212,7 +261,7 @@ function serialize(
   // to come off what the invoice still says is owed — otherwise the invoice
   // screen and the AR sub-ledger disagree with the ledger by the returned
   // amount, and a fully-returned invoice still reads as unpaid in full.
-  const remaining = totals.grandTotal.add(paid.negate()).add(returnedCredit.negate());
+  const remaining = remainingOf(invoice, totals, returnedCredit);
   return {
     id: invoice.id,
     docType: invoice.docType,
@@ -228,6 +277,7 @@ function serialize(
     branchId: invoice.branchId,
     salespersonId: invoice.salespersonId,
     salespersonNameAr: invoice.salespersonNameAr,
+    projectId: invoice.projectId,
     currency: invoice.currency,
     fxRate: invoice.fxRate ?? null,
     couponCode: invoice.couponCode,
@@ -261,6 +311,7 @@ function serialize(
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,
+      costCenterId: l.costCenterId,
       // Omitted, not nulled: `sales.invoice.view_cost` is ⚠ sensitive in the
       // catalog, and a null would still tell the caller the field exists (D31).
       ...(withCost ? { unitCost: l.unitCost ? l.unitCost.toString() : null } : {}),
@@ -273,14 +324,16 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof InvalidSalesInvoiceError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
   }
-  if (err instanceof SalesInvoiceNotFoundError) {
+  if (err instanceof SalesInvoiceNotFoundError || err instanceof JournalEntryNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (
     err instanceof DuplicateSalesInvoiceError ||
     err instanceof InvalidSalesInvoiceTransitionError ||
     err instanceof ApprovalRequestRejectedError ||
-    err instanceof DuplicateJournalEntryError
+    err instanceof DuplicateJournalEntryError ||
+    err instanceof JournalEntryAlreadyReversedError ||
+    err instanceof JournalEntryNotPostedError
   ) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
@@ -304,6 +357,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof NegativeStockError ||
+    err instanceof UncostedDeficitIssueError ||
     err instanceof ExpiredStockError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -319,6 +373,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  *   GET  /:id                  get one                   (sales.invoice.view)
  *   POST /:id/confirm          confirm → stock + GL + AR  (sales.invoice.confirm)
  *   POST /:id/cancel           cancel a draft            (sales.invoice.delete_draft)
+ *   POST /:id/void             void a confirmed invoice  (sales.invoice.void)
  *   POST /:id/payments         record a collection       (sales.invoice.edit)
  */
 /**
@@ -337,7 +392,26 @@ export function createSalesInvoicesRoutes(
   const gateAny = createAnyPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
 
+  /**
+   * A `view_own` caller whose employee link cannot be resolved sees nothing.
+   * Filtering on a sentinel is deliberate: dropping the clause would widen the
+   * list to the whole tenant, which is the exact failure the tier exists to
+   * prevent.
+   */
+  const NO_SUCH_ACTOR = "\u0000no-actor";
+
   const actorOf = (c: Context) => getAuthContext(c)?.userId ?? "system";
+  /**
+   * The employee id `view_own` narrows on. `actorOf` is a USER id and must
+   * never be used here: the salesperson picker stores an `Employee.id`, so
+   * comparing the two matches nothing (D147).
+   */
+  const ownSalespersonIdOf = async (c: Context): Promise<string> => {
+    const ctx = getAuthContext(c);
+    if (!ctx || !deps.users) return NO_SUCH_ACTOR;
+    const user = await deps.users.findById(ctx.userId);
+    return user?.employeeId ?? NO_SUCH_ACTOR;
+  };
   /** True when the caller's only visibility grant is the own-records tier. */
   const ownVisibilityOnly = (c: Context) => {
     const ctx = getAuthContext(c);
@@ -385,6 +459,7 @@ export function createSalesInvoicesRoutes(
       taxPolicy: deps.taxPolicy,
       exchangeRates: deps.exchangeRates,
       baseCurrency: deps.baseCurrency,
+      contractBilling: deps.contractBilling,
       audit: deps.audit,
       events: deps.events,
       allocatable: deps.allocatable,
@@ -396,6 +471,35 @@ export function createSalesInvoicesRoutes(
 
   function totalsFor(svc: SalesInvoiceService, invoice: SalesInvoice): SalesInvoiceTotals {
     return svc.totalsOf(invoice);
+  }
+
+  /**
+   * Every GL account an invoice names, checked against the tenant's own chart.
+   *
+   * A header account is refused too: posting to a رئيسي account is what the
+   * account tree exists to prevent, and a caller that names one is as wrong as
+   * one naming an id that does not exist.
+   */
+  async function refuseUnknownAccounts(
+    c: Context,
+    ids: readonly (string | null | undefined)[],
+  ): Promise<Response | null> {
+    if (!deps.accounts) return null;
+    const unique = [...new Set(ids.filter((id): id is string => typeof id === "string" && id !== ""))];
+    const bad: string[] = [];
+    for (const id of unique) {
+      const account = await deps.accounts.findById(id);
+      if (!account || account.isHeader || account.status !== "active") bad.push(id);
+    }
+    if (bad.length === 0) return null;
+    return c.json(
+      {
+        error: "GL_ACCOUNT_NOT_POSTABLE",
+        accounts: bad,
+        message: `حساب دفتري غير صالح للترحيل: ${bad.join("، ")}. راجع دليل الحسابات أو ربط الأصناف بحساباتها.`,
+      },
+      422,
+    );
   }
 
   app.post("/", gate("sales.invoice.create"), async (c) => {
@@ -417,6 +521,7 @@ export function createSalesInvoicesRoutes(
       branchId: d.branchId,
       salespersonId: d.salespersonId ?? null,
       salespersonNameAr: d.salespersonNameAr ?? null,
+      projectId: d.projectId ?? null,
       couponCode: d.couponCode ?? null,
       currency: d.currency,
       notes: d.notes ?? null,
@@ -440,10 +545,17 @@ export function createSalesInvoicesRoutes(
         revenueAccountId: l.revenueAccountId,
         cogsAccountId: l.cogsAccountId ?? null,
         inventoryAccountId: l.inventoryAccountId ?? null,
+        costCenterId: l.costCenterId ?? null,
       })),
     };
     const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));
     if (refusal) return refusal;
+    const accountRefusal = await refuseUnknownAccounts(c, [
+      cmd.arAccountId,
+      cmd.taxAccountId,
+      ...cmd.lines.flatMap((l) => [l.revenueAccountId, l.cogsAccountId, l.inventoryAccountId]),
+    ]);
+    if (accountRefusal) return accountRefusal;
     const discountRefusal = await refuseUnapprovedDiscount(c, d);
     if (discountRefusal) return discountRefusal;
 
@@ -466,7 +578,7 @@ export function createSalesInvoicesRoutes(
   type DiscountInput = { readonly type: "percent"; readonly percent: number } | { readonly type: "amount"; readonly amount: string };
 
   /**
-   * `sales.price.override` and `pos.discount.approve` were catalogue
+   * `sales.price.override` and `sales.discount.approve` were catalogue
    * permissions enforced NOWHERE: a user holding plain `sales.invoice.create`
    * could zero a unit price or discount a line to nothing, with no ceiling and
    * no elevated permission. That is the invoice-side twin of the credit limit,
@@ -477,7 +589,7 @@ export function createSalesInvoicesRoutes(
    *     line — needs `sales.price.override`. It bites regardless of tenant
    *     configuration, because there is no reading under which selling for
    *     nothing is ordinary.
-   *   - a discount ABOVE the tenant's ceiling needs `pos.discount.approve`.
+   *   - a discount ABOVE the tenant's ceiling needs `sales.discount.approve`.
    *     The ceiling defaults to 100, so a tenant that has never set one is
    *     refused nothing it used to be allowed.
    *
@@ -517,22 +629,65 @@ export function createSalesInvoicesRoutes(
       }
     }
 
+    /**
+     * The ceiling is a PERCENTAGE, so an amount discount is converted to the
+     * percentage of the line it actually represents before it is compared —
+     * typing the same 96% giveaway as «مبلغ» rather than «نسبة» used to walk
+     * past the ceiling and past `sales.discount.approve` entirely (D87).
+     *
+     * All bigint: `ceiling` becomes a 1e-6 scalar the same way money does, and
+     * `discount/gross > ceiling/100` is cross-multiplied rather than divided,
+     * so no rounding rule and no float ever enters the comparison.
+     */
+    const ceilingScaled = Money.fromMajor(String(ceiling)).scaled;
+    const aboveCeiling = (grossScaled: bigint, discountScaled: bigint) =>
+      grossScaled > 0n && discountScaled * 100n * 1_000_000n > grossScaled * ceilingScaled;
+    const lineGross = (line: LineInput) =>
+      (Qty.fromMajor(line.qty).scaled * Money.fromMajor(line.unitPrice).scaled) / 1_000_000n;
+
     const overCeiling =
-      body.lines.some((line) => line.discountType === "percent" && (line.discountPercent ?? 0) > ceiling) ||
-      (body.discount?.type === "percent" && body.discount.percent > ceiling);
-    // `pos.discount.approve` is a discount-approval ceiling the SALES module
-    // uses, not a POS feature — `pos` is not in MODULE_CATALOG at all (no
-    // domain, routes or persistence exist for it yet), so a `moduleRefusalFor`
-    // check here would refuse this on every edition regardless of permission.
-    if (overCeiling && !(ctx && can(ctx, "pos.discount.approve"))) {
-      return c.json(
-        {
-          error: "PERMISSION_DENIED",
-          permission: "pos.discount.approve",
-          message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
-        },
-        403,
-      );
+      // D87: an AMOUNT discount is measured against the line gross. Checking
+      // only `percent` let a 90%-of-line amount discount through with no
+      // approval at all, which is how a kickback gets priced.
+      body.lines.some((line) => {
+        if (line.discountType === "percent") return (line.discountPercent ?? 0) > ceiling;
+        if (line.discountType === "amount" && line.discountAmount !== undefined) {
+          return aboveCeiling(lineGross(line), Money.fromMajor(line.discountAmount).scaled);
+        }
+        return false;
+      }) ||
+      (body.discount?.type === "percent"
+        ? body.discount.percent > ceiling
+        : body.discount?.type === "amount"
+          ? aboveCeiling(
+              body.lines.reduce((sum, line) => sum + lineGross(line), 0n),
+              Money.fromMajor(body.discount.amount).scaled,
+            )
+          : false);
+    if (overCeiling) {
+      /*
+       * NO module refusal here, deliberately: this guards the discount ceiling
+       * on a SALES invoice and must stay reachable on every tenant.
+       *
+       * The code was `pos.discount.approve` until the rename. It named a till
+       * it never guarded, and `pos` is excluded from `MODULE_CATALOG` (no
+       * domain, routes or persistence), so `licensedPermissions()` filtered it
+       * out of the role editor — an enforced control nobody could be granted.
+       * The old code is still honoured so grants written before the rename
+       * keep working; it is out of the catalogue, so nothing new is granted
+       * under it. The refusal names the NEW code, because that is the one an
+       * administrator can actually tick.
+       */
+      if (!(ctx && (can(ctx, "sales.discount.approve") || can(ctx, "pos.discount.approve")))) {
+        return c.json(
+          {
+            error: "PERMISSION_DENIED",
+            permission: "sales.discount.approve",
+            message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
+          },
+          403,
+        );
+      }
     }
     return null;
   }
@@ -572,13 +727,6 @@ export function createSalesInvoicesRoutes(
 
   const DERIVED_FILTER_KEYS = new Set(["all", "open", "overdue"]);
 
-  /**
-   * A `view_own` caller with no resolved user id may see nothing. Filtering on
-   * a sentinel is deliberate: dropping the clause would widen the list to the
-   * whole tenant, which is the exact failure the tier exists to prevent.
-   */
-  const NO_SUCH_ACTOR = "\u0000no-actor";
-
   function isOpen(invoice: SalesInvoice, remaining: Money): boolean {
     return (invoice.status === "confirmed" || invoice.status === "partially_paid") && remaining.scaled > 0n;
   }
@@ -593,7 +741,7 @@ export function createSalesInvoicesRoutes(
    * `view_own` salesperson whose rows are narrowed but whose KPI strip totals
    * the whole tenant is being told the figure they may not see.
    */
-  function repoFilterFor(c: Context, filter: SalesInvoiceListQueryDTO, page?: { limit: number; offset: number }) {
+  async function repoFilterFor(c: Context, filter: SalesInvoiceListQueryDTO, page?: { limit: number; offset: number }) {
     const { branchId, warehouseId, search, status, ...dateFilter } = filter;
     return {
       ...dateFilter,
@@ -605,7 +753,7 @@ export function createSalesInvoicesRoutes(
       branchId,
       warehouseId,
       search,
-      ...(ownVisibilityOnly(c) ? { salespersonId: actorOf(c) ?? NO_SUCH_ACTOR } : {}),
+      ...(ownVisibilityOnly(c) ? { salespersonId: await ownSalespersonIdOf(c) } : {}),
       ...(page ? { limit: page.limit, offset: page.offset } : {}),
     } as Parameters<SalesInvoiceService["list"]>[0];
   }
@@ -622,7 +770,7 @@ export function createSalesInvoicesRoutes(
     // paged after the fact. Every other filter is already SQL by this point,
     // so what is loaded is the chip's own set, not the table.
     const derived = status === "open" || status === "overdue";
-    let rows = await svc.list(repoFilterFor(c, filter, derived ? undefined : page));
+    let rows = await svc.list(await repoFilterFor(c, filter, derived ? undefined : page));
 
     const credits = await returnCredits();
     const allocations = await allocatedByInvoice(rows.map((inv) => inv.id));
@@ -684,6 +832,7 @@ export function createSalesInvoicesRoutes(
       partially_paid: 0,
       paid: 0,
       cancelled: 0,
+      reversed: 0,
       open: 0,
       overdue: 0,
     };
@@ -717,7 +866,10 @@ export function createSalesInvoicesRoutes(
     let remaining = Money.zero();
     let count = 0;
     for (const invoice of invoices) {
-      if (invoice.status === "draft" || invoice.status === "cancelled") continue;
+      // A voided invoice is neither a sale nor a receivable any more — its GL
+      // entry has been reversed, so counting it here would leave the KPI strip
+      // reporting revenue the ledger no longer holds.
+      if (invoice.status === "draft" || isSalesInvoiceTerminal(invoice.status)) continue;
       const totals = totalsFor(svc, invoice);
       const credit = credits.get(invoice.id) ?? Money.zero();
       count += 1;
@@ -744,7 +896,7 @@ export function createSalesInvoicesRoutes(
     if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
     // A `view_own` holder gets 404, not 403: whether an invoice they may not
     // see exists at all is itself information.
-    if (ownVisibilityOnly(c) && invoice.salespersonId !== actorOf(c)) {
+    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
       return c.json({ error: "NOT_FOUND" }, 404);
     }
     return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), maySeeCost(c)));
@@ -798,6 +950,132 @@ export function createSalesInvoicesRoutes(
   });
 
   /**
+   * إلغاء فاتورة مبيعات مؤكدة (`sales.invoice.void`). Before this the only exit
+   * from a wrong invoice was cancelling it while it was still a draft, so a
+   * confirmed one had none at all — the permission existed and gated nothing
+   * (D116).
+   *
+   * It follows `cancelPurchaseInvoice` exactly, because a posted entry is
+   * immutable: nothing is edited or deleted. The GL engine posts a LINKED
+   * mirror entry and marks the original «معكوس» (and refuses outright when the
+   * period the reversal falls in is closed or locked), the issued stock goes
+   * back at the cost it left at, and the invoice moves to `reversed` so it
+   * leaves the receivable. Both halves are restored or neither is attempted.
+   */
+  app.post("/:id/void", gate("sales.invoice.void"), async (c) => {
+    const svc = service(c);
+    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
+    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+
+    try {
+      assertSalesInvoiceTransition(invoice.id, invoice.status, "reversed");
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+
+    // The purchase side refuses when the received goods have already been
+    // consumed; the sales side's equivalents are a collection that has moved
+    // real cash and a return that has already given part of the goods back.
+    // Either one has to be undone on its own document first, or the void would
+    // silently strand a voucher or a credit note against a document that no
+    // longer exists.
+    if (invoice.amountPaid.scaled !== 0n) {
+      return c.json(
+        {
+          error: "INVOICE_HAS_COLLECTIONS",
+          message: "لا يمكن إلغاء فاتورة حُصّلت مبالغ عليها — اعكس التحصيل أولاً.",
+        },
+        409,
+      );
+    }
+    const returnedCredit = await creditFor(invoice.id);
+    if (returnedCredit.scaled !== 0n) {
+      return c.json(
+        {
+          error: "INVOICE_HAS_RETURNS",
+          message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع — ألغِ المرتجع أولاً.",
+        },
+        409,
+      );
+    }
+    if (!invoice.journalEntryId) {
+      return c.json(
+        { error: "INVOICE_NOT_POSTED", message: "الفاتورة ليس لها قيد يومية لعكسه." },
+        409,
+      );
+    }
+
+    const stockLines = invoice.lines.filter((l) => l.isStock && !l.qty.isZero());
+    if (stockLines.length > 0 && !deps.stockRestore) {
+      return c.json(
+        {
+          error: "STOCK_RESTORE_UNAVAILABLE",
+          message: "إلغاء الفاتورة يتطلب إرجاع المخزون؛ وحدة المخزون غير مفعّلة.",
+        },
+        503,
+      );
+    }
+    // Restoring at a cost the document does not carry would put stock back at
+    // zero value and leave GL 1200 permanently above the valuation report.
+    if (stockLines.some((l) => l.unitCost === null)) {
+      return c.json(
+        {
+          error: "ISSUE_COST_UNKNOWN",
+          message: "لا يمكن إرجاع المخزون: تكلفة الصرف غير مسجّلة على الفاتورة.",
+        },
+        409,
+      );
+    }
+
+    const date = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    try {
+      const reversal = await deps.gl.reverse(invoice.journalEntryId, {
+        reversalId: `${invoice.id}:void`,
+        date,
+        memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
+      });
+      if (stockLines.length > 0) {
+        await deps.stockRestore!.apply({
+          sourceDocType: "SALES_INVOICE",
+          // A separate source id from the issue, whose movement ids are
+          // `${invoice.id}:${index}` — reusing it would collide in the ledger.
+          sourceDocId: `${invoice.id}:void`,
+          sourceDocNumber: invoice.docNo,
+          warehouseId: invoice.warehouseId,
+          date,
+          lines: stockLines.map((l) => ({
+            itemId: l.itemId,
+            direction: "IN" as const,
+            qty: l.qty,
+            unitCost: l.unitCost as Money,
+          })),
+        });
+      }
+      const voided: SalesInvoice = { ...invoice, status: "reversed" };
+      await deps.repo.update(voided);
+      await recordAdminEvent(deps.audit, c, {
+        module: "sales",
+        entityType: "SALES_INVOICE",
+        entityId: voided.id,
+        action: "VOID",
+        details: {
+          docNo: voided.docNo,
+          customerId: voided.customerId,
+          previousStatus: invoice.status,
+          grandTotal: totalsFor(svc, voided).grandTotal.toString(),
+          reversalJournalEntryId: reversal.journalEntryId,
+        },
+      });
+      return c.json({
+        ...serialize(voided, totalsFor(svc, voided), Money.zero(), maySeeCost(c)),
+        reversalJournalEntryId: reversal.journalEntryId,
+      });
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  /**
    * تحصيل من عميل. Collecting against an invoice creates and confirms a REAL
    * collection voucher and allocates it to the invoice — money in, AR credited,
    * `amountPaid` written back by the allocation. It used to increment
@@ -826,7 +1104,7 @@ export function createSalesInvoicesRoutes(
         amount,
         treasuryAccountId: parsed.data.treasuryAccountId,
         paymentMethod: parsed.data.paymentMethod ?? "cash",
-        date: parsed.data.date ?? invoice.date,
+        date: (await tenantDay(c, parsed.data.date)) ?? invoice.date,
         referenceNo: parsed.data.referenceNo ?? null,
         memo: parsed.data.notes ?? `تحصيل على الفاتورة ${invoice.docNo ?? invoice.id}`,
         actor: getAuthContext(c)?.userId,

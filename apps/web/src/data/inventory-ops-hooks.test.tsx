@@ -193,7 +193,7 @@ describe("physical counts", () => {
     expect(seenPath).toBe("/inventory/physical-counts?status=IN_PROGRESS&warehouseId=WH-1");
   });
 
-  it("every count lifecycle mutation invalidates ['inventory','physical-counts']", async () => {
+  it("D66: every count lifecycle mutation invalidates the ['physical-counts'] prefix the screen actually reads", async () => {
     const transport = stubTransport({
       "POST /inventory/physical-counts": () => ({ status: 201, body: { id: "PC-1" } }),
       "POST /inventory/physical-counts/PC-1/counts": () => ({ body: { id: "PC-1" } }),
@@ -219,7 +219,7 @@ describe("physical counts", () => {
     cancel.current.mutate("PC-1");
     await waitFor(() => expect(cancel.current.isSuccess).toBe(true));
 
-    for (const call of spy.mock.calls) expect(call[0]).toEqual({ queryKey: ["inventory", "physical-counts"] });
+    for (const call of spy.mock.calls) expect(call[0]).toEqual({ queryKey: ["physical-counts"] });
     expect(spy).toHaveBeenCalledTimes(4);
   });
 
@@ -234,7 +234,7 @@ describe("physical counts", () => {
     const { result } = renderHook(() => useGenerateAdjustmentFromCount(), { wrapper: Wrapper });
     result.current.mutate({ id: "PC-1", body: {} as never });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(spy).toHaveBeenCalledWith({ queryKey: ["inventory", "physical-counts"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["physical-counts"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["inventory", "stock-adjustments"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["inventory", "stock-balance"] });
   });

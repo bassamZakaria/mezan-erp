@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Card } from "@mezan/ui";
 import {
   createInventoryStockLevelsReport,
+  createGoodsInTransitReport,
   createInventoryMovementReport,
   createInventoryLedgerReport,
   createInventoryValuationReport,
@@ -36,6 +37,10 @@ const MONTH_START = monthStartIso();
 
 export function InventoryStockLevelsReportScreen() {
   return <ReportScreen definition={createInventoryStockLevelsReport()} apiPath="/inventory/stock-levels" />;
+}
+
+export function GoodsInTransitReportScreen() {
+  return <ReportScreen definition={createGoodsInTransitReport()} apiPath="/inventory/goods-in-transit" />;
 }
 
 /*

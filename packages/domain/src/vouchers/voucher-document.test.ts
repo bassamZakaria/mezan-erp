@@ -22,6 +22,12 @@ function doc(partial: Partial<VoucherLine> & { voucherType: VoucherType }): Vouc
     supplierId: "supplierId" in partial ? (partial.supplierId ?? null) : def.requiresSupplier ? "sup-1" : null,
     referenceNo: null,
     ...(partial.costCenterId === undefined ? {} : { costCenterId: partial.costCenterId }),
+    ...(partial.projectId === undefined
+      ? def.requiresProject
+        ? { projectId: "proj-1" }
+        : {}
+      : { projectId: partial.projectId }),
+    ...(partial.costCategory === undefined ? {} : { costCategory: partial.costCategory }),
     ...(partial.withholdingAmount === undefined ? {} : { withholdingAmount: partial.withholdingAmount }),
     ...(partial.withholdingRatePercent === undefined ? {} : { withholdingRatePercent: partial.withholdingRatePercent }),
     ...(partial.withholdingGlAccountId === undefined ? {} : { withholdingGlAccountId: partial.withholdingGlAccountId }),
@@ -69,6 +75,25 @@ describe("voucherDocumentType.buildGlPosting", () => {
     expect(posting.lines[1]!.credit.toString()).toBe("60.000000");
   });
 
+  it("tags projectId on every line and costCategory only on the counterparty line", () => {
+    const posting = voucherDocumentType.buildGlPosting!(
+      doc({
+        voucherType: "other_expense",
+        counterpartyGlAccountId: "5900",
+        amount: Money.fromMajor("300"),
+        projectId: "proj-1",
+        costCategory: "materials",
+      }),
+    )!;
+    expect(posting.lines).toHaveLength(2);
+    const counter = posting.lines.find((l) => l.accountId === "5900")!;
+    const treasury = posting.lines.find((l) => l.accountId === "1300-1")!;
+    expect(counter.projectId).toBe("proj-1");
+    expect(counter.costCategory).toBe("materials");
+    expect(treasury.projectId).toBe("proj-1");
+    expect(treasury.costCategory ?? null).toBeNull();
+  });
+
   it("other income: Dr treasury / Cr income account", () => {
     const posting = voucherDocumentType.buildGlPosting!(doc({ voucherType: "other_income", counterpartyGlAccountId: "4900" }))!;
     expect(posting.lines[0]!.accountId).toBe("1300-1");
@@ -101,6 +126,30 @@ describe("voucherDocumentType.validate", () => {
 
   it("requires a supplier for a supplier payment", () => {
     expect(() => voucherDocumentType.validate!(doc({ voucherType: "supplier_payment", supplierId: null }))).toThrow(/مورّد/);
+  });
+
+  it("requires a project for a customer advance from a contracting customer — it cannot be recovered from a certificate later without one", () => {
+    expect(() =>
+      voucherDocumentType.validate!(doc({ voucherType: "customer_advance", projectId: null })),
+    ).toThrow(/مشروع/);
+  });
+
+  it("accepts a customer advance that names its project", () => {
+    expect(() =>
+      voucherDocumentType.validate!(doc({ voucherType: "customer_advance", projectId: "proj-1" })),
+    ).not.toThrow();
+  });
+
+  it("refuses a costCategory with no projectId, on a type that does not otherwise require a project", () => {
+    expect(() =>
+      voucherDocumentType.validate!(doc({ voucherType: "other_expense", projectId: null, costCategory: "materials" })),
+    ).toThrow(/مشروع/);
+  });
+
+  it("accepts a costCategory paired with a projectId", () => {
+    expect(() =>
+      voucherDocumentType.validate!(doc({ voucherType: "other_expense", projectId: "proj-1", costCategory: "materials" })),
+    ).not.toThrow();
   });
 
   it("rejects a transfer to the same treasury", () => {

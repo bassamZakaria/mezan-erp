@@ -202,6 +202,9 @@ export * from "./crm/index.js";
 // --- projects/ — Projects (phase11) ---
 export * from "./projects/index.js";
 
+// --- contracting/ — المقاولات (docs/artifacts/mezan-contracting-designs.html) ---
+export * from "./contracting/index.js";
+
 // --- fixed-assets/ — Fixed Assets (phase11) ---
 export * from "./fixed-assets/index.js";
 
@@ -211,11 +214,7 @@ export * from "./field-sales/index.js";
 // --- profile/ — self-service account profile (own name/email/phone/password/PIN) ---
 export * from "./profile/index.js";
 
-// --- api-keys/ — issued API keys, scoped from the permission catalog ---
-export * from "./api-keys/index.js";
 
-// --- webhooks/ — webhook subscriptions + delivery-attempt log ---
-export * from "./webhooks/index.js";
 
 // --- hr-shared/ — stable cross-domain seam (hr/master-data); attendance/leave/payroll depend on this, not hr/ directly ---
 export * from "./hr-shared/employee-ref.js";
@@ -247,6 +246,13 @@ export { normalizeForSearch, matchesSearch } from "./search/arabic.js";
 
 /** Filed VAT returns — the lock that stops a backdated document restating a submitted return. */
 export * from "./tax/vat-filing.js";
+
+/** النظام الضريبي المبسط (قانون 6 لسنة 2025) — the statutory table, the recorded election, and the comparison. */
+export * from "./tax/simplified-regime-schedule.js";
+export * from "./tax/simplified-regime.js";
+export * from "./tax/simplified-regime-election.js";
+export * from "./tax/simplified-regime-comparison.js";
+export * from "./tax/decree-420-books.js";
 
 /** المرفقات — files attached to a document or an entity (R1.4). */
 export * from "./attachments/index.js";

@@ -205,6 +205,7 @@ describe("SqliteWorkOrderStore", () => {
       issuedAt: null,
       receivedAt: null,
       completedAt: null,
+      projectId: null,
     };
   }
 

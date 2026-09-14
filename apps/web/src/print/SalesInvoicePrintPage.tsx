@@ -4,6 +4,7 @@ import type { SalesInvoiceDTO } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { useBranches, useCustomers, useEtaSubmissions, usePrintTemplateConfig, useSettings, useWarehouses } from "../data/hooks";
 import { salesInvoicePrintModel } from "./sales-invoice-print";
+import { useEtaReceiptPrint } from "../screens/eta/receipt-print";
 import { EMPTY } from "../lib/empty";
 
 /**
@@ -27,6 +28,11 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
   // Only an ACCEPTED submission carries the authority's identifier; anything
   // else has no number to print and the block is left out entirely.
   const accepted = useEtaSubmissions("accepted").data ?? EMPTY;
+  // The number the ETA queue keys on is the document NUMBER, not the row id —
+  // matching on the id found nothing once a confirm had assigned a docNo.
+  const etaInternalId = invoice.docNo ?? invoice.id;
+  // A consumer sale is reported as an e-receipt, whose QR must be on the paper.
+  const receipt = useEtaReceiptPrint(etaInternalId).data ?? null;
 
   const customer = customers.find((c) => c.id === invoice.customerId);
 
@@ -41,13 +47,14 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
         customerTaxNumber: customer?.taxNumber ?? undefined,
         customerAddress: customer?.address ?? undefined,
         customerPhone: customer?.phone ?? undefined,
-        etaUuid: accepted.find((s) => s.internalId === invoice.id)?.etaUuid ?? null,
+        etaUuid: accepted.find((s) => s.internalId === etaInternalId)?.etaUuid ?? receipt?.uuid ?? null,
+        etaQrValue: receipt?.qrValue ?? null,
         currencyLabel: format.currencyLabel,
         documentTypeLabel: t("salesInvoices.print.documentType"),
         customerRoleLabel: t("common.customer"),
         vatLabel: t("salesInvoices.print.vat"),
       }),
-    [invoice, settings, branches, warehouses, customer, accepted, format.currencyLabel, t],
+    [invoice, settings, branches, warehouses, customer, accepted, etaInternalId, receipt, format.currencyLabel, t],
   );
 
   if (configQuery.isLoading) return null;

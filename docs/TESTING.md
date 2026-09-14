@@ -4098,15 +4098,15 @@ different seed profile changed that order.
 
 | Internal id | Code (assumed) | Name | Dept / title | Status | Contract |
 |---|---|---|---|---|---|
-| EMP-DEMO-1 | EMP-0001 | كريم عادل | مبيعات / مشرف مبيعات | نشط | CTR-DEMO-1, غير محدد المدة، 9,000 |
-| EMP-DEMO-2 | EMP-0002 | سلمى فؤاد | مبيعات / مندوب مبيعات | نشط | CTR-DEMO-2 (منتهي، مفسوخ فعلياً بالتاريخ) + CTR-DEMO-3 (الساري)، 7,800 |
-| EMP-DEMO-3 | EMP-0003 | محمد الشهابي | الإدارة العامة / مدير عام | نشط | CTR-DEMO-4، 18,000، إجازة سنوية override 30 يوم |
-| EMP-DEMO-4 | EMP-0004 | هدى مصطفى | الموارد البشرية / أخصائي موارد بشرية | **في إجازة** | CTR-DEMO-5، 7,500 |
-| EMP-DEMO-5 | EMP-0005 | أحمد الشناوي | الحسابات / محاسب | نشط | CTR-DEMO-6، 8,200 |
-| EMP-DEMO-6 | EMP-0006 | مصطفى رزق | الإنتاج / مشرف إنتاج | نشط (تجربة انتهت 2026-04-30) | CTR-DEMO-7 محدد المدة حتى 2027-01-31، 6,800 |
-| EMP-DEMO-7 | EMP-0007 | ياسمين حجازي | المخازن / أمين مخزن | نشط، **تجربة تنتهي 2026-08-31** | CTR-DEMO-8 تجريبي حتى 2026-08-31، 5,600 |
-| EMP-DEMO-8 | EMP-0008 | عمرو الديب | الإنتاج / عامل إنتاج | **موقوف** | CTR-DEMO-9 موسمي، **بالساعة**، حتى 2026-11-09، 4,200 |
-| EMP-DEMO-9 | EMP-0009 | نورهان سليم | مبيعات / مندوب مبيعات | **منتهية خدمته** | CTR-DEMO-10 مفسوخ |
+| EMP-DEMO-1 | EMP-0001 | كريم عادل | مبيعات / مشرف مبيعات | نشط | ECT-DEMO-1, غير محدد المدة، 9,000 |
+| EMP-DEMO-2 | EMP-0002 | سلمى فؤاد | مبيعات / مندوب مبيعات | نشط | ECT-DEMO-2 (منتهي، مفسوخ فعلياً بالتاريخ) + ECT-DEMO-3 (الساري)، 7,800 |
+| EMP-DEMO-3 | EMP-0003 | محمد الشهابي | الإدارة العامة / مدير عام | نشط | ECT-DEMO-4، 18,000، إجازة سنوية override 30 يوم |
+| EMP-DEMO-4 | EMP-0004 | هدى مصطفى | الموارد البشرية / أخصائي موارد بشرية | **في إجازة** | ECT-DEMO-5، 7,500 |
+| EMP-DEMO-5 | EMP-0005 | أحمد الشناوي | الحسابات / محاسب | نشط | ECT-DEMO-6، 8,200 |
+| EMP-DEMO-6 | EMP-0006 | مصطفى رزق | الإنتاج / مشرف إنتاج | نشط (تجربة انتهت 2026-04-30) | ECT-DEMO-7 محدد المدة حتى 2027-01-31، 6,800 |
+| EMP-DEMO-7 | EMP-0007 | ياسمين حجازي | المخازن / أمين مخزن | نشط، **تجربة تنتهي 2026-08-31** | ECT-DEMO-8 تجريبي حتى 2026-08-31، 5,600 |
+| EMP-DEMO-8 | EMP-0008 | عمرو الديب | الإنتاج / عامل إنتاج | **موقوف** | ECT-DEMO-9 موسمي، **بالساعة**، حتى 2026-11-09، 4,200 |
+| EMP-DEMO-9 | EMP-0009 | نورهان سليم | مبيعات / مندوب مبيعات | **منتهية خدمته** | ECT-DEMO-10 مفسوخ |
 
 Payroll runs: June 2026 = **مصروف** (7 موظف، 70,950.00 إجمالي، 1,200.00 استقطاعات،
 69,750.00 صافي). July 2026 = **معتمد** (70,950.00 إجمالي، صافي ≈ 69,282.26 بعد خصم
@@ -4143,8 +4143,8 @@ retry, no forms.
 
 - **HR-02 — Contracts-expiring-soon tile, danger tone, matches the 30-day window.**
   Pre: كما سبق. Steps: انظر بطاقة «عقود تنتهي خلال 30 يوماً». Assert: القيمة = **1**
-  (فقط CTR-DEMO-8 — ينتهي 2026-08-31، بعد 7 أيام؛ CTR-DEMO-2 منتهٍ فعلاً فلا يُحتسب
-  «قريب الانتهاء»، وCTR-DEMO-7/CTR-DEMO-9 بعيدان)؛ لون القيمة **أحمر (danger)** لأن
+  (فقط ECT-DEMO-8 — ينتهي 2026-08-31، بعد 7 أيام؛ ECT-DEMO-2 منتهٍ فعلاً فلا يُحتسب
+  «قريب الانتهاء»، وECT-DEMO-7/ECT-DEMO-9 بعيدان)؛ لون القيمة **أحمر (danger)** لأن
   العدد > 0.
 
 - **HR-03 — Probation-ending-soon tile, danger tone.**
@@ -4298,7 +4298,7 @@ combined detail/action side panel (no tabs — see EM-24).
   حالة «نشط»؛ بطاقة 2×3 تعرض القسم «الإدارة العامة»، المسمى «مدير عام»، الفرع، تاريخ
   التعيين «2023-01-02»، فئة العامل، احتساب العمل الإضافي؛ قسم معلومات شخصية (تاريخ
   الميلاد، الجنس، الحالة الاجتماعية، نوع التوظيف، نهاية فترة التجربة «—»، سنوات
-  الخدمة السابقة «11»)؛ قسم العقود يعرض CTR-DEMO-4 برقمه وراتبه 18,000.00 ج.م.
+  الخدمة السابقة «11»)؛ قسم العقود يعرض ECT-DEMO-4 برقمه وراتبه 18,000.00 ج.م.
 
 - **EM-26 — Contracts sub-list empty state.** Pre: افتح موظفاً بلا عقود (لا يوجد في
   البذرة — استخدم موظفاً جديداً تم إنشاؤه في EM-14 قبل ربط عقد). Assert: نص «لا توجد
@@ -4447,26 +4447,26 @@ match the Arabic name (unlike Departments).
 contract's own fields.
 
 - **CT-01 — List load, 10 rows.** Steps: افتح «العقود». Assert: 10 صفوف تشمل
-  CTR-DEMO-1..10؛ عمود «الراتب الأساسي» يعرض `MoneyDisplay` (مثال: كريم 9,000.00
+  ECT-DEMO-1..10؛ عمود «الراتب الأساسي» يعرض `MoneyDisplay` (مثال: كريم 9,000.00
   ج.م، محمد 18,000.00 ج.م).
 
-- **CT-02 — Lapsed contract still shows «ساري».** Pre: CTR-DEMO-2 (سلمى، محدد المدة،
-  انتهى 2026-01-14) لم يُفسخ يدوياً قط. Steps: ابحث عن CTR-DEMO-2 في القائمة. Assert:
+- **CT-02 — Lapsed contract still shows «ساري».** Pre: ECT-DEMO-2 (سلمى، محدد المدة،
+  انتهى 2026-01-14) لم يُفسخ يدوياً قط. Steps: ابحث عن ECT-DEMO-2 في القائمة. Assert:
   شارة الحالة تقرأ **«ساري»** رغم أن تاريخ الانتهاء 2026-01-14 مضى منذ أكثر من 7
   أشهر — الحالة لا تنقلب تلقائياً بمرور تاريخ الانتهاء، فقط عبر «إنهاء العقد» اليدوي.
   هذا يفسّر لماذا لا يظهر ضمن أي عدّاد «قريبة الانتهاء» (تلك مشتقة من تاريخ + حالة
   نشطة، وحالته لا تزال نشطة لكن تاريخه فات نافذة الـ30 يوماً أصلاً).
 
 - **CT-03 — Renewal contract picked automatically by payroll, not by this screen.**
-  Pre: CTR-DEMO-2 (سلمى، لاحق) وCTR-DEMO-3 (لاحقتها) كلاهما ظاهر كصفّين مستقلّين.
+  Pre: ECT-DEMO-2 (سلمى، لاحق) وECT-DEMO-3 (لاحقتها) كلاهما ظاهر كصفّين مستقلّين.
   Assert: هذه الشاشة لا تُظهر أي ربط مرئي بين العقدين (لا "تجديد لـ")؛ فقط عند حساب
-  الرواتب (PR-04) يُختار CTR-DEMO-3 تلقائياً لأن تاريخه أحدث ويغطي الفترة.
+  الرواتب (PR-04) يُختار ECT-DEMO-3 تلقائياً لأن تاريخه أحدث ويغطي الفترة.
 
 - **CT-04 — Search matches contract number or employee name.** Steps: اكتب «CTR-
   DEMO-4» ثم امسح واكتب «الشهابي». Assert: كلا البحثين يُرجع صف محمد الشهابي.
 
-- **CT-05 — Status chips «الكل/ساري/مفسوخ».** Assert: «مفسوخ» = 1 فقط (CTR-DEMO-10،
-  نورهان) رغم أن CTR-DEMO-2 منتهي التاريخ فعلياً — يبقى محسوباً ضمن «ساري» (CT-02).
+- **CT-05 — Status chips «الكل/ساري/مفسوخ».** Assert: «مفسوخ» = 1 فقط (ECT-DEMO-10،
+  نورهان) رغم أن ECT-DEMO-2 منتهي التاريخ فعلياً — يبقى محسوباً ضمن «ساري» (CT-02).
 
 - **CT-06 `[NOT IMPLEMENTED]` — «قريبة الانتهاء» stat/filter on this screen.**
   Assert: لا توجد بطاقة إحصاء ولا شريحة فلترة باسم «قريبة الانتهاء» على شاشة العقود
@@ -4504,27 +4504,27 @@ contract's own fields.
   عملاء المبيعات.
 
 - **CT-14 — Leave-entitlement overrides, optional, employee-level example.**
-  Pre: CTR-DEMO-4 (محمد) يحمل `annualLeaveDays: 30` override. Steps: افتح تفاصيل
-  CTR-DEMO-4. Assert: قسم «استحقاق الإجازات» يعرض «السنوية: 30»، «المرضية: —»،
+  Pre: ECT-DEMO-4 (محمد) يحمل `annualLeaveDays: 30` override. Steps: افتح تفاصيل
+  ECT-DEMO-4. Assert: قسم «استحقاق الإجازات» يعرض «السنوية: 30»، «المرضية: —»،
   «الشخصية: —» — الحقول غير المحدَّدة تُعرض شرطة، لا صفر.
 
-- **CT-15 — Allowances / deductions detail lists.** Steps: افتح تفاصيل CTR-DEMO-1
+- **CT-15 — Allowances / deductions detail lists.** Steps: افتح تفاصيل ECT-DEMO-1
   (كريم). Assert: قسم «البدلات» يعرض «بدل انتقال 800.00» و«بدل هاتف 200.00»؛ قسم
   «الاستقطاعات» يعرض «اشتراك صندوق الزمالة 100.00».
 
-- **CT-16 — Empty allowances/deductions state.** Steps: افتح تفاصيل CTR-DEMO-2
+- **CT-16 — Empty allowances/deductions state.** Steps: افتح تفاصيل ECT-DEMO-2
   (بدون استقطاعات). Assert: قسم الاستقطاعات يعرض «لا توجد خصومات».
 
-- **CT-17 — Terminate contract, active only, no confirmation.** Pre: CTR-DEMO-1
+- **CT-17 — Terminate contract, active only, no confirmation.** Pre: ECT-DEMO-1
   (ساري). Steps: افتح تفاصيله، اضغط «إنهاء العقد». Assert: الزر ظاهر فقط لأن الحالة
   «active»؛ الطلب يُرسل فوراً بلا حوار تأكيد؛ الحالة تتحول إلى «مفسوخ» وزر «إنهاء
   العقد» يختفي بعدها.
 
-- **CT-18 — Terminated contract has no terminate button.** Pre: CTR-DEMO-10 (مفسوخ).
+- **CT-18 — Terminated contract has no terminate button.** Pre: ECT-DEMO-10 (مفسوخ).
   Assert: لا زر «إنهاء العقد» ظاهر في لوحته.
 
 - **CT-19 — Hourly contract flagged for exclusion (context for PR-08).** Pre:
-  CTR-DEMO-9 (عمرو، بالساعة). Steps: افتح تفاصيله. Assert: «أساس الدفع» يعرض
+  ECT-DEMO-9 (عمرو، بالساعة). Steps: افتح تفاصيله. Assert: «أساس الدفع» يعرض
   «بالساعة»؛ هذه الشاشة نفسها لا تحذّر من أي استبعاد من الرواتب — التحذير يظهر فقط
   داخل شاشة الرواتب عند الحساب (PR-08).
 
@@ -4796,8 +4796,8 @@ end-of-service gratuity.
 
 - **PR-19 — سلمى فؤاد: the renewal contract's allowance is picked, not the lapsed
   one's.** Steps: افتح كشفها ضمن أي دورة. Assert: الراتب الأساسي 7,800.00 (من
-  CTR-DEMO-3) + بدل انتقال 600.00 (من CTR-DEMO-3 أيضاً) = 8,400.00 — وليس 6,500 +
-  500 من CTR-DEMO-2 المنتهي.
+  ECT-DEMO-3) + بدل انتقال 600.00 (من ECT-DEMO-3 أيضاً) = 8,400.00 — وليس 6,500 +
+  500 من ECT-DEMO-2 المنتهي.
 
 - **PR-20 — Proration rule (no seeded example in these 3 runs — assert the rule
   directly).** Assert (من الكود، `calculate-payroll-run.ts`): موظف يبدأ عقده أو

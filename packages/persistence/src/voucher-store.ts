@@ -8,6 +8,7 @@ import {
   type AllocationInvoiceKind,
   type AllocationRepository,
   type AllocationStatus,
+  type CostCategory,
   type DocumentListFilter,
   type DocumentRepository,
   type DocumentStatus,
@@ -54,6 +55,8 @@ CREATE TABLE IF NOT EXISTS voucher (
   supplier_id                    TEXT,
   reference_no                   TEXT,
   cost_center_id                 TEXT,
+  project_id                     TEXT,
+  cost_category                  TEXT,
   withholding_amount             INTEGER,
   withholding_rate_percent       REAL,
   withholding_gl_account_id      TEXT,
@@ -89,6 +92,21 @@ CREATE TABLE IF NOT EXISTS open_invoice (
 CREATE INDEX IF NOT EXISTS idx_invoice_party ON open_invoice(party_id);
 `;
 
+/** Voucher columns added after the table shipped — an existing books file migrates via `ALTER TABLE`. */
+const ADDED_VOUCHER_COLUMNS: readonly [string, string][] = [
+  ["project_id", "TEXT"],
+  ["cost_category", "TEXT"],
+];
+
+function addMissingColumns(sqlite: Database.Database): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(voucher)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, type] of ADDED_VOUCHER_COLUMNS) {
+    if (!existing.has(name)) sqlite.exec(`ALTER TABLE voucher ADD COLUMN ${name} ${type}`);
+  }
+}
+
 interface VoucherRow {
   id: string;
   doc_no: string | null;
@@ -111,6 +129,8 @@ interface VoucherRow {
   supplier_id: string | null;
   reference_no: string | null;
   cost_center_id: string | null;
+  project_id: string | null;
+  cost_category: string | null;
   withholding_amount: number | null;
   withholding_rate_percent: number | null;
   withholding_gl_account_id: string | null;
@@ -139,6 +159,8 @@ function toDocument(row: VoucherRow): FrameworkDocument<VoucherLine> {
     supplierId: row.supplier_id,
     referenceNo: row.reference_no,
     costCenterId: row.cost_center_id,
+    projectId: row.project_id,
+    costCategory: row.cost_category as CostCategory | null,
     withholdingAmount: row.withholding_amount === null ? null : Money.fromScaled(row.withholding_amount),
     withholdingRatePercent: row.withholding_rate_percent,
     withholdingGlAccountId: row.withholding_gl_account_id,
@@ -185,6 +207,8 @@ function docParams(doc: FrameworkDocument<VoucherLine>) {
     supplier_id: line.supplierId,
     reference_no: line.referenceNo,
     cost_center_id: line.costCenterId ?? null,
+    project_id: line.projectId ?? null,
+    cost_category: line.costCategory ?? null,
     withholding_amount: line.withholdingAmount ? line.withholdingAmount.toScaledNumber() : null,
     withholding_rate_percent: line.withholdingRatePercent ?? null,
     withholding_gl_account_id: line.withholdingGlAccountId ?? null,
@@ -208,14 +232,14 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
         id, doc_no, doc_type, date, memo, status, voucher_type, direction, amount, currency,
         branch_id, payment_method, treasury_account_id, treasury_gl_account_id,
         counterparty_gl_account_id, counter_treasury_account_id, counter_treasury_gl_account_id,
-        customer_id, supplier_id, reference_no, cost_center_id,
+        customer_id, supplier_id, reference_no, cost_center_id, project_id, cost_category,
         withholding_amount, withholding_rate_percent, withholding_gl_account_id, created_at, confirmed_at,
         reverses_doc_id, reversed_by_doc_id, workflow_request_id, journal_entry_id
       ) VALUES (
         @id, @doc_no, @doc_type, @date, @memo, @status, @voucher_type, @direction, @amount, @currency,
         @branch_id, @payment_method, @treasury_account_id, @treasury_gl_account_id,
         @counterparty_gl_account_id, @counter_treasury_account_id, @counter_treasury_gl_account_id,
-        @customer_id, @supplier_id, @reference_no, @cost_center_id,
+        @customer_id, @supplier_id, @reference_no, @cost_center_id, @project_id, @cost_category,
         @withholding_amount, @withholding_rate_percent, @withholding_gl_account_id, @created_at, @confirmed_at,
         @reverses_doc_id, @reversed_by_doc_id, @workflow_request_id, @journal_entry_id
       )
@@ -227,7 +251,7 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
         counter_treasury_account_id = @counter_treasury_account_id,
         counter_treasury_gl_account_id = @counter_treasury_gl_account_id,
         customer_id = @customer_id, supplier_id = @supplier_id, reference_no = @reference_no,
-        cost_center_id = @cost_center_id,
+        cost_center_id = @cost_center_id, project_id = @project_id, cost_category = @cost_category,
         withholding_amount = @withholding_amount,
         withholding_rate_percent = @withholding_rate_percent,
         withholding_gl_account_id = @withholding_gl_account_id,
@@ -451,6 +475,7 @@ export function createSqliteVoucherStore(path: SqliteConnectionInput = ":memory:
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  addMissingColumns(sqlite);
   return {
     documents: new SqliteVoucherRepository(sqlite),
     allocations: new SqliteAllocationRepository(sqlite),

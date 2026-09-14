@@ -1,9 +1,13 @@
 import { z } from "zod";
+import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
+import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /** Wire contracts for Purchase Returns (مرتجعات المشتريات، docs/archive/catalog/02). Mirrors sales-returns.ts. */
 
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const purchaseReturnReasonSchema = z.enum([
   "DEFECTIVE",
@@ -26,12 +30,18 @@ export const purchaseReturnLineSchema = z.object({
   taxAmount: positiveDecimalString,
   /** The VAT rate the source invoice line charged, so a mixed-rate return posts one tagged VAT line per rate (D76). */
   taxRatePercent: z.number().nullable().optional(),
+  /** بُعد المشروع — every line of a confirmed return carries the same document-wide value (D-01). */
+  projectId: z.string().min(1).nullable().optional(),
+  /** فئة التكلفة — only meaningful with the document's `projectId` (D-01). */
+  costCategory: costCategorySchema.nullish(),
 });
 
 export const createPurchaseReturnSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().default(""),
+  /** بُعد المشروع — the contracting project this return's cost belongs to (D-01). */
+  projectId: z.string().min(1).nullable().optional(),
   lines: z.array(purchaseReturnLineSchema).min(1),
 });
 
@@ -42,7 +52,7 @@ export const purchaseReturnRequestedQtySchema = z.object({
 
 export const buildPurchaseReturnFromInvoiceSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().default(""),
   sourceInvoiceId: z.string().min(1),
   warehouseId: z.string().min(1),

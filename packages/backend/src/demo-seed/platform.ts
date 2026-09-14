@@ -4,12 +4,12 @@ import { CORE, VAT_PERCENT, WAREHOUSE_ID, seedActorHeaders, step } from "./share
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
  *
- * Platform administration: API keys, webhooks, notification rules,
- * notifications, and workflow configs/requests.
+ * Platform administration: notification rules, notifications, and workflow
+ * configs/requests.
  *
- * Webhooks and notification rules may only subscribe to events this build
- * actually emits — `GET /webhooks/events` and `GET /notification-rules/triggers`
- * report that live set, so both are read here rather than assumed.
+ * A notification rule may only subscribe to an event this build actually
+ * emits — `GET /notification-rules/triggers` reports that live set, so it is
+ * read here rather than assumed.
  *
  * `/eta/submissions` is deliberately NOT seeded here: this build has no HTTP
  * route that enqueues an ETA submission (`EtaService.enqueue` is never wired
@@ -53,7 +53,7 @@ async function stepAs(app: App, method: string, path: string, actor: ActorOption
 
 /**
  * `shared.step`'s ADMIN_HEADERS attributes writes to "SEED-ADMIN", a synthetic
- * seeder identity — fine for most modules, but api-key/webhook writes are
+ * seeder identity — fine for most modules, but the writes below are
  * audited (`recordSensitiveEvent`) and `/profile/activity` shows only the
  * CALLING user's own trail. Attributing these to the real bootstrapped tenant
  * admin (USER-ADMIN — see `backend/src/seed.ts`) is both more realistic and
@@ -66,9 +66,6 @@ interface EventTrigger {
   readonly emitted: boolean;
 }
 
-interface WebhookEvent {
-  readonly code: string;
-}
 
 export async function seedPlatform(app: App): Promise<void> {
   // --- إعدادات الموافقات (workflow configs) — chains a later request can reference. ---
@@ -132,74 +129,18 @@ export async function seedPlatform(app: App): Promise<void> {
     { decision: "reject", comment: "تم الرفض: تجاوز الفاتورة الحد الائتماني المسموح للعميل." },
   );
 
-  // --- مفاتيح API — one revoked, so the list shows both live and dead keys. ---
-  await stepAs(app, "POST", "/api-keys", PLATFORM_ADMIN, {
-    name: "تكامل المتجر الإلكتروني",
-    scopes: ["sales.invoice.view", "sales.invoice.create"],
-  });
-  await stepAs(app, "POST", "/api-keys", PLATFORM_ADMIN, {
-    name: "لوحة التقارير المالية الخارجية",
-    scopes: ["accounting.coa.view", "accounting.journal.view"],
-  });
-  const legacyKey = (await stepAs(app, "POST", "/api-keys", PLATFORM_ADMIN, {
-    name: "مفتاح تكامل قديم",
-    scopes: ["inventory.item.view"],
-  })) as { id: string };
-  await stepAs(app, "POST", `/api-keys/${legacyKey.id}/revoke`, PLATFORM_ADMIN, {});
-
-  // --- الويب هوك + قواعد الإشعارات — only subscribe to what this build really emits. ---
-  const webhookEvents = (await step(app, "GET", "/webhooks/events")) as { events: readonly WebhookEvent[] };
-  const deliverableEvents = new Set(webhookEvents.events.map((e) => e.code));
-
+  // --- قواعد الإشعارات — only subscribe to what this build really emits. ---
   const triggerCatalog = (await step(app, "GET", "/notification-rules/triggers")) as {
     triggers: readonly EventTrigger[];
   };
   const emittedEvents = new Set(triggerCatalog.triggers.filter((t) => t.emitted).map((t) => t.code));
 
-  function requireDeliverable(code: string): string {
-    if (!deliverableEvents.has(code)) {
-      throw new Error(`[demo-seed] platform: "${code}" is not in this build's deliverable webhook events`);
-    }
-    return code;
-  }
   function requireEmitted(code: string): string {
     if (!emittedEvents.has(code)) {
       throw new Error(`[demo-seed] platform: "${code}" is not in this build's emitted event set`);
     }
     return code;
   }
-
-  // Loopback and unbound — nothing is listening, so every real delivery
-  // attempt fails locally and nothing leaves the machine.
-  const webhookSales = (await stepAs(app, "POST", "/webhooks", PLATFORM_ADMIN, {
-    name: "تكامل نظام نقطة البيع الخارجي",
-    targetUrl: "http://127.0.0.1:39217/hooks/mezan",
-    events: [
-      requireDeliverable("SALES_INVOICE_CONFIRMED"),
-      requireDeliverable("SALES_INVOICE_VOIDED"),
-      requireDeliverable("SALES_RETURN_CONFIRMED"),
-    ],
-  })) as { id: string };
-
-  const webhookLegacy = (await stepAs(app, "POST", "/webhooks", PLATFORM_ADMIN, {
-    name: "تكامل النظام المحاسبي القديم",
-    targetUrl: "http://127.0.0.1:39218/legacy/receiver",
-    events: [requireDeliverable("PURCHASE_RETURN_CONFIRMED"), requireDeliverable("PURCHASE_RETURN_VOIDED")],
-  })) as { id: string };
-  await stepAs(app, "PATCH", `/webhooks/${webhookLegacy.id}`, PLATFORM_ADMIN, { active: false });
-
-  await step(app, "POST", `/webhooks/${webhookSales.id}/deliveries`, {
-    eventCode: "SALES_INVOICE_CONFIRMED",
-    statusCode: 200,
-    success: true,
-    errorMessage: null,
-  });
-  await step(app, "POST", `/webhooks/${webhookSales.id}/deliveries`, {
-    eventCode: "SALES_RETURN_CONFIRMED",
-    statusCode: null,
-    success: false,
-    errorMessage: "connect ECONNREFUSED 127.0.0.1:39217",
-  });
 
   await step(app, "POST", "/notification-rules", {
     id: "NR-DEMO-1",
@@ -250,7 +191,7 @@ export async function seedPlatform(app: App): Promise<void> {
   await step(app, "POST", "/notification-rules/NR-DEMO-4/deactivate", {});
 
   // --- Real events, fired through the SAME document routes a return-desk
-  // click hits, so the rules/webhooks just seeded have something to react to
+  // click hits, so the rules just seeded have something to react to
   // and /notifications ends up with real, engine-generated rows. ---
   await step(app, "POST", "/sales-returns", {
     id: "SRET-DEMO-1",

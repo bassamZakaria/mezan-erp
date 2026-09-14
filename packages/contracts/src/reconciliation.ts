@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /** Wire contract for Balance Reconciliation (docs/archive/catalog/04 "مطابقة الأرصدة"). */
 export const reconciliationRowSchema = z.object({
@@ -17,8 +18,8 @@ export const unlinkedEntryLineSchema = z.object({
   date: z.string(),
   accountId: z.string(),
   memo: z.string().nullable(),
-  debit: z.string(),
-  credit: z.string(),
+  debit: moneyString,
+  credit: moneyString,
 });
 
 export const reconciliationReportSchema = z.object({

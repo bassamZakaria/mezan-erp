@@ -6,6 +6,7 @@ import {
   BankStatementNotFoundError,
   ColumnNotFoundError,
   InvalidColumnMappingError,
+  InvalidStatementBalanceError,
   InvalidStatementFileError,
   LineAlreadyMatchedError,
   LineNotMatchedError,
@@ -79,6 +80,9 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof InvalidStatementFileError || err instanceof ColumnNotFoundError || err instanceof InvalidColumnMappingError) {
+    return c.json({ error: err.code, message: err.message }, 422);
+  }
+  if (err instanceof InvalidStatementBalanceError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   throw err;

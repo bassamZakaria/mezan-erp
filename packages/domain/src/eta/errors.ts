@@ -36,6 +36,25 @@ export class EtaOfflineError extends Error {
   }
 }
 
+/**
+ * No POS device serial is registered for the branch the sale was made in. The
+ * authority identifies the issuing till by that serial, so a receipt cannot be
+ * reported without one and must not be sent with the field blank.
+ */
+export class EtaDeviceSerialNotRegisteredError extends Error {
+  readonly code = "ETA_DEVICE_SERIAL_NOT_REGISTERED";
+  constructor(readonly branch: string | null) {
+    const where = branch ? ` (${branch})` : "";
+    super(
+      `لا يمكن إصدار إيصال إلكتروني: لم يُسجَّل رقم تسلسلي لجهاز نقطة البيع لهذا الفرع${where} لدى المصلحة. ` +
+        `سجّل الرقم التسلسلي للجهاز في «أكواد الفروع لدى المصلحة» قبل البيع. ` +
+        `No POS device serial number is registered with the Tax Authority for this branch${where}; ` +
+        `register the device serial under the ETA branch codes before issuing a receipt.`,
+    );
+    this.name = "EtaDeviceSerialNotRegisteredError";
+  }
+}
+
 export class EtaExclusionReasonRequiredError extends Error {
   readonly code = "ETA_EXCLUSION_REASON_REQUIRED";
   constructor() {

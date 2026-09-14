@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contract for treasury accounts (docs/archive/catalog/04 "حسابات الخزينة").
@@ -17,8 +18,10 @@ export const treasuryAccountSchema = z.object({
   currency: z.string().min(1),
   branchId: z.string().min(1),
   glAccountId: z.string().nullable(),
-  openingBalance: z.string(),
+  openingBalance: moneyString,
   openingBalanceDate: z.string().nullable(),
+  /** حد تسهيلات خطابات الضمان — null when the bank has no facility configured. */
+  guaranteeFacilityLimit: moneyString.nullable(),
   status: treasuryAccountStatusSchema,
 });
 
@@ -31,8 +34,9 @@ export const createTreasuryAccountSchema = z.object({
   currency: z.string().min(1).optional(),
   branchId: z.string().min(1),
   glAccountId: z.string().nullable().optional(),
-  openingBalance: z.string().optional(),
+  openingBalance: moneyString.optional(),
   openingBalanceDate: z.string().nullable().optional(),
+  guaranteeFacilityLimit: moneyString.nullable().optional(),
 });
 
 /** All fields optional — a PATCH applies only what's supplied. Also used for "إضافة رصيد افتتاحي". */
@@ -43,8 +47,9 @@ export const updateTreasuryAccountSchema = z.object({
   currency: z.string().min(1).optional(),
   branchId: z.string().min(1).optional(),
   glAccountId: z.string().nullable().optional(),
-  openingBalance: z.string().optional(),
+  openingBalance: moneyString.optional(),
   openingBalanceDate: z.string().nullable().optional(),
+  guaranteeFacilityLimit: moneyString.nullable().optional(),
   status: treasuryAccountStatusSchema.optional(),
 });
 

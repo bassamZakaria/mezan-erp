@@ -12,18 +12,20 @@
  */
 
 import type { Money } from "../money/index.js";
-import type {
-  BankStatement,
-  BankStatementListFilter,
-  BankStatementRepository,
-  StatementColumnMapping,
-  StatementColumnMappingRepository,
-  StatementLine,
+import {
+  MAX_STATEMENT_BALANCE_SCALED,
+  type BankStatement,
+  type BankStatementListFilter,
+  type BankStatementRepository,
+  type StatementColumnMapping,
+  type StatementColumnMappingRepository,
+  type StatementLine,
 } from "./bank-statement.js";
 import { mapCsvRows, parseCsv } from "./csv.js";
 import { suggestMatches, type TreasuryLedgerCandidate, type TreasuryLedgerReader } from "./matching.js";
 import {
   BankStatementNotFoundError,
+  InvalidStatementBalanceError,
   LineAlreadyMatchedError,
   LineNotMatchedError,
   FinalizeOverrideReasonRequiredError,
@@ -31,6 +33,17 @@ import {
   StatementHasUnmatchedLinesError,
   StatementLineNotFoundError,
 } from "./errors.js";
+
+/**
+ * The opening/closing balance must be storable. Without this an over-large
+ * figure reaches the SQLite writer and throws a RangeError there — a 500
+ * where the caller should have been told what is wrong.
+ */
+function assertStatementBalanceBound(statementId: string, label: string, amount: Money): void {
+  if (amount.scaled > MAX_STATEMENT_BALANCE_SCALED || amount.scaled < -MAX_STATEMENT_BALANCE_SCALED) {
+    throw new InvalidStatementBalanceError(statementId, `${label} أكبر من أن يُسجَّل — راجع الرقم المُدخل.`);
+  }
+}
 
 /**
  * Finalising over unmatched lines is a deliberate, recorded act — never a
@@ -109,6 +122,8 @@ export class BankReconciliationService {
 
   /** Import a CSV statement: persists the column mapping for the account, then the statement + its parsed lines. */
   async importStatement(cmd: ImportStatementCommand): Promise<{ statement: BankStatement; lines: readonly StatementLine[] }> {
+    assertStatementBalanceBound(cmd.id, "الرصيد الافتتاحي", cmd.openingBalance);
+    assertStatementBalanceBound(cmd.id, "الرصيد الختامي", cmd.closingBalance);
     const stamp = this.now();
     const mapping: StatementColumnMapping = { ...cmd.mapping, treasuryAccountId: cmd.treasuryAccountId, updatedAt: stamp };
     const table = parseCsv(cmd.rawCsv);

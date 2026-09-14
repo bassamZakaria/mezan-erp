@@ -22,6 +22,7 @@ import {
   NegativeStockError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
+  UncostedDeficitIssueError,
 } from "./errors.js";
 import {
   StockMovement,
@@ -39,6 +40,7 @@ import {
   type PostedTransferFilter,
 } from "./posted-stock-documents.js";
 import { getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import { extend, unitCostOf } from "./wac-math.js";
 import { replay, checkDrift, emptyPosition, type WacPosition, type DriftReport } from "./wac.js";
 import type {
@@ -82,6 +84,18 @@ export type StockLedgerPolicySource = StockLedgerPolicy | (() => Promise<StockLe
 
 const BACKORDERABLE_SOURCES: readonly StockSourceDocType[] = ["SALES_INVOICE", "POS_SALE"];
 
+/** Where a deficit issue's unit cost came from — carried on `StockIssuedShort`. */
+export type DeficitCostBasis = "last_receipt_here" | "last_receipt_elsewhere" | "item_cost_price";
+
+/** The unit cost of the most recent IN movement in a ledger slice, or null when there was never one. */
+function lastReceiptCost(movements: readonly StockMovement[]): Money | null {
+  for (let i = movements.length - 1; i >= 0; i -= 1) {
+    const m = movements[i] as StockMovement;
+    if (m.direction === "IN" && m.unitCost.scaled > 0n) return m.unitCost;
+  }
+  return null;
+}
+
 export interface StockLedgerServiceDeps {
   readonly ledger: StockLedgerRepository;
   readonly layers: CostLayerRepository;
@@ -93,6 +107,12 @@ export interface StockLedgerServiceDeps {
   readonly transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Clock for `occurredAt` defaults. Defaults to `Date.now`-based ISO. */
   readonly clock?: () => string;
+  /**
+   * Last-resort unit cost for an issue out of a position that holds nothing and
+   * was never received anywhere — the item master's تكلفة الشراء. Without it
+   * such an issue is refused rather than written at zero (D101).
+   */
+  readonly fallbackUnitCost?: (itemId: string) => Promise<Money | null> | Money | null;
 }
 
 export interface AdjustmentLine {
@@ -116,6 +136,10 @@ export interface PostAdjustmentCommand {
    * posting entirely (e.g. no GL adapter wired).
    */
   readonly gl?: { readonly inventoryAccountId: string; readonly counterpartAccountId: string };
+  /** بُعد المشروع — tagged onto EVERY posted line (inventory side included). */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`, and tagged ONLY onto the counterpart (expense/loss) line. */
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface TransferLine {
@@ -151,7 +175,7 @@ export interface PostTransferCommand {
    * `WORK_ORDER` movement in the ledger, and filing it as a transfer would hide
    * it from the order's own movements feed.
    */
-  readonly sourceDocType?: Extract<StockSourceDocType, "TRANSFER" | "WORK_ORDER">;
+  readonly sourceDocType?: Extract<StockSourceDocType, "TRANSFER" | "WORK_ORDER" | "SITE_ISSUE" | "SITE_RECEIPT">;
   /**
    * The document the movement belongs to, when it is NOT the transfer itself
    * (same split as {@link PostReceiptCommand.sourceDocId}). A work order's
@@ -273,6 +297,10 @@ export interface PostIssueCommand {
   readonly occurredAt?: string;
   /** Post Dr COGS / Cr Inventory for the total issued cost. Omit to let the caller post. */
   readonly gl?: { readonly cogsAccountId: string; readonly inventoryAccountId: string };
+  /** بُعد المشروع — tagged onto BOTH posted lines (COGS and inventory). */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`, and tagged ONLY onto the COGS (debit) line. */
+  readonly costCategory?: CostCategory | null;
 }
 
 /** The moving-average cost at which one issue line left stock. */
@@ -339,6 +367,28 @@ export class StockLedgerService {
     return typeof source === "function" ? await source() : source;
   }
 
+  /**
+   * The cost to write a deficit issue at, in order of how close it is to what
+   * the goods really cost: the last receipt into THIS position, then the last
+   * receipt of the same item anywhere, then the item master's cost price.
+   * Returns null when the item has never been bought and no fallback is wired
+   * — the caller refuses rather than inventing a zero (D101).
+   */
+  private async resolveDeficitUnitCost(
+    itemId: string,
+    warehouseId: string,
+  ): Promise<{ unitCost: Money; basis: DeficitCostBasis } | null> {
+    const here = lastReceiptCost(await this.deps.ledger.listByPosition(itemId, warehouseId));
+    if (here) return { unitCost: here, basis: "last_receipt_here" };
+    const anywhere = lastReceiptCost(await this.deps.ledger.listByItem(itemId));
+    if (anywhere) return { unitCost: anywhere, basis: "last_receipt_elsewhere" };
+    const configured = await this.deps.fallbackUnitCost?.(itemId);
+    if (configured && configured.scaled > 0n) {
+      return { unitCost: configured, basis: "item_cost_price" };
+    }
+    return null;
+  }
+
   private async negativeAllowedFor(sourceDocType: StockSourceDocType): Promise<boolean> {
     const policy = await this.resolvePolicy();
     if (policy.allowNegativeStock) return true;
@@ -377,6 +427,7 @@ export class StockLedgerService {
     let newOnHand: Qty;
     let newTotalValue: Money;
     let signed: Money;
+    let deficit: { shortQty: Qty; costBasis: DeficitCostBasis } | null = null;
 
     if (input.direction === "IN") {
       if (!input.unitCost) {
@@ -393,6 +444,29 @@ export class StockLedgerService {
         throw new NegativeStockError(input.itemId, input.warehouseId, snap.onHand, input.qty);
       }
       unitCost = unitCostOf(snap.totalValue, snap.onHand); // moving average
+      // A POSITION WITH NOTHING BEHIND IT HAS NO AVERAGE (D101).
+      //
+      // `unitCostOf` returns zero for a zero quantity, so an issue out of a
+      // position that holds nothing used to be written at 0.00 — understating
+      // COGS by the whole deficit, silently, and leaving the layers with no
+      // basis to true up when the goods finally arrive. A zero is never the
+      // right cost for goods that left the building; the last cost the item was
+      // actually bought at is.
+      if (unitCost.scaled === 0n && snap.onHand.scaled <= 0n && projected.isNegative()) {
+        const fallback = await this.resolveDeficitUnitCost(input.itemId, input.warehouseId);
+        if (!fallback) {
+          // A transfer is valuation-neutral — both legs take the same cost and
+          // total inventory value is unchanged whatever it is — so a basis that
+          // cannot be found is not a reason to block the move. Every other
+          // source takes value OUT of inventory, and that must not be free.
+          if (input.sourceDocType !== "TRANSFER") {
+            throw new UncostedDeficitIssueError(input.itemId, input.warehouseId, input.qty);
+          }
+        } else {
+          unitCost = fallback.unitCost;
+          deficit = { shortQty: input.qty, costBasis: fallback.basis };
+        }
+      }
       // A DRAIN TO ZERO TAKES THE WHOLE REMAINING VALUE (D-S44).
       //
       // An issue is normally valued at `qty × round(value ÷ qty)`, and the unit
@@ -481,6 +555,17 @@ export class StockLedgerService {
       onHandAfter: newOnHand,
       averageCostAfter: averageCost,
     });
+    if (deficit) {
+      this.deps.events?.publish({
+        type: "StockIssuedShort",
+        movementId: movement.id,
+        itemId: input.itemId,
+        warehouseId: input.warehouseId,
+        shortQty: deficit.shortQty,
+        unitCost,
+        costBasis: deficit.costBasis,
+      });
+    }
 
     return { signedValue: signed, unitCost, consumed };
   }
@@ -561,7 +646,8 @@ export class StockLedgerService {
 
       if (command.gl && this.deps.gl && valueDelta.scaled !== 0n) {
         await this.deps.gl.post(
-          buildAdjustmentPosting(command, valueDelta, occurredAt),
+          // The GL is dated with a DAY; `occurredAt` is an ISO instant.
+          buildAdjustmentPosting(command, valueDelta, occurredAt.slice(0, 10)),
         );
       }
 
@@ -591,6 +677,9 @@ export class StockLedgerService {
       if (line.qty.isNegative() || line.qty.isZero()) {
         throw new InvalidStockMovementError([`السطر ${i}: الكمية يجب أن تكون رقماً موجباً`]);
       }
+    }
+    if (command.costCategory && !command.projectId) {
+      throw new InvalidStockMovementError(["فئة التكلفة تتطلب اختيار مشروع"]);
     }
     const occurredAt = command.occurredAt ?? this.now();
 
@@ -625,11 +714,22 @@ export class StockLedgerService {
           sourceDocType: command.sourceDocType,
           sourceDocId: command.sourceDocId,
           sourceDocNumber: command.sourceDocNumber ?? null,
-          date: occurredAt,
+          date: occurredAt.slice(0, 10),
           memo: `Stock issue ${command.sourceDocNumber ?? command.sourceDocId}`,
           lines: [
-            { accountId: command.gl.cogsAccountId, debit: totalCost, credit: Money.zero() },
-            { accountId: command.gl.inventoryAccountId, debit: Money.zero(), credit: totalCost },
+            {
+              accountId: command.gl.cogsAccountId,
+              debit: totalCost,
+              credit: Money.zero(),
+              projectId: command.projectId ?? null,
+              costCategory: command.costCategory ?? null,
+            },
+            {
+              accountId: command.gl.inventoryAccountId,
+              debit: Money.zero(),
+              credit: totalCost,
+              projectId: command.projectId ?? null,
+            },
           ],
         });
       }
@@ -1005,6 +1105,9 @@ export class StockLedgerService {
         reasons.push(`line ${i}: an IN line requires a unitCost`);
       }
     }
+    if (command.costCategory && !command.projectId) {
+      reasons.push("a cost category requires a projectId");
+    }
     if (reasons.length > 0) throw new InvalidStockMovementError(reasons);
   }
 
@@ -1164,15 +1267,19 @@ function buildAdjustmentPosting(
   const gl = command.gl as { inventoryAccountId: string; counterpartAccountId: string };
   const magnitude = valueDelta.scaled < 0n ? valueDelta.negate() : valueDelta;
   const increased = valueDelta.scaled > 0n;
-  // Value up → Dr Inventory / Cr counterpart. Value down → reverse.
+  const projectId = command.projectId ?? null;
+  const costCategory = command.costCategory ?? null;
+  // Value up → Dr Inventory / Cr counterpart. Value down → reverse. projectId
+  // travels on both lines; costCategory only on the counterpart (expense/loss)
+  // line — the inventory line is a balance-sheet movement, not a cost.
   const lines = increased
     ? [
-        { accountId: gl.inventoryAccountId, debit: magnitude, credit: Money.zero() },
-        { accountId: gl.counterpartAccountId, debit: Money.zero(), credit: magnitude },
+        { accountId: gl.inventoryAccountId, debit: magnitude, credit: Money.zero(), projectId },
+        { accountId: gl.counterpartAccountId, debit: Money.zero(), credit: magnitude, projectId, costCategory },
       ]
     : [
-        { accountId: gl.counterpartAccountId, debit: magnitude, credit: Money.zero() },
-        { accountId: gl.inventoryAccountId, debit: Money.zero(), credit: magnitude },
+        { accountId: gl.counterpartAccountId, debit: magnitude, credit: Money.zero(), projectId, costCategory },
+        { accountId: gl.inventoryAccountId, debit: Money.zero(), credit: magnitude, projectId },
       ];
   return {
     sourceDocType: "ADJUSTMENT",

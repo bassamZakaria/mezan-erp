@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countDistinct } from "./kpi.js";
@@ -26,7 +27,7 @@ export interface GeneralLedgerRow {
   readonly credit: number;
 }
 
-const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD");
+const DATE = isoDateParamSchema;
 const paramsSchema = z
   .object({ periodFrom: DATE, periodTo: DATE })
   .refine((p) => p.periodFrom <= p.periodTo, {

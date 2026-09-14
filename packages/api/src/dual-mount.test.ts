@@ -4,6 +4,9 @@ import type { AddressInfo } from "node:net";
 import { createApp } from "./app.js";
 import {
   createSqliteUnitOfWork,
+  createSqliteLedgerStore,
+  createSqliteAccountRepository,
+  createSqliteFiscalPeriodRepository,
   type SqliteUnitOfWorkHandle,
 } from "@mezan/persistence";
 
@@ -12,6 +15,13 @@ import {
  *   Path A (cloud):   over HTTP via @hono/node-server, hit with real fetch().
  *   Path B (desktop): in-process via app.fetch(new Request(...)) — no socket.
  * A given entry must yield byte-identical responses on both paths.
+ *
+ * It proves this over `/gl`, the route the product actually posts through. It
+ * used to prove it over a bare `POST /journal-entries` — the spike's original
+ * poster, which checked no fiscal period, validated no account, stamped no
+ * number and wrote no audit row. Being one of its last two callers is what kept
+ * that second way into the books alive (D99), so the proof moved and the route
+ * went.
  */
 
 const balancedEntry = {
@@ -35,19 +45,53 @@ const unbalancedEntry = {
   ],
 };
 
-const handles: SqliteUnitOfWorkHandle[] = [];
+const handles: Array<SqliteUnitOfWorkHandle | { close(): void }> = [];
 const servers: { close: (cb?: () => void) => void }[] = [];
 
-function newInProcessApp() {
+const POSTABLE = {
+  nameEn: null,
+  parentId: null,
+  isHeader: false,
+  status: "active" as const,
+};
+
+/**
+ * The same seeded books behind both mounts: `/gl` validates every account and
+ * refuses a date outside an open period, so the two paths can only be compared
+ * against identical master data.
+ */
+async function seededApp() {
   const uow = createSqliteUnitOfWork(":memory:");
-  handles.push(uow);
-  return createApp(uow);
+  const ledger = createSqliteLedgerStore();
+  const accounts = createSqliteAccountRepository();
+  const periods = createSqliteFiscalPeriodRepository();
+  handles.push(uow, ledger, accounts, periods);
+
+  await accounts.create({ id: "1300-1", code: "1300-1", nameAr: "النقدية", type: "asset", naturalBalance: "debit", ...POSTABLE });
+  await accounts.create({ id: "4000", code: "4000", nameAr: "الإيرادات", type: "revenue", naturalBalance: "credit", ...POSTABLE });
+  await accounts.create({ id: "2200", code: "2200", nameAr: "ضريبة القيمة المضافة", type: "liability", naturalBalance: "credit", ...POSTABLE });
+  await periods.create({
+    id: "fp-2026-08",
+    year: 2026,
+    periodNumber: 8,
+    startDate: "2026-08-01",
+    endDate: "2026-08-31",
+    status: "open",
+  });
+
+  return createApp(uow, {
+    // A fixed clock on both mounts: proof test #2 compares raw response TEXT,
+    // and a real clock would differ between the two apps by milliseconds.
+    gl: { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-22T10:00:00.000Z" },
+  });
+}
+
+async function newInProcessApp() {
+  return seededApp();
 }
 
 async function newHttpApp(): Promise<{ baseUrl: string }> {
-  const uow = createSqliteUnitOfWork(":memory:");
-  handles.push(uow);
-  const app = createApp(uow);
+  const app = await seededApp();
   const server = serve({ fetch: app.fetch, port: 0 });
   servers.push(server as unknown as { close: (cb?: () => void) => void });
   // @hono/node-server exposes the underlying node server synchronously.
@@ -65,10 +109,10 @@ afterEach(async () => {
 describe("dual-mount journal posting", () => {
   // Proof test #1
   it("posts a balanced entry and persists it as 'posted' (retrievable via GET)", async () => {
-    const app = newInProcessApp();
+    const app = await newInProcessApp();
 
     const postRes = await app.fetch(
-      new Request("http://local/journal-entries", {
+      new Request("http://local/gl/journal-entries", {
         method: "POST",
         headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
         body: JSON.stringify(balancedEntry),
@@ -77,7 +121,7 @@ describe("dual-mount journal posting", () => {
     expect(postRes.status).toBe(201);
 
     const getRes = await app.fetch(
-      new Request(`http://local/journal-entries/${balancedEntry.id}`, {
+      new Request(`http://local/gl/journal-entries/${balancedEntry.id}`, {
         headers: { "x-permissions": "accounting.journal.view" },
       }),
     );
@@ -90,7 +134,7 @@ describe("dual-mount journal posting", () => {
     expect(fetched.status).toBe("posted");
     expect(fetched.id).toBe(balancedEntry.id);
     expect(fetched.lines).toHaveLength(3);
-    expect(fetched.lines[0]).toEqual({
+    expect(fetched.lines[0]).toMatchObject({
       accountId: "1300-1",
       debit: "1150.750000",
       credit: "0.000000",
@@ -99,7 +143,7 @@ describe("dual-mount journal posting", () => {
 
   // Proof test #2
   it("returns byte-identical responses over HTTP and via app.fetch()", async () => {
-    const inProcApp = newInProcessApp();
+    const inProcApp = await newInProcessApp();
     const { baseUrl } = await newHttpApp();
 
     const requestInit: RequestInit = {
@@ -108,9 +152,9 @@ describe("dual-mount journal posting", () => {
       body: JSON.stringify(balancedEntry),
     };
 
-    const httpRes = await fetch(`${baseUrl}/journal-entries`, requestInit);
+    const httpRes = await fetch(`${baseUrl}/gl/journal-entries`, requestInit);
     const inProcRes = await inProcApp.fetch(
-      new Request("http://local/journal-entries", requestInit),
+      new Request("http://local/gl/journal-entries", requestInit),
     );
 
     expect(httpRes.status).toBe(inProcRes.status);
@@ -126,7 +170,7 @@ describe("dual-mount journal posting", () => {
 
   // Proof test #3
   it("rejects an unbalanced entry with 422 on BOTH mount points", async () => {
-    const inProcApp = newInProcessApp();
+    const inProcApp = await newInProcessApp();
     const { baseUrl } = await newHttpApp();
 
     const requestInit: RequestInit = {
@@ -135,9 +179,9 @@ describe("dual-mount journal posting", () => {
       body: JSON.stringify(unbalancedEntry),
     };
 
-    const httpRes = await fetch(`${baseUrl}/journal-entries`, requestInit);
+    const httpRes = await fetch(`${baseUrl}/gl/journal-entries`, requestInit);
     const inProcRes = await inProcApp.fetch(
-      new Request("http://local/journal-entries", requestInit),
+      new Request("http://local/gl/journal-entries", requestInit),
     );
 
     expect(httpRes.status).toBe(422);

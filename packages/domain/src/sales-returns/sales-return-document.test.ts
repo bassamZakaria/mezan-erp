@@ -136,6 +136,25 @@ describe("Sales Return — restock + GL", () => {
     expect(totalDebit.equals(totalCredit)).toBe(true);
   });
 
+  it("carries the return's projectId onto every posted GL line (D-01)", async () => {
+    const { service, ledger } = harness();
+
+    await service.createDraft({
+      id: "SR-PRJ",
+      date: "2026-08-21",
+      memo: "",
+      lines: [line({ projectId: "PRJ-1" })],
+    });
+    const { document } = await service.confirm("SR-PRJ");
+
+    const entry = await ledger.findById(document.journalEntryId as string);
+    expect(entry).toBeTruthy();
+    expect(entry!.lines.length).toBeGreaterThan(0);
+    for (const l of entry!.lines) {
+      expect(l.projectId).toBe("PRJ-1");
+    }
+  });
+
   it("rejects a return qty greater than what's available", async () => {
     const { service } = harness();
     await expect(

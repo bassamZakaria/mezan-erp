@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { DashboardSummaryDTO } from "@mezan/contracts";
 import { DashboardScreen } from "./DashboardScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -130,5 +130,69 @@ describe("DashboardScreen quick actions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: label }));
     expect(navigate).toHaveBeenCalledWith(screenKey, "create");
+  });
+});
+
+describe("DashboardScreen — the panels follow the user's own layout (§8.5, §8.7)", () => {
+  function preferences(widgets: { kind: string; order: number; visible?: boolean }[]) {
+    return {
+      userId: "u-admin",
+      layoutName: "default",
+      numerals: null,
+      railCollapsed: false,
+      pinnedScreens: [],
+      recentRecords: [],
+      dashboard: {
+        columns: 2,
+        widgets: widgets.map((w) => ({
+          id: w.kind,
+          kind: w.kind,
+          column: 0,
+          order: w.order,
+          size: "md",
+          visible: w.visible ?? true,
+          settings: {},
+        })),
+      },
+      shortcutTiles: [],
+      tableViews: [],
+      isDefault: false,
+      customized: { dashboard: true },
+      stored: true,
+      createdAt: "2026-09-14T00:00:00.000Z",
+      updatedAt: "2026-09-14T00:00:00.000Z",
+    };
+  }
+
+  function renderWith(prefs: unknown) {
+    return renderWithProviders(<DashboardScreen />, {
+      transport: stubTransport({
+        "GET /dashboard/summary": () => ({ body: summary() }),
+        "GET /preferences": () => ({ body: prefs }),
+      }),
+      initialSession: testAdminSession,
+    });
+  }
+
+  it("hides a panel the user switched off", async () => {
+    renderWith(
+      preferences([
+        { kind: "aging", order: 0, visible: false },
+        { kind: "expenses", order: 1 },
+        { kind: "topItems", order: 2 },
+        { kind: "activity", order: 3 },
+      ]),
+    );
+    // The panel the user kept renders…
+    expect(await screen.findByText("توزيع المصروفات")).toBeInTheDocument();
+    // …and the one they switched off goes once the preferences land. The first
+    // paint shows the default layout, so this has to be waited OUT rather than
+    // asserted on the synchronous render.
+    await waitFor(() => expect(screen.queryByText("أعمار الأرصدة")).not.toBeInTheDocument());
+  });
+
+  it("still renders the default four when the user has chosen nothing", async () => {
+    renderWith(preferences([]));
+    expect(await screen.findByText("أعمار الأرصدة")).toBeInTheDocument();
   });
 });

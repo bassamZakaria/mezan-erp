@@ -50,7 +50,7 @@ function pickFromCombobox(container: HTMLElement, label: string, optionLabel: st
 const suppliers: SupplierDTO[] = [
   {
     id: "sup-1", code: "S1", nameAr: "شركة النيل للتوريدات", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
-    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null,
+    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null, bankAccount: null,
   },
 ];
 
@@ -68,7 +68,7 @@ const branches: BranchDTO[] = [
 ];
 
 const warehouses: WarehouseDTO[] = [
-  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true },
+  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
 ];
 
 function purchaseOrder(overrides: Partial<PurchaseOrderDTO> = {}): PurchaseOrderDTO {
@@ -107,6 +107,7 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
     totalCost: "1700.000000",
     createdBy: "محمد الشهابي",
     createdAt: "2026-08-19T10:00:00.000Z",
+    projectId: null,
     ...overrides,
   };
 }
@@ -119,6 +120,7 @@ const baseHandlers: Record<string, (init: RequestInit | undefined, path: string)
   "GET /branches": () => ({ body: branches }),
   "GET /warehouses": () => ({ body: warehouses }),
   "GET /users": () => ({ body: [] }),
+  "GET /projects": () => ({ body: [] }),
 };
 
 function renderScreen(transport: Transport) {
@@ -280,5 +282,95 @@ describe("GoodsReceiptsScreen", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("تعذر الاستلام: أمر الشراء مغلق بالفعل");
     expect(screen.queryByText("PO_ALREADY_CLOSED")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * D73: a partial delivery is the normal case in Egyptian wholesale. The
+ * from-PO path used to preview the outstanding quantity with no way to change
+ * it, so every receipt taken through the browser was 100% of what was owed.
+ */
+describe("GoodsReceiptsScreen — a partial receipt against a purchase order", () => {
+  it("sends the quantity the storekeeper actually received, not the PO's outstanding quantity", async () => {
+    let posted: Record<string, unknown> | null = null;
+    const order = purchaseOrder();
+    const transport = stubTransport({
+      ...baseHandlers,
+      "GET /purchases/receipts": () => ({ body: [] }),
+      "GET /purchases/orders": () => ({ body: [order] }),
+      "POST /purchases/receipts": (init) => {
+        posted = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
+        return { body: goodsReceipt({ id: "gr-new", number: "GR-000099" }) };
+      },
+    });
+    renderScreen(transport);
+
+    await screen.findByText("لا توجد إيصالات استلام مطابقة");
+    fireEvent.click(screen.getAllByRole("button", { name: "إيصال استلام جديد" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "أمر الشراء *", order.number);
+
+    const qtyField = await screen.findByLabelText("الكمية المستلمة");
+    expect(qtyField).toHaveValue(50);
+
+    fireEvent.change(qtyField, { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+
+    await waitFor(() => expect(posted).not.toBeNull());
+    expect(posted).toMatchObject({
+      purchaseOrderId: "po-1",
+      lines: [{ itemId: "item-cement", qty: "20", unitCost: "85" }],
+    });
+    expect(await screen.findByRole("heading", { name: "إيصالات الاستلام" })).toBeInTheDocument();
+  });
+
+  it("refuses more than the purchase order still owes, and drops a line received at zero instead of sending a zero", async () => {
+    let posted: Record<string, unknown> | null = null;
+    const order = purchaseOrder({
+      lines: [
+        { itemId: "item-cement", description: null, qty: "50.000000", unitPrice: "85.000000", receivedQty: "0.000000" },
+        { itemId: "item-sand", description: null, qty: "8.000000", unitPrice: "12.000000", receivedQty: "0.000000" },
+      ],
+    });
+    const transport = stubTransport({
+      ...baseHandlers,
+      "GET /purchases/receipts": () => ({ body: [] }),
+      "GET /purchases/orders": () => ({ body: [order] }),
+      "POST /purchases/receipts": (init) => {
+        posted = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
+        return { body: goodsReceipt({ id: "gr-new", number: "GR-000099" }) };
+      },
+    });
+    renderScreen(transport);
+
+    await screen.findByText("لا توجد إيصالات استلام مطابقة");
+    fireEvent.click(screen.getAllByRole("button", { name: "إيصال استلام جديد" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "أمر الشراء *", order.number);
+
+    const qtyFields = await screen.findAllByLabelText("الكمية المستلمة");
+    expect(qtyFields).toHaveLength(2);
+    expect(screen.getByText("المتبقي على أمر الشراء: 50")).toBeInTheDocument();
+    expect(screen.getByText("المتبقي على أمر الشراء: 8")).toBeInTheDocument();
+
+    // Above the outstanding quantity: refused on that row, and the save is barred.
+    fireEvent.change(qtyFields[0]!, { target: { value: "60" } });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "الكمية المستلمة لا يمكن أن تتجاوز المتبقي على أمر الشراء (50).",
+    );
+    expect(screen.getByRole("button", { name: "حفظ مسودة" })).toBeDisabled();
+    // The refusal belongs to the row it came from — the other row is untouched.
+    expect(qtyFields[1]).toHaveValue(8);
+
+    fireEvent.change(qtyFields[0]!, { target: { value: "50" } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // Nothing of the second item arrived: the line is omitted, not sent as zero.
+    fireEvent.change(qtyFields[1]!, { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+
+    await waitFor(() => expect(posted).not.toBeNull());
+    expect(posted).toMatchObject({ lines: [{ itemId: "item-cement", qty: "50", unitCost: "85" }] });
+    expect((posted as unknown as { lines: unknown[] }).lines).toHaveLength(1);
   });
 });

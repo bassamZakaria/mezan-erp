@@ -134,6 +134,7 @@ function line(overrides: Partial<SalesInvoiceLine> & { lineId: string; itemId: s
     revenueAccountId: REVENUE,
     cogsAccountId: COGS,
     inventoryAccountId: INVENTORY,
+    costCenterId: null,
     unitCost: null,
     unitCode: "", unitFactor: 1, discountType: "percent" as const, discountAmount: Money.zero(),
     ...overrides,

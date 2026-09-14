@@ -6,6 +6,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 import { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
 
 /**
  * حركة المخزون — Stock Movement (docs/archive/catalog/08-reports.md): every stock-
@@ -25,6 +26,7 @@ export interface InventoryMovementParams {
   readonly direction: "" | "IN" | "OUT";
   readonly itemId: string;
   readonly warehouseId: string;
+  readonly branchId: string;
 }
 
 export interface InventoryMovementRow {
@@ -46,6 +48,7 @@ const paramsSchema = z.object({
   direction: z.enum(["", "IN", "OUT"]),
   itemId: z.string(),
   warehouseId: z.string(),
+  branchId: branchIdParamSchema,
 });
 
 export function createInventoryMovementReport(
@@ -57,7 +60,7 @@ export function createInventoryMovementReport(
     titleAr: "حركة المخزون",
     descriptionAr: "ما الذي حرك المخزون دخولاً وخروجاً في هذه الفترة.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, direction: "", itemId: "", warehouseId: "" },
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, direction: "", itemId: "", warehouseId: "", branchId: "" },
     paramFields: [
       { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
@@ -72,6 +75,7 @@ export function createInventoryMovementReport(
       },
       { kind: "text", key: "itemId", label: "الصنف", placeholder: "معرف الصنف" },
       { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.movementId,
     columns: [
@@ -100,11 +104,13 @@ export function createInventoryMovementReport(
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
+      const branchOf = branchOfWarehouse(ctx.warehouses);
       return ctx.movements
         .filter((m) => withinDateRange(m.occurredAt.slice(0, 10), params.dateFrom, params.dateTo))
         .filter((m) => params.direction === "" || m.direction === params.direction)
         .filter((m) => params.itemId === "" || m.itemId === params.itemId)
         .filter((m) => params.warehouseId === "" || m.warehouseId === params.warehouseId)
+        .filter((m) => matchesBranch(branchOf(m.warehouseId), params.branchId))
         .map((m) => ({
           movementId: m.id,
           date: m.occurredAt.slice(0, 10),

@@ -14,6 +14,7 @@ import { createPurchaseOrder, confirmPurchaseOrder, cancelPurchaseOrder } from "
 import {
   DuplicatePurchaseDocumentError,
   GoodsReceiptNotFoundError,
+  InvalidPurchaseDocumentError,
   OverReceiptError,
   PurchaseOrderNotFoundError,
   PurchaseOrderNotReceivableError,
@@ -165,6 +166,22 @@ describe("goods receipt — receiving lifecycle", () => {
     ).rejects.toThrow(DuplicatePurchaseDocumentError);
   });
 
+  it("refuses a line costCategory when the receipt carries no projectId", async () => {
+    const { orders, numbering } = await sentOrder();
+    const receipts = new InMemoryGoodsReceipts();
+    await expect(
+      createGoodsReceipt(
+        {
+          id: "gr-1",
+          purchaseOrderId: "po-1",
+          date: "2026-08-22",
+          lines: [{ itemId: "item-A", qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("25.00"), costCategory: "materials" }],
+        },
+        { receipts, orders, numbering },
+      ),
+    ).rejects.toThrow(InvalidPurchaseDocumentError);
+  });
+
   it("404s confirming an unknown receipt", async () => {
     const orders = new InMemoryPurchaseOrders();
     const receipts = new InMemoryGoodsReceipts();
@@ -215,8 +232,8 @@ describe("goods receipt — GL posting (both stock and control account)", () => 
       goodsReceivedNotInvoicedAccountId: ACCOUNTS.goodsReceivedNotInvoicedAccountId as string,
     });
     expect(posting.lines).toEqual([
-      { accountId: "1300-inventory", debit: expect.anything(), credit: Money.zero() },
-      { accountId: "2150-grni", debit: Money.zero(), credit: expect.anything() },
+      { accountId: "1300-inventory", debit: expect.anything(), credit: Money.zero(), projectId: null },
+      { accountId: "2150-grni", debit: Money.zero(), credit: expect.anything(), projectId: null },
     ]);
     const debit = posting.lines[0]?.debit as Money;
     const credit = posting.lines[1]?.credit as Money;
@@ -224,6 +241,36 @@ describe("goods receipt — GL posting (both stock and control account)", () => 
     expect(credit.toString()).toBe("310.000000");
     expect(debit.equals(credit)).toBe(true);
     expect(debit.toString()).toBe(goodsReceiptTotalCost(receipt).toString());
+  });
+
+  it("carries the header projectId on every line and costCategory only on the inventory (cost) line", () => {
+    const receipt = {
+      id: "gr-2",
+      number: "GR-000002",
+      date: "2026-08-22",
+      purchaseOrderId: "po-1",
+      supplierId: "sup-1",
+      branchId: "MAIN",
+      warehouseId: WH,
+      status: "confirmed",
+      invoiced: false,
+      notes: null,
+      projectId: "proj-1",
+      createdBy: "user-1",
+      createdAt: "2026-08-22T00:00:00.000Z",
+      lines: [
+        { itemId: "item-A", description: null, qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("25.00"), costCategory: "materials" },
+      ],
+    } as Parameters<typeof buildGoodsReceiptPosting>[0];
+    const posting = buildGoodsReceiptPosting(receipt, {
+      inventoryAccountId: ACCOUNTS.inventoryAccountId,
+      goodsReceivedNotInvoicedAccountId: ACCOUNTS.goodsReceivedNotInvoicedAccountId as string,
+    });
+    expect(posting.lines.every((l) => l.projectId === "proj-1")).toBe(true);
+    const inventoryLine = posting.lines.find((l) => l.accountId === "1300-inventory");
+    const grniLine = posting.lines.find((l) => l.accountId === "2150-grni");
+    expect(inventoryLine?.costCategory).toBe("materials");
+    expect(grniLine?.costCategory).toBeUndefined();
   });
 
   it("confirm posts both the stock ledger AND the GL control account when GL deps are wired", async () => {

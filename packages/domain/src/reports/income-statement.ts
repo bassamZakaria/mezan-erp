@@ -1,10 +1,18 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import {
   type GlReportContext,
   classifyAccount,
   moneyToNumber,
   netBalancesByAccount,
+  unattributedNetBalancesByAccount,
 } from "./gl-shared.js";
+import {
+  BRANCH_STATEMENT_NOTE_AR,
+  BRANCH_STATEMENT_PARAM_FIELD,
+  UNATTRIBUTED_BRANCH_LABEL,
+  branchIdParamSchema,
+} from "./branch-filter.js";
 import { COMPARISON_LABEL_AR, type ComparisonMode, comparativeRange } from "./comparative-period.js";
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
@@ -25,6 +33,8 @@ export interface IncomeStatementParams {
   readonly periodFrom: string;
   readonly periodTo: string;
   readonly compareTo: ComparisonMode;
+  /** الفرع — "" for every branch, a branch id, or the «غير مخصص» bucket (DEC-20). */
+  readonly branchId: string;
 }
 
 export interface IncomeStatementRow {
@@ -40,15 +50,22 @@ export interface IncomeStatementRow {
   readonly priorAmount: number;
   /** `amount − priorAmount`. Positive always means "better for net income". */
   readonly variance: number;
+  /**
+   * «غير مخصص» — the part of this line's current-period result carrying no
+   * branch. Unchanged by the branch parameter: it is the reconciling item
+   * between the branch columns and the entity (DEC-20).
+   */
+  readonly unattributed: number;
 }
 
-const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD");
+const DATE = isoDateParamSchema;
 
 const paramsSchema = z
   .object({
     periodFrom: DATE,
     periodTo: DATE,
     compareTo: z.enum(["previous", "lastYear"]).default("previous"),
+    branchId: branchIdParamSchema,
   })
   .refine((p) => p.periodFrom <= p.periodTo, {
     message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",
@@ -67,14 +84,16 @@ export function incomeStatementNetIncome(rows: readonly IncomeStatementRow[]): n
 }
 
 export function createIncomeStatementReport(
-  defaultParams: Omit<IncomeStatementParams, "compareTo"> & Partial<Pick<IncomeStatementParams, "compareTo">>,
+  defaultParams: Omit<IncomeStatementParams, "compareTo" | "branchId"> &
+    Partial<Pick<IncomeStatementParams, "compareTo" | "branchId">>,
 ): ReportDefinition<IncomeStatementParams, IncomeStatementRow, GlReportContext> {
   return {
     id: "accounting.income-statement",
     titleAr: "قائمة الدخل",
-    descriptionAr: "الإيرادات والمصروفات وصافي الدخل خلال الفترة المحددة، محسوبة من القيود المرحّلة، مقارنةً بفترة سابقة.",
+    descriptionAr:
+      "الإيرادات والمصروفات وصافي الدخل خلال الفترة المحددة، محسوبة من القيود المرحّلة، مقارنةً بفترة سابقة. " + BRANCH_STATEMENT_NOTE_AR,
     paramsSchema,
-    defaultParams: { compareTo: "previous", ...defaultParams },
+    defaultParams: { compareTo: "previous", branchId: "", ...defaultParams },
     paramFields: [
       { kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
       {
@@ -86,6 +105,7 @@ export function createIncomeStatementReport(
           { value: "lastYear", label: COMPARISON_LABEL_AR.lastYear },
         ],
       },
+      BRANCH_STATEMENT_PARAM_FIELD,
     ],
     rowKey: (row) => row.accountId,
     columns: [
@@ -94,6 +114,7 @@ export function createIncomeStatementReport(
       { key: "amount", header: "الفترة الحالية", format: "money", align: "end", total: true, value: (row) => row.amount },
       { key: "priorAmount", header: "فترة المقارنة", format: "money", align: "end", total: true, value: (row) => row.priorAmount },
       { key: "variance", header: "التغيّر", format: "variance", align: "end", total: true, value: (row) => row.variance },
+      { key: "unattributed", header: UNATTRIBUTED_BRANCH_LABEL, format: "money", align: "end", total: true, value: (row) => row.unattributed },
     ],
     group: {
       key: (row) => row.sectionKey,
@@ -115,8 +136,11 @@ export function createIncomeStatementReport(
       // Without `excludeYearEndClose` the closing entry — dated 31 December of
       // the year it closes — nets every P&L account to zero, so the annual
       // قائمة الدخل reads nil revenue and nil profit.
-      const current = netBalancesByAccount(ctx.journalEntries, { from: params.periodFrom, to: params.periodTo }, { excludeYearEndClose: true });
-      const previous = netBalancesByAccount(ctx.journalEntries, { from: prior.from, to: prior.to }, { excludeYearEndClose: true });
+      const window = { from: params.periodFrom, to: params.periodTo };
+      const scoped = { excludeYearEndClose: true, branchScope: ctx.branchScope };
+      const current = netBalancesByAccount(ctx.journalEntries, window, { ...scoped, branchId: params.branchId });
+      const previous = netBalancesByAccount(ctx.journalEntries, { from: prior.from, to: prior.to }, { ...scoped, branchId: params.branchId });
+      const unattributed = unattributedNetBalancesByAccount(ctx.journalEntries, window, scoped);
       const rows: IncomeStatementRow[] = [];
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
@@ -124,9 +148,12 @@ export function createIncomeStatementReport(
         if (section !== "revenue" && section !== "expense") continue;
         const currentNet = moneyToNumber(current.get(account.id) ?? Money.zero());
         const priorNet = moneyToNumber(previous.get(account.id) ?? Money.zero());
+        const unattributedNet = moneyToNumber(unattributed.get(account.id) ?? Money.zero());
         // An account active in only one of the two windows still belongs in a
         // comparison — dropping it would hide exactly the change being looked for.
-        if (currentNet === 0 && priorNet === 0) continue;
+        // An account whose only movement this period is unattributed belongs too:
+        // that IS the figure a branch reader has to add back (DEC-20).
+        if (currentNet === 0 && priorNet === 0 && unattributedNet === 0) continue;
         // Revenue is credit-normal (net<0) → positive earned; expense is
         // debit-normal (net>0) → negative, so the grand total is net income.
         const isRevenue = section === "revenue";
@@ -143,6 +170,7 @@ export function createIncomeStatementReport(
           amount,
           priorAmount,
           variance: amount - priorAmount,
+          unattributed: -unattributedNet,
         });
       }
       // Stable section order: revenue → cogs → opex.

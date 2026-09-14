@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { type GlReportContext, accountNet, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
@@ -34,7 +35,7 @@ export interface AccountLedgerRow {
   readonly periodTo: string;
 }
 
-const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD");
+const DATE = isoDateParamSchema;
 
 function buildParamsSchema(accountIds: readonly string[]): z.ZodType<AccountLedgerParams> {
   return z

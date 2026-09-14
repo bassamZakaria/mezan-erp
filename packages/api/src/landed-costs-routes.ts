@@ -13,6 +13,7 @@ import {
 import { createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { tenantDay } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
   return {
@@ -26,7 +27,14 @@ function serializeLine(l: LandedCostLine) {
     allocatedAmount: l.allocatedAmount.toString(),
     newUnitCost: l.newUnitCost.toString(),
     distributionMethod: l.distributionMethod,
-    costItems: l.costItems.map((ci) => ({ costType: ci.costType, description: ci.description, amount: ci.amount.toString() })),
+    costItems: l.costItems.map((ci) => ({
+      costType: ci.costType,
+      description: ci.description,
+      amount: ci.amount.toString(),
+      supplierId: ci.supplierId ?? null,
+    })),
+    projectId: l.projectId ?? null,
+    costCategory: l.costCategory ?? null,
   };
 }
 
@@ -85,6 +93,7 @@ export function createLandedCostsRoutes(
         costType: ci.costType,
         description: ci.description,
         amount: Money.fromMajor(ci.amount),
+        supplierId: ci.supplierId ?? null,
       }));
       const targets = parsed.data.targets.map((t) => ({
         itemId: t.itemId,
@@ -94,6 +103,8 @@ export function createLandedCostsRoutes(
         qty: Qty.fromMajor(t.qty),
         unitCost: Money.fromMajor(t.unitCost),
         weight: Qty.fromMajor(t.weight),
+        projectId: parsed.data.projectId ?? null,
+        costCategory: t.costCategory ?? null,
       }));
       const allocated = distributeLandedCost(costItems, parsed.data.distributionMethod, targets);
       const lines: LandedCostLine[] = allocated.map((a) => ({
@@ -101,7 +112,7 @@ export function createLandedCostsRoutes(
         costItems,
         distributionMethod: parsed.data.distributionMethod,
       }));
-      const doc = await documents.createDraft({ id: parsed.data.id, date: parsed.data.date, memo: parsed.data.memo, lines });
+      const doc = await documents.createDraft({ id: parsed.data.id, date: await tenantDay(c, parsed.data.date), memo: parsed.data.memo, lines });
       return c.json(serialize(doc), 201);
     } catch (err) {
       if (err instanceof EmptyLandedCostTargetsError || err instanceof ZeroLandedCostWeightError) {
@@ -114,7 +125,23 @@ export function createLandedCostsRoutes(
   app.post("/:id/confirm", gate("purchases.landed_cost.confirm"), async (c) => {
     try {
       const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c) });
-      return c.json({ document: serialize(result.document), held: result.held });
+      return c.json({
+        document: serialize(result.document),
+        held: result.held,
+        // A landed cost that arrives after the goods were sold cannot raise the
+        // basis of stock that is gone. That part is reclassified out of
+        // inventory into cost of sales, and the caller is told how much and by
+        // which entry rather than being left to wonder why the valuation report
+        // moved by less than the document's total (D84).
+        unabsorbedTotal: result.unabsorbedTotal.toString(),
+        unabsorbedJournalEntryId: result.unabsorbedJournalEntryId,
+        unabsorbed: result.unabsorbed.map((u) => ({
+          itemId: u.itemId,
+          warehouseId: u.warehouseId,
+          sourceInvoiceId: u.sourceInvoiceId,
+          amount: u.amount.toString(),
+        })),
+      });
     } catch (err) {
       return handleDocumentError(c, err);
     }

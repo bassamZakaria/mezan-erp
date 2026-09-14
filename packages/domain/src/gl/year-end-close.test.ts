@@ -14,6 +14,7 @@ import {
   NothingToCloseError,
   type CloseYearDeps,
 } from "./year-end-close.js";
+import type { PostedLine, PostedLineFilter } from "./ledger.js";
 import {
   InMemoryLedgerRepository,
   InMemorySequenceStore,
@@ -329,5 +330,238 @@ describe("closeFiscalYear", () => {
     expect((await ledger.accountBalance("4000", "2026-12-31")).balance.toString()).toBe("-10000.000000");
     expect((await ledger.accountBalance("5000", "2026-12-31")).balance.toString()).toBe("4000.000000");
     expect((await ledger.accountBalance("3900", "2026-12-31")).balance.toString()).toBe("0.000000");
+  });
+});
+
+/**
+ * The in-memory ledger of the other tests does not implement the optional
+ * `listLines`, which is exactly the fallback path they exercise. This one does,
+ * so the close can be watched preserving the dimension a real SQLite ledger
+ * carries.
+ */
+class DimensionalLedger extends InMemoryLedgerRepository {
+  async listLines(filter: PostedLineFilter = {}): Promise<readonly PostedLine[]> {
+    const entries = await this.list({ fromDate: filter.fromDate, toDate: filter.toDate });
+    const out: PostedLine[] = [];
+    for (const entry of entries) {
+      if (entry.status !== "posted" && entry.status !== "reversed") continue;
+      for (const line of entry.lines) {
+        if (filter.accountIds && !filter.accountIds.includes(line.accountId)) continue;
+        if (filter.projectId !== undefined && line.projectId !== filter.projectId) continue;
+        out.push({
+          entryId: entry.id,
+          entryNo: entry.entryNo ?? null,
+          date: entry.date,
+          source: entry.source ?? "manual",
+          accountId: line.accountId,
+          branchId: line.branchId ?? null,
+          costCenterId: line.costCenterId ?? null,
+          projectId: line.projectId ?? null,
+          costCategory: line.costCategory ?? null,
+          currency: line.currency ?? null,
+          fxRate: line.fxRate ?? null,
+          memo: line.memo ?? null,
+          debit: line.debit,
+          credit: line.credit,
+        });
+      }
+    }
+    return out;
+  }
+}
+
+describe("the close preserves بُعد المشروع", () => {
+  async function twoProjectHarness() {
+    const base = await harness();
+    const ledger = new DimensionalLedger();
+    const deps: CloseYearDeps = { ...base.deps, ledger };
+
+    // 4000 earns on both projects; 5000 spends on one of them and once with no
+    // project at all, so the undimensioned remainder has to survive too.
+    await postJournalEntry(
+      {
+        id: "je-a",
+        date: "2026-06-15",
+        memo: "Certificate — project A",
+        lines: [
+          { accountId: "1300-1", debit: Money.fromMajor("10000"), credit: Money.zero() },
+          { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("10000"), projectId: "PRJ-A" },
+        ],
+      },
+      deps,
+    );
+    await postJournalEntry(
+      {
+        id: "je-b",
+        date: "2026-06-16",
+        memo: "Certificate — project B",
+        lines: [
+          { accountId: "1300-1", debit: Money.fromMajor("4000"), credit: Money.zero() },
+          { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("4000"), projectId: "PRJ-B" },
+        ],
+      },
+      deps,
+    );
+    await postJournalEntry(
+      {
+        id: "je-c",
+        date: "2026-06-17",
+        memo: "Site cost — project A",
+        lines: [
+          { accountId: "5000", debit: Money.fromMajor("6000"), credit: Money.zero(), projectId: "PRJ-A" },
+          { accountId: "1300-1", debit: Money.zero(), credit: Money.fromMajor("6000") },
+        ],
+      },
+      deps,
+    );
+    await postJournalEntry(
+      {
+        id: "je-d",
+        date: "2026-06-18",
+        memo: "Head-office cost",
+        lines: [
+          { accountId: "5000", debit: Money.fromMajor("1000"), credit: Money.zero() },
+          { accountId: "1300-1", debit: Money.zero(), credit: Money.fromMajor("1000") },
+        ],
+      },
+      deps,
+    );
+    return { deps, ledger };
+  }
+
+  it("plans one line per (account, project), and the undimensioned remainder keeps a null project", async () => {
+    const { deps } = await twoProjectHarness();
+    const plan = await planYearEndClose({ year: 2026, retainedEarningsAccountId: "3900" }, deps);
+
+    expect(plan.lines).toHaveLength(4);
+    const key = (accountId: string, projectId: string | null) =>
+      plan.lines.find((l) => l.accountId === accountId && l.projectId === projectId);
+
+    expect(key("4000", "PRJ-A")?.debit.toString()).toBe("10000.000000");
+    expect(key("4000", "PRJ-B")?.debit.toString()).toBe("4000.000000");
+    expect(key("5000", "PRJ-A")?.credit.toString()).toBe("6000.000000");
+    expect(key("5000", null)?.credit.toString()).toBe("1000.000000");
+
+    // The totals are the account totals — splitting by project moved nothing.
+    expect(plan.revenueClosed.toString()).toBe("14000.000000");
+    expect(plan.expensesClosed.toString()).toBe("7000.000000");
+    expect(plan.netResult.toString()).toBe("7000.000000");
+  });
+
+  it("posts a balanced entry whose P&L lines carry their project, and reports the ACCOUNT count", async () => {
+    const { deps, ledger } = await twoProjectHarness();
+    const result = await closeFiscalYear({ year: 2026, retainedEarningsAccountId: "3900" }, deps);
+    expect(result.accountsClosed).toBe(2);
+
+    const entry = (await ledger.findById("YEAR-CLOSE:2026"))!;
+    expect(entry.lines).toHaveLength(5);
+    const totalDebit = Money.sum(entry.lines.map((l) => l.debit));
+    const totalCredit = Money.sum(entry.lines.map((l) => l.credit));
+    expect(totalDebit.scaled).toBe(totalCredit.scaled);
+    expect(totalDebit.toString()).toBe("14000.000000");
+
+    expect(entry.lines.filter((l) => l.accountId === "4000").map((l) => l.projectId).sort()).toEqual(["PRJ-A", "PRJ-B"]);
+    expect(entry.lines.filter((l) => l.accountId === "5000").map((l) => l.projectId).sort()).toEqual(["PRJ-A", null]);
+
+    // Equity, not a project slot — the balancing line stays whole.
+    const retained = entry.lines.filter((l) => l.accountId === "3900");
+    expect(retained).toHaveLength(1);
+    expect(retained[0]?.projectId).toBeNull();
+    expect(retained[0]?.credit.toString()).toBe("7000.000000");
+
+    // Every P&L account is flat, per project as well as in total.
+    expect((await ledger.accountBalance("4000", "2026-12-31")).balance.scaled).toBe(0n);
+    expect((await ledger.accountBalance("5000", "2026-12-31")).balance.scaled).toBe(0n);
+    const perProject = await ledger.listLines({ toDate: "2026-12-31", projectId: "PRJ-A" });
+    const netA = perProject
+      .filter((l) => l.accountId === "4000" || l.accountId === "5000")
+      .reduce((sum, l) => sum + l.debit.scaled - l.credit.scaled, 0n);
+    expect(netA).toBe(0n);
+  });
+
+  it("is accepted by postJournalEntry when both P&L accounts are project-required", async () => {
+    const { deps, ledger } = await twoProjectHarness();
+    const projectRequiredAccountIds = new Set(["4000", "5000"]);
+
+    // The whole point: the old close emitted 5000 with no project and this
+    // refused it. Only the head-office line may stay undimensioned, so post
+    // that cost onto a project too.
+    await postJournalEntry(
+      {
+        id: "je-e",
+        date: "2026-06-19",
+        memo: "Reclass head-office cost onto project B",
+        lines: [
+          { accountId: "5000", debit: Money.fromMajor("1000"), credit: Money.zero(), projectId: "PRJ-B" },
+          { accountId: "5000", debit: Money.zero(), credit: Money.fromMajor("1000") },
+        ],
+      },
+      deps,
+    );
+
+    const result = await closeFiscalYear(
+      { year: 2026, retainedEarningsAccountId: "3900" },
+      { ...deps, projectRequiredAccountIds },
+    );
+    expect(result.netResult.toString()).toBe("7000.000000");
+
+    const entry = (await ledger.findById(result.journalEntryId))!;
+    for (const line of entry.lines) {
+      if (projectRequiredAccountIds.has(line.accountId)) expect(line.projectId).not.toBeNull();
+    }
+  });
+
+  it("splits the balancing line too when retained earnings is itself project-required", async () => {
+    const { deps, ledger } = await twoProjectHarness();
+    // A chart that routes retained earnings through a project slot can only be
+    // closed if every P&L movement carries a project, so move the head-office
+    // cost onto B first.
+    await postJournalEntry(
+      {
+        id: "je-e",
+        date: "2026-06-19",
+        memo: "Reclass head-office cost onto project B",
+        lines: [
+          { accountId: "5000", debit: Money.fromMajor("1000"), credit: Money.zero(), projectId: "PRJ-B" },
+          { accountId: "5000", debit: Money.zero(), credit: Money.fromMajor("1000") },
+        ],
+      },
+      deps,
+    );
+
+    const result = await closeFiscalYear(
+      { year: 2026, retainedEarningsAccountId: "3900" },
+      { ...deps, projectRequiredAccountIds: new Set(["3900"]) },
+    );
+
+    const entry = (await ledger.findById(result.journalEntryId))!;
+    const retained = entry.lines.filter((l) => l.accountId === "3900");
+    // A: 10000 earned − 6000 spent = 4000. B: 4000 earned − 1000 spent = 3000.
+    expect(
+      retained.map((l) => [l.projectId, (l.credit.scaled - l.debit.scaled).toString()] as const).sort(),
+    ).toEqual([
+      ["PRJ-A", Money.fromMajor("4000").scaled.toString()],
+      ["PRJ-B", Money.fromMajor("3000").scaled.toString()],
+    ]);
+
+    const totalDebit = Money.sum(entry.lines.map((l) => l.debit));
+    const totalCredit = Money.sum(entry.lines.map((l) => l.credit));
+    expect(totalDebit.scaled).toBe(totalCredit.scaled);
+    expect((await ledger.accountBalance("3900", "2026-12-31")).balance.toString()).toBe("-7000.000000");
+  });
+
+  it("reversing the dimensional close restores every project's balance", async () => {
+    const { deps, ledger } = await twoProjectHarness();
+    const result = await closeFiscalYear({ year: 2026, retainedEarningsAccountId: "3900" }, deps);
+    const { reversal } = await reverseJournalEntry(result.journalEntryId, deps, { reversalId: "je-close-rev" });
+
+    expect(reversal.lines.filter((l) => l.accountId === "4000").map((l) => l.projectId).sort()).toEqual([
+      "PRJ-A",
+      "PRJ-B",
+    ]);
+    const revenueA = (await ledger.listLines({ toDate: "2026-12-31", projectId: "PRJ-A" }))
+      .filter((l) => l.accountId === "4000")
+      .reduce((sum, l) => sum + l.debit.scaled - l.credit.scaled, 0n);
+    expect(revenueA).toBe(-Money.fromMajor("10000").scaled);
   });
 });

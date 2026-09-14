@@ -200,6 +200,10 @@ describe("createPurchaseReturnDocumentType — validate (pure)", () => {
     expect(() => type.validate?.(doc([line({ unitCost: Money.fromMajor("-1") })]))).toThrow(/لا يمكن أن تكون سالبة/);
     expect(() => type.validate?.(doc([line({ taxAmount: Money.fromMajor("-1") })]))).toThrow(/لا يمكن أن تكون سالبة/);
   });
+
+  it("rejects a line costCategory when the return carries no projectId", () => {
+    expect(() => type.validate?.(doc([line({ costCategory: "materials" })]))).toThrow(InvalidDocumentError);
+  });
 });
 
 describe("createPurchaseReturnDocumentType — buildGlPosting variance branches", () => {
@@ -267,5 +271,19 @@ describe("createPurchaseReturnDocumentType — buildGlPosting variance branches"
   it("omits the input-tax line when no line carries tax", () => {
     const posting = type.buildGlPosting?.(doc([line({ taxAmount: Money.zero() })]), { valueMoved: Money.fromMajor("-120") });
     expect(posting?.lines.some((l) => l.accountId === "INPUT_TAX")).toBe(false);
+  });
+
+  it("carries the header projectId on every line and costCategory only on the inventory (cost) line", () => {
+    const posting = type.buildGlPosting?.(
+      doc([line({ projectId: "proj-1", costCategory: "materials" })]),
+      { valueMoved: Money.fromMajor("-120") },
+    );
+    expect(posting?.lines.every((l) => l.projectId === "proj-1")).toBe(true);
+    const inv = posting?.lines.find((l) => l.accountId === "INVENTORY");
+    const ap = posting?.lines.find((l) => l.accountId === "AP");
+    const tax = posting?.lines.find((l) => l.accountId === "INPUT_TAX");
+    expect(inv?.costCategory).toBe("materials");
+    expect(ap?.costCategory).toBeUndefined();
+    expect(tax?.costCategory).toBeUndefined();
   });
 });

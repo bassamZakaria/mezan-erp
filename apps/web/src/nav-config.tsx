@@ -140,6 +140,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
         defaultCollapsed: true,
         itemKeys: [
           "report-inventory-stock-levels",
+          "report-inventory-goods-in-transit",
           "report-inventory-movement",
           "report-inventory-ledger",
           "report-inventory-valuation",
@@ -189,8 +190,8 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
     sections: [
       { key: "daily", itemKeys: ["journals"] },
       { key: "close", itemKeys: ["fiscal-periods", "reconciliation", "bank-reconciliation", "revaluation", "eta"] },
-      { key: "master", defaultCollapsed: true, itemKeys: ["coa", "cost-centers", "taxes", "exchange-rates"] },
-      { key: "reports", defaultCollapsed: true, itemKeys: ["trial-balance-report", "financial-reports", "cost-center-pl"] },
+      { key: "master", defaultCollapsed: true, itemKeys: ["coa", "cost-centers", "taxes", "tax-simplified-regime", "exchange-rates"] },
+      { key: "reports", defaultCollapsed: true, itemKeys: ["trial-balance-report", "financial-reports", "cost-center-pl", "report-simplified-regime-comparison"] },
     ],
   },
   {
@@ -219,7 +220,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
    * progress certificates, retention and subcontractors with it, and those are
    * a module, not a screen. One row today, the module's own home tomorrow.
    */
-  { key: "contracting", defaultCollapsed: true, itemKeys: ["projects"] },
+  { key: "contracting", defaultCollapsed: true, itemKeys: ["projects", "contracting-contracts", "variation-orders", "certificates", "internal-certificate", "subcontracts", "subcontract-certificates", "guarantees", "revenue-recognition", "site-issues", "material-consumption", "custody-register", "equipment-logs", "retention", "contracting-reports"] },
   {
     key: "setup",
     defaultCollapsed: true,
@@ -262,6 +263,23 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
       {
         key: "permissions",
         itemKeys: ["users", "roles", "settings-workflow", "notification-rules", "audit", "devices", "settings-backup"],
+      },
+      /**
+       * تقارير الرقابة والأمان. The four exception reports read the SAME
+       * append-only trail «سجل المراجعة» serves raw, so they sit beside it
+       * rather than under التقارير — an auditor arrives at the log and finds
+       * the questions already asked, instead of interrogating `action` strings
+       * by hand.
+       */
+      {
+        key: "security",
+        defaultCollapsed: true,
+        itemKeys: [
+          "security-exceptions",
+          "security-post-posting-changes",
+          "security-after-hours",
+          "security-new-accounts",
+        ],
       },
     ],
   },
@@ -364,12 +382,36 @@ export function buildGoToCommandItems(t: Translate): CommandItem[] {
         id: `goto-${key}`,
         label: t(`nav.item.${key}` as AppTranslationKey),
         group: `${t("command.group.goTo")} · ${groupLabel}`,
+        keywords: COMMAND_KEYWORDS[key]?.map((k) => t(k as AppTranslationKey)),
         onSelect: () => {},
       });
     }
   }
   return items;
 }
+
+/**
+ * Report titles that live INSIDE a screen and therefore have no nav label of
+ * their own (§8.4).
+ *
+ * «قائمة الدخل» is a tab within «التقارير المالية», so typing its name into the
+ * command bar matched nothing — the bar searched nav labels and that name is
+ * not one. Attaching the titles as keywords beats minting a nav entry per
+ * statement, which would double the length of the reports group for no
+ * navigational gain: they all open the same screen.
+ */
+const COMMAND_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
+  "financial-reports": [
+    "finReports.incomeStatement",
+    "finReports.balanceSheet",
+    "finReports.cashFlow",
+    "finReports.vatReturn",
+    "finReports.withholdingTax",
+    "finReports.generalLedger",
+    "finReports.financialStatements",
+  ],
+  "trial-balance-report": ["finReports.trialBalance"],
+};
 
 export function buildTopNavItem(t: Translate): NavItem {
   return { key: "dashboard", label: t("nav.item.dashboard"), icon: navItemIcon("dashboard") };

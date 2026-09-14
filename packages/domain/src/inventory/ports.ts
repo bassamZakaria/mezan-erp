@@ -1,3 +1,4 @@
+import type { CostCategory } from "../contracting/cost-category.js";
 /**
  * Ports for the stock-ledger / costing engine. The domain depends only on
  * these interfaces — never on SQL, HTTP, or the GL module (docs/archive/plan.md §3.2).
@@ -66,6 +67,20 @@ export type InventoryDomainEvent =
       readonly averageCostAfter: Money;
     }
   | {
+      /**
+       * An issue that drove a position below zero against stock that was never
+       * received. It is written at a fallback cost rather than at zero (D101);
+       * this event is what stops that being silent.
+       */
+      readonly type: "StockIssuedShort";
+      readonly movementId: string;
+      readonly itemId: string;
+      readonly warehouseId: string;
+      readonly shortQty: Qty;
+      readonly unitCost: Money;
+      readonly costBasis: "last_receipt_here" | "last_receipt_elsewhere" | "item_cost_price";
+    }
+  | {
       readonly type: "StockAdjustmentPosted";
       readonly adjustmentId: string;
       readonly warehouseId: string;
@@ -92,6 +107,10 @@ export interface InventoryGlPostingLine {
   readonly accountId: string;
   readonly debit: Money;
   readonly credit: Money;
+  /** بُعد المشروع — the contracting project the line belongs to (D-01). Dropped here, it is gone for good. */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  readonly costCategory?: CostCategory | null;
 }
 
 /**

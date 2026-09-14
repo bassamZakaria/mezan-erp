@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
 import { purchaseInvoiceTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { Supplier } from "../suppliers/supplier.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * أعمار ديون الموردين — Supplier Debt Aging (docs/archive/catalog/08-reports.md): the
@@ -33,6 +35,7 @@ export interface AgingSuppliersContext {
 
 export interface AgingSuppliersParams {
   readonly asOfDate: string;
+  readonly branchId: string;
 }
 
 export interface AgingSuppliersRow {
@@ -49,7 +52,8 @@ export interface AgingSuppliersRow {
 }
 
 const paramsSchema = z.object({
-  asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  asOfDate: isoDateParamSchema,
+  branchId: branchIdParamSchema,
 });
 
 function daysPastDue(dueDate: string, asOfDate: string): number {
@@ -85,8 +89,8 @@ export function createAgingSuppliersReport(
     titleAr: "أعمار ديون الموردين",
     descriptionAr: "الموردون المتأخرون أكثر من 60 يوماً يستحقون أولوية التسديد (لا يشمل السداد — لا تتبع فواتير المشتريات حالياً دفعات).",
     paramsSchema,
-    defaultParams: { asOfDate: defaultAsOfDate },
-    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }],
+    defaultParams: { asOfDate: defaultAsOfDate, branchId: "" },
+    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.supplierId,
     columns: [
       { key: "supplierNameAr", header: "اسم المورد", format: "text", value: (row) => row.supplierNameAr, entity: { kind: "supplier", id: (row) => row.supplierId } },
@@ -123,6 +127,7 @@ export function createAgingSuppliersReport(
       for (const invoice of ctx.invoices) {
         if (invoice.status !== "confirmed") continue;
         if (invoice.date > params.asOfDate) continue;
+        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
         const outstanding = Money.fromScaled(purchaseInvoiceTotal(invoice).scaled - allocated.scaled);
         if (outstanding.scaled <= 0n) continue;

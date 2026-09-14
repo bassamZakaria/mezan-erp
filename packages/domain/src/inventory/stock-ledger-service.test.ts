@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import { StockLedgerService } from "./stock-ledger-service.js";
-import { NegativeStockError, InvalidStockMovementError } from "./errors.js";
+import { NegativeStockError, InvalidStockMovementError, UncostedDeficitIssueError } from "./errors.js";
 import type { InventoryDomainEvent, InventoryGlPosting } from "./ports.js";
 import {
   InMemoryStockLedger,
@@ -9,7 +9,7 @@ import {
   InMemorySnapshots,
 } from "./test-helpers/in-memory-stores.js";
 
-function build(policy = { allowNegativeStock: false }) {
+function build(policy = { allowNegativeStock: false }, fallbackUnitCost?: (itemId: string) => Money | null) {
   const ledger = new InMemoryStockLedger();
   const layers = new InMemoryCostLayers();
   const snapshots = new InMemorySnapshots();
@@ -24,6 +24,7 @@ function build(policy = { allowNegativeStock: false }) {
     events: { publish: (e) => events.push(e) },
     gl: { post: async (p) => void postings.push(p) },
     clock: () => `2026-02-01T00:00:${String(clockTick++).padStart(2, "0")}.000Z`,
+    fallbackUnitCost,
   });
   return { service, ledger, layers, snapshots, events, postings };
 }
@@ -151,6 +152,45 @@ describe("StockLedgerService — adjustment validation & GL posting", () => {
     expect(cr?.accountId).toBe("5900");
     expect(cr?.credit.toString()).toBe("50.000000");
   });
+
+  it("tags projectId on every line and costCategory only on the counterpart (expense) line, for a stock-out adjustment", async () => {
+    const { service, postings } = build();
+    await service.postAdjustment({
+      adjustmentId: "ADJ1",
+      warehouseId: "W1",
+      reason: "OTHER",
+      lines: [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("5") }],
+    });
+    await service.postAdjustment({
+      adjustmentId: "ADJ2",
+      warehouseId: "W1",
+      reason: "SHORTAGE",
+      lines: [{ itemId: "I1", direction: "OUT", qty: Qty.fromMajor("4") }],
+      gl: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+      projectId: "PROJ-1",
+      costCategory: "materials",
+    });
+    const p = postings[0] as InventoryGlPosting;
+    const inventoryLine = p.lines.find((l) => l.accountId === "1200");
+    const counterpartLine = p.lines.find((l) => l.accountId === "5900");
+    expect(inventoryLine?.projectId).toBe("PROJ-1");
+    expect(counterpartLine?.projectId).toBe("PROJ-1");
+    expect(counterpartLine?.costCategory).toBe("materials");
+    expect(inventoryLine?.costCategory ?? null).toBeNull();
+  });
+
+  it("refuses a costCategory with no projectId on an adjustment", async () => {
+    const { service } = build();
+    await expect(
+      service.postAdjustment({
+        adjustmentId: "ADJ1",
+        warehouseId: "W1",
+        reason: "OTHER",
+        lines: [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("1") }],
+        costCategory: "materials",
+      }),
+    ).rejects.toBeInstanceOf(InvalidStockMovementError);
+  });
 });
 
 describe("StockLedgerService — opening balance (INITIAL_STOCK)", () => {
@@ -269,12 +309,26 @@ describe("StockLedgerService — drift & rebuild", () => {
 });
 
 describe("StockLedgerService — what a deficit issue costs (D101)", () => {
-  it("KNOWN LIMITATION (D101): issuing from a position that was never received costs zero", async () => {
+  it("refuses an issue from an item that was never received anywhere and has no cost price — a zero cost is never right (D101)", async () => {
     const { service } = build({ allowNegativeStock: true });
 
-    // Nothing was ever received: on hand is zero and so is the value, so the
-    // average the issue leaves at is zero — and the movement is written at that
-    // price with nothing on screen to say so.
+    await expect(
+      service.postAdjustment({
+        adjustmentId: "ADJ-DEFICIT",
+        warehouseId: "W1",
+        reason: "SHORTAGE",
+        lines: [{ itemId: "I-NEW", direction: "OUT", qty: Qty.fromMajor("4") }],
+      }),
+    ).rejects.toThrow(UncostedDeficitIssueError);
+
+    const position = await service.getBalanceDetail("I-NEW", "W1");
+    expect(position.onHand.scaled).toBe(0n);
+    expect(position.totalValue.scaled).toBe(0n);
+  });
+
+  it("costs the deficit at the item master's cost price when nothing was ever received, and says so on an event", async () => {
+    const { service, events } = build({ allowNegativeStock: true }, () => Money.fromMajor("7.5"));
+
     await service.postAdjustment({
       adjustmentId: "ADJ-DEFICIT",
       warehouseId: "W1",
@@ -284,12 +338,75 @@ describe("StockLedgerService — what a deficit issue costs (D101)", () => {
 
     const position = await service.getBalanceDetail("I-NEW", "W1");
     expect(position.onHand.toString()).toBe("-4.000000");
-    expect(position.totalValue.scaled).toBe(0n);
-    expect(position.averageCost.scaled).toBe(0n);
+    // 4 units out at 7.50 — COGS carries the whole deficit instead of nothing.
+    expect(position.totalValue.toString()).toBe("-30.000000");
+    expect(position.averageCost.toString()).toBe("7.500000");
 
-    // When D101 is fixed the deficit should be refused, or costed at a
-    // defensible rate (last known price, standard cost) and labelled as such —
-    // this expectation is the one to rewrite.
+    const short = events.filter((e) => e.type === "StockIssuedShort");
+    expect(short).toHaveLength(1);
+    expect(short[0]).toMatchObject({
+      itemId: "I-NEW",
+      warehouseId: "W1",
+      costBasis: "item_cost_price",
+    });
+
+    // And the cache still equals a full replay: the movement carries the cost
+    // it left at, so replay does not recompute a zero behind it.
+    const drift = await service.checkDriftFor("I-NEW", "W1");
+    expect(drift.cacheDrift.toString()).toBe("0.000000");
+  });
+
+  it("prefers the last cost this position was received at over the item master's price", async () => {
+    const { service, events } = build({ allowNegativeStock: true }, () => Money.fromMajor("7.5"));
+    await service.postAdjustment({
+      adjustmentId: "ADJ-IN",
+      warehouseId: "W1",
+      reason: "OTHER",
+      lines: [{ itemId: "I3", direction: "IN", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("4") }],
+    });
+    // Drain it to exactly zero, so the position holds nothing and has no average.
+    await service.postAdjustment({
+      adjustmentId: "ADJ-DRAIN",
+      warehouseId: "W1",
+      reason: "OTHER",
+      lines: [{ itemId: "I3", direction: "OUT", qty: Qty.fromMajor("2") }],
+    });
+    await service.postAdjustment({
+      adjustmentId: "ADJ-SHORT",
+      warehouseId: "W1",
+      reason: "SHORTAGE",
+      lines: [{ itemId: "I3", direction: "OUT", qty: Qty.fromMajor("3") }],
+    });
+
+    const position = await service.getBalanceDetail("I3", "W1");
+    expect(position.onHand.toString()).toBe("-3.000000");
+    expect(position.totalValue.toString()).toBe("-12.000000");
+    expect(events.filter((e) => e.type === "StockIssuedShort")[0]).toMatchObject({
+      costBasis: "last_receipt_here",
+      unitCost: Money.fromMajor("4"),
+    });
+  });
+
+  it("falls back to the last cost the same item was received at in ANOTHER warehouse", async () => {
+    const { service, events } = build({ allowNegativeStock: true });
+    await service.postAdjustment({
+      adjustmentId: "ADJ-OTHER-WH",
+      warehouseId: "W2",
+      reason: "OTHER",
+      lines: [{ itemId: "I4", direction: "IN", qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("6") }],
+    });
+    await service.postAdjustment({
+      adjustmentId: "ADJ-SHORT-W1",
+      warehouseId: "W1",
+      reason: "SHORTAGE",
+      lines: [{ itemId: "I4", direction: "OUT", qty: Qty.fromMajor("2") }],
+    });
+
+    const position = await service.getBalanceDetail("I4", "W1");
+    expect(position.totalValue.toString()).toBe("-12.000000");
+    expect(events.filter((e) => e.type === "StockIssuedShort")[0]).toMatchObject({
+      costBasis: "last_receipt_elsewhere",
+    });
   });
 
   it("costs a deficit issue at the average it had before going negative, when there was one", async () => {
@@ -313,6 +430,20 @@ describe("StockLedgerService — what a deficit issue costs (D101)", () => {
     // position is left owing 9.00 of value against three units it does not have.
     expect(position.totalValue.toString()).toBe("-9.000000");
     expect(position.averageCost.toString()).toBe("3.000000");
+  });
+
+  it("a TRANSFER out of an unknown position is still allowed — both legs take the same cost, so total valuation is unchanged whatever it is", async () => {
+    const { service } = build({ allowNegativeStock: true });
+    await service.postTransfer({
+      transferId: "TRF-DEFICIT",
+      transferNumber: "TRF-000009",
+      fromWarehouseId: "W1",
+      toWarehouseId: "W2",
+      lines: [{ itemId: "I-NEW", qty: Qty.fromMajor("4") }],
+    });
+    expect((await service.getValuation()).totalValue.scaled).toBe(0n);
+    expect((await service.getBalanceDetail("I-NEW", "W1")).onHand.toString()).toBe("-4.000000");
+    expect((await service.getBalanceDetail("I-NEW", "W2")).onHand.toString()).toBe("4.000000");
   });
 
   it("refuses the same issue outright when negative stock is not allowed", async () => {

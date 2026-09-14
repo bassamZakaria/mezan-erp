@@ -22,8 +22,8 @@ describe("CostCenterPnLScreen", () => {
   it("renders P&L grouped by cost center from the real /cost-center-pl route", async () => {
     const report: CostCenterPnLReportDTO = {
       rows: [
-        { costCenterId: "cc-admin", code: "CC-ADM", name: "الإدارة العامة", revenue: "2000.000000", expense: "800.000000", profit: "1200.000000" },
-        { costCenterId: "cc-sales", code: "CC-SLS", name: "المبيعات", revenue: "5000.000000", expense: "300.000000", profit: "4700.000000" },
+        { costCenterId: "cc-admin", code: "CC-ADM", name: "الإدارة العامة", revenue: "2000.000000", expense: "800.000000", profit: "1200.000000", parentId: null, rollup: { revenue: "2000.000000", expense: "800.000000", profit: "1200.000000" } },
+        { costCenterId: "cc-sales", code: "CC-SLS", name: "المبيعات", revenue: "5000.000000", expense: "300.000000", profit: "4700.000000", parentId: null, rollup: { revenue: "5000.000000", expense: "300.000000", profit: "4700.000000" } },
       ],
       totals: { revenue: "7000.000000", expense: "1100.000000", profit: "5900.000000" },
     };
@@ -122,6 +122,7 @@ describe("EtaScreen", () => {
       documentVersion: "1.0",
       autoSubmitOnConfirm: false,
       signingMethod: "eseal",
+      receiptReportingWindowHours: 24,
       clientId: "client-1",
       hasClientSecret: true,
     };

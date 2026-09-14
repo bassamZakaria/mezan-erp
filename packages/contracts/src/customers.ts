@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contract for a Customer (docs/archive/catalog/01-sales.md "العملاء"). Money
@@ -20,7 +21,7 @@ export const customerSchema = z.object({
   notes: z.string().nullable(),
   paymentTermsDays: z.number().int().nonnegative(),
   currency: z.string().min(1),
-  openingBalance: z.string(),
+  openingBalance: moneyString,
   active: z.boolean(),
   priceListId: z.string().nullable(),
   creditLimit: z.string(),
@@ -36,6 +37,8 @@ export const customerSchema = z.object({
 export const createCustomerSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
+  /** The branch that owns this record; omitted, it is stamped from the creator's own scope (D71). */
+  branchId: z.string().min(1).nullish(),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
@@ -46,7 +49,14 @@ export const createCustomerSchema = z.object({
   notes: z.string().nullable().optional(),
   paymentTermsDays: z.number().int().nonnegative().optional(),
   currency: z.string().min(1).optional(),
-  openingBalance: z.string().optional(),
+  openingBalance: moneyString.optional(),
+  /**
+   * The date the opening balance is posted at — it lands in the GL as a debit
+   * to the AR control account against opening-balance equity (D142), so it
+   * decides which fiscal period the migration's debtors fall in. Not stored on
+   * the customer; the posted entry is the record of it. Defaults to today.
+   */
+  openingBalanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   active: z.boolean().optional(),
   priceListId: z.string().nullable().optional(),
   creditLimit: z.string().optional(),
@@ -59,7 +69,10 @@ export const createCustomerSchema = z.object({
 });
 
 /** PATCH /customers/:id body — every field but id optional. */
-export const updateCustomerSchema = customerSchema.omit({ id: true }).partial();
+export const updateCustomerSchema = customerSchema
+  .omit({ id: true })
+  .partial()
+  .extend({ openingBalanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 
 export type EtaBuyerTypeDTO = z.infer<typeof etaBuyerTypeSchema>;
 export type CustomerDTO = z.infer<typeof customerSchema>;

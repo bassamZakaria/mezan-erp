@@ -28,7 +28,7 @@ export { sampleReportAccounts, sampleReportJournalEntries } from "./sample-gl-da
 
 export { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
 export { averageOf, countDistinct, countRows, diffOf, maxOf, percentOf, sumRows } from "./kpi.js";
-export { aggregateItemSales, type ItemSalesAggregate } from "./sales-item-aggregation.js";
+export { aggregateItemSales, creditedRevenueAccountIds, type ItemSalesAggregate } from "./sales-item-aggregation.js";
 export { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
 
 // --- المبيعات — Sales reports (docs/archive/catalog/08-reports.md) -------------
@@ -95,6 +95,12 @@ export {
   type InventoryStockLevelsRow,
   type StockLevelStatus,
 } from "./inventory-stock-levels.js";
+export {
+  createGoodsInTransitReport,
+  type GoodsInTransitContext,
+  type GoodsInTransitParams,
+  type GoodsInTransitRow,
+} from "./goods-in-transit.js";
 export {
   createInventoryMovementReport,
   type InventoryMovementContext,
@@ -202,6 +208,7 @@ export {
   classifyAccount,
   isCashAccount,
   isLedgerEffective,
+  isMemorandumAccount,
   moneyToNumber,
   netBalancesByAccount,
 } from "./gl-shared.js";
@@ -261,3 +268,37 @@ export {
   type AccountLedgerParams,
   type AccountLedgerRow,
 } from "./account-ledger.js";
+
+// --- نموذج 41 — Withholding-tax (Form 41) quarterly filing ---------------
+
+export {
+  amendForm41Filing,
+  assertWithholdingNotFiled,
+  recordForm41Filing,
+  withholdingQuarter,
+  withholdingQuarterOf,
+  DuplicateForm41FilingError,
+  Form41FilingNotFoundError,
+  Form41PeriodAlreadyFiledError,
+  type Form41Filing,
+  type Form41FilingRepository,
+  type Form41FilingStatus,
+  type Form41Quarter,
+  type RecordForm41FilingCommand,
+  type WithholdingQuarter,
+} from "./form41-filing.js";
+export {
+  buildForm41Return,
+  type Form41Return,
+  type Form41ReturnRow,
+} from "./form41-return.js";
+export { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+export {
+  BRANCH_STATEMENT_NOTE_AR,
+  BRANCH_STATEMENT_PARAM_FIELD,
+  UNATTRIBUTED_BRANCH_ID,
+  UNATTRIBUTED_BRANCH_LABEL,
+  matchesStatementBranch,
+  withinBranchScope,
+} from "./branch-filter.js";
+export { isoDateParamSchema, isRealIsoDate } from "./iso-date.js";

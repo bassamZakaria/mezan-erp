@@ -101,10 +101,18 @@ describe("journalDocumentLineSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("silently strips an unrecognised costCenterId — a real dimension a caller could lose", () => {
-    const result = journalDocumentLineSchema.safeParse({ ...line, costCenterId: "cc-1" });
+  it("carries the cost centre and the two contracting dimensions — it used to strip costCenterId (D-01 threading)", () => {
+    const result = journalDocumentLineSchema.safeParse({ ...line, costCenterId: "cc-1", projectId: "prj-1", costCategory: "materials" });
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data).not.toHaveProperty("costCenterId");
+    if (result.success) {
+      expect(result.data.costCenterId).toBe("cc-1");
+      expect(result.data.projectId).toBe("prj-1");
+      expect(result.data.costCategory).toBe("materials");
+    }
+  });
+
+  it("refuses a cost category outside the enum", () => {
+    expect(journalDocumentLineSchema.safeParse({ ...line, projectId: "prj-1", costCategory: "overheads" }).success).toBe(false);
   });
 });
 

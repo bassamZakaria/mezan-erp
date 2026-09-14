@@ -192,6 +192,7 @@ async function voucherHarness() {
     glAccountId: CASH,
     openingBalance: Money.zero(),
     openingBalanceDate: null,
+    guaranteeFacilityLimit: null,
     status: "active",
   });
 

@@ -149,6 +149,35 @@ export interface SalesInvoiceServiceDeps {
   readonly now?: () => string;
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
+  /**
+   * Contracting's billing re-route on confirm. Omit and an invoice posts
+   * exactly where its lines say, as it always did.
+   */
+  readonly contractBilling?: ContractBillingRoutingPort;
+}
+
+/**
+ * The contracting module, as an ordinary sales invoice sees it.
+ *
+ * A cost-to-cost works contract RECOGNISES revenue from the monthly EAS 48
+ * run, never from a document. An ordinary invoice raised on such a project
+ * credited 4100 and the project then carried both that revenue and the run's —
+ * the same work counted twice. When the project is on a live cost_to_cost
+ * contract every REVENUE line is re-routed to the billings account instead, so
+ * the invoice bills and the run alone recognises.
+ */
+export interface ContractBillingRouting {
+  /** حساب فواتير المستخلصات على العقود — 2165 in the standard chart. */
+  readonly billingsAccountId: string;
+  /** The revenue accounts that must move. Anything else (retention, a contra) is left alone. */
+  readonly revenueAccountIds: ReadonlySet<string>;
+  /** Appended to the invoice's memo, so the re-routing is visible on the document itself. */
+  readonly memoAr: string;
+}
+
+export interface ContractBillingRoutingPort {
+  /** Null when the project has no LIVE cost_to_cost works contract. */
+  resolve(projectId: string): Promise<ContractBillingRouting | null>;
 }
 
 /** A draft line, before confirm captures its cost. */
@@ -170,6 +199,8 @@ export interface CreateSalesInvoiceLine {
   readonly revenueAccountId: string;
   readonly cogsAccountId?: string | null;
   readonly inventoryAccountId?: string | null;
+  /** Cost centre this line is booked to; null leaves it unattributed, as before (D97). */
+  readonly costCenterId?: string | null;
 }
 
 export interface CreateSalesInvoiceCommand {
@@ -183,6 +214,7 @@ export interface CreateSalesInvoiceCommand {
   readonly branchId: string;
   readonly salespersonId?: string | null;
   readonly salespersonNameAr?: string | null;
+  readonly projectId?: string | null;
   readonly couponCode?: string | null;
   readonly currency?: string;
   readonly notes?: string | null;
@@ -303,7 +335,7 @@ export class SalesInvoiceService {
     // The promotion is evaluated only once the gate has granted, so a snapshot
     // exists only on an invoice that really went live — and every figure below
     // (credit exposure, GL posting, AR) reflects the discount it granted.
-    const promoted = await this.applyPromotion(existing);
+    const promoted = await this.applyContractBilling(await this.applyPromotion(existing));
     const totals = this.totalsOf(promoted);
 
     const creditWarning = await this.checkCredit(promoted, totals.grandTotal);
@@ -331,6 +363,7 @@ export class SalesInvoiceService {
           sourceDocId: promoted.id,
           sourceDocNumber: docNo,
           warehouseId: promoted.warehouseId,
+          projectId: promoted.projectId,
           occurredAt,
           // BASE units, never the entered ones: a line sold in cartons must
           // take pieces out of the ledger, and the cost that comes back — and
@@ -503,6 +536,28 @@ export class SalesInvoiceService {
     return existing;
   }
 
+  /**
+   * Re-routes an invoice's revenue lines onto contracting's billings account
+   * when its project is on a live cost_to_cost works contract, and says so in
+   * the memo. Amounts are untouched — only where the credit lands.
+   */
+  private async applyContractBilling(invoice: SalesInvoice): Promise<SalesInvoice> {
+    const port = this.deps.contractBilling;
+    if (!port || !invoice.projectId) return invoice;
+    const routing = await port.resolve(invoice.projectId);
+    if (!routing) return invoice;
+    let moved = false;
+    const lines = invoice.lines.map((line) => {
+      if (!routing.revenueAccountIds.has(line.revenueAccountId)) return line;
+      if (line.revenueAccountId === routing.billingsAccountId) return line;
+      moved = true;
+      return { ...line, revenueAccountId: routing.billingsAccountId };
+    });
+    if (!moved) return invoice;
+    const notes = invoice.notes && invoice.notes.trim() !== "" ? `${invoice.notes} — ${routing.memoAr}` : routing.memoAr;
+    return { ...invoice, lines, notes };
+  }
+
   /** Lines charged below the customer's own list price (D35). */
   private async checkPricing(invoice: SalesInvoice): Promise<readonly PricingVariance[]> {
     const pricing = this.deps.pricing;
@@ -549,6 +604,7 @@ export class SalesInvoiceService {
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId ?? null,
       inventoryAccountId: l.inventoryAccountId ?? null,
+      costCenterId: l.costCenterId ?? null,
       unitCost: null,
       };
     });
@@ -567,6 +623,7 @@ export class SalesInvoiceService {
       branchId: cmd.branchId,
       salespersonId: cmd.salespersonId ?? null,
       salespersonNameAr: cmd.salespersonNameAr ?? null,
+      projectId: cmd.projectId ?? null,
       currency: cmd.currency ?? "EGP",
       couponCode: cmd.couponCode ?? null,
       appliedPromotion: null,

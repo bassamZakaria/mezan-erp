@@ -457,9 +457,13 @@ export function RfqsScreen() {
   const stats = useRfqStats(filter).data ?? {};
 
   const selected = selectedId === null ? null : (rfqs.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
-  const quotesQuery = useRfqQuotes(selectedId);
+  // The URL segment may be the document NUMBER (that is what a row links to and
+  // what a person pastes); `/rfqs/:id/quotes` and `/rfqs/:id/comparison` resolve
+  // by database id only, so they must never see the raw segment (D92).
+  const selectedRfqId = selected?.id ?? null;
+  const quotesQuery = useRfqQuotes(selectedRfqId);
   const selectedQuotes = quotesQuery.data ?? [];
-  const comparisonQuery = useRfqComparison(selectedId);
+  const comparisonQuery = useRfqComparison(selectedRfqId);
 
   const users = useUsers().data ?? [];
   const userName = (id: string) => users.find((u) => u.id === id)?.nameAr ?? id;

@@ -218,8 +218,9 @@ describe("AppLayout — roles", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "تعديل" }));
     await screen.findByLabelText("اسم الدور *");
-    fireEvent.click(screen.getByRole("button", { name: "حفظ الدور" }));
+    fireEvent.click(await screen.findByRole("button", { name: "حفظ الدور" }));
 
+    await waitFor(() => expect(screen.queryByLabelText("اسم الدور *")).not.toBeInTheDocument());
     expect(await screen.findByRole("button", { name: "دور جديد" })).toBeInTheDocument();
   });
 

@@ -55,7 +55,7 @@ function newApp(users: User[] = []) {
   const leaveRequests = createSqliteLeaveRequestRepository();
   handles.push(departments, jobTitles, employees, contracts, holidays, leaveRequests);
 
-  const prefixes: Record<string, string> = { EMPLOYEE: "EMP-", CONTRACT: "CTR-", LEAVE_REQUEST: "LR-" };
+  const prefixes: Record<string, string> = { EMPLOYEE: "EMP-", EMPLOYMENT_CONTRACT: "ECT-", LEAVE_REQUEST: "LR-" };
   const counters = new Map<string, number>();
   const deps: HrRoutesDeps = {
     departments,
@@ -172,7 +172,7 @@ describe("Employees", () => {
 });
 
 describe("Contracts", () => {
-  it("creates a contract with a CTR-#### number and money round-trips as a decimal string", async () => {
+  it("creates a contract with an ECT-#### number (its own sequence, not the works-contract CONTRACT one) and money round-trips as a decimal string", async () => {
     const { app } = newApp();
     const emp = (await (
       await app.fetch(jsonReq("/employees", "hr.employee.create", { firstName: "A", lastName: "B", branchId: "MAIN", hireDate: "2026-01-01" }))
@@ -183,7 +183,7 @@ describe("Contracts", () => {
     );
     expect(res.status).toBe(201);
     const contract = (await res.json()) as { number: string; monthlySalary: string; status: string };
-    expect(contract.number).toBe("CTR-0001");
+    expect(contract.number).toBe("ECT-0001");
     expect(contract.monthlySalary).toBe("14000.000000");
     expect(contract.status).toBe("active");
 

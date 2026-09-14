@@ -62,6 +62,14 @@ export interface SalesReturnLine {
    * posts exactly the entry it always did.
    */
   readonly taxRatePercent?: number | null;
+  /**
+   * بُعد المشروع, inherited from the source invoice's own `projectId` (a
+   * return built via `/from-invoice` copies it straight off the invoice; one
+   * built via the raw `POST /` shape may state it directly). Optional: a
+   * return against an invoice raised before the dimension existed carries
+   * none, same as `taxRatePercent`.
+   */
+  readonly projectId?: string | null;
 }
 
 export type SalesReturnDocument = FrameworkDocument<SalesReturnLine>;
@@ -171,6 +179,10 @@ export function createSalesReturnDocumentType(
     buildGlPosting(doc): DocumentGlPosting | null {
       const { revenueValue, costValue, taxValue, grandTotal } = totals(doc.lines);
       if (grandTotal.scaled === 0n) return null;
+      // Every line of the return validates against ONE source invoice
+      // (`validate` above), so its projectId — inherited from that invoice —
+      // is the same on every line; the first line's is the document's.
+      const projectId = doc.lines[0]?.projectId ?? null;
       // Grouped by the rate the source invoice line charged, so a mixed-rate
       // return posts one base line and one VAT line PER RATE. The VAT return
       // reports the rates actually charged, and it can only do that if the
@@ -190,6 +202,7 @@ export function createSalesReturnDocumentType(
             debit: v.base,
             credit: Money.zero(),
             taxRatePercent: rate,
+            projectId,
           })),
         ...[...byRate.entries()]
           .filter(([, v]) => v.tax.scaled > 0n)
@@ -198,15 +211,16 @@ export function createSalesReturnDocumentType(
             debit: v.tax,
             credit: Money.zero(),
             taxRatePercent: rate,
+            projectId,
           })),
-        { accountId: accounts.accountsReceivableId, debit: Money.zero(), credit: grandTotal },
+        { accountId: accounts.accountsReceivableId, debit: Money.zero(), credit: grandTotal, projectId },
       ];
 
       const stockLines =
         costValue.scaled > 0n
           ? [
-              { accountId: accounts.inventoryAccountId, debit: costValue, credit: Money.zero() },
-              { accountId: accounts.cogsAccountId, debit: Money.zero(), credit: costValue },
+              { accountId: accounts.inventoryAccountId, debit: costValue, credit: Money.zero(), projectId },
+              { accountId: accounts.cogsAccountId, debit: Money.zero(), credit: costValue, projectId },
             ]
           : [];
       return {

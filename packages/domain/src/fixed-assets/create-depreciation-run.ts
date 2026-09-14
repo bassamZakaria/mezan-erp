@@ -58,7 +58,12 @@ export async function createDepreciationRun(
   const lines = eligible
     .map((asset) => {
       const result = computeMonthlyDepreciation(asset, period, cmd.prorate ?? "DAILY");
-      return { assetId: result.assetId, amount: result.amount };
+      return {
+        assetId: result.assetId,
+        amount: result.amount,
+        projectId: asset.projectId,
+        costCategory: asset.projectId ? ("equipment" as const) : null,
+      };
     })
     .filter((line) => line.amount.scaled > 0n);
 

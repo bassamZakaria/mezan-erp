@@ -4,7 +4,7 @@
 export class PurchaseOrderNotFoundError extends Error {
   readonly code = "PURCHASE_ORDER_NOT_FOUND";
   constructor(readonly id: string) {
-    super(`Purchase order "${id}" was not found.`);
+    super(`أمر الشراء "${id}" غير موجود.`);
     this.name = "PurchaseOrderNotFoundError";
   }
 }
@@ -12,7 +12,7 @@ export class PurchaseOrderNotFoundError extends Error {
 export class GoodsReceiptNotFoundError extends Error {
   readonly code = "GOODS_RECEIPT_NOT_FOUND";
   constructor(readonly id: string) {
-    super(`Goods receipt "${id}" was not found.`);
+    super(`إذن الاستلام "${id}" غير موجود.`);
     this.name = "GoodsReceiptNotFoundError";
   }
 }
@@ -20,7 +20,7 @@ export class GoodsReceiptNotFoundError extends Error {
 export class PurchaseInvoiceNotFoundError extends Error {
   readonly code = "PURCHASE_INVOICE_NOT_FOUND";
   constructor(readonly id: string) {
-    super(`Purchase invoice "${id}" was not found.`);
+    super(`فاتورة المشتريات "${id}" غير موجودة.`);
     this.name = "PurchaseInvoiceNotFoundError";
   }
 }
@@ -28,7 +28,7 @@ export class PurchaseInvoiceNotFoundError extends Error {
 export class DuplicatePurchaseDocumentError extends Error {
   readonly code = "DUPLICATE_PURCHASE_DOCUMENT";
   constructor(readonly id: string) {
-    super(`A purchase document with id "${id}" already exists.`);
+    super(`يوجد مستند مشتريات بالمعرّف "${id}" بالفعل.`);
     this.name = "DuplicatePurchaseDocumentError";
   }
 }
@@ -36,7 +36,7 @@ export class DuplicatePurchaseDocumentError extends Error {
 export class InvalidPurchaseDocumentError extends Error {
   readonly code = "INVALID_PURCHASE_DOCUMENT";
   constructor(readonly reasons: readonly string[]) {
-    super(`Invalid purchase document: ${reasons.join("; ")}`);
+    super(`مستند مشتريات غير صالح: ${reasons.join("، ")}`);
     this.name = "InvalidPurchaseDocumentError";
   }
 }
@@ -47,7 +47,7 @@ export class PurchaseDocumentNotDraftError extends Error {
     readonly id: string,
     readonly status: string,
   ) {
-    super(`Purchase document "${id}" is "${status}", not a draft.`);
+    super(`مستند المشتريات "${id}" حالته "${status}" وليس مسودة.`);
     this.name = "PurchaseDocumentNotDraftError";
   }
 }
@@ -59,7 +59,7 @@ export class PurchaseOrderNotReceivableError extends Error {
     readonly status: string,
   ) {
     super(
-      `Purchase order "${id}" is "${status}"; goods can only be received against a sent or partially-received order.`,
+      `أمر الشراء "${id}" حالته "${status}" — لا يمكن الاستلام إلا على أمر مُرسَل أو مستلَم جزئياً.`,
     );
     this.name = "PurchaseOrderNotReceivableError";
   }
@@ -69,7 +69,7 @@ export class ReceiptRequiredError extends Error {
   readonly code = "PURCHASE_RECEIPT_REQUIRED";
   constructor() {
     super(
-      "A confirmed goods receipt is required before a purchase invoice may be created (strictness gate is on).",
+      "سياسة «إلزام إذن الاستلام قبل الفاتورة» مفعّلة: لا يمكن إنشاء فاتورة مشتريات بدون إذن استلام مؤكد.",
     );
     this.name = "ReceiptRequiredError";
   }
@@ -79,7 +79,7 @@ export class OverReceiptError extends Error {
   readonly code = "PURCHASE_OVER_RECEIPT";
   constructor(readonly itemId: string) {
     super(
-      `Goods receipt would receive more than the purchase order's outstanding quantity for item "${itemId}" (strictness gate is on).`,
+      `الكمية المستلمة للصنف "${itemId}" تتجاوز المتبقي على أمر الشراء، وسياسة منع الاستلام الزائد مفعّلة.`,
     );
     this.name = "OverReceiptError";
   }
@@ -99,7 +99,7 @@ export class PurchaseItemsAlreadyConsumedError extends Error {
   readonly code = "PURCHASE_ITEMS_ALREADY_CONSUMED";
   constructor(readonly id: string) {
     super(
-      `Purchase document "${id}" cannot be cancelled: some of its goods have already been sold, transferred, or consumed (strictness gate is on).`,
+      `لا يمكن إلغاء مستند المشتريات "${id}": جزء من بضاعته بيع أو نُقل أو استُهلك بالفعل، وسياسة تتبّع الأصناف المباعة مفعّلة.`,
     );
     this.name = "PurchaseItemsAlreadyConsumedError";
   }
@@ -108,7 +108,7 @@ export class PurchaseItemsAlreadyConsumedError extends Error {
 export class GoodsReceiptAlreadyInvoicedError extends Error {
   readonly code = "GOODS_RECEIPT_ALREADY_INVOICED";
   constructor(readonly id: string) {
-    super(`Goods receipt "${id}" has already been invoiced and cannot be cancelled.`);
+    super(`إذن الاستلام "${id}" تمت فوترته ولا يمكن إلغاؤه.`);
     this.name = "GoodsReceiptAlreadyInvoicedError";
   }
 }
@@ -118,7 +118,7 @@ export class GoodsReceiptAlreadyInvoicedError extends Error {
 export class RfqNotFoundError extends Error {
   readonly code = "RFQ_NOT_FOUND";
   constructor(readonly id: string) {
-    super(`RFQ "${id}" was not found.`);
+    super(`طلب عرض السعر "${id}" غير موجود.`);
     this.name = "RfqNotFoundError";
   }
 }
@@ -126,7 +126,7 @@ export class RfqNotFoundError extends Error {
 export class InvalidRfqError extends Error {
   readonly code = "INVALID_RFQ";
   constructor(readonly reasons: readonly string[]) {
-    super(`Invalid RFQ: ${reasons.join("; ")}`);
+    super(`طلب عرض سعر غير صالح: ${reasons.join("، ")}`);
     this.name = "InvalidRfqError";
   }
 }
@@ -137,7 +137,7 @@ export class RfqNotDraftError extends Error {
     readonly id: string,
     readonly status: string,
   ) {
-    super(`RFQ "${id}" is "${status}", not a draft.`);
+    super(`طلب عرض السعر "${id}" حالته "${status}" وليس مسودة.`);
     this.name = "RfqNotDraftError";
   }
 }
@@ -148,7 +148,7 @@ export class RfqNotSentError extends Error {
     readonly id: string,
     readonly status: string,
   ) {
-    super(`RFQ "${id}" is "${status}"; quotes can only be recorded against a sent RFQ.`);
+    super(`طلب عرض السعر "${id}" حالته "${status}" — لا تُسجَّل العروض إلا على طلب مُرسَل.`);
     this.name = "RfqNotSentError";
   }
 }
@@ -159,7 +159,7 @@ export class RfqNotOpenError extends Error {
     readonly id: string,
     readonly status: string,
   ) {
-    super(`RFQ "${id}" is "${status}" and cannot be closed/cancelled from this state.`);
+    super(`طلب عرض السعر "${id}" حالته "${status}" ولا يمكن إغلاقه أو إلغاؤه منها.`);
     this.name = "RfqNotOpenError";
   }
 }
@@ -167,7 +167,7 @@ export class RfqNotOpenError extends Error {
 export class RfqQuoteNotFoundError extends Error {
   readonly code = "RFQ_QUOTE_NOT_FOUND";
   constructor(readonly id: string) {
-    super(`RFQ quote "${id}" was not found.`);
+    super(`عرض السعر "${id}" غير موجود.`);
     this.name = "RfqQuoteNotFoundError";
   }
 }

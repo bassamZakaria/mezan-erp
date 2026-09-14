@@ -28,6 +28,9 @@ interface WireLine {
   newUnitCost: string;
   distributionMethod: string;
   costItems: WireCostItem[];
+  /** بُعد المشروع — every line of a confirmed landed-cost document carries the same document-wide value (D-01). */
+  projectId?: string | null;
+  costCategory?: LandedCostLine["costCategory"];
 }
 
 function serializeLine(line: LandedCostLine): WireLine {
@@ -47,6 +50,8 @@ function serializeLine(line: LandedCostLine): WireLine {
       description: c.description,
       amount: c.amount.toString(),
     })),
+    projectId: line.projectId ?? null,
+    costCategory: line.costCategory ?? null,
   };
 }
 
@@ -69,6 +74,8 @@ function deserializeLine(wire: unknown): LandedCostLine {
       description: c.description,
       amount: Money.fromMajor(c.amount),
     })),
+    projectId: w.projectId ?? null,
+    costCategory: w.costCategory ?? null,
   };
 }
 

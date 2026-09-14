@@ -39,6 +39,7 @@ export {
 
 export {
   isModuleLicensed,
+  isAlwaysLicensed,
   licensedModules,
   licensedPermissions,
 } from "./module-licensing.js";

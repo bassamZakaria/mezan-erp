@@ -1,9 +1,12 @@
 import { z } from "zod";
+import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /** Wire contracts for Installments (خطط الأقساط + متابعة التحصيل، docs/archive/catalog/05). */
 
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const installmentFrequencySchema = z.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY"]);
 export const installmentLineStatusSchema = z.enum(["pending", "paid", "overdue", "cancelled"]);
@@ -11,7 +14,7 @@ export const installmentLineStatusSchema = z.enum(["pending", "paid", "overdue",
 /** The create request carries raw schedule inputs; the API computes `generateInstallmentSchedule` server-side. */
 export const createInstallmentPlanSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().default(""),
   customerId: z.string().min(1),
   sourceInvoiceId: z.string().min(1),
@@ -62,6 +65,25 @@ export const processOverdueInstallmentsResultSchema = z.object({
   newlyOverdueCount: z.number().int(),
   totalLateFeesApplied: positiveDecimalString,
 });
+
+/**
+ * تحصيل قسط. `installmentNo` omitted means "run this payment down the schedule
+ * oldest-first", which is what a customer handing over a round sum means. The
+ * treasury account is required and never defaulted: the money has to land in a
+ * real till, and guessing which one is how a collection ends up in the wrong
+ * drawer (D119).
+ */
+export const collectInstallmentSchema = z.object({
+  installmentNo: z.number().int().min(1).optional(),
+  amount: positiveDecimalString,
+  treasuryAccountId: z.string().min(1),
+  branchId: z.string().min(1),
+  paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).default("cash"),
+  date: isoDateOrInstant,
+  referenceNo: z.string().nullable().default(null),
+  memo: z.string().nullable().default(null),
+});
+export type CollectInstallmentDTO = z.infer<typeof collectInstallmentSchema>;
 
 // --- متابعة التحصيل (collection follow-ups) ---
 

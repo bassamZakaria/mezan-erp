@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS warehouse (
   branch_id   TEXT NOT NULL,
   type        TEXT NOT NULL,
   is_default  INTEGER NOT NULL,
-  active      INTEGER NOT NULL
+  active      INTEGER NOT NULL,
+  project_id       TEXT,
+  custodian_user_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_warehouse_branch ON warehouse(branch_id);
 `;
@@ -27,6 +29,8 @@ interface WarehouseRow {
   type: string;
   is_default: number;
   active: number;
+  project_id: string | null;
+  custodian_user_id: string | null;
 }
 
 function toWarehouse(row: WarehouseRow): Warehouse {
@@ -39,6 +43,8 @@ function toWarehouse(row: WarehouseRow): Warehouse {
     type: row.type as WarehouseType,
     isDefault: row.is_default === 1,
     active: row.active === 1,
+    projectId: row.project_id ?? null,
+    custodianUserId: row.custodian_user_id ?? null,
   };
 }
 
@@ -50,11 +56,12 @@ class SqliteWarehouseStore implements WarehouseRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(
-      `INSERT INTO warehouse (id, code, name, name_en, branch_id, type, is_default, active)
-       VALUES (@id, @code, @name, @nameEn, @branchId, @type, @isDefault, @active)
+      `INSERT INTO warehouse (id, code, name, name_en, branch_id, type, is_default, active, project_id, custodian_user_id)
+       VALUES (@id, @code, @name, @nameEn, @branchId, @type, @isDefault, @active, @projectId, @custodianUserId)
        ON CONFLICT(id) DO UPDATE SET
          code = @code, name = @name, name_en = @nameEn, branch_id = @branchId,
-         type = @type, is_default = @isDefault, active = @active`,
+         type = @type, is_default = @isDefault, active = @active,
+         project_id = @projectId, custodian_user_id = @custodianUserId`,
     );
     this.selectAll = sqlite.prepare(`SELECT * FROM warehouse ORDER BY code ASC`);
     this.selectByBranch = sqlite.prepare(`SELECT * FROM warehouse WHERE branch_id = ? ORDER BY code ASC`);
@@ -84,6 +91,8 @@ class SqliteWarehouseStore implements WarehouseRepository {
       type: warehouse.type,
       isDefault: warehouse.isDefault ? 1 : 0,
       active: warehouse.active ? 1 : 0,
+      projectId: warehouse.projectId ?? null,
+      custodianUserId: warehouse.custodianUserId ?? null,
     });
   }
 }

@@ -2,7 +2,7 @@
 export class FiscalPeriodNotFoundError extends Error {
   readonly code = "FISCAL_PERIOD_NOT_FOUND";
   constructor(readonly periodId: string) {
-    super(`Fiscal period "${periodId}" was not found.`);
+    super(`الفترة المحاسبية "${periodId}" غير موجودة.`);
     this.name = "FiscalPeriodNotFoundError";
   }
 }
@@ -14,7 +14,7 @@ export class DuplicateFiscalPeriodError extends Error {
     readonly year: number,
     readonly periodNumber: number,
   ) {
-    super(`Fiscal period ${year}-${String(periodNumber).padStart(2, "0")} already exists.`);
+    super(`الفترة المحاسبية ${year}-${String(periodNumber).padStart(2, "0")} موجودة بالفعل.`);
     this.name = "DuplicateFiscalPeriodError";
   }
 }
@@ -32,7 +32,7 @@ export class InvalidPeriodTransitionError extends Error {
     readonly fromStatus: string,
     readonly attemptedTransition: string,
   ) {
-    super(`Fiscal period "${periodId}" cannot ${attemptedTransition} from status "${fromStatus}".`);
+    super(`لا يمكن تنفيذ "${attemptedTransition}" على الفترة المحاسبية "${periodId}" وهي في حالة "${fromStatus}".`);
     this.name = "InvalidPeriodTransitionError";
   }
 }
@@ -50,7 +50,7 @@ export class PeriodNotOpenForPostingError extends Error {
     readonly periodId: string,
     readonly status: string,
   ) {
-    super(`Fiscal period "${periodId}" is "${status}" and does not allow posting.`);
+    super(`الفترة المحاسبية "${periodId}" حالتها "${status}" ولا تسمح بالترحيل.`);
     this.name = "PeriodNotOpenForPostingError";
   }
 }
@@ -59,7 +59,7 @@ export class PeriodNotOpenForPostingError extends Error {
 export class NoFiscalPeriodForDateError extends Error {
   readonly code = "NO_FISCAL_PERIOD_FOR_DATE";
   constructor(readonly date: string) {
-    super(`No fiscal period covers date "${date}".`);
+    super(`لا توجد فترة محاسبية تغطي التاريخ "${date}".`);
     this.name = "NoFiscalPeriodForDateError";
   }
 }

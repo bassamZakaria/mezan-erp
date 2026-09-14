@@ -18,6 +18,9 @@ import {
   InvalidJournalEntryError,
 } from "../post-journal-entry.js";
 import type { LedgerRepository } from "./ledger.js";
+import { isCostCategory } from "../contracting/cost-category.js";
+import type { ProjectRepository } from "../projects/project.js";
+import { ProjectNotFoundError } from "../projects/errors.js";
 import type { GlEventPublisher } from "./events.js";
 import {
   DuplicateJournalEntryError,
@@ -43,6 +46,12 @@ export interface JournalLineInput {
   readonly fxRate?: string | null;
   /** VAT rate this line was charged at, so the VAT return can report the rates actually charged (D28). */
   readonly taxRatePercent?: number | null;
+  /** بُعد المشروع (D-01). Validated against `deps.projects` when that port is supplied. */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — rejected without a `projectId`, because a category with no project is a figure nothing can roll up. */
+  readonly costCategory?: JournalLine["costCategory"];
+  /** بُعد الفرع (DEC-20). Nullable — a line with no branch lands in the statements' «غير مخصص» bucket. */
+  readonly branchId?: string | null;
 }
 
 /** Command to create/post a journal entry. */
@@ -82,6 +91,20 @@ export interface JournalPostingDeps {
    */
   readonly vatFilings?: { findCovering(date: string): Promise<readonly { id: string; status: string }[]> };
   readonly numbering: NextNumberService;
+  /**
+   * Projects, so a line's `projectId` names a project that exists. Optional
+   * because the in-memory ledgers of older compositions carry no projects;
+   * every composition that posts contracting cost must supply it.
+   */
+  readonly projects?: Pick<ProjectRepository, "findById">;
+  /**
+   * Accounts whose lines MUST name a project — the routed contracting control
+   * and cost slots. A hand-written journal that moves 1230/1150/2160/… with no
+   * `projectId` is a figure no project report can ever roll up, and the module
+   * that owns the account has no way to reconcile it. Omit and nothing is
+   * checked, which is how every composition behaved before the set existed.
+   */
+  readonly projectRequiredAccountIds?: ReadonlySet<string>;
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
@@ -104,6 +127,9 @@ function toLine(input: JournalLineInput): JournalLine {
     currency: input.currency ?? null,
     fxRate: input.fxRate ?? null,
     taxRatePercent: input.taxRatePercent ?? null,
+    projectId: input.projectId ?? null,
+    costCategory: input.costCategory ?? null,
+    branchId: input.branchId ?? null,
   };
 }
 
@@ -139,6 +165,98 @@ export function assertEntryStructure(lines: readonly JournalLineInput[]): void {
         `Journal line for account "${line.accountId}" must have a non-zero debit or credit.`,
       );
     }
+    if (line.costCategory != null && !isCostCategory(line.costCategory)) {
+      throw new InvalidJournalEntryError(
+        `Journal line for account "${line.accountId}" names an unknown cost category "${String(line.costCategory)}".`,
+      );
+    }
+    if (line.costCategory != null && (line.projectId == null || line.projectId.trim() === "")) {
+      throw new InvalidJournalEntryError(
+        `Journal line for account "${line.accountId}" carries a cost category without a project.`,
+      );
+    }
+  }
+}
+
+/** A posted entry is dated with a DAY, never an instant. */
+const ENTRY_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The entry's date is a calendar day in `YYYY-MM-DD`. A poster that hands the
+ * engine `new Date().toISOString()` produces an entry the period gate, the
+ * trial balance's date range and every `fromDate`/`toDate` report compare as a
+ * STRING against plain dates — so it silently falls outside its own month.
+ */
+export function assertEntryDate(date: string): void {
+  if (!ENTRY_DATE.test(date)) {
+    throw new InvalidJournalEntryError(
+      `تاريخ القيد يجب أن يكون بصيغة YYYY-MM-DD — القيمة المرسلة "${date}".`,
+    );
+  }
+}
+
+/**
+ * الحسابات النظامية (memorandum, 9xxx) are OFF balance sheet: every statement
+ * this system prints drops them. An entry that mixes a memorandum line with a
+ * real one is therefore balanced only as written and unbalanced as reported —
+ * the balance-sheet identity breaks by exactly the memorandum leg. So each
+ * partition has to balance on its own.
+ */
+export function assertMemorandumPartition(
+  lines: readonly JournalLineInput[],
+  accountTypeOf: (accountId: string) => string | undefined,
+): void {
+  let memoDebit = 0n;
+  let memoCredit = 0n;
+  let realDebit = 0n;
+  let realCredit = 0n;
+  for (const line of lines) {
+    const memo = accountTypeOf(line.accountId) === "memorandum";
+    if (memo) {
+      memoDebit += line.debit.scaled;
+      memoCredit += line.credit.scaled;
+    } else {
+      realDebit += line.debit.scaled;
+      realCredit += line.credit.scaled;
+    }
+  }
+  const hasMemo = memoDebit !== 0n || memoCredit !== 0n;
+  const hasReal = realDebit !== 0n || realCredit !== 0n;
+  if (!hasMemo || !hasReal) return;
+  if (memoDebit !== memoCredit || realDebit !== realCredit) {
+    throw new InvalidJournalEntryError(
+      "لا يجوز خلط الحسابات النظامية بالحسابات الفعلية في قيد واحد ما لم يتوازن كل قسم منهما على حدة.",
+    );
+  }
+}
+
+/** Lines on an account the composition marked project-bound must carry a `projectId`. */
+export function assertProjectRequired(
+  lines: readonly JournalLineInput[],
+  required: ReadonlySet<string> | undefined,
+): void {
+  if (!required || required.size === 0) return;
+  for (const line of lines) {
+    if (!required.has(line.accountId)) continue;
+    if (line.projectId == null || line.projectId.trim() === "") {
+      throw new InvalidJournalEntryError(
+        `الحساب "${line.accountId}" حساب مشروعات — كل سطر عليه يجب أن يحمل مشروعاً.`,
+      );
+    }
+  }
+}
+
+/** Every `projectId` a line carries must name a project that exists — when the composition can check. */
+export async function assertProjectsExist(
+  lines: readonly JournalLineInput[],
+  projects: Pick<ProjectRepository, "findById"> | undefined,
+): Promise<void> {
+  if (!projects) return;
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (line.projectId == null || seen.has(line.projectId)) continue;
+    seen.add(line.projectId);
+    if (!(await projects.findById(line.projectId))) throw new ProjectNotFoundError(line.projectId);
   }
 }
 
@@ -164,15 +282,16 @@ export async function assertLinesPostable(
   lines: readonly JournalLineInput[],
   accounts: Pick<AccountRepository, "findById">,
 ): Promise<void> {
-  const seen = new Set<string>();
+  const typeById = new Map<string, string>();
   for (const line of lines) {
-    if (seen.has(line.accountId)) continue;
-    seen.add(line.accountId);
+    if (typeById.has(line.accountId)) continue;
     const account = await accounts.findById(line.accountId);
     if (!account) throw new AccountNotFoundError(line.accountId);
     if (account.isHeader) throw new HeaderAccountNotPostableError(account.id);
     if (account.status !== "active") throw new InactiveAccountError(account.id);
+    typeById.set(line.accountId, account.type);
   }
+  assertMemorandumPartition(lines, (id) => typeById.get(id));
 }
 
 /** The period covering `date` must exist and be مفتوحة (open) — the period gate. */
@@ -204,9 +323,12 @@ export async function createJournalEntry(
   cmd: CreateJournalEntryCommand,
   deps: JournalPostingDeps,
 ): Promise<JournalEntry> {
+  assertEntryDate(cmd.date);
   assertEntryStructure(cmd.lines);
   assertBalanced(cmd.lines);
+  assertProjectRequired(cmd.lines, deps.projectRequiredAccountIds);
   await assertLinesPostable(cmd.lines, deps.accounts);
+  await assertProjectsExist(cmd.lines, deps.projects);
 
   return deps.ledger.transaction(async () => {
     if (await deps.ledger.findById(cmd.id)) {
@@ -247,9 +369,12 @@ export async function postJournalEntry(
   cmd: CreateJournalEntryCommand,
   deps: JournalPostingDeps,
 ): Promise<JournalEntry> {
+  assertEntryDate(cmd.date);
   assertEntryStructure(cmd.lines);
   const { totalDebit, totalCredit } = assertBalanced(cmd.lines);
+  assertProjectRequired(cmd.lines, deps.projectRequiredAccountIds);
   await assertLinesPostable(cmd.lines, deps.accounts);
+  await assertProjectsExist(cmd.lines, deps.projects);
   await assertPeriodOpen(cmd.date, deps.periods);
   await assertVatNotFiled(cmd.date, deps.vatFilings);
 
@@ -298,8 +423,10 @@ export async function postDraftJournalEntry(
     throw new JournalEntryNotDraftError(entryId, existing.status);
   }
 
+  assertEntryDate(existing.date);
   assertEntryStructure(existing.lines);
   const { totalDebit, totalCredit } = assertBalanced(existing.lines);
+  assertProjectRequired(existing.lines, deps.projectRequiredAccountIds);
   await assertLinesPostable(existing.lines, deps.accounts);
   await assertPeriodOpen(existing.date, deps.periods);
   await assertVatNotFiled(existing.date, deps.vatFilings);

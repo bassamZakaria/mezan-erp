@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DocumentList, StatusPill, Chip, Card, Button, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { WAREHOUSE_TYPE_DEFINITIONS, type WarehouseType } from "@mezan/domain";
 import type { WarehouseDTO } from "@mezan/contracts";
-import { useBranches, useCreateWarehouse, useWarehouses } from "../data/hooks";
+import { useBranches, useCreateWarehouse, useProjects, useUsers, useWarehouses } from "../data/hooks";
 import { branchName } from "./branch-name";
 import { SelectField, TextField, ToggleField } from "./form-controls";
 import { warehouseTypeLabel } from "../domain-labels";
@@ -34,7 +34,20 @@ export function WarehousesPage() {
   ];
   const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", nameEn: "", code: "", branchId: "", type: "MAIN" as WarehouseType, isDefault: false });
+  const projectsQuery = useProjects();
+  const usersQuery = useUsers();
+  const projects = projectsQuery.data ?? EMPTY;
+  const users = usersQuery.data ?? EMPTY;
+  const [form, setForm] = useState({
+    name: "",
+    nameEn: "",
+    code: "",
+    branchId: "",
+    type: "MAIN" as WarehouseType,
+    isDefault: false,
+    projectId: "",
+    custodianUserId: "",
+  });
 
   useEffect(() => {
     if (form.branchId === "" && branches.length > 0) {
@@ -57,6 +70,16 @@ export function WarehousesPage() {
     { key: "code", header: t("warehouses.col.code"), render: (w) => <span className="mz-num">{w.code}</span> },
     { key: "branch", header: t("warehouses.col.branch"), render: (w) => branchName(w.branchId, branches) },
     { key: "type", header: t("warehouses.col.type"), render: (w) => <StatusPill label={warehouseTypeLabel(w.type, t)} tone="info" /> },
+    {
+      key: "project",
+      header: t("warehouses.col.project"),
+      render: (w) => (w.projectId ? (projects.find((p) => p.id === w.projectId)?.nameAr ?? w.projectId) : "—"),
+    },
+    {
+      key: "custodian",
+      header: t("warehouses.col.custodian"),
+      render: (w) => (w.custodianUserId ? (users.find((u) => u.id === w.custodianUserId)?.nameAr ?? w.custodianUserId) : "—"),
+    },
     { key: "default", header: t("warehouses.col.default"), render: (w) => (w.isDefault ? <StatusPill label={t("warehouses.default")} tone="success" /> : "—") },
     {
       key: "status",
@@ -76,9 +99,20 @@ export function WarehousesPage() {
         branchId: form.branchId,
         type: form.type,
         isDefault: form.isDefault,
+        projectId: form.type === "SITE" ? form.projectId : null,
+        custodianUserId: form.type === "SITE" ? form.custodianUserId : null,
       });
       setPanelOpen(false);
-      setForm({ name: "", nameEn: "", code: "", branchId: branches[0]?.id ?? "", type: "MAIN", isDefault: false });
+      setForm({
+        name: "",
+        nameEn: "",
+        code: "",
+        branchId: branches[0]?.id ?? "",
+        type: "MAIN",
+        isDefault: false,
+        projectId: "",
+        custodianUserId: "",
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("warehouses.createFailed"));
     }
@@ -156,6 +190,23 @@ export function WarehousesPage() {
             onChange={(v) => setForm((f) => ({ ...f, type: v as WarehouseType }))}
             options={typeOptions}
           />
+          {form.type === "SITE" ? (
+            <>
+              <SelectField
+                label={t("warehouses.field.project")}
+                value={form.projectId}
+                onChange={(v) => setForm((f) => ({ ...f, projectId: v }))}
+                options={[{ value: "", label: t("warehouses.field.chooseProject") }, ...projects.map((p) => ({ value: p.id, label: p.nameAr }))]}
+                hint={t("warehouses.field.siteHint")}
+              />
+              <SelectField
+                label={t("warehouses.field.custodian")}
+                value={form.custodianUserId}
+                onChange={(v) => setForm((f) => ({ ...f, custodianUserId: v }))}
+                options={[{ value: "", label: t("warehouses.field.chooseCustodian") }, ...users.map((u) => ({ value: u.id, label: u.nameAr }))]}
+              />
+            </>
+          ) : null}
           <ToggleField label={t("warehouses.field.isDefault")} checked={form.isDefault} onChange={(v) => setForm((f) => ({ ...f, isDefault: v }))} />
           <div className="flex justify-end gap-[9px]">
             <Button onClick={() => setPanelOpen(false)}>{t("warehouses.cancel")}</Button>

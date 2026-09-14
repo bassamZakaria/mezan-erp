@@ -4,6 +4,8 @@ import {
   createTreasuryAccount,
   updateTreasuryAccount,
   DuplicateTreasuryAccountCodeError,
+  InvalidGuaranteeFacilityLimitError,
+  InvalidOpeningBalanceError,
   NegativeCashBalanceError,
   TreasuryAccountNotFoundError,
   type AuditSink,
@@ -26,6 +28,7 @@ function serialize(account: TreasuryAccount) {
     glAccountId: account.glAccountId,
     openingBalance: account.openingBalance.toString(),
     openingBalanceDate: account.openingBalanceDate,
+    guaranteeFacilityLimit: account.guaranteeFacilityLimit === null ? null : account.guaranteeFacilityLimit.toString(),
     status: account.status,
   };
 }
@@ -37,7 +40,11 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateTreasuryAccountCodeError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
-  if (err instanceof NegativeCashBalanceError) {
+  if (
+    err instanceof NegativeCashBalanceError ||
+    err instanceof InvalidGuaranteeFacilityLimitError ||
+    err instanceof InvalidOpeningBalanceError
+  ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   throw err;

@@ -9,8 +9,8 @@ import { mkdirSync, rmSync } from "node:fs";
  * vite proxy, not the thing that ships.
  */
 const ENVIRONMENTS = {
-  testing: { port: 4101, db: ".data/testing.db" },
-  staging: { port: 4102, db: ".data/staging.db" },
+  testing: { port: 4101, platformDir: ".data/testing-platform" },
+  staging: { port: 4102, platformDir: ".data/staging-platform" },
 };
 
 const [name, ...flags] = process.argv.slice(2);
@@ -24,13 +24,13 @@ if (!environment) {
 
 const fresh = flags.includes("--fresh");
 const skipBuild = flags.includes("--no-build");
-const { port, db } = environment;
+const { port, platformDir } = environment;
 
 mkdirSync(".data", { recursive: true });
 
 if (fresh) {
-  for (const suffix of ["", "-wal", "-shm"]) rmSync(`${db}${suffix}`, { force: true });
-  console.log(`[env] ${name}: removed ${db}`);
+  rmSync(platformDir, { recursive: true, force: true });
+  console.log(`[env] ${name}: removed ${platformDir}`);
 }
 
 if (!skipBuild) {
@@ -42,12 +42,21 @@ if (!skipBuild) {
   }
 }
 
-console.log(`[env] ${name}: http://localhost:${port}  (db: ${db})`);
-console.log(`[env] ${name}: sign in as admin@cyag.example with PIN 123456`);
+console.log(`[env] ${name}: http://localhost:${port}  (platform dir: ${platformDir})`);
+console.log(`[env] ${name}: platform owner at /platform/login — owner@mezan.local / owner-password-123`);
+console.log(`[env] ${name}: demo tenant code "demo" — sign in as admin@cyag.example with PIN 123456`);
 
 const child = spawn("pnpm", ["exec", "tsx", "apps/server/src/cloud.ts"], {
   stdio: "inherit",
-  env: { ...process.env, PORT: String(port), MEZAN_DB: db, MEZAN_SEED_ADMIN_PIN: "123456" },
+  env: {
+    ...process.env,
+    PORT: String(port),
+    MEZAN_PLATFORM_DIR: platformDir,
+    MEZAN_SEED_DEMO: "1",
+    MEZAN_PLATFORM_OWNER_EMAIL: "owner@mezan.local",
+    MEZAN_PLATFORM_OWNER_PASSWORD: "owner-password-123",
+    MEZAN_SEED_ADMIN_PIN: "123456",
+  },
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

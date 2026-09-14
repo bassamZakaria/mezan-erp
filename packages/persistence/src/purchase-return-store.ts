@@ -21,6 +21,11 @@ interface WireLine {
   qty: string;
   unitCost: string;
   taxAmount: string;
+  /** The rate the source invoice line charged. Dropped here, the per-rate VAT split the posting computes cannot survive a reload (D76). */
+  taxRatePercent?: number | null;
+  /** بُعد المشروع — every line of a confirmed return carries the same document-wide value (D-01). */
+  projectId?: string | null;
+  costCategory?: PurchaseReturnLine["costCategory"];
 }
 
 function serializeLine(line: PurchaseReturnLine): WireLine {
@@ -35,6 +40,9 @@ function serializeLine(line: PurchaseReturnLine): WireLine {
     qty: line.qty.toString(),
     unitCost: line.unitCost.toString(),
     taxAmount: line.taxAmount.toString(),
+    taxRatePercent: line.taxRatePercent ?? null,
+    projectId: line.projectId ?? null,
+    costCategory: line.costCategory ?? null,
   };
 }
 
@@ -51,6 +59,9 @@ function deserializeLine(wire: unknown): PurchaseReturnLine {
     qty: Qty.fromMajor(w.qty),
     unitCost: Money.fromMajor(w.unitCost),
     taxAmount: Money.fromMajor(w.taxAmount),
+    taxRatePercent: w.taxRatePercent ?? null,
+    projectId: w.projectId ?? null,
+    costCategory: w.costCategory ?? null,
   };
 }
 

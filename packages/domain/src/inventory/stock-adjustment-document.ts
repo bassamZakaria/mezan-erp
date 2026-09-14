@@ -26,6 +26,7 @@ import { buildEffects, type DocumentEffect } from "../documents/effects.js";
 import { InvalidDocumentError } from "../documents/errors.js";
 import { ADJUSTMENT_REASONS, getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
 import type { StockMovementDirection } from "./movement.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import { extend } from "./wac-math.js";
 
 /** One line of a stock-adjustment document. */
@@ -37,6 +38,15 @@ export interface StockAdjustmentDocLine {
   readonly qty: Qty;
   /** Required for an IN line (receipt-time cost); ignored for OUT (moving average used at posting). */
   readonly unitCost?: Money;
+  /**
+   * بُعد المشروع — the contracting project this adjustment belongs to (D-01).
+   * One project per adjustment, carried per-line (like `warehouseId`/`reason`
+   * above) and validated uniform across lines — the framework envelope has no
+   * type-specific header slot.
+   */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`. One category per adjustment. */
+  readonly costCategory?: CostCategory | null;
 }
 
 export type StockAdjustmentDocument = FrameworkDocument<StockAdjustmentDocLine>;
@@ -47,10 +57,17 @@ const DOC_TYPE = "STOCK_ADJUSTMENT";
 export function adjustmentHeaderOf(doc: StockAdjustmentDocument): {
   warehouseId: string;
   reason: AdjustmentReason;
+  projectId: string | null;
+  costCategory: CostCategory | null;
 } {
   const first = doc.lines[0];
   if (!first) throw new InvalidDocumentError(DOC_TYPE, doc.id, "التسوية تتطلب بنداً واحداً على الأقل.");
-  return { warehouseId: first.warehouseId, reason: first.reason };
+  return {
+    warehouseId: first.warehouseId,
+    reason: first.reason,
+    projectId: first.projectId ?? null,
+    costCategory: first.costCategory ?? null,
+  };
 }
 
 /** The stock-adjustment document type definition. Plugs into {@link DocumentService}. */
@@ -66,9 +83,12 @@ export const stockAdjustmentDocumentType: DocumentTypeDefinition<StockAdjustment
     if (lines.length === 0) {
       throw new InvalidDocumentError(DOC_TYPE, doc.id, "التسوية تتطلب بنداً واحداً على الأقل.");
     }
-    const { warehouseId, reason } = adjustmentHeaderOf(doc);
+    const { warehouseId, reason, projectId, costCategory } = adjustmentHeaderOf(doc);
     if (!ADJUSTMENT_REASONS.includes(reason)) {
       throw new InvalidDocumentError(DOC_TYPE, doc.id, `سبب تسوية غير معروف: "${reason}".`);
+    }
+    if (costCategory && !projectId) {
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, "فئة التكلفة تتطلب اختيار مشروع.");
     }
     const def = getAdjustmentReasonDefinition(reason);
     for (let i = 0; i < lines.length; i++) {
@@ -78,6 +98,12 @@ export const stockAdjustmentDocumentType: DocumentTypeDefinition<StockAdjustment
       }
       if (line.reason !== reason) {
         throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التسوية يجب أن تحمل نفس السبب.`);
+      }
+      if ((line.projectId ?? null) !== projectId) {
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التسوية يجب أن تحمل نفس المشروع.`);
+      }
+      if ((line.costCategory ?? null) !== costCategory) {
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التسوية يجب أن تحمل نفس فئة التكلفة.`);
       }
       if (line.qty.isZero() || line.qty.isNegative()) {
         throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: الكمية يجب أن تكون موجبة.`);
@@ -96,13 +122,15 @@ export const stockAdjustmentDocumentType: DocumentTypeDefinition<StockAdjustment
   },
 
   buildStockPlan(doc) {
-    const { warehouseId, reason } = adjustmentHeaderOf(doc);
+    const { warehouseId, reason, projectId, costCategory } = adjustmentHeaderOf(doc);
     return {
       sourceDocType: "ADJUSTMENT",
       sourceDocId: doc.id,
       sourceDocNumber: doc.docNo,
       warehouseId,
       reason,
+      projectId,
+      costCategory,
       date: doc.date,
       lines: doc.lines.map((l) => ({
         itemId: l.itemId,

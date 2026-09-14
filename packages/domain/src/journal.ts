@@ -1,4 +1,5 @@
 import { Money } from "./money/index.js";
+import type { CostCategory } from "./contracting/cost-category.js";
 import type { RoleRepository } from "./roles/role.js";
 import type { UserRepository } from "./users/user.js";
 
@@ -53,6 +54,22 @@ export interface JournalLine {
    * existed — the report falls back to the old derivation for those.
    */
   readonly taxRatePercent?: number | null;
+  /**
+   * بُعد المشروع — the contracting project this line belongs to. Immutable with
+   * the posted line: a dimension added after go-live leaves every historic entry
+   * blind, which is why it lands before any contracting document does
+   * (docs/artifacts/mezan-contracting-designs.html D-01). Null = not project work.
+   */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — materials / labour / equipment / subcontract / indirect. Only meaningful with `projectId`. */
+  readonly costCategory?: CostCategory | null;
+  /**
+   * بُعد الفرع — the branch this line belongs to (DEC-20). Nullable and filled
+   * path by path: manual journals, payroll, depreciation and the year-end close
+   * carry no document branch at all, so the branch statements always show an
+   * explicit «غير مخصص» bucket rather than dropping what has no branch.
+   */
+  readonly branchId?: string | null;
 }
 
 /**
@@ -132,6 +149,7 @@ export type JournalSourceModule =
   | "manufacturing"
   | "payroll"
   | "assets"
+  | "contracting"
   | "manual"
   | "unknown";
 
@@ -159,6 +177,16 @@ const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   EMPLOYEE_ADVANCE: "payroll",
   DEPRECIATION_RUN: "assets",
   ASSET_DISPOSAL: "assets",
+  SUBCONTRACT: "contracting",
+  SUBCONTRACT_CERTIFICATE: "contracting",
+  PROGRESS_CERTIFICATE: "contracting",
+  RETENTION_RELEASE: "contracting",
+  LETTER_OF_GUARANTEE: "contracting",
+  REVENUE_RECOGNITION_RUN: "contracting",
+  SITE_ISSUE: "contracting",
+  SITE_RECEIPT: "contracting",
+  MATERIAL_CONSUMPTION: "contracting",
+  EQUIPMENT_LOG: "contracting",
   JOURNAL_ENTRY: "manual",
 };
 

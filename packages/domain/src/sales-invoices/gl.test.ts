@@ -17,6 +17,7 @@ function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
     revenueAccountId: "4000",
     cogsAccountId: "5000",
     inventoryAccountId: "1200",
+    costCenterId: null,
     unitCost: null,
     unitCode: "", unitFactor: 1, discountType: "percent" as const, discountAmount: Money.zero(),
     ...overrides,
@@ -40,6 +41,7 @@ function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
     branchId: "BR1",
     salespersonId: null,
     salespersonNameAr: null,
+    projectId: null,
     couponCode: null,
     appliedPromotion: null,
     currency: "EGP",
@@ -132,5 +134,82 @@ describe("buildSalesInvoiceGlPosting — balance invariant", () => {
     const rev4100 = posting.lines.find((l) => l.accountId === "4100");
     expect(rev4000?.credit.toString()).toBe("100.000000");
     expect(rev4100?.credit.toString()).toBe("100.000000");
+  });
+});
+
+describe("buildSalesInvoiceGlPosting — the cost-centre dimension (D97)", () => {
+  function post(lines: SalesInvoiceLine[], cogs: SalesInvoiceCogsLine[] = []) {
+    const inv = invoice({ lines });
+    const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+    return buildSalesInvoiceGlPosting(inv, totals, cogs);
+  }
+
+  it("carries a line's cost centre onto the revenue credit it produces", () => {
+    const posting = post([line({ lineId: "L1", costCenterId: "CC-SHOWROOM" })]);
+    const revenue = posting.lines.filter((l) => l.accountId === "4000" && l.credit.scaled > 0n);
+    expect(revenue).toHaveLength(1);
+    expect(revenue[0]?.costCenterId).toBe("CC-SHOWROOM");
+  });
+
+  it("splits the revenue credit per cost centre, so two centres on one invoice stay apart", () => {
+    const posting = post([
+      line({ lineId: "L1", costCenterId: "CC-A", unitPrice: Money.fromMajor("100") }),
+      line({ lineId: "L2", costCenterId: "CC-B", unitPrice: Money.fromMajor("250") }),
+    ]);
+    const revenue = posting.lines.filter((l) => l.accountId === "4000" && l.credit.scaled > 0n);
+    expect(revenue).toHaveLength(2);
+    const byCentre = Object.fromEntries(revenue.map((l) => [l.costCenterId, l.credit.toString()]));
+    expect(byCentre["CC-A"]).toBe(Money.fromMajor("100").toString());
+    expect(byCentre["CC-B"]).toBe(Money.fromMajor("250").toString());
+  });
+
+  it("still groups two lines that share a centre AND a rate into one credit", () => {
+    const posting = post([
+      line({ lineId: "L1", costCenterId: "CC-A", unitPrice: Money.fromMajor("100") }),
+      line({ lineId: "L2", costCenterId: "CC-A", unitPrice: Money.fromMajor("150") }),
+    ]);
+    const revenue = posting.lines.filter((l) => l.accountId === "4000" && l.credit.scaled > 0n);
+    expect(revenue).toHaveLength(1);
+    expect(revenue[0]?.credit.toString()).toBe(Money.fromMajor("250").toString());
+  });
+
+  it("leaves the credit unattributed when no centre is named, rather than inventing one", () => {
+    const posting = post([line({ lineId: "L1", costCenterId: null })]);
+    const revenue = posting.lines.filter((l) => l.accountId === "4000" && l.credit.scaled > 0n);
+    expect(revenue[0]?.costCenterId ?? null).toBeNull();
+  });
+
+  it("still balances when the centres differ — the dimension must not move a piastre", () => {
+    const posting = post([
+      line({ lineId: "L1", costCenterId: "CC-A", unitPrice: Money.fromMajor("33.33") }),
+      line({ lineId: "L2", costCenterId: "CC-B", unitPrice: Money.fromMajor("66.67") }),
+    ]);
+    const debit = posting.lines.reduce((sum, l) => sum.add(l.debit), Money.zero());
+    const credit = posting.lines.reduce((sum, l) => sum.add(l.credit), Money.zero());
+    expect(debit.toString()).toBe(credit.toString());
+  });
+});
+
+describe("buildSalesInvoiceGlPosting — the project dimension (D-01)", () => {
+  it("carries the invoice's projectId onto every line: AR, revenue, tax, COGS and inventory alike", () => {
+    const inv = invoice({ projectId: "PRJ-1", lines: [line({ taxRatePercent: 14 })] });
+    const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+    const cogsLines: SalesInvoiceCogsLine[] = [{ cogsAccountId: "5000", inventoryAccountId: "1200", cost: Money.fromMajor("60") }];
+    const posting = buildSalesInvoiceGlPosting(inv, totals, cogsLines);
+
+    expect(posting.lines.length).toBeGreaterThan(0);
+    for (const l of posting.lines) {
+      expect(l.projectId).toBe("PRJ-1");
+    }
+  });
+
+  it("leaves every line unattributed when the invoice names no project", () => {
+    const inv = invoice({ projectId: null, lines: [line({ taxRatePercent: 14 })] });
+    const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+    const cogsLines: SalesInvoiceCogsLine[] = [{ cogsAccountId: "5000", inventoryAccountId: "1200", cost: Money.fromMajor("60") }];
+    const posting = buildSalesInvoiceGlPosting(inv, totals, cogsLines);
+    for (const l of posting.lines) {
+      expect(l.projectId ?? null).toBeNull();
+    }
   });
 });

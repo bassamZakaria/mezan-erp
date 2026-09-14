@@ -41,6 +41,7 @@ function serialize(supplier: Supplier) {
     addressCity: supplier.addressCity,
     addressDistrict: supplier.addressDistrict,
     addressStreet: supplier.addressStreet,
+    bankAccount: supplier.bankAccount,
   };
 }
 
@@ -77,13 +78,29 @@ export function createSuppliersRouter(
       entityType: "SUPPLIER",
       entityId: supplier.id,
       action,
-      severity: before && before.openingBalance.scaled !== supplier.openingBalance.scaled ? "WARNING" : "INFO",
+      severity:
+        before &&
+        (before.openingBalance.scaled !== supplier.openingBalance.scaled ||
+          before.bankAccount !== supplier.bankAccount ||
+          before.taxNumber !== supplier.taxNumber)
+          ? "WARNING"
+          : "INFO",
       details: {
         code: supplier.code,
         nameAr: supplier.nameAr,
         openingBalance: supplier.openingBalance.toString(),
+        // WHERE the money goes and WHOSE tax number it is paid against. A
+        // supplier's bank account changed between the invoice and the payment
+        // is the classic diversion, and the trail recorded neither side of it.
+        bankAccount: supplier.bankAccount,
+        taxNumber: supplier.taxNumber,
         ...(before
-          ? { previousOpeningBalance: before.openingBalance.toString(), previousCode: before.code }
+          ? {
+              previousOpeningBalance: before.openingBalance.toString(),
+              previousCode: before.code,
+              previousBankAccount: before.bankAccount,
+              previousTaxNumber: before.taxNumber,
+            }
           : {}),
       },
     });

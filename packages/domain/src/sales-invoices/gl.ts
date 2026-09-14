@@ -53,24 +53,40 @@ export function buildSalesInvoiceGlPosting(
   // lives in base currency, whatever the sale was priced in.
   const convert = (amount: Money): Money => (fx ? convertToBase(amount, fx.rate) : amount);
   const fxTag = fx ? { currency: invoice.currency, fxRate: fx.rate } : {};
+  // Every line of a project-tagged invoice carries the project — revenue,
+  // VAT, COGS and inventory alike — so the project's cost/revenue ledger sees
+  // the whole sale, not just its cost side. Sales documents never set
+  // `costCategory`: the COGS line is a cost of the SALE, not a project cost.
+  const projectTag = { projectId: invoice.projectId ?? null };
+  // بُعد الفرع (DEC-20), on EVERY leg of the sale — receivable, revenue, VAT,
+  // COGS and inventory. A branch P&L that saw only the revenue side would
+  // report the branch's sales at full margin.
+  const branchTag = { branchId: invoice.branchId ?? null };
 
   // --- Revenue side ---
   // Grouped by revenue account AND by the rate the line was taxed at, so a
   // 14% / 5% / zero-rated invoice posts one base line per rate instead of one
   // blended line. The VAT return reports the rates actually charged, and it can
   // only do that if the ledger recorded them (D28).
-  const revenueByAccountAndRate = new Map<string, { accountId: string; rate: number; amount: Money }>();
+  const revenueByAccountAndRate = new Map<
+    string,
+    { accountId: string; rate: number; costCenterId: string | null; amount: Money }
+  >();
   const taxByRate = new Map<number, Money>();
   for (let i = 0; i < invoice.lines.length; i++) {
     const line = invoice.lines[i];
     const lineTotals = totals.lines[i];
     if (!line || !lineTotals) continue;
     const rate = line.taxRatePercent;
-    const key = `${line.revenueAccountId}|${rate}`;
+    // Grouped by cost centre as well as account and rate: two lines on one
+    // invoice can belong to two centres, and a blended credit would attribute
+    // both to whichever one happened to come first (D97).
+    const costCenterId = line.costCenterId ?? null;
+    const key = `${line.revenueAccountId}|${rate}|${costCenterId ?? ""}`;
     const bucket = revenueByAccountAndRate.get(key);
     const base = convert(lineTotals.taxableBase);
     if (bucket) revenueByAccountAndRate.set(key, { ...bucket, amount: bucket.amount.add(base) });
-    else revenueByAccountAndRate.set(key, { accountId: line.revenueAccountId, rate, amount: base });
+    else revenueByAccountAndRate.set(key, { accountId: line.revenueAccountId, rate, costCenterId, amount: base });
     const lineTax = convert(lineTotals.tax);
     if (lineTax.scaled !== 0n) taxByRate.set(rate, (taxByRate.get(rate) ?? Money.zero()).add(lineTax));
   }
@@ -80,16 +96,16 @@ export function buildSalesInvoiceGlPosting(
   let receivable = Money.zero();
   for (const amount of taxByRate.values()) receivable = receivable.add(amount);
   for (const bucket of revenueByAccountAndRate.values()) receivable = receivable.add(bucket.amount);
-  debits.push({ accountId: invoice.arAccountId, debit: receivable, credit: Money.zero(), ...fxTag });
+  debits.push({ accountId: invoice.arAccountId, debit: receivable, credit: Money.zero(), ...fxTag, ...projectTag });
 
-  for (const { accountId, rate, amount } of revenueByAccountAndRate.values()) {
+  for (const { accountId, rate, costCenterId, amount } of revenueByAccountAndRate.values()) {
     if (amount.scaled === 0n) continue;
-    credits.push({ accountId, debit: Money.zero(), credit: amount, taxRatePercent: rate });
+    credits.push({ accountId, debit: Money.zero(), credit: amount, taxRatePercent: rate, costCenterId, ...projectTag });
   }
 
   for (const [rate, amount] of taxByRate) {
     if (amount.scaled === 0n) continue;
-    credits.push({ accountId: invoice.taxAccountId, debit: Money.zero(), credit: amount, taxRatePercent: rate });
+    credits.push({ accountId: invoice.taxAccountId, debit: Money.zero(), credit: amount, taxRatePercent: rate, ...projectTag });
   }
 
   // --- COGS side ---
@@ -101,10 +117,10 @@ export function buildSalesInvoiceGlPosting(
     sumInto(inventoryByAccount, c.inventoryAccountId, c.cost);
   }
   for (const [accountId, amount] of cogsByAccount) {
-    debits.push({ accountId, debit: amount, credit: Money.zero() });
+    debits.push({ accountId, debit: amount, credit: Money.zero(), ...projectTag });
   }
   for (const [accountId, amount] of inventoryByAccount) {
-    credits.push({ accountId, debit: Money.zero(), credit: amount });
+    credits.push({ accountId, debit: Money.zero(), credit: amount, ...projectTag });
   }
 
   return {
@@ -113,6 +129,6 @@ export function buildSalesInvoiceGlPosting(
     sourceDocNumber: invoice.docNo,
     date: invoice.date,
     memo: `فاتورة مبيعات ${invoice.docNo ?? invoice.id} — ${invoice.customerNameAr}`,
-    lines: [...debits, ...credits],
+    lines: [...debits, ...credits].map((l) => ({ ...l, ...branchTag })),
   };
 }

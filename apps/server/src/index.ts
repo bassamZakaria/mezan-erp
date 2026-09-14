@@ -13,6 +13,18 @@ const seedDemoData = process.env.MEZAN_SEED_DEMO === "1";
 const { app } = await createBackend({ dbPath, seedDemoData });
 
 /**
+ * A rejected promise that reaches the process must not end it. Node's default
+ * on an unhandled rejection is to exit, and a single refused posting — a
+ * document approved into a closed fiscal period — was taking the whole backend
+ * with it, which on a LAN install means every till at once. Logged, never
+ * fatal; `app.onError` has already answered the request. Registered AFTER the
+ * boot above, so a failure to start is still fatal and visible.
+ */
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandled rejection (ignored, server stays up):", reason);
+});
+
+/**
  * A generated seed PIN is PRINTED, once, on the run that generated it.
  *
  * On `NODE_ENV=production` the fallback admin gets a random PIN rather than the

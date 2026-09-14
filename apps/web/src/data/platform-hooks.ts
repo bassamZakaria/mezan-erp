@@ -43,7 +43,12 @@ export function useUpdateSequence() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new ApiError(res.status, t("platformApi.theSequenceSettingsCouldNot"));
+      if (!res.ok) {
+        // The server's refusal is the useful half — «البادئة مستخدمة بالفعل»
+        // tells the admin what to change; the generic sentence does not (D100).
+        const payload = await res.json<{ message?: string }>().catch(() => ({}) as { message?: string });
+        throw new ApiError(res.status, payload.message ?? t("platformApi.theSequenceSettingsCouldNot"));
+      }
       return res.json<SequenceListItemDTO>();
     },
     onSuccess: () => {

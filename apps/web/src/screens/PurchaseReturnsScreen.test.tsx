@@ -34,11 +34,11 @@ function WithSubPageNav({ children }: { children: ReactElement }) {
 const suppliers: SupplierDTO[] = [
   {
     id: "sup-1", code: "S1", nameAr: "شركة النيل للتوريدات", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
-    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null,
+    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null, bankAccount: null,
   },
 ];
 
-const warehouses: WarehouseDTO[] = [{ id: "MAIN-WH", code: "MAIN-WH", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true }];
+const warehouses: WarehouseDTO[] = [{ id: "MAIN-WH", code: "MAIN-WH", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null }];
 
 const items: ItemDTO[] = [
   {
@@ -65,7 +65,7 @@ const suppliers2: SupplierDTO[] = [
   ...suppliers,
   {
     id: "sup-2", code: "S2", nameAr: "مصنع الدلتا للأسمنت", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
-    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null,
+    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null, bankAccount: null,
   },
 ];
 
@@ -73,6 +73,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
   return {
     id: "pi-1",
     number: "PI-000001",
+    projectId: null,
     supplierId: "sup-1",
     date: "2026-08-20",
     dueDate: "2026-09-04",

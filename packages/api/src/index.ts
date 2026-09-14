@@ -1,4 +1,4 @@
-export { createApp, type App, type CreateAppOptions } from "./app.js";
+export { createApp, type App, type CreateAppOptions, type InstallmentCollectPort } from "./app.js";
 export {
   createModuleGate,
   type EntitlementsResolver,
@@ -81,3 +81,8 @@ export {
   createSecurityReportsRoutes,
   type SecurityReportsRoutesDeps,
 } from "./security-reports-routes.js";
+export { sendNotificationEmail } from "./smtp-client.js";
+export {
+  createSimplifiedRegimeRoutes,
+  type SimplifiedRegimeRoutesDeps,
+} from "./simplified-regime-routes.js";

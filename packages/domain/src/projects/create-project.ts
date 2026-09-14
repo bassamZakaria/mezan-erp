@@ -15,7 +15,13 @@ export interface CreateProjectCommand {
   readonly budget?: Money;
   readonly siteAddress?: string | null;
   readonly notes?: string | null;
-  /** Id to give the auto-created cost center. Defaults to `cc-prj-${id}` if omitted. */
+  /**
+   * The cost centre to book this project against.
+   *
+   * An id that already exists is LINKED, not recreated — that is how a project
+   * is attached to a cost centre the books already use. An id that does not is
+   * created as this project's own. Omitted, it defaults to `cc-prj-${id}`.
+   */
   readonly costCenterId?: string;
 }
 
@@ -36,15 +42,14 @@ export async function createProject(cmd: CreateProjectCommand, deps: CreateProje
     throw new DuplicateProjectCodeError(cmd.code);
   }
 
-  const costCenter = await createCostCenter(
-    {
-      id: cmd.costCenterId ?? `cc-prj-${cmd.id}`,
-      code: `PRJ-${cmd.code}`,
-      nameAr: cmd.nameAr,
-      type: "project",
-    },
-    deps.costCenters,
-  );
+  const costCenterId = cmd.costCenterId ?? `cc-prj-${cmd.id}`;
+  const existingCostCenter = await deps.costCenters.findById(costCenterId);
+  const costCenter =
+    existingCostCenter ??
+    (await createCostCenter(
+      { id: costCenterId, code: `PRJ-${cmd.code}`, nameAr: cmd.nameAr, type: "project" },
+      deps.costCenters,
+    ));
 
   const project: Project = {
     id: cmd.id,

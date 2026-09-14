@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { warehouseTypeSchema, warehouseSchema, createWarehouseSchema, updateWarehouseSchema } from "./warehouse.js";
 
 describe("warehouseTypeSchema", () => {
-  it("accepts each of the five known warehouse types", () => {
-    for (const type of ["MAIN", "TRANSIT", "RETURNS", "PRODUCTION", "VAN"]) {
+  it("accepts each of the known warehouse types, the contracting site store included", () => {
+    for (const type of ["MAIN", "TRANSIT", "RETURNS", "PRODUCTION", "VAN", "SITE"]) {
       expect(warehouseTypeSchema.safeParse(type).success).toBe(true);
     }
   });
@@ -27,6 +27,8 @@ describe("warehouseSchema", () => {
     type: "MAIN" as const,
     isDefault: true,
     active: true,
+    projectId: null,
+    custodianUserId: null,
   };
 
   it("accepts a minimal valid warehouse and preserves every field verbatim", () => {

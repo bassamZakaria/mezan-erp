@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * A report's drill-down panel (A5): the entity behind a cell, and the source
@@ -22,7 +23,7 @@ export const reportDrillDownFactSchema = z.object({
   /** Translation key suffix — `reportDrill.fact.<key>` on the client. */
   key: z.string(),
   labelAr: z.string(),
-  value: z.string(),
+  value: moneyString,
   format: z.enum(["text", "money", "qty", "date"]).optional(),
 });
 

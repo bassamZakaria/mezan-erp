@@ -25,6 +25,9 @@ export const STOCK_SOURCE_DOC_TYPES = [
   "POS_SALE",
   "WORK_ORDER",
   "LANDED_COST",
+  "SITE_ISSUE",
+  "SITE_RECEIPT",
+  "MATERIAL_CONSUMPTION",
 ] as const;
 export type StockSourceDocType = (typeof STOCK_SOURCE_DOC_TYPES)[number];
 

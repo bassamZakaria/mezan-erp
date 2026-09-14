@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
 import type { InstallmentLine, InstallmentPlanDocument } from "../installments/index.js";
 import type { Customer } from "../customers/customer.js";
@@ -51,7 +52,7 @@ export interface InstallmentsOverdueRow {
 }
 
 const paramsSchema = z.object({
-  asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  asOfDate: isoDateParamSchema,
   bucket: z.enum(["", "1to30", "31to60", "61to90", "over90"]),
 });
 

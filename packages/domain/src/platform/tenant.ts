@@ -1,0 +1,108 @@
+import { normalizeEmail } from "../users/save-user.js";
+import { isValidSlug } from "./slug.js";
+import { isoTimestamp } from "./validation.js";
+import {
+  InvalidTenantError,
+  InvalidTenantTransitionError,
+  TenantCodeTakenError,
+  TenantNotFoundError,
+} from "./errors.js";
+
+export type TenantStatus = "provisioning" | "active" | "suspended" | "archived";
+
+export interface Tenant {
+  readonly id: string;
+  readonly code: string;
+  readonly nameAr: string;
+  readonly nameEn: string | null;
+  readonly ownerEmail: string;
+  readonly status: TenantStatus;
+  readonly dbFile: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface TenantRepository {
+  findById(id: string): Promise<Tenant | null>;
+  findByCode(code: string): Promise<Tenant | null>;
+  list(): Promise<Tenant[]>;
+  save(tenant: Tenant): Promise<void>;
+}
+
+export interface CreateTenantCommand {
+  readonly id: string;
+  readonly code: string;
+  readonly nameAr: string;
+  readonly nameEn?: string | null;
+  readonly ownerEmail: string;
+  readonly now: string;
+}
+
+export function tenantDbFile(code: string): string {
+  return `tenants/${code}.db`;
+}
+
+function validate(cmd: CreateTenantCommand): string[] {
+  const reasons: string[] = [];
+  if (cmd.id.trim() === "") reasons.push("id is required");
+  if (!isValidSlug(cmd.code)) reasons.push("code must be a slug of 3 to 32 lower-case letters, digits or inner hyphens");
+  if (cmd.nameAr.trim() === "") reasons.push("nameAr is required");
+  if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("ownerEmail is required");
+  return reasons;
+}
+
+export async function createTenant(cmd: CreateTenantCommand, repo: TenantRepository): Promise<Tenant> {
+  const now = isoTimestamp(cmd.now);
+  const reasons = validate(cmd);
+  if (!now) reasons.push("now must be an ISO-8601 timestamp");
+  if (!now || reasons.length > 0) throw new InvalidTenantError(reasons);
+  if (await repo.findByCode(cmd.code)) throw new TenantCodeTakenError(cmd.code);
+  const tenant: Tenant = {
+    id: cmd.id,
+    code: cmd.code,
+    nameAr: cmd.nameAr.trim(),
+    nameEn: cmd.nameEn?.trim() || null,
+    ownerEmail: normalizeEmail(cmd.ownerEmail),
+    status: "provisioning",
+    dbFile: tenantDbFile(cmd.code),
+    createdAt: now,
+    updatedAt: now,
+  };
+  await repo.save(tenant);
+  return tenant;
+}
+
+export interface TenantTransitionCommand {
+  readonly id: string;
+  readonly now: string;
+}
+
+const TRANSITIONS: Readonly<Record<TenantStatus, readonly TenantStatus[]>> = {
+  provisioning: ["active"],
+  active: ["suspended", "archived"],
+  suspended: ["active", "archived"],
+  archived: [],
+};
+
+async function transition(
+  cmd: TenantTransitionCommand,
+  to: TenantStatus,
+  repo: TenantRepository,
+  from?: readonly TenantStatus[],
+): Promise<Tenant> {
+  const now = isoTimestamp(cmd.now);
+  if (!now) throw new InvalidTenantError(["now must be an ISO-8601 timestamp"]);
+  const current = await repo.findById(cmd.id);
+  if (!current) throw new TenantNotFoundError(cmd.id);
+  if (!TRANSITIONS[current.status].includes(to) || (from !== undefined && !from.includes(current.status))) {
+    throw new InvalidTenantTransitionError(current.status, to);
+  }
+  const next: Tenant = { ...current, status: to, updatedAt: now };
+  await repo.save(next);
+  return next;
+}
+
+export const activateTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "active", repo, ["provisioning"]);
+export const suspendTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "suspended", repo);
+export const archiveTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "archived", repo);
+export const resumeTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "active", repo, ["suspended"]);

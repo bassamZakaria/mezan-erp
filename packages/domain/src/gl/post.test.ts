@@ -420,3 +420,107 @@ describe("the VAT-filing lock (D29)", () => {
     expect((await ledger.list()).length).toBe(1);
   });
 });
+
+describe("the memorandum partition (C.2)", () => {
+  async function memoHarness() {
+    const h = await harness();
+    const accounts = h.deps.accounts as InMemoryAccountRepository;
+    await accounts.create(account("9100", { type: "memorandum" }));
+    await accounts.create(account("9200", { type: "memorandum", naturalBalance: "credit" }));
+    return h;
+  }
+
+  it("posts a pure memorandum pair", async () => {
+    const { deps } = await memoHarness();
+    const entry = await postJournalEntry(
+      {
+        id: "je-memo",
+        date: "2026-08-22",
+        memo: "خطاب ضمان",
+        lines: [
+          { accountId: "9100", debit: Money.fromMajor("500000"), credit: Money.zero() },
+          { accountId: "9200", debit: Money.zero(), credit: Money.fromMajor("500000") },
+        ],
+      },
+      deps,
+    );
+    expect(entry.status).toBe("posted");
+  });
+
+  it("posts an entry where BOTH partitions balance on their own", async () => {
+    const { deps } = await memoHarness();
+    const entry = await postJournalEntry(
+      {
+        id: "je-both",
+        date: "2026-08-22",
+        memo: "إصدار خطاب ضمان بغطاء نقدي",
+        lines: [
+          { accountId: "9100", debit: Money.fromMajor("500000"), credit: Money.zero() },
+          { accountId: "9200", debit: Money.zero(), credit: Money.fromMajor("500000") },
+          { accountId: "1300-1", debit: Money.fromMajor("100000"), credit: Money.zero() },
+          { accountId: "2200", debit: Money.zero(), credit: Money.fromMajor("100000") },
+        ],
+      },
+      deps,
+    );
+    expect(entry.status).toBe("posted");
+  });
+
+  it("REFUSES an entry that balances only by mixing memorandum with real accounts", async () => {
+    const { deps, ledger } = await memoHarness();
+    await expect(
+      postJournalEntry(
+        {
+          id: "je-mixed",
+          date: "2026-08-22",
+          memo: "قيد مختلط",
+          lines: [
+            { accountId: "9100", debit: Money.fromMajor("500000"), credit: Money.zero() },
+            { accountId: "2200", debit: Money.zero(), credit: Money.fromMajor("500000") },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toBeInstanceOf(InvalidJournalEntryError);
+    expect((await ledger.list()).length).toBe(0);
+  });
+});
+
+describe("the entry date is a calendar day (C.10)", () => {
+  it("REFUSES a full ISO timestamp", async () => {
+    const { deps } = await harness();
+    await expect(
+      postJournalEntry({ ...cashSale, date: "2026-08-22T10:00:00.000Z" }, deps),
+    ).rejects.toBeInstanceOf(InvalidJournalEntryError);
+  });
+
+  it("REFUSES a draft dated with a timestamp too", async () => {
+    const { deps } = await harness();
+    await expect(
+      createJournalEntry({ ...cashSale, date: "2026-08-22T10:00:00.000Z" }, deps),
+    ).rejects.toBeInstanceOf(InvalidJournalEntryError);
+  });
+});
+
+describe("project-bound control accounts (C.4)", () => {
+  const projectRequiredAccountIds = new Set(["2200"]);
+
+  it("REFUSES a line on a contracting control account with no projectId", async () => {
+    const { deps } = await harness();
+    await expect(
+      postJournalEntry(cashSale, { ...deps, projectRequiredAccountIds }),
+    ).rejects.toBeInstanceOf(InvalidJournalEntryError);
+  });
+
+  it("accepts the same entry once the line names a project", async () => {
+    const { deps } = await harness();
+    const entry = await postJournalEntry(
+      {
+        ...cashSale,
+        lines: cashSale.lines.map((l) => (l.accountId === "2200" ? { ...l, projectId: "PRJ-1" } : l)),
+      },
+      { ...deps, projectRequiredAccountIds },
+    );
+    expect(entry.status).toBe("posted");
+  });
+});

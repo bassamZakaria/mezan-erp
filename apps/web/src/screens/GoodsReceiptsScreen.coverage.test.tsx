@@ -71,7 +71,7 @@ function pickFromComboboxAt(inputs: HTMLElement[], index: number, optionLabel: s
 const suppliers: SupplierDTO[] = [
   {
     id: "sup-1", code: "S1", nameAr: "شركة النيل للتوريدات", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
-    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null,
+    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null, bankAccount: null,
   },
 ];
 
@@ -96,8 +96,8 @@ const branches: BranchDTO[] = [
 ];
 
 const warehouses: WarehouseDTO[] = [
-  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true },
-  { id: "WH2", code: "WH2", name: "مخزن الفرع الثاني", nameEn: null, branchId: "BR2", type: "MAIN", isDefault: true, active: true },
+  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
+  { id: "WH2", code: "WH2", name: "مخزن الفرع الثاني", nameEn: null, branchId: "BR2", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
 ];
 
 function purchaseOrder(overrides: Partial<PurchaseOrderDTO> = {}): PurchaseOrderDTO {
@@ -136,6 +136,7 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
     totalCost: "1700.000000",
     createdBy: "محمد الشهابي",
     createdAt: "2026-08-19T10:00:00.000Z",
+    projectId: null,
     ...overrides,
   };
 }
@@ -168,6 +169,7 @@ const baseHandlers: Record<string, (init: RequestInit | undefined, path: string)
   "GET /branches": () => ({ body: branches }),
   "GET /warehouses": () => ({ body: warehouses }),
   "GET /users": () => ({ body: [] }),
+  "GET /projects": () => ({ body: [] }),
 };
 
 function renderScreen(transport: Transport, options: { initialSegments?: readonly string[]; onNavigate?: (screen: ScreenKey, intent?: ScreenIntentInput) => void } = {}) {
@@ -351,7 +353,9 @@ describe("GoodsReceiptsScreen — receiving against a purchase order", () => {
     pickFromCombobox(document.body, "أمر الشراء *", "PO-000001");
 
     expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
-    expect(screen.getByText("20")).toBeInTheDocument();
+    // The outstanding quantity seeds an EDITABLE field (D73), not a read-only preview cell.
+    expect(screen.getByLabelText("الكمية المستلمة")).toHaveValue(20);
+    expect(screen.getByText("المتبقي على أمر الشراء: 20")).toBeInTheDocument();
     expect(screen.queryByText("دواء أموكسيسيلين")).not.toBeInTheDocument();
   });
 });
@@ -457,7 +461,7 @@ describe("GoodsReceiptsScreen — an ad-hoc receipt with no warehouse to default
 describe("GoodsReceiptsScreen — an ad-hoc receipt when the working location has no warehouse of its own", () => {
   it("falls back to the tenant's only configured warehouse even when it belongs to a different branch", async () => {
     const offBranchWarehouse: WarehouseDTO[] = [
-      { id: "WH-OTHER", code: "WH-OTHER", name: "مخزن آخر", nameEn: null, branchId: "OTHER-BRANCH", type: "MAIN", isDefault: true, active: true },
+      { id: "WH-OTHER", code: "WH-OTHER", name: "مخزن آخر", nameEn: null, branchId: "OTHER-BRANCH", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
     ];
     const transport = stubTransport({
       ...baseHandlers,

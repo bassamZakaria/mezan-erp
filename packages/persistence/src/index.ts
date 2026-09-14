@@ -197,11 +197,34 @@ export {
   type SqliteActivityRepositoryHandle,
 } from "./crm-store.js";
 export { createSqliteProjectRepository, type SqliteProjectRepositoryHandle } from "./project-repository.js";
+export { createSqliteGuaranteeStore, type SqliteGuaranteeStoreHandle } from "./contracting-guarantees-store.js";
+export {
+  createSqliteContractingControlsStore,
+  type SqliteContractingControlsStoreHandle,
+} from "./contracting-controls-store.js";
+export {
+  createSqliteContractingRecognitionStore,
+  type SqliteRecognitionStoreHandle,
+} from "./contracting-recognition-store.js";
+export {
+  createSqliteWorksContractStore,
+  type SqliteWorksContractStoreHandle,
+} from "./contracting-contracts-store.js";
+export {
+  createSqliteProgressCertificateStore,
+  type SqliteProgressCertificateStoreHandle,
+} from "./contracting-certificates-store.js";
+export {
+  createSqliteSubcontractStore,
+  type SqliteSubcontractStoreHandle,
+} from "./contracting-subcontracts-store.js";
 export {
   createSqliteAssetCategoryRepository,
+  createSqliteAssetInternalRateHistoryRepository,
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
   type SqliteAssetCategoryRepositoryHandle,
+  type SqliteAssetInternalRateHistoryRepositoryHandle,
   type SqliteAssetRepositoryHandle,
   type SqliteDepreciationRunRepositoryHandle,
 } from "./fixed-assets-store.js";
@@ -260,8 +283,6 @@ export {
   type SqliteProductTemplateStoreHandle,
 } from "./product-template-store.js";
 
-export { createSqliteApiKeyStore, type SqliteApiKeyStoreHandle } from "./api-key-store.js";
-export { createSqliteWebhookStores, type SqliteWebhookStoresHandle } from "./webhook-store.js";
 
 export {
   createSqliteLabelLayoutStore,
@@ -304,3 +325,16 @@ export {
   createSqliteAttachmentStore,
   type SqliteAttachmentStoreHandle,
 } from "./attachment-store.js";
+
+export {
+  createSqliteContractingSiteStore,
+  type SqliteContractingSiteStoreHandle,
+} from "./contracting-site-store.js";
+export { createSqlitePlatformStores, type SqlitePlatformStoresHandle } from "./platform-store.js";
+
+export {
+  createSqliteSimplifiedRegimeStore,
+  createStandaloneSqliteSimplifiedRegimeStore,
+  readSimplifiedRegime,
+  type SqliteSimplifiedRegimeStoreHandle,
+} from "./simplified-regime-store.js";

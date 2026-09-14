@@ -1,6 +1,7 @@
 export {
   BANK_STATEMENT_STATUS_DEFINITIONS,
   getBankStatementStatusLabel,
+  MAX_STATEMENT_BALANCE_SCALED,
   type BankStatement,
   type BankStatementListFilter,
   type BankStatementRepository,
@@ -17,6 +18,7 @@ export {
 export {
   BankStatementNotFoundError,
   FinalizeOverrideReasonRequiredError,
+  InvalidStatementBalanceError,
   StatementHasUnmatchedLinesError,
   ColumnNotFoundError,
   InvalidColumnMappingError,

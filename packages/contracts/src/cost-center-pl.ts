@@ -8,6 +8,13 @@ export const costCenterPnLRowSchema = z.object({
   revenue: z.string(),
   expense: z.string(),
   profit: z.string(),
+  parentId: z.string().nullable(),
+  /** Own figures plus every descendant's — a project centre under a regional one rolls up here. */
+  rollup: z.object({
+    revenue: z.string(),
+    expense: z.string(),
+    profit: z.string(),
+  }),
 });
 
 export const costCenterPnLReportSchema = z.object({

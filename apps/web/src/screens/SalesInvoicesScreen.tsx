@@ -36,7 +36,7 @@ import {
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
   type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency,} from "@mezan/domain";
-import type { SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
+import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
   useAccounts,
@@ -46,6 +46,7 @@ import {
   useCustomers,
   useEmployees,
   useItems,
+  useProjects,
   useSettings,
   useItemAvailability,
   useConvertSalesQuoteToInvoice,
@@ -68,6 +69,7 @@ import {
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
+import { useEntityName } from "../lib/entity-names";
 import { useUnitLabel } from "../lib/item-labels";
 import { majorOf, sumMajor } from "../lib/money";
 import { useDebounced } from "../lib/use-debounced";
@@ -103,6 +105,9 @@ const STATUS_TONE: Record<SalesInvoiceStatusDTO, PillTone> = {
 };
 
 const LIST_STATUSES: SalesInvoiceStatusDTO[] = ["draft", "confirmed", "partially_paid", "paid", "cancelled"];
+
+/** Projects still open for new spend/income — a finished or cancelled project cannot take new lines. */
+const OPEN_PROJECT_STATUSES = new Set<ProjectDTO["status"]>(["planned", "active", "on_hold"]);
 
 /**
  * The label an amount ON THIS DOCUMENT should carry. A foreign-currency invoice
@@ -321,6 +326,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const format = useFormat();
   const customersQuery = useCustomers();
   const employeesQuery = useEmployees();
+  const projectsQuery = useProjects();
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
   const branchesQuery = useBranches();
@@ -331,9 +337,11 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const confirmInvoice = useConfirmSalesInvoice();
   const unitLabel = useUnitLabel();
   const workingLocation = useWorkingLocation();
+  const nameOf = useEntityName();
 
   const customers = customersQuery.data ?? EMPTY;
   const employees = employeesQuery.data ?? EMPTY;
+  const projects = projectsQuery.data ?? EMPTY;
   const items = itemsQuery.data ?? EMPTY;
   const warehouses = warehousesQuery.data ?? EMPTY;
   const branches = branchesQuery.data ?? EMPTY;
@@ -390,6 +398,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const [methodChosen, setMethodChosen] = useState(false);
   const [sourceQuoteId, setSourceQuoteId] = useState("");
   const [salesperson, setSalesperson] = useState<EntityPickerOption | null>(null);
+  const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [couponCode, setCouponCode] = useState("");
   const [discountType, setDiscountType] = useState<SalesInvoiceDiscountType>("amount");
   const [discountValue, setDiscountValue] = useState(0);
@@ -410,6 +419,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     setInternalNotes("");
     setDueDateTouched(false);
     setSalesperson(null);
+    setProject(null);
     setCouponCode("");
     setDiscountType("amount");
     setDiscountValue(0);
@@ -504,6 +514,13 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
         })),
     [employees],
   );
+  const projectOptions = useMemo<EntityPickerOption[]>(
+    () =>
+      projects
+        .filter((p) => OPEN_PROJECT_STATUSES.has(p.status))
+        .map((p) => ({ id: p.id, label: `${p.code} — ${nameOf(p)}` })),
+    [projects, nameOf],
+  );
   const itemOptions = useMemo<EntityPickerOption[]>(
     // The sublabel quotes the price THIS customer gets, not the base one: on a
     // wholesale customer the picker advertised 180.00 and the line then opened
@@ -545,6 +562,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
         revenueAccountId: item.revenueAccountId ?? REVENUE_ACCOUNT_ID,
         cogsAccountId: isStock ? (item.cogsAccountId ?? COGS_ACCOUNT_ID) : null,
         inventoryAccountId: isStock ? (item.inventoryAccountId ?? INVENTORY_ACCOUNT_ID) : null,
+        costCenterId: null,
         unitCost: null,
       });
     }
@@ -615,6 +633,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
         branchId: branchId || workingLocation.branchId || "",
         salespersonId: salesperson?.id ?? null,
         salespersonNameAr: salesperson?.label ?? null,
+        projectId: project?.id ?? null,
         couponCode: couponCode.trim() === "" ? null : couponCode.trim(),
         currency,
         notes: notes.trim() === "" ? null : notes.trim(),
@@ -799,6 +818,15 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
           onChange={setSalesperson}
           options={salespersonOptions}
           placeholder={t("salesInvoices.field.salespersonPlaceholder")}
+        />
+
+        <EntityPicker
+          id="invoice-project-picker"
+          label={t("common.project")}
+          value={project}
+          onChange={setProject}
+          options={projectOptions}
+          placeholder={t("common.noProject")}
         />
 
         <label className="flex flex-col gap-[6px]">
@@ -1168,6 +1196,8 @@ function InvoiceDetailView({
   const accountsQuery = useAccounts();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
+  const projectsQuery = useProjects();
+  const nameOf = useEntityName();
   const unitLabel = useUnitLabel();
   const journalEntryQuery = useJournalEntry(invoice.journalEntryId);
   const recordPayment = useRecordSalesInvoicePayment();
@@ -1182,6 +1212,8 @@ function InvoiceDetailView({
   const warehouses = warehousesQuery.data ?? EMPTY;
   const items = itemsQuery.data ?? EMPTY;
   const branches = branchesQuery.data ?? EMPTY;
+  const projects = projectsQuery.data ?? EMPTY;
+  const project = invoice.projectId ? (projects.find((p) => p.id === invoice.projectId) ?? null) : null;
 
   /** Returns raised against THIS invoice — the reference shows them on the invoice itself. */
   const invoiceReturns = (returnsQuery.data ?? []).filter((r) => r.lines.some((l: { sourceInvoiceId: string }) => l.sourceInvoiceId === invoice.id));
@@ -1215,6 +1247,15 @@ function InvoiceDetailView({
     .filter((a) => a.status === "active")
     .map((a) => ({ value: a.id, label: `${a.name} (${a.code})` }));
   const [paymentTreasuryId, setPaymentTreasuryId] = useState("");
+  // «تحصيل دفعة» opened with no treasury selected and no default, so the first
+  // attempt at every collection was refused on submit with nothing said
+  // beforehand (D93). Same seeding the refund flow on returns already does.
+  useEffect(() => {
+    if (paymentTreasuryId !== "") return;
+    const accounts = treasuryQuery.data ?? [];
+    const first = accounts.find((a) => a.status === "active") ?? accounts[0];
+    if (first) setPaymentTreasuryId(first.id);
+  }, [treasuryQuery.data, paymentTreasuryId]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "cheque" | "card" | "wallet">("cash");
   const [payBusy, setPayBusy] = useState(false);
 
@@ -1243,6 +1284,7 @@ function InvoiceDetailView({
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,
+      costCenterId: null,
       unitCost: l.unitCost ? Money.fromMajor(l.unitCost) : null,
     }));
     const discount: SalesInvoiceDiscount =
@@ -1354,6 +1396,9 @@ function InvoiceDetailView({
         { label: t("common.warehouse"), value: warehouses.find((w) => w.id === invoice.warehouseId)?.name ?? invoice.warehouseId },
         { label: t("salesInvoices.detail.branch"), value: branches.find((b) => b.id === invoice.branchId)?.name ?? invoice.branchId },
         { label: t("salesInvoices.detail.salesperson"), value: invoice.salespersonNameAr ?? t("salesInvoices.detail.unassigned") },
+        ...(invoice.projectId
+          ? [{ label: t("common.project"), value: project ? `${project.code} — ${nameOf(project)}` : invoice.projectId }]
+          : []),
         ...(invoice.appliedPromotion
           ? [
               { label: t("salesInvoices.detail.appliedPromotion"), value: `${invoice.appliedPromotion.nameAr} (${invoice.appliedPromotion.code})` },

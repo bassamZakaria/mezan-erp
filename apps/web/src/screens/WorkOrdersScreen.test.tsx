@@ -82,8 +82,8 @@ const items: ItemDTO[] = [
 ];
 
 const warehouses: WarehouseDTO[] = [
-  { id: "wh-raw", code: "RAW-WH", name: "مستودع الخامات", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
-  { id: "wh-fg", code: "FG-WH", name: "مستودع المنتجات التامة", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
+  { id: "wh-raw", code: "RAW-WH", name: "مستودع الخامات", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true, projectId: null, custodianUserId: null },
+  { id: "wh-fg", code: "FG-WH", name: "مستودع المنتجات التامة", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true, projectId: null, custodianUserId: null },
 ];
 
 const boms: BomRecord[] = [
@@ -143,6 +143,7 @@ function workOrder(overrides: Partial<WorkOrderRecord> = {}): WorkOrderRecord {
     issuedAt: null,
     receivedAt: null,
     completedAt: null,
+    projectId: null,
     ...overrides,
   };
 }

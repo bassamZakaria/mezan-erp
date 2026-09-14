@@ -42,10 +42,38 @@ export const ACCOUNT_ROUTING_SLOTS: readonly AccountRoutingSlot[] = [
   { key: "leave.expense", section: "leave", labelAr: "مصروف الإجازات", labelEn: "Leave expense", defaultAccountId: "5110" },
 
   // --- المقاولات ---
-  { key: "contracting.revenue", section: "contracting", labelAr: "إيرادات المقاولات", labelEn: "Contracting revenue", defaultAccountId: "4100" },
+  { key: "contracting.revenue", section: "contracting", labelAr: "إيرادات المقاولات", labelEn: "Contracting revenue", defaultAccountId: "4150" },
   { key: "contracting.retention_receivable", section: "contracting", labelAr: "محتجزات لدى العملاء", labelEn: "Retention receivable", defaultAccountId: "1150" },
   { key: "contracting.customer_advances", section: "contracting", labelAr: "دفعات مقدمة من العملاء", labelEn: "Advances from contracting customers", defaultAccountId: "2160" },
   { key: "contracting.late_penalty", section: "contracting", labelAr: "غرامات التأخير", labelEn: "Late-delivery penalties", defaultAccountId: "5910" },
+  { key: "contracting.employer_materials", section: "contracting", labelAr: "استهلاك عهدة المواد", labelEn: "Employer-supplied materials consumed", defaultAccountId: "5157" },
+  { key: "contracting.stamp_duty", section: "contracting", labelAr: "دمغات ورسوم", labelEn: "Stamp duty and fees", defaultAccountId: "5158" },
+  { key: "contracting.utilities", section: "contracting", labelAr: "مصروفات مرافق الموقع", labelEn: "Site utilities consumed", defaultAccountId: "5159" },
+  // The rest of the contracting set (docs/artifacts/mezan-contracting-designs.html D-03,
+  // D-04, D-12): billing and revenue are two arrows from two sources, so each needs
+  // its own account, and retention has a payable direction.
+  { key: "contracting.billings", section: "contracting", labelAr: "فواتير مستخلصات على العقود", labelEn: "Billings on contracts", defaultAccountId: "2165" },
+  { key: "contracting.contract_asset", section: "contracting", labelAr: "أصل العقد", labelEn: "Contract asset", defaultAccountId: "1170" },
+  { key: "contracting.contract_liability", section: "contracting", labelAr: "التزام العقد", labelEn: "Contract liability", defaultAccountId: "2175" },
+  { key: "contracting.wip", section: "contracting", labelAr: "أعمال تحت التنفيذ — مقاولات", labelEn: "Contract work in progress", defaultAccountId: "1230" },
+  { key: "contracting.cost_of_revenue", section: "contracting", labelAr: "تكلفة إيراد العقود", labelEn: "Cost of contract revenue", defaultAccountId: "5150" },
+  { key: "contracting.wht_receivable", section: "contracting", labelAr: "ضريبة خصم وتحصيل مستردة", labelEn: "Withholding tax receivable", defaultAccountId: "1175" },
+  { key: "contracting.social_insurance", section: "contracting", labelAr: "تأمينات اجتماعية — مقاولات", labelEn: "Contracting social insurance", defaultAccountId: "5155" },
+  { key: "contracting.retention_payable", section: "contracting", labelAr: "المحتجزات الضمانية المستحقة لمقاولي الباطن", labelEn: "Retention payable to subcontractors", defaultAccountId: "2195" },
+  { key: "contracting.onerous_provision", section: "contracting", labelAr: "مخصص عقود خاسرة", labelEn: "Onerous contract provision", defaultAccountId: "2196" },
+  { key: "contracting.onerous_loss", section: "contracting", labelAr: "خسائر عقود متوقعة", labelEn: "Foreseeable contract losses", defaultAccountId: "5930" },
+  { key: "contracting.plant_recovery", section: "contracting", labelAr: "استرداد تكلفة تشغيل المعدات", labelEn: "Internal plant hire recovery", defaultAccountId: "5160" },
+  { key: "contracting.restricted_cash", section: "contracting", labelAr: "غطاء نقدي مقيد لخطابات الضمان", labelEn: "Restricted cash — guarantee margins", defaultAccountId: "1340" },
+  { key: "contracting.memo_debit", section: "contracting", labelAr: "حسابات نظامية مدينة — خطابات ضمان", labelEn: "Memorandum debit — letters of guarantee", defaultAccountId: "9100" },
+  { key: "contracting.memo_credit", section: "contracting", labelAr: "حسابات نظامية دائنة — خطابات ضمان", labelEn: "Memorandum credit — letters of guarantee", defaultAccountId: "9200" },
+  // عقود الباطن. An advance PAID to a subcontractor is an asset until a
+  // certificate recovers it; the tax withheld from its certificate is owed to
+  // the authority, not to payroll's 2190; and the social insurance withheld
+  // from the sub is money held for NOSI, never a credit back to the
+  // contractor's own insurance expense.
+  { key: "contracting.subcontractor_advances", section: "contracting", labelAr: "سلف مقاولي الباطن", labelEn: "Subcontractor advances", defaultAccountId: "1350" },
+  { key: "contracting.wht_payable", section: "contracting", labelAr: "ضريبة خصم وتحصيل مستحقة — مقاولو الباطن", labelEn: "Withholding tax payable — subcontractors", defaultAccountId: "2210" },
+  { key: "contracting.social_insurance_withheld", section: "contracting", labelAr: "تأمينات اجتماعية محتجزة من مقاولي الباطن", labelEn: "Social insurance withheld from subcontractors", defaultAccountId: "2197" },
 
   // --- خصم المبيعات ---
   { key: "sales_discount.contra", section: "sales_discount", labelAr: "حساب خصم المبيعات", labelEn: "Sales discount contra account", defaultAccountId: "4100" },

@@ -223,6 +223,56 @@ describe("approval request routes", () => {
     expect((await step2.json() as { status: string }).status).toBe("approved");
   });
 
+  /**
+   * Guards DEC-2. `GateStep.role` is a ROLE code, and the two document routes
+   * that feed the gate used to hand it the caller's PERMISSION set instead, so
+   * the two sides of the same gate disagreed about what a step names. A step
+   * is satisfied by the role the session grant carries, and by nothing else
+   * that happens to be spelled the same.
+   */
+  it("matches a step's role against the caller's ROLE, never a permission of the same name", async () => {
+    const { app, req } = newApp();
+    await app.fetch(
+      req("/configs", {
+        method: "POST",
+        permissions: "workflow.config.manage",
+        body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM", steps: [{ role: "FINANCE_MANAGER" }] }),
+      }),
+    );
+    const submit = async () =>
+      ((await (
+        await app.fetch(
+          req("/requests", { method: "POST", userId: "alice", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }),
+        )
+      ).json()) as { id: string }).id;
+
+    // A clerk who holds "FINANCE_MANAGER" as a PERMISSION is not the finance
+    // manager, and the step does not open for them.
+    const impostor = await app.fetch(
+      req(`/requests/${await submit()}/decide`, {
+        method: "POST",
+        userId: "clerk-1",
+        permissions: "workflow.view,workflow.approve,FINANCE_MANAGER",
+        roleCode: "CLERK",
+        body: JSON.stringify({ decision: "approve" }),
+      }),
+    );
+    expect(impostor.status).toBe(409);
+    expect(await impostor.json()).toMatchObject({ error: "WRONG_APPROVER" });
+
+    // The same step, decided by the holder of the ROLE, goes through.
+    const approver = await app.fetch(
+      req(`/requests/${await submit()}/decide`, {
+        method: "POST",
+        userId: "fin-1",
+        permissions: "workflow.view,workflow.approve",
+        roleCode: "FINANCE_MANAGER",
+        body: JSON.stringify({ decision: "approve" }),
+      }),
+    );
+    expect((await approver.json() as { status: string }).status).toBe("approved");
+  });
+
   it("requires workflow.reject to reject a request even with workflow.approve", async () => {
     const { app, req } = newApp();
     await app.fetch(
@@ -260,17 +310,15 @@ describe("approval request routes", () => {
   });
 
   /**
-   * KNOWN PRODUCT DEFECT — kept asserting the CORRECT behaviour, expected to fail.
-   *
-   * `POST /workflow/requests` is deliberately ungated, so no permission gate
-   * ever stashes an AuthContext on the request; `actorRoles` (= `callerRoleCodes`,
-   * workflow-routes.ts:104) reads that stash and therefore hands `submitApproval`
-   * an EMPTY `submitterRoles` on this route. `hasAdminRole` never sees `"*"`, so
-   * a tenant admin's submission is held بانتظار الموافقة instead of granted.
-   * Before the session move the helper read the headers directly and this worked.
-   * Delete the `.fails` once workflow-routes.ts resolves the roles itself.
+   * `POST /workflow/requests` is deliberately ungated — submitting is a side
+   * effect of whatever the caller was already allowed to do — so no permission
+   * gate stashes an AuthContext on it, and `callerRoleCodes` (which reads that
+   * stash) answered `[]` for everyone. `hasAdminRole` therefore never saw `"*"`
+   * and a tenant admin's own submission was held بانتظار الموافقة by a bypass
+   * that could not fire (D69). The route now reads the roles off the context it
+   * resolves itself.
    */
-  it.fails("an admin submitter (\"*\") bypasses the gate and is granted immediately", async () => {
+  it("an admin submitter (\"*\") bypasses the gate and is granted immediately", async () => {
     const { app, req } = newApp();
     await app.fetch(
       req("/configs", {

@@ -84,6 +84,7 @@ async function voucherHarness() {
       glAccountId: branch === "b1" ? CASH_A : CASH_B,
       openingBalance: Money.zero(),
       openingBalanceDate: null,
+      guaranteeFacilityLimit: null,
       status: "active",
     });
   }

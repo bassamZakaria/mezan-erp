@@ -561,7 +561,9 @@ export async function voucherTypesRouteToTheirOwnAccounts_R81(ctx: Ctx): Promise
         treasuryGlAccountId: treasury.glAccountId,
         // Deliberately wrong. The server must not take it.
         counterpartyGlAccountId: "9999-WRONG",
-        ...(type === "customer_advance" ? { customerId: "CUST-DEMO-1" } : {}),
+        // An advance with no project could never be recovered from that
+        // project's certificates, so the type refuses to draft without one.
+        ...(type === "customer_advance" ? { customerId: "CUST-DEMO-1", projectId: "PRJ-DEMO-1" } : {}),
       });
       ctx.check(`${type} — voucher drafts`, created.status === 201, JSON.stringify(created.body));
       ctx.checkEq(`${type} — routed to ${account}: ${why}`, created.body?.counterpartyGlAccountId, account);
@@ -1125,7 +1127,7 @@ export async function aPostedEntryCannotBeEditedOrDeletedThroughAnyRoute(ctx: Ct
  * An opening balance is how every migration starts: the shop's existing
  * debtors are typed in on day one. If that figure never reaches the AR control
  * account, the sub-ledger and the GL disagree from the very first day and no
- * amount of correct posting afterwards will close the gap.
+ * amount of correct posting afterwards will close the gap. Guards D142.
  */
 export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: Ctx): Promise<void> {
   await ctx.scenario("opening balances — a customer's opening balance against GL 1105", async () => {
@@ -1133,6 +1135,7 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
     const opening = 4250;
 
     const arBefore = await accountBalance(ctx, "1105");
+    const equityBefore = await accountBalance(ctx, "3210");
 
     const created = await ctx.req("POST", "/customers", {
       id,
@@ -1156,17 +1159,24 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
       JSON.stringify(listed).slice(0, 220),
     );
 
-    const arAfter = await accountBalance(ctx, "1105");
+    // D142: the control account moves by exactly the opening balance, against
+    // أرصدة افتتاحية (3210) — the sub-ledger and the GL agree from day one.
+    ctx.checkEq("GL 1105 moved by exactly the opening balance", await accountBalance(ctx, "1105"), arBefore + opening);
+    ctx.checkEq("and the other side landed in opening-balance equity 3210 as a credit", await accountBalance(ctx, "3210"), equityBefore - opening);
+
+    // Correcting an opening balance after it was posted moves the control
+    // account by the DIFFERENCE, so a typo fixed on the customer screen cannot
+    // put the sub-ledger and the GL back out of step.
+    const corrected = await ctx.req("PATCH", `/customers/${id}`, { openingBalance: `${opening + 270}.00` });
     ctx.check(
-      "FINDING: GL 1105 did not move — the opening balance is held on the customer record only, so the AR sub-ledger " +
-        "exceeds its control account by exactly the opening balances typed in at go-live, and nothing in the product " +
-        "ever closes that gap",
-      arAfter === arBefore,
-      `1105 before ${arBefore} after ${arAfter} (opening ${opening})`,
+      "the opening balance can be corrected after it was posted",
+      corrected.status === 200 && ctx.n(corrected.body?.openingBalance) === opening + 270,
+      `status ${corrected.status} body ${JSON.stringify(corrected.body).slice(0, 200)}`,
     );
+    ctx.checkEq("and GL 1105 followed the correction, not the whole figure twice", await accountBalance(ctx, "1105"), arBefore + opening + 270);
 
     // Put it back, or every reconciliation scenario after this one inherits
-    // the gap this one just demonstrated.
+    // this one's debtor.
     const cleared = await ctx.req("PATCH", `/customers/${id}`, { openingBalance: "0.00" });
     ctx.check(
       "the opening balance is cleared again so later scenarios start level",
@@ -1174,6 +1184,7 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
       `status ${cleared.status} body ${JSON.stringify(cleared.body).slice(0, 200)}`,
     );
     ctx.checkEq("and GL 1105 is exactly where it started", await accountBalance(ctx, "1105"), arBefore);
+    ctx.checkEq("and so is 3210", await accountBalance(ctx, "3210"), equityBefore);
   });
 }
 
@@ -1252,7 +1263,7 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     ctx.check("scenario leaves March open, as it found it", finalState.body?.status === "open", String(finalState.body?.status));
   });
 
-  await ctx.scenario("journal entry — the last day of a month is postable, as an instant", async () => {
+  await ctx.scenario("journal entry — the last day of a month is postable, as an instant still on that day in Cairo", async () => {
     // THE DAY A SHOP POSTS MOST IS THE DAY IT COULD NOT POST AT ALL.
     //
     // A fiscal period's `endDate` is a DAY ("2026-08-31") and a document's date
@@ -1266,12 +1277,20 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     // Asserted here with a full timestamp on purpose: the existing repository
     // test asked with a mid-month DAY, which is exactly the shape that cannot
     // fail.
+    //
+    // THE INSTANTS ARE CHOSEN TO STILL BE THAT DAY IN CAIRO. The engine keeps
+    // refusing instants; the ROUTE narrows one to the tenant's calendar day,
+    // and the tenant is Egyptian (Africa/Cairo, +02:00 or +03:00). So
+    // `…T23:59:59.999Z` on the 30th is the 1st of the next month here, and
+    // asserting it lands on the 30th would only be true of a UTC tenant. The
+    // late-in-the-day probes therefore ask at 20:00Z — still the same day in
+    // Cairo, still late enough to be a real end-of-day timestamp.
     const year = new Date().getUTCFullYear();
     for (const [label, date] of [
       ["a 31-day month", `${year}-08-31T03:10:33.016Z`],
-      ["a 30-day month", `${year}-09-30T23:59:59.999Z`],
+      ["a 30-day month", `${year}-09-30T20:00:00.000Z`],
       ["the first instant of a period", `${year}-08-01T00:00:00.000Z`],
-      ["the last instant of the year", `${year}-12-31T23:59:59.999Z`],
+      ["the last day of the year", `${year}-12-31T20:00:00.000Z`],
     ] as const) {
       const id = `SCN-JE-MONTHEND-${date.slice(5, 10)}`;
       const posted = await ctx.req("POST", "/gl/journal-entries", {

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { costCategorySchema } from "./contracting.js";
+import { moneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for the generic document framework (docs/archive/plan.md §3 document
@@ -37,15 +40,20 @@ export const documentEffectsSchema = z.object({
 /** A journal-document line as it crosses the wire. */
 export const journalDocumentLineSchema = z.object({
   accountId: z.string().min(1),
-  debit: z.string(),
-  credit: z.string(),
+  debit: moneyString,
+  credit: moneyString,
   memo: z.string().nullish(),
+  costCenterId: z.string().min(1).nullish(),
+  projectId: z.string().min(1).nullish(),
+  costCategory: costCategorySchema.nullish(),
+  /** بُعد الفرع (DEC-20) — optional per line; omitted means «غير مخصص». */
+  branchId: z.string().min(1).nullish(),
 });
 
 /** Create a journal document (draft or to post in one step). */
 export const createJournalDocumentSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string(),
   lines: z.array(journalDocumentLineSchema).min(2),
 });

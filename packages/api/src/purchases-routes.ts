@@ -5,6 +5,7 @@ import {
   Qty,
   NextNumberService,
   createPurchaseOrder,
+  type DocumentEventPublisher,
   confirmPurchaseOrder,
   cancelPurchaseOrder,
   purchaseOrderSubtotal,
@@ -39,6 +40,7 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   NegativeStockError,
+  UncostedDeficitIssueError,
   CashBalanceWouldGoNegativeError,
   InvalidDocumentError,
   AllocationMismatchError,
@@ -60,6 +62,7 @@ import {
   auditBranchFromScope,
   branchScopedAuditSink,
   type AuditSink,
+  can,
 } from "@mezan/domain";
 import {
   createPurchaseOrderSchema,
@@ -71,7 +74,9 @@ import {
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import type { CurrencyCheck } from "./currency-policy.js";
+import { tenantDay } from "./tenant-day.js";
 import {
+  createAnyPermissionGate,
   createPermissionGate,
   getAuthContext,
   type AuthContextResolver,
@@ -138,6 +143,18 @@ export interface PurchasesRoutesDeps {
   /** Append-only audit sink; when present every confirm/cancel below is recorded on the `sensitive` stream. */
   readonly audit?: AuditSink;
   /**
+   * Publishes the purchase chain's domain events (DEC-5). The chain is not a
+   * `DocumentService`, so it has no publisher of its own and five catalogued
+   * event codes had no producer at all: a notification rule an admin saved on
+   * «تم إرسال أمر شراء للمورد» could never fire, and a webhook integrator saw
+   * purchases as dead.
+   *
+   * Fire-and-forget, exactly like the bridges the document framework uses: a
+   * bus failure must NEVER fail a confirm. Omit it and the chain is silent,
+   * which is what it was before.
+   */
+  readonly events?: DocumentEventPublisher;
+  /**
    * Pay a supplier straight off the invoice: creates, confirms and allocates a
    * real سند صرف. Omit it and `POST /invoices/:id/payments` answers 503 rather
    * than flipping the invoice to "paid" with nothing posted behind it — the
@@ -194,6 +211,7 @@ function serializeReceipt(r: GoodsReceipt) {
     warehouseId: r.warehouseId,
     date: r.date,
     notes: r.notes,
+    projectId: r.projectId ?? null,
     lines: r.lines.map((l) => ({
       itemId: l.itemId,
       description: l.description,
@@ -201,6 +219,7 @@ function serializeReceipt(r: GoodsReceipt) {
       unitCost: l.unitCost.toString(),
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
+      costCategory: l.costCategory ?? null,
     })),
     status: r.status,
     invoiced: r.invoiced,
@@ -232,6 +251,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero())
     fxRate: inv.fxRate ?? null,
     notes: inv.notes,
     receiptId: inv.receiptId,
+    projectId: inv.projectId ?? null,
     lines: inv.lines.map((l) => ({
       itemId: l.itemId,
       description: l.description,
@@ -241,6 +261,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero())
       taxRatePercent: l.taxRatePercent,
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
+      costCategory: l.costCategory ?? null,
     })),
     status: inv.status,
     subtotal: purchaseInvoiceSubtotal(inv).toString(),
@@ -298,6 +319,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof NegativeStockError ||
+    err instanceof UncostedDeficitIssueError ||
     // Raised by the voucher engine behind `POST /invoices/:id/payments` — the
     // same D20 shape: a refusal the caller can act on must not answer 500.
     err instanceof CashBalanceWouldGoNegativeError ||
@@ -316,6 +338,25 @@ export function createPurchasesRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  /**
+   * D70 — the `purchases.invoice.view_own` tier, enforced.
+   *
+   * The catalogue grants the tier and `attachments/entity-type.ts` already
+   * treats it as a way of READING a purchase invoice, but every invoice route
+   * gated on `purchases.invoice.view` alone, so a holder of the own-records
+   * tier — which `.create`, `.edit`, `.confirm` and `.void` all imply — was
+   * refused the list with a 403 instead of being narrowed to their own work.
+   *
+   * Unlike a sales return, a purchase invoice records its author
+   * (`PurchaseInvoice.createdBy`), so "own" is the real thing here: the
+   * invoices this caller entered. A caller the session cannot identify sees
+   * nothing rather than everything.
+   */
+  const ownInvoiceVisibilityOnly = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? !can(ctx, "purchases.invoice.view") : false;
+  };
   const resolvePolicy = async (): Promise<PurchasePolicy> => {
     if (!deps.policy) return DEFAULT_PURCHASE_POLICY;
     return typeof deps.policy === "function" ? await deps.policy() : deps.policy;
@@ -465,6 +506,20 @@ export function createPurchasesRoutes(
     }
   });
 
+  /**
+   * A bus failure must never fail a confirm: the document is already posted by
+   * the time this runs, and throwing here would report an error for work that
+   * succeeded.
+   */
+  function emit(type: "DOCUMENT_CONFIRMED" | "DOCUMENT_CANCELLED", docType: string, docId: string, docNo: string | null): void {
+    if (!deps.events) return;
+    try {
+      deps.events.publish({ type, docType, docId, docNo, occurredAt: deps.now?.() ?? new Date().toISOString() });
+    } catch (error: unknown) {
+      console.error(`[purchases] event publish failed for ${docType}/${type}`, error);
+    }
+  }
+
   app.post("/orders/:id/confirm", gate("purchases.order.confirm"), async (c) => {
     try {
       const order = await confirmPurchaseOrder(c.req.param("id"), {
@@ -472,6 +527,7 @@ export function createPurchasesRoutes(
         audit: audit(c),
         actor: actor(c),
       });
+      emit("DOCUMENT_CONFIRMED", "PURCHASE_ORDER", order.id, order.number);
       return c.json(serializeOrder(order));
     } catch (err) {
       return handleDomainError(c, err);
@@ -485,6 +541,7 @@ export function createPurchasesRoutes(
         audit: audit(c),
         actor: actor(c),
       });
+      emit("DOCUMENT_CANCELLED", "PURCHASE_ORDER", order.id, order.number);
       return c.json(serializeOrder(order));
     } catch (err) {
       return handleDomainError(c, err);
@@ -602,8 +659,9 @@ export function createPurchasesRoutes(
         {
           id: parsed.data.id,
           purchaseOrderId: parsed.data.purchaseOrderId,
-          date: parsed.data.date,
+          date: await tenantDay(c, parsed.data.date),
           notes: parsed.data.notes,
+          projectId: parsed.data.projectId,
           createdBy: actor(c),
           supplierId: parsed.data.supplierId,
           warehouseId: parsed.data.warehouseId,
@@ -614,6 +672,7 @@ export function createPurchasesRoutes(
             unitCost: Money.fromMajor(l.unitCost),
             batchNo: l.batchNo,
             expiryDate: l.expiryDate,
+            costCategory: l.costCategory ?? null,
           })),
         },
         {
@@ -643,6 +702,7 @@ export function createPurchasesRoutes(
         actor: actor(c),
         now: deps.now,
       });
+      emit("DOCUMENT_CONFIRMED", "GOODS_RECEIPT", receipt.id, receipt.number);
       return c.json(serializeReceipt(receipt));
     } catch (err) {
       return handleDomainError(c, err);
@@ -663,6 +723,7 @@ export function createPurchasesRoutes(
           actor: actor(c),
           now: deps.now,
         });
+        emit("DOCUMENT_CANCELLED", "GOODS_RECEIPT", receipt.id, receipt.number);
         return c.json(serializeReceipt(receipt));
       } catch (err) {
         return handleDomainError(c, err);
@@ -728,6 +789,10 @@ export function createPurchasesRoutes(
       warehouseScopeOf(c),
       (i) => i.warehouseId,
     );
+    if (ownInvoiceVisibilityOnly(c)) {
+      const me = getAuthContext(c)?.userId;
+      rows = me ? rows.filter((inv) => inv.createdBy === me) : [];
+    }
     const { status, supplierId, fromDate, toDate, branchId, warehouseId, search } = filter;
     if (supplierId) rows = rows.filter((inv) => inv.supplierId === supplierId);
     if (fromDate) rows = rows.filter((inv) => inv.date >= fromDate);
@@ -765,7 +830,7 @@ export function createPurchasesRoutes(
     return { rows, allocations };
   }
 
-  app.get("/invoices", gate("purchases.invoice.view"), async (c) => {
+  app.get("/invoices", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { rows, allocations } = await listFilteredInvoices(c, parsed.data);
@@ -773,7 +838,7 @@ export function createPurchasesRoutes(
   });
 
   /** Chip counts over the whole filtered set, ignoring the status filter (R1.1). */
-  app.get("/invoices/counts", gate("purchases.invoice.view"), async (c) => {
+  app.get("/invoices/counts", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { status: _ignored, ...withoutStatus } = parsed.data;
@@ -803,7 +868,7 @@ export function createPurchasesRoutes(
   });
 
   /** The KPI strip, summed in `Money` over the whole filtered set (R1.1). */
-  app.get("/invoices/stats", gate("purchases.invoice.view"), async (c) => {
+  app.get("/invoices/stats", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { rows, allocations } = await listFilteredInvoices(c, parsed.data);
@@ -832,9 +897,17 @@ export function createPurchasesRoutes(
     });
   });
 
-  app.get("/invoices/:id", gate("purchases.invoice.view"), async (c) => {
+  /**
+   * Somebody else's purchase invoice, to an own-records holder, is a 404 and
+   * not a 403: whether an invoice they may not see exists at all is itself
+   * information, and the list already hides it.
+   */
+  const hiddenFromOwn = (c: Context, invoice: PurchaseInvoice) =>
+    ownInvoiceVisibilityOnly(c) && invoice.createdBy !== getAuthContext(c)?.userId;
+
+  app.get("/invoices/:id", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serializeInvoice(invoice, (await allocatedByInvoice([invoice.id])).get(invoice.id)));
   });
 
@@ -848,9 +921,9 @@ export function createPurchasesRoutes(
    * is measured as received minus what still remains, never as a sum over
    * surviving layers.
    */
-  app.get("/invoices/:id/fulfilment", gate("purchases.invoice.view"), async (c) => {
+  app.get("/invoices/:id/fulfilment", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
 
     const receipt = invoice.receiptId ? await deps.receipts.findById(invoice.receiptId) : null;
     const sourceDocId = receipt ? receipt.id : invoice.status === "confirmed" ? invoice.id : null;
@@ -962,7 +1035,7 @@ export function createPurchasesRoutes(
         paymentMethod: parsed.data.paymentMethod ?? "cash",
         // A payment happens when it happens — dating it back to the invoice
         // would measure the treasury's balance on the wrong day.
-        date: parsed.data.date ?? (deps.now?.() ?? new Date().toISOString()).slice(0, 10),
+        date: (await tenantDay(c, parsed.data.date)) ?? (deps.now?.() ?? new Date().toISOString()).slice(0, 10),
         referenceNo: parsed.data.referenceNo ?? null,
         memo: parsed.data.notes ?? `سداد على الفاتورة ${invoice.number}`,
         actor: actor(c),
@@ -992,6 +1065,40 @@ export function createPurchasesRoutes(
     try {
       // create-from-receipt: auto-fill lines from a confirmed receipt when omitted.
       let lines: PurchaseInvoiceLine[] | undefined;
+      if (parsed.data.lines && parsed.data.receiptId) {
+        /*
+         * An invoice that NAMES a receipt and then states its own costs was
+         * never checked against it (D88): the supplier's figure went straight
+         * into the books, revalued the stock, and nothing said the goods had
+         * been received at a different price.
+         *
+         * A real price difference is legitimate — that is what the price
+         * variance account exists for — so this is a GATE, not a refusal:
+         * restating a received cost needs `purchases.receipt.edit_cost`, the
+         * same grant that lets someone change the cost on the receipt itself.
+         * Without it the receipt's cost stands.
+         */
+        const receipt = await deps.receipts.findById(parsed.data.receiptId);
+        if (!receipt) throw new GoodsReceiptNotFoundError(parsed.data.receiptId);
+        const receivedCost = new Map(receipt.lines.map((l) => [l.itemId, l.unitCost.toString()]));
+        const restated = parsed.data.lines.filter((l) => {
+          if (!l.itemId) return false;
+          const received = receivedCost.get(l.itemId);
+          return received !== undefined && received !== Money.fromMajor(l.unitCost).toString();
+        });
+        const ctx = getAuthContext(c);
+        if (restated.length > 0 && !(ctx && can(ctx, "purchases.receipt.edit_cost"))) {
+          return c.json(
+            {
+              error: "PERMISSION_DENIED",
+              permission: "purchases.receipt.edit_cost",
+              items: restated.map((l) => l.itemId),
+              message: "تكلفة الفاتورة تختلف عن تكلفة الاستلام، وتعديلها يتطلب صلاحية تعديل تكلفة الاستلام.",
+            },
+            403,
+          );
+        }
+      }
       if (parsed.data.lines) {
         lines = parsed.data.lines.map((l) => ({
           itemId: l.itemId ?? null,
@@ -1002,6 +1109,7 @@ export function createPurchasesRoutes(
           taxRatePercent: l.taxRatePercent ?? 0,
           batchNo: l.batchNo ?? null,
           expiryDate: l.expiryDate ?? null,
+          costCategory: l.costCategory ?? null,
         }));
       } else if (parsed.data.receiptId) {
         const receipt = await deps.receipts.findById(parsed.data.receiptId);
@@ -1021,7 +1129,7 @@ export function createPurchasesRoutes(
         {
           id: parsed.data.id,
           supplierId: parsed.data.supplierId,
-          date: parsed.data.date,
+          date: await tenantDay(c, parsed.data.date),
           dueDate: parsed.data.dueDate,
           supplierInvoiceNumber: parsed.data.supplierInvoiceNumber,
           branchId: parsed.data.branchId,
@@ -1029,6 +1137,7 @@ export function createPurchasesRoutes(
           currency: parsed.data.currency,
           notes: parsed.data.notes,
           receiptId: parsed.data.receiptId,
+          projectId: parsed.data.projectId,
           createdBy: actor(c),
           lines,
         },
@@ -1061,6 +1170,7 @@ export function createPurchasesRoutes(
         actor: actor(c),
         now: deps.now,
       });
+      emit("DOCUMENT_CONFIRMED", "PURCHASE_INVOICE", invoice.id, invoice.number);
       return c.json(serializeInvoice(invoice));
     } catch (err) {
       return handleDomainError(c, err);
@@ -1082,6 +1192,7 @@ export function createPurchasesRoutes(
           actor: actor(c),
           now: deps.now,
         });
+        emit("DOCUMENT_CANCELLED", "PURCHASE_INVOICE", invoice.id, invoice.number);
         return c.json(serializeInvoice(invoice));
       } catch (err) {
         return handleDomainError(c, err);

@@ -282,13 +282,10 @@ describe("Select — type-ahead", () => {
     expect(activeLabel()).toBe("مصر الوطني");
   });
 
-  it("LIMITATION: a growing query CYCLES between options that share a prefix instead of settling on one", () => {
-    // `jumpByPrefix` always searches from `active + 1` and wraps. When the
-    // accumulated query still matches more than one option, each further
-    // keystroke therefore steps to the NEXT match rather than keeping the
-    // first — so typing «بنك» walks across the matches instead of narrowing.
-    // The catalogue is full of Arabic names sharing a first word, so this is
-    // the common case here, not a corner of it.
+  it("narrows on a growing query instead of walking across the options that share a prefix (D137)", () => {
+    // An Arabic catalogue is full of names sharing a first word, so this is the
+    // common case here rather than a corner of it: each further keystroke has to
+    // keep the match it already has, not step to the next one.
     render(
       <ControlledSelect
         options={[
@@ -303,17 +300,30 @@ describe("Select — type-ahead", () => {
     fireEvent.keyDown(trigger(), { key: "ب" });
     expect(activeLabel()).toBe("بنك القاهرة");
     fireEvent.keyDown(trigger(), { key: "ن" });
-    expect(activeLabel()).toBe("بنك مصر");
+    expect(activeLabel()).toBe("بنك القاهرة");
     fireEvent.keyDown(trigger(), { key: "ك" });
     expect(activeLabel()).toBe("بنك القاهرة");
   });
 
-  it("LIMITATION: a SPACE commits instead of extending the query, so a multi-word name cannot be typed past its first word", () => {
-    // Space is the listbox pattern's select key and is handled before the
-    // type-ahead branch. That costs more here than it would in an English
-    // product: «بنك القاهرة» and «الخزنة الرئيسية» share a first word with
-    // their neighbours, and the space that would separate the words instead
-    // ends the search and picks whatever is currently active.
+  it("still cycles through the matches when the SAME character is repeated", () => {
+    // Repeating one character is the standard way a user asks for the next
+    // match, and it is the one case that must not narrow.
+    render(
+      <ControlledSelect
+        options={[
+          { value: "1", label: "بنك مصر" },
+          { value: "2", label: "بنك القاهرة" },
+        ]}
+      />,
+    );
+    key("ArrowDown");
+    fireEvent.keyDown(trigger(), { key: "ب" });
+    expect(activeLabel()).toBe("بنك القاهرة");
+    fireEvent.keyDown(trigger(), { key: "ب" });
+    expect(activeLabel()).toBe("بنك مصر");
+  });
+
+  it("reaches the second of two names sharing a first word, space and all (D137)", () => {
     const onChange = vi.fn();
     render(
       <ControlledSelect
@@ -325,8 +335,19 @@ describe("Select — type-ahead", () => {
       />,
     );
     key("ArrowDown");
-    fireEvent.keyDown(trigger(), { key: "ب" });
+    for (const char of ["ب", "ن", "ك", " ", "ا", "ل", "ق"]) {
+      fireEvent.keyDown(trigger(), { key: char });
+    }
+    expect(activeLabel()).toBe("بنك القاهرة");
+    // The space extended the query rather than committing, so the listbox is
+    // still open and nothing has been selected yet.
+    expect(onChange).not.toHaveBeenCalled();
+  });
 
+  it("a space with no query in flight still selects, which is the listbox contract", () => {
+    const onChange = vi.fn();
+    render(<ControlledSelect onChange={onChange} />);
+    key("ArrowDown");
     fireEvent.keyDown(trigger(), { key: " " });
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("listbox")).toBeNull();

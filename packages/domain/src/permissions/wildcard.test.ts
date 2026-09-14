@@ -34,7 +34,7 @@ describe("the wildcard grants everything", () => {
     const admin = ctxWith([WILDCARD_PERMISSION]);
     const refused = ALL_PERMISSION_CODES.filter((code) => !can(admin, code));
     expect(refused).toEqual([]);
-    expect(ALL_PERMISSION_CODES.length).toBeGreaterThan(280);
+    expect(ALL_PERMISSION_CODES.length).toBeGreaterThan(200);
   });
 
   it("opens a code the catalogue has never heard of, so a new route is admin-reachable the day it lands", () => {

@@ -6,6 +6,8 @@ import {
   type AssetCategoryRepository,
   type DepreciationMethod,
   type Asset,
+  type AssetInternalRateHistoryRepository,
+  type AssetInternalRateRow,
   type AssetRepository,
   type AssetScope,
   type AssetStatus,
@@ -13,6 +15,7 @@ import {
   type DepreciationRunLine,
   type DepreciationRunRepository,
   type DepreciationRunStatus,
+  type CostCategory,
 } from "@mezan/domain";
 
 /**
@@ -192,10 +195,19 @@ CREATE TABLE IF NOT EXISTS asset (
   asset_account_id                     TEXT,
   depreciation_expense_account_id      TEXT,
   accumulated_depreciation_account_id  TEXT,
-  notes                                TEXT
+  notes                                TEXT,
+  internal_hourly_rate                 INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_asset_category ON asset(category_id);
 `;
+
+/** `project_id` arrived after the table shipped; CREATE TABLE IF NOT EXISTS never widens an existing database. */
+function addAssetProjectColumnIfMissing(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(asset)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "project_id")) {
+    sqlite.exec(`ALTER TABLE asset ADD COLUMN project_id TEXT`);
+  }
+}
 
 interface AssetRow {
   id: string;
@@ -218,6 +230,8 @@ interface AssetRow {
   depreciation_expense_account_id: string | null;
   accumulated_depreciation_account_id: string | null;
   notes: string | null;
+  project_id: string | null;
+  internal_hourly_rate: number | null;
 }
 
 function toAsset(row: AssetRow): Asset {
@@ -242,6 +256,8 @@ function toAsset(row: AssetRow): Asset {
     depreciationExpenseAccountId: row.depreciation_expense_account_id,
     accumulatedDepreciationAccountId: row.accumulated_depreciation_account_id,
     notes: row.notes,
+    projectId: row.project_id,
+    internalHourlyRate: row.internal_hourly_rate === null ? null : Money.fromScaled(row.internal_hourly_rate),
   };
 }
 
@@ -257,13 +273,13 @@ class SqliteAssetRepository implements AssetRepository {
         id, code, name_ar, name_en, category_id, scope, branch_id, warehouse_id, acquisition_date,
         acquisition_cost, depreciation_start_date, depreciation_method, useful_life_months, salvage_value,
         accumulated_depreciation, status, asset_account_id, depreciation_expense_account_id,
-        accumulated_depreciation_account_id, notes
+        accumulated_depreciation_account_id, notes, project_id, internal_hourly_rate
       )
       VALUES (
         @id, @code, @name_ar, @name_en, @category_id, @scope, @branch_id, @warehouse_id, @acquisition_date,
         @acquisition_cost, @depreciation_start_date, @depreciation_method, @useful_life_months, @salvage_value,
         @accumulated_depreciation, @status, @asset_account_id, @depreciation_expense_account_id,
-        @accumulated_depreciation_account_id, @notes
+        @accumulated_depreciation_account_id, @notes, @project_id, @internal_hourly_rate
       )
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
@@ -284,7 +300,9 @@ class SqliteAssetRepository implements AssetRepository {
         asset_account_id = excluded.asset_account_id,
         depreciation_expense_account_id = excluded.depreciation_expense_account_id,
         accumulated_depreciation_account_id = excluded.accumulated_depreciation_account_id,
-        notes = excluded.notes
+        notes = excluded.notes,
+        project_id = excluded.project_id,
+        internal_hourly_rate = excluded.internal_hourly_rate
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM asset WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM asset WHERE code = ?`);
@@ -335,6 +353,8 @@ class SqliteAssetRepository implements AssetRepository {
       depreciation_expense_account_id: asset.depreciationExpenseAccountId,
       accumulated_depreciation_account_id: asset.accumulatedDepreciationAccountId,
       notes: asset.notes,
+      project_id: asset.projectId,
+      internal_hourly_rate: asset.internalHourlyRate?.toScaledNumber() ?? null,
     });
   }
 }
@@ -347,8 +367,96 @@ export interface SqliteAssetRepositoryHandle extends AssetRepository {
 export function createSqliteAssetRepository(path: SqliteConnectionInput = ":memory:"): SqliteAssetRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ASSET);
+  addAssetProjectColumnIfMissing(sqlite);
   const repo = new SqliteAssetRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetRepositoryHandle;
+}
+
+// --- Internal hourly-rate history -------------------------------------------
+
+const CREATE_ASSET_INTERNAL_RATE_HISTORY = `
+CREATE TABLE IF NOT EXISTS asset_internal_rate_history (
+  asset_id       TEXT NOT NULL,
+  effective_from TEXT NOT NULL,
+  hourly_rate    INTEGER NOT NULL,
+  set_by         TEXT,
+  set_at         TEXT NOT NULL,
+  PRIMARY KEY (asset_id, effective_from)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_internal_rate_history ON asset_internal_rate_history(asset_id, effective_from);
+`;
+
+interface AssetInternalRateHistoryRow {
+  asset_id: string;
+  effective_from: string;
+  hourly_rate: number;
+  set_by: string | null;
+  set_at: string;
+}
+
+function toRateRow(row: AssetInternalRateHistoryRow): AssetInternalRateRow {
+  return {
+    assetId: row.asset_id,
+    effectiveFrom: row.effective_from,
+    hourlyRate: Money.fromScaled(row.hourly_rate),
+    setBy: row.set_by,
+    setAt: row.set_at,
+  };
+}
+
+class SqliteAssetInternalRateHistoryRepository implements AssetInternalRateHistoryRepository {
+  private readonly upsert: Database.Statement;
+  private readonly selectByAsset: Database.Statement;
+  private readonly selectAll: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.upsert = sqlite.prepare(`
+      INSERT INTO asset_internal_rate_history (asset_id, effective_from, hourly_rate, set_by, set_at)
+      VALUES (@asset_id, @effective_from, @hourly_rate, @set_by, @set_at)
+      ON CONFLICT(asset_id, effective_from) DO UPDATE SET
+        hourly_rate = excluded.hourly_rate,
+        set_by = excluded.set_by,
+        set_at = excluded.set_at
+    `);
+    this.selectByAsset = sqlite.prepare(
+      `SELECT * FROM asset_internal_rate_history WHERE asset_id = ? ORDER BY effective_from, set_at`,
+    );
+    this.selectAll = sqlite.prepare(
+      `SELECT * FROM asset_internal_rate_history ORDER BY asset_id, effective_from, set_at`,
+    );
+  }
+
+  async list(assetId: string): Promise<readonly AssetInternalRateRow[]> {
+    return (this.selectByAsset.all(assetId) as AssetInternalRateHistoryRow[]).map(toRateRow);
+  }
+
+  async listAll(): Promise<readonly AssetInternalRateRow[]> {
+    return (this.selectAll.all() as AssetInternalRateHistoryRow[]).map(toRateRow);
+  }
+
+  async append(row: AssetInternalRateRow): Promise<void> {
+    this.upsert.run({
+      asset_id: row.assetId,
+      effective_from: row.effectiveFrom,
+      hourly_rate: row.hourlyRate.toScaledNumber(),
+      set_by: row.setBy,
+      set_at: row.setAt,
+    });
+  }
+}
+
+export interface SqliteAssetInternalRateHistoryRepositoryHandle extends AssetInternalRateHistoryRepository {
+  close(): void;
+}
+
+/** Open a SQLite-backed rate-history repository. ":memory:" for tests, a path for real. */
+export function createSqliteAssetInternalRateHistoryRepository(
+  path: SqliteConnectionInput = ":memory:",
+): SqliteAssetInternalRateHistoryRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
+  sqlite.exec(CREATE_ASSET_INTERNAL_RATE_HISTORY);
+  const repo = new SqliteAssetInternalRateHistoryRepository(sqlite);
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetInternalRateHistoryRepositoryHandle;
 }
 
 // --- Depreciation Run ---------------------------------------------------------
@@ -381,9 +489,18 @@ interface DepreciationRunRow {
 }
 
 function toDepreciationRun(row: DepreciationRunRow): DepreciationRun {
-  const lines = (JSON.parse(row.lines) as { assetId: string; amount: string }[]).map<DepreciationRunLine>((l) => ({
+  const lines = (
+    JSON.parse(row.lines) as {
+      assetId: string;
+      amount: string;
+      projectId?: string | null;
+      costCategory?: CostCategory | null;
+    }[]
+  ).map<DepreciationRunLine>((l) => ({
     assetId: l.assetId,
     amount: Money.fromMajor(l.amount),
+    projectId: l.projectId ?? null,
+    costCategory: l.costCategory ?? null,
   }));
   return {
     id: row.id,
@@ -459,7 +576,14 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
       period: run.period,
       branch_id: run.branchId,
       status: run.status,
-      lines: JSON.stringify(run.lines.map((l) => ({ assetId: l.assetId, amount: l.amount.toString() }))),
+      lines: JSON.stringify(
+        run.lines.map((l) => ({
+          assetId: l.assetId,
+          amount: l.amount.toString(),
+          projectId: l.projectId ?? null,
+          costCategory: l.costCategory ?? null,
+        })),
+      ),
       total_amount: run.totalAmount.toScaledNumber(),
       journal_entry_id: run.journalEntryId,
       created_at: run.createdAt,

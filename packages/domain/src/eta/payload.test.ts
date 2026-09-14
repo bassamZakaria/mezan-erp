@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ETA_CONFIG, type EtaConfig } from "./config.js";
-import { buildEtaPayload, type EtaDocumentInput } from "./payload.js";
+import { buildEtaPayload, EtaMissingExchangeRateError, type EtaDocumentInput } from "./payload.js";
 
 const config: EtaConfig = {
   ...DEFAULT_ETA_CONFIG,
@@ -145,19 +145,73 @@ describe("buildEtaPayload", () => {
     expect(payload.invoiceLines[0]?.quantity).toBe("2.000000");
   });
 
-  it("LIMITATION (D78): every line is filed as EGP, whatever currency the document was raised in", () => {
-    // `currencySold` is hardcoded and the input carries no currency at all, so
-    // a document raised in USD reaches the authority as if it were in pounds.
-    // When the payload learns the document's currency, this is the expectation
-    // to rewrite.
+  it("files an EGP document with just the currency and the amount (D78)", () => {
+    // A document with no currency on it is an EGP document, and an EGP line
+    // carries no rate: a rate on a pound document is a contradiction the
+    // authority rejects. The foreign-currency shape is covered below.
     const payload = build();
     expect(payload.invoiceLines[0]?.unitValue.currencySold).toBe("EGP");
     expect(Object.keys(payload.invoiceLines[0]?.unitValue ?? {})).toEqual(["currencySold", "amountEGP"]);
-    expect(Object.keys(input)).not.toContain("currency");
   });
 
   it("is a plain JSON value, so it can be queued offline and transmitted unchanged", () => {
     const payload = build();
     expect(JSON.parse(JSON.stringify(payload))).toEqual(payload);
+  });
+});
+
+describe("buildEtaPayload — the document's own currency (D78)", () => {
+  type UnitValue = {
+    currencySold: string;
+    amountEGP: string;
+    amountSold?: string;
+    currencyExchangeRate?: string;
+  };
+  const unitValues = (payload: unknown): UnitValue[] =>
+    (payload as { invoiceLines: { unitValue: UnitValue }[] }).invoiceLines.map((l) => l.unitValue);
+
+  it("files an EGP document as EGP, with no rate on it", () => {
+    const values = unitValues(buildEtaPayload(input, config));
+    expect(values[0]?.currencySold).toBe("EGP");
+    expect(values[0]).not.toHaveProperty("currencyExchangeRate");
+  });
+
+  it("files a USD document as USD, not as pounds", () => {
+    // The payload used to hardcode `currencySold: "EGP"` on every line whatever
+    // the document's currency, so a foreign invoice was filed as though it had
+    // been priced in pounds.
+    const payload = buildEtaPayload(
+      { ...input, currency: "USD", exchangeRate: "48.500000" },
+      config,
+    );
+    const value = unitValues(payload)[0];
+    expect(value?.currencySold).toBe("USD");
+    expect(value?.currencyExchangeRate).toBe("48.500000");
+  });
+
+  it("states the EGP equivalent alongside the sold amount on a foreign line", () => {
+    const payload = buildEtaPayload(
+      {
+        ...input,
+        currency: "USD",
+        exchangeRate: "48.500000",
+        lines: input.lines.map((l) => ({ ...l, unitPriceEgp: "4850.000000" })),
+      },
+      config,
+    );
+    const value = unitValues(payload)[0];
+    expect(value?.amountSold).toBe(input.lines[0]?.unitPrice);
+    expect(value?.amountEGP).toBe("4850.000000");
+  });
+
+  it("refuses a foreign-currency document with no rate rather than filing it at par", () => {
+    expect(() => buildEtaPayload({ ...input, currency: "USD" }, config)).toThrow(
+      EtaMissingExchangeRateError,
+    );
+  });
+
+  it("treats a lower-case or absent currency as EGP", () => {
+    expect(unitValues(buildEtaPayload({ ...input, currency: "egp" }, config))[0]?.currencySold).toBe("EGP");
+    expect(unitValues(buildEtaPayload(input, config))[0]?.currencySold).toBe("EGP");
   });
 });

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
+import { settableCostingMethodSchema } from "./items.js";
 
 /**
  * Wire contracts for the data-migration import wizard (docs/archive/catalog/09 "نقل
@@ -8,8 +11,10 @@ import { z } from "zod";
  * `historicalImportBatchSchema` (historical-import.ts) — nothing new here.
  */
 
-const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see moneyString — one guard for every exact-decimal field on the wire (D126). */
+const decimalString = moneyString;
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const dataMigrationRowErrorSchema = z.object({
   rowNumber: z.number().int().positive(),
@@ -85,7 +90,7 @@ export const itemImportRowSchema = z.object({
   barcodes: z.array(z.string()).optional(),
   categoryId: z.string().nullable().optional(),
   brand: z.string().nullable().optional(),
-  costingMethod: z.enum(["WAC", "FIFO"]).optional(),
+  costingMethod: settableCostingMethodSchema.optional(),
   salePrice: decimalString.nullable().optional(),
   costPrice: decimalString.nullable().optional(),
   taxRatePercent: z.number().optional(),
@@ -108,7 +113,7 @@ export const openingBalanceImportRowSchema = z.object({
 });
 export const openingBalanceImportBatchSchema = z.object({
   warehouseId: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   rows: z.array(openingBalanceImportRowSchema).min(1),
 });
 

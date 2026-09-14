@@ -32,12 +32,9 @@ import {
   type AttachmentRepository,
   type EventCode,
   type AllocatableInvoiceRepository,
-  type ApiKeyRepository,
   type BarcodeConfigRepository,
   type AuditQueryPort,
   type AuditSink,
-  type WebhookDeliveryRepository,
-  type WebhookRepository,
   type LabelLayoutRepository,
   type Entitlements,
   type TaxRateRepository,
@@ -104,13 +101,13 @@ import {
   SalesInvoiceService,
   type ApprovalRequestRecord,
   type GateableActionType,
+  MODULE_CATALOG,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
-import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import { sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
-import type { EntitlementsResolver } from "./module-gate.js";
+import { entitlementsBinding, type EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
 import { createPermissionGate, insecureHeaderAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 import {
@@ -119,10 +116,15 @@ import {
   type LicenseStateResolver,
 } from "./license-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
+import { tenantTimeZoneMiddleware } from "./tenant-day.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
-import { createCustomersRouter, type CustomerReceivablesSource } from "./customers-routes.js";
+import {
+  createCustomersRouter,
+  type CustomerOpeningBalancePoster,
+  type CustomerReceivablesSource,
+} from "./customers-routes.js";
 import { createSuppliersRouter, type SupplierPayablesSource } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
 import {
@@ -168,12 +170,38 @@ import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-re
 import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./reconciliation-routes.js";
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
+import type { DocumentEventPublisher } from "@mezan/domain";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
 import { createHrRoutes, type HrRoutesDeps } from "./hr-routes.js";
 import { createProjectsRoutes, type ProjectsRoutesDeps } from "./projects-routes.js";
+import { createContractingGuaranteesRoutes, type ContractingGuaranteesRoutesDeps } from "./contracting-guarantees-routes.js";
+import {
+  createContractingContractsRoutes,
+  createVariationOrdersRoutes,
+  type ContractingContractsRoutesDeps,
+} from "./contracting-contracts-routes.js";
+import { createContractingSiteRoutes, type ContractingSiteRoutesDeps } from "./contracting-site-routes.js";
+import {
+  createContractingCertificatesRoutes,
+  type ContractingCertificatesRoutesDeps,
+} from "./contracting-certificates-routes.js";
+import {
+  createContractingRecognitionRoutes,
+  type ContractingRecognitionRoutesDeps,
+} from "./contracting-recognition-routes.js";
+import {
+  createContractingReportsRoutes,
+  createContractingRetentionRoutes,
+  type ContractingControlsRoutesDeps,
+} from "./contracting-controls-routes.js";
+import {
+  createContractingSubcontractsRoutes,
+  createSubcontractCertificatesRoutes,
+  type ContractingSubcontractsRoutesDeps,
+} from "./contracting-subcontracts-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 import { createFieldSalesRoutes, createVansRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
 import {
@@ -198,46 +226,16 @@ import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
-import { createApiKeysRoutes } from "./api-keys-routes.js";
-import { createWebhooksRoutes } from "./webhooks-routes.js";
-
-/**
- * Modules this build can actually serve, used as the default entitlements the
- * `/roles` route validates grants against and as what `GET /entitlements`
- * reports. Listing a module here makes its permissions grantable, so an
- * unimplemented domain must stay out: `pos` has no domain, routes or
- * persistence anywhere in this repo. Ids are ENTITLEMENT ids, not catalog
- * ids — the catalog's `cheques` module is the `financial_papers` entitlement
- * (packages/domain/src/permissions/module-licensing.ts).
- */
-const DEFAULT_ACTIVE_MODULES = [
-  "dashboard",
-  "sales",
-  "purchases",
-  "inventory",
-  "accounting",
-  "treasury",
-  "installments",
-  "financial_papers",
-  "crm",
-  "hr",
-  "manufacturing",
-  "assets",
-  "field",
-  "workflow",
-  "audit",
-  "transactions",
-  "admin",
-  "notifications",
-  "projects",
-];
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
   const entitlements: Entitlements = createEntitlements({
     plan: "ENTERPRISE",
-    activeModules: DEFAULT_ACTIVE_MODULES,
+    activeModules: MODULE_CATALOG,
     features: {},
-    seats: 10,
+    // Every dev/test composition without its own resolveEntitlements — demo
+    // seed's ~15-user tenant included — runs on this default; a low cap here
+    // is a global seat limit the moment A3's SEAT_LIMIT_REACHED check lands.
+    seats: 999,
     expiresAt: null,
   });
   return () => entitlements;
@@ -257,6 +255,29 @@ function serialize(entry: JournalEntry) {
     })),
   };
 }
+
+/**
+ * تحصيل قسط — turns an instalment collection into a real confirmed customer
+ * collection voucher allocated to the plan line's source invoice, exactly as
+ * the sales invoice `collect` port does. Without it an instalment's
+ * `paidAmount` could only ever move with nothing posted behind it (D1's shape).
+ */
+export type InstallmentCollectPort = (input: {
+  invoiceId: string;
+  customerId: string;
+  branchId: string;
+  amount: Money;
+  treasuryAccountId: string;
+  paymentMethod: "cash" | "bank" | "cheque" | "card" | "wallet";
+  date: string;
+  referenceNo?: string | null;
+  memo?: string | null;
+  actor?: string;
+}) => Promise<{ voucherId: string }>;
+
+/** حسابات المدينون / الأرصدة الافتتاحية from the seed chart template — where a customer's opening balance lands (D142). */
+const AR_CONTROL_ACCOUNT_ID = "1105";
+const OPENING_BALANCE_EQUITY_ACCOUNT_ID = "3210";
 
 export interface CreateAppOptions {
   /**
@@ -335,7 +356,7 @@ export interface CreateAppOptions {
   readonly sequences?: SequencesRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/barcode-config` when present. */
   readonly barcodeConfigStore?: BarcodeConfigRepository;
-  /** Shared audit sink for profile security events and API-key/webhook writes. */
+  /** Shared audit sink for profile security events. */
   readonly auditSink?: AuditSink;
   /**
    * The live session registry and the login throttle, so administrative acts
@@ -357,14 +378,6 @@ export interface CreateAppOptions {
    * probing left no trace at all.
    */
   readonly onPermissionRefused?: PermissionRefusalReporter;
-  /** Mounts `/api-keys` when present. */
-  readonly apiKeys?: { readonly repo: ApiKeyRepository; readonly resolveAuthContext?: AuthContextResolver };
-  /** Mounts `/webhooks` when present. */
-  readonly webhooks?: {
-    readonly webhooks: WebhookRepository;
-    readonly deliveries: WebhookDeliveryRepository;
-    readonly resolveAuthContext?: AuthContextResolver;
-  };
   /** Mounts `/audit` — the read-only audit query surface — when present. */
   readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
@@ -481,14 +494,21 @@ export interface CreateAppOptions {
   readonly notificationRuleRepo?: NotificationRuleRepository;
   /**
    * The event codes this deployment really publishes onto the event bus —
-   * what `/notification-rules/triggers` reports as `emitted`, and the set
-   * `/webhooks` will accept a subscription on. The composition root derives it
-   * from its own bridge wiring; omit it and every trigger is honestly reported
-   * as not-yet-emitted and the webhook check is off.
+   * what `/notification-rules/triggers` reports as `emitted`. The composition
+   * root derives it from its own bridge wiring; omit it and every trigger is
+   * honestly reported as not-yet-emitted.
    */
   readonly emittedEventCodes?: readonly EventCode[];
   /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
   readonly notificationRepo?: NotificationRepository;
+  /** Drains the outbound notification queue; omitted, `POST /notifications/drain` answers 503. */
+  readonly notificationDrain?: () => Promise<{
+    attempted: number;
+    sent: number;
+    stillQueued: number;
+    failed: number;
+    skipped: number;
+  }>;
   /**
    * Mounts `/sales-quotes` (docs/archive/catalog/01 "عروض الأسعار") when present. Its
    * `invoice` bridge (for "إنشاء من عرض سعر") is auto-filled from
@@ -545,6 +565,51 @@ export interface CreateAppOptions {
    * cost center via the real cost-centers domain.
    */
   readonly projects?: ProjectsRoutesDeps;
+  /**
+   * Mounts العقود وجداول الكميات وأوامر التغيير — slice 1 of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html §03) — under
+   * `/contracting/contracts` and `/contracting/variation-orders`.
+   */
+  readonly contractingContracts?: ContractingContractsRoutesDeps;
+  /**
+   * Mounts المستخلصات — slice 2 of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html §04, D-02/D-03/D-09) —
+   * under `/contracting/certificates`: the cumulative certificate, its two
+   * approvals, the invoice generated on clearance and مستخلص تنفيذي.
+   */
+  readonly contractingCertificates?: ContractingCertificatesRoutesDeps;
+  /**
+   * Mounts مستودعات المواقع والصرف والاستهلاك والعهدة وتشغيل المعدات — slice 4A
+   * of المقاولات (D-11) — under `/contracting/site`.
+   */
+  readonly contractingSite?: ContractingSiteRoutesDeps;
+  /**
+   * Mounts خطابات الضمان — slice 5A of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html §05) — under
+   * `/contracting/guarantees`: the register, its bank-facility summary, and
+   * the memorandum + restricted-cash postings behind every status move.
+   */
+  readonly contractingGuarantees?: ContractingGuaranteesRoutesDeps;
+  /**
+   * Mounts تشغيل الاعتراف بالإيراد — slice 4B of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html D-03, D-12) — under
+   * `/contracting/recognition`: the cost-to-complete workspace, the monthly
+   * EAS 48 run and its reversal.
+   */
+  readonly contractingRecognition?: ContractingRecognitionRoutesDeps;
+  /**
+   * Mounts تقارير الاستثناءات الستة والإفراج عن المحتجزات وتقويمها — slice 5B
+   * of المقاولات (docs/artifacts/mezan-contracting-designs.html §06) — under
+   * `/contracting/reports` and `/contracting/retention`.
+   */
+  readonly contractingControls?: ContractingControlsRoutesDeps;
+  /**
+   * Mounts عقود الباطن ومستخلصات مقاولي الباطن — slice 3 of المقاولات
+   * (docs/artifacts/mezan-contracting-designs.html §03 "THE MIRROR", D-04,
+   * D-05) — under `/contracting/subcontracts` and
+   * `/contracting/subcontract-certificates`.
+   */
+  readonly contractingSubcontracts?: ContractingSubcontractsRoutesDeps;
   /**
    * Mounts Fixed Assets (docs/archive/catalog/07 "الأصول الثابتة") under `/assets`
    * when present: asset categories, the asset register, and depreciation
@@ -606,6 +671,8 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
     /** Audit sink for the chain's confirm/cancel records; falls back to `options.auditSink`. */
     readonly audit?: AuditSink;
+    /** Publishes the chain's confirm/cancel events (DEC-5). Omit it and purchases stay silent. */
+    readonly events?: DocumentEventPublisher;
     readonly now?: () => string;
   };
   /**
@@ -740,7 +807,10 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /** Mounts `/installments` (docs/archive/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل") when present. */
-  readonly installments?: InstallmentsRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  readonly installments?: InstallmentsRoutesDeps & {
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly collect?: InstallmentCollectPort;
+  };
   /**
    * Mounts `/reports` (docs/archive/catalog/08 — operational reports) when present.
    * Independent of `options.inventory`/`options.purchases`/etc. — it takes
@@ -762,7 +832,7 @@ export interface CreateAppOptions {
    * Entitlements resolver the `/roles` route validates permission grants
    * against (docs/archive/catalog/09 §الأدوار — only licensed-module permissions are
    * grantable), and that `GET /entitlements` reports. Defaults to
-   * `DEFAULT_ACTIVE_MODULES` until a real per-tenant source is wired up.
+   * `MODULE_CATALOG` until a real per-tenant source is wired up.
    */
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
@@ -878,10 +948,20 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
 
+  // The tenant's timezone, published to every handler below so a route can
+  // narrow an instant on the wire to the tenant's own calendar day before the
+  // command is built (tenant-day.ts). Registered before every route.
+  app.use("*", tenantTimeZoneMiddleware(options.settingsStore));
+
   // Bound per app, not per process: two backends in one process must not share
   // — or silently steal — each other's forensic trail. Registered before every
   // route so a refusal anywhere below reaches it.
   if (options.onPermissionRefused) app.use("*", permissionRefusalReporting(options.onPermissionRefused));
+
+  // Binds this request's entitlements so every permission gate below can
+  // refuse an unlicensed module (permission-gate.ts) — the module gate was
+  // exported and unit-tested but never wired to a route until this mount.
+  app.use("*", entitlementsBinding(resolveEntitlements));
 
   // A session token presented from an address it was not issued to. The
   // REFUSAL happens in session-auth.ts regardless of this mount (the resolver
@@ -999,6 +1079,43 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       }
     : undefined;
 
+  /**
+   * A customer's opening balance debits the AR control account and credits
+   * opening-balance equity, through the same period-gated, numbered, audited
+   * posting path every document uses. Without it the AR sub-ledger exceeded
+   * GL 1105 by every debtor typed in at go-live and nothing closed the gap
+   * (D142). Needs `options.gl`; a composition with no ledger posts nothing.
+   */
+  const customerOpeningBalanceGl: CustomerOpeningBalancePoster | undefined = options.gl
+    ? async (posting) => {
+        const receivable = posting.amount.scaled > 0n ? posting.amount : posting.amount.negate();
+        const debitAr = posting.amount.scaled > 0n;
+        await postJournalEntry(
+          {
+            id: posting.entryId,
+            date: posting.date,
+            memo: `رصيد افتتاحي — ${posting.customerName}`,
+            source: "system",
+            sourceDocType: "CUSTOMER_OPENING_BALANCE",
+            sourceDocId: posting.customerId,
+            lines: [
+              {
+                accountId: AR_CONTROL_ACCOUNT_ID,
+                debit: debitAr ? receivable : Money.zero(),
+                credit: debitAr ? Money.zero() : receivable,
+              },
+              {
+                accountId: OPENING_BALANCE_EQUITY_ACCOUNT_ID,
+                debit: debitAr ? Money.zero() : receivable,
+                credit: debitAr ? receivable : Money.zero(),
+              },
+            ],
+          },
+          options.gl!,
+        );
+      }
+    : undefined;
+
   if (options.customerStore) {
     app.route(
       "/customers",
@@ -1008,6 +1125,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         options.auditSink,
         options.priceListRepo,
         customerReceivables,
+        customerOpeningBalanceGl,
       ),
     );
   }
@@ -1064,6 +1182,33 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.projects) {
     app.route("/projects", createProjectsRoutes(options.projects, resolveAuth));
   }
+  if (options.contractingContracts) {
+    app.route("/contracting/contracts", createContractingContractsRoutes(options.contractingContracts, resolveAuth));
+    app.route("/contracting/variation-orders", createVariationOrdersRoutes(options.contractingContracts, resolveAuth));
+  }
+  if (options.contractingCertificates) {
+    app.route("/contracting/certificates", createContractingCertificatesRoutes(options.contractingCertificates, resolveAuth));
+  }
+  if (options.contractingSite) {
+    app.route("/contracting/site", createContractingSiteRoutes(options.contractingSite, resolveAuth));
+  }
+  if (options.contractingGuarantees) {
+    app.route("/contracting/guarantees", createContractingGuaranteesRoutes(options.contractingGuarantees, resolveAuth));
+  }
+  if (options.contractingRecognition) {
+    app.route("/contracting/recognition", createContractingRecognitionRoutes(options.contractingRecognition, resolveAuth));
+  }
+  if (options.contractingControls) {
+    app.route("/contracting/reports", createContractingReportsRoutes(options.contractingControls, resolveAuth));
+    app.route("/contracting/retention", createContractingRetentionRoutes(options.contractingControls, resolveAuth));
+  }
+  if (options.contractingSubcontracts) {
+    app.route("/contracting/subcontracts", createContractingSubcontractsRoutes(options.contractingSubcontracts, resolveAuth));
+    app.route(
+      "/contracting/subcontract-certificates",
+      createSubcontractCertificatesRoutes(options.contractingSubcontracts, resolveAuth),
+    );
+  }
   if (options.fixedAssets) {
     app.route("/assets", createFixedAssetsRoutes(options.fixedAssets, resolveAuth));
   }
@@ -1116,6 +1261,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           ...salesInvoices,
           creditControl,
           promotions,
+          // `view_own` narrows on `salespersonId`, which holds an Employee id.
+          // Without this port it would be compared against a user id and match
+          // nothing, so a real rep would see no invoices at all (D147).
+          users: salesInvoices.users ?? uow.users,
           returns: salesInvoices.returns ?? options.salesReturns?.service,
           // Auto-wire the tenant's VAT rules (§"الضريبة") the same way credit
           // control is: a draft is stamped with the mode in force when it was
@@ -1180,7 +1329,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.notificationRepo) {
-    app.route("/notifications", createNotificationsRoutes(options.notificationRepo, resolveAuth));
+    app.route(
+      "/notifications",
+      createNotificationsRoutes(options.notificationRepo, resolveAuth, { drain: options.notificationDrain }),
+    );
   }
   if (options.salesQuotes) {
     const salesQuotes = options.salesQuotes;
@@ -1349,6 +1501,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               currency: l.currency ?? null,
               fxRate: l.fxRate ?? null,
               taxRatePercent: l.taxRatePercent ?? null,
+              projectId: l.projectId ?? null,
+              costCategory: l.costCategory ?? null,
+              branchId: l.branchId ?? null,
             })),
           },
           purchases.gl,
@@ -1408,6 +1563,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
                 }
               : undefined),
           audit: purchases.audit ?? options.auditSink,
+          events: purchases.events,
           now: purchases.now,
         },
         purchases.resolveAuthContext ?? resolveAuth,
@@ -1437,6 +1593,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               accountId: l.accountId,
               debit: l.debit,
               credit: l.credit,
+              projectId: l.projectId ?? null,
+              costCategory: l.costCategory ?? null,
             })),
           },
           mfg.gl,
@@ -1553,89 +1711,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     }),
   );
   app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink));
-  if (options.apiKeys) {
-    app.route(
-      "/api-keys",
-      createApiKeysRoutes(options.apiKeys.repo, hasher, (options.apiKeys.resolveAuthContext ?? resolveAuth) ?? resolveAuth, options.auditSink),
-    );
-  }
-  if (options.webhooks) {
-    app.route(
-      "/webhooks",
-      createWebhooksRoutes(
-        {
-          webhooks: options.webhooks.webhooks,
-          deliveries: options.webhooks.deliveries,
-          emittedEventCodes: options.emittedEventCodes,
-        },
-        (options.webhooks.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
-        options.auditSink,
-      ),
-    );
-  }
-
-  /**
-   * DEPRECATED — the spike's original poster; `POST /gl/journal-entries`
-   * supersedes it and is the route the product uses.
-   *
-   * Gated as of D99: it was mounted with no permission check at all, so anyone
-   * who could reach the API could post into the books. The gate closes WHO may
-   * post. It does NOT give this route the fiscal-period check, the account
-   * validation, the numbering, the audit event or the cost-centre / currency /
-   * rate line fields the gl route has — the remaining fix is to delete it once
-   * its last two callers are moved onto a gl-mounted composition.
-   */
-  const legacyJournalGate = createPermissionGate(resolveAuth);
-
-  app.post("/journal-entries", legacyJournalGate("accounting.journal.post"), async (c) => {
-    const parsed = createJournalEntrySchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json(
-        { error: "VALIDATION_ERROR", details: parsed.error.flatten() },
-        400,
-      );
-    }
-
-    try {
-      const entry = await postJournalEntrySpike(
-        {
-          id: parsed.data.id,
-          date: parsed.data.date,
-          memo: parsed.data.memo,
-          lines: parsed.data.lines.map((l) => ({
-            accountId: l.accountId,
-            debit: Money.fromMajor(l.debit),
-            credit: Money.fromMajor(l.credit),
-          })),
-        },
-        uow,
-      );
-      return c.json(serialize(entry), 201);
-    } catch (err) {
-      if (err instanceof UnbalancedEntryError) {
-        return c.json(
-          {
-            error: err.code,
-            message: err.message,
-            totalDebit: err.totalDebit.toString(),
-            totalCredit: err.totalCredit.toString(),
-          },
-          422,
-        );
-      }
-      if (err instanceof InvalidJournalEntryError) {
-        return c.json({ error: err.code, message: err.message }, 400);
-      }
-      throw err;
-    }
-  });
-
-  app.get("/journal-entries/:id", legacyJournalGate("accounting.journal.view"), async (c) => {
-    const entry = await uow.journal.findById(c.req.param("id"));
-    if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(entry));
-  });
-
   if (options.printTemplateConfig) {
     app.route(
       "/print-template-config",
@@ -1688,6 +1763,25 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createAttachmentsRoutes(options.attachments, (options.attachments.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
     );
   }
+
+  /**
+   * The last net. A domain error a route file forgot to map used to propagate
+   * out of the fetch handler as a rejected promise — Hono answered the plain
+   * text «Internal Server Error» and, on the node server, the unhandled
+   * rejection took the PROCESS down: one refused approval into a closed month
+   * and every till on the LAN lost its backend.
+   *
+   * INVARIANT: this handler must never itself throw. It logs and answers a
+   * JSON body in the shape every client already parses.
+   */
+  app.onError((err, c) => {
+    try {
+      console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
+    } catch {
+      // A logger that throws must not turn a 500 into a crash.
+    }
+    return c.json({ error: "INTERNAL", message: "خطأ داخلي" }, 500);
+  });
 
   return app;
 }

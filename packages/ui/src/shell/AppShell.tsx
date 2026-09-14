@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useTheme } from "../hooks/useTheme";
 import { useUiTranslation } from "../i18n";
@@ -8,6 +8,8 @@ import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
 import { RailFooter } from "./RailFooter";
 import { WorkspaceRail } from "./WorkspaceRail";
 import { WorkspaceScreensBar } from "./WorkspaceScreensBar";
+import { RAIL_BREAKPOINT, RAIL_DOCKED, RAIL_OVERLAY, SMALL_ONLY } from "./metrics";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import type { TopbarScopeOption } from "./ScopeSwitcher";
 import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
 
@@ -186,6 +188,40 @@ export function AppShell({
    * user was actually in stays on the bar instead; only the CHIP loses its
    * `aria-current`, which is the honest signal.
    */
+  /**
+   * The workspace column as a DRAWER, below `RAIL_BREAKPOINT`.
+   *
+   * Above the breakpoint this stays false and changes nothing: the column is a
+   * normal sibling of the content and the toggle that sets this is not
+   * rendered. Below it the column leaves the flow entirely, because a fixed
+   * 256px sibling on a 390px phone left 134px for the screen and the page
+   * scrolled sideways.
+   */
+  const [railOpen, setRailOpen] = useState(false);
+  const railRef = useRef<HTMLDivElement | null>(null);
+
+  /*
+   * Closing on a resize past the breakpoint, not just on navigation: a drawer
+   * left "open" while the layout goes back to two columns would keep the scrim
+   * over a desktop screen, and the toggle that dismisses it is hidden at that
+   * size — an unclosable overlay.
+   */
+  useEffect(() => {
+    // `matchMedia` is absent in jsdom, and this shell renders in ~40 unit
+    // tests. Guarded rather than stubbed in each of them: a shell that throws
+    // without a media API would also break any non-browser render.
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const wide = window.matchMedia(`(min-width: ${RAIL_BREAKPOINT + 1}px)`);
+    const sync = () => {
+      if (wide.matches) setRailOpen(false);
+    };
+    sync();
+    wide.addEventListener("change", sync);
+    return () => wide.removeEventListener("change", sync);
+  }, []);
+
+  useFocusTrap({ active: railOpen, containerRef: railRef, onEscape: () => setRailOpen(false) });
+
   const [lastWorkspaceKey, setLastWorkspaceKey] = useState<string | undefined>(activeWorkspaceKey);
   useEffect(() => {
     if (activeWorkspaceKey) setLastWorkspaceKey(activeWorkspaceKey);
@@ -275,8 +311,63 @@ export function AppShell({
       </a>
 
 
+      {/*
+        The small-screen header. It exists ONLY below the breakpoint and holds
+        the one control that opens the drawer — without it the column, and with
+        it the brand, the workspace list and RailFooter's theme, notifications
+        and user menu, would simply be unreachable on a phone.
+      */}
+      <div
+        className={cn(
+          SMALL_ONLY,
+          "sticky top-0 z-40 flex min-h-[var(--h-topbar)] items-center gap-[10px] border-b border-chrome-border bg-chrome px-[12px] text-chrome-ink",
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setRailOpen(true)}
+          aria-label={t("shell.bar.openMenu")}
+          aria-expanded={railOpen}
+          className="flex min-h-[34px] min-w-[34px] flex-none items-center justify-center rounded-md border border-transparent text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink focus-visible:outline-chrome-accent"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden focusable="false" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={1.75}>
+            <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
+          </svg>
+        </button>
+        {/*
+          The brand is a LABEL here, not a second home button. The docked column
+          already has one carrying that accessible name, and two controls with
+          the same name in one page is an ambiguity for a screen-reader user —
+          and for any test that asks for it by name. Home stays one tap away
+          inside the drawer.
+        */}
+        {/*
+          The MARK only, with no wordmark text. The docked column carries the
+          full lockup, and CSS hides one of the two headers at any given width —
+          but only in a browser. Anything reading the DOM (a screen reader's
+          buffer, a test) sees both, and a duplicated brand name is an
+          ambiguity in both. The mark is decorative here; the accessible name
+          for this bar is the menu button beside it.
+        */}
+        <BrandMark aria-hidden className="h-[22px] w-[22px] flex-none text-chrome-accent" />
+      </div>
+
+      {/* The scrim. Clicking it dismisses, which is the gesture every drawer owes. */}
+      {railOpen ? (
+        <div
+          aria-hidden
+          onClick={() => setRailOpen(false)}
+          className={cn(SMALL_ONLY, "fixed inset-0 z-40 bg-[rgb(0_0_0/45%)]")}
+        />
+      ) : null}
+
       <div className="flex min-h-0 flex-1 items-stretch">
         <WorkspaceRail
+          containerRef={railRef}
+          /* Docked above the breakpoint; an overlay below it, and only when
+             open — a hidden drawer must not sit in the tab order. */
+          className={cn(railOpen ? RAIL_OVERLAY : RAIL_DOCKED)}
+          onNavigate={() => setRailOpen(false)}
           brand={
             /* The mark is the app's own balance-beam glyph (`BrandMark`) and the
                whole lockup is one link home. It sits INSIDE the column now — the
@@ -292,7 +383,10 @@ export function AppShell({
             <div className="flex min-h-[var(--h-topbar)] flex-none items-center gap-[4px] pe-[8px] ps-[14px]">
               <button
                 type="button"
-                onClick={onNavigateHome}
+                onClick={() => {
+                  setRailOpen(false);
+                  onNavigateHome?.();
+                }}
                 aria-label={t("shell.bar.home")}
                 className="flex min-w-0 flex-1 items-center gap-[8px] py-[6px] text-chrome-ink transition-colors hover:text-chrome-ink focus-visible:outline-chrome-accent"
               >

@@ -64,6 +64,39 @@ describe("entitlementsSchema", () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).not.toHaveProperty("branchId");
   });
+
+  it("accepts limits with branch and warehouse caps", () => {
+    const result = entitlementsSchema.safeParse({ ...entitlements, limits: { branches: 3, warehouses: 3 } });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.limits).toEqual({ branches: 3, warehouses: 3 });
+  });
+
+  it("rejects a negative branches limit", () => {
+    const result = entitlementsSchema.safeParse({ ...entitlements, limits: { branches: -1, warehouses: 3 } });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a negative warehouses limit", () => {
+    const result = entitlementsSchema.safeParse({ ...entitlements, limits: { branches: 3, warehouses: -1 } });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.path)).toContainEqual(["limits", "warehouses"]);
+    }
+  });
+
+  it("rejects a non-integer branches limit", () => {
+    const result = entitlementsSchema.safeParse({ ...entitlements, limits: { branches: 1.5, warehouses: 3 } });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((issue) => issue.path)).toContainEqual(["limits", "branches"]);
+    }
+  });
+
+  it("accepts entitlements with no limits", () => {
+    const result = entitlementsSchema.safeParse(entitlements);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.limits).toBeUndefined();
+  });
 });
 
 describe("licensePayloadSchema", () => {

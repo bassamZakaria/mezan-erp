@@ -8,6 +8,7 @@ import {
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   NegativeStockError,
+  UncostedDeficitIssueError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
   PhysicalCountNotFoundError,
@@ -35,6 +36,7 @@ import {
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * Document-layer routes for the phase4/inventory-ops document types, built on
@@ -65,6 +67,10 @@ function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
     createdAt: doc.createdAt,
     confirmedAt: doc.confirmedAt,
     journalEntryId: doc.journalEntryId,
+    // One project/category per adjustment — carried per-line and validated
+    // uniform (stock-adjustment-document.ts), surfaced here as a single header.
+    projectId: doc.lines[0]?.projectId ?? null,
+    costCategory: doc.lines[0]?.costCategory ?? null,
   };
 }
 
@@ -173,6 +179,28 @@ function storedStatus(status: string | undefined): DocumentStatus | undefined {
   return status && status !== "all" ? (status as DocumentStatus) : undefined;
 }
 
+/**
+ * The write-side counterpart of `warehouseScopeOf` (D103): the list routes
+ * narrowed by scope while every draft and confirm ignored it, so a caller
+ * scoped to one warehouse could post stock into another and move goods out of a
+ * warehouse they cannot even list. Returns the 403 to send, or `undefined` when
+ * every named warehouse is inside scope — an unscoped caller passes everything.
+ */
+function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Response | undefined {
+  const scope = warehouseScopeOf(c);
+  if (!scope) return undefined;
+  const offending = warehouseIds.find((id) => !scope.includes(id));
+  if (offending === undefined) return undefined;
+  return c.json(
+    {
+      error: "WAREHOUSE_OUT_OF_SCOPE",
+      warehouseId: offending,
+      message: `المستودع "${offending}" خارج نطاق المستودعات المصرّح لك بها.`,
+    },
+    403,
+  );
+}
+
 function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
@@ -196,6 +224,9 @@ function handleDocumentError(c: Context, err: unknown): Response {
       422,
     );
   }
+  if (err instanceof UncostedDeficitIssueError) {
+    return c.json({ error: err.code, message: err.message, requested: err.requested.toString() }, 422);
+  }
   if (err instanceof SameWarehouseTransferError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
@@ -213,10 +244,12 @@ export function createStockAdjustmentsRoutes(
   app.post("/draft", gate("inventory.adjustment.create"), async (c) => {
     const parsed = createStockAdjustmentSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const refusal = warehouseScopeRefusal(c, parsed.data.lines.map((l) => l.warehouseId));
+    if (refusal) return refusal;
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo ?? "",
         lines: parsed.data.lines.map((l) => ({
           itemId: l.itemId,
@@ -225,6 +258,8 @@ export function createStockAdjustmentsRoutes(
           direction: l.direction,
           qty: Qty.fromMajor(l.qty),
           unitCost: l.unitCost ? Money.fromMajor(l.unitCost) : undefined,
+          projectId: parsed.data.projectId ?? null,
+          costCategory: parsed.data.costCategory ?? null,
         })),
       });
       return c.json(serializeAdjustment(doc), 201);
@@ -235,6 +270,13 @@ export function createStockAdjustmentsRoutes(
 
   app.post("/:id/confirm", gate("inventory.adjustment.confirm"), async (c) => {
     try {
+      // Checked against the STORED lines, not the draft request: a wider-scoped
+      // colleague may have drafted this, and the confirm is where stock moves.
+      const existing = await service.findById(c.req.param("id"));
+      if (existing) {
+        const refusal = warehouseScopeRefusal(c, existing.lines.map((l) => l.warehouseId));
+        if (refusal) return refusal;
+      }
       const { document, held } = await service.confirm(c.req.param("id"));
       return c.json({ document: serializeAdjustment(document), held });
     } catch (err) {
@@ -332,10 +374,17 @@ export function createStockTransfersRoutes(
   app.post("/draft", gate("inventory.transfer.create"), async (c) => {
     const parsed = createStockTransferSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    // BOTH ends: shipping out of a warehouse the caller cannot see is the theft
+    // path, and shipping INTO one removes the goods from their view.
+    const refusal = warehouseScopeRefusal(
+      c,
+      parsed.data.lines.flatMap((l) => [l.fromWarehouseId, l.toWarehouseId]),
+    );
+    if (refusal) return refusal;
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo ?? "",
         lines: parsed.data.lines.map((l) => ({
           itemId: l.itemId,
@@ -352,6 +401,16 @@ export function createStockTransfersRoutes(
 
   app.post("/:id/confirm", gate("inventory.transfer.confirm"), async (c) => {
     try {
+      // Checked against the STORED lines, not the draft request: a wider-scoped
+      // colleague may have drafted this, and the confirm is where stock moves.
+      const existing = await service.findById(c.req.param("id"));
+      if (existing) {
+        const refusal = warehouseScopeRefusal(
+          c,
+          existing.lines.flatMap((l) => [l.fromWarehouseId, l.toWarehouseId]),
+        );
+        if (refusal) return refusal;
+      }
       const { document, held } = await service.confirm(c.req.param("id"));
       return c.json({ document: serializeTransfer(document), held });
     } catch (err) {
@@ -436,6 +495,8 @@ export function createPhysicalCountsRoutes(
   app.post("/", gate("inventory.count.create"), async (c) => {
     const parsed = startPhysicalCountSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const refusal = warehouseScopeRefusal(c, [parsed.data.warehouseId]);
+    if (refusal) return refusal;
     try {
       const count = await service.start(parsed.data);
       return c.json(serializeCount(count), 201);
@@ -444,9 +505,16 @@ export function createPhysicalCountsRoutes(
     }
   });
 
+  async function refuseCountOutOfScope(c: Context, id: string): Promise<Response | undefined> {
+    const existing = await service.findById(id);
+    return existing ? warehouseScopeRefusal(c, [existing.warehouseId]) : undefined;
+  }
+
   app.post("/:id/counts", gate("inventory.count.create"), async (c) => {
     const parsed = recordPhysicalCountEntriesSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const refusal = await refuseCountOutOfScope(c, c.req.param("id"));
+    if (refusal) return refusal;
     try {
       const count = await service.recordCounts(
         c.req.param("id"),
@@ -459,6 +527,8 @@ export function createPhysicalCountsRoutes(
   });
 
   app.post("/:id/complete", gate("inventory.count.create"), async (c) => {
+    const refusal = await refuseCountOutOfScope(c, c.req.param("id"));
+    if (refusal) return refusal;
     try {
       const count = await service.complete(c.req.param("id"));
       return c.json(serializeCount(count));
@@ -468,6 +538,8 @@ export function createPhysicalCountsRoutes(
   });
 
   app.post("/:id/cancel", gate("inventory.count.create"), async (c) => {
+    const refusal = await refuseCountOutOfScope(c, c.req.param("id"));
+    if (refusal) return refusal;
     try {
       const count = await service.cancel(c.req.param("id"));
       return c.json(serializeCount(count));
@@ -479,6 +551,11 @@ export function createPhysicalCountsRoutes(
   app.post("/:id/generate-adjustment", gate("inventory.count.confirm"), async (c) => {
     const parsed = generateAdjustmentFromCountSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    // This one posts a CONFIRMED adjustment: it is where the count's variance
+    // actually moves stock, so it carries the same scope check the adjustment
+    // and transfer writes do (D103).
+    const refusal = await refuseCountOutOfScope(c, c.req.param("id"));
+    if (refusal) return refusal;
     try {
       const result = await service.generateAdjustment({
         countId: c.req.param("id"),

@@ -5,8 +5,19 @@ export type {
   TreasuryAccountStatus,
   TreasuryAccountTypeDefinition,
 } from "./treasury-account.js";
-export { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel } from "./treasury-account.js";
-export { DuplicateTreasuryAccountCodeError, TreasuryAccountNotFoundError, NegativeCashBalanceError } from "./errors.js";
+export {
+  MAX_GUARANTEE_FACILITY_LIMIT_SCALED,
+  MAX_OPENING_BALANCE_SCALED,
+  TREASURY_ACCOUNT_TYPE_DEFINITIONS,
+  getTreasuryAccountTypeLabel,
+} from "./treasury-account.js";
+export {
+  DuplicateTreasuryAccountCodeError,
+  InvalidGuaranteeFacilityLimitError,
+  InvalidOpeningBalanceError,
+  TreasuryAccountNotFoundError,
+  NegativeCashBalanceError,
+} from "./errors.js";
 export {
   validateNewTreasuryAccount,
   createTreasuryAccount,

@@ -2,9 +2,11 @@ import { z } from "zod";
 import { Money, Qty } from "../money/index.js";
 import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
+import type { Warehouse } from "../settings/warehouse.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
 
 /**
  * تقييم المخزون — Inventory Valuation (docs/archive/catalog/08-reports.md): current
@@ -24,11 +26,20 @@ export interface InventoryValuationContext {
    * omit it and the report runs without claiming to tie.
    */
   readonly inventoryControlBalance?: () => number;
+  /**
+   * The warehouse register, for resolving each position's branch (D111). A WAC
+   * snapshot carries a warehouse and never a branch, so without this the
+   * `branchId` parameter has nothing to match on. Optional: omit it and the
+   * report runs unfiltered by branch — every route that mounts this report
+   * wires it.
+   */
+  readonly warehouses?: readonly Warehouse[];
 }
 
 export interface InventoryValuationParams {
   readonly search: string;
   readonly warehouseId: string;
+  readonly branchId: string;
 }
 
 export interface InventoryValuationRow {
@@ -44,6 +55,7 @@ export interface InventoryValuationRow {
 const paramsSchema = z.object({
   search: z.string(),
   warehouseId: z.string(),
+  branchId: branchIdParamSchema,
 });
 
 export function createInventoryValuationReport(): ReportDefinition<
@@ -56,10 +68,11 @@ export function createInventoryValuationReport(): ReportDefinition<
     titleAr: "تقييم المخزون",
     descriptionAr: "قيمة المخزون الحالية لكل صنف (الكمية × متوسط التكلفة).",
     paramsSchema,
-    defaultParams: { search: "", warehouseId: "" },
+    defaultParams: { search: "", warehouseId: "", branchId: "" },
     paramFields: [
       { kind: "text", key: "search", label: "بحث", placeholder: "بحث بالاسم أو الكود" },
       { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.itemId,
     columns: [
@@ -89,12 +102,16 @@ export function createInventoryValuationReport(): ReportDefinition<
     ],
     run: (params, ctx) => {
       const search = params.search.trim().toLowerCase();
+      const branchOf = branchOfWarehouse(ctx.warehouses);
       const rows: InventoryValuationRow[] = [];
       for (const item of ctx.items) {
         if (!itemTypeTracksStock(item.type)) continue;
         if (search && !item.nameAr.toLowerCase().includes(search) && !item.code.toLowerCase().includes(search)) continue;
         const positions = ctx.snapshots.filter(
-          (s) => s.itemId === item.id && (params.warehouseId === "" || s.warehouseId === params.warehouseId),
+          (s) =>
+            s.itemId === item.id &&
+            (params.warehouseId === "" || s.warehouseId === params.warehouseId) &&
+            matchesBranch(branchOf(s.warehouseId), params.branchId),
         );
         if (positions.length === 0) continue;
         const onHand = Qty.sum(positions.map((p) => p.onHand));
@@ -114,3 +131,10 @@ export function createInventoryValuationReport(): ReportDefinition<
     },
   };
 }
+
+/**
+ * دفتر المخزون (الخامات والبضاعة) — the stock register required by قرار وزير
+ * المالية 420 لسنة 2025، المادة 3: quantity and value per item, which is what
+ * تقييم المخزون already is.
+ */
+export const createDecree420StockRegister = createInventoryValuationReport;

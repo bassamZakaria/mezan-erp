@@ -30,6 +30,7 @@ describe("treasuryAccountSchema", () => {
     glAccountId: null,
     openingBalance: "10000.123456",
     openingBalanceDate: "2026-01-01",
+    guaranteeFacilityLimit: null,
     status: "active" as const,
   };
 

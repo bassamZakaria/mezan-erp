@@ -44,6 +44,12 @@ const NEEDS_PARAMS = new Set(["/inventory/drift"]);
 const ALLOWED_EMPTY: Record<string, string> = {
   "/hr/leave-requests/me": "the seed admin is not an employee, so their own queue is correctly empty",
   "/notifications": "per-user inbox; the seed admin has received none",
+  "/contracting/reports/boq-overrun":
+    "an EXCEPTIONS report: certifying beyond the contracted quantity is refused at measure, so a healthy " +
+    "tenant has no row; it exists to prove that refusal and to catch imported history",
+  "/contracting/reports/late-variation-approvals":
+    "an EXCEPTIONS report: a certificate line that leans on a variation approved after execution is " +
+    "refused, so an empty table is the clean control; the rule is printed on the screen",
   "/reports/inventory/drift":
     "an EXCEPTIONS report: it lists only positions whose cache disagrees with a replay of the ledger. " +
     "It was populated while landed costs bypassed the ledger (D36); now that they do not, an empty " +

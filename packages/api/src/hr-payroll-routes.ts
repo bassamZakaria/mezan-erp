@@ -59,6 +59,7 @@ import {
   treasuryDisbursementSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * Payroll + employee-advance routes (docs/archive/catalog/06-crm-hr.md "الرواتب" and
@@ -365,7 +366,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     const parsed = treasuryDisbursementSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const advance = await disburseEmployeeAdvance(c.req.param("id"), parsed.data, {
+      const advance = await disburseEmployeeAdvance(c.req.param("id"), { ...parsed.data, date: await tenantDay(c, parsed.data.date) }, {
         advances: deps.advances,
         treasury: deps.treasury,
         accounts: deps.accounts,
@@ -450,7 +451,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     const parsed = treasuryDisbursementSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const run = await disbursePayrollRun(c.req.param("id"), parsed.data, {
+      const run = await disbursePayrollRun(c.req.param("id"), { ...parsed.data, date: await tenantDay(c, parsed.data.date) }, {
         runs: deps.runs,
         treasury: deps.treasury,
         accounts: deps.accounts,

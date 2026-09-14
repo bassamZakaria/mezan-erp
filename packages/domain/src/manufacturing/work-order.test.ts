@@ -106,7 +106,7 @@ async function setupWithWasteAllowance() {
   return { boms, workOrders, numbering, stock, gl, now, wo };
 }
 
-async function setup() {
+async function setup(overrides: { projectId?: string | null } = {}) {
   const boms = new InMemoryBoms();
   const workOrders = new InMemoryWorkOrders();
   const numbering = makeNumbering();
@@ -138,6 +138,7 @@ async function setup() {
       wipWarehouseId: WIP,
       destinationWarehouseId: FG,
       scheduledStartDate: "2026-08-22",
+      projectId: overrides.projectId,
     },
     { workOrders, boms, numbering, now },
   );
@@ -221,6 +222,21 @@ describe("work order — 4-stage stock + GL + WIP costing", () => {
     expect(creditFor("1300-raw")).toBe("250.000000");
     expect(creditFor("5100-labor")).toBe("30.000000");
     expect(creditFor("5200-oh")).toBe("20.000000");
+  });
+
+  it("carries the work order's projectId on every posting line when it names a project", async () => {
+    const { workOrders, stock, gl, now, wo } = await setup({ projectId: "proj-1" });
+    const deps = { workOrders, stock, now, gl: { async post() {} }, accounts: { rawInventoryAccountId: "1200", abnormalScrapAccountId: "5220", wipAccountId: "1250" } };
+
+    await startWorkOrder(wo.id, deps);
+    await issueWorkOrderMaterials(wo.id, deps);
+    await receiveWorkOrderProduct(wo.id, Qty.fromMajor("10"), deps);
+    const { posting } = await completeWorkOrder(wo.id, { workOrders, gl, accounts: ACCOUNTS, now });
+
+    expect(posting!.lines.length).toBeGreaterThan(0);
+    for (const line of posting!.lines) {
+      expect(line.projectId).toBe("proj-1");
+    }
   });
 
   it("capitalises a logged extra cost into the finished-goods unit cost", async () => {

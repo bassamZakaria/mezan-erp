@@ -17,12 +17,20 @@ import {
   type WacSnapshotRepository,
   ITEM_TYPES,
   itemTypeTracksStock,
+  can,
   matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /** Wire representation of an item — money as decimal strings, byte-stable. */
-function serialize(item: Item) {
+/**
+ * The cost price is the one field on an item that the owner asks to be able to
+ * hide from staff, so it is gated on `sales.invoice.view_cost` rather than on
+ * the item-list permission every clerk holds (D94). It is omitted from the
+ * payload, not nulled: a null reads as "this item has no cost".
+ */
+function serialize(item: Item, showCost = true) {
+  const cost = showCost ? { costPrice: item.costPrice?.toString() ?? null } : {};
   return {
     id: item.id,
     code: item.code,
@@ -40,7 +48,7 @@ function serialize(item: Item) {
     specifications: item.specifications,
     costingMethod: item.costingMethod,
     salePrice: item.salePrice?.toString() ?? null,
-    costPrice: item.costPrice?.toString() ?? null,
+    ...cost,
     taxRatePercent: item.taxRatePercent,
     trackInventory: item.trackInventory,
     trackBatches: item.trackBatches,
@@ -221,13 +229,23 @@ export function createItemsRouter(
     return rows;
   }
 
-  function serializeRow(row: ItemRow) {
-    return { ...serialize(row.item), onHand: row.onHand?.toString() ?? null, stockState: row.stockState };
+  const maySeeCost = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? can(ctx, "sales.invoice.view_cost") : false;
+  };
+
+  function serializeRow(row: ItemRow, showCost: boolean) {
+    return {
+      ...serialize(row.item, showCost),
+      onHand: row.onHand?.toString() ?? null,
+      stockState: row.stockState,
+    };
   }
 
   app.get("/", gate("inventory.item.view"), async (c) => {
     const rows = await listFilteredItems(parseItemListQuery(c));
-    return c.json(rows.map(serializeRow));
+    const showCost = maySeeCost(c);
+    return c.json(rows.map((row) => serializeRow(row, showCost)));
   });
 
   /**
@@ -283,10 +301,11 @@ export function createItemsRouter(
   app.get("/:id", gate("inventory.item.view"), async (c) => {
     const item = await repo.findById(c.req.param("id"));
     if (!item) return c.json({ error: "NOT_FOUND" }, 404);
-    if (!snapshots) return c.json({ ...serialize(item), stock: null });
+    const showCost = maySeeCost(c);
+    if (!snapshots) return c.json({ ...serialize(item, showCost), stock: null });
     const positions = (await snapshots.list()).filter((s) => s.itemId === item.id);
     return c.json({
-      ...serialize(item),
+      ...serialize(item, showCost),
       stock: {
         onHand: positions.reduce((sum, p) => sum.add(p.onHand), Qty.zero()).toString(),
         byWarehouse: positions.map((p) => ({

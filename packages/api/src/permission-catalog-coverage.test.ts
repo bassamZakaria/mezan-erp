@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ALL_PERMISSION_CODES, WILDCARD_PERMISSION } from "@mezan/domain";
+import { ALL_PERMISSION_CODES, WILDCARD_PERMISSION, getPermission } from "@mezan/domain";
 
 /**
  * Which permission codes any route actually gates on.
@@ -29,11 +29,26 @@ function gatedCodes(): ReadonlySet<string> {
       // codes — a different vocabulary that would otherwise read as a typo.
       if (file.name === "module-gate.ts") continue;
       const source = readFileSync(join(dir, file.name), "utf8");
+      // Module-level `const VIEW = "contracting.certificate.view";` bindings.
+      // Reading only literal arguments made every route file that names its
+      // codes once at the top — which is most of the contracting module —
+      // register as gating NOTHING, so the instrument reported a bigger gap
+      // than the product has. A gate is a gate whether the code is inlined or
+      // named.
+      const constants = new Map<string, string>();
+      for (const match of source.matchAll(/\bconst\s+([A-Z][A-Z0-9_]*)\s*=\s*"([a-z_.]+)"/g)) {
+        constants.set(match[1] as string, match[2] as string);
+      }
       // `gate(...)`, `gateAny(...)`, and `permission(...)` — the last is what
       // `lan/routes.ts` calls its `createPermissionGate` binding, and a gate is
       // a gate whatever the local const is named.
-      for (const match of source.matchAll(/(?:gate(?:Any)?|permission)\(\s*((?:"[a-z_.]+"\s*,?\s*)+)\)/g)) {
-        for (const code of (match[1] ?? "").matchAll(/"([a-z_.]+)"/g)) found.add(code[1] as string);
+      for (const match of source.matchAll(/(?:gate(?:Any)?|permission)\(\s*((?:(?:"[a-z_.]+"|[A-Z][A-Z0-9_]*)\s*,?\s*)+)\)/g)) {
+        const args = match[1] ?? "";
+        for (const code of args.matchAll(/"([a-z_.]+)"/g)) found.add(code[1] as string);
+        for (const name of args.matchAll(/\b([A-Z][A-Z0-9_]*)\b/g)) {
+          const resolved = constants.get(name[1] as string);
+          if (resolved) found.add(resolved);
+        }
       }
     }
   };
@@ -46,7 +61,7 @@ const UNGATED = ALL_PERMISSION_CODES.filter((code) => code !== WILDCARD_PERMISSI
 
 describe("the permission catalogue against the routes that check it", () => {
   it("gates a substantial majority of the catalogue", () => {
-    expect(GATED.size).toBeGreaterThan(150);
+    expect(GATED.size).toBeGreaterThan(200);
     expect(ALL_PERMISSION_CODES.length).toBeGreaterThan(GATED.size);
   });
 
@@ -56,32 +71,77 @@ describe("the permission catalogue against the routes that check it", () => {
     expect(unknown, `routes gate on codes the catalogue does not define: ${unknown.join(", ")}`).toEqual([]);
   });
 
-  it("LIMITATION (D116): a large minority of codes gate nothing, so the role editor overstates the product", () => {
-    // Every code below can be ticked in the role editor today and changes
-    // nothing, because no HTTP route consults it. The count is pinned so the
-    // gap cannot quietly grow: adding a code without a route to check it, or
-    // deleting a route that was the only consumer, moves this number.
+  it("resolves every gated code through getPermission — the module gate reads this and silently skips its check for anything it does not resolve", () => {
+    // `createPermissionGate`/`createAnyPermissionGate` (permission-gate.ts) only
+    // refuse an unlicensed module when `getPermission(code)` resolves — a typo
+    // that slips past the catalogue-membership check above (e.g. a code that
+    // collides with WILDCARD_PERMISSION-shaped matching) would still silently
+    // skip the module axis of every gate that uses it.
+    const unresolved = [...GATED].filter((code) => code !== WILDCARD_PERMISSION && !getPermission(code));
+    expect(
+      unresolved,
+      `gate()/gateAny() codes getPermission cannot resolve, so their module check silently skips: ${unresolved.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("D116 closed: what this scanner cannot see is a short, named list, not a large minority", () => {
+    // 89 → 13. DEC-14 deleted the 67 codes that named nothing at all, so what
+    // is left here is not dead catalogue — every one is enforced by something
+    // this scanner cannot read:
     //
-    // `admin.backup.*` are the honest exception and are counted here anyway:
-    // they gate the desktop shell's restore IPC channel, not a Hono route, and
-    // this scanner only reads route sources. Two codes, deliberately left in
-    // the number rather than special-cased, because a scanner with exceptions
-    // is a scanner nobody trusts.
+    //   - inline `can()` inside a handler, where the code is only known once a
+    //     body or an entity is in hand: `sales.invoice.view_cost`,
+    //     `sales.price.override`, `sales.discount.approve` (the invoice discount
+    //     ceiling), `purchases.receipt.edit_cost`, `hr.employee.view_salary`;
+    //   - `attachments/entity-type.ts`, which resolves a permission from the
+    //     entity an attachment hangs on: `purchases.order.edit` is that
+    //     module's `manage` right;
+    //   - a composite read assembled from routes that each gate themselves:
+    //     `purchases.supplier360.view`, `crm.customer360.view`;
+    //   - a ROLE-gated workflow step rather than a permission gate, which is
+    //     what DEC-2 decided approval is: `workflow.approve`/`.reject`;
+    //   - the desktop shell's restore IPC channel, which is not a Hono route at
+    //     all: `admin.backup.view`, `admin.backup.restore`,
+    //     `admin.tenant.settings.edit`.
+    //
+    // The count is pinned so the gap cannot quietly grow: adding a code without
+    // anything to check it, or deleting the only consumer of one, moves this
+    // number.
     expect(UNGATED.length).toBeGreaterThan(0);
-    expect(UNGATED.length).toBeLessThanOrEqual(92);
+    expect(UNGATED.length).toBeLessThanOrEqual(13);
   });
 
-  it("LIMITATION (D116): the whole POS module is catalogued and has no route at all", () => {
-    const pos = ALL_PERMISSION_CODES.filter((code) => code.startsWith("pos."));
-    expect(pos.length).toBeGreaterThan(0);
-    for (const code of pos) expect(GATED.has(code), `${code} is gated somewhere`).toBe(false);
+  it("has no POS code left — the one that was real is now `sales.discount.approve`", () => {
+    // The whole module was catalogued and had no route at all, which is why
+    // DEC-14 deleted it. One of the thirty-eight WAS checked — but on the SALES
+    // invoice discount ceiling, not a till, and keeping it under the POS name
+    // kept it ungrantable: `pos` is deliberately absent from MODULE_CATALOG, so
+    // the role editor never rendered it and only the `*` wildcard could hold
+    // it. It moved to `sales`, where an administrator can tick it.
+    expect(ALL_PERMISSION_CODES.filter((code) => code.startsWith("pos."))).toEqual([]);
+    expect(ALL_PERMISSION_CODES).toContain("sales.discount.approve");
   });
 
-  it("LIMITATION (D116): a confirmed sales invoice has no void route, only a draft cancel", () => {
-    // `sales.invoice.void` exists in the catalogue; nothing gates on it, and
-    // the only cancel route checks `sales.invoice.delete_draft`.
+  it("gates the per-voucher-type treasury codes DEC-14 kept, so they are controls and not labels", () => {
+    for (const code of [
+      "treasury.customer_refund.create",
+      "treasury.customer_refund.confirm",
+      "treasury.customer_refund.void",
+      "treasury.transfer.create",
+      "treasury.transfer.confirm",
+      "treasury.transfer.void",
+      "contracting.certificate.collect",
+      "sales.return.view_own",
+      "purchases.invoice.view_own",
+    ]) {
+      expect(GATED.has(code), `${code} must gate a route`).toBe(true);
+    }
+  });
+
+  /** Guards the sales-invoice half of D116: the void route now exists and is gated. */
+  it("gives a confirmed sales invoice an exit, gated separately from the draft cancel", () => {
     expect(ALL_PERMISSION_CODES).toContain("sales.invoice.void");
-    expect(GATED.has("sales.invoice.void")).toBe(false);
+    expect(GATED.has("sales.invoice.void")).toBe(true);
     expect(GATED.has("sales.invoice.delete_draft")).toBe(true);
   });
 

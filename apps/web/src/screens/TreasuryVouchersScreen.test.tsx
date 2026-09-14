@@ -48,8 +48,8 @@ const accounts: AccountDTO[] = [
   { id: "4900", code: "4900", nameAr: "إيرادات أخرى", nameEn: null, type: "revenue", naturalBalance: "credit", parentId: null, isHeader: false, status: "active" },
 ];
 const treasuryAccounts: TreasuryAccountDTO[] = [
-  { id: "ta-cash1", code: "CASH-001", name: "صندوق نقدي الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: "1300-1", openingBalance: "50000.000000", openingBalanceDate: "2026-08-01", status: "active" },
-  { id: "ta-cash2", code: "CASH-002", name: "صندوق نقدي الفرع الثاني", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: "1300-2", openingBalance: "2000.000000", openingBalanceDate: "2026-08-01", status: "active" },
+  { id: "ta-cash1", code: "CASH-001", name: "صندوق نقدي الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: "1300-1", openingBalance: "50000.000000", openingBalanceDate: "2026-08-01", guaranteeFacilityLimit: null, status: "active" },
+  { id: "ta-cash2", code: "CASH-002", name: "صندوق نقدي الفرع الثاني", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: "1300-2", openingBalance: "2000.000000", openingBalanceDate: "2026-08-01", guaranteeFacilityLimit: null, status: "active" },
 ];
 const customers: CustomerDTO[] = [
   {
@@ -85,6 +85,8 @@ function voucher(overrides: Partial<VoucherDTO> = {}): VoucherDTO {
     supplierId: null,
     referenceNo: "REF-1001",
     costCenterId: null,
+    projectId: null,
+    costCategory: null,
     withholdingAmount: null,
     withholdingRatePercent: null,
     netPaidAmount: "1000.000000",
@@ -142,7 +144,7 @@ function statsOf(rows: VoucherRowDTO[]): Record<string, number> {
   };
 }
 
-function renderScreen() {
+function renderScreen({ heldOnConfirm = false }: { heldOnConfirm?: boolean } = {}) {
   let current = [...seededVouchers];
   let nextSeq = 5;
   const allocationsByVoucher = { ...seededAllocations };
@@ -183,6 +185,12 @@ function renderScreen() {
     "POST /vouchers/cv-5/confirm": () => {
       const docNo = `CV-${String(nextSeq).padStart(6, "0")}`;
       nextSeq += 1;
+      if (heldOnConfirm) {
+        // An approval gate holds the confirm: the voucher exists and is still a
+        // draft, and NOTHING was posted.
+        current = current.map((v) => (v.id === "cv-5" ? { ...v, docNo } : v));
+        return { body: { ...current.find((v) => v.id === "cv-5")!, held: true } };
+      }
       current = current.map((v) => (v.id === "cv-5" ? { ...v, status: "confirmed", docNo, confirmedAt: "2026-08-22T10:00:00.000Z" } : v));
       return { body: { ...current.find((v) => v.id === "cv-5")!, held: false } };
     },
@@ -265,6 +273,33 @@ describe("TreasuryVouchersScreen — create + confirm", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "السندات النقدية" })).toBeInTheDocument());
     // Continues the sequence from CV-000004 → CV-000005.
     expect(await screen.findByText("CV-000005")).toBeInTheDocument();
+  });
+
+  /**
+   * D83. When an approval gate held the confirm, the wizard closed on plain
+   * success — the operator was told the money had moved when no entry had been
+   * posted at all.
+   */
+  it("D83: says the voucher is awaiting approval instead of reporting a silent success", async () => {
+    renderScreen({ heldOnConfirm: true });
+    await screen.findByText("CV-000001");
+    fireEvent.click(screen.getByRole("button", { name: "سند جديد" }));
+    fireEvent.click(screen.getByText("تحصيل من عميل"));
+
+    setMoney(screen.getByLabelText("المبلغ"), "300");
+    const partyInput = screen.getByPlaceholderText("ابحث عن عميل…");
+    fireEvent.focus(partyInput);
+    fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
+
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء وتأكيد" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("أوقفته دورة الاعتماد قبل الترحيل");
+    expect(screen.getByText(/لم تتحرك أي أموال بعد/)).toBeInTheDocument();
+    // The wizard did NOT fall back to the list as if the voucher had posted.
+    expect(screen.queryByRole("heading", { name: "السندات النقدية" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "رجوع إلى السندات" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "السندات النقدية" })).toBeInTheDocument());
   });
 });
 

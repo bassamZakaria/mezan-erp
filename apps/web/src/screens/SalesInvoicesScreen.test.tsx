@@ -85,7 +85,7 @@ const customers: CustomerDTO[] = [
 const treasuryAccounts: TreasuryAccountDTO[] = [
   {
     id: "tr-cash-main", code: "TR-01", name: "خزينة الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP",
-    branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, status: "active",
+    branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active",
   },
 ];
 
@@ -104,7 +104,7 @@ const items: ItemDTO[] = [
   },
 ];
 
-const warehouses: WarehouseDTO[] = [{ id: "wh-1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true }];
+const warehouses: WarehouseDTO[] = [{ id: "wh-1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null }];
 
 const accounts: AccountDTO[] = [
   { id: "1105", code: "1105", nameAr: "ذمم عملاء تجاريين", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" },
@@ -363,7 +363,7 @@ describe("SalesInvoicesScreen — payments", () => {
     await waitFor(() => expect(screen.getAllByText("مدفوع").length).toBeGreaterThan(0));
   });
 
-  it("blocks recording a payment with no amount, or with no treasury chosen — the mutation never fires either time", async () => {
+  it("blocks recording a payment with no amount — the mutation never fires", async () => {
     const paymentRequests: unknown[] = [];
     const transport = stubTransport({
       ...baseHandlers(seededInvoices),
@@ -380,6 +380,52 @@ describe("SalesInvoicesScreen — payments", () => {
     fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("قيمة الدفعة يجب أن تكون أكبر من صفر.");
     expect(paymentRequests).toHaveLength(0);
+  });
+
+  /**
+   * D93. «تحصيل دفعة» opened with an empty treasury select and no default, so
+   * the first collection of every day was refused on submit — with no cue
+   * beforehand that anything was missing.
+   */
+  it("D93: collects on the FIRST attempt without touching the treasury select, sending the default account", async () => {
+    const paymentRequests: { treasuryAccountId?: string }[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices/inv-1/payments": (init) => {
+        paymentRequests.push(JSON.parse((init?.body as string) ?? "{}"));
+        return { body: seededInvoices[0]! };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000001"));
+    await screen.findByRole("heading", { name: "INV-000001" });
+    fireEvent.click(screen.getByRole("tab", { name: "المدفوعات" }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("الخزينة المستلمة")).toHaveTextContent("خزينة الفرع الرئيسي (TR-01)"),
+    );
+    typeMoney(screen.getByLabelText("قيمة الدفعة"), "50");
+    fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
+
+    await waitFor(() => expect(paymentRequests).toHaveLength(1));
+    expect(paymentRequests[0]?.treasuryAccountId).toBe("tr-cash-main");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("D93: a tenant with no treasury account at all still refuses, and still fires nothing", async () => {
+    const paymentRequests: unknown[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "GET /treasury-accounts": () => ({ body: [] }),
+      "POST /sales-invoices/inv-1/payments": (init) => {
+        paymentRequests.push(JSON.parse((init?.body as string) ?? "{}"));
+        return { body: seededInvoices[0]! };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000001"));
+    await screen.findByRole("heading", { name: "INV-000001" });
+    fireEvent.click(screen.getByRole("tab", { name: "المدفوعات" }));
 
     typeMoney(screen.getByLabelText("قيمة الدفعة"), "50");
     fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));

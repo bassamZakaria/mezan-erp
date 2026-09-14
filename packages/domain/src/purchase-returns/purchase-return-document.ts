@@ -15,6 +15,7 @@
 
 import { Money, Qty, allocate } from "../money/index.js";
 import { extend } from "../inventory/wac-math.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
 import { buildEffects, type DocumentEffects } from "../documents/effects.js";
 import type { DocumentGlPosting, DocumentStockPlan } from "../documents/hooks.js";
@@ -53,6 +54,13 @@ export interface PurchaseReturnLine {
    * carrying none posts exactly the entry it always did.
    */
   readonly taxRatePercent?: number | null;
+  /**
+   * بُعد المشروع — every line of a confirmed return carries the same
+   * document-wide value (D-01), the same convention as `sourceInvoiceId`.
+   */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  readonly costCategory?: CostCategory | null;
 }
 
 export type PurchaseReturnDocument = FrameworkDocument<PurchaseReturnLine>;
@@ -116,6 +124,16 @@ export function createPurchaseReturnDocumentType(
         if (line.unitCost.scaled < 0n || line.taxAmount.scaled < 0n) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الصنف "${line.itemId}": القيم المالية لا يمكن أن تكون سالبة.`);
         }
+        if ((line.projectId ?? null) !== (doc.lines[0]?.projectId ?? null)) {
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تنتمي لنفس المشروع.");
+        }
+        if (line.costCategory && !line.projectId) {
+          throw new InvalidDocumentError(
+            DOC_TYPE,
+            doc.id,
+            `بند الصنف "${line.itemId}": فئة التكلفة تتطلب مشروعاً (projectId) على المرتجع.`,
+          );
+        }
       }
     },
 
@@ -165,8 +183,30 @@ export function createPurchaseReturnDocumentType(
       const weights = rates.map((r) => (byRate.get(r) as { base: Money }).base.scaled);
       const splitByRate = (amount: Money): Money[] =>
         weights.some((w) => w > 0n) ? allocate(amount, weights) : rates.map(() => amount);
-      const inventoryShares = splitByRate(inventoryCredit);
+      // The variance (price-difference) account is never a cost-side line, so
+      // it stays split by rate only, exactly as before.
       const varianceShares = splitByRate(variance);
+
+      // The inventory credit IS a cost-side line, so it is ALSO tagged with
+      // cost category (never the AP/VAT/variance lines): split a second time,
+      // by (rate, costCategory), same largest-remainder rounding, so a
+      // mixed-category return still reconciles exactly (D-01).
+      const projectId = doc.lines[0]?.projectId ?? null;
+      type RateCatGroup = { readonly rate: number | null; readonly costCategory: CostCategory | null; readonly base: Money };
+      const byRateAndCategory = new Map<string, RateCatGroup>();
+      for (const l of doc.lines) {
+        const rate = l.taxRatePercent ?? null;
+        const costCategory = l.costCategory ?? null;
+        const key = `${rate}|${costCategory}`;
+        const existing = byRateAndCategory.get(key);
+        const base = extend(l.qty, l.unitCost);
+        byRateAndCategory.set(key, { rate, costCategory, base: existing ? existing.base.add(base) : base });
+      }
+      const rcGroups = [...byRateAndCategory.values()];
+      const rcWeights = rcGroups.map((g) => g.base.scaled);
+      const inventoryRcShares = rcWeights.some((w) => w > 0n)
+        ? allocate(inventoryCredit, rcWeights)
+        : rcGroups.map(() => inventoryCredit);
 
       return {
         sourceDocType: DOC_TYPE,
@@ -182,11 +222,17 @@ export function createPurchaseReturnDocumentType(
               ? [{ accountId: accounts.inputTaxPayableId, debit: Money.zero(), credit: tax, taxRatePercent: rate }]
               : [];
           }),
-          ...rates.flatMap((rate, i) => {
-            const share = inventoryShares[i] as Money;
+          ...rcGroups.flatMap((g, i) => {
+            const share = inventoryRcShares[i] as Money;
             return share.scaled === 0n
               ? []
-              : [{ accountId: accounts.inventoryAccountId, debit: Money.zero(), credit: share, taxRatePercent: rate }];
+              : [{
+                  accountId: accounts.inventoryAccountId,
+                  debit: Money.zero(),
+                  credit: share,
+                  taxRatePercent: g.rate,
+                  ...(g.costCategory ? { costCategory: g.costCategory } : {}),
+                }];
           }),
           ...rates.flatMap((rate, i) => {
             const share = varianceShares[i] as Money;
@@ -195,8 +241,7 @@ export function createPurchaseReturnDocumentType(
               ? [{ accountId: accounts.priceVarianceAccountId, debit: Money.zero(), credit: share, taxRatePercent: rate }]
               : [{ accountId: accounts.priceVarianceAccountId, debit: share.negate(), credit: Money.zero(), taxRatePercent: rate }];
           }),
-        ],
-
+        ].map((l) => ({ ...l, projectId })),
       };
     },
 

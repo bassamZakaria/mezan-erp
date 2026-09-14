@@ -29,6 +29,7 @@ import {
   AllocationAlreadyReversedError,
   auditBranchFromScope,
   branchScopedAuditSink,
+  can,
   type VoucherServiceDeps,
   type VoucherDocument,
   type VoucherAllocation,
@@ -43,7 +44,46 @@ import {
   voucherListQuerySchema,
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
-import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createPermissionGate, getAuthContext, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, withinScope } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
+
+/**
+ * Everything a «شيك» voucher knows about the cheque it raised, handed to the
+ * register so the paper and the money are one record rather than two (D81).
+ *
+ * `chequeNumber` is the voucher's `referenceNo`, which is where the cheque
+ * number is typed today. The three fields a cheque needs and the voucher wire
+ * contract does NOT carry — the drawee bank, the due date (a post-dated cheque
+ * is the normal case here, so its due date is the whole point) and the
+ * "شيكات تحت التحصيل" control account — are the adapter's to resolve; see
+ * `packages/contracts/src/voucher.ts` `createVoucherSchema`.
+ */
+export interface VoucherChequeRegistration {
+  readonly voucherId: string;
+  /** A receipt voucher takes a cheque IN; a payment voucher issues one OUT. */
+  readonly direction: "incoming" | "outgoing";
+  readonly chequeNumber: string | null;
+  readonly amount: Money;
+  readonly currency: string;
+  readonly issueDate: string;
+  readonly branchId: string;
+  /** Customer for an incoming cheque, supplier for an outgoing one. */
+  readonly partyId: string | null;
+  readonly counterpartyGlAccountId: string | null;
+  readonly memo: string | null;
+  /** The RESOLVED caller — the same attribution every cheque transition carries (D80). */
+  readonly actor: string;
+}
+
+/**
+ * Registers the cheque behind a «شيك» voucher. Returns the cheque's id, or null
+ * when the register declined to record one (nothing the voucher carries names a
+ * cheque, for instance). Omit the port entirely and a cheque voucher behaves
+ * exactly as it did before — it just leaves the register short.
+ */
+export interface VoucherChequeRegistrationPort {
+  register(input: VoucherChequeRegistration): Promise<{ chequeId: string } | null>;
+}
 
 /**
  * Everything the voucher routes bind the {@link VoucherService} to. Numbering
@@ -55,6 +95,16 @@ export type VoucherRoutesDeps = Omit<VoucherServiceDeps, "events"> & {
   readonly events?: VoucherServiceDeps["events"];
   /** Generates ids when the request omits them. Defaults to a UUID. */
   readonly idGen?: () => string;
+  /** The cheque register a «شيك» voucher writes into (D81). */
+  readonly cheques?: VoucherChequeRegistrationPort;
+  /**
+   * Whether Law 6/2025's simplified regime binds a payment dated `day`. A
+   * taxpayer inside it is exempt from withholding tax, so the route refuses a
+   * voucher that withholds rather than posting a liability to the authority
+   * that the authority does not recognise (DEC-13). Omit it and nothing is
+   * refused, which is the behaviour for every tenant outside the regime.
+   */
+  readonly simplifiedRegimeActiveOn?: (day: string) => Promise<boolean>;
 };
 
 function serialize(doc: VoucherDocument) {
@@ -80,6 +130,8 @@ function serialize(doc: VoucherDocument) {
     supplierId: line.supplierId,
     referenceNo: line.referenceNo,
     costCenterId: line.costCenterId ?? null,
+    projectId: line.projectId ?? null,
+    costCategory: line.costCategory ?? null,
     withholdingAmount: line.withholdingAmount ? line.withholdingAmount.toString() : null,
     withholdingRatePercent: line.withholdingRatePercent ?? null,
     netPaidAmount: voucherNetPaid(line).toString(),
@@ -177,12 +229,86 @@ function handleDomainError(c: Context, err: unknown): Response {
  */
 const gateActorRoles = callerRoleCodes;
 
+/**
+ * The voucher types that carry a permission of their own, and its prefix.
+ *
+ * There is ONE voucher document and one voucher list, so there is one `.view`
+ * — `treasury.cash_voucher.view`. What a shop separates is not the reading but
+ * the ACT: handing cash back to a customer, and moving money between the
+ * company's own treasuries, are decisions kept away from the counter. Every
+ * voucher route used to gate every type on `treasury.cash_voucher.*`, so the
+ * two codes below gated nothing at all and a cashier who could raise a
+ * collection could also raise a refund.
+ *
+ * The gate is "EITHER the generic code OR this type's own": a holder of only
+ * `treasury.customer_refund.create` can raise a refund and nothing else, and a
+ * cashier holding `treasury.cash_voucher.create` keeps every type they had.
+ */
+const VOUCHER_TYPE_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
+  customer_refund: "treasury.customer_refund",
+  inter_treasury_transfer: "treasury.transfer",
+};
+
+/**
+ * المقاولات — collecting a progress certificate.
+ *
+ * A certificate is collected by receiving the customer's money against the
+ * invoice the certificate generated, and that voucher is the one that carries
+ * the contract's `projectId`. `contracting.certificate.collect` named that act
+ * and gated nothing, so it rode on `treasury.cash_voucher.create` — which
+ * FINANCE_CONTRACTING, the role whose whole job this is, does not hold, while
+ * every till cashier does.
+ */
+const CERTIFICATE_COLLECT = "contracting.certificate.collect";
+const CERTIFICATE_COLLECTION_TYPES: ReadonlySet<string> = new Set(["customer_collection", "customer_advance"]);
+
+type VoucherAction = "create" | "confirm" | "void";
+
+/** Every code that authorises `action` on a voucher of this type. Any one suffices. */
+function voucherPermissions(
+  action: VoucherAction,
+  voucherType: string | null | undefined,
+  projectId: string | null | undefined,
+): string[] {
+  const codes = [`treasury.cash_voucher.${action}`];
+  const prefix = voucherType ? VOUCHER_TYPE_PERMISSION_PREFIX[voucherType] : undefined;
+  if (prefix) codes.push(`${prefix}.${action}`);
+  if (action !== "void" && projectId && voucherType && CERTIFICATE_COLLECTION_TYPES.has(voucherType)) {
+    codes.push(CERTIFICATE_COLLECT);
+  }
+  return codes;
+}
+
+/**
+ * The 403 for a caller who cleared the route's broad gate but holds none of
+ * the codes THIS voucher's type needs, or null when they may proceed.
+ *
+ * The middleware gate has to admit every code any type might need — it runs
+ * before the body is parsed and before the document is loaded — so without
+ * this second, narrow check a `treasury.customer_refund.create` holder would
+ * be able to raise any voucher at all, which is a wider grant than the one the
+ * catalogue describes.
+ */
+function refuseVoucherType(c: Context, permissions: readonly string[]): Response | null {
+  const ctx = getAuthContext(c);
+  if (ctx && permissions.some((permission) => can(ctx, permission))) return null;
+  return c.json(
+    {
+      error: "PERMISSION_DENIED",
+      permission: permissions[permissions.length - 1],
+      message: `هذا الإجراء يتطلب صلاحية «${permissions[permissions.length - 1]}» غير المتاحة لحسابك.`,
+    },
+    403,
+  );
+}
+
 export function createVouchersRoutes(
   deps: VoucherRoutesDeps,
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
 
   function serviceFor(c: Context): VoucherService {
@@ -384,42 +510,140 @@ export function createVouchersRoutes(
     });
   });
 
-  app.post("/", gate("treasury.cash_voucher.create"), async (c) => {
+  app.post(
+    "/",
+    gateAny(
+      "treasury.cash_voucher.create",
+      "treasury.customer_refund.create",
+      "treasury.transfer.create",
+      CERTIFICATE_COLLECT,
+    ),
+    async (c) => {
     const parsed = createVoucherSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
+    if (refusal) return refusal;
+    /*
+     * Law 6/2025 exempts a taxpayer inside the simplified regime from
+     * withholding tax. Accepting a withholding amount anyway would post a
+     * liability to an authority that does not recognise it, and the figure
+     * would then travel into the filing. Refused rather than silently zeroed:
+     * the operator typed a number, and a number that vanishes without a word
+     * is how a wrong filing gets signed (DEC-13).
+     */
+    if (d.withholdingAmount && Money.fromMajor(d.withholdingAmount).scaled !== 0n && deps.simplifiedRegimeActiveOn) {
+      if (await deps.simplifiedRegimeActiveOn(d.date)) {
+        return c.json(
+          {
+            error: "WITHHOLDING_NOT_ALLOWED_UNDER_SIMPLIFIED_REGIME",
+            message:
+              "المنشأة مسجّلة في النظام الضريبي المبسط (قانون ٦ لسنة ٢٠٢٥) وهي معفاة من الخصم والتحصيل، فلا يجوز خصم ضريبة على هذا السند.",
+          },
+          422,
+        );
+      }
+    }
     try {
-      const doc = await serviceFor(c).createVoucher({
-        id: d.id ?? idGen(),
-        date: d.date,
-        memo: d.memo,
-        voucherType: d.voucherType,
-        amount: Money.fromMajor(d.amount),
-        currency: d.currency,
-        branchId: d.branchId,
-        paymentMethod: d.paymentMethod,
-        treasuryAccountId: d.treasuryAccountId,
-        treasuryGlAccountId: d.treasuryGlAccountId,
-        counterpartyGlAccountId: d.counterpartyGlAccountId ?? null,
-        counterTreasuryAccountId: d.counterTreasuryAccountId ?? null,
-        counterTreasuryGlAccountId: d.counterTreasuryGlAccountId ?? null,
-        customerId: d.customerId ?? null,
-        supplierId: d.supplierId ?? null,
-        referenceNo: d.referenceNo ?? null,
-        costCenterId: d.costCenterId ?? null,
-        withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
-        withholdingRatePercent: d.withholdingRatePercent ?? null,
-        withholdingGlAccountId: d.withholdingGlAccountId ?? null,
+      const svc = serviceFor(c);
+      /**
+       * The voucher and its cheque are ONE act: a «شيك» voucher that saved
+       * while the register write failed would leave a payment nobody can
+       * chase the paper for, which is exactly the gap D81 filed. The document
+       * repository's transaction is the enclosing one because in every real
+       * composition both stores sit on the same SQLite connection.
+       */
+      const doc = await deps.documents.transaction(async () => {
+        const created = await svc.createVoucher({
+          id: d.id ?? idGen(),
+          date: d.date,
+          memo: d.memo,
+          voucherType: d.voucherType,
+          amount: Money.fromMajor(d.amount),
+          currency: d.currency,
+          branchId: d.branchId,
+          paymentMethod: d.paymentMethod,
+          treasuryAccountId: d.treasuryAccountId,
+          treasuryGlAccountId: d.treasuryGlAccountId,
+          counterpartyGlAccountId: d.counterpartyGlAccountId ?? null,
+          counterTreasuryAccountId: d.counterTreasuryAccountId ?? null,
+          counterTreasuryGlAccountId: d.counterTreasuryGlAccountId ?? null,
+          customerId: d.customerId ?? null,
+          supplierId: d.supplierId ?? null,
+          referenceNo: d.referenceNo ?? null,
+          costCenterId: d.costCenterId ?? null,
+          projectId: d.projectId ?? null,
+          costCategory: d.costCategory ?? null,
+          withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
+          withholdingRatePercent: d.withholdingRatePercent ?? null,
+          withholdingGlAccountId: d.withholdingGlAccountId ?? null,
+        });
+        await registerChequeFor(c, created);
+        return created;
       });
       return c.json(serialize(doc), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
-  });
+    },
+  );
 
-  app.post("/:id/confirm", gate("treasury.cash_voucher.confirm"), async (c) => {
+  /**
+   * D81 — a voucher whose payment method is «شيك» raised a cheque the register
+   * never heard of, so «سجل الشيكات» missed every cheque written on the
+   * voucher screen. Post-dated cheques are ordinary Egyptian SMB receivables,
+   * which made that register the one place the business could see them.
+   *
+   * A تحويل (transfer) moves money between the tenant's own treasury accounts
+   * and names no counterparty, so it raises no register entry.
+   */
+  async function registerChequeFor(c: Context, doc: VoucherDocument): Promise<void> {
+    if (!deps.cheques) return;
+    const line = voucherLine(doc);
+    if (line.paymentMethod !== "cheque") return;
+    const direction = getVoucherTypeDefinition(line.voucherType).direction;
+    if (direction !== "receipt" && direction !== "payment") return;
+    await deps.cheques.register({
+      voucherId: doc.id,
+      direction: direction === "receipt" ? "incoming" : "outgoing",
+      chequeNumber: line.referenceNo,
+      amount: line.amount,
+      currency: line.currency,
+      issueDate: doc.date,
+      branchId: line.branchId,
+      partyId: direction === "receipt" ? line.customerId : line.supplierId,
+      counterpartyGlAccountId: line.counterpartyGlAccountId,
+      memo: doc.memo ?? null,
+      actor: getAuthContext(c)?.userId ?? deps.actor ?? "system",
+    });
+  }
+
+  /**
+   * The per-type refusal for a voucher already in the store: `confirm`,
+   * `cancel` and `reverse` name the voucher by id, so the type comes off the
+   * stored document rather than off a request body that does not carry one.
+   *
+   * A voucher that is not there at all is left to the handler, so a missing id
+   * keeps answering the domain's own 404 rather than gaining a second shape.
+   */
+  async function refuseStoredVoucher(c: Context, id: string, action: VoucherAction): Promise<Response | null> {
+    const doc = await serviceFor(c).findById(id);
+    if (!doc) return null;
+    const line = voucherLine(doc);
+    return refuseVoucherType(c, voucherPermissions(action, line.voucherType, line.projectId ?? null));
+  }
+
+  app.post(
+    "/:id/confirm",
+    gateAny(
+      "treasury.cash_voucher.confirm",
+      "treasury.customer_refund.confirm",
+      "treasury.transfer.confirm",
+      CERTIFICATE_COLLECT,
+    ),
+    async (c) => {
     let body: unknown = {};
     try {
       body = await c.req.json();
@@ -430,6 +654,8 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const refusal = await refuseStoredVoucher(c, c.req.param("id"), "confirm");
+    if (refusal) return refusal;
     try {
       const ctx = getAuthContext(c);
       const result = await serviceFor(c).confirmVoucher(c.req.param("id"), {
@@ -441,18 +667,28 @@ export function createVouchersRoutes(
     } catch (err) {
       return handleDomainError(c, err);
     }
-  });
+    },
+  );
 
-  app.post("/:id/cancel", gate("treasury.cash_voucher.void"), async (c) => {
-    try {
-      const doc = await serviceFor(c).cancelVoucher(c.req.param("id"));
-      return c.json(serialize(doc));
-    } catch (err) {
-      return handleDomainError(c, err);
-    }
-  });
+  app.post(
+    "/:id/cancel",
+    gateAny("treasury.cash_voucher.void", "treasury.customer_refund.void", "treasury.transfer.void"),
+    async (c) => {
+      const refusal = await refuseStoredVoucher(c, c.req.param("id"), "void");
+      if (refusal) return refusal;
+      try {
+        const doc = await serviceFor(c).cancelVoucher(c.req.param("id"));
+        return c.json(serialize(doc));
+      } catch (err) {
+        return handleDomainError(c, err);
+      }
+    },
+  );
 
-  app.post("/:id/reverse", gate("treasury.cash_voucher.void"), async (c) => {
+  app.post(
+    "/:id/reverse",
+    gateAny("treasury.cash_voucher.void", "treasury.customer_refund.void", "treasury.transfer.void"),
+    async (c) => {
     let body: unknown = {};
     try {
       body = await c.req.json();
@@ -463,17 +699,20 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const refusal = await refuseStoredVoucher(c, c.req.param("id"), "void");
+    if (refusal) return refusal;
     try {
       const result = await serviceFor(c).reverseVoucher(c.req.param("id"), {
         reversalId: parsed.data.reversalId ?? idGen(),
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
       });
       return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
-  });
+    },
+  );
 
   app.get("/:id/allocations", gate("treasury.allocation.view"), async (c) => {
     const svc = serviceFor(c);

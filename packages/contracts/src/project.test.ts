@@ -92,10 +92,20 @@ describe("createProjectSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("FINDING: silently strips costCenterId on create, even though the read schema requires it on every project — a caller cannot set a project's cost centre at creation time", () => {
+  it("carries costCenterId on create, so a project can be booked against an existing cost centre (D95)", () => {
     const result = createProjectSchema.safeParse({ ...create, costCenterId: "cc-1" });
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data).not.toHaveProperty("costCenterId");
+    if (result.success) expect(result.data.costCenterId).toBe("cc-1");
+  });
+
+  it("still accepts a create with no costCenterId — the project gets one of its own", () => {
+    const result = createProjectSchema.safeParse(create);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.costCenterId).toBeUndefined();
+  });
+
+  it("refuses an empty costCenterId rather than treating it as 'none'", () => {
+    expect(createProjectSchema.safeParse({ ...create, costCenterId: "" }).success).toBe(false);
   });
 
   it("silently strips status on create — a project cannot be created with any status but the server default", () => {

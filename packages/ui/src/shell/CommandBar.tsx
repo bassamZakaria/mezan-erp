@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { latinLetter } from "../lib/keys";
+import { matchesSearch } from "../lib/search";
 import { useUiTranslation } from "../i18n";
 import { Kbd, modKeyLabel } from "../primitives/Kbd";
 import type { CommandItem } from "./types";
@@ -53,7 +54,11 @@ export function CommandBar({ items, placeholder, className, openUp }: CommandBar
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q === "" ? items : items.filter((item) => item.label.toLowerCase().includes(q));
+    if (q === "") return items;
+    // `matchesSearch` is the app's own normaliser — احمد finds أحمد, فاطمه finds
+    // فاطمة. A raw `includes` forgave nothing, which in an Arabic product means
+    // the bar missed on a hamza the user did not type (§8.4).
+    return items.filter((item) => matchesSearch(q, item.label, ...(item.keywords ?? [])));
   }, [items, query]);
 
   const groups = useMemo(() => {

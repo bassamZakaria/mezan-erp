@@ -71,6 +71,7 @@ interface TreasuryAccountDraft {
   glAccountId: string;
   openingBalance: number | null;
   openingBalanceDate: string;
+  guaranteeFacilityLimit: number | null;
   active: boolean;
 }
 
@@ -85,6 +86,7 @@ function blankDraft(branches: BranchDTO[]): TreasuryAccountDraft {
     glAccountId: "",
     openingBalance: 0,
     openingBalanceDate: "",
+    guaranteeFacilityLimit: null,
     active: true,
   };
 }
@@ -100,6 +102,7 @@ function draftFromAccount(account: TreasuryAccountDTO): TreasuryAccountDraft {
     glAccountId: account.glAccountId ?? "",
     openingBalance: toMajor(account.openingBalance),
     openingBalanceDate: account.openingBalanceDate ?? "",
+    guaranteeFacilityLimit: account.guaranteeFacilityLimit === null ? null : toMajor(account.guaranteeFacilityLimit),
     active: account.status === "active",
   };
 }
@@ -221,6 +224,7 @@ export function TreasuryAccountsScreen() {
       glAccountId: draft.glAccountId.trim() === "" ? null : draft.glAccountId.trim(),
       openingBalance: (draft.openingBalance ?? 0).toFixed(6),
       openingBalanceDate: draft.openingBalanceDate.trim() === "" ? null : draft.openingBalanceDate.trim(),
+      guaranteeFacilityLimit: draft.guaranteeFacilityLimit === null ? null : draft.guaranteeFacilityLimit.toFixed(6),
     };
     try {
       if (editingId) {
@@ -512,6 +516,18 @@ export function TreasuryAccountsScreen() {
               />
             </div>
           </div>
+
+          {draft.type === "bank" ? (
+            <div>
+              <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("treasuryAcc.guaranteeFacilityLimit")}</div>
+              <MoneyInput
+                aria-label={t("treasuryAcc.guaranteeFacilityLimit")}
+                value={draft.guaranteeFacilityLimit}
+                onChange={(v) => setDraft((d) => ({ ...d, guaranteeFacilityLimit: v }))}
+              />
+              <p className="mt-[4px] text-[11.5px] text-ink-muted">{t("treasuryAcc.guaranteeFacilityLimitHint")}</p>
+            </div>
+          ) : null}
 
           {editingId ? (
             <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />

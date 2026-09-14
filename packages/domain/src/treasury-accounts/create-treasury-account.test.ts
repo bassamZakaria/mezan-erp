@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { InMemoryTreasuryAccountRepository } from "./test-helpers/in-memory-treasury-account-repository.js";
 import { createTreasuryAccount, validateNewTreasuryAccount } from "./create-treasury-account.js";
-import { DuplicateTreasuryAccountCodeError, NegativeCashBalanceError } from "./errors.js";
+import { DuplicateTreasuryAccountCodeError, InvalidOpeningBalanceError, NegativeCashBalanceError } from "./errors.js";
 
 describe("createTreasuryAccount", () => {
   it("creates a cash account with defaults (EGP, zero opening balance, active)", async () => {
@@ -38,6 +38,16 @@ describe("createTreasuryAccount", () => {
     await expect(
       createTreasuryAccount({ id: "ta2", code: "CASH-001", name: "نسخة", branchId: "b1" }, repo),
     ).rejects.toThrow(DuplicateTreasuryAccountCodeError);
+  });
+
+  it("refuses an opening balance too large to round-trip through the SQLite writer, instead of throwing there as a 500", async () => {
+    const repo = new InMemoryTreasuryAccountRepository();
+    await expect(
+      createTreasuryAccount(
+        { id: "ta1", code: "BANK-001", name: "بنك", type: "bank", branchId: "b1", openingBalance: "1000000012000000" },
+        repo,
+      ),
+    ).rejects.toBeInstanceOf(InvalidOpeningBalanceError);
   });
 
   it("rejects a negative opening balance for a cash account", async () => {

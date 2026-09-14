@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
+import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for the GL posting engine (docs/archive/catalog/04 §القيود المحاسبية).
@@ -12,17 +15,27 @@ export const journalEntryStatusSchema = z.enum(["draft", "pending", "posted", "r
 
 export const glJournalLineSchema = z.object({
   accountId: z.string().min(1),
-  debit: z.string(),
-  credit: z.string(),
+  debit: moneyString,
+  credit: moneyString,
   memo: z.string().nullish(),
   /** Optional cost-center dimension ("مركز التكلفة") for the Cost Center P&L report. */
   costCenterId: z.string().nullish(),
   /** Original transaction currency of a multi-currency line; debit/credit stay base-currency. */
   currency: z.string().nullish(),
   /** Foreign→base exchange rate applied at confirmation, as an exact decimal string. */
-  fxRate: z.string().nullish(),
+  fxRate: moneyString.nullish(),
   /** VAT rate this line was charged at, so the VAT return reports the rates actually charged (D28). */
   taxRatePercent: z.number().nullish(),
+  /** بُعد المشروع — the contracting project the line belongs to (D-01). */
+  projectId: z.string().min(1).nullish(),
+  /** فئة التكلفة — only with `projectId`; the engine refuses one without the other. */
+  costCategory: costCategorySchema.nullish(),
+  /**
+   * بُعد الفرع (DEC-20). A zod object strips what it does not declare, so a
+   * branch the screen sends and this schema omits vanishes behind a cheerful
+   * 201 — the same way the voucher's cost centre (D26) once did.
+   */
+  branchId: z.string().min(1).nullish(),
 });
 
 /** Create (and post) a journal entry. */
@@ -31,7 +44,7 @@ export const recordVatFilingSchema = z.object({
   id: z.string().min(1),
   periodFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   periodTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  netAmount: z.string(),
+  netAmount: moneyString,
   referenceNo: z.string().nullish(),
 });
 export type RecordVatFilingDTO = z.infer<typeof recordVatFilingSchema>;
@@ -56,8 +69,9 @@ export const yearEndClosePreviewLineSchema = z.object({
   accountCode: z.string(),
   accountNameAr: z.string(),
   accountType: z.enum(["revenue", "expense"]),
-  debit: z.string(),
-  credit: z.string(),
+  projectId: z.string().nullable(),
+  debit: moneyString,
+  credit: moneyString,
 });
 
 export const yearEndClosePreviewSchema = z.object({
@@ -87,7 +101,8 @@ export type CloseFiscalYearResultDTO = z.infer<typeof closeFiscalYearResultSchem
 
 export const createGlJournalEntrySchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  /** A day, or an instant the route resolves to the tenant's day (`tenantDay`). */
+  date: isoDateOrInstant,
   memo: z.string(),
   source: journalEntrySourceSchema.optional(),
   lines: z.array(glJournalLineSchema).min(2),
@@ -97,7 +112,7 @@ export const createGlJournalEntrySchema = z.object({
 export const reverseGlJournalEntrySchema = z.object({
   /** Optional — the server generates a UUID when omitted. */
   reversalId: z.string().min(1).optional(),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
 });
 
@@ -110,6 +125,7 @@ export const journalSourceModuleSchema = z.enum([
   "manufacturing",
   "payroll",
   "assets",
+  "contracting",
   "manual",
   "unknown",
 ]);

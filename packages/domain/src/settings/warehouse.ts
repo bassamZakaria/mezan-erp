@@ -3,7 +3,9 @@
  * model *purpose*, not just a name: the catalog's "Full warehouse-type
  * catalog (5 types)" (line ~527) is transcribed verbatim below, in the order
  * documented, including the van/distribution-vehicle type used for field
- * sales (docs/archive/catalog/09 §"المبيعات الميدانية").
+ * sales (docs/archive/catalog/09 §"المبيعات الميدانية"). SITE (مستودع الموقع)
+ * is the contracting module's sixth — a real store on a project site, carrying
+ * the project and the custodian the stock sits with (D-11).
  */
 
 export interface WarehouseTypeDefinition {
@@ -17,9 +19,10 @@ export const WAREHOUSE_TYPE_DEFINITIONS: readonly WarehouseTypeDefinition[] = [
   { code: "RETURNS", labelAr: "مرتجعات" },
   { code: "PRODUCTION", labelAr: "إنتاج" },
   { code: "VAN", labelAr: "ڤان (سيارة توزيع)" },
+  { code: "SITE", labelAr: "مستودع موقع" },
 ] as const;
 
-export const WAREHOUSE_TYPES = ["MAIN", "TRANSIT", "RETURNS", "PRODUCTION", "VAN"] as const;
+export const WAREHOUSE_TYPES = ["MAIN", "TRANSIT", "RETURNS", "PRODUCTION", "VAN", "SITE"] as const;
 export type WarehouseType = (typeof WAREHOUSE_TYPES)[number];
 
 export function getWarehouseTypeLabel(type: WarehouseType): string {
@@ -40,6 +43,15 @@ export interface Warehouse {
   readonly type: WarehouseType;
   readonly isDefault: boolean;
   readonly active: boolean;
+  /**
+   * مستودع الموقع — the contracting project this store belongs to. Required on
+   * type SITE and null on every other type: material consumption reads the
+   * project OFF the store rather than off the document, so a site store with no
+   * project would post cost to no project at all (D-11).
+   */
+  readonly projectId: string | null;
+  /** أمين عهدة الموقع — required on type SITE. Stock on site sits with a named person, not in an abstraction. */
+  readonly custodianUserId: string | null;
 }
 
 export class InvalidWarehouseError extends Error {
@@ -59,6 +71,8 @@ export interface CreateWarehouseInput {
   readonly type?: WarehouseType;
   readonly isDefault?: boolean;
   readonly active?: boolean;
+  readonly projectId?: string | null;
+  readonly custodianUserId?: string | null;
 }
 
 function validate(warehouse: Warehouse): string[] {
@@ -71,6 +85,13 @@ function validate(warehouse: Warehouse): string[] {
   if (warehouse.branchId.trim() === "") reasons.push("branchId is required");
   if (!WAREHOUSE_TYPES.includes(warehouse.type)) {
     reasons.push(`type must be one of ${WAREHOUSE_TYPES.join(", ")}`);
+  }
+  if (warehouse.type === "SITE") {
+    if (!warehouse.projectId) reasons.push("مستودع الموقع يتطلب تحديد المشروع");
+    if (!warehouse.custodianUserId) reasons.push("مستودع الموقع يتطلب تحديد أمين العهدة");
+  } else {
+    if (warehouse.projectId) reasons.push("المشروع لا يُسجَّل إلا على مستودع موقع");
+    if (warehouse.custodianUserId) reasons.push("أمين العهدة لا يُسجَّل إلا على مستودع موقع");
   }
   return reasons;
 }
@@ -86,6 +107,8 @@ export function createWarehouse(input: CreateWarehouseInput): Warehouse {
     type: input.type ?? "MAIN",
     isDefault: input.isDefault ?? false,
     active: input.active ?? true,
+    projectId: input.projectId ?? null,
+    custodianUserId: input.custodianUserId ?? null,
   };
   const reasons = validate(warehouse);
   if (reasons.length > 0) throw new InvalidWarehouseError(reasons);

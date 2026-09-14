@@ -43,6 +43,14 @@ export interface TreasuryAccount {
   readonly openingBalance: Money;
   /** Null when no opening balance was set (defaults to today when an amount is given — enforced by the caller/UI). */
   readonly openingBalanceDate: string | null;
+  /**
+   * حد تسهيلات خطابات الضمان — the ceiling this bank will issue letters of
+   * guarantee up to. A contractor's guarantee limit, not its cash, caps how
+   * many jobs it can run, so the register reports what is left of it
+   * (contracting/guarantees). Null = no facility configured, and the register
+   * then reports exposure without an "available" figure rather than inventing one.
+   */
+  readonly guaranteeFacilityLimit: Money | null;
   readonly status: TreasuryAccountStatus;
 }
 
@@ -54,3 +62,16 @@ export interface TreasuryAccountRepository {
   create(account: TreasuryAccount): Promise<void>;
   update(account: TreasuryAccount): Promise<void>;
 }
+
+/**
+ * The largest guarantee facility a `Money` value can carry through the SQLite
+ * column, which stores the scaled integer as a JS number.
+ */
+export const MAX_GUARANTEE_FACILITY_LIMIT_SCALED = BigInt(Number.MAX_SAFE_INTEGER);
+
+/**
+ * The largest magnitude an opening balance can carry through the SQLite
+ * column (stores the scaled integer as a JS number). Bank accounts may run
+ * negative (overdraft), so this bounds |scaled| rather than just an upper end.
+ */
+export const MAX_OPENING_BALANCE_SCALED = BigInt(Number.MAX_SAFE_INTEGER);

@@ -1,10 +1,10 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Button, Card, Chip, Money, StatCard, useFormat } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { useNavigation } from "../navigation";
 import type { ScreenKey } from "../router/screens";
 import type { ScreenIntentInput } from "../navigation";
-import { useDashboardSummary, type DashboardRange } from "../data/hooks";
+import { useDashboardSummary, useUserPreferences, type DashboardRange } from "../data/hooks";
 import { displayName } from "../display-name";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { BalanceBeam, beamTiltDegrees } from "./BalanceBeam";
@@ -14,6 +14,7 @@ import { AgingMatrix, type AgingMatrixRow } from "./AgingMatrix";
 import { ExpenseDonut } from "./ExpenseDonut";
 import { TopItems, type TopItemRow } from "./TopItems";
 import { riseStyle, useReducedMotion } from "./motion";
+import { resolveDashboardWidgets, type DashboardWidgetKind } from "./widget-registry";
 import {
   expenseSlices,
   periodTotals,
@@ -27,6 +28,7 @@ import {
   type DashboardRangeValue,
 } from "./dashboard-hooks";
 import { entityName } from "../lib/entity-names";
+import { useContractingExceptionSummary } from "../data/contracting-controls-hooks";
 
 type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; intent?: ScreenIntentInput; primary?: boolean };
 
@@ -77,7 +79,15 @@ interface PanelProps {
 
 function Panel({ title, hint, step, reduced, children }: PanelProps) {
   return (
-    <Card className="flex flex-col p-[18px_20px]" style={riseStyle(step, reduced)}>
+    /*
+     * `min-w-0` is load-bearing, not tidiness. A grid item defaults to
+     * `min-width: auto`, which means "at least as wide as my content" — so a
+     * panel holding a 517px table refused to shrink below 517px inside a 390px
+     * phone, and the `overflow-x-auto` wrapper INSIDE it never got the chance
+     * to scroll: the panel simply pushed the page sideways instead. Every
+     * screen with a wide child in a grid or flex row needs this.
+     */
+    <Card className="flex min-w-0 flex-col p-[18px_20px]" style={riseStyle(step, reduced)}>
       <h3 className="font-display text-md font-bold text-ink">{title}</h3>
       <div className="mb-[14px] mt-[2px] text-2xs text-ink-faint">{hint}</div>
       {children}
@@ -116,6 +126,13 @@ export function DashboardScreen() {
   const supplierAging = useSupplierAging();
   const topProducts = useTopProducts(window);
   const attention = useAttentionData(window, today);
+  /**
+   * استثناءات المقاولات — the one contracting tile (design §06). Gated on the
+   * certificate-view right so a tenant that does not run contracting never sees
+   * a row about it.
+   */
+  const mayViewContracting = (session?.permissions ?? []).some((p) => p === "*" || p === "contracting.certificate.view");
+  const contractingExceptions = useContractingExceptionSummary(mayViewContracting);
 
   const greetingName = session ? firstNameOf(displayName(session, locale)) : "";
   const gl = summary?.gl;
@@ -234,6 +251,27 @@ export function DashboardScreen() {
       actionLabel: t("dashboard.attention.stock.action"),
       onAction: () => navigate("report-inventory-stock-levels"),
     },
+    ...(mayViewContracting
+      ? [
+          {
+            key: "contractingExceptions",
+            kind: "contracting" as const,
+            tone: (contractingExceptions.data?.total ?? 0) > 0 ? ("danger" as const) : ("clear" as const),
+            title: t("dashboard.attention.contractingExceptions"),
+            detail:
+              (contractingExceptions.data?.total ?? 0) > 0 ? (
+                <>
+                  <span className="mz-num">{format.number(contractingExceptions.data?.total ?? 0)}</span>{" "}
+                  {t("dashboard.attention.exceptionsUnit")}
+                </>
+              ) : (
+                t("dashboard.attention.contractingExceptions.clear")
+              ),
+            actionLabel: t("dashboard.attention.contractingExceptions.action"),
+            onAction: () => navigate("contracting-reports"),
+          },
+        ]
+      : []),
     {
       key: "payables",
       kind: "payables",
@@ -297,6 +335,71 @@ export function DashboardScreen() {
     { key: "journalEntries", label: t("dashboard.systemData.journalEntries"), value: counts?.journalEntries ?? 0 },
     { key: "users", label: t("dashboard.systemData.users"), value: counts?.users ?? 0 },
   ];
+
+  const preferences = useUserPreferences().data;
+  const held = useMemo(() => new Set(session?.permissions ?? []), [session]);
+  const canRead = (permission: string) => held.has("*") || held.has(permission);
+  const visibleWidgets = useMemo(
+    () => resolveDashboardWidgets(preferences?.dashboard, canRead),
+    // `canRead` closes over `held`, so the identity of `held` is the real input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preferences?.dashboard, held],
+  );
+
+  const panelFor: Readonly<Record<DashboardWidgetKind, ReactNode>> = {
+    aging: (
+      <Panel title={t("dashboard.aging")} hint={t("dashboard.aging.sub")} step={5} reduced={reduced}>
+          <AgingMatrix
+            partyHeader={t("dashboard.aging.party")}
+            bucketLabels={[
+              t("dashboard.aging.bucket.current"),
+              t("dashboard.aging.bucket.b31"),
+              t("dashboard.aging.bucket.b61"),
+              t("dashboard.aging.bucket.b91"),
+              t("dashboard.aging.bucket.over"),
+            ]}
+            rows={agingRows}
+            emptyLabel={t("dashboard.aging.empty")}
+          />
+        </Panel>
+    ),
+    expenses: (
+      <Panel title={t("dashboard.expenses")} hint={t("dashboard.expenses.sub")} step={6} reduced={reduced}>
+          <ExpenseDonut
+            slices={expenseSlices(currentIncome.data, locale)}
+            centreCaption={t("dashboard.expenses.centre")}
+            emptyLabel={t("dashboard.expenses.empty")}
+          />
+        </Panel>
+    ),
+    topItems: (
+      <Panel title={t("dashboard.topItems")} hint={t("dashboard.topItems.sub")} step={7} reduced={reduced}>
+          <TopItems rows={topItemRows} qtyUnitLabel={t("dashboard.topItems.unit")} emptyLabel={t("dashboard.topItems.empty")} />
+        </Panel>
+    ),
+    activity: (
+      <Panel title={t("dashboard.activity")} hint={t("dashboard.activity.sub")} step={8} reduced={reduced}>
+          {summary && summary.recentActivity.length > 0 ? (
+            <ul className="flex flex-col gap-[10px]">
+              {summary.recentActivity.map((entry) => (
+                <li key={entry.id} className="flex items-start gap-[10px]">
+                  <span aria-hidden className="mt-[6px] h-[6px] w-[6px] flex-none rounded-full bg-brand" />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm text-ink">{entry.memo || entry.entryNo || entry.id}</div>
+                    <div className="mt-[1px] text-2xs text-ink-faint">
+                      <span className="mz-num">{entry.date}</span>
+                      {entry.entryNo ? <span className="mz-lat"> · {entry.entryNo}</span> : null}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-ink-muted">{t("dashboard.activity.empty")}</p>
+          )}
+        </Panel>
+    ),
+  };
 
   return (
     <div className="flex flex-col gap-[20px]">
@@ -424,53 +527,17 @@ export function DashboardScreen() {
       </div>
 
       <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-2">
-        <Panel title={t("dashboard.aging")} hint={t("dashboard.aging.sub")} step={5} reduced={reduced}>
-          <AgingMatrix
-            partyHeader={t("dashboard.aging.party")}
-            bucketLabels={[
-              t("dashboard.aging.bucket.current"),
-              t("dashboard.aging.bucket.b31"),
-              t("dashboard.aging.bucket.b61"),
-              t("dashboard.aging.bucket.b91"),
-              t("dashboard.aging.bucket.over"),
-            ]}
-            rows={agingRows}
-            emptyLabel={t("dashboard.aging.empty")}
-          />
-        </Panel>
-
-        <Panel title={t("dashboard.expenses")} hint={t("dashboard.expenses.sub")} step={6} reduced={reduced}>
-          <ExpenseDonut
-            slices={expenseSlices(currentIncome.data, locale)}
-            centreCaption={t("dashboard.expenses.centre")}
-            emptyLabel={t("dashboard.expenses.empty")}
-          />
-        </Panel>
-
-        <Panel title={t("dashboard.topItems")} hint={t("dashboard.topItems.sub")} step={7} reduced={reduced}>
-          <TopItems rows={topItemRows} qtyUnitLabel={t("dashboard.topItems.unit")} emptyLabel={t("dashboard.topItems.empty")} />
-        </Panel>
-
-        <Panel title={t("dashboard.activity")} hint={t("dashboard.activity.sub")} step={8} reduced={reduced}>
-          {summary && summary.recentActivity.length > 0 ? (
-            <ul className="flex flex-col gap-[10px]">
-              {summary.recentActivity.map((entry) => (
-                <li key={entry.id} className="flex items-start gap-[10px]">
-                  <span aria-hidden className="mt-[6px] h-[6px] w-[6px] flex-none rounded-full bg-brand" />
-                  <div className="min-w-0">
-                    <div className="truncate text-sm text-ink">{entry.memo || entry.entryNo || entry.id}</div>
-                    <div className="mt-[1px] text-2xs text-ink-faint">
-                      <span className="mz-num">{entry.date}</span>
-                      {entry.entryNo ? <span className="mz-lat"> · {entry.entryNo}</span> : null}
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-ink-muted">{t("dashboard.activity.empty")}</p>
-          )}
-        </Panel>
+        {/*
+          Rendered from the user's OWN layout, not a hard-coded order: a
+          warehouse keeper and an accountant want different things at the top
+          (§8.5). `resolveDashboardWidgets` also drops any widget the caller may
+          not read, so a layout saved before a permission was revoked degrades
+          quietly rather than rendering a card they are not allowed to see
+          (§8.7).
+        */}
+        {visibleWidgets.map((widget) => (
+          <Fragment key={widget.id}>{panelFor[widget.kind as DashboardWidgetKind]}</Fragment>
+        ))}
       </div>
 
       <div style={riseStyle(9, reduced)}>

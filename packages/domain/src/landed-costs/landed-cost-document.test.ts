@@ -78,6 +78,12 @@ describe("validate", () => {
       InvalidDocumentError,
     );
   });
+
+  it("rejects a line costCategory when the document carries no projectId", () => {
+    expect(() => type.validate?.(doc({ lines: [costLine({ costCategory: "materials" })] }))).toThrow(
+      InvalidDocumentError,
+    );
+  });
 });
 
 describe("buildGlPosting — inventory rises against the accrual, both sides balance", () => {
@@ -91,8 +97,8 @@ describe("buildGlPosting — inventory rises against the accrual, both sides bal
     const posting = type.buildGlPosting?.(doc({ lines }));
     expect(posting).not.toBeNull();
     expect(posting?.lines).toEqual([
-      { accountId: "1300-inventory", debit: expect.anything(), credit: Money.zero() },
-      { accountId: "2160-accrued-landed-cost", debit: Money.zero(), credit: expect.anything() },
+      { accountId: "1300-inventory", debit: expect.anything(), credit: Money.zero(), projectId: null },
+      { accountId: "2160-accrued-landed-cost", debit: Money.zero(), credit: expect.anything(), projectId: null },
     ]);
     const debit = posting?.lines[0]?.debit as Money;
     const credit = posting?.lines[1]?.credit as Money;
@@ -105,6 +111,15 @@ describe("buildGlPosting — inventory rises against the accrual, both sides bal
     // but buildGlPosting itself must still refuse to emit a degenerate zero/zero entry.
     const posting = type.buildGlPosting?.(doc({ lines: [] }));
     expect(posting).toBeNull();
+  });
+
+  it("carries the header projectId on every line and defaults costCategory to materials on the inventory debit", () => {
+    const posting = type.buildGlPosting?.(doc({ lines: [costLine({ projectId: "proj-1" })] }));
+    expect(posting?.lines.every((l) => l.projectId === "proj-1")).toBe(true);
+    const inv = posting?.lines.find((l) => l.accountId === "1300-inventory");
+    const accrual = posting?.lines.find((l) => l.accountId === "2160-accrued-landed-cost");
+    expect(inv?.costCategory).toBe("materials");
+    expect(accrual?.costCategory).toBeUndefined();
   });
 
   it("uses the document's own memo when supplied, else a generated Arabic one naming the doc number", () => {

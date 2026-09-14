@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { Money, Qty } from "../money/index.js";
 import { fullNameAr, type Employee } from "../hr/employee.js";
 import { getVanTripStatusLabel, type VanTrip, type VanTripStatus } from "../field-sales/van-trip.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * مبيعات المندوبين — Van Sales (docs/archive/catalog/07-mfg-projects-assets.md
@@ -27,6 +29,7 @@ export interface VanSalesParams {
   readonly dateFrom: string;
   readonly dateTo: string;
   readonly status: "all" | VanTripStatus;
+  readonly branchId: string;
 }
 
 export interface VanSalesRow {
@@ -48,9 +51,10 @@ export interface VanSalesRow {
 }
 
 const paramsSchema = z.object({
-  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
-  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  dateFrom: isoDateParamSchema,
+  dateTo: isoDateParamSchema,
   status: z.enum(["all", "ongoing", "settled", "cancelled"]),
+  branchId: branchIdParamSchema,
 });
 
 function sumQty(lines: readonly { readonly qty: Qty }[]): Qty {
@@ -67,7 +71,7 @@ export function createVanSalesReport(
     descriptionAr:
       "ملخص رحلات المندوبين في الفترة: المحمّل من المخزون، والمرتجع عند التسوية، والنقدية المسجلة في الميدان، وفرق النقدية عند التسوية. الكميات مجمّعة عبر كل الأصناف، و«المنصرف» هو المحمّل ناقص المرتجع (يشمل المباع وأي عجز). الرحلات غير المسواة تظهر بخانات فارغة في أعمدة التسوية.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, status: "all" },
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, status: "all", branchId: "" },
     paramFields: [
       { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
@@ -81,6 +85,7 @@ export function createVanSalesReport(
           { value: "cancelled", label: "ملغاة" },
         ],
       },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.tripId,
     group: { key: (row) => row.status, label: (row) => row.statusLabelAr },
@@ -118,6 +123,7 @@ export function createVanSalesReport(
       for (const trip of ctx.trips) {
         if (!withinDateRange(trip.date, params.dateFrom, params.dateTo)) continue;
         if (params.status !== "all" && trip.status !== params.status) continue;
+        if (!matchesBranch(trip.branchId, params.branchId)) continue;
 
         const salesCash = Money.sum(trip.cashMovements.filter((m) => m.kind === "sale").map((m) => m.amount));
         const collectionsCash = Money.sum(trip.cashMovements.filter((m) => m.kind === "collection").map((m) => m.amount));

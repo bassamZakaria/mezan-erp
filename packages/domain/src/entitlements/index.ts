@@ -4,6 +4,8 @@ export {
   createEntitlements,
   hasModule,
   hasFeature,
+  UNLICENSED_ENTITLEMENTS,
   type Entitlements,
   type EntitlementsView,
+  type EntitlementLimits,
 } from "./entitlements.js";

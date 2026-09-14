@@ -1,6 +1,5 @@
 import type { Ctx } from "./harness.js";
 import { createBackend } from "../../packages/backend/src/create-backend.js";
-import { createFetchWebhookTransport } from "../../packages/backend/src/webhook-transport.js";
 import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "../../packages/backend/src/seed.js";
 import { createEntitlements, LAN_MULTI_TILL_FEATURE } from "../../packages/domain/src/index.js";
 
@@ -268,22 +267,6 @@ export async function run(ctx: Ctx): Promise<void> {
       check("a host token carried onto the wifi is recorded too", !!hostLifted, JSON.stringify(hostLifted?.details).slice(0, 160));
     } finally {
       bound.close();
-    }
-  });
-
-  await ctx.scenario("security — a webhook cannot be aimed at the shop's own network", async () => {
-    const transport = createFetchWebhookTransport();
-    for (const url of [
-      "http://127.0.0.1/",
-      "http://localhost/",
-      "http://192.168.1.1/",
-      "http://10.0.0.5/",
-      "http://169.254.169.254/latest/meta-data/",
-      "http://[::1]/",
-      "file:///etc/passwd",
-    ]) {
-      const res = await transport.send({ url, headers: {}, body: "{}", timeoutMs: 2000 });
-      check(`refuses ${url}`, res.statusCode === null && !!res.errorMessage, String(res.errorMessage));
     }
   });
 

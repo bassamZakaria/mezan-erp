@@ -32,6 +32,7 @@ function line(lineId: string, qty: string, unitPrice: string, taxRatePercent = 1
     revenueAccountId: "4000",
     cogsAccountId: null,
     inventoryAccountId: null,
+    costCenterId: null,
     unitCost: null,
   };
 }
@@ -132,6 +133,7 @@ describe("taxInclusive in the GL — the customer is debited the price on the la
       branchId: "BR1",
       salespersonId: null,
       salespersonNameAr: null,
+    projectId: null,
       couponCode: null,
       appliedPromotion: null,
       currency: "EGP",

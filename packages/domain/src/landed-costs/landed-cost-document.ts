@@ -13,6 +13,7 @@
  */
 
 import { Money } from "../money/index.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
 import { buildEffects, type DocumentEffects } from "../documents/effects.js";
 import type { DocumentGlPosting } from "../documents/hooks.js";
@@ -31,7 +32,16 @@ export type LandedCostDocument = FrameworkDocument<LandedCostLine>;
 
 export interface LandedCostGlAccounts {
   readonly inventoryAccountId: string;
-  /** Accrual/clearing account for the freight/customs vendor(s) — settled by a separate treasury voucher, out of this PR's scope. */
+  /**
+   * Accrual account for the freight/customs vendor(s), settled by a separate
+   * treasury voucher.
+   *
+   * It must NOT be the AP control account. It was 2100 — ذمم موردين تجاريين —
+   * and a landed cost therefore credited the control account with no supplier
+   * document behind it, so the AP sub-ledger and GL 2100 diverged by every
+   * landed cost ever posted. That is one of the four zero-invariants the
+   * product is sold on (D75).
+   */
   readonly accruedLandedCostPayableId: string;
 }
 
@@ -63,12 +73,28 @@ export function createLandedCostDocumentType(
             `بند الصنف "${line.itemId}": المبلغ الموزّع يجب أن يكون أكبر من صفر.`,
           );
         }
+        if ((line.projectId ?? null) !== (doc.lines[0]?.projectId ?? null)) {
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود مستند التكلفة الإضافية يجب أن تنتمي لنفس المشروع.");
+        }
+        if (line.costCategory && !line.projectId) {
+          throw new InvalidDocumentError(
+            DOC_TYPE,
+            doc.id,
+            `بند الصنف "${line.itemId}": فئة التكلفة تتطلب مشروعاً (projectId) على المستند.`,
+          );
+        }
       }
     },
 
     buildGlPosting(doc): DocumentGlPosting | null {
       const total = totalAllocated(doc.lines);
       if (total.scaled === 0n) return null;
+      const projectId = doc.lines[0]?.projectId ?? null;
+      // Landed cost absorbed into inventory carries the header projectId and
+      // defaults to "materials" on the inventory debit — the document has no
+      // per-category split (it is one aggregate absorption), so the debit
+      // takes the first line's explicit category or "materials" (D-01).
+      const costCategory: CostCategory = doc.lines.find((l) => l.costCategory)?.costCategory ?? "materials";
       return {
         sourceDocType: DOC_TYPE,
         sourceDocId: doc.id,
@@ -76,8 +102,14 @@ export function createLandedCostDocumentType(
         date: doc.date,
         memo: doc.memo || `تكلفة إضافية ${doc.docNo ?? doc.id}`,
         lines: [
-          { accountId: accounts.inventoryAccountId, debit: total, credit: Money.zero() },
-          { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total },
+          {
+            accountId: accounts.inventoryAccountId,
+            debit: total,
+            credit: Money.zero(),
+            projectId,
+            ...(projectId ? { costCategory } : {}),
+          },
+          { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId },
         ],
       };
     },

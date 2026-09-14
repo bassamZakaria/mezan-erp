@@ -39,6 +39,12 @@ afterEach(() => {
   for (const h of closers.splice(0)) h.close();
 });
 
+/** A user id is not an employee id. `salespersonId` holds the employee's (D147). */
+const USER_TO_EMPLOYEE = new Map([
+  ["rep-a", "emp-a"],
+  ["rep-b", "emp-b"],
+]);
+
 async function harness() {
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
@@ -67,6 +73,15 @@ async function harness() {
 
   const deps: SalesInvoiceRoutesDeps = {
     repo,
+    // The two id spaces must DIFFER in this harness. They used to be the same
+    // string, which is why D147 — `view_own` comparing an employee id against a
+    // user id — passed every test in this file while showing a real rep nothing.
+    users: {
+      findById: async (id: string) =>
+        USER_TO_EMPLOYEE.has(id)
+          ? ({ id, employeeId: USER_TO_EMPLOYEE.get(id)! } as Awaited<ReturnType<NonNullable<SalesInvoiceRoutesDeps["users"]>["findById"]>>)
+          : null,
+    },
     numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
     gl: createSalesInvoiceGlHook({ ledger, accounts, periods, numbering: ledger.numbering, now: () => NOW, actor: "u1" }),
     stock: createSalesInvoiceStockHook(stockService),
@@ -107,8 +122,8 @@ const ADMIN = "*";
 async function seedTwoInvoices(app: { fetch(r: Request): Response | Promise<Response> }) {
   // Two reps, two customers, two very different figures, so a leak shows up in
   // the total as well as in the rows.
-  expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-mine", "rep-a", "عميل المندوب أ", "1250.50")) }))).status).toBe(201);
-  expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-theirs", "rep-b", "عميل المندوب ب", "9999.99")) }))).status).toBe(201);
+  expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-mine", "emp-a", "عميل المندوب أ", "1250.50")) }))).status).toBe(201);
+  expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-theirs", "emp-b", "عميل المندوب ب", "9999.99")) }))).status).toBe(201);
   expect((await app.fetch(req("/inv-mine/confirm", { method: "POST", permissions: ADMIN, body: "{}" }))).status).toBe(200);
   expect((await app.fetch(req("/inv-theirs/confirm", { method: "POST", permissions: ADMIN, body: "{}" }))).status).toBe(200);
 }
@@ -126,7 +141,7 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
     expect(rows.map((r) => r.id)).toEqual(["inv-mine"]);
     expect(rows[0]!.totals.grandTotal).toBe("1250.500000");
     expect(text).not.toContain("inv-theirs");
-    expect(text).not.toContain("rep-b");
+    expect(text).not.toContain("emp-b");
     expect(text).not.toContain("9999.99");
     expect(text).not.toContain("عميل المندوب ب");
   });
@@ -141,7 +156,7 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
     expect(JSON.parse(text)).toEqual({ error: "NOT_FOUND" });
     expect(text).not.toContain("9999.99");
     expect(text).not.toContain("عميل المندوب ب");
-    expect(text).not.toContain("rep-b");
+    expect(text).not.toContain("emp-b");
   });
 
   it("serves their OWN invoice by id, at its real figures", async () => {
@@ -152,7 +167,7 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id: string; totals: { grandTotal: string }; salespersonId: string; lines: { unitCost?: string }[] };
     expect(body.id).toBe("inv-mine");
-    expect(body.salespersonId).toBe("rep-a");
+    expect(body.salespersonId).toBe("emp-a");
     expect(body.totals.grandTotal).toBe("1250.500000");
     // No `.view_cost` in the grant, so the cost field is ABSENT, not null.
     expect(Object.keys(body.lines[0]!)).not.toContain("unitCost");
@@ -170,6 +185,35 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
     const counts = (await (await app.fetch(req("/counts", { permissions: OWN, userId: "rep-a" }))).json()) as { all: number; confirmed: number };
     expect(counts.all).toBe(1);
     expect(counts.confirmed).toBe(1);
+  });
+
+  it("resolves the caller's employee id — an invoice stamped with their USER id is not theirs (D147)", async () => {
+    const { app } = await harness();
+    // The trap the old code fell into: `salespersonId` set to the caller's USER
+    // id. `view_own` compared the two directly, so this looked like a match
+    // while a real invoice — stamped with the EMPLOYEE id — matched nothing.
+    expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-userid", "rep-a", "عميل بمعرّف مستخدم", "77.00")) }))).status).toBe(201);
+    expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-empid", "emp-a", "عميل بمعرّف موظف", "1250.50")) }))).status).toBe(201);
+
+    const rows = (await (await app.fetch(req("/", { permissions: OWN, userId: "rep-a" }))).json()) as { id: string }[];
+    expect(rows.map((r) => r.id)).toEqual(["inv-empid"]);
+
+    expect((await app.fetch(req("/inv-userid", { permissions: OWN, userId: "rep-a" }))).status).toBe(404);
+    expect((await app.fetch(req("/inv-empid", { permissions: OWN, userId: "rep-a" }))).status).toBe(200);
+  });
+
+  it("shows a `.view_own` caller with no employee link nothing, rather than the whole tenant", async () => {
+    const { app } = await harness();
+    await seedTwoInvoices(app);
+
+    // `rep-c` is not in USER_TO_EMPLOYEE, so no employee id resolves. The tier
+    // must fail CLOSED: dropping the clause would widen the list to everyone.
+    const res = await app.fetch(req("/", { permissions: OWN, userId: "rep-c" }));
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual([]);
+    expect(text).not.toContain("9999.99");
+    expect(text).not.toContain("1250.50");
   });
 
   it("shows the whole tenant to a `.view` holder, so the narrowing above is the tier and not an empty database", async () => {
@@ -193,16 +237,47 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
   });
 });
 
-describe("LIMITATION (D70): sibling modules gate on `.view` and lock out a `.view_own` holder", () => {
+describe("D70 closed: sales returns admit the `.view_own` tier and narrow it (DEC-14)", () => {
   /**
-   * The catalog grants SALES_REP and VAN_SALES `sales.return.view_own`,
-   * `sales.quote.view_own` and `field.van_trip.view_own` (demo-seed/access.ts).
-   * Sales invoices gate on `gateAny(view, view_all, view_own)` and then NARROW.
-   * Returns, quotes and van trips gate on the plain `.view` tier, so the rep
-   * is refused their OWN work with a 403 rather than being narrowed to it.
+   * The catalog grants SALES_REP and VAN_SALES `sales.return.view_own`
+   * (demo-seed/access.ts) and the list gated on `sales.return.view` alone, so
+   * the rep was refused their OWN returns with a 403 — and counts and stats
+   * refused too, so the screen had no fallback.
    *
-   * When D70 is closed these become 200 with the callers own rows only.
+   * A return document records no author, so "own" is resolved the way
+   * `sales-quotes-routes.ts` resolves it for a quote: by the scope the session
+   * already carries. A return puts goods back into a WAREHOUSE and a van rep
+   * is scoped to their van, so that is the narrowing key — and a `view_own`
+   * caller carrying the all-warehouse sentinel sees nothing at all rather than
+   * the whole tenant.
    */
+  const returnIn = (id: string, warehouseId: string, unitPrice: string) => ({
+    id,
+    date: "2026-08-22",
+    memo: "",
+    lines: [
+      {
+        itemId: "ITEM1",
+        warehouseId,
+        customerId: "CUST1",
+        sourceInvoiceId: "INV1",
+        sourceInvoiceNumber: "INV-000014",
+        reason: "DEFECTIVE",
+        availableQty: "5",
+        qty: "1",
+        unitPrice,
+        unitCost: "60",
+        taxAmount: "0",
+      },
+    ],
+  });
+
+  function scoped(path: string, permissions: string, warehouses?: string) {
+    const headers = new Headers({ "x-permissions": permissions, "x-user-id": "rep-a" });
+    if (warehouses !== undefined) headers.set("x-warehouse-scope", warehouses);
+    return new Request("http://local" + path, { headers });
+  }
+
   async function returnsApp() {
     const ledger = createSqliteLedgerStore();
     const accounts = createSqliteAccountRepository();
@@ -227,22 +302,62 @@ describe("LIMITATION (D70): sibling modules gate on `.view` and lock out a `.vie
     return createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver);
   }
 
-  it("refuses a `sales.return.view_own` holder with 403 on the returns list", async () => {
+  it("admits a `sales.return.view_own` holder on the list, the counts and the stats", async () => {
     const app = await returnsApp();
-    const res = await app.fetch(req("/", { permissions: "sales.return.view_own", userId: "rep-a" }));
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error: string; permission: string };
-    expect(body.error).toBe("PERMISSION_DENIED");
-    expect(body.permission).toBe("sales.return.view");
+    for (const path of ["/", "/counts", "/stats"]) {
+      const res = await app.fetch(scoped(path, "sales.return.view_own", "WH-VAN"));
+      expect(res.status, `${path} refused a view_own holder`).toBe(200);
+    }
   });
 
-  it("refuses the same holder on the counts and stats endpoints too, so the screen has no fallback", async () => {
+  it("narrows a `view_own` holder to the warehouse they are scoped to, totals included", async () => {
     const app = await returnsApp();
-    expect((await app.fetch(req("/counts", { permissions: "sales.return.view_own", userId: "rep-a" }))).status).toBe(403);
-    expect((await app.fetch(req("/stats", { permissions: "sales.return.view_own", userId: "rep-a" }))).status).toBe(403);
+    for (const body of [returnIn("sr-mine", "WH-VAN", "100"), returnIn("sr-theirs", "WH-MAIN", "9999.99")]) {
+      const res = await app.fetch(
+        new Request("http://local/", {
+          method: "POST",
+          headers: { "x-permissions": "*", "x-user-id": "admin", "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+      expect(res.status).toBe(201);
+    }
+
+    const listed = await app.fetch(scoped("/", "sales.return.view_own", "WH-VAN"));
+    const text = await listed.text();
+    expect((JSON.parse(text) as { id: string }[]).map((r) => r.id)).toEqual(["sr-mine"]);
+    expect(text).not.toContain("sr-theirs");
+    expect(text).not.toContain("9999.99");
+
+    const counts = (await (await app.fetch(scoped("/counts", "sales.return.view_own", "WH-VAN"))).json()) as { all: number };
+    expect(counts.all).toBe(1);
+
+    // The plain `.view` tier still sees both, so the narrowing above is the
+    // tier at work rather than an empty database.
+    const all = (await (await app.fetch(scoped("/", "sales.return.view"))).json()) as { id: string }[];
+    expect(all.map((r) => r.id).sort()).toEqual(["sr-mine", "sr-theirs"]);
   });
 
-  it("still admits the plain `.view` tier, which is what makes the 403 above the tier and not the route", async () => {
+  it("shows a `view_own` holder NOTHING when their scope is every warehouse — a widened gate with no narrowing key is a leak", async () => {
+    const app = await returnsApp();
+    const res = await app.fetch(
+      new Request("http://local/", {
+        method: "POST",
+        headers: { "x-permissions": "*", "x-user-id": "admin", "content-type": "application/json" },
+        body: JSON.stringify(returnIn("sr-any", "WH-MAIN", "100")),
+      }),
+    );
+    expect(res.status).toBe(201);
+
+    const listed = await app.fetch(scoped("/", "sales.return.view_own"));
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toEqual([]);
+    // And by direct id it is a 404, not a 403: whether it exists is itself
+    // information.
+    expect((await app.fetch(scoped("/sr-any", "sales.return.view_own"))).status).toBe(404);
+  });
+
+  it("still admits the plain `.view` tier, unchanged by the widening", async () => {
     const app = await returnsApp();
     const res = await app.fetch(req("/", { permissions: "sales.return.view", userId: "rep-a" }));
     expect(res.status).toBe(200);

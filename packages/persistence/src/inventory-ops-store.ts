@@ -25,6 +25,8 @@ interface AdjustmentLineWire {
   direction: string;
   qty: string;
   unitCost: string | null;
+  projectId: string | null;
+  costCategory: string | null;
 }
 
 function adjustmentLineToWire(line: StockAdjustmentDocLine): AdjustmentLineWire {
@@ -35,6 +37,8 @@ function adjustmentLineToWire(line: StockAdjustmentDocLine): AdjustmentLineWire 
     direction: line.direction,
     qty: line.qty.toString(),
     unitCost: line.unitCost ? line.unitCost.toString() : null,
+    projectId: line.projectId ?? null,
+    costCategory: line.costCategory ?? null,
   };
 }
 
@@ -47,6 +51,8 @@ function adjustmentLineFromWire(wire: unknown): StockAdjustmentDocLine {
     direction: w.direction as StockMovementDirection,
     qty: Qty.fromMajor(w.qty),
     unitCost: w.unitCost !== null ? Money.fromMajor(w.unitCost) : undefined,
+    projectId: w.projectId ?? null,
+    costCategory: (w.costCategory as StockAdjustmentDocLine["costCategory"]) ?? null,
   };
 }
 

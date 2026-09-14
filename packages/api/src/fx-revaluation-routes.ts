@@ -18,12 +18,14 @@ import {
 } from "@mezan/domain";
 import { fxRevaluationRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 export interface FxRevaluationRoutesDeps {
   readonly ledger: LedgerRepository;
   readonly accounts: AccountRepository;
   readonly periods: JournalPostingDeps["periods"];
   readonly numbering: JournalPostingDeps["numbering"];
+  readonly projects?: JournalPostingDeps["projects"];
   readonly exchangeRates: ExchangeRateRepository;
   /** فروق عملة دائنة — FX gain account. */
   readonly gainAccountId: string;
@@ -100,10 +102,11 @@ export function createFxRevaluationRoutes(
   app.post("/preview", gate("accounting.journal.post"), async (c) => {
     const parsed = fxRevaluationRequestSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const date = await tenantDay(c, parsed.data.date);
     try {
-      const { balances, config } = await build(parsed.data.date, parsed.data.currencies);
+      const { balances, config } = await build(date, parsed.data.currencies);
       const computed = computeFxRevaluation(balances, config);
-      return c.json(serializeResult(computed, parsed.data.date, parsed.data.autoReverse ?? true));
+      return c.json(serializeResult(computed, date, parsed.data.autoReverse ?? true));
     } catch (err) {
       return handleError(c, err);
     }
@@ -113,13 +116,15 @@ export function createFxRevaluationRoutes(
     const parsed = fxRevaluationRequestSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const autoReverse = parsed.data.autoReverse ?? true;
+    const date = await tenantDay(c, parsed.data.date);
     try {
-      const { balances, config } = await build(parsed.data.date, parsed.data.currencies);
+      const { balances, config } = await build(date, parsed.data.currencies);
       const postingDeps: JournalPostingDeps = {
         ledger: deps.ledger,
         accounts: deps.accounts,
         periods: deps.periods,
         numbering: deps.numbering,
+        projects: deps.projects,
         audit: deps.audit,
         events: deps.events,
         now: deps.now,

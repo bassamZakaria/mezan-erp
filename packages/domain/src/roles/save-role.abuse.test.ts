@@ -1,9 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { ALL_PERMISSION_CODES, PERMISSIONS, isPlatformAdminOnly, isSensitive } from "../permissions/catalog.js";
+import {
+  ALL_PERMISSION_CODES,
+  MODULES,
+  PERMISSIONS,
+  isPlatformAdminOnly,
+  isSensitive,
+} from "../permissions/catalog.js";
 import type { Entitlements } from "../entitlements/entitlements.js";
 import type { Role } from "./role.js";
 import type { UnitOfWork } from "../journal.js";
-import { UnlicensedPermissionError, UnknownPermissionError, saveRole } from "./save-role.js";
+import { createAuthContext, type AuthContext } from "../permissions/auth-context.js";
+import {
+  PlatformOnlyPermissionError,
+  UngrantablePermissionError,
+  UnlicensedPermissionError,
+  UnknownPermissionError,
+  saveRole,
+} from "./save-role.js";
+
+function actorWith(...codes: string[]): AuthContext {
+  return createAuthContext({
+    userId: "actor-1",
+    permissions: codes,
+    branchScope: "*",
+    warehouseScope: "*",
+    authenticated: true,
+  });
+}
+
+const TENANT_ADMIN = actorWith("*");
 
 /** A tenant licensed for nothing — every gated module should refuse. */
 const NO_MODULES: Entitlements = {
@@ -22,6 +47,8 @@ const NO_MODULES: Entitlements = {
 const GATED_PERMISSION = PERMISSIONS.find(
   (p) => !["dashboard", "workflow", "admin", "audit", "transactions"].includes(p.module),
 )?.code as string;
+
+const CATALOG_TO_ENTITLEMENT_MODULES: Readonly<Record<string, string>> = { cheques: "financial_papers" };
 
 function uowWith(roles: Role[] = []): UnitOfWork & { saved: Role[] } {
   const saved: Role[] = [];
@@ -67,6 +94,14 @@ function uowWith(roles: Role[] = []): UnitOfWork & { saved: Role[] } {
   return uow;
 }
 
+const ALL_MODULES: Entitlements = {
+  plan: "enterprise",
+  activeModules: MODULES.map((m) => CATALOG_TO_ENTITLEMENT_MODULES[m.id] ?? m.id),
+  features: {},
+  seats: 10,
+  expiresAt: null,
+};
+
 const command = {
   id: "role-1",
   code: "OPS",
@@ -78,70 +113,71 @@ const command = {
 describe("saveRole — what it refuses", () => {
   it("refuses a permission code the catalog does not know", async () => {
     await expect(
-      saveRole({ ...command, permissions: ["accounting.invented.permission"] }, uowWith(), NO_MODULES),
+      saveRole({ ...command, permissions: ["accounting.invented.permission"] }, uowWith(), NO_MODULES, TENANT_ADMIN),
     ).rejects.toBeInstanceOf(UnknownPermissionError);
   });
 
   it("refuses a real permission whose module the tenant has not licensed", async () => {
     await expect(
-      saveRole({ ...command, permissions: [GATED_PERMISSION] }, uowWith(), NO_MODULES),
+      saveRole({ ...command, permissions: [GATED_PERMISSION] }, uowWith(), NO_MODULES, TENANT_ADMIN),
     ).rejects.toBeInstanceOf(UnlicensedPermissionError);
   });
 
   it("refuses to touch a system role", async () => {
     const system = { id: "role-1", code: "ADMIN", isSystem: true } as Role;
-    await expect(saveRole({ ...command, permissions: [] }, uowWith([system]), NO_MODULES)).rejects.toThrow();
+    await expect(saveRole({ ...command, permissions: [] }, uowWith([system]), NO_MODULES, TENANT_ADMIN)).rejects.toThrow();
   });
 
   it("refuses a code another role already holds", async () => {
     const other = { id: "role-9", code: "OPS", isSystem: false } as Role;
-    await expect(saveRole({ ...command, permissions: [] }, uowWith([other]), NO_MODULES)).rejects.toThrow();
+    await expect(saveRole({ ...command, permissions: [] }, uowWith([other]), NO_MODULES, TENANT_ADMIN)).rejects.toThrow();
   });
 });
 
-describe("saveRole — the escalation paths it does NOT close (D85)", () => {
-  it("LIMITATION (D85): the wildcard is exempt from the licence check, so an unlicensed tenant can still mint a full admin role", async () => {
-    // A named permission from a gated module is refused for this tenant…
+describe("saveRole — the escalation paths D85 closed", () => {
+  it("refuses the wildcard to a tenant licensed for nothing, the same as a named gated code", async () => {
     await expect(
-      saveRole({ ...command, permissions: [GATED_PERMISSION] }, uowWith(), NO_MODULES),
+      saveRole({ ...command, permissions: [GATED_PERMISSION] }, uowWith(), NO_MODULES, TENANT_ADMIN),
     ).rejects.toBeInstanceOf(UnlicensedPermissionError);
 
-    // …but `"*"`, which outranks all of them, is accepted.
-    const uow = uowWith();
-    const role = await saveRole({ ...command, permissions: ["*"] }, uow, NO_MODULES);
-    expect(role.permissions).toContain("*");
-    expect(uow.saved).toHaveLength(1);
+    await expect(
+      saveRole({ ...command, permissions: ["*"] }, uowWith(), NO_MODULES, TENANT_ADMIN),
+    ).rejects.toBeInstanceOf(UnlicensedPermissionError);
   });
 
-  it("LIMITATION (D85): a platform-admin-only permission is grantable to an ordinary tenant role", async () => {
+  it("refuses a platform-admin-only permission to a tenant admin who does not hold it", async () => {
     const platformOnly = ALL_PERMISSION_CODES.filter((c) => isPlatformAdminOnly(c));
     if (platformOnly.length === 0) return;
 
-    // The catalog marks these as platform-admin-only, and saveRole never asks.
     const uow = uowWith();
-    const role = await saveRole(
-      { ...command, permissions: ["*", ...platformOnly] },
-      uow,
-      NO_MODULES,
-    );
-    for (const code of platformOnly) expect(role.permissions).toContain(code);
-    expect(uow.saved).toHaveLength(1);
+    await expect(
+      saveRole({ ...command, permissions: ["*", ...platformOnly] }, uow, ALL_MODULES, TENANT_ADMIN),
+    ).rejects.toBeInstanceOf(PlatformOnlyPermissionError);
+    expect(uow.saved).toHaveLength(0);
   });
 
-  it("LIMITATION (D85): saveRole never sees who is asking, so it cannot stop a role granting more than its author holds", async () => {
-    // The use-case's whole signature is (command, unitOfWork, entitlements) —
-    // there is no actor in it, so "you may not grant what you do not hold"
-    // cannot be enforced here. It would have to live in the route's gate.
-    expect(saveRole.length).toBe(3);
+  it("refuses to grant a permission the author does not hold", async () => {
+    const uow = uowWith();
+    await expect(
+      saveRole(
+        { ...command, permissions: [GATED_PERMISSION] },
+        uow,
+        ALL_MODULES,
+        actorWith("dashboard.view"),
+      ),
+    ).rejects.toBeInstanceOf(UngrantablePermissionError);
+    expect(uow.saved).toHaveLength(0);
+  });
+
+  it("takes the actor as an argument, so the grant rule can be enforced in the domain", () => {
+    expect(saveRole.length).toBe(4);
   });
 
   it("marks some permissions sensitive in the catalog, and saveRole asks nothing extra of them", async () => {
     const sensitive = ALL_PERMISSION_CODES.filter((c) => isSensitive(c));
     expect(sensitive.length).toBeGreaterThan(0);
-    // They are only refused when their MODULE is unlicensed — sensitivity
-    // itself carries no additional gate here.
     const uow = uowWith();
-    const role = await saveRole({ ...command, permissions: ["*"] }, uow, NO_MODULES);
+    const role = await saveRole({ ...command, permissions: ["*"] }, uow, ALL_MODULES, TENANT_ADMIN);
     expect(role.permissions).toContain("*");
   });
 });
@@ -149,13 +185,13 @@ describe("saveRole — the escalation paths it does NOT close (D85)", () => {
 describe("saveRole — what it does store", () => {
   it("deduplicates the permission set it was handed", async () => {
     const uow = uowWith();
-    const role = await saveRole({ ...command, permissions: ["*", "*", "*"] }, uow, NO_MODULES);
+    const role = await saveRole({ ...command, permissions: ["*", "*", "*"] }, uow, ALL_MODULES, TENANT_ADMIN);
     expect(role.permissions.filter((p) => p === "*")).toHaveLength(1);
   });
 
   it("keeps the code, name and id exactly as given", async () => {
     const uow = uowWith();
-    const role = await saveRole({ ...command, permissions: ["*"] }, uow, NO_MODULES);
+    const role = await saveRole({ ...command, permissions: ["*"] }, uow, ALL_MODULES, TENANT_ADMIN);
     expect(role).toMatchObject({ id: "role-1", code: "OPS", name: "العمليات" });
     expect(uow.saved[0]).toMatchObject({ id: "role-1", code: "OPS" });
   });

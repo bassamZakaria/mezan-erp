@@ -10,12 +10,18 @@ import { z } from "zod";
 
 export const featureFlagsSchema = z.record(z.string(), z.boolean());
 
+export const entitlementLimitsSchema = z.object({
+  branches: z.number().int().nonnegative(),
+  warehouses: z.number().int().nonnegative(),
+});
+
 export const entitlementsSchema = z.object({
   plan: z.string().min(1),
   activeModules: z.array(z.string().min(1)),
   features: featureFlagsSchema,
   seats: z.number().int().nonnegative(),
   expiresAt: z.string().datetime().nullable(),
+  limits: entitlementLimitsSchema.optional(),
 });
 
 /** The signed inner payload of a `license.mezan` file. */

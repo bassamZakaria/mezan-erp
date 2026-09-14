@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for the Cheque Register (docs/archive/catalog/04 §"سجل الشيكات").
@@ -25,7 +27,7 @@ export const chequeSchema = z.object({
   bankName: z.string(),
   bankBranchName: z.string().nullable(),
   bankAccountNumber: z.string().nullable(),
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string(),
   issueDate: z.string(),
   dueDate: z.string(),
@@ -54,9 +56,9 @@ export const createChequeSchema = z.object({
   bankName: z.string().min(1),
   bankBranchName: z.string().nullish(),
   bankAccountNumber: z.string().nullish(),
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string().optional(),
-  issueDate: z.string().min(1),
+  issueDate: isoDateOrInstant,
   dueDate: z.string().min(1),
   branchId: z.string().min(1),
   notes: z.string().nullish(),
@@ -71,11 +73,11 @@ export const depositChequeSchema = z.object({
 
 export const collectChequeSchema = z.object({
   bankGlAccountId: z.string().min(1),
-  date: z.string().optional(),
+  date: isoDateOrInstant.optional(),
 });
 
 export const bounceChequeSchema = z.object({
-  date: z.string().optional(),
+  date: isoDateOrInstant.optional(),
 });
 
 /** Replace a bounced cheque with a new one of the same amount. */
@@ -91,7 +93,7 @@ export const replaceChequeSchema = z.object({
     branchId: z.string().min(1),
     notes: z.string().nullish(),
   }),
-  date: z.string().optional(),
+  date: isoDateOrInstant.optional(),
 });
 
 export const chequeListQuerySchema = z.object({

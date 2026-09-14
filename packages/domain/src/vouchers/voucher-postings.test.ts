@@ -96,7 +96,7 @@ const CASES: readonly Case[] = [
   {
     type: "customer_advance",
     labelAr: "دفعة مقدمة من عميل مقاولات",
-    cmd: { voucherType: "customer_advance", customerId: "cust-3" },
+    cmd: { voucherType: "customer_advance", customerId: "cust-3", projectId: "proj-1" },
     expected: [["1300-1", A, ZERO], ["2160", ZERO, A]],
     moves: [["1300-1", "7234.560000"], ["2160", "-1234.560000"]],
   },
@@ -208,7 +208,12 @@ describe("R8.1 — a fixed counterpart account is the type rule, not a default",
     it(type + " ignores a caller-supplied " + attempted + " and still posts to " + required, async () => {
       const h = await openDrawer();
       await h.service.createVoucher(
-        base({ voucherType: type, counterpartyGlAccountId: attempted, customerId: "cust-3" }),
+        base({
+          voucherType: type,
+          counterpartyGlAccountId: attempted,
+          customerId: "cust-3",
+          ...(type === "customer_advance" ? { projectId: "proj-1" } : {}),
+        }),
       );
       await h.service.confirmVoucher("v1");
 
@@ -266,6 +271,30 @@ describe("a supplier payment with Egyptian withholding", () => {
     expect(await balance(h, "1310")).toBe("18060.000000");
     expect(await balance(h, "2210")).toBe("-60.000000");
     expect(await balance(h, "2100")).toBe("2000.000000");
+  });
+});
+
+describe("the contracting project dimension on a confirmed voucher's posting", () => {
+  it("tags projectId on both lines and costCategory only on the counterpart line", async () => {
+    const h = await openDrawer();
+    await h.service.createVoucher(
+      base({
+        voucherType: "other_expense",
+        counterpartyGlAccountId: "5910",
+        projectId: "proj-1",
+        costCategory: "labour",
+      }),
+    );
+    await h.service.confirmVoucher("v1");
+
+    const entry = (await h.ledger.findById("v1"))!;
+    expect(entry.status).toBe("posted");
+    const treasury = entry.lines.find((l) => l.accountId === "1300-1")!;
+    const counter = entry.lines.find((l) => l.accountId === "5910")!;
+    expect(treasury.projectId).toBe("proj-1");
+    expect(counter.projectId).toBe("proj-1");
+    expect(counter.costCategory).toBe("labour");
+    expect(treasury.costCategory ?? null).toBeNull();
   });
 });
 

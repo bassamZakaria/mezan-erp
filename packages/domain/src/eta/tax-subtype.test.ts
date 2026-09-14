@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveEtaVatSubType } from "./tax-subtype.js";
+import { resolveEtaVatSubType, findLineTaxRate } from "./tax-subtype.js";
 
 describe("resolveEtaVatSubType", () => {
   it("uses the sub-type the tax rate declares, whatever the rate is", () => {
@@ -54,5 +54,40 @@ describe("resolveEtaVatSubType", () => {
 
   it("treats a negative rate as untaxed rather than as a taxed line", () => {
     expect(resolveEtaVatSubType("auto", -14)).toBe("V004");
+  });
+});
+
+describe("findLineTaxRate — the rate value cannot decide a classification (D79)", () => {
+  const rate = (etaSubType: string, r = 0, status = "active") => ({ status, rate: r, etaSubType });
+
+  it("returns the rate when exactly one active rate carries the value", () => {
+    const found = findLineTaxRate([rate("V003"), rate("V009", 14)], 14);
+    expect(found?.etaSubType).toBe("V009");
+  });
+
+  it("refuses to choose between exempt and export, which are both 0% and not interchangeable", () => {
+    // «معفى» V003 and «تصدير» V001 are both zero-rated. Picking the first
+    // defined one filed an exempt sale as an export, and a tenant whose rates
+    // were created in the other order got the opposite answer.
+    expect(findLineTaxRate([rate("V003"), rate("V001")], 0)).toBeNull();
+  });
+
+  it("still answers when several 0% rates all classify the same way — the ambiguity is only in the name", () => {
+    const found = findLineTaxRate([rate("V003"), rate("V003")], 0);
+    expect(found?.etaSubType).toBe("V003");
+  });
+
+  it("ignores an inactive rate, so a retired classification cannot make the live one ambiguous", () => {
+    const found = findLineTaxRate([rate("V001", 0, "inactive"), rate("V003")], 0);
+    expect(found?.etaSubType).toBe("V003");
+  });
+
+  it("returns null when nothing matches, rather than the nearest rate", () => {
+    expect(findLineTaxRate([rate("V009", 14)], 5)).toBeNull();
+  });
+
+  it("falls back to the neutral V004 when the classification is ambiguous, never to a specific claim", () => {
+    const ambiguous = findLineTaxRate([rate("V003"), rate("V001")], 0);
+    expect(resolveEtaVatSubType(ambiguous?.etaSubType, 0)).toBe("V004");
   });
 });

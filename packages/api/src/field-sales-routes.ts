@@ -25,7 +25,16 @@ import {
   type TreasuryTransferInput,
 } from "@mezan/domain";
 import { createVanSchema, openVanTripSchema, recordVanCashMovementSchema, settleVanTripSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import {
+  branchScopeOf,
+  createAnyPermissionGate,
+  createPermissionGate,
+  getAuthContext,
+  warehouseScopeOf,
+  type AuthContextResolver,
+} from "./permission-gate.js";
+import { can } from "@mezan/domain";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * Field/Van Sales routes (docs/archive/catalog/07-mfg-projects-assets.md "رحلات
@@ -196,10 +205,47 @@ export function createFieldSalesRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
 
-  app.get("/", gate("field.van_trip.view"), async (c) => {
+  /**
+   * `field.van_trip.view_own` is a real tier — `VAN_SALES` and any role built
+   * from `.open` hold it and nothing else — but a van trip records its crew by
+   * EMPLOYEE id, and this router has no way to resolve the calling user's
+   * employee record, so "own" cannot be evaluated here (D70).
+   *
+   * The narrowing that IS available is the scope the session already carries:
+   * a van-sales rep is scoped to their van's warehouse. So a `view_own` caller
+   * sees the trips inside their own branch/warehouse scope — and a `view_own`
+   * caller carrying the all-scope sentinel is refused rather than shown the
+   * whole tenant, because widening a gate without a narrowing key is a leak,
+   * which is worse than the 403 it replaces.
+   */
+  const ownVisibilityOnly = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? !can(ctx, "field.van_trip.view") : false;
+  };
+
+  function visibleTrips(c: Context, trips: readonly VanTrip[]): readonly VanTrip[] {
+    const branches = branchScopeOf(c);
+    const warehouses = warehouseScopeOf(c);
+    const own = ownVisibilityOnly(c);
+    // A `view_own` caller matches on the VAN warehouse alone. Matching the
+    // source store as well would show a rep scoped to one van every trip drawn
+    // from the main store, which is the whole tenant's field sales.
+    if (own && !warehouses) return [];
+    let rows = trips;
+    if (branches) rows = rows.filter((t) => branches.includes(t.branchId));
+    if (warehouses) {
+      rows = rows.filter(
+        (t) => warehouses.includes(t.vanWarehouseId) || (!own && warehouses.includes(t.sourceWarehouseId)),
+      );
+    }
+    return rows;
+  }
+
+  app.get("/", gateAny("field.van_trip.view", "field.van_trip.view_own"), async (c) => {
     const trips = await deps.trips.list();
-    return c.json(trips.map(serialize));
+    return c.json(visibleTrips(c, trips).map(serialize));
   });
 
   app.post("/", gate("field.van_trip.open"), async (c) => {
@@ -245,7 +291,7 @@ export function createFieldSalesRoutes(
         {
           id: randomUUID(),
           tripNo: body.tripNo,
-          date: body.date,
+          date: await tenantDay(c, body.date),
           branchId,
           vanId,
           vanWarehouseId,
@@ -270,9 +316,12 @@ export function createFieldSalesRoutes(
     }
   });
 
-  app.get("/:id", gate("field.van_trip.view"), async (c) => {
+  app.get("/:id", gateAny("field.van_trip.view", "field.van_trip.view_own"), async (c) => {
     const trip = await deps.trips.findById(c.req.param("id"));
     if (!trip) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
+    // 404, not 403: whether a trip the caller may not see exists at all is
+    // itself information.
+    if (visibleTrips(c, [trip]).length === 0) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
     return c.json(serialize(trip));
   });
 

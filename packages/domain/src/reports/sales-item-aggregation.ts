@@ -9,6 +9,17 @@ import { withinDateRange } from "./period-bucket.js";
  * "revenue by item" rollup, one paginated/sorted-by-revenue, the other
  * ranked/limited. Revenue per line is its post-discount taxable base (or +tax
  * when `taxMode: "inc"`), matching `computeInvoiceTotals`'s per-line split.
+ *
+ * A line whose `revenueAccountId` is a NON-revenue account is a BILLING, not a
+ * sale: the contracting certificate invoices credit مستخلصات تحت التنفيذ (a
+ * liability) and the retention release credits the retention receivable, so
+ * neither adds a millieme of revenue to the ledger. Counting them here would
+ * make these reports claim revenue the GL never recognised — they are reported
+ * by the certificate screens instead. `isContractBilling` is how the caller,
+ * which is the only layer holding the chart of accounts, says which is which;
+ * it answers true only for an account the chart KNOWS is not revenue, so an
+ * account the chart has never heard of is still counted as the sale it looks
+ * like rather than silently vanishing from the report.
  */
 
 export interface ItemSalesAggregate {
@@ -25,6 +36,7 @@ export function aggregateItemSales(
   dateFrom: string | undefined,
   dateTo: string | undefined,
   taxMode: "inc" | "exc" = "exc",
+  isContractBilling?: (accountId: string) => boolean,
 ): ItemSalesAggregate[] {
   const byItem = new Map<string, { itemNameAr: string; qty: Qty; revenue: Money }>();
   for (const invoice of invoices) {
@@ -34,6 +46,7 @@ export function aggregateItemSales(
     invoice.lines.forEach((line, i) => {
       const lineTotals = totals.lines[i];
       if (!lineTotals) return;
+      if (isContractBilling?.(line.revenueAccountId)) return;
       const revenue = taxMode === "inc" ? lineTotals.total : lineTotals.taxableBase;
       const existing = byItem.get(line.itemId) ?? { itemNameAr: line.itemNameAr, qty: Qty.zero(), revenue: Money.zero() };
       byItem.set(line.itemId, {
@@ -54,4 +67,30 @@ export function aggregateItemSales(
     qty: Number(agg.qty.toString()),
     revenue: Number(agg.revenue.toString()),
   }));
+}
+
+/**
+ * The revenue accounts the SALE lines of these invoices actually credited.
+ *
+ * This is the account set the GL side of the sales-by-item reconciliation must
+ * sum, so that both halves read one fact instead of two: the report counts a
+ * line, the ledger counts what that line credited. A hardcoded control account
+ * was the same fact only while nothing but a sale could reach a sales invoice.
+ */
+export function creditedRevenueAccountIds(
+  invoices: readonly SalesInvoice[],
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  isContractBilling?: (accountId: string) => boolean,
+): string[] {
+  const ids = new Set<string>();
+  for (const invoice of invoices) {
+    if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
+    if (!withinDateRange(invoice.date, dateFrom, dateTo)) continue;
+    for (const line of invoice.lines) {
+      if (isContractBilling?.(line.revenueAccountId)) continue;
+      ids.add(line.revenueAccountId);
+    }
+  }
+  return [...ids];
 }

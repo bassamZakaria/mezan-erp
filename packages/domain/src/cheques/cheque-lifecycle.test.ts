@@ -415,16 +415,43 @@ describe("post-dated cheques as a due-date calendar", () => {
   });
 });
 
+/** Guards D80: every transition carries WHO as well as WHEN. */
 describe("who moved the cheque", () => {
-  it("LIMITATION: every transition is timestamped and none of them records an actor", async () => {
+  it("stamps the acting user beside the timestamp on every transition", async () => {
     const h = await chequeAt("bounced");
     const cheque = (await h.service.findById("chq-in")) as Cheque;
 
     expect(cheque.depositedAt).toBe("2026-08-22T10:00:00.000Z");
     expect(cheque.bouncedAt).toBe("2026-08-22T10:00:00.000Z");
-    // Nothing on the row, and no audit port on ChequeServiceDeps, names who did it.
     const transitionFields = Object.keys(cheque).filter((k) => /^(created|deposited|collected|bounced)/.test(k)).sort();
-    expect(transitionFields).toEqual(["bouncedAt", "collectedAt", "createdAt", "depositedAt"]);
+    expect(transitionFields).toEqual([
+      "bouncedAt",
+      "bouncedBy",
+      "collectedAt",
+      "collectedBy",
+      "createdAt",
+      "createdBy",
+      "depositedAt",
+      "depositedBy",
+    ]);
+  });
+
+  it("names the person who did each step, and each step separately", async () => {
+    const h = await openDay();
+    await h.service.createCheque({ ...incoming(), actor: "nadia" });
+    await h.service.deposit({ chequeId: "chq-in", bankTreasuryAccountId: "ta-bank1", actor: "hossam" });
+    const bounced = await h.service.bounce({ chequeId: "chq-in", journalEntryId: "je-bounce", date: "2026-08-21", actor: "mona" });
+
+    expect(bounced.createdBy).toBe("nadia");
+    expect(bounced.depositedBy).toBe("hossam");
+    expect(bounced.bouncedBy).toBe("mona");
+    expect(bounced.collectedBy).toBeNull();
+  });
+
+  it("falls back to the service's actor, and to \"system\" when nobody is named", async () => {
+    const h = await openDay();
+    const anonymous = await h.service.createCheque(incoming());
+    expect(anonymous.createdBy).toBe("system");
   });
 });
 

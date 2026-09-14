@@ -44,10 +44,12 @@ import type {
   ConvertRfqDTO,
   ConvertSalesQuoteToInvoiceDTO,
   CostCenterDTO,
+  CostCategoryDTO,
   ImportableDepartmentDTO,
   CreateCostCentersFromDepartmentsDTO,
   PartyCurrencyBalanceReportDTO,
   CostCenterPnLReportDTO,
+  ProjectPnLReportDTO,
   CreateAccountDTO,
   CreateActivityDTO,
   CreateAllocationDTO,
@@ -55,6 +57,7 @@ import type {
   CreateAssetDTO,
   SalesInvoicePaymentDTO,
   DisposeAssetDTO,
+  SetInternalHourlyRateDTO,
   CreateBomDTO,
   CreateBranchDTO,
   CreateChequeDTO,
@@ -214,6 +217,7 @@ import type {
   SupplierDTO,
   TaxRateDTO,
   TenantSettingsDTO,
+  UserPreferencesDTO,
   TransitionLeadDTO,
   TreasuryAccountDTO,
   UpdateAccountDTO,
@@ -1120,7 +1124,15 @@ export interface JournalEntryDTO {
   readonly sourceDocId: string | null;
   readonly sourceDocNumber: string | null;
   readonly sourceModule: JournalSourceModuleDTO;
-  readonly lines: ReadonlyArray<{ accountId: string; debit: string; credit: string; memo: string | null }>;
+  readonly lines: ReadonlyArray<{
+    accountId: string;
+    debit: string;
+    credit: string;
+    memo: string | null;
+    projectId?: string | null;
+    costCategory?: CostCategoryDTO | null;
+    branchId?: string | null;
+  }>;
 }
 
 export interface JournalEntryListFilter {
@@ -1346,6 +1358,26 @@ export function useDeleteRole() {
 /* -------------------------------------------------------------------- */
 
 /** إعدادات المنشأة (docs/archive/catalog/09 §"الإعدادات — عام") — the single tenant config bag. */
+/**
+ * This user's own preferences — the dashboard layout among them (§8.5).
+ *
+ * Returns null rather than throwing when the server has no preferences route
+ * mounted: the dashboard falls back to the default arrangement, which is
+ * exactly what a user who has never customised it should see anyway.
+ */
+export function useUserPreferences(): UseQueryResult<UserPreferencesDTO | null, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<UserPreferencesDTO | null, ApiError>({
+    queryKey: ["preferences", session?.userId ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/preferences");
+      if (!res.ok) return null;
+      return res.json<UserPreferencesDTO>();
+    },
+  });
+}
+
 export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -2351,6 +2383,8 @@ export interface SalesInvoiceDTO {
   readonly branchId: string;
   readonly salespersonId: string | null;
   readonly salespersonNameAr: string | null;
+  /** بُعد المشروع — the contracting project this invoice's revenue and COGS belong to. */
+  readonly projectId?: string | null;
   readonly currency: string;
   readonly couponCode: string | null;
   readonly appliedPromotion: AppliedSalesInvoicePromotionDTO | null;
@@ -2746,6 +2780,20 @@ export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
   });
 }
 
+export function useProjectPnL(): UseQueryResult<ProjectPnLReportDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ProjectPnLReportDTO, ApiError>({
+    queryKey: ["projects", "pnl"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/projects/pnl");
+      if (!res.ok) throw new ApiError(res.status, t("api.projectPnlCouldNotBeLoaded"));
+      return res.json<ProjectPnLReportDTO>();
+    },
+  });
+}
+
 export function useCreateProject() {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -2882,6 +2930,28 @@ export function useCreateAsset() {
   return useMutation<AssetDTO, ApiError, CreateAssetDTO>({
     mutationFn: async (body) => {
       const res = await request("/assets", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBe")));
+      return res.json<AssetDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
+  });
+}
+
+/**
+ * سعر الساعة الداخلي — a separate, permissioned, audited edit. Every سجل تشغيل
+ * معدات charges its project at this rate, so it reaches WIP, cost, the
+ * percentage of completion and recognised revenue; the site log has no override.
+ */
+export function useSetInternalHourlyRate() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AssetDTO, ApiError, { id: string } & SetInternalHourlyRateDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/assets/${id}/internal-hourly-rate`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBe")));
       return res.json<AssetDTO>();
     },
@@ -3336,6 +3406,8 @@ export interface WorkOrderRecord {
   readonly issuedAt: string | null;
   readonly receivedAt: string | null;
   readonly completedAt: string | null;
+  /** بُعد المشروع — the contracting project this work order belongs to. */
+  readonly projectId: string | null;
 }
 
 export interface WorkOrderListFilter {

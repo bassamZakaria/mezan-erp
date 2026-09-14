@@ -175,17 +175,23 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
       columns={definition.columns}
       rowKey={definition.rowKey}
       chart={
-        // A report-declared chart wins; `renderSummary` stays for the handful
-        // of screens that render something a two-column chart cannot express.
-        chartPoints
-          ? <ReportChart
-              title={definition.titleAr}
-              points={chartPoints}
-              caption={definition.chart?.captionAr ? tryReportLabel(`report.${definition.id}.chartCaption`, definition.chart.captionAr, t) : undefined}
-            />
-          : result && renderSummary
-            ? renderSummary(result.rows)
-            : undefined
+        // A report may declare BOTH: the VAT return draws its chart and states
+        // «صافي الضريبة المستحقة الدفع» underneath it, and preferring one over
+        // the other dropped the line the return exists to produce (D68).
+        chartPoints || (result && renderSummary)
+          ? (
+              <>
+                {chartPoints ? (
+                  <ReportChart
+                    title={definition.titleAr}
+                    points={chartPoints}
+                    caption={definition.chart?.captionAr ? tryReportLabel(`report.${definition.id}.chartCaption`, definition.chart.captionAr, t) : undefined}
+                  />
+                ) : null}
+                {result && renderSummary ? renderSummary(result.rows) : null}
+              </>
+            )
+          : undefined
       }
       showGrandTotal={definition.showGrandTotal ?? true}
       exportBaseFilename={definition.id}

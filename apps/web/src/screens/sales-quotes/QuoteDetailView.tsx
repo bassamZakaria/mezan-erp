@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../../lib/error-message";
 import { Button, DocumentDetail, DocumentStatusStepper, Money as MoneyDisplay, useFormat } from "@mezan/ui";
 import { SectionCard, SelectField, TextField } from "../../settings/form-controls";
@@ -63,6 +63,16 @@ export function QuoteDetailView({ quote, onBack }: { quote: SalesQuoteRecord; on
   const [error, setError] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState(plusDays(30));
   const [warehouseId, setWarehouseId] = useState(workingLocation.warehouseId ?? "");
+  // `useWorkingLocation` resolves out of the branches and warehouses queries,
+  // so at first mount it is still null and `useState` latched the empty string
+  // permanently — every accepted quote then blocked on «اختر المستودع.» even
+  // with a real default warehouse configured (D107). Seed it once, when the
+  // queries land, and never overwrite a warehouse the user has picked.
+  useEffect(() => {
+    if (warehouseId !== "") return;
+    if (!workingLocation.warehouseId) return;
+    setWarehouseId(workingLocation.warehouseId);
+  }, [workingLocation.warehouseId, warehouseId]);
   const audit = useAuditLog({ entityType: "SALES_QUOTE", limit: 100 });
 
   const branchName = branches.find((b) => b.id === quote.branchId)?.name ?? quote.branchId;

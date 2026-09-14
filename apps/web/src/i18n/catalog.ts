@@ -7331,6 +7331,9 @@ const webAr = {
   "platform.tenantDetail.entitlementsNoExpiry": "بلا تاريخ انتهاء",
   "platform.operators.deactivateFailed": "تعذّر تعطيل المشغّل.",
   "platform.error.validation": "تحقق من الحقول المدخلة.",
+  "platform.tenantDetail.retryProvision": "إعادة المحاولة",
+  "platform.tenantDetail.retrying": "جارٍ إعادة المحاولة…",
+  "platform.tenantDetail.retryProvision.error.generic": "تعذّرت إعادة تجهيز المنشأة.",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -14666,6 +14669,9 @@ const webEn: Record<WebTranslationKey, string> = {
   "platform.tenantDetail.entitlementsNoExpiry": "No expiry",
   "platform.operators.deactivateFailed": "Could not deactivate the operator.",
   "platform.error.validation": "Check the fields you entered.",
+  "platform.tenantDetail.retryProvision": "Retry",
+  "platform.tenantDetail.retrying": "Retrying…",
+  "platform.tenantDetail.retryProvision.error.generic": "The tenant could not be re-provisioned.",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

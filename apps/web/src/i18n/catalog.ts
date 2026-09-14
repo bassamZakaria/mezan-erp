@@ -381,6 +381,11 @@ const webAr = {
   "login.forgot": "نسيت الرمز",
   "login.otherUser": "مستخدم آخر",
   "login.branchHint": "الفرع الرئيسي",
+  "login.tenantCode": "رمز المنشأة",
+  "login.tenantCodeHint": "رمز الدخول الخاص بمنشأتك في ميزان",
+  "login.changeTenant": "تغيير المنشأة",
+  "login.tenantNotFound": "المنشأة غير موجودة",
+  "login.tenantRequired": "حدّد رمز المنشأة",
 
   "dashboard.eyebrow": "نظرة عامة",
   "dashboard.greeting": "مرحباً، {name} · طاب يومك",
@@ -7542,6 +7547,11 @@ const webEn: Record<WebTranslationKey, string> = {
   "login.forgot": "Forgot your PIN",
   "login.otherUser": "Another user",
   "login.branchHint": "Main branch",
+  "login.tenantCode": "Company code",
+  "login.tenantCodeHint": "Your company's Mezan sign-in code",
+  "login.changeTenant": "Change company",
+  "login.tenantNotFound": "Company not found",
+  "login.tenantRequired": "Enter your company code",
 
   "dashboard.eyebrow": "Overview",
   "dashboard.greeting": "Welcome, {name} · have a good day",

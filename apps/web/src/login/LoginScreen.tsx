@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
-import { useLogin } from "../data/hooks";
-import { clearSessionExpired, sessionExpiredPending } from "../data/session";
+import { useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { clearSessionExpired, clearTenantCode, loadTenantCode, persistTenantCode, sessionExpiredPending } from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
@@ -51,6 +51,29 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const { t, locale } = useAppTranslation();
   const login = useLogin();
 
+  /**
+   * SaaS company code — only meaningful when the deployment can't tell the
+   * tenant from the host (`/platform/resolve` mode `"code"`). Kept as its own
+   * state, seeded from storage, so typing it re-triggers `useTenantInfo`
+   * (its query key reads the same storage) without a page reload.
+   */
+  const platformResolve = usePlatformResolve();
+  const tenantMode = platformResolve.data?.mode;
+  const [tenantCode, setTenantCode] = useState(() => loadTenantCode() ?? "");
+  const tenantInfo = useTenantInfo({ enabled: tenantMode === "subdomain" || tenantCode !== "" });
+  const tenantNotFound = tenantCode !== "" && tenantInfo.isError && tenantInfo.error?.status === 404;
+
+  function handleTenantCodeChange(event: ChangeEvent<HTMLInputElement>) {
+    const next = event.target.value.toLowerCase();
+    setTenantCode(next);
+    persistTenantCode(next);
+  }
+
+  function handleChangeTenant() {
+    clearTenantCode();
+    setTenantCode("");
+  }
+
   const remembered = useMemo(() => readDeviceUsers(), []);
   const [selected, setSelected] = useState<DeviceUser | null>(remembered[0] ?? null);
   /** True once «آخر» is chosen, or when the device remembers nobody at all. */
@@ -81,6 +104,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const canSubmit = identity !== "" && pinComplete && !login.isPending && lockedForSeconds === 0;
 
   function submit() {
+    if (tenantMode === "code" && tenantCode.trim() === "") {
+      setError(t("login.tenantRequired"));
+      return;
+    }
     if (!canSubmit) return;
     // Guard the auto-submit against React re-running the effect for the same
     // completed PIN — otherwise a slow server turns one sign-in into several.
@@ -93,7 +120,14 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       {
         onSuccess: (session) => rememberDeviceUser(session),
         onError: (err) => {
-          setError(err.message || t("login.error.generic"));
+          // The server only ever answers in Arabic (docs/CLAUDE.md: Arabic
+          // messages, English error codes); it has no locale to render an
+          // English one, so these two known statuses get the client's own
+          // translation instead of the raw message. Every other failure
+          // (wrong PIN, lockout) keeps the server's message verbatim.
+          if (err.status === 404) setError(t("login.tenantNotFound"));
+          else if (err.status === 400 && tenantMode === "code") setError(t("login.tenantRequired"));
+          else setError(err.message || t("login.error.generic"));
           if (err.status === 429 && typeof err.retryAfterSeconds === "number") {
             setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds)));
           }
@@ -195,6 +229,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <span className="ms-auto text-2xs text-ink-faint">{t("login.branchHint")}</span>
         </div>
 
+        {/* Subdomain deployments already know the tenant from the host, so
+            there is nothing to type — just the name, for confirmation. */}
+        {tenantMode === "subdomain" && platformResolve.data?.tenant ? (
+          <p className="mt-[4px] text-xs font-semibold text-ink">{platformResolve.data.tenant.nameAr}</p>
+        ) : null}
+
         {/* A session that ended says so, rather than looking like a fresh start
             the user asked for. It sits above the face row, since that is where
             the eye lands first. */}
@@ -272,6 +312,36 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               </span>
               <span className="w-full truncate text-center">{t("login.who.other")}</span>
             </button>
+          </div>
+        ) : null}
+
+        {tenantMode === "code" ? (
+          <div className="mt-[14px] flex flex-col gap-[6px]">
+            <label className="flex flex-col gap-[6px]">
+              <span className="text-xs font-semibold text-ink">{t("login.tenantCode")}</span>
+              <TextInput
+                value={tenantCode}
+                dir="ltr"
+                autoComplete="organization"
+                placeholder={t("login.tenantCodeHint")}
+                className="mz-lat"
+                onChange={handleTenantCodeChange}
+              />
+            </label>
+            {tenantCode !== "" && tenantInfo.data ? (
+              <div className="flex items-center justify-between gap-[8px]">
+                <span className="text-2xs text-ink-muted">{tenantInfo.data.name}</span>
+                <button type="button" onClick={handleChangeTenant} className="text-2xs text-ink-muted hover:underline">
+                  {t("login.changeTenant")}
+                </button>
+              </div>
+            ) : tenantNotFound ? (
+              <p role="alert" className="text-2xs font-semibold text-danger-ink">
+                {t("login.tenantNotFound")}
+              </p>
+            ) : (
+              <span className="text-2xs text-ink-faint">{t("login.tenantCodeHint")}</span>
+            )}
           </div>
         ) : null}
 

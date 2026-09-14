@@ -276,6 +276,7 @@ import type {
   LanSessionsListDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
+import { loadTenantCode } from "./session";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -397,16 +398,53 @@ export function useBootstrapSeed() {
   });
 }
 
-/** Pre-login tenant identity (ungated) — the name the login screen and first-run wizard show. */
-export function useTenantInfo(): UseQueryResult<{ name: string }, ApiError> {
+/**
+ * Pre-login tenant identity (ungated) — the name the login screen and
+ * first-run wizard show. `enabled` defaults to `true` (desktop/LAN callers,
+ * where no company code applies); the SaaS login screen passes it explicitly
+ * so the request only fires once a company code is known. The query key
+ * includes the stored code so switching companies doesn't reuse a stale
+ * cached name.
+ */
+export function useTenantInfo(options: { enabled?: boolean } = {}): UseQueryResult<{ name: string }, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<{ name: string }, ApiError>({
-    queryKey: ["tenant"],
+    queryKey: ["tenant", loadTenantCode()],
+    enabled: options.enabled ?? true,
     queryFn: async () => {
       const res = await request("/tenant");
-      if (!res.ok) throw new ApiError(res.status, t("api.theCompanySDetailsCould"));
+      if (!res.ok) {
+        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
+        throw new ApiError(res.status, err.message ?? t("api.theCompanySDetailsCould"));
+      }
       return res.json<{ name: string }>();
+    },
+  });
+}
+
+/**
+ * How this deployment names its tenant (ungated, called before any session
+ * exists): `"subdomain"` when the host itself carries the company (the
+ * platform-hosted default), `"code"` when the login screen must ask for it.
+ * `tenant` is the platform's own record for whatever the request already
+ * resolved to — populated in subdomain mode, `null` in code mode until a
+ * code is typed.
+ */
+export interface PlatformResolveDTO {
+  readonly mode: "subdomain" | "code";
+  readonly tenant: { readonly code: string; readonly nameAr: string; readonly nameEn: string | null } | null;
+}
+
+export function usePlatformResolve(): UseQueryResult<PlatformResolveDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useQuery<PlatformResolveDTO, ApiError>({
+    queryKey: ["platform", "resolve"],
+    queryFn: async () => {
+      const res = await request("/platform/resolve");
+      if (!res.ok) throw new ApiError(res.status, t("api.theCompanySDetailsCould"));
+      return res.json<PlatformResolveDTO>();
     },
   });
 }

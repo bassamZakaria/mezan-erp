@@ -113,3 +113,99 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     expect(onStartWizard).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("LoginScreen — SaaS company code", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("renders the company-code input in code mode", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", tenant: null } }) }),
+    });
+    expect(await screen.findByLabelText("رمز المنشأة")).toBeInTheDocument();
+  });
+
+  it("lower-cases and persists the code as it is typed, then resolves and shows the tenant name", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", tenant: null } }) }),
+    });
+    const input = await screen.findByLabelText("رمز المنشأة");
+    fireEvent.change(input, { target: { value: "CYAG" } });
+    fireEvent.blur(input);
+    expect(input).toHaveValue("cyag");
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("cyag");
+    expect(await screen.findByText("Cyag")).toBeInTheDocument();
+  });
+
+  it("clears the stored code from «تغيير المنشأة»", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", tenant: null } }) }),
+    });
+    const input = await screen.findByLabelText("رمز المنشأة");
+    fireEvent.change(input, { target: { value: "cyag" } });
+    await screen.findByText("Cyag");
+    fireEvent.click(screen.getByRole("button", { name: "تغيير المنشأة" }));
+    expect(screen.getByLabelText("رمز المنشأة")).toHaveValue("");
+    expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
+  });
+
+  it("shows «المنشأة غير موجودة» inline once the typed code fails to resolve", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", tenant: null } }),
+        "GET /tenant": () => ({ status: 404, body: { error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" } }),
+      }),
+    });
+    const input = await screen.findByLabelText("رمز المنشأة");
+    fireEvent.change(input, { target: { value: "ghost" } });
+    fireEvent.blur(input);
+    expect(await screen.findByRole("alert")).toHaveTextContent("المنشأة غير موجودة");
+  });
+
+  it("renders no code field in subdomain mode and shows the resolved tenant name in the header", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({
+          body: { mode: "subdomain", tenant: { code: "cyag", nameAr: "سياج", nameEn: "Cyag" } },
+        }),
+      }),
+    });
+    expect(await screen.findByText("سياج")).toBeInTheDocument();
+    expect(screen.queryByLabelText("رمز المنشأة")).not.toBeInTheDocument();
+  });
+
+  it("blocks a submit with no company code and shows «حدّد رمز المنشأة» without calling the server", async () => {
+    let loginCalled = false;
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", tenant: null } }),
+        "POST /auth/login": () => {
+          loginCalled = true;
+          return { body: testAdminSession };
+        },
+      }),
+    });
+    await screen.findByLabelText("رمز المنشأة");
+    fillPin("123456");
+    expect(await screen.findByRole("alert")).toHaveTextContent("حدّد رمز المنشأة");
+    expect(loginCalled).toBe(false);
+  });
+
+  it("shows the server's 404 TENANT_NOT_FOUND as an inline error when a login attempt itself is refused", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", tenant: null } }),
+        "POST /auth/login": () => ({ status: 404, body: { error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" } }),
+      }),
+    });
+    const input = await screen.findByLabelText("رمز المنشأة");
+    fireEvent.change(input, { target: { value: "ghost" } });
+    fillPin("123456");
+    expect(await screen.findByRole("alert")).toHaveTextContent("المنشأة غير موجودة");
+  });
+});

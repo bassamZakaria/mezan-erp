@@ -116,6 +116,29 @@ export function persistScopeSelection(selection: ScopeSelection): void {
   storage.setItem(SCOPE_SELECTION_STORAGE_KEY, JSON.stringify(selection));
 }
 
+const TENANT_CODE_STORAGE_KEY = "mezan.tenantCode";
+
+/** Persists the SaaS company code, lower-cased, so `authHeaders` can send it as `x-mezan-tenant`. */
+export function persistTenantCode(code: string): void {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  storage.setItem(TENANT_CODE_STORAGE_KEY, code.trim().toLowerCase());
+}
+
+/** The last persisted company code, or `null` when none is stored (subdomain deployments never need one). */
+export function loadTenantCode(): string | null {
+  const storage = getSessionStorage();
+  if (!storage) return null;
+  return storage.getItem(TENANT_CODE_STORAGE_KEY);
+}
+
+/** Clears the stored company code — the «تغيير المنشأة» action. */
+export function clearTenantCode(): void {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  storage.removeItem(TENANT_CODE_STORAGE_KEY);
+}
+
 /**
  * Turns the authenticated {@link Session} into the exact headers the API's
  * permission gate reads (`headerAuthContextResolver` in
@@ -134,7 +157,9 @@ export function persistScopeSelection(selection: ScopeSelection): void {
  * permission code, so it isn't folded into the resolved permission set.
  */
 export function authHeaders(session: Session | null, selection?: ScopeSelection): Record<string, string> {
-  if (!session) return {};
+  const tenantCode = loadTenantCode();
+  const tenantHeaders: Record<string, string> = tenantCode ? { "x-mezan-tenant": tenantCode } : {};
+  if (!session) return tenantHeaders;
   const scope = (s: SessionDTO["branchScope"]): string => (s === "*" ? "*" : s.join(","));
   const inScope = (s: SessionDTO["branchScope"], id: string): boolean => s === "*" || s.includes(id);
   const branchScope =
@@ -144,6 +169,7 @@ export function authHeaders(session: Session | null, selection?: ScopeSelection)
       ? selection.warehouseId
       : scope(session.warehouseScope);
   return {
+    ...tenantHeaders,
     // The token IS the identity. `x-permissions`, `x-user-id` and `x-role-code`
     // used to travel here and the server believed them, so the client decided
     // what it was allowed to do — on the LAN mount, from any device on the shop

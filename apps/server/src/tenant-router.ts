@@ -1,7 +1,8 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
+import type { SqliteOpenOptions } from "@mezan/persistence";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
@@ -17,6 +18,24 @@ export interface TenantRouterOptions {
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
   readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers) => Promise<BackendHandle>;
+  /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
+  readonly connection?: SqliteOpenOptions;
+}
+
+/**
+ * Rejects every request under this middleware with 403 unless it carries
+ * `x-mezan-origin: <secret>` — CloudFront adds this as a custom origin
+ * header, so only traffic through the app's own edge (not a direct hit on
+ * the origin) passes. A caller with no secret configured never applies this.
+ */
+export function requireOriginSecret(secret?: string): MiddlewareHandler {
+  return async (c, next) => {
+    if (!secret) return next();
+    if (c.req.header("x-mezan-origin") !== secret) {
+      return c.json({ error: "ORIGIN_REQUIRED", message: "الوصول غير مسموح من هذا المصدر" }, 403);
+    }
+    return next();
+  };
 }
 
 export interface TenantRouter {
@@ -64,6 +83,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     return createBackend({
       dbPath,
+      connection: options.connection,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
     });

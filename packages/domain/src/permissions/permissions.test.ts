@@ -16,27 +16,37 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("has the documented 268 permissions plus 2 promotion permissions (phase5/full-sales), a new 2-permission projects module (phase11/crm-projects-assets-field), 3 phase4 inventory.count.* permissions, 6 inv/labels-templates-writedown inventory permissions (labels, templates, aging write-down), and 5 admin permissions for the operational acts that had no code of their own, and the 12-permission contracting module — 298 across 21 modules", () => {
-    // `admin.users.unlock`, `admin.devices.view`, `admin.devices.manage`,
-    // `admin.backup.view`, `admin.backup.restore`.
+  it("carries only what the product enforces — 231 permissions across 19 modules (DEC-14)", () => {
+    // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
+    // checks: the whole POS module bar `pos.discount.approve` (which is not a
+    // POS control at all — it guards the discount ceiling on a SALES invoice),
+    // the `dashboard` and `transactions` modules, per-voucher-type `.view`
+    // tiers over a single voucher list, print rights that are renderer-side,
+    // and the approvals DEC-2 made ROLE-based so a permission code could never
+    // honour them.
     //
-    // Clearing a login lockout and freeing a stuck till seat were both gated on
-    // `admin.settings.edit`, which NO seeded role holds — so the person beside
-    // the counter could do neither, and giving them the settings permission to
-    // fix that would also have handed them every colleague's PIN. Restore has
-    // its own pair because it REPLACES the books: it should be grantable to
-    // whoever holds the recovery runbook without every tenant setting alongside.
-    //
-    // 298 = 286 + the contracting module's twelve: the certificate's preparer,
-    // certifier, approver and collector are four different people
-    // (docs/artifacts/mezan-contracting-designs.html §06), plus BOQ view/manage,
-    // variation approval, retention release, and the three خطابات الضمان codes
-    // — the register used to be written under `treasury.cash_voucher.create`,
-    // which put a till cashier in charge of the company's performance bonds.
-    expect(PERMISSIONS).toHaveLength(298);
-    expect(MODULES).toHaveLength(21);
+    // Pinned deliberately. A code added without a route to check it, or a route
+    // deleted while its code stays, moves one of these numbers — which is the
+    // whole point of asserting them.
+    expect(PERMISSIONS).toHaveLength(231);
+    expect(MODULES).toHaveLength(19);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(298);
+    expect(summed).toBe(231);
+  });
+
+  it("keeps `pos.discount.approve`, the one POS code a route actually gates", () => {
+    // The caution DEC-14 attached to "delete the whole pos module": one of the
+    // thirty-eight is checked, by `sales-invoices-routes.ts`, on the invoice
+    // discount ceiling. Deleting it would have taken the ceiling's approval
+    // path with it.
+    const pos = PERMISSIONS.filter((p) => p.module === "pos").map((p) => p.code);
+    expect(pos).toEqual(["pos.discount.approve"]);
+  });
+
+  it("has no module left whose permissions are all gone", () => {
+    for (const mod of MODULES) {
+      expect(PERMISSIONS.some((p) => p.module === mod.id), `${mod.id} has no permissions`).toBe(true);
+    }
   });
 
   it("passes integrity checks (unique codes, resolvable deps, module counts)", () => {
@@ -46,26 +56,28 @@ describe("permission catalog", () => {
   it("flags the documented sensitive permissions", () => {
     expect(isSensitive("sales.invoice.view_cost")).toBe(true);
     expect(isSensitive("hr.employee.view_salary")).toBe(true);
-    expect(isSensitive("hr.employee.view_personal")).toBe(true);
-    expect(isSensitive("pos.delivery.cancel")).toBe(true);
     expect(isSensitive("sales.invoice.view")).toBe(false);
     expect(isSensitive("contracting.certificate.approve")).toBe(true);
     expect(isSensitive("contracting.retention.release")).toBe(true);
     expect(isSensitive("contracting.guarantee.release")).toBe(true);
     expect(isSensitive("contracting.guarantee.manage")).toBe(false);
+    // Five, not seven: `hr.employee.view_personal` and `pos.delivery.cancel`
+    // went with DEC-14 — no route filtered personal fields, and the POS
+    // delivery screen does not exist.
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(7);
+    expect(sensitiveCount).toBe(5);
   });
 
-  it("marks the two platform-admin-only permissions", () => {
+  it("marks the one platform-admin-only permission", () => {
     expect(isPlatformAdminOnly("admin.tenant.settings.edit")).toBe(true);
-    expect(isPlatformAdminOnly("admin.modules.manage")).toBe(true);
     expect(isPlatformAdminOnly("admin.roles.manage")).toBe(false);
-    expect(PERMISSIONS.filter((p) => p.platformAdminOnly)).toHaveLength(2);
+    // `admin.modules.manage` was the second, and it managed nothing:
+    // entitlements arrive in a signed licence file and there is no screen.
+    expect(PERMISSIONS.filter((p) => p.platformAdminOnly)).toHaveLength(1);
   });
 
   it("derives module ownership from the code", () => {
-    expect(getPermission("pos.delivery.cancel")?.module).toBe("pos");
+    expect(getPermission("pos.discount.approve")?.module).toBe("pos");
     expect(getPermission("admin.tenant.settings.edit")?.module).toBe("admin");
     expect(getPermission("cheques.bounce")?.module).toBe("cheques");
   });
@@ -86,8 +98,10 @@ describe("dependency resolution", () => {
   });
 
   it("resolves multiple dependencies of one permission", () => {
+    // There is one voucher list and therefore one `.view`, so the per-type
+    // action depends on the generic one rather than on a `.view` of its own.
     const resolved = resolvePermissions(["treasury.transfer.create"]);
-    expect(resolved.has("treasury.transfer.view")).toBe(true);
+    expect(resolved.has("treasury.cash_voucher.view")).toBe(true);
     expect(resolved.has("treasury.account.view")).toBe(true);
   });
 
@@ -164,7 +178,7 @@ describe("AuthContext.can — scoping", () => {
       warehouseScope: [],
     });
     expect(isTenantAdmin(ctx)).toBe(true);
-    expect(can(ctx, "admin.modules.manage", { branch: "x", warehouse: "y" })).toBe(
+    expect(can(ctx, "admin.tenant.settings.edit", { branch: "x", warehouse: "y" })).toBe(
       true,
     );
     expect(can(ctx, "any.unknown.permission")).toBe(true);

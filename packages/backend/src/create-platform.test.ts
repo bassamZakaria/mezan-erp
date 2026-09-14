@@ -24,10 +24,12 @@ describe("createPlatform", () => {
     expect(business.modules).not.toContain("hr");
     expect(business.modules).not.toContain("manufacturing");
     expect(business.modules).toContain("crm");
-    expect(business.modules).toHaveLength(17);
+    // 15, down from 17: DEC-14 deleted every `dashboard.*` and
+    // `transactions.*` permission, so neither is a module a plan can sell.
+    expect(business.modules).toHaveLength(15);
     const core = plans[0]!;
     expect(core.modules).toEqual(PLATFORM_SEED_PLANS[0]!.modules);
-    expect(core.modules).toHaveLength(11);
+    expect(core.modules).toHaveLength(9);
     platform.close();
   });
 

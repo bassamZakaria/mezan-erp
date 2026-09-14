@@ -61,7 +61,7 @@ const UNGATED = ALL_PERMISSION_CODES.filter((code) => code !== WILDCARD_PERMISSI
 
 describe("the permission catalogue against the routes that check it", () => {
   it("gates a substantial majority of the catalogue", () => {
-    expect(GATED.size).toBeGreaterThan(150);
+    expect(GATED.size).toBeGreaterThan(200);
     expect(ALL_PERMISSION_CODES.length).toBeGreaterThan(GATED.size);
   });
 
@@ -84,31 +84,57 @@ describe("the permission catalogue against the routes that check it", () => {
     ).toEqual([]);
   });
 
-  it("LIMITATION (D116): a large minority of codes gate nothing, so the role editor overstates the product", () => {
-    // Every code below can be ticked in the role editor today and changes
-    // nothing, because no HTTP route consults it. The count is pinned so the
-    // gap cannot quietly grow: adding a code without a route to check it, or
-    // deleting a route that was the only consumer, moves this number.
+  it("D116 closed: what this scanner cannot see is a short, named list, not a large minority", () => {
+    // 89 → 13. DEC-14 deleted the 67 codes that named nothing at all, so what
+    // is left here is not dead catalogue — every one is enforced by something
+    // this scanner cannot read:
     //
-    // `admin.backup.*` are the honest exception and are counted here anyway:
-    // they gate the desktop shell's restore IPC channel, not a Hono route, and
-    // this scanner only reads route sources. Two codes, deliberately left in
-    // the number rather than special-cased, because a scanner with exceptions
-    // is a scanner nobody trusts.
+    //   - inline `can()` inside a handler, where the code is only known once a
+    //     body or an entity is in hand: `sales.invoice.view_cost`,
+    //     `sales.price.override`, `pos.discount.approve` (the invoice discount
+    //     ceiling), `purchases.receipt.edit_cost`, `hr.employee.view_salary`;
+    //   - `attachments/entity-type.ts`, which resolves a permission from the
+    //     entity an attachment hangs on: `purchases.order.edit` is that
+    //     module's `manage` right;
+    //   - a composite read assembled from routes that each gate themselves:
+    //     `purchases.supplier360.view`, `crm.customer360.view`;
+    //   - a ROLE-gated workflow step rather than a permission gate, which is
+    //     what DEC-2 decided approval is: `workflow.approve`/`.reject`;
+    //   - the desktop shell's restore IPC channel, which is not a Hono route at
+    //     all: `admin.backup.view`, `admin.backup.restore`,
+    //     `admin.tenant.settings.edit`.
     //
-    // The contracting module's twelve codes are all gated now — the BOQ,
-    // certificate, retention and guarantee routes each check one — and the
-    // scanner above had to learn to follow a named constant before it could
-    // see them. Each slice that lands must bring this number back DOWN by the
-    // codes it gates.
+    // The count is pinned so the gap cannot quietly grow: adding a code without
+    // anything to check it, or deleting the only consumer of one, moves this
+    // number.
     expect(UNGATED.length).toBeGreaterThan(0);
-    expect(UNGATED.length).toBeLessThanOrEqual(89);
+    expect(UNGATED.length).toBeLessThanOrEqual(13);
   });
 
-  it("LIMITATION (D116): the whole POS module is catalogued and has no route at all", () => {
+  it("keeps exactly one POS code, and it is the one a route checks", () => {
+    // The whole module was catalogued and had no route at all, which is why
+    // DEC-14 deleted it — except that `pos.discount.approve` is not a POS
+    // control: `sales-invoices-routes.ts` checks it on the SALES invoice
+    // discount ceiling, inline rather than through a gate, which is why this
+    // scanner still cannot see it.
     const pos = ALL_PERMISSION_CODES.filter((code) => code.startsWith("pos."));
-    expect(pos.length).toBeGreaterThan(0);
-    for (const code of pos) expect(GATED.has(code), `${code} is gated somewhere`).toBe(false);
+    expect(pos).toEqual(["pos.discount.approve"]);
+  });
+
+  it("gates the per-voucher-type treasury codes DEC-14 kept, so they are controls and not labels", () => {
+    for (const code of [
+      "treasury.customer_refund.create",
+      "treasury.customer_refund.confirm",
+      "treasury.customer_refund.void",
+      "treasury.transfer.create",
+      "treasury.transfer.confirm",
+      "treasury.transfer.void",
+      "contracting.certificate.collect",
+      "sales.return.view_own",
+      "purchases.invoice.view_own",
+    ]) {
+      expect(GATED.has(code), `${code} must gate a route`).toBe(true);
+    }
   });
 
   /** Guards the sales-invoice half of D116: the void route now exists and is gated. */

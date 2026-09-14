@@ -75,6 +75,7 @@ import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import type { CurrencyCheck } from "./currency-policy.js";
 import { tenantDay } from "./tenant-day.js";
 import {
+  createAnyPermissionGate,
   createPermissionGate,
   getAuthContext,
   type AuthContextResolver,
@@ -324,6 +325,25 @@ export function createPurchasesRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  /**
+   * D70 — the `purchases.invoice.view_own` tier, enforced.
+   *
+   * The catalogue grants the tier and `attachments/entity-type.ts` already
+   * treats it as a way of READING a purchase invoice, but every invoice route
+   * gated on `purchases.invoice.view` alone, so a holder of the own-records
+   * tier — which `.create`, `.edit`, `.confirm` and `.void` all imply — was
+   * refused the list with a 403 instead of being narrowed to their own work.
+   *
+   * Unlike a sales return, a purchase invoice records its author
+   * (`PurchaseInvoice.createdBy`), so "own" is the real thing here: the
+   * invoices this caller entered. A caller the session cannot identify sees
+   * nothing rather than everything.
+   */
+  const ownInvoiceVisibilityOnly = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? !can(ctx, "purchases.invoice.view") : false;
+  };
   const resolvePolicy = async (): Promise<PurchasePolicy> => {
     if (!deps.policy) return DEFAULT_PURCHASE_POLICY;
     return typeof deps.policy === "function" ? await deps.policy() : deps.policy;
@@ -738,6 +758,10 @@ export function createPurchasesRoutes(
       warehouseScopeOf(c),
       (i) => i.warehouseId,
     );
+    if (ownInvoiceVisibilityOnly(c)) {
+      const me = getAuthContext(c)?.userId;
+      rows = me ? rows.filter((inv) => inv.createdBy === me) : [];
+    }
     const { status, supplierId, fromDate, toDate, branchId, warehouseId, search } = filter;
     if (supplierId) rows = rows.filter((inv) => inv.supplierId === supplierId);
     if (fromDate) rows = rows.filter((inv) => inv.date >= fromDate);
@@ -775,7 +799,7 @@ export function createPurchasesRoutes(
     return { rows, allocations };
   }
 
-  app.get("/invoices", gate("purchases.invoice.view"), async (c) => {
+  app.get("/invoices", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { rows, allocations } = await listFilteredInvoices(c, parsed.data);
@@ -783,7 +807,7 @@ export function createPurchasesRoutes(
   });
 
   /** Chip counts over the whole filtered set, ignoring the status filter (R1.1). */
-  app.get("/invoices/counts", gate("purchases.invoice.view"), async (c) => {
+  app.get("/invoices/counts", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { status: _ignored, ...withoutStatus } = parsed.data;
@@ -813,7 +837,7 @@ export function createPurchasesRoutes(
   });
 
   /** The KPI strip, summed in `Money` over the whole filtered set (R1.1). */
-  app.get("/invoices/stats", gate("purchases.invoice.view"), async (c) => {
+  app.get("/invoices/stats", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { rows, allocations } = await listFilteredInvoices(c, parsed.data);
@@ -842,9 +866,17 @@ export function createPurchasesRoutes(
     });
   });
 
-  app.get("/invoices/:id", gate("purchases.invoice.view"), async (c) => {
+  /**
+   * Somebody else's purchase invoice, to an own-records holder, is a 404 and
+   * not a 403: whether an invoice they may not see exists at all is itself
+   * information, and the list already hides it.
+   */
+  const hiddenFromOwn = (c: Context, invoice: PurchaseInvoice) =>
+    ownInvoiceVisibilityOnly(c) && invoice.createdBy !== getAuthContext(c)?.userId;
+
+  app.get("/invoices/:id", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serializeInvoice(invoice, (await allocatedByInvoice([invoice.id])).get(invoice.id)));
   });
 
@@ -858,9 +890,9 @@ export function createPurchasesRoutes(
    * is measured as received minus what still remains, never as a sum over
    * surviving layers.
    */
-  app.get("/invoices/:id/fulfilment", gate("purchases.invoice.view"), async (c) => {
+  app.get("/invoices/:id/fulfilment", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
 
     const receipt = invoice.receiptId ? await deps.receipts.findById(invoice.receiptId) : null;
     const sourceDocId = receipt ? receipt.id : invoice.status === "confirmed" ? invoice.id : null;

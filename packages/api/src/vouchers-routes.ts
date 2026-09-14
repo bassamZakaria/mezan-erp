@@ -29,6 +29,7 @@ import {
   AllocationAlreadyReversedError,
   auditBranchFromScope,
   branchScopedAuditSink,
+  can,
   type VoucherServiceDeps,
   type VoucherDocument,
   type VoucherAllocation,
@@ -43,7 +44,7 @@ import {
   voucherListQuerySchema,
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
-import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createPermissionGate, getAuthContext, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, withinScope } from "./permission-gate.js";
 import { tenantDay } from "./tenant-day.js";
 
 /**
@@ -220,12 +221,86 @@ function handleDomainError(c: Context, err: unknown): Response {
  */
 const gateActorRoles = callerRoleCodes;
 
+/**
+ * The voucher types that carry a permission of their own, and its prefix.
+ *
+ * There is ONE voucher document and one voucher list, so there is one `.view`
+ * — `treasury.cash_voucher.view`. What a shop separates is not the reading but
+ * the ACT: handing cash back to a customer, and moving money between the
+ * company's own treasuries, are decisions kept away from the counter. Every
+ * voucher route used to gate every type on `treasury.cash_voucher.*`, so the
+ * two codes below gated nothing at all and a cashier who could raise a
+ * collection could also raise a refund.
+ *
+ * The gate is "EITHER the generic code OR this type's own": a holder of only
+ * `treasury.customer_refund.create` can raise a refund and nothing else, and a
+ * cashier holding `treasury.cash_voucher.create` keeps every type they had.
+ */
+const VOUCHER_TYPE_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
+  customer_refund: "treasury.customer_refund",
+  inter_treasury_transfer: "treasury.transfer",
+};
+
+/**
+ * المقاولات — collecting a progress certificate.
+ *
+ * A certificate is collected by receiving the customer's money against the
+ * invoice the certificate generated, and that voucher is the one that carries
+ * the contract's `projectId`. `contracting.certificate.collect` named that act
+ * and gated nothing, so it rode on `treasury.cash_voucher.create` — which
+ * FINANCE_CONTRACTING, the role whose whole job this is, does not hold, while
+ * every till cashier does.
+ */
+const CERTIFICATE_COLLECT = "contracting.certificate.collect";
+const CERTIFICATE_COLLECTION_TYPES: ReadonlySet<string> = new Set(["customer_collection", "customer_advance"]);
+
+type VoucherAction = "create" | "confirm" | "void";
+
+/** Every code that authorises `action` on a voucher of this type. Any one suffices. */
+function voucherPermissions(
+  action: VoucherAction,
+  voucherType: string | null | undefined,
+  projectId: string | null | undefined,
+): string[] {
+  const codes = [`treasury.cash_voucher.${action}`];
+  const prefix = voucherType ? VOUCHER_TYPE_PERMISSION_PREFIX[voucherType] : undefined;
+  if (prefix) codes.push(`${prefix}.${action}`);
+  if (action !== "void" && projectId && voucherType && CERTIFICATE_COLLECTION_TYPES.has(voucherType)) {
+    codes.push(CERTIFICATE_COLLECT);
+  }
+  return codes;
+}
+
+/**
+ * The 403 for a caller who cleared the route's broad gate but holds none of
+ * the codes THIS voucher's type needs, or null when they may proceed.
+ *
+ * The middleware gate has to admit every code any type might need — it runs
+ * before the body is parsed and before the document is loaded — so without
+ * this second, narrow check a `treasury.customer_refund.create` holder would
+ * be able to raise any voucher at all, which is a wider grant than the one the
+ * catalogue describes.
+ */
+function refuseVoucherType(c: Context, permissions: readonly string[]): Response | null {
+  const ctx = getAuthContext(c);
+  if (ctx && permissions.some((permission) => can(ctx, permission))) return null;
+  return c.json(
+    {
+      error: "PERMISSION_DENIED",
+      permission: permissions[permissions.length - 1],
+      message: `هذا الإجراء يتطلب صلاحية «${permissions[permissions.length - 1]}» غير المتاحة لحسابك.`,
+    },
+    403,
+  );
+}
+
 export function createVouchersRoutes(
   deps: VoucherRoutesDeps,
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
 
   function serviceFor(c: Context): VoucherService {
@@ -427,12 +502,22 @@ export function createVouchersRoutes(
     });
   });
 
-  app.post("/", gate("treasury.cash_voucher.create"), async (c) => {
+  app.post(
+    "/",
+    gateAny(
+      "treasury.cash_voucher.create",
+      "treasury.customer_refund.create",
+      "treasury.transfer.create",
+      CERTIFICATE_COLLECT,
+    ),
+    async (c) => {
     const parsed = createVoucherSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
+    if (refusal) return refusal;
     try {
       const svc = serviceFor(c);
       /**
@@ -474,7 +559,8 @@ export function createVouchersRoutes(
     } catch (err) {
       return handleDomainError(c, err);
     }
-  });
+    },
+  );
 
   /**
    * D81 — a voucher whose payment method is «شيك» raised a cheque the register
@@ -506,7 +592,30 @@ export function createVouchersRoutes(
     });
   }
 
-  app.post("/:id/confirm", gate("treasury.cash_voucher.confirm"), async (c) => {
+  /**
+   * The per-type refusal for a voucher already in the store: `confirm`,
+   * `cancel` and `reverse` name the voucher by id, so the type comes off the
+   * stored document rather than off a request body that does not carry one.
+   *
+   * A voucher that is not there at all is left to the handler, so a missing id
+   * keeps answering the domain's own 404 rather than gaining a second shape.
+   */
+  async function refuseStoredVoucher(c: Context, id: string, action: VoucherAction): Promise<Response | null> {
+    const doc = await serviceFor(c).findById(id);
+    if (!doc) return null;
+    const line = voucherLine(doc);
+    return refuseVoucherType(c, voucherPermissions(action, line.voucherType, line.projectId ?? null));
+  }
+
+  app.post(
+    "/:id/confirm",
+    gateAny(
+      "treasury.cash_voucher.confirm",
+      "treasury.customer_refund.confirm",
+      "treasury.transfer.confirm",
+      CERTIFICATE_COLLECT,
+    ),
+    async (c) => {
     let body: unknown = {};
     try {
       body = await c.req.json();
@@ -517,6 +626,8 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const refusal = await refuseStoredVoucher(c, c.req.param("id"), "confirm");
+    if (refusal) return refusal;
     try {
       const ctx = getAuthContext(c);
       const result = await serviceFor(c).confirmVoucher(c.req.param("id"), {
@@ -528,18 +639,28 @@ export function createVouchersRoutes(
     } catch (err) {
       return handleDomainError(c, err);
     }
-  });
+    },
+  );
 
-  app.post("/:id/cancel", gate("treasury.cash_voucher.void"), async (c) => {
-    try {
-      const doc = await serviceFor(c).cancelVoucher(c.req.param("id"));
-      return c.json(serialize(doc));
-    } catch (err) {
-      return handleDomainError(c, err);
-    }
-  });
+  app.post(
+    "/:id/cancel",
+    gateAny("treasury.cash_voucher.void", "treasury.customer_refund.void", "treasury.transfer.void"),
+    async (c) => {
+      const refusal = await refuseStoredVoucher(c, c.req.param("id"), "void");
+      if (refusal) return refusal;
+      try {
+        const doc = await serviceFor(c).cancelVoucher(c.req.param("id"));
+        return c.json(serialize(doc));
+      } catch (err) {
+        return handleDomainError(c, err);
+      }
+    },
+  );
 
-  app.post("/:id/reverse", gate("treasury.cash_voucher.void"), async (c) => {
+  app.post(
+    "/:id/reverse",
+    gateAny("treasury.cash_voucher.void", "treasury.customer_refund.void", "treasury.transfer.void"),
+    async (c) => {
     let body: unknown = {};
     try {
       body = await c.req.json();
@@ -550,6 +671,8 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const refusal = await refuseStoredVoucher(c, c.req.param("id"), "void");
+    if (refusal) return refusal;
     try {
       const result = await serviceFor(c).reverseVoucher(c.req.param("id"), {
         reversalId: parsed.data.reversalId ?? idGen(),
@@ -560,7 +683,8 @@ export function createVouchersRoutes(
     } catch (err) {
       return handleDomainError(c, err);
     }
-  });
+    },
+  );
 
   app.get("/:id/allocations", gate("treasury.allocation.view"), async (c) => {
     const svc = serviceFor(c);

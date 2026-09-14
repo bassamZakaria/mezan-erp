@@ -5,10 +5,10 @@
  * permissions + entitlements engines rather than re-deriving either).
  *
  * A handful of catalog modules are core platform surface, not a licensable
- * module in `Entitlements.activeModules` (dashboard, workflow, admin, audit,
- * transactions) — those are always visible. Everything else must match an
- * active module, via `CATALOG_TO_ENTITLEMENT_MODULE` where the id differs
- * (the catalog's `cheques` module is the `financial_papers` entitlement).
+ * module in `Entitlements.activeModules` (workflow, admin, audit) — those are
+ * always visible. Everything else must match an active module, via
+ * `CATALOG_TO_ENTITLEMENT_MODULE` where the id differs (the catalog's
+ * `cheques` module is the `financial_papers` entitlement).
  */
 
 import { hasModule, type Entitlements } from "../entitlements/entitlements.js";
@@ -16,11 +16,9 @@ import { MODULES, PERMISSIONS, type ModuleDef, type PermissionDef } from "./cata
 
 /** Catalog module ids that are core platform surface, never entitlement-gated. */
 const ALWAYS_LICENSED_MODULES: ReadonlySet<string> = new Set([
-  "dashboard",
   "workflow",
   "admin",
   "audit",
-  "transactions",
 ]);
 
 /** Catalog module id -> entitlement module id, only where they differ. */

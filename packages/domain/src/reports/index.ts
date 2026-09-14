@@ -96,6 +96,12 @@ export {
   type StockLevelStatus,
 } from "./inventory-stock-levels.js";
 export {
+  createGoodsInTransitReport,
+  type GoodsInTransitContext,
+  type GoodsInTransitParams,
+  type GoodsInTransitRow,
+} from "./goods-in-transit.js";
+export {
   createInventoryMovementReport,
   type InventoryMovementContext,
   type InventoryMovementParams,

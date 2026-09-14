@@ -13,6 +13,7 @@ import {
   createPurchasesBySupplierReport,
   createPurchasesByItemReport,
   createInventoryStockLevelsReport,
+  createGoodsInTransitReport,
   createInventoryMovementReport,
   createInventoryLedgerReport,
   createInventoryValuationReport,
@@ -578,6 +579,13 @@ export function createReportsRoutes(
 
   app.get("/inventory/stock-levels", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryStockLevelsReport();
+    const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
+    const snapshots = withinScope(allSnapshots, await stockScopeOf(c), (s) => s.warehouseId);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, warehouses }));
+  });
+
+  app.get("/inventory/goods-in-transit", gate("inventory.stock.view"), async (c) => {
+    const definition = createGoodsInTransitReport();
     const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
     const snapshots = withinScope(allSnapshots, await stockScopeOf(c), (s) => s.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, warehouses }));

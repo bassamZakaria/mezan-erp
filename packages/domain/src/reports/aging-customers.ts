@@ -13,7 +13,9 @@ import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch
  * 120 يوم) as of a snapshot date, from every live (confirmed/partially-paid/
  * paid) `SalesInvoice`'s own `dueDate` and outstanding balance
  * (`grandTotal − amountPaid`, using the SAME `computeInvoiceTotals` and
- * `amountPaid` the invoice screen and `recordPayment` use). "جاري" absorbs
+ * `amountPaid` the invoice screen uses — `applyAllocatedSettlement` is the
+ * single writer of that field; the `recordPayment` this once named is gone).
+ * "جاري" absorbs
  * both not-yet-due invoices and the first 30 days past due — the
  * conventional AR aging convention.
  */

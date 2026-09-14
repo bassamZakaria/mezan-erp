@@ -245,6 +245,7 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "report-purchases-by-supplier": PackageSearch,
   "report-purchases-by-item": ListOrdered,
   "report-inventory-stock-levels": Container,
+  "report-inventory-goods-in-transit": Container,
   "report-inventory-movement": Shuffle,
   "report-inventory-ledger": BookOpen,
   "report-inventory-valuation": CircleDollarSign,

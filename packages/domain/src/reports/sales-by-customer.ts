@@ -13,7 +13,8 @@ import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch
  * customers by revenue and outstanding balance. Revenue is tax-inclusive
  * (`grandTotal`) per the catalog's "عرض الإيرادات: شامل/غير شامل الضريبة"
  * toggle; outstanding is the invoice's own `total − amountPaid`, the SAME
- * figure `recordPayment` maintains — no separate AR sub-ledger required.
+ * figure `applyAllocatedSettlement` maintains from the allocation sub-ledger
+ * (the `recordPayment` this once named is gone — DEC-3).
  */
 
 export interface SalesByCustomerContext {

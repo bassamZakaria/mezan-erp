@@ -131,6 +131,14 @@ resource "aws_cloudfront_distribution" "main" {
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
+
+    # requireOriginSecret (apps/server/src/tenant-router.ts) 403s every /api/*
+    # request without this header, so a direct hit on the API Gateway
+    # endpoint — skipping CloudFront — is refused.
+    custom_header {
+      name  = "x-mezan-origin"
+      value = random_password.origin_secret.result
+    }
   }
 
   default_cache_behavior {

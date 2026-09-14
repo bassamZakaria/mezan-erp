@@ -46,6 +46,13 @@ export TF_VAR_platform_owner_password='…'
 It seeds the platform owner on the first start of the server and is then
 ignored on every later apply, so changing the password in the console sticks.
 
+`origin_secret` needs no variable: `secrets.tf` generates it with
+`random_password` and stores it in SSM, `compute.tf` injects it into the app
+container as `MEZAN_ORIGIN_SECRET`, and `cdn.tf` sends it on every CloudFront
+request to the API origin as `x-mezan-origin`. A request that reaches the API
+Gateway endpoint directly — bypassing CloudFront — carries no such header and
+gets a 403.
+
 ## Applying
 
 ```sh

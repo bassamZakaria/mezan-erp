@@ -159,6 +159,10 @@ resource "aws_ecs_task_definition" "app" {
           name      = "MEZAN_PLATFORM_OWNER_PASSWORD"
           valueFrom = aws_ssm_parameter.platform_owner_password.arn
         },
+        {
+          name      = "MEZAN_ORIGIN_SECRET"
+          valueFrom = aws_ssm_parameter.origin_secret.arn
+        },
       ]
 
       healthCheck = {

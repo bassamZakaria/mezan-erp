@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button, Field, MoneyInput } from "@mezan/ui";
+import { Button, Field, TextInput } from "@mezan/ui";
 import { MODULE_CATALOG, MODULES } from "@mezan/domain";
 import type { PlanCreateRequestDTO, PlanDTO, PlanUpdateRequestDTO } from "@mezan/contracts";
 import {
@@ -16,8 +16,11 @@ import {
 } from "../settings/form-controls";
 import { moduleLabel } from "../domain-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { PlatformApiError, usePlatformApi } from "./api";
+import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 import { PLANS_QUERY_KEY, usePlansQuery, useRetirePlan } from "./PlansPage";
+
+/** Wire format for a plan price (`positiveDecimalString`, packages/contracts/src/platform.ts). */
+const PRICE_PATTERN = /^\d+(\.\d{1,6})?$/;
 
 /** `MODULE_CATALOG` ids are entitlement ids; the permission catalog's `MODULES` keys its one differing entry as `cheques`. */
 const CATALOG_MODULE_ID: Readonly<Record<string, string>> = { financial_papers: "cheques" };
@@ -38,8 +41,8 @@ interface Draft {
   seatsIncluded: number;
   branchesIncluded: number;
   warehousesIncluded: number;
-  priceMonthly: number | null;
-  priceYearly: number | null;
+  priceMonthly: string;
+  priceYearly: string;
   trialDays: number;
   isPublic: boolean;
   sortOrder: number;
@@ -54,8 +57,8 @@ function blankDraft(): Draft {
     seatsIncluded: 1,
     branchesIncluded: 1,
     warehousesIncluded: 1,
-    priceMonthly: null,
-    priceYearly: null,
+    priceMonthly: "",
+    priceYearly: "",
     trialDays: 0,
     isPublic: true,
     sortOrder: 0,
@@ -71,8 +74,8 @@ function draftOf(plan: PlanDTO): Draft {
     seatsIncluded: plan.seatsIncluded,
     branchesIncluded: plan.branchesIncluded,
     warehousesIncluded: plan.warehousesIncluded,
-    priceMonthly: Number(plan.priceMonthly),
-    priceYearly: Number(plan.priceYearly),
+    priceMonthly: plan.priceMonthly,
+    priceYearly: plan.priceYearly,
     trialDays: plan.trialDays,
     isPublic: plan.isPublic,
     sortOrder: plan.sortOrder,
@@ -85,19 +88,21 @@ function validate(draft: Draft, isNew: boolean): AppTranslationKey | null {
   }
   if (draft.nameAr.trim() === "" || draft.nameEn.trim() === "") return "platform.plans.editor.nameRequired";
   if (draft.modules.length === 0) return "platform.plans.editor.modulesRequired";
-  if (draft.priceMonthly === null || draft.priceYearly === null) return "platform.plans.editor.priceRequired";
+  if (!PRICE_PATTERN.test(draft.priceMonthly) || !PRICE_PATTERN.test(draft.priceYearly)) {
+    return "platform.plans.editor.priceRequired";
+  }
   return null;
 }
 
 function useCreatePlan() {
+  const { t } = useAppTranslation();
   const { request } = usePlatformApi();
   const queryClient = useQueryClient();
   return useMutation<PlanDTO, PlatformApiError, PlanCreateRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/plans", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new PlatformApiError(res.status, err.message ?? "create-failed");
+        throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.plans.editor.saveFailed"));
       }
       return res.json<PlanDTO>();
     },
@@ -108,14 +113,14 @@ function useCreatePlan() {
 }
 
 function useUpdatePlan() {
+  const { t } = useAppTranslation();
   const { request } = usePlatformApi();
   const queryClient = useQueryClient();
   return useMutation<PlanDTO, PlatformApiError, { id: string; body: PlanUpdateRequestDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/plans/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new PlatformApiError(res.status, err.message ?? "update-failed");
+        throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.plans.editor.saveFailed"));
       }
       return res.json<PlanDTO>();
     },
@@ -144,6 +149,14 @@ export function PlanEditor() {
   const [draft, setDraft] = useState<Draft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
   const seededRef = useRef(false);
+  const priceMonthlyId = useId();
+  const priceYearlyId = useId();
+
+  /** A different `editingId` (a fresh navigation between two plans' editors, or in from "new") starts a fresh, unseeded draft — otherwise the previous plan's fields would linger. */
+  useEffect(() => {
+    seededRef.current = false;
+    setDraft(blankDraft());
+  }, [editingId]);
 
   useEffect(() => {
     if (seededRef.current) return;
@@ -167,8 +180,8 @@ export function PlanEditor() {
       seatsIncluded: draft.seatsIncluded,
       branchesIncluded: draft.branchesIncluded,
       warehousesIncluded: draft.warehousesIncluded,
-      priceMonthly: String(draft.priceMonthly),
-      priceYearly: String(draft.priceYearly),
+      priceMonthly: draft.priceMonthly,
+      priceYearly: draft.priceYearly,
       trialDays: draft.trialDays,
       isPublic: draft.isPublic,
       sortOrder: draft.sortOrder,
@@ -233,20 +246,26 @@ export function PlanEditor() {
       <FormColumns
         aside={
           <SectionCard title={t("platform.plans.editor.section.pricing")} columns={1}>
-            <Field label={t("platform.plans.editor.field.priceMonthly")}>
-              <MoneyInput
-                aria-label={t("platform.plans.editor.field.priceMonthly")}
+            <Field label={t("platform.plans.editor.field.priceMonthly")} htmlFor={priceMonthlyId}>
+              <TextInput
+                id={priceMonthlyId}
+                dir="ltr"
+                numeric
+                inputMode="decimal"
                 value={draft.priceMonthly}
                 disabled={readOnly}
-                onChange={(v) => setDraft((d) => ({ ...d, priceMonthly: v }))}
+                onChange={(e) => setDraft((d) => ({ ...d, priceMonthly: e.target.value }))}
               />
             </Field>
-            <Field label={t("platform.plans.editor.field.priceYearly")}>
-              <MoneyInput
-                aria-label={t("platform.plans.editor.field.priceYearly")}
+            <Field label={t("platform.plans.editor.field.priceYearly")} htmlFor={priceYearlyId}>
+              <TextInput
+                id={priceYearlyId}
+                dir="ltr"
+                numeric
+                inputMode="decimal"
                 value={draft.priceYearly}
                 disabled={readOnly}
-                onChange={(v) => setDraft((d) => ({ ...d, priceYearly: v }))}
+                onChange={(e) => setDraft((d) => ({ ...d, priceYearly: e.target.value }))}
               />
             </Field>
             <NumberField
@@ -322,6 +341,7 @@ export function PlanEditor() {
             label={t("platform.plans.editor.field.modules")}
             options={moduleOptions(t)}
             value={draft.modules}
+            disabled={readOnly}
             onChange={(v) => setDraft((d) => ({ ...d, modules: v }))}
           />
         </SectionCard>

@@ -7320,6 +7320,8 @@ const webAr = {
   "platform.operators.form.save": "إنشاء",
   "platform.operators.form.saving": "جارٍ الإنشاء…",
   "platform.operators.form.saveFailed": "تعذّر إنشاء المشغّل.",
+  "platform.operators.deactivateFailed": "تعذّر تعطيل المشغّل.",
+  "platform.error.validation": "تحقق من الحقول المدخلة.",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -14644,6 +14646,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "platform.operators.form.save": "Create",
   "platform.operators.form.saving": "Creating…",
   "platform.operators.form.saveFailed": "Could not create the operator.",
+  "platform.operators.deactivateFailed": "Could not deactivate the operator.",
+  "platform.error.validation": "Check the fields you entered.",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

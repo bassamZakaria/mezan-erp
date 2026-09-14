@@ -4,7 +4,7 @@ import { Button, DocumentList, SidePanel, StatusPill, type DocumentListColumn, t
 import type { CreatePlatformUserRequestDTO, PlatformRoleDTO, PlatformUserDTO, PlatformUserStatusDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { PlatformApiError, usePlatformApi } from "./api";
+import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 
 const OPERATORS_QUERY_KEY = ["platform", "operators"] as const;
 
@@ -19,27 +19,28 @@ const STATUS_KEY: Record<PlatformUserStatusDTO, AppTranslationKey> = {
 const STATUS_TONE: Record<PlatformUserStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
 
 function useOperatorsQuery() {
+  const { t } = useAppTranslation();
   const { request, session } = usePlatformApi();
   return useQuery<PlatformUserDTO[], PlatformApiError>({
     queryKey: OPERATORS_QUERY_KEY,
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/users");
-      if (!res.ok) throw new PlatformApiError(res.status, "load-failed");
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.operators.loadFailed"));
       return res.json<PlatformUserDTO[]>();
     },
   });
 }
 
 function useCreateOperator() {
+  const { t } = useAppTranslation();
   const { request } = usePlatformApi();
   const queryClient = useQueryClient();
   return useMutation<PlatformUserDTO, PlatformApiError, CreatePlatformUserRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/users", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new PlatformApiError(res.status, err.message ?? "create-failed");
+        throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.operators.form.saveFailed"));
       }
       return res.json<PlatformUserDTO>();
     },
@@ -50,14 +51,14 @@ function useCreateOperator() {
 }
 
 function useDeactivateOperator() {
+  const { t } = useAppTranslation();
   const { request } = usePlatformApi();
   const queryClient = useQueryClient();
   return useMutation<PlatformUserDTO, PlatformApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/users/${encodeURIComponent(id)}/deactivate`, { method: "POST" });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new PlatformApiError(res.status, err.message ?? "deactivate-failed");
+        throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.operators.deactivateFailed"));
       }
       return res.json<PlatformUserDTO>();
     },
@@ -99,6 +100,12 @@ export function OperatorsPage() {
     setPanelOpen(true);
   }
 
+  /** Clears the password draft on both a successful create and a dismissed panel — it must never linger in memory once the form is done with it. */
+  function closePanel() {
+    setPanelOpen(false);
+    setDraft(blankDraft());
+  }
+
   async function handleSave() {
     setFormError(null);
     if (draft.email.trim() === "" || draft.password.length < 12) {
@@ -107,7 +114,7 @@ export function OperatorsPage() {
     }
     try {
       await createOperator.mutateAsync({ email: draft.email.trim().toLowerCase(), password: draft.password, role: draft.role });
-      setPanelOpen(false);
+      closePanel();
     } catch (err) {
       setFormError(err instanceof PlatformApiError ? err.message : t("platform.operators.form.saveFailed"));
     }
@@ -120,7 +127,7 @@ export function OperatorsPage() {
     try {
       await deactivateOperator.mutateAsync(user.id);
     } catch (err) {
-      setRowError(err instanceof PlatformApiError ? err.message : t("platform.operators.loadFailed"));
+      setRowError(err instanceof PlatformApiError ? err.message : t("platform.operators.deactivateFailed"));
     } finally {
       setDeactivatingId(null);
     }
@@ -182,7 +189,7 @@ export function OperatorsPage() {
         }
       />
 
-      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("platform.operators.form.title")}>
+      <SidePanel open={panelOpen} onClose={closePanel} title={t("platform.operators.form.title")}>
         <div className="flex flex-col gap-[16px]">
           {formError ? (
             <div className="rounded-md border border-danger bg-danger-soft px-[12px] py-[9px] text-[12.5px] text-danger-ink">
@@ -199,6 +206,7 @@ export function OperatorsPage() {
           <TextField
             label={t("platform.operators.form.password")}
             type="password"
+            autoComplete="new-password"
             value={draft.password}
             onChange={(v) => setDraft((d) => ({ ...d, password: v }))}
           />
@@ -213,7 +221,7 @@ export function OperatorsPage() {
           />
 
           <div className="flex justify-end gap-[9px] border-t border-border pt-[14px]">
-            <Button variant="ghost" onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
+            <Button variant="ghost" onClick={closePanel}>{t("common.cancel")}</Button>
             <Button variant="primary" disabled={createOperator.isPending} onClick={() => void handleSave()}>
               {createOperator.isPending ? t("platform.operators.form.saving") : t("platform.operators.form.save")}
             </Button>

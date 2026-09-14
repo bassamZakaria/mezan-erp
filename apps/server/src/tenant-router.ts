@@ -1,6 +1,7 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import type { SqliteOpenOptions } from "@mezan/persistence";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
@@ -22,6 +23,12 @@ export interface TenantRouterOptions {
   readonly connection?: SqliteOpenOptions;
 }
 
+function safeEqual(provided: string, secret: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /**
  * Rejects every request under this middleware with 403 unless it carries
  * `x-mezan-origin: <secret>` — CloudFront adds this as a custom origin
@@ -31,7 +38,7 @@ export interface TenantRouterOptions {
 export function requireOriginSecret(secret?: string): MiddlewareHandler {
   return async (c, next) => {
     if (!secret) return next();
-    if (c.req.header("x-mezan-origin") !== secret) {
+    if (!safeEqual(c.req.header("x-mezan-origin") ?? "", secret)) {
       return c.json({ error: "ORIGIN_REQUIRED", message: "الوصول غير مسموح من هذا المصدر" }, 403);
     }
     return next();
@@ -111,6 +118,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     if (err instanceof Error && err.message === "TENANT_NOT_FOUND") {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
+    console.error(err);
     return c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 

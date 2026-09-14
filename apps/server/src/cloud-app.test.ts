@@ -1,17 +1,49 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { Context } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { parseEnv, type CloudEnv } from "./env.js";
 
 const T = "2026-01-15T00:00:00.000Z";
 
+const backendCloseSpies = vi.hoisted(() => [] as Array<ReturnType<typeof vi.fn>>);
+const dunningStopSpies = vi.hoisted(() => [] as Array<ReturnType<typeof vi.fn>>);
+
+vi.mock("@mezan/backend", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@mezan/backend")>();
+  return {
+    ...actual,
+    createBackend: async (opts: Parameters<typeof actual.createBackend>[0]) => {
+      const handle = await actual.createBackend(opts);
+      const close = vi.fn(handle.close);
+      backendCloseSpies.push(close);
+      return { ...handle, close };
+    },
+  };
+});
+
+vi.mock("./dunning.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./dunning.js")>();
+  return {
+    ...actual,
+    startDunningTimer: (...args: Parameters<typeof actual.startDunningTimer>) => {
+      const timer = actual.startDunningTimer(...args);
+      const stop = vi.fn(timer.stop);
+      dunningStopSpies.push(stop);
+      return { stop };
+    },
+  };
+});
+
 const apps: CloudApp[] = [];
 const dirs: string[] = [];
 afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  backendCloseSpies.length = 0;
+  dunningStopSpies.length = 0;
 });
 
 function tempDir(prefix: string): string {
@@ -56,9 +88,36 @@ async function platformLogin(app: CloudApp, email: string, password: string): Pr
   return body.token;
 }
 
+async function provisionCyag(app: CloudApp, token: string): Promise<{ tenant: { dbFile: string }; adminEmail: string; adminPin: string }> {
+  const res = await app.root.fetch(
+    new Request("http://cloud.internal/api/platform/tenants", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        code: "cyag",
+        nameAr: "سياج",
+        ownerEmail: "owner@cyag.example",
+        ownerNameAr: "محمد الشهابي",
+        planId: "PLAN-CORE",
+        billingCycle: "monthly",
+        trial: false,
+      }),
+    }),
+  );
+  expect(res.status).toBe(201);
+  return (await res.json()) as { tenant: { dbFile: string }; adminEmail: string; adminPin: string };
+}
+
 describe("createCloudApp", () => {
   it("answers GET /healthz with 200", async () => {
     const app = await boot(testEnv());
+    const res = await app.root.fetch(new Request("http://cloud.internal/healthz"));
+    expect(res.status).toBe(200);
+  });
+
+  it("answers /healthz before authMiddleware runs, even with a password configured", async () => {
+    const authMiddleware = async (c: Context) => c.text("Unauthorized", 401);
+    const app = await boot(testEnv(), { authMiddleware });
     const res = await app.root.fetch(new Request("http://cloud.internal/healthz"));
     expect(res.status).toBe(200);
   });
@@ -95,24 +154,7 @@ describe("createCloudApp", () => {
     const env = testEnv();
     const app = await boot(env);
     const token = await platformLogin(app, "owner@mezan.local", "owner-password-123");
-
-    const provisionRes = await app.root.fetch(
-      new Request("http://cloud.internal/api/platform/tenants", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          code: "cyag",
-          nameAr: "سياج",
-          ownerEmail: "owner@cyag.example",
-          ownerNameAr: "محمد الشهابي",
-          planId: "PLAN-CORE",
-          billingCycle: "monthly",
-          trial: false,
-        }),
-      }),
-    );
-    expect(provisionRes.status).toBe(201);
-    const provisioned = (await provisionRes.json()) as { tenant: { dbFile: string }; adminEmail: string; adminPin: string };
+    const provisioned = await provisionCyag(app, token);
 
     expect(existsSync(path.join(env.platformDir, provisioned.tenant.dbFile))).toBe(true);
 
@@ -197,35 +239,55 @@ describe("createCloudApp", () => {
     expect(start2).not.toHaveBeenCalled();
   });
 
-  it("close() stops the backup timer and closes without leaving handles open", async () => {
+  it("close() is idempotent: called twice, it stops the timers once and closes every cached tenant backend once", async () => {
     const stop = vi.fn();
     const start = vi.fn(() => stop);
     const env = testEnv();
     const app = await createCloudApp(env, { now: () => new Date(T), backups: { start } });
+
+    const token = await platformLogin(app, "owner@mezan.local", "owner-password-123");
+    await provisionCyag(app, token);
+    expect(backendCloseSpies).toHaveLength(1);
+
     await app.close();
+    await app.close();
+
     expect(stop).toHaveBeenCalledTimes(1);
-    // Closed twice would throw if close() were not idempotent-safe at the
-    // platform/router layer; this call proves nothing was left half-open.
+    expect(dunningStopSpies[0]).toHaveBeenCalledTimes(1);
+    expect(backendCloseSpies[0]).toHaveBeenCalledTimes(1);
   });
 
-  it("serves the built web bundle at / with any injected transform applied", async () => {
-    const app = await boot(testEnv(), { transformIndexHtml: (html) => html.replace("مزان", "مزان-تجريبي") });
-    const res = await app.root.fetch(new Request("http://cloud.internal/"));
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain("مزان-تجريبي");
+  describe("static bundle", () => {
+    it("serves the built web bundle at / with any injected transform applied, when present", async () => {
+      const app = await boot(testEnv(), { transformIndexHtml: (html) => html.replace("مزان", "مزان-تجريبي") });
+      const res = await app.root.fetch(new Request("http://cloud.internal/"));
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain("مزان-تجريبي");
+    });
+
+    it("answers a plain 404 JSON at / when no web bundle is present", async () => {
+      const app = await boot(testEnv({ webDist: tempDir("mezan-cloud-no-web-") }));
+      const res = await app.root.fetch(new Request("http://cloud.internal/"));
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: string }).toMatchObject({ error: "NOT_FOUND" });
+    });
+
+    it("still answers /healthz and /api/platform/resolve with no web bundle present", async () => {
+      const app = await boot(testEnv({ webDist: tempDir("mezan-cloud-no-web-") }));
+      expect((await app.root.fetch(new Request("http://cloud.internal/healthz"))).status).toBe(200);
+      expect((await app.root.fetch(new Request("http://cloud.internal/api/platform/resolve"))).status).toBe(200);
+    });
   });
 
-  it("applies authMiddleware ahead of every route", async () => {
-    const authMiddleware = async (c: import("hono").Context, next: () => Promise<void>) => {
+  it("applies authMiddleware ahead of every non-health route", async () => {
+    const authMiddleware = async (c: Context, next: () => Promise<void>) => {
       if (c.req.header("authorization") !== "Basic secret") return c.text("Unauthorized", 401);
       await next();
     };
     const app = await boot(testEnv(), { authMiddleware });
-    const blocked = await app.root.fetch(new Request("http://cloud.internal/healthz"));
+    const blocked = await app.root.fetch(new Request("http://cloud.internal/"));
     expect(blocked.status).toBe(401);
-    const allowed = await app.root.fetch(
-      new Request("http://cloud.internal/healthz", { headers: { authorization: "Basic secret" } }),
-    );
+    const allowed = await app.root.fetch(new Request("http://cloud.internal/", { headers: { authorization: "Basic secret" } }));
     expect(allowed.status).toBe(200);
   });
 });

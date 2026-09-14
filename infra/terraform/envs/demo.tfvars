@@ -1,8 +1,0 @@
-environment          = "demo"
-domain               = "example.invalid"
-tenant_domain        = "example.invalid"
-image_tag            = "latest"
-platform_owner_email = "owner@example.invalid"
-github_repository    = "cyag/mezan-erp"
-state_bucket         = "mezan-tfstate-change-me"
-state_lock_table     = "mezan-tfstate-lock"

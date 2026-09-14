@@ -3,14 +3,10 @@ name: Deploy AWS
 on:
   push:
     branches: [main]
-    paths:
-      - "infra/**"
-      - "apps/**"
-      - "packages/**"
-      - ".github/workflows/deploy-aws.yml"
+  workflow_dispatch:
 
 concurrency:
-  group: deploy-aws
+  group: deploy-demo
   cancel-in-progress: false
 
 permissions:
@@ -19,11 +15,10 @@ permissions:
 
 env:
   AWS_REGION: eu-central-1
-  TF_VAR_platform_owner_password: ${{ secrets.MEZAN_PLATFORM_OWNER_PASSWORD }}
 
 jobs:
   deploy:
-    name: image · terraform · web
+    name: build · push · web · dispatch
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,46 +30,14 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_APP_CI_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.8
-          terraform_wrapper: false
-
-      - name: Terraform init
-        working-directory: infra/terraform
-        run: |
-          terraform init -input=false \
-            -backend-config="bucket=${{ secrets.AWS_TF_STATE_BUCKET }}" \
-            -backend-config="key=mezan/demo.tfstate" \
-            -backend-config="region=${AWS_REGION}" \
-            -backend-config="dynamodb_table=${{ secrets.AWS_TF_LOCK_TABLE }}"
-
-      # The registry has to exist before the image can be pushed, and the full
-      # apply refers to an image tag that does not exist yet. Targeting the
-      # repository alone breaks that cycle on a first run and is a no-op after.
-      - name: Terraform apply (registry only)
-        working-directory: infra/terraform
-        run: |
-          terraform apply -input=false -auto-approve \
-            -target=aws_ecr_repository.app \
-            -var-file=envs/demo.tfvars \
-            -var "image_tag=${{ github.sha }}"
-
-      - name: Read the registry URL
-        id: registry
-        working-directory: infra/terraform
-        run: echo "url=$(terraform output -raw ecr_repository_url)" >> "$GITHUB_OUTPUT"
-
       - name: Log in to ECR
-        run: |
-          aws ecr get-login-password --region "${AWS_REGION}" \
-            | docker login --username AWS --password-stdin "${REGISTRY%%/*}"
-        env:
-          REGISTRY: ${{ steps.registry.outputs.url }}
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -85,23 +48,9 @@ jobs:
           context: .
           platforms: linux/arm64
           push: true
-          tags: ${{ steps.registry.outputs.url }}:${{ github.sha }}
+          tags: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Terraform apply (everything)
-        working-directory: infra/terraform
-        run: |
-          terraform apply -input=false -auto-approve \
-            -var-file=envs/demo.tfvars \
-            -var "image_tag=${{ github.sha }}"
-
-      - name: Read the web targets
-        id: targets
-        working-directory: infra/terraform
-        run: |
-          echo "bucket=$(terraform output -raw web_bucket)" >> "$GITHUB_OUTPUT"
-          echo "distribution=$(terraform output -raw cloudfront_distribution_id)" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -121,10 +70,17 @@ jobs:
         run: pnpm --filter web build
 
       - name: Sync the web client
-        run: aws s3 sync apps/web/dist "s3://${{ steps.targets.outputs.bucket }}" --delete
+        run: aws s3 sync apps/web/dist "s3://${{ vars.WEB_BUCKET }}" --delete
 
       - name: Invalidate CloudFront
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id "${{ steps.targets.outputs.distribution }}" \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
             --paths "/*"
+
+      - name: Dispatch the infrastructure deploy
+        run: |
+          curl -fsS -X POST https://api.github.com/repos/bassamZakaria/cyag-devops/dispatches \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.DEVOPS_DISPATCH_TOKEN }}" \
+            -d '{"event_type":"mezan-deploy","client_payload":{"image_tag":"${{ github.sha }}","environment":"demo"}}'

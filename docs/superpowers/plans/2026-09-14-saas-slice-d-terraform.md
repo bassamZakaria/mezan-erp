@@ -1,5 +1,7 @@
 # SaaS Slice D — AWS Infrastructure in Terraform Implementation Plan
 
+> **Moved:** the `infra/terraform` tree this plan describes now lives in the private `bassamZakaria/cyag-devops` repo, under `apps/mezan`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** `terraform apply` in `infra/terraform` stands up the whole minimal-cost AWS footprint for the cloud edition: static web on S3 + CloudFront, one Fargate task with an EFS-backed data directory and a backup sidecar, API Gateway in front, Route 53 and ACM for the domain and every tenant subdomain.

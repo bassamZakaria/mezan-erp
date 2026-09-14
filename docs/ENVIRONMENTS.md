@@ -22,7 +22,7 @@ manage tenants. See the environment contract table in
 Every open tenant, plus the platform database itself, is snapshotted on a timer
 into `<platform dir>/backups/` (`MEZAN_BACKUP_INTERVAL_MINUTES`, default 15).
 On the demo host that directory sits under `/tmp` and is lost on restart; on
-AWS a sidecar syncs it to S3 — see [DEPLOY-AWS.md](DEPLOY-AWS.md) §6.
+AWS a sidecar syncs it to S3 — see the `apps/mezan` README in `cyag-devops`.
 
 ## Running testing and staging locally
 

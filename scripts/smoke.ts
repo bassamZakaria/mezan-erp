@@ -1,4 +1,5 @@
 import { createBackend, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "@mezan/backend";
+import { createEntitlements, MODULE_CATALOG } from "@mezan/domain";
 
 /**
  * Smoke check — "does the code still run?", not "is the business logic right?".
@@ -251,7 +252,11 @@ async function main(): Promise<void> {
   const failures: Failure[] = [];
 
   process.stdout.write("booting backend with the demo seed…\n");
-  const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
+  // The demo seed creates more accounts than the platform default's 10 seats
+  // allow (A3's SEAT_LIMIT_REACHED); this stand-in resolver keeps every cap off.
+  const resolveEntitlements = () =>
+    createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+  const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements });
   process.stdout.write("boot + seed OK\n\n");
   const headers = await signIn(handle.app);
 

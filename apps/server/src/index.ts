@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { createBackend, takeSeededAdminSecrets } from "@mezan/backend";
+import { createEntitlements, MODULE_CATALOG } from "@mezan/domain";
 
 /**
  * Cloud-edition mount: the shared, seeded Hono app served over an HTTP socket.
@@ -10,7 +11,14 @@ import { createBackend, takeSeededAdminSecrets } from "@mezan/backend";
  */
 const dbPath = process.env.MEZAN_DB ?? "./mezan.db";
 const seedDemoData = process.env.MEZAN_SEED_DEMO === "1";
-const { app } = await createBackend({ dbPath, seedDemoData });
+/**
+ * The demo tenant seeds more accounts than the platform default's 10 seats
+ * allow (A3's SEAT_LIMIT_REACHED). Slice C replaces this with the demo
+ * tenant's real subscription; until then, seat/branch/warehouse caps stay off.
+ */
+const resolveEntitlements = () =>
+  createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+const { app } = await createBackend({ dbPath, seedDemoData, resolveEntitlements });
 
 /**
  * A generated seed PIN is PRINTED, once, on the run that generated it.

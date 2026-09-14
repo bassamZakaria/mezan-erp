@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, createEntitlements, type WebhookHttpRequest } from "@mezan/domain";
+import { ALL_SCOPE, createEntitlements, MODULE_CATALOG, type WebhookHttpRequest } from "@mezan/domain";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -2687,7 +2687,11 @@ describe("createBackend — GET /gl/balances-by-currency reads real open receiva
 
 describe("createBackend — seedDemoData wires a real session and seeds through the real API", () => {
   it("seeds more than zero customers, reachable over the real HTTP surface", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
+    // The demo seed's ~15-user tenant exceeds the default resolver's 10 seats
+    // (A3's SEAT_LIMIT_REACHED), so this test supplies its own room to seed.
+    const resolveEntitlements = () =>
+      createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements });
     handles.push(handle);
     registries.set(handle.app, handle.sessions);
     const res = await handle.app.fetch(new Request("http://local/customers", { headers: admin(handle.app) }));

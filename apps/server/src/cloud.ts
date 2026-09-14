@@ -3,6 +3,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { readFile } from "node:fs/promises";
 import { Hono } from "hono";
 import { createBackend } from "@mezan/backend";
+import { createEntitlements, MODULE_CATALOG } from "@mezan/domain";
 
 /**
  * Cloud demo mount: ONE origin serving the built web bundle at `/` and the
@@ -14,7 +15,14 @@ import { createBackend } from "@mezan/backend";
  */
 const dbPath = process.env.MEZAN_DB ?? "/tmp/mezan-demo.db";
 const staticRoot = process.env.MEZAN_WEB_DIST ?? "./apps/web/dist";
-const { app } = await createBackend({ dbPath, seedDemoData: true });
+/**
+ * The demo tenant seeds more accounts than the platform default's 10 seats
+ * allow (A3's SEAT_LIMIT_REACHED). Slice C replaces this with the demo
+ * tenant's real subscription; until then, seat/branch/warehouse caps stay off.
+ */
+const resolveEntitlements = () =>
+  createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+const { app } = await createBackend({ dbPath, seedDemoData: true, resolveEntitlements });
 
 const root = new Hono();
 root.get("/healthz", (c) => c.text("ok"));

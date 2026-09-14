@@ -426,6 +426,7 @@ app.whenReady().then(async () => {
   backend = await createBackend({
     dbPath,
     connection: cipher,
+    resolveEntitlements: () => entitlements,
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
     /*
      * The check-in verdict is folded in HERE, at the one place the write gate

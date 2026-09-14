@@ -48,9 +48,21 @@ export interface KpiTileProps {
 
 export function KpiTile({ label, value, valueTone = "default", direction, deltaTone, delta, rtl }: KpiTileProps) {
   return (
-    <div className="rounded-md border border-border bg-surface p-[14px_16px] shadow-1">
+    /*
+     * `min-w-0` so the tile can shrink inside its grid column, and a smaller
+     * figure below 420px.
+     *
+     * A seven-digit money figure at `text-2xl` is wider than a phone's half
+     * column, and the number itself deliberately never breaks mid-digit
+     * (`Money` in atoms.tsx). Without both of these the tile refused to shrink
+     * and pushed the whole page sideways — which in an RTL layout escapes past
+     * the LEFT edge, so it never showed up as a clipped tail on the right.
+     */
+    <div className="min-w-0 rounded-md border border-border bg-surface p-[14px_16px] shadow-1">
       <div className="text-xs font-semibold text-ink-muted">{label}</div>
-      <div className={`mt-[6px] font-display text-2xl font-bold tracking-tight ${valueToneClass[valueTone]}`}>
+      <div
+        className={`mt-[6px] min-w-0 font-display text-lg font-bold tracking-tight min-[420px]:text-2xl ${valueToneClass[valueTone]}`}
+      >
         <Money value={value} />
       </div>
       <div className={`mt-[7px] flex items-center gap-[6px] text-2xs ${toneClass[deltaTone]}`}>

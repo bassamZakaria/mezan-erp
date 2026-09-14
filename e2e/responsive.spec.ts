@@ -20,31 +20,29 @@ import { loginAsDemoUser } from "./support/auth";
  * fixed-width element starts to bite.
  *
  * ---------------------------------------------------------------------------
- * THESE ROUTE CHECKS CURRENTLY FAIL, ON PURPOSE. They are the measurement of an
- * OPEN defect, not a regression guard over a fixed one, and they are kept out
- * of the default `pnpm test:e2e` config for exactly that reason — run them with
- * `pnpm test:responsive`.
+ * What this suite found, and what fixed it. Kept because the causes recur.
  *
- * What they found, and it is one cause rather than six:
+ * 1. `WorkspaceRail` was a FIXED 256px column. On a 390px phone that left 134px
+ *    for the screen, so every table, form and KPI row overflowed and the PAGE
+ *    scrolled sideways. It is now an overlay drawer below `RAIL_BREAKPOINT`,
+ *    with its own toggle, scrim, focus trap and close-on-navigate — NOT simply
+ *    hidden, because it carries the brand, the workspace list and RailFooter's
+ *    theme toggle, notifications and user menu, and hiding it would have left
+ *    no route to any of them.
  *
- *   `WorkspaceRail` is a FIXED 256px column (`metrics.ts` → `RAIL_WIDTH`). On a
- *   390px phone that leaves 134px for the screen itself, so every table, form
- *   and KPI row is wider than its container and the PAGE scrolls sideways —
- *   the user drags the whole layout left and right to read one row, and the
- *   chrome goes with it.
+ * 2. Grid children default to `min-width: auto` — "at least as wide as my
+ *    content". The dashboard's `Panel` and `KpiTile` therefore refused to shrink
+ *    below the 517px table and the seven-digit figure they hold, and their own
+ *    `overflow-x-auto` never got the chance to scroll. `min-w-0` is load-bearing
+ *    on any grid or flex child with a wide descendant.
  *
- * The fix is NOT to hide the rail: it holds the brand, the workspace list AND
- * `RailFooter` (theme toggle, notifications, user menu), so hiding it removes
- * the only route to all of them. It has to become an overlay drawer below a
- * breakpoint, with a toggle that is visible only at that size, a scrim, focus
- * handling and close-on-navigate. That is real UI work and is deliberately not
- * smuggled into a test file.
+ * 3. A money figure never breaks mid-digit, by design. So the TILE gets smaller
+ *    below 420px rather than the number wrapping.
  *
- * The RTL trap that cost an hour, recorded so the next person does not repeat
- * it: this app runs RTL, so overflowing content escapes past the LEFT edge and
+ * The RTL trap, recorded so the next person does not lose an hour to it: this
+ * app runs RTL, so overflowing content escapes past the LEFT edge and
  * `getBoundingClientRect().right` stays inside the viewport the whole time. A
- * detector that checks the right edge reports nothing while the page is 149px
- * too wide.
+ * right-edge-only detector reports nothing while the page is 149px too wide.
  * ---------------------------------------------------------------------------
  */
 
@@ -72,7 +70,10 @@ async function offendingElements(page: Page): Promise<string[]> {
     for (const el of Array.from(document.querySelectorAll<HTMLElement>("body *"))) {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
-      const past = Math.round(rect.right - limit);
+      // BOTH edges. The app runs RTL, so overflowing content escapes past the
+      // LEFT edge and `rect.right` stays inside the viewport the whole time — a
+      // right-edge-only detector reports nothing while the page is 149px wide.
+      const past = Math.round(Math.max(rect.right - limit, -rect.left));
       if (past <= 2) continue;
       // An element inside a container that scrolls horizontally is NOT an
       // offender — that is the pattern we want. Only report something whose
@@ -178,5 +179,63 @@ test.describe("the shell itself on a phone", () => {
       });
       expect(scroller, "the table has no horizontally scrollable ancestor, so the PAGE scrolls instead").toBe(true);
     }
+  });
+});
+
+test.describe("the workspace drawer on a phone", () => {
+  test.use({ viewport: PHONE });
+
+  test("opens the workspace column, and closes it again on navigation", async ({ page }) => {
+    await loginAsDemoUser(page);
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
+
+    // The column is off-screen to begin with: a 256px sibling on a 390px phone
+    // is what pushed the page sideways in the first place.
+    const rail = page.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    await expect(rail).toBeHidden();
+
+    await page.getByRole("button", { name: "فتح قائمة التنقل" }).click();
+    await expect(rail).toBeVisible();
+
+    // Everything the column carries is reachable again — including the theme
+    // toggle and the user menu, which live in its footer and would otherwise
+    // have no route on a phone at all.
+    await expect(page.getByRole("button", { name: "تبديل المظهر" })).toBeVisible();
+
+    // And it closes on navigating, which is the single most common way this
+    // pattern is got wrong: a drawer left open over the screen it just opened.
+    await rail.getByRole("button", { name: "كل الشاشات" }).click();
+    await expect(rail).toBeHidden();
+  });
+
+  test("closes on Escape and on the scrim, and does not scroll the page while open", async ({ page }) => {
+    await loginAsDemoUser(page);
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
+
+    const rail = page.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    const open = page.getByRole("button", { name: "فتح قائمة التنقل" });
+
+    await open.click();
+    await expect(rail).toBeVisible();
+    // An overlay that puts the page back into sideways scrolling has undone the
+    // whole point of being an overlay.
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(OVERFLOW_TOLERANCE);
+
+    await page.keyboard.press("Escape");
+    await expect(rail).toBeHidden();
+  });
+
+  test("the column is a normal sibling again on a desktop viewport", async ({ page }) => {
+    // The drawer must not leak upwards: above the breakpoint there is no menu
+    // button at all and the column is simply there.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await loginAsDemoUser(page);
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByRole("navigation", { name: "التنقل بين مساحات العمل" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "فتح قائمة التنقل" })).toBeHidden();
   });
 });

@@ -61,6 +61,14 @@ export async function loginAsDemoUser(page: Page): Promise<void> {
   const submit = page.getByRole("button", { name: "دخول" });
   if (await submit.isEnabled()) await submit.click();
 
-  // Land on the app shell (default screen is the Dashboard).
-  await page.getByRole("button", { name: "تبديل المظهر" }).waitFor();
+  /*
+   * Land on the app shell (default screen is the Dashboard).
+   *
+   * Waits for the MAIN landmark rather than a chrome control. The theme toggle
+   * used to serve as the signal, but it lives in the workspace column, and
+   * below `RAIL_BREAKPOINT` that column is a drawer — so on a phone-sized
+   * viewport the old wait never resolved even though the shell had rendered
+   * perfectly well. `main` is there at every width by definition.
+   */
+  await page.locator("main").first().waitFor({ state: "visible" });
 }

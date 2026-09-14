@@ -307,7 +307,7 @@ export function StatCard({ label, value, sub, subTone = "neutral", valueTone = "
       <div className="text-xs font-semibold text-ink-muted">{label}</div>
       <div
         className={cn(
-          "mt-[6px] flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[2px] font-mono text-[24px] font-semibold tabular-nums tracking-[-0.02em]",
+          "mt-[6px] flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[2px] font-mono text-[19px] font-semibold tabular-nums tracking-[-0.02em] min-[420px]:text-[24px]",
           valueTone === "danger" ? "text-danger-ink" : "text-ink",
         )}
       >

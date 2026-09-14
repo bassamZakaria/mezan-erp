@@ -15,6 +15,10 @@ export function deriveEntitlements(plan: Plan, subscription: Subscription): Enti
     features: { ...plan.features },
     seats: plan.seatsIncluded + subscription.extraSeats,
     expiresAt: subscriptionExpiresAt(subscription),
+    limits: {
+      branches: plan.branchesIncluded + subscription.extraBranches,
+      warehouses: plan.warehousesIncluded + subscription.extraWarehouses,
+    },
   };
 }
 

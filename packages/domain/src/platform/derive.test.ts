@@ -29,13 +29,18 @@ describe("deriveEntitlements", () => {
   it("unions modules, sums seats, passes features, expires at period end", () => {
     expect(deriveEntitlements(plan, sub)).toEqual({
       plan: "core", activeModules: ["accounting", "sales", "hr"], features: { "reports.export": true },
-      seats: 5, expiresAt: "2026-10-01T00:00:00.000Z",
+      seats: 5, expiresAt: "2026-10-01T00:00:00.000Z", limits: { branches: 1, warehouses: 1 },
     });
   });
 
   it("expires at the trial end while trialing", () => {
     const trial = { ...sub, status: "trialing" as const, trialEndsAt: "2026-09-15T00:00:00.000Z" };
     expect(deriveEntitlements(plan, trial).expiresAt).toBe("2026-09-15T00:00:00.000Z");
+  });
+
+  it("sums plan-included and subscription extra branches and warehouses into limits", () => {
+    const extras = { ...sub, extraBranches: 2, extraWarehouses: 3 };
+    expect(deriveEntitlements(plan, extras).limits).toEqual({ branches: 3, warehouses: 4 });
   });
 });
 

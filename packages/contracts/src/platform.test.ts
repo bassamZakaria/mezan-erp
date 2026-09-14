@@ -12,8 +12,10 @@ import {
   recordPaymentRequestSchema,
   subscriptionSchema,
   planSchema,
-  planUpsertRequestSchema,
+  planCreateRequestSchema,
+  planUpdateRequestSchema,
   paymentSchema,
+  licenseStateReasonSchema,
   licenseStateViewSchema,
   tenantSummarySchema,
 } from "./platform.js";
@@ -156,6 +158,26 @@ describe("recordPaymentRequestSchema", () => {
     const result = recordPaymentRequestSchema.safeParse(req);
     expect(result.success).toBe(true);
   });
+
+  it("rejects an amount of zero", () => {
+    expect(recordPaymentRequestSchema.safeParse({ ...req, amount: "0" }).success).toBe(false);
+  });
+
+  it("rejects an amount of zero with decimals", () => {
+    expect(recordPaymentRequestSchema.safeParse({ ...req, amount: "0.00" }).success).toBe(false);
+  });
+
+  it("rejects an amount with more than 6 decimal places", () => {
+    expect(recordPaymentRequestSchema.safeParse({ ...req, amount: "1.1234567" }).success).toBe(false);
+  });
+
+  it("accepts an amount with exactly 6 decimal places", () => {
+    expect(recordPaymentRequestSchema.safeParse({ ...req, amount: "1.123456" }).success).toBe(true);
+  });
+
+  it("rejects a non-ISO paidAt", () => {
+    expect(recordPaymentRequestSchema.safeParse({ ...req, paidAt: "2026-09-14" }).success).toBe(false);
+  });
 });
 
 describe("subscriptionSchema", () => {
@@ -197,7 +219,7 @@ describe("planSchema", () => {
   });
 });
 
-describe("planUpsertRequestSchema", () => {
+describe("planCreateRequestSchema", () => {
   const req = {
     code: "core", nameAr: "الأساسية", nameEn: "Core", modules: ["accounting", "sales"],
     seatsIncluded: 3, branchesIncluded: 1, warehousesIncluded: 1,
@@ -205,11 +227,40 @@ describe("planUpsertRequestSchema", () => {
   };
 
   it("accepts a valid request", () => {
-    expect(planUpsertRequestSchema.safeParse(req).success).toBe(true);
+    expect(planCreateRequestSchema.safeParse(req).success).toBe(true);
   });
 
   it("rejects an empty modules list", () => {
-    expect(planUpsertRequestSchema.safeParse({ ...req, modules: [] }).success).toBe(false);
+    expect(planCreateRequestSchema.safeParse({ ...req, modules: [] }).success).toBe(false);
+  });
+
+  it("rejects a price with more than 6 decimal places", () => {
+    expect(planCreateRequestSchema.safeParse({ ...req, priceMonthly: "1.1234567" }).success).toBe(false);
+  });
+
+  it("accepts a price with exactly 6 decimal places", () => {
+    expect(planCreateRequestSchema.safeParse({ ...req, priceMonthly: "1.123456" }).success).toBe(true);
+  });
+
+  it("rejects a request missing code", () => {
+    const { code, ...rest } = req;
+    expect(planCreateRequestSchema.safeParse(rest).success).toBe(false);
+  });
+});
+
+describe("planUpdateRequestSchema", () => {
+  const req = {
+    nameAr: "الأساسية", nameEn: "Core", modules: ["accounting", "sales"],
+    seatsIncluded: 3, branchesIncluded: 1, warehousesIncluded: 1,
+    priceMonthly: "490.00", priceYearly: "4900.00", trialDays: 14, isPublic: true, sortOrder: 1,
+  };
+
+  it("accepts a valid request with no code", () => {
+    expect(planUpdateRequestSchema.safeParse(req).success).toBe(true);
+  });
+
+  it("rejects an empty modules list", () => {
+    expect(planUpdateRequestSchema.safeParse({ ...req, modules: [] }).success).toBe(false);
   });
 });
 
@@ -228,6 +279,14 @@ describe("paymentSchema", () => {
 
   it("rejects a currency other than EGP", () => {
     expect(paymentSchema.safeParse({ ...payment, currency: "USD" }).success).toBe(false);
+  });
+
+  it("rejects a negative amount", () => {
+    expect(paymentSchema.safeParse({ ...payment, amount: "-1" }).success).toBe(false);
+  });
+
+  it("rejects a non-ISO paidAt", () => {
+    expect(paymentSchema.safeParse({ ...payment, paidAt: "2026-09-14" }).success).toBe(false);
   });
 });
 
@@ -249,6 +308,11 @@ describe("licenseStateViewSchema", () => {
   it("rejects an unknown state name", () => {
     expect(licenseStateViewSchema.safeParse({ ...state, state: "EXPIRED" }).success).toBe(false);
   });
+
+  it("accepts a TENANT_NOT_FOUND reason, as emitted by apps/server/src/tenant-entitlements.ts", () => {
+    const result = licenseStateReasonSchema.safeParse("TENANT_NOT_FOUND");
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("tenantSummarySchema", () => {
@@ -257,18 +321,60 @@ describe("tenantSummarySchema", () => {
     status: "active" as const, dbFile: "tenants/acme.db",
     createdAt: "2026-09-14T00:00:00.000Z", updatedAt: "2026-09-14T00:00:00.000Z",
   };
+  const payment = {
+    id: "pay1", tenantId: "t1", subscriptionId: "s1", amount: "490.00", currency: "EGP" as const,
+    reference: "REF-1", paidAt: "2026-09-14T00:00:00.000Z", recordedBy: "u1", note: null,
+    createdAt: "2026-09-14T00:00:00.000Z",
+  };
   const summary = {
     tenant, subscription: null, plan: null,
     licenseState: { state: "UNLICENSED" as const, canWrite: false, usable: true },
     entitlements: null,
+    payments: [payment],
   };
 
   it("accepts a valid tenant summary with null subscription, plan and entitlements", () => {
     expect(tenantSummarySchema.safeParse(summary).success).toBe(true);
   });
 
+  it("accepts an empty payments list, as a list response would send", () => {
+    expect(tenantSummarySchema.safeParse({ ...summary, payments: [] }).success).toBe(true);
+  });
+
   it("rejects a summary missing licenseState", () => {
     const { licenseState, ...rest } = summary;
     expect(tenantSummarySchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects a summary missing payments", () => {
+    const { payments, ...rest } = summary;
+    expect(tenantSummarySchema.safeParse(rest).success).toBe(false);
+  });
+});
+
+describe("the contracts slug regex", () => {
+  /**
+   * Pinned against `isValidSlug` in packages/domain/src/platform/slug.ts
+   * (`^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$`) — contracts cannot import
+   * domain, so this table is the cross-package contract.
+   */
+  const cases: ReadonlyArray<readonly [string, boolean]> = [
+    ["acme", true],
+    ["acme-corp", true],
+    ["a1b", true],
+    ["a-b-c", true],
+    ["a".repeat(32), true],
+    ["a", false],
+    ["a1", false],
+    ["Acme", false],
+    ["-acme", false],
+    ["acme-", false],
+    ["acme_corp", false],
+    ["", false],
+    ["a".repeat(33), false],
+  ];
+
+  it.each(cases)("code %j → valid: %s", (code, expected) => {
+    expect(createTenantRequestSchema.shape.code.safeParse(code).success).toBe(expected);
   });
 });

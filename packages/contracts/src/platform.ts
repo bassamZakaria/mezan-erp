@@ -10,8 +10,18 @@ import { entitlementsSchema } from "./entitlements.js";
  * non-empty string rather than against `MODULE_CATALOG`.
  */
 
-const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+const positiveDecimalString = z.string().regex(/^\d+(\.\d{1,6})?$/, "must be a non-negative decimal string with at most 6 decimals");
+/**
+ * Rejects "0" and "0.00" via exact bigint digits, never a float — a float
+ * equality check would mis-round on the scale-1e-6 boundary. The digit guard
+ * runs before `BigInt()` because zod still evaluates `refine` on a value that
+ * already failed the regex check above (e.g. "1e3"), and `BigInt` throws on
+ * anything that isn't plain digits.
+ */
+const strictlyPositiveDecimalString = positiveDecimalString.refine((value) => {
+  const digits = value.replace(".", "");
+  return /^\d+$/.test(digits) && BigInt(digits) > 0n;
+}, "must be greater than zero");
 const slugSchema = z.string().regex(/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/, "must be a lower-case slug");
 const moduleIdSchema = z.string().min(1);
 const isoLikeSchema = z.string().min(1);
@@ -97,9 +107,9 @@ export const changePlanRequestSchema = z.object({
 });
 
 export const recordPaymentRequestSchema = z.object({
-  amount: positiveDecimalString,
+  amount: strictlyPositiveDecimalString,
   reference: z.string().min(1),
-  paidAt: isoLikeSchema,
+  paidAt: z.string().datetime(),
   note: z.string().min(1).nullable().optional(),
 });
 
@@ -145,7 +155,7 @@ export const planSchema = z.object({
   createdAt: isoLikeSchema,
 });
 
-export const planUpsertRequestSchema = z.object({
+export const planCreateRequestSchema = z.object({
   code: slugSchema,
   nameAr: z.string().min(1),
   nameEn: z.string().min(1),
@@ -161,14 +171,16 @@ export const planUpsertRequestSchema = z.object({
   sortOrder: z.number().int(),
 });
 
+export const planUpdateRequestSchema = planCreateRequestSchema.omit({ code: true });
+
 export const paymentSchema = z.object({
   id: z.string().min(1),
   tenantId: z.string().min(1),
   subscriptionId: z.string().min(1),
-  amount: decimalString,
+  amount: positiveDecimalString,
   currency: z.literal("EGP"),
   reference: z.string().min(1),
-  paidAt: isoLikeSchema,
+  paidAt: z.string().datetime(),
   recordedBy: z.string().min(1),
   note: z.string().nullable(),
   createdAt: isoLikeSchema,
@@ -185,6 +197,7 @@ export const licenseStateReasonSchema = z.enum([
   "TRIAL_ENDED",
   "GRACE_ENDED",
   "INVALID_CLOCK",
+  "TENANT_NOT_FOUND",
 ]);
 
 export const licenseStateViewSchema = z.object({
@@ -203,6 +216,7 @@ export const tenantSummarySchema = z.object({
   plan: planSchema.nullable(),
   licenseState: licenseStateViewSchema,
   entitlements: entitlementsSchema.nullable(),
+  payments: z.array(paymentSchema),
 });
 
 export type PlatformRoleDTO = z.infer<typeof platformRoleSchema>;
@@ -223,7 +237,8 @@ export type SubscriptionStatusDTO = z.infer<typeof subscriptionStatusSchema>;
 export type SubscriptionDTO = z.infer<typeof subscriptionSchema>;
 export type PlanStatusDTO = z.infer<typeof planStatusSchema>;
 export type PlanDTO = z.infer<typeof planSchema>;
-export type PlanUpsertRequestDTO = z.infer<typeof planUpsertRequestSchema>;
+export type PlanCreateRequestDTO = z.infer<typeof planCreateRequestSchema>;
+export type PlanUpdateRequestDTO = z.infer<typeof planUpdateRequestSchema>;
 export type PaymentDTO = z.infer<typeof paymentSchema>;
 export type LicenseStateNameDTO = z.infer<typeof licenseStateNameSchema>;
 export type LicenseStateReasonDTO = z.infer<typeof licenseStateReasonSchema>;

@@ -9,14 +9,15 @@ import { createPlatform, PLATFORM_SEED_PLANS } from "./create-platform.js";
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
 describe("createPlatform", () => {
-  it("seeds core, business and enterprise once, in order, at zero price", async () => {
+  it("seeds core, business and enterprise once, in order, at their EGP prices", async () => {
     const platform = await createPlatform({ dbPath: ":memory:", now: FIXED_NOW });
     const plans = await platform.stores.plans.list();
     expect(plans.map((p) => p.code)).toEqual(["core", "business", "enterprise"]);
     expect(plans.map((p) => p.seatsIncluded)).toEqual([3, 10, 25]);
+    expect(plans.map((p) => p.priceMonthly.toString())).toEqual(["490.000000", "980.000000", "1960.000000"]);
+    expect(plans.map((p) => p.priceYearly.toString())).toEqual(["4900.000000", "9800.000000", "19600.000000"]);
     for (const p of plans) {
       expect(p.trialDays).toBe(14);
-      expect(p.priceMonthly.equals(Money.zero())).toBe(true);
       expect(p.status).toBe("active");
       expect(p.isPublic).toBe(true);
       expect(p.createdAt).toBe("2026-01-01T00:00:00.000Z");

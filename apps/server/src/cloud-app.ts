@@ -9,6 +9,7 @@ import { createSessionRegistry } from "@mezan/api";
 import type { CreateTenantRequestDTO, ProvisionResultDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant } from "./provision-tenant.js";
+import { provisionDemoTenant } from "./demo-tenant.js";
 import { startDunningTimer } from "./dunning.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
 import type { CloudEnv } from "./env.js";
@@ -81,8 +82,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     connection: { exclusive: env.sqliteExclusive },
   });
 
-  if (env.seedDemo && options.seedDemo) {
-    await options.seedDemo({ platform, router, env });
+  if (env.seedDemo) {
+    await (options.seedDemo ?? provisionDemoTenant)({ platform, router, env });
   }
 
   const provisionTenantForRoutes = (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> =>

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contract for the Field/Van Sales module (docs/archive/catalog/07-mfg-projects-assets.md
@@ -98,7 +99,7 @@ export const vanTripSchema = z.object({
 export const openVanTripSchema = z.object({
   id: z.string().min(1),
   tripNo: z.string().nullable().optional(),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   branchId: z.string().min(1).optional(),
   /**
    * Naming the van is enough: the server fills the warehouse and the till in

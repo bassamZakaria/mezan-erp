@@ -32,6 +32,7 @@ import {
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { tenantDay } from "./tenant-day.js";
 
 function serializePlanLine(l: InstallmentLine) {
   return {
@@ -318,7 +319,7 @@ export function createInstallmentsRoutes(
         amount: Money.fromMajor(parsed.data.amount),
         treasuryAccountId: parsed.data.treasuryAccountId,
         paymentMethod: parsed.data.paymentMethod,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         referenceNo: parsed.data.referenceNo,
         memo: parsed.data.memo ?? `تحصيل قسط — ${plan.docNo ?? plan.id}`,
         actor: callerUserId(c),

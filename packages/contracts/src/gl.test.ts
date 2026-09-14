@@ -200,12 +200,23 @@ describe("glJournalListQuerySchema", () => {
 });
 
 describe("yearEndClosePreviewLineSchema", () => {
-  const line = { accountId: "acc-1", accountCode: "4000", accountNameAr: "الإيرادات", accountType: "revenue" as const, debit: "0", credit: "100000.000000" };
+  const line = { accountId: "acc-1", accountCode: "4000", accountNameAr: "الإيرادات", accountType: "revenue" as const, projectId: null, debit: "0", credit: "100000.000000" };
 
   it("accepts a minimal valid line and preserves every field verbatim", () => {
     const result = yearEndClosePreviewLineSchema.safeParse(line);
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toEqual(line);
+  });
+
+  it("carries بُعد المشروع — one account closes across one line per project", () => {
+    const result = yearEndClosePreviewLineSchema.safeParse({ ...line, projectId: "PRJ-A" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.projectId).toBe("PRJ-A");
+  });
+
+  it("rejects a line that states no project dimension at all", () => {
+    const { projectId: _omitted, ...withoutProject } = line;
+    expect(yearEndClosePreviewLineSchema.safeParse(withoutProject).success).toBe(false);
   });
 
   it("rejects an accountType outside revenue/expense", () => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for the GL posting engine (docs/archive/catalog/04 §القيود المحاسبية).
@@ -62,6 +63,7 @@ export const yearEndClosePreviewLineSchema = z.object({
   accountCode: z.string(),
   accountNameAr: z.string(),
   accountType: z.enum(["revenue", "expense"]),
+  projectId: z.string().nullable(),
   debit: moneyString,
   credit: moneyString,
 });
@@ -93,7 +95,8 @@ export type CloseFiscalYearResultDTO = z.infer<typeof closeFiscalYearResultSchem
 
 export const createGlJournalEntrySchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  /** A day, or an instant the route resolves to the tenant's day (`tenantDay`). */
+  date: isoDateOrInstant,
   memo: z.string(),
   source: journalEntrySourceSchema.optional(),
   lines: z.array(glJournalLineSchema).min(2),
@@ -103,7 +106,7 @@ export const createGlJournalEntrySchema = z.object({
 export const reverseGlJournalEntrySchema = z.object({
   /** Optional — the server generates a UUID when omitted. */
   reversalId: z.string().min(1).optional(),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
 });
 

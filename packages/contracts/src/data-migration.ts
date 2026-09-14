@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for the data-migration import wizard (docs/archive/catalog/09 "نقل
@@ -111,7 +112,7 @@ export const openingBalanceImportRowSchema = z.object({
 });
 export const openingBalanceImportBatchSchema = z.object({
   warehouseId: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   rows: z.array(openingBalanceImportRowSchema).min(1),
 });
 

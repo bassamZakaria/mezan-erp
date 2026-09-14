@@ -34,6 +34,8 @@ import { useAppTranslation } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
+import { unitLabel } from "../../../lib/boq-unit-label";
+import { formatPercent } from "../../../lib/percent";
 import { SUB_CERTIFICATE_STATUS_KEY, SUB_CERTIFICATE_STATUS_TONE, SUB_CERTIFICATE_STEPS, trimScale } from "./subcontract-common";
 import { SubCertificatePrintPage } from "./SubCertificatePrintPage";
 
@@ -366,7 +368,7 @@ function NewSubCertificatePage({ onDone, onCancel }: { onDone: (docNo: string) =
                           <td className="p-[7px_8px]">
                             <span className="mz-num text-ink-muted">{line.code}</span> {line.descriptionAr}
                           </td>
-                          <td className="p-[7px_8px]">{line.unit}</td>
+                          <td className="p-[7px_8px]">{unitLabel(line.unit, t)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row?.contractedQty)}</td>
                           <td className={`mz-num p-[7px_8px] text-end ${overCeiling ? "font-bold text-danger-ink" : "text-ink-muted"}`}>
                             {trimScale(row?.clientCertifiedCumulativeQty)}
@@ -383,7 +385,7 @@ function NewSubCertificatePage({ onDone, onCancel }: { onDone: (docNo: string) =
                           <td className={`mz-num p-[7px_8px] text-end font-semibold ${overCeiling ? "text-danger-ink" : ""}`}>
                             {trimScale(row?.cumulativeQty)}
                           </td>
-                          <td className="mz-num p-[7px_8px] text-end">{row?.completionPercent ?? "—"}%</td>
+                          <td className="mz-num p-[7px_8px] text-end">{formatPercent(row?.completionPercent) || "—"}%</td>
                           <td className="mz-num p-[7px_8px] text-end">
                             {row ? <MoneyValue value={majorOf(row.cumulativeValue)} showUnit={false} /> : "—"}
                           </td>
@@ -626,7 +628,7 @@ function SubCertificateDetailPage({
       }
       summary={[
         { label: t("subCertificates.kpi.grossWorks"), value: <MoneyValue value={majorOf(computed.grossWorks)} showUnit={false} /> },
-        { label: t("subCertificates.kpi.completion"), value: <span className="mz-num">{computed.completionPercent}%</span> },
+        { label: t("subCertificates.kpi.completion"), value: <span className="mz-num">{formatPercent(computed.completionPercent)}%</span> },
         { label: t("subCertificates.kpi.retentionHeld"), value: <MoneyValue value={majorOf(computed.retentionHeldCumulative)} showUnit={false} /> },
         { label: t("subCertificates.kpi.advanceOutstanding"), value: <MoneyValue value={majorOf(computed.advanceOutstanding)} showUnit={false} /> },
         { label: t("subCertificates.kpi.netPayable"), value: <MoneyValue value={majorOf(computed.netPayableThisCertificate)} showUnit={false} /> },
@@ -681,7 +683,7 @@ function SubCertificateDetailPage({
                             <td className="p-[7px_8px]">
                               <span className="mz-num text-ink-muted">{row.code}</span> {row.descriptionAr}
                             </td>
-                            <td className="p-[7px_8px]">{row.unit}</td>
+                            <td className="p-[7px_8px]">{unitLabel(row.unit, t)}</td>
                             <td className="mz-num p-[7px_8px] text-end">{trimScale(row.contractedQty)}</td>
                             <td className={`mz-num p-[7px_8px] text-end ${overCeiling ? "font-bold text-danger-ink" : "text-ink-muted"}`}>
                               {trimScale(row.clientCertifiedCumulativeQty)}
@@ -704,7 +706,7 @@ function SubCertificateDetailPage({
                             <td className={`mz-num p-[7px_8px] text-end font-semibold ${overCeiling ? "text-danger-ink" : ""}`}>
                               {trimScale(row.cumulativeQty)}
                             </td>
-                            <td className="mz-num p-[7px_8px] text-end">{row.completionPercent}%</td>
+                            <td className="mz-num p-[7px_8px] text-end">{formatPercent(row.completionPercent)}%</td>
                             <td className="mz-num p-[7px_8px] text-end">
                               <MoneyValue value={majorOf(row.cumulativeValue)} showUnit={false} />
                             </td>

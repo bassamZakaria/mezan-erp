@@ -2,6 +2,7 @@ import { z } from "zod";
 import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /** Wire contracts for Landed Costs (التكاليف الإضافية، docs/archive/catalog/02). */
 
@@ -40,7 +41,7 @@ export const landedCostTargetSchema = z.object({
  */
 export const createLandedCostSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().default(""),
   distributionMethod: landedCostDistributionMethodSchema,
   costItems: z.array(landedCostItemEntrySchema).min(1),

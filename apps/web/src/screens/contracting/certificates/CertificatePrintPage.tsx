@@ -10,6 +10,8 @@ import { useCustomers, useProjects, useSettings } from "../../../data/hooks";
 import { useProgressCertificate } from "../../../data/contracting-certificates-hooks";
 import { useAppTranslation } from "../../../i18n";
 import { EMPTY } from "../../../lib/empty";
+import { unitLabel } from "../../../lib/boq-unit-label";
+import { formatPercent } from "../../../lib/percent";
 import { trimScale } from "./certificate-common";
 
 /**
@@ -76,7 +78,7 @@ export function CertificatePrintPage({
 
   const columns: PaginatedTableColumn<CertificateWorkLineDTO>[] = [
     { key: "code", header: t("certificates.col.item"), render: (r) => `${r.code} — ${r.descriptionAr}` },
-    { key: "unit", header: t("certificates.col.unit"), render: (r) => r.unit },
+    { key: "unit", header: t("certificates.col.unit"), render: (r) => unitLabel(r.unit, t) },
     {
       key: "contracted",
       header: t("certificates.col.contractedQty"),
@@ -111,7 +113,7 @@ export function CertificatePrintPage({
       key: "completion",
       header: t("certificates.col.completion"),
       align: "end",
-      render: (r) => <span className="mz-num">{r.completionPercent}%</span>,
+      render: (r) => <span className="mz-num">{formatPercent(r.completionPercent)}%</span>,
     },
     {
       key: "value",
@@ -180,7 +182,7 @@ export function CertificatePrintPage({
               {certificate.materialLines.map((row) => (
                 <tr key={row.id} className="border-b border-border">
                   <td className="p-[5px_8px]">{row.descriptionAr}</td>
-                  <td className="p-[5px_8px]">{row.unit}</td>
+                  <td className="p-[5px_8px]">{unitLabel(row.unit, t)}</td>
                   <td className="mz-num p-[5px_8px] text-end">{trimScale(row.cumulativeQty)}</td>
                   <td className="mz-num p-[5px_8px] text-end">{money(row.unitRate)}</td>
                   <td className="mz-num p-[5px_8px] text-end">{money(row.value)}</td>
@@ -197,7 +199,7 @@ export function CertificatePrintPage({
           {totalsRow(t("certificates.block.materialsOnSite"), computed.materialsOnSite)}
           {totalsRow(t("certificates.block.certificateTotal"), computed.certificateTotal, true)}
           {totalsRow(
-            t("certificates.block.tenderDiscount", { percent: computed.tenderDiscountPercent }),
+            t("certificates.block.tenderDiscount", { percent: formatPercent(computed.tenderDiscountPercent) }),
             computed.tenderDiscount,
             false,
             true,
@@ -213,14 +215,14 @@ export function CertificatePrintPage({
         <div>
           {computed.deductions.map((deduction) =>
             totalsRow(
-              deduction.percent ? `${deduction.labelAr} — ${deduction.percent}%` : deduction.labelAr,
+              deduction.percent ? `${deduction.labelAr} — ${formatPercent(deduction.percent)}%` : deduction.labelAr,
               deduction.thisCertificate,
               false,
               true,
             ),
           )}
           {totalsRow(t("certificates.block.deductionsThisCertificate"), computed.deductionsThisCertificate, true, true)}
-          {totalsRow(t("certificates.block.vat", { percent: computed.vatEffectiveRatePercent }), computed.vat)}
+          {totalsRow(t("certificates.block.vat", { percent: formatPercent(computed.vatEffectiveRatePercent) }), computed.vat)}
           {totalsRow(t("certificates.block.netPayable"), computed.netPayableThisCertificate, true)}
         </div>
       </section>

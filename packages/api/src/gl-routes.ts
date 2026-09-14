@@ -45,6 +45,7 @@ import {
   type OpenPartyDocument,
   type CurrencyBalanceGroup,
 } from "@mezan/domain";
+import { tenantDay } from "./tenant-day.js";
 import {
   createGlJournalEntrySchema,
   reverseGlJournalEntrySchema,
@@ -277,7 +278,7 @@ export function createGlRoutes(
       const entry = await postJournalEntry(
         {
           id: parsed.data.id,
-          date: parsed.data.date,
+          date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
           source: parsed.data.source,
           lines: parsed.data.lines.map((l) => ({
@@ -380,6 +381,7 @@ export function createGlRoutes(
           accountCode: line.accountCode,
           accountNameAr: line.accountNameAr,
           accountType: line.accountType,
+          projectId: line.projectId,
           debit: line.debit.toString(),
           credit: line.credit.toString(),
         })),
@@ -431,7 +433,7 @@ export function createGlRoutes(
       const entry = await createJournalEntry(
         {
           id: parsed.data.id,
-          date: parsed.data.date,
+          date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
           source: parsed.data.source,
           lines: parsed.data.lines.map((l) => ({
@@ -478,7 +480,7 @@ export function createGlRoutes(
     try {
       const result = await reverseJournalEntry(c.req.param("id"), postingDeps(c), {
         reversalId: parsed.data.reversalId ?? idGen(),
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
       });
       return c.json(

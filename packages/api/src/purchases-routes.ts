@@ -73,6 +73,7 @@ import {
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import type { CurrencyCheck } from "./currency-policy.js";
+import { tenantDay } from "./tenant-day.js";
 import {
   createPermissionGate,
   getAuthContext,
@@ -609,7 +610,7 @@ export function createPurchasesRoutes(
         {
           id: parsed.data.id,
           purchaseOrderId: parsed.data.purchaseOrderId,
-          date: parsed.data.date,
+          date: await tenantDay(c, parsed.data.date),
           notes: parsed.data.notes,
           projectId: parsed.data.projectId,
           createdBy: actor(c),
@@ -971,7 +972,7 @@ export function createPurchasesRoutes(
         paymentMethod: parsed.data.paymentMethod ?? "cash",
         // A payment happens when it happens — dating it back to the invoice
         // would measure the treasury's balance on the wrong day.
-        date: parsed.data.date ?? (deps.now?.() ?? new Date().toISOString()).slice(0, 10),
+        date: (await tenantDay(c, parsed.data.date)) ?? (deps.now?.() ?? new Date().toISOString()).slice(0, 10),
         referenceNo: parsed.data.referenceNo ?? null,
         memo: parsed.data.notes ?? `سداد على الفاتورة ${invoice.number}`,
         actor: actor(c),
@@ -1065,7 +1066,7 @@ export function createPurchasesRoutes(
         {
           id: parsed.data.id,
           supplierId: parsed.data.supplierId,
-          date: parsed.data.date,
+          date: await tenantDay(c, parsed.data.date),
           dueDate: parsed.data.dueDate,
           supplierInvoiceNumber: parsed.data.supplierInvoiceNumber,
           branchId: parsed.data.branchId,

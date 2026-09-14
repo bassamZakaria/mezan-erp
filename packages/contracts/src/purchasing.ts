@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for the purchase chain (docs/archive/catalog/02): أوامر الشراء →
@@ -213,7 +214,7 @@ export const purchaseInvoicePaymentSchema = z.object({
   amount: moneyString,
   treasuryAccountId: z.string().min(1),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   referenceNo: z.string().nullish(),
   notes: z.string().nullish(),
 });

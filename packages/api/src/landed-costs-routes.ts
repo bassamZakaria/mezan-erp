@@ -13,6 +13,7 @@ import {
 import { createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { tenantDay } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
   return {
@@ -111,7 +112,7 @@ export function createLandedCostsRoutes(
         costItems,
         distributionMethod: parsed.data.distributionMethod,
       }));
-      const doc = await documents.createDraft({ id: parsed.data.id, date: parsed.data.date, memo: parsed.data.memo, lines });
+      const doc = await documents.createDraft({ id: parsed.data.id, date: await tenantDay(c, parsed.data.date), memo: parsed.data.memo, lines });
       return c.json(serialize(doc), 201);
     } catch (err) {
       if (err instanceof EmptyLandedCostTargetsError || err instanceof ZeroLandedCostWeightError) {

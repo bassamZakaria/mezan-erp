@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for the historical sales-document import (docs/archive/catalog/01
@@ -20,7 +21,7 @@ export const historicalSalesImportRowSchema = z.object({
   docType: historicalSalesDocTypeSchema,
   documentNumber: z.string().min(1),
   customerId: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   dueDate: z.string().nullable().optional(),
   itemId: z.string().nullable().optional(),
   description: z.string().nullable().optional(),

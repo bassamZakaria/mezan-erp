@@ -39,6 +39,8 @@ import { useAppTranslation } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
+import { unitLabel } from "../../../lib/boq-unit-label";
+import { formatPercent } from "../../../lib/percent";
 import { CERTIFICATE_STATUS_KEY, CERTIFICATE_STATUS_TONE, CERTIFICATE_STEPS, trimScale } from "./certificate-common";
 import { CertificatePrintPage } from "./CertificatePrintPage";
 
@@ -455,7 +457,7 @@ function NewCertificatePage({ onDone, onCancel }: { onDone: (docNo: string) => v
                           <td className="p-[7px_8px]">
                             <span className="mz-num text-ink-muted">{boqLine.code}</span> {boqLine.descriptionAr}
                           </td>
-                          <td className="p-[7px_8px]">{boqLine.unit}</td>
+                          <td className="p-[7px_8px]">{unitLabel(boqLine.unit, t)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row?.contractedQty)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row?.unitRate)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row?.previousCumulativeQty)}</td>
@@ -468,7 +470,7 @@ function NewCertificatePage({ onDone, onCancel }: { onDone: (docNo: string) => v
                             />
                           </td>
                           <td className="mz-num p-[7px_8px] text-end font-semibold">{trimScale(row?.cumulativeQty)}</td>
-                          <td className="mz-num p-[7px_8px] text-end">{row?.completionPercent ?? "—"}%</td>
+                          <td className="mz-num p-[7px_8px] text-end">{formatPercent(row?.completionPercent) || "—"}%</td>
                           <td className="mz-num p-[7px_8px] text-end">
                             {row ? <MoneyValue value={majorOf(row.cumulativeValue)} showUnit={false} /> : "—"}
                           </td>
@@ -628,7 +630,7 @@ export function DeductionsBlock({ computed }: { computed: CertificateComputation
           {row(t("certificates.block.materialsOnSite"), computed.materialsOnSite)}
           {row(t("certificates.block.certificateTotal"), computed.certificateTotal, true)}
           {row(
-            t("certificates.block.tenderDiscount", { percent: computed.tenderDiscountPercent }),
+            t("certificates.block.tenderDiscount", { percent: formatPercent(computed.tenderDiscountPercent) }),
             computed.tenderDiscount,
             false,
             true,
@@ -640,14 +642,14 @@ export function DeductionsBlock({ computed }: { computed: CertificateComputation
         <div>
           {computed.deductions.map((deduction) =>
             row(
-              `${deduction.labelAr}${deduction.percent ? ` — ${deduction.percent}%` : ""}${deduction.capped ? ` (${t("certificates.capped")})` : ""}`,
+              `${deduction.labelAr}${deduction.percent ? ` — ${formatPercent(deduction.percent)}%` : ""}${deduction.capped ? ` (${t("certificates.capped")})` : ""}`,
               deduction.thisCertificate,
               false,
               true,
             ),
           )}
           {row(
-            t("certificates.block.vat", { percent: computed.vatEffectiveRatePercent }),
+            t("certificates.block.vat", { percent: formatPercent(computed.vatEffectiveRatePercent) }),
             computed.vat,
           )}
           {row(t("certificates.block.previousPayments"), computed.previousPayments)}
@@ -876,7 +878,7 @@ function CertificateDetailPage({
           label: t("certificates.kpi.cumulativeExecuted"),
           value: <MoneyValue value={majorOf(computed.grossWorks)} showUnit={false} />,
         },
-        { label: t("certificates.kpi.completion"), value: <span className="mz-num">{computed.completionPercent}%</span> },
+        { label: t("certificates.kpi.completion"), value: <span className="mz-num">{formatPercent(computed.completionPercent)}%</span> },
         {
           label: t("certificates.kpi.retentionHeld"),
           value: <MoneyValue value={majorOf(computed.retentionHeldCumulative)} showUnit={false} />,
@@ -926,7 +928,7 @@ function CertificateDetailPage({
                           <td className="p-[7px_8px]">
                             <span className="mz-num text-ink-muted">{row.code}</span> {row.descriptionAr}
                           </td>
-                          <td className="p-[7px_8px]">{row.unit}</td>
+                          <td className="p-[7px_8px]">{unitLabel(row.unit, t)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row.contractedQty)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row.unitRate)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row.previousCumulativeQty)}</td>
@@ -945,7 +947,7 @@ function CertificateDetailPage({
                             )}
                           </td>
                           <td className="mz-num p-[7px_8px] text-end font-semibold">{trimScale(row.cumulativeQty)}</td>
-                          <td className="mz-num p-[7px_8px] text-end">{row.completionPercent}%</td>
+                          <td className="mz-num p-[7px_8px] text-end">{formatPercent(row.completionPercent)}%</td>
                           <td className="mz-num p-[7px_8px] text-end">
                             <MoneyValue value={majorOf(row.cumulativeValue)} showUnit={false} />
                           </td>
@@ -994,7 +996,7 @@ function CertificateDetailPage({
                       {certificate.materialLines.map((row) => (
                         <tr key={row.id} className="border-b border-border">
                           <td className="p-[7px_8px]">{row.descriptionAr}</td>
-                          <td className="p-[7px_8px]">{row.unit}</td>
+                          <td className="p-[7px_8px]">{unitLabel(row.unit, t)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row.qty)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row.cumulativeQty)}</td>
                           <td className="mz-num p-[7px_8px] text-end">{trimScale(row.unitRate)}</td>

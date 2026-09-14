@@ -45,6 +45,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
+import { unitLabel } from "../../../lib/boq-unit-label";
 import { SUBCONTRACT_STATUS_KEY, SUBCONTRACT_STATUS_TONE, SUB_CERTIFICATE_STATUS_KEY, SUB_CERTIFICATE_STATUS_TONE, trimScale } from "./subcontract-common";
 
 /**
@@ -536,7 +537,7 @@ function SubcontractLinesEditor({
                       </span>
                     )}
                   </td>
-                  <td className="p-[5px]">{line.unit}</td>
+                  <td className="p-[5px]">{unitLabel(line.unit, t)}</td>
                   <td className="p-[5px] text-end">
                     {editable ? (
                       <TextInput numeric value={line.qty} onChange={(e) => edit(index, { qty: e.target.value })} aria-label={t("subcontracts.col.qty")} className="w-[96px] text-end" />

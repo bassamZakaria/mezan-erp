@@ -384,36 +384,68 @@ HR dashboard charts (**R10.1**), asset status chips.
 ## 3.2 المقاولات — the contracting module, by slice
 
 The design is `artifacts/mezan-contracting-designs.html` (twelve decisions taken, six
-build slices). Ticked only when driven in the running app on seeded data.
+build slices). Every slice below was built, seeded, driven on a seeded backend, and then
+read by a six-reviewer panel (technical office, external auditor, internal auditor,
+revenue-recognition specialist, subcontracts manager, everyday accountant) whose findings
+were closed in the same pass — 2026-09-13/14.
 
-- [x] **Slice 0 — the dimension** (2026-09-13). `projectId` + `costCategory` on
-      `journal_line`, on every GL posting port and on all ten posting paths plus their
-      twins (sales and purchase returns, asset disposal); a category without a project is
-      refused before the engine, and every composition validates the project id. The nine
-      `contracting.*` permissions and the `contracting` entitlement module. Cost-centre
-      P&L rolls children into parents. `GET /projects/pnl` groups posted lines by the two
-      dimensions and «المشاريع» shows actual cost, margin and the category split. Project
-      pickers (real ids, never free text) on the voucher, journal, adjustment, sales
-      invoice, purchase invoice, goods receipt, landed cost, work order and asset forms.
-      Seed: one document per path on برج الأمل. Verified in Chrome: a labour voucher
-      confirmed from the form moved the project's actual cost by exactly its amount after
-      a fresh load.
-- [ ] **Slice 1 — contract & BOQ.** Contract on the `CTR-` sequence, BOQ with the stored
-      unit enum, Excel import, variation orders.
-- [ ] **Slice 2 — the certificate (المستخلص).** Cumulative lines, تشوينات, the eleven
-      deductions, consultant certification then finance clearance, generated invoice,
-      paginated print. Discharges the orphaned advance voucher.
-- [ ] **Slice 3 — the mirror.** Subcontracts, sub certificates, `retention_payable`,
-      the WHT suffered-side account, the sub tax-number/bank gate.
-- [ ] **Slice 4 — cost & recognition.** Site stores, two-step issue, consumption, WIP,
-      cost-to-complete, the monthly EAS 48 run, contract asset/liability.
-- [ ] **Slice 5 — controls & guarantees.** The six exception reports, the guarantee
-      register with bank-limit reporting, the retention release calendar.
+- [x] **Slice 0 — the dimension.** `projectId` + `costCategory` on `journal_line`, on every
+      GL posting port and on all ten posting paths plus their twins; a category without a
+      project is refused; contracting-slot accounts refuse a line with no project; the
+      nine `contracting.*` permissions plus three for guarantees; the `contracting`
+      entitlement module; cost-centre P&L rollup; project P&L by the two dimensions;
+      project pickers on nine forms.
+- [x] **Slice 1 — contract & BOQ.** Contract on the `CTR-` sequence with every commercial
+      term as a per-contract parameter (نسبة الممارسة, retention + cap, advance + recovery,
+      التشوينات, social-insurance pair, WHT, VAT basis derived from the signing date under
+      Law 157/2025, payment term, DLP, recognition policy, ETC with a reasoned revision log),
+      BOQ with a stored unit enum and Excel import that reviews before it commits, variation
+      orders whose approval date is bounded to [document date, today] and decides which
+      certificates they reach. One live contract per project.
+- [x] **Slice 2 — المستخلص.** Cumulative lines with the period as a subtraction, التشوينات
+      (editable, incorporated as a negative), deductions computed on the cumulative and
+      differenced, rounded to piastres, VAT added on the contract's basis, dates bounded
+      periodTo ≤ measured ≤ certified ≤ approved ≤ today, three people enforced with a
+      tenant `singleOperatorMode` switch, generated invoice crediting billings (cost-to-cost)
+      or revenue (certified value), balanced deductions entry, advance guarantee reduced,
+      AR sub-ledger == GL, void with mirror + invoice reversal, monotonic serial, cancel with
+      reason, internal certificate, paginated landscape print (ما قبله / يُرحل).
+- [x] **Slice 3 — the mirror.** Subcontracts back-to-back on the client BOQ, the ceiling
+      against the client's certified line net of sibling subcontracts, sub certificates through
+      the same arithmetic, deductions bounded, retention payable 2195 released through a real
+      purchase invoice (AP == GL), WHT to 2210 and onto Form 41, social insurance withheld to a
+      liability, transitional VAT into cost, tax-number + bank-account gate, labour-only flag.
+- [x] **Slice 4 — cost & recognition.** Site stores with a custodian, two-step issue/receipt
+      (different users, dates bounded, shortfall standing in transit), consumption as the only
+      stock-to-cost conversion (Dr WIP), custody register, plant hours at the asset's own rate,
+      the monthly EAS 48 run with an explicit contract-cost account set, WIP relieved by
+      category to zero, contract asset/liability per contract, onerous provision independent
+      of the policy switch, recomputed-vs-posted divergence shown.
+- [x] **Slice 5 — controls & guarantees.** Guarantee register with memorandum accounts outside
+      every statement, restricted cash margins, facility limits, own permissions and dated,
+      attributed actions; seven exception reports (the design's six plus cost overrun vs
+      estimate) each printing its rule; retention release as a due receivable dated from the
+      release event, creator ≠ releaser, early releases needing a second approver; the
+      retention calendar on both sides; dashboard tile.
+- [x] **Ledger and platform.** `/audit?module=contracting` carries every transition with the
+      real actor; `/reconciliation` proves ten control rows; memorandum lines balance within
+      their own partition; posting dates must be `YYYY-MM-DD`; historic periods are closed by
+      the seed; a closed-period refusal answers 409 and the server has a global error handler
+      and an unhandled-rejection guard; sales invoices on a cost-to-cost project bill through
+      2165; sales reports and their GL reference read one fact; contracting entries name
+      their module; certificate invoices reach the ETA queue.
 
-Open from slice 0: the nine contracting permission codes gate no route until slices 1–2
-land (`permission-catalog-coverage.test.ts` pins the ungated count at 97 for that reason,
-and each slice must bring it back down); the `/gl/journal-entries` list query still does
-not accept `sourceDocId`, so a document's own entry is found client-side.
+Verified 2026-09-14: `pnpm typecheck`, `lint`, `build`, 9,911 vitest tests, `pnpm smoke`
+(240 surfaces), `pnpm check:seed`, `pnpm scenarios` green, and the module walked in Chrome
+(certificate approval from the screen produced the invoice with remaining balance equal to
+the net payable).
+
+**Open, small:** BOQ unit codes render raw (`m3`, `lump_sum`) on the certificate grid and
+print instead of م٣ / مقطوعية; percentages print with six decimals (`3.750000%`); a
+dedicated slot for the employer-supplied-material deduction exists (5157) but the
+consultant's «تأمين نهائي» for public contracts (Law 182) is a flag, not a posting; equipment
+hours have no internal rate history; the two empty exception reports (`boq-overrun`,
+`late-variation-approvals`) are allowed-empty by design and say so.
 
 ## 3.3 Outbound notification channels
 

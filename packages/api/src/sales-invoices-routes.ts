@@ -65,6 +65,7 @@ import type { CurrencyCheck } from "./currency-policy.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -1060,7 +1061,7 @@ export function createSalesInvoicesRoutes(
         amount,
         treasuryAccountId: parsed.data.treasuryAccountId,
         paymentMethod: parsed.data.paymentMethod ?? "cash",
-        date: parsed.data.date ?? invoice.date,
+        date: (await tenantDay(c, parsed.data.date)) ?? invoice.date,
         referenceNo: parsed.data.referenceNo ?? null,
         memo: parsed.data.notes ?? `تحصيل على الفاتورة ${invoice.docNo ?? invoice.id}`,
         actor: getAuthContext(c)?.userId,

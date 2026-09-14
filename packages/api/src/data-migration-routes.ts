@@ -37,6 +37,7 @@ import {
   type ImportRowError,
 } from "@mezan/domain";
 import { openingBalanceImportBatchSchema, type OpeningBalanceImportRowDTO } from "@mezan/contracts";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * Commit must be all-or-nothing, so the route needs a transaction boundary it
@@ -739,7 +740,7 @@ export function createDataMigrationRoutes(
       try {
         const draft = await openingBalanceAdjustments!.createDraft({
           id: randomUUID(),
-          date: resolved.data.date,
+          date: await tenantDay(c, resolved.data.date),
           memo: "استيراد أرصدة افتتاحية",
           lines: resolved.lines.map((l) => ({
             itemId: l.itemId,

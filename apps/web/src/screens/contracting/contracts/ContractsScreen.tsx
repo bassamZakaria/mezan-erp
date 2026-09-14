@@ -50,6 +50,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
+import { BOQ_UNITS, unitLabel } from "../../../lib/boq-unit-label";
 
 /**
  * العقود — the contract, its جدول الكميات and its أوامر التغيير
@@ -71,25 +72,6 @@ const STATUS_TONE: Record<WorksContractStatusDTO, PillTone> = {
   active: "success",
   completed: "info",
   terminated: "danger",
-};
-
-const UNITS: readonly BoqUnitDTO[] = [
-  "m", "m2", "m3", "linear_m", "ton", "kg", "piece", "lump_sum", "day", "hour", "bag", "litre", "set",
-];
-const UNIT_KEY: Record<BoqUnitDTO, AppTranslationKey> = {
-  m: "boq.unit.m",
-  m2: "boq.unit.m2",
-  m3: "boq.unit.m3",
-  linear_m: "boq.unit.linear_m",
-  ton: "boq.unit.ton",
-  kg: "boq.unit.kg",
-  piece: "boq.unit.piece",
-  lump_sum: "boq.unit.lump_sum",
-  day: "boq.unit.day",
-  hour: "boq.unit.hour",
-  bag: "boq.unit.bag",
-  litre: "boq.unit.litre",
-  set: "boq.unit.set",
 };
 
 const COST_CATEGORIES: readonly CostCategoryDTO[] = ["materials", "labour", "equipment", "subcontract", "indirect"];
@@ -926,11 +908,11 @@ function BoqTab({ contract, mayManage }: { contract: WorksContractDTO; mayManage
                         <Select
                           value={line.unit}
                           onChange={(v) => edit(index, { unit: v as BoqUnitDTO })}
-                          options={UNITS.map((u) => ({ value: u, label: t(UNIT_KEY[u]) }))}
+                          options={BOQ_UNITS.map((u) => ({ value: u, label: unitLabel(u, t) }))}
                           aria-label={t("boq.column.unit")}
                         />
                       ) : (
-                        t(UNIT_KEY[line.unit])
+                        unitLabel(line.unit, t)
                       )}
                     </td>
                     <td className="p-[5px] text-end">{editable ? <TextInput numeric value={line.qty} onChange={(e) => edit(index, { qty: e.target.value })} aria-label={t("boq.column.qty")} /> : <QtyValue value={line.qty} />}</td>

@@ -207,6 +207,10 @@ describe("ContractsScreen", () => {
     expect((await screen.findAllByText("أعمال الحفر والردم")).length).toBeGreaterThan(0);
     expect(screen.getByText("حديد التسليح")).toBeInTheDocument();
     expect(screen.getAllByText("أمر تغيير").length).toBeGreaterThan(0);
+    // The Arabic unit label, never the stored enum code.
+    expect(screen.getByText("م٣")).toBeInTheDocument();
+    expect(screen.getByText("طن")).toBeInTheDocument();
+    expect(screen.queryByText("m3")).not.toBeInTheDocument();
     // Frozen once active: the editor's own controls are not offered.
     expect(screen.queryByRole("button", { name: "حفظ جدول الكميات" })).not.toBeInTheDocument();
     expect(await screen.findByText("الكمية التعاقدية حتى تاريخ")).toBeInTheDocument();

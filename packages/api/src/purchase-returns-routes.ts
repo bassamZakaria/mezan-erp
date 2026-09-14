@@ -11,6 +11,7 @@ import {
 import { createPurchaseReturnSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { tenantDay } from "./tenant-day.js";
 
 function serializeLine(l: PurchaseReturnLine) {
   return {
@@ -220,7 +221,7 @@ export function createPurchaseReturnsRoutes(
       }));
       const doc = await service.createDraft({
         id: parsed.data.id,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
         lines,
       });

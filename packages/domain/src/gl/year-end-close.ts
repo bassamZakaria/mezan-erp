@@ -19,7 +19,7 @@ import { Money } from "../money/index.js";
 import { YEAR_END_CLOSE_DOC_TYPE } from "../journal.js";
 import type { Account, AccountRepository } from "../accounts/account.js";
 import type { LedgerRepository } from "./ledger.js";
-import { postJournalEntry, type JournalPostingDeps } from "./post.js";
+import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "./post.js";
 
 export class YearAlreadyClosedError extends Error {
   readonly code = "YEAR_ALREADY_CLOSED";
@@ -71,6 +71,14 @@ export interface YearEndClosePlanLine {
   readonly accountCode: string;
   readonly accountNameAr: string;
   readonly accountType: "revenue" | "expense";
+  /**
+   * بُعد المشروع the closed balance came from — null for the part of the
+   * account's balance no project ever carried. One account closes across as
+   * many lines as it has projects, because a routed contracting slot refuses a
+   * line with no project, and because a project's result is only readable from
+   * the books if the close preserves the dimension it was earned under.
+   */
+  readonly projectId: string | null;
   readonly debit: Money;
   readonly credit: Money;
 }
@@ -100,31 +108,59 @@ export async function planYearEndClose(cmd: CloseYearCommand, deps: CloseYearDep
 
   const asOf = `${cmd.year}-12-31`;
   const accounts = (await deps.accounts.list()).filter(isPnl).filter((a) => !a.isHeader);
+  if (accounts.length === 0) throw new NothingToCloseError(cmd.year);
+
+  // Same bound as `accountBalance` below — `toDate` only, no lower bound — so
+  // the per-project split sums to exactly the balance being closed even on a
+  // tenant carrying unclosed earlier years.
+  const posted = (await deps.ledger.listLines?.({ toDate: asOf, accountIds: accounts.map((a) => a.id) })) ?? [];
+  const byAccount = new Map<string, Map<string, bigint>>();
+  for (const line of posted) {
+    let buckets = byAccount.get(line.accountId);
+    if (!buckets) {
+      buckets = new Map<string, bigint>();
+      byAccount.set(line.accountId, buckets);
+    }
+    const key = line.projectId ?? "";
+    buckets.set(key, (buckets.get(key) ?? 0n) + line.debit.scaled - line.credit.scaled);
+  }
 
   const lines: YearEndClosePlanLine[] = [];
   let revenue = Money.zero();
   let expenses = Money.zero();
 
   for (const account of accounts) {
-    const balance = await deps.ledger.accountBalance(account.id, asOf);
-    // `AccountBalance.balance` is debit − credit, sign convention-neutral. So a
-    // revenue account that has earned reads NEGATIVE and an expense account
-    // that has spent reads positive, and closing either one is simply the
-    // mirror of its raw balance — no per-type branch, no sign to get backwards.
-    const raw = balance.balance.scaled;
-    if (raw === 0n) continue;
+    const buckets = new Map(byAccount.get(account.id) ?? []);
+    let covered = 0n;
+    for (const value of buckets.values()) covered += value;
+    const total = (await deps.ledger.accountBalance(account.id, asOf)).balance.scaled;
+    // `listLines` is optional on the port, and a ledger that does not implement
+    // it attributes nothing. Whatever the split could not account for closes
+    // undimensioned, so the amount swept is the account's balance either way.
+    const residual = total - covered;
+    if (residual !== 0n) buckets.set("", (buckets.get("") ?? 0n) + residual);
 
-    if (account.type === "revenue") revenue = Money.fromScaled(revenue.scaled - raw);
-    else expenses = Money.fromScaled(expenses.scaled + raw);
+    for (const key of [...buckets.keys()].sort()) {
+      // `AccountBalance.balance` is debit − credit, sign convention-neutral. So a
+      // revenue account that has earned reads NEGATIVE and an expense account
+      // that has spent reads positive, and closing either one is simply the
+      // mirror of its raw balance — no per-type branch, no sign to get backwards.
+      const raw = buckets.get(key)!;
+      if (raw === 0n) continue;
 
-    lines.push({
-      accountId: account.id,
-      accountCode: account.code,
-      accountNameAr: account.nameAr,
-      accountType: account.type,
-      debit: raw > 0n ? Money.zero() : Money.fromScaled(-raw),
-      credit: raw > 0n ? Money.fromScaled(raw) : Money.zero(),
-    });
+      if (account.type === "revenue") revenue = Money.fromScaled(revenue.scaled - raw);
+      else expenses = Money.fromScaled(expenses.scaled + raw);
+
+      lines.push({
+        accountId: account.id,
+        accountCode: account.code,
+        accountNameAr: account.nameAr,
+        accountType: account.type,
+        projectId: key === "" ? null : key,
+        debit: raw > 0n ? Money.zero() : Money.fromScaled(-raw),
+        credit: raw > 0n ? Money.fromScaled(raw) : Money.zero(),
+      });
+    }
   }
 
   if (lines.length === 0) throw new NothingToCloseError(cmd.year);
@@ -143,17 +179,14 @@ export async function planYearEndClose(cmd: CloseYearCommand, deps: CloseYearDep
 export async function closeFiscalYear(cmd: CloseYearCommand, deps: CloseYearDeps): Promise<CloseYearResult> {
   const plan = await planYearEndClose(cmd, deps);
 
-  const lines: { accountId: string; debit: Money; credit: Money }[] = plan.lines.map((line) => ({
+  const lines: JournalLineInput[] = plan.lines.map((line) => ({
     accountId: line.accountId,
+    projectId: line.projectId,
     debit: line.debit,
     credit: line.credit,
   }));
   if (plan.netResult.scaled !== 0n) {
-    lines.push(
-      plan.netResult.scaled > 0n
-        ? { accountId: cmd.retainedEarningsAccountId, debit: Money.zero(), credit: plan.netResult }
-        : { accountId: cmd.retainedEarningsAccountId, debit: Money.fromScaled(-plan.netResult.scaled), credit: Money.zero() },
-    );
+    for (const line of retainedEarningsLines(cmd.retainedEarningsAccountId, plan, deps)) lines.push(line);
   }
 
   const entry = await postJournalEntry(
@@ -179,6 +212,43 @@ export async function closeFiscalYear(cmd: CloseYearCommand, deps: CloseYearDeps
     netResult: plan.netResult,
     revenueClosed: plan.revenueClosed,
     expensesClosed: plan.expensesClosed,
-    accountsClosed: plan.lines.length,
+    accountsClosed: new Set(plan.lines.map((line) => line.accountId)).size,
   };
+}
+
+/**
+ * The balancing side. Retained earnings is equity, so normally it is one line
+ * carrying the whole result. A chart that routes retained earnings through a
+ * project-required slot would refuse that line, so it splits by project the
+ * same way the P&L side did — each project's share is the mirror of what its
+ * own closing lines moved, and the shares still sum to the year's result.
+ */
+function retainedEarningsLines(
+  accountId: string,
+  plan: YearEndClosePlan,
+  deps: CloseYearDeps,
+): readonly JournalLineInput[] {
+  const asAmount = (projectId: string | null, scaled: bigint): JournalLineInput => ({
+    accountId,
+    projectId,
+    debit: scaled > 0n ? Money.fromScaled(scaled) : Money.zero(),
+    credit: scaled > 0n ? Money.zero() : Money.fromScaled(-scaled),
+  });
+
+  if (!deps.projectRequiredAccountIds?.has(accountId)) {
+    return [asAmount(null, -plan.netResult.scaled)];
+  }
+
+  const byProject = new Map<string, bigint>();
+  for (const line of plan.lines) {
+    const key = line.projectId ?? "";
+    byProject.set(key, (byProject.get(key) ?? 0n) + line.credit.scaled - line.debit.scaled);
+  }
+  const out: JournalLineInput[] = [];
+  for (const key of [...byProject.keys()].sort()) {
+    const scaled = byProject.get(key)!;
+    if (scaled === 0n) continue;
+    out.push(asAmount(key === "" ? null : key, scaled));
+  }
+  return out;
 }

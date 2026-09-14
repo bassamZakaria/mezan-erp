@@ -10,6 +10,8 @@ import { useProjects, useSettings } from "../../../data/hooks";
 import { useSubCertificate } from "../../../data/contracting-subcontracts-hooks";
 import { useAppTranslation } from "../../../i18n";
 import { EMPTY } from "../../../lib/empty";
+import { unitLabel } from "../../../lib/boq-unit-label";
+import { formatPercent } from "../../../lib/percent";
 import { trimScale } from "./subcontract-common";
 
 /**
@@ -65,7 +67,7 @@ export function SubCertificatePrintPage({
 
   const columns: PaginatedTableColumn<SubCertificateWorkLineDTO>[] = [
     { key: "code", header: t("subCertificates.col.item"), render: (r) => `${r.code} — ${r.descriptionAr}` },
-    { key: "unit", header: t("subCertificates.col.unit"), render: (r) => r.unit },
+    { key: "unit", header: t("subCertificates.col.unit"), render: (r) => unitLabel(r.unit, t) },
     {
       key: "contracted",
       header: t("subCertificates.col.contractedQty"),
@@ -100,7 +102,7 @@ export function SubCertificatePrintPage({
       key: "completion",
       header: t("subCertificates.col.completion"),
       align: "end",
-      render: (r) => <span className="mz-num">{r.completionPercent}%</span>,
+      render: (r) => <span className="mz-num">{formatPercent(r.completionPercent)}%</span>,
     },
     {
       key: "value",
@@ -164,7 +166,7 @@ export function SubCertificatePrintPage({
    */
   const deductionRow = (labelAr: string, percent: string | null, previous: string, thisCert: string, cumulative: string) => (
     <div key={labelAr} className="grid grid-cols-[1fr_auto_auto_auto] items-baseline gap-[8px] border-b border-border py-[4px]">
-      <span className="text-[11px] text-ink">{percent ? `${labelAr} — ${percent}%` : labelAr}</span>
+      <span className="text-[11px] text-ink">{percent ? `${labelAr} — ${formatPercent(percent)}%` : labelAr}</span>
       <span className="mz-num w-[72px] text-end text-[11px] text-ink-muted">{money(previous)}</span>
       <span className="mz-num w-[72px] text-end text-[11px] text-ink">{money(thisCert)}</span>
       <span className="mz-num w-[80px] text-end text-[11px] text-ink">{money(cumulative)}</span>
@@ -182,8 +184,8 @@ export function SubCertificatePrintPage({
           {totalsRow(t("subCertificates.block.thisNetCertified"), computed.thisCertificateNetCertified, true)}
           {totalsRow(
             t("subCertificatePrint.vatBasis", {
-              statutory: computed.vatStatutoryRatePercent,
-              effective: computed.vatEffectiveRatePercent,
+              statutory: formatPercent(computed.vatStatutoryRatePercent),
+              effective: formatPercent(computed.vatEffectiveRatePercent),
             }),
             computed.vat,
           )}
@@ -205,7 +207,7 @@ export function SubCertificatePrintPage({
             ),
           )}
           {totalsRow(t("subCertificates.block.deductionsThis"), computed.deductionsThisCertificate, true)}
-          {totalsRow(t("subCertificates.block.vat", { percent: computed.vatEffectiveRatePercent }), computed.vat)}
+          {totalsRow(t("subCertificates.block.vat", { percent: formatPercent(computed.vatEffectiveRatePercent) }), computed.vat)}
           {totalsRow(t("subCertificates.block.netPayable"), computed.netPayableThisCertificate, true)}
         </div>
       </section>

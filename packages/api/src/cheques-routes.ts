@@ -32,6 +32,7 @@ import {
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { tenantDay } from "./tenant-day.js";
 
 export type ChequeRoutesDeps = ChequeServiceDeps & {
   /** Generates ids (cheque id, journal-entry id) when the request omits them. Defaults to a UUID. */
@@ -319,7 +320,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       const cheque = await service.collect({
         chequeId: c.req.param("id"),
         bankGlAccountId: parsed.data.bankGlAccountId,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });
@@ -344,7 +345,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     try {
       const cheque = await service.bounce({
         chequeId: c.req.param("id"),
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });

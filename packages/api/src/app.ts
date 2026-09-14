@@ -118,6 +118,7 @@ import {
   type LicenseStateResolver,
 } from "./license-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
+import { tenantTimeZoneMiddleware } from "./tenant-day.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
@@ -977,6 +978,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         "Administrative acts would be unrecorded.",
     );
   }
+
+  // The tenant's timezone, published to every handler below so a route can
+  // narrow an instant on the wire to the tenant's own calendar day before the
+  // command is built (tenant-day.ts). Registered before every route.
+  app.use("*", tenantTimeZoneMiddleware(options.settingsStore));
 
   // Bound per app, not per process: two backends in one process must not share
   // — or silently steal — each other's forensic trail. Registered before every

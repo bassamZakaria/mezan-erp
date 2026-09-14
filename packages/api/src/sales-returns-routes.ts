@@ -23,6 +23,7 @@ import {
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { tenantDay } from "./tenant-day.js";
 
 function serializeLine(l: SalesReturnLine) {
   return {
@@ -326,7 +327,7 @@ export function createSalesReturnsRoutes(
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
         lines: await Promise.all(parsed.data.lines.map(async (l) => ({
           itemId: l.itemId,
@@ -381,7 +382,7 @@ export function createSalesReturnsRoutes(
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
         lines,
       });
@@ -446,7 +447,7 @@ export function createSalesReturnsRoutes(
         amount,
         treasuryAccountId: parsed.data.treasuryAccountId,
         paymentMethod: parsed.data.paymentMethod ?? "cash",
-        date: parsed.data.date ?? doc.date,
+        date: (await tenantDay(c, parsed.data.date)) ?? doc.date,
         memo: parsed.data.notes ?? `استرداد على المرتجع ${doc.docNo ?? doc.id}`,
         referenceNo: parsed.data.referenceNo ?? null,
         actor: callerUserId(c),

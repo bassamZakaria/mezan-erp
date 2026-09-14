@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for HR payroll (docs/archive/catalog/06-crm-hr.md "الرواتب" and
@@ -55,7 +56,7 @@ export const createEmployeeAdvanceSchema = z.object({
 export const treasuryDisbursementSchema = z.object({
   treasuryAccountId: z.string().min(1),
   branchId: z.string().min(1),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
   referenceNo: z.string().nullable().optional(),
 });

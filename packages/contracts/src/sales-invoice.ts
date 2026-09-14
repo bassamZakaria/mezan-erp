@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for Sales Invoices (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
@@ -66,7 +67,7 @@ export const createSalesInvoiceLineSchema = z.object({
 /** Create a draft sales invoice. */
 export const createSalesInvoiceSchema = z.object({
   id: z.string().min(1).optional(),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   dueDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string().min(1),
@@ -105,7 +106,7 @@ export const salesInvoicePaymentSchema = z.object({
   amount: moneyString,
   treasuryAccountId: z.string().min(1),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   referenceNo: z.string().nullish(),
   notes: z.string().nullish(),
 });

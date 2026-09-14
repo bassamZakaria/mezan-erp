@@ -12,6 +12,7 @@ import {
   type HistoricalSalesImportGroup,
 } from "@mezan/domain";
 import { historicalSalesImportBatchSchema } from "@mezan/contracts";
+import { tenantDay } from "./tenant-day.js";
 import {
   createPermissionGate,
   getAuthContext,
@@ -34,6 +35,14 @@ export interface SalesHistoricalImportRoutesDeps {
   readonly gl?: HistoricalSalesImportGlPostingPort;
   readonly accounts?: HistoricalSalesImportGlAccounts;
   readonly now?: () => string;
+}
+
+/** Rows land on the tenant's calendar day before the importer sees them. */
+async function toTenantDayRows<T extends { readonly date: string }>(
+  c: Context,
+  rows: readonly T[],
+): Promise<readonly T[]> {
+  return Promise.all(rows.map(async (r) => ({ ...r, date: await tenantDay(c, r.date) })));
 }
 
 function toRowInputs(rows: readonly {
@@ -93,7 +102,7 @@ export function createSalesHistoricalImportRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const preview = previewHistoricalSalesImport(toRowInputs(parsed.data.rows));
+      const preview = previewHistoricalSalesImport(toRowInputs(await toTenantDayRows(c, parsed.data.rows)));
       return c.json({
         groups: preview.groups.map(serializeGroup),
         errors: preview.errors,
@@ -115,7 +124,7 @@ export function createSalesHistoricalImportRoutes(
       const result = await importHistoricalSalesDocuments(
         {
           importBatchId: `HSI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          rows: toRowInputs(parsed.data.rows),
+          rows: toRowInputs(await toTenantDayRows(c, parsed.data.rows)),
           createdBy: actor(c),
         },
         { archives: deps.archives, gl: deps.gl, accounts: deps.accounts, now: deps.now },

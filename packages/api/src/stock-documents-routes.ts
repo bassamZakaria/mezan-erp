@@ -36,6 +36,7 @@ import {
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * Document-layer routes for the phase4/inventory-ops document types, built on
@@ -248,7 +249,7 @@ export function createStockAdjustmentsRoutes(
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo ?? "",
         lines: parsed.data.lines.map((l) => ({
           itemId: l.itemId,
@@ -383,7 +384,7 @@ export function createStockTransfersRoutes(
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo ?? "",
         lines: parsed.data.lines.map((l) => ({
           itemId: l.itemId,

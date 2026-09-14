@@ -1263,7 +1263,7 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     ctx.check("scenario leaves March open, as it found it", finalState.body?.status === "open", String(finalState.body?.status));
   });
 
-  await ctx.scenario("journal entry — the last day of a month is postable, as an instant", async () => {
+  await ctx.scenario("journal entry — the last day of a month is postable, as an instant still on that day in Cairo", async () => {
     // THE DAY A SHOP POSTS MOST IS THE DAY IT COULD NOT POST AT ALL.
     //
     // A fiscal period's `endDate` is a DAY ("2026-08-31") and a document's date
@@ -1277,12 +1277,20 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     // Asserted here with a full timestamp on purpose: the existing repository
     // test asked with a mid-month DAY, which is exactly the shape that cannot
     // fail.
+    //
+    // THE INSTANTS ARE CHOSEN TO STILL BE THAT DAY IN CAIRO. The engine keeps
+    // refusing instants; the ROUTE narrows one to the tenant's calendar day,
+    // and the tenant is Egyptian (Africa/Cairo, +02:00 or +03:00). So
+    // `…T23:59:59.999Z` on the 30th is the 1st of the next month here, and
+    // asserting it lands on the 30th would only be true of a UTC tenant. The
+    // late-in-the-day probes therefore ask at 20:00Z — still the same day in
+    // Cairo, still late enough to be a real end-of-day timestamp.
     const year = new Date().getUTCFullYear();
     for (const [label, date] of [
       ["a 31-day month", `${year}-08-31T03:10:33.016Z`],
-      ["a 30-day month", `${year}-09-30T23:59:59.999Z`],
+      ["a 30-day month", `${year}-09-30T20:00:00.000Z`],
       ["the first instant of a period", `${year}-08-01T00:00:00.000Z`],
-      ["the last instant of the year", `${year}-12-31T23:59:59.999Z`],
+      ["the last day of the year", `${year}-12-31T20:00:00.000Z`],
     ] as const) {
       const id = `SCN-JE-MONTHEND-${date.slice(5, 10)}`;
       const posted = await ctx.req("POST", "/gl/journal-entries", {

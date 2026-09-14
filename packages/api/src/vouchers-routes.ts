@@ -44,6 +44,7 @@ import {
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createPermissionGate, getAuthContext, withinScope } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * Everything a «شيك» voucher knows about the cheque it raised, handed to the
@@ -552,7 +553,7 @@ export function createVouchersRoutes(
     try {
       const result = await serviceFor(c).reverseVoucher(c.req.param("id"), {
         reversalId: parsed.data.reversalId ?? idGen(),
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
       });
       return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);

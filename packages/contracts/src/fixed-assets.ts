@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for Fixed Assets (docs/archive/catalog/07-mfg-projects-assets.md
@@ -127,7 +128,7 @@ export type CreateAssetDTO = z.infer<typeof createAssetSchema>;
 
 /** التخلص من أصل — retire an asset, recognising the gain or loss against any proceeds. */
 export const disposeAssetSchema = z.object({
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   /** Sale price; omit or zero for a scrapped asset. */
   proceeds: z.string().optional(),
   /** Where the proceeds land — required when there are any. */

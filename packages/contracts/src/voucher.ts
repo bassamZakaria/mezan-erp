@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for Treasury Vouchers (docs/archive/catalog/04 §"السندات النقدية") —
@@ -66,7 +67,7 @@ export const voucherSchema = z.object({
 /** Create a voucher draft. */
 export const createVoucherSchema = z.object({
   id: z.string().min(1).optional(),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().optional(),
   voucherType: voucherTypeSchema,
   amount: moneyString,
@@ -100,7 +101,7 @@ export const confirmVoucherSchema = z.object({
 /** Reverse a confirmed voucher. */
 export const reverseVoucherSchema = z.object({
   reversalId: z.string().min(1).optional(),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
 });
 

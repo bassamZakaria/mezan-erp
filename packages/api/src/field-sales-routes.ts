@@ -34,6 +34,7 @@ import {
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { can } from "@mezan/domain";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * Field/Van Sales routes (docs/archive/catalog/07-mfg-projects-assets.md "رحلات
@@ -290,7 +291,7 @@ export function createFieldSalesRoutes(
         {
           id: randomUUID(),
           tripNo: body.tripNo,
-          date: body.date,
+          date: await tenantDay(c, body.date),
           branchId,
           vanId,
           vanWarehouseId,

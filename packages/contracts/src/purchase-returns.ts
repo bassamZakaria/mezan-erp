@@ -2,6 +2,7 @@ import { z } from "zod";
 import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /** Wire contracts for Purchase Returns (مرتجعات المشتريات، docs/archive/catalog/02). Mirrors sales-returns.ts. */
 
@@ -37,7 +38,7 @@ export const purchaseReturnLineSchema = z.object({
 
 export const createPurchaseReturnSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().default(""),
   /** بُعد المشروع — the contracting project this return's cost belongs to (D-01). */
   projectId: z.string().min(1).nullable().optional(),
@@ -51,7 +52,7 @@ export const purchaseReturnRequestedQtySchema = z.object({
 
 export const buildPurchaseReturnFromInvoiceSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().default(""),
   sourceInvoiceId: z.string().min(1),
   warehouseId: z.string().min(1),

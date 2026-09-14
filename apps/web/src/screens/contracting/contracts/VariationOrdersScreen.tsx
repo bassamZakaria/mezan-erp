@@ -37,6 +37,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
+import { BOQ_UNITS, unitLabel } from "../../../lib/boq-unit-label";
 
 /**
  * أوامر التغيير — the only way the contracted quantity of an active contract
@@ -53,25 +54,6 @@ const STATUS_TONE: Record<VariationOrderStatusDTO, PillTone> = {
   draft: "neutral",
   approved: "success",
   rejected: "danger",
-};
-
-const UNITS: readonly BoqUnitDTO[] = [
-  "m", "m2", "m3", "linear_m", "ton", "kg", "piece", "lump_sum", "day", "hour", "bag", "litre", "set",
-];
-const UNIT_KEY: Record<BoqUnitDTO, AppTranslationKey> = {
-  m: "boq.unit.m",
-  m2: "boq.unit.m2",
-  m3: "boq.unit.m3",
-  linear_m: "boq.unit.linear_m",
-  ton: "boq.unit.ton",
-  kg: "boq.unit.kg",
-  piece: "boq.unit.piece",
-  lump_sum: "boq.unit.lump_sum",
-  day: "boq.unit.day",
-  hour: "boq.unit.hour",
-  bag: "boq.unit.bag",
-  litre: "boq.unit.litre",
-  set: "boq.unit.set",
 };
 
 const REQUESTED_BY_KEY: Record<string, AppTranslationKey> = {
@@ -378,7 +360,7 @@ function NewVariationOrderPage({
                   label={t("boq.column.unit")}
                   value={line.unit}
                   onChange={(v) => edit(index, { unit: v as BoqUnitDTO })}
-                  options={UNITS.map((u) => ({ value: u, label: t(UNIT_KEY[u]) }))}
+                  options={BOQ_UNITS.map((u) => ({ value: u, label: unitLabel(u, t) }))}
                 />
                 <TextField label={t("boq.column.qty")} value={line.qty} onChange={(v) => edit(index, { qty: v })} />
                 <TextField label={t("boq.column.unitRate")} value={line.unitRate} onChange={(v) => edit(index, { unitRate: v })} />

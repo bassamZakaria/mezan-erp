@@ -41,6 +41,7 @@ import {
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * Fixed Assets routes (docs/archive/catalog/07-mfg-projects-assets.md "الأصول
@@ -338,7 +339,7 @@ export function createFixedAssetsRoutes(
       const result = await disposeAsset(
         {
           assetId: c.req.param("id"),
-          date: body.date,
+          date: await tenantDay(c, body.date),
           proceeds: body.proceeds ? Money.fromMajor(body.proceeds) : undefined,
           proceedsAccountId: body.proceedsAccountId ?? null,
           notes: body.notes ?? null,

@@ -52,6 +52,7 @@ import {
   type SalesInvoicePricingDeps,
   type ContractBillingRoutingPort,
   type SalesInvoiceTaxPolicy,
+  type UserRepository,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
@@ -155,6 +156,14 @@ export interface SalesInvoiceRoutesDeps {
    * while the invoice went on reporting its full total as outstanding.
    */
   readonly returns?: { list(): Promise<readonly SalesReturnDocument[]> };
+  /**
+   * Resolves the caller's linked `Employee.id`. `view_own` narrows on
+   * `salespersonId`, which holds an employee id, not a user id — without this
+   * port the two id spaces are compared directly and a real rep matches
+   * nothing (D147). Omit it and a `view_own` caller is shown no invoices at
+   * all rather than the whole tenant.
+   */
+  readonly users?: Pick<UserRepository, "findById">;
   readonly events?: DocumentEventPublisher;
   readonly now?: () => string;
   /** Generates an invoice id when the request omits one. Defaults to a UUID. */
@@ -383,7 +392,26 @@ export function createSalesInvoicesRoutes(
   const gateAny = createAnyPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
 
+  /**
+   * A `view_own` caller whose employee link cannot be resolved sees nothing.
+   * Filtering on a sentinel is deliberate: dropping the clause would widen the
+   * list to the whole tenant, which is the exact failure the tier exists to
+   * prevent.
+   */
+  const NO_SUCH_ACTOR = "\u0000no-actor";
+
   const actorOf = (c: Context) => getAuthContext(c)?.userId ?? "system";
+  /**
+   * The employee id `view_own` narrows on. `actorOf` is a USER id and must
+   * never be used here: the salesperson picker stores an `Employee.id`, so
+   * comparing the two matches nothing (D147).
+   */
+  const ownSalespersonIdOf = async (c: Context): Promise<string> => {
+    const ctx = getAuthContext(c);
+    if (!ctx || !deps.users) return NO_SUCH_ACTOR;
+    const user = await deps.users.findById(ctx.userId);
+    return user?.employeeId ?? NO_SUCH_ACTOR;
+  };
   /** True when the caller's only visibility grant is the own-records tier. */
   const ownVisibilityOnly = (c: Context) => {
     const ctx = getAuthContext(c);
@@ -697,13 +725,6 @@ export function createSalesInvoicesRoutes(
 
   const DERIVED_FILTER_KEYS = new Set(["all", "open", "overdue"]);
 
-  /**
-   * A `view_own` caller with no resolved user id may see nothing. Filtering on
-   * a sentinel is deliberate: dropping the clause would widen the list to the
-   * whole tenant, which is the exact failure the tier exists to prevent.
-   */
-  const NO_SUCH_ACTOR = "\u0000no-actor";
-
   function isOpen(invoice: SalesInvoice, remaining: Money): boolean {
     return (invoice.status === "confirmed" || invoice.status === "partially_paid") && remaining.scaled > 0n;
   }
@@ -718,7 +739,7 @@ export function createSalesInvoicesRoutes(
    * `view_own` salesperson whose rows are narrowed but whose KPI strip totals
    * the whole tenant is being told the figure they may not see.
    */
-  function repoFilterFor(c: Context, filter: SalesInvoiceListQueryDTO, page?: { limit: number; offset: number }) {
+  async function repoFilterFor(c: Context, filter: SalesInvoiceListQueryDTO, page?: { limit: number; offset: number }) {
     const { branchId, warehouseId, search, status, ...dateFilter } = filter;
     return {
       ...dateFilter,
@@ -730,7 +751,7 @@ export function createSalesInvoicesRoutes(
       branchId,
       warehouseId,
       search,
-      ...(ownVisibilityOnly(c) ? { salespersonId: actorOf(c) ?? NO_SUCH_ACTOR } : {}),
+      ...(ownVisibilityOnly(c) ? { salespersonId: await ownSalespersonIdOf(c) } : {}),
       ...(page ? { limit: page.limit, offset: page.offset } : {}),
     } as Parameters<SalesInvoiceService["list"]>[0];
   }
@@ -747,7 +768,7 @@ export function createSalesInvoicesRoutes(
     // paged after the fact. Every other filter is already SQL by this point,
     // so what is loaded is the chip's own set, not the table.
     const derived = status === "open" || status === "overdue";
-    let rows = await svc.list(repoFilterFor(c, filter, derived ? undefined : page));
+    let rows = await svc.list(await repoFilterFor(c, filter, derived ? undefined : page));
 
     const credits = await returnCredits();
     const allocations = await allocatedByInvoice(rows.map((inv) => inv.id));
@@ -873,7 +894,7 @@ export function createSalesInvoicesRoutes(
     if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
     // A `view_own` holder gets 404, not 403: whether an invoice they may not
     // see exists at all is itself information.
-    if (ownVisibilityOnly(c) && invoice.salespersonId !== actorOf(c)) {
+    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
       return c.json({ error: "NOT_FOUND" }, 404);
     }
     return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), maySeeCost(c)));

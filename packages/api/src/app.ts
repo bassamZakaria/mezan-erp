@@ -1272,6 +1272,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           ...salesInvoices,
           creditControl,
           promotions,
+          // `view_own` narrows on `salespersonId`, which holds an Employee id.
+          // Without this port it would be compared against a user id and match
+          // nothing, so a real rep would see no invoices at all (D147).
+          users: salesInvoices.users ?? uow.users,
           returns: salesInvoices.returns ?? options.salesReturns?.service,
           // Auto-wire the tenant's VAT rules (§"الضريبة") the same way credit
           // control is: a draft is stamped with the mode in force when it was
@@ -1510,6 +1514,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               taxRatePercent: l.taxRatePercent ?? null,
               projectId: l.projectId ?? null,
               costCategory: l.costCategory ?? null,
+              branchId: l.branchId ?? null,
             })),
           },
           purchases.gl,

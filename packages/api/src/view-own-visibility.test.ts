@@ -39,6 +39,12 @@ afterEach(() => {
   for (const h of closers.splice(0)) h.close();
 });
 
+/** A user id is not an employee id. `salespersonId` holds the employee's (D147). */
+const USER_TO_EMPLOYEE = new Map([
+  ["rep-a", "emp-a"],
+  ["rep-b", "emp-b"],
+]);
+
 async function harness() {
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
@@ -67,6 +73,15 @@ async function harness() {
 
   const deps: SalesInvoiceRoutesDeps = {
     repo,
+    // The two id spaces must DIFFER in this harness. They used to be the same
+    // string, which is why D147 — `view_own` comparing an employee id against a
+    // user id — passed every test in this file while showing a real rep nothing.
+    users: {
+      findById: async (id: string) =>
+        USER_TO_EMPLOYEE.has(id)
+          ? ({ id, employeeId: USER_TO_EMPLOYEE.get(id)! } as Awaited<ReturnType<NonNullable<SalesInvoiceRoutesDeps["users"]>["findById"]>>)
+          : null,
+    },
     numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
     gl: createSalesInvoiceGlHook({ ledger, accounts, periods, numbering: ledger.numbering, now: () => NOW, actor: "u1" }),
     stock: createSalesInvoiceStockHook(stockService),
@@ -107,8 +122,8 @@ const ADMIN = "*";
 async function seedTwoInvoices(app: { fetch(r: Request): Response | Promise<Response> }) {
   // Two reps, two customers, two very different figures, so a leak shows up in
   // the total as well as in the rows.
-  expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-mine", "rep-a", "عميل المندوب أ", "1250.50")) }))).status).toBe(201);
-  expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-theirs", "rep-b", "عميل المندوب ب", "9999.99")) }))).status).toBe(201);
+  expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-mine", "emp-a", "عميل المندوب أ", "1250.50")) }))).status).toBe(201);
+  expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-theirs", "emp-b", "عميل المندوب ب", "9999.99")) }))).status).toBe(201);
   expect((await app.fetch(req("/inv-mine/confirm", { method: "POST", permissions: ADMIN, body: "{}" }))).status).toBe(200);
   expect((await app.fetch(req("/inv-theirs/confirm", { method: "POST", permissions: ADMIN, body: "{}" }))).status).toBe(200);
 }
@@ -126,7 +141,7 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
     expect(rows.map((r) => r.id)).toEqual(["inv-mine"]);
     expect(rows[0]!.totals.grandTotal).toBe("1250.500000");
     expect(text).not.toContain("inv-theirs");
-    expect(text).not.toContain("rep-b");
+    expect(text).not.toContain("emp-b");
     expect(text).not.toContain("9999.99");
     expect(text).not.toContain("عميل المندوب ب");
   });
@@ -141,7 +156,7 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
     expect(JSON.parse(text)).toEqual({ error: "NOT_FOUND" });
     expect(text).not.toContain("9999.99");
     expect(text).not.toContain("عميل المندوب ب");
-    expect(text).not.toContain("rep-b");
+    expect(text).not.toContain("emp-b");
   });
 
   it("serves their OWN invoice by id, at its real figures", async () => {
@@ -152,7 +167,7 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id: string; totals: { grandTotal: string }; salespersonId: string; lines: { unitCost?: string }[] };
     expect(body.id).toBe("inv-mine");
-    expect(body.salespersonId).toBe("rep-a");
+    expect(body.salespersonId).toBe("emp-a");
     expect(body.totals.grandTotal).toBe("1250.500000");
     // No `.view_cost` in the grant, so the cost field is ABSENT, not null.
     expect(Object.keys(body.lines[0]!)).not.toContain("unitCost");
@@ -170,6 +185,35 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
     const counts = (await (await app.fetch(req("/counts", { permissions: OWN, userId: "rep-a" }))).json()) as { all: number; confirmed: number };
     expect(counts.all).toBe(1);
     expect(counts.confirmed).toBe(1);
+  });
+
+  it("resolves the caller's employee id — an invoice stamped with their USER id is not theirs (D147)", async () => {
+    const { app } = await harness();
+    // The trap the old code fell into: `salespersonId` set to the caller's USER
+    // id. `view_own` compared the two directly, so this looked like a match
+    // while a real invoice — stamped with the EMPLOYEE id — matched nothing.
+    expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-userid", "rep-a", "عميل بمعرّف مستخدم", "77.00")) }))).status).toBe(201);
+    expect((await app.fetch(req("/", { method: "POST", permissions: ADMIN, body: JSON.stringify(draft("inv-empid", "emp-a", "عميل بمعرّف موظف", "1250.50")) }))).status).toBe(201);
+
+    const rows = (await (await app.fetch(req("/", { permissions: OWN, userId: "rep-a" }))).json()) as { id: string }[];
+    expect(rows.map((r) => r.id)).toEqual(["inv-empid"]);
+
+    expect((await app.fetch(req("/inv-userid", { permissions: OWN, userId: "rep-a" }))).status).toBe(404);
+    expect((await app.fetch(req("/inv-empid", { permissions: OWN, userId: "rep-a" }))).status).toBe(200);
+  });
+
+  it("shows a `.view_own` caller with no employee link nothing, rather than the whole tenant", async () => {
+    const { app } = await harness();
+    await seedTwoInvoices(app);
+
+    // `rep-c` is not in USER_TO_EMPLOYEE, so no employee id resolves. The tier
+    // must fail CLOSED: dropping the clause would widen the list to everyone.
+    const res = await app.fetch(req("/", { permissions: OWN, userId: "rep-c" }));
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual([]);
+    expect(text).not.toContain("9999.99");
+    expect(text).not.toContain("1250.50");
   });
 
   it("shows the whole tenant to a `.view` holder, so the narrowing above is the tier and not an empty database", async () => {

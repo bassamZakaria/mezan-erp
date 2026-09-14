@@ -644,7 +644,7 @@ export function DeductionsBlock({ computed }: { computed: CertificateComputation
         <div>
           {computed.deductions.map((deduction) =>
             row(
-              `${deduction.labelAr}${deduction.percent ? ` — ${formatPercent(deduction.percent)}%` : ""}${deduction.capped ? ` (${t("certificates.capped")})` : ""}`,
+              `${deduction.labelAr}${deduction.percent ? ` — ${formatPercent(deduction.percent)}%` : ""}${deduction.capped ? ` (${t("certificates.capped")})` : ""}${deduction.noteAr ? ` — ${deduction.noteAr}` : ""}`,
               deduction.thisCertificate,
               false,
               true,

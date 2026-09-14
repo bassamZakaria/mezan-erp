@@ -100,6 +100,8 @@ export interface CertificateDeductionRow {
   readonly posted: boolean;
   /** True when a contract cap or the advance received held this row below its computed rate. */
   readonly capped: boolean;
+  /** Why the row reads as it does when the rate alone does not explain it — «تأمين نهائي بخطاب ضمان». */
+  readonly noteAr: string | null;
 }
 
 export interface CertificateWorkLine {

@@ -14,6 +14,7 @@ import { NextNumberService } from "../../numbering/index.js";
 import { createWarehouse, type Warehouse } from "../../settings/warehouse.js";
 import type { WarehouseRepository } from "../../settings/ports.js";
 import type { Asset, AssetRepository } from "../../fixed-assets/asset.js";
+import type { AssetInternalRateRow } from "../../fixed-assets/internal-rate-history.js";
 import { InvalidSiteDocumentError, SiteReceiptSelfReceiptError } from "./errors.js";
 import { SiteService } from "./site-service.js";
 import type {
@@ -177,6 +178,7 @@ interface Harness {
   ledger: InMemoryLedgerRepository;
   warehouses: InMemoryWarehouses;
   assets: Map<string, Asset>;
+  rateHistory: AssetInternalRateRow[];
   setActiveContract: (value: boolean) => void;
 }
 
@@ -237,6 +239,7 @@ async function harness(): Promise<Harness> {
 
   const assets = map<Asset>();
   let activeContract = false;
+  const rateHistory: AssetInternalRateRow[] = [];
   const service = new SiteService({
     issues: issueRepo(map<SiteIssue>()),
     receipts: receiptRepo(map<SiteReceipt>()),
@@ -246,6 +249,7 @@ async function harness(): Promise<Harness> {
     warehouses,
     projects,
     assets: assetRepo(assets),
+    assetRateHistory: { list: async (assetId) => rateHistory.filter((r) => r.assetId === assetId) },
     stockLedger: stock,
     gl: { ledger, accounts, periods, numbering, projects },
     numbering,
@@ -260,6 +264,7 @@ async function harness(): Promise<Harness> {
     ledger,
     warehouses,
     assets,
+    rateHistory,
     setActiveContract: (value: boolean) => {
       activeContract = value;
     },
@@ -544,6 +549,51 @@ describe("SiteService — العهدة وتشغيل المعدات", () => {
     expect(hours).toEqual([
       { boqLineId: "BOQ-1", hours: Qty.fromMajor("62"), amount: Money.fromMajor("27900") },
     ]);
+  });
+
+  it("prices the log at the rate effective on the LOG's date, not the latest one", async () => {
+    h.rateHistory.push(
+      { assetId: "AST-1", effectiveFrom: "2026-01-01", hourlyRate: Money.fromMajor("450"), setBy: "u-1", setAt: "2026-01-01T08:00:00.000Z" },
+      { assetId: "AST-1", effectiveFrom: "2026-08-01", hourlyRate: Money.fromMajor("520"), setBy: "u-1", setAt: "2026-08-29T08:00:00.000Z" },
+    );
+
+    const july = await h.service.createEquipmentLogDraft({
+      id: "eql-july",
+      projectId: PROJECT,
+      assetId: "AST-1",
+      date: "2026-07-20",
+      hours: Qty.fromMajor("10"),
+    });
+    expect(july.hourlyRate.toString()).toBe("450.000000");
+    expect(july.amount.toString()).toBe("4500.000000");
+
+    const august = await h.service.createEquipmentLogDraft({
+      id: "eql-august",
+      projectId: PROJECT,
+      assetId: "AST-1",
+      date: "2026-08-27",
+      hours: Qty.fromMajor("10"),
+    });
+    expect(august.hourlyRate.toString()).toBe("520.000000");
+  });
+
+  it("refuses a log dated before the FIRST rate in the series, in Arabic", async () => {
+    h.rateHistory.push({
+      assetId: "AST-1",
+      effectiveFrom: "2026-01-01",
+      hourlyRate: Money.fromMajor("450"),
+      setBy: "u-1",
+      setAt: "2026-01-01T08:00:00.000Z",
+    });
+    await expect(
+      h.service.createEquipmentLogDraft({
+        id: "eql-early",
+        projectId: PROJECT,
+        assetId: "AST-1",
+        date: "2025-12-31",
+        hours: Qty.fromMajor("10"),
+      }),
+    ).rejects.toThrow(/لا يوجد سعر ساعة داخلي سارٍ للمعدة في 2025-12-31 — أقدم سعر مسجل يبدأ في 2026-01-01/);
   });
 
   it("refuses a log on plant with no internal hourly rate and no rate of its own", async () => {

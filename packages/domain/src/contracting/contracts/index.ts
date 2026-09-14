@@ -51,6 +51,14 @@ export {
   type ContractedQtyRow,
 } from "./amounts.js";
 export {
+  finalSecurityShortfallReason,
+  finalSecurityStatusOf,
+  requiresFinalSecurity,
+  type ContractGuaranteePort,
+  type ContractPerformanceGuarantee,
+  type FinalSecurityStatus,
+} from "./final-security.js";
+export {
   reviewBoqImport,
   type BoqImportAcceptedRow,
   type BoqImportReview,

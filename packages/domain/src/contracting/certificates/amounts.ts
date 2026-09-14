@@ -1,5 +1,5 @@
 import { Money, type Qty } from "../../money/index.js";
-import type { VatBasis, WorksContractTerms } from "../contracts/contract.js";
+import type { VatBasis, WorksContractTerms, WorksContractType } from "../contracts/contract.js";
 import type {
   CertificateComputation,
   CertificateDeductionKey,
@@ -149,7 +149,16 @@ export interface CertificateComputationInput {
    * Defaults to {@link advanceReceived} when the caller knows of no siblings.
    */
   readonly advanceRecoveryCeiling?: Money;
+  /**
+   * نوع العقد. A Law 182/2018 employer takes a 5% تأمين نهائي as a letter, so a
+   * public contract carrying that flag retains NO cash from its certificates.
+   */
+  readonly contractType?: WorksContractType;
+  readonly finalSecurityPercent?: string | null;
 }
+
+/** The retention row's note on a contract whose security is a letter rather than cash. */
+export const FINAL_SECURITY_RETENTION_NOTE = "تأمين نهائي بخطاب ضمان";
 
 const DEDUCTION_LABELS: Readonly<Record<CertificateDeductionKey, string>> = {
   retention: "المحتجزات الضمانية",
@@ -174,6 +183,7 @@ function row(
   previous: CertificateComputation | null,
   posted: boolean,
   capped = false,
+  noteAr: string | null = null,
 ): CertificateDeductionRow {
   const prev = toPiastres(previousOf(previous, key));
   const rounded = toPiastres(cumulative);
@@ -186,6 +196,7 @@ function row(
     thisCertificate: subtract(rounded, prev),
     posted,
     capped,
+    noteAr,
   };
 }
 
@@ -215,7 +226,14 @@ export function computeCertificate(input: CertificateComputationInput): Certific
     terms.retentionCapPercent === null
       ? null
       : percentOf(input.contractValueAfterVariations, terms.retentionCapPercent);
-  const retention = capAt(percentOf(netCertified, terms.retentionPercent), retentionCeiling);
+  // INVARIANT: a public contract's security is the 5% تأمين نهائي letter, not
+  // cash. Striking retention on top of it would withhold the security twice —
+  // once at the bank and once out of every certificate.
+  const securedByLetter =
+    input.contractType === "public" && parsePercent(input.finalSecurityPercent) > 0n;
+  const retention = securedByLetter
+    ? { value: Money.zero(), capped: false }
+    : capAt(percentOf(netCertified, terms.retentionPercent), retentionCeiling);
   const advance = capAt(
     percentOf(netCertified, terms.advanceRecoveryPercent),
     input.advanceRecoveryCeiling ?? input.advanceReceived,
@@ -232,7 +250,15 @@ export function computeCertificate(input: CertificateComputationInput): Certific
   ).toString();
 
   const deductions: CertificateDeductionRow[] = [
-    row("retention", terms.retentionPercent, retention.value, previous, true, retention.capped),
+    row(
+      "retention",
+      securedByLetter ? "0" : terms.retentionPercent,
+      retention.value,
+      previous,
+      true,
+      retention.capped,
+      securedByLetter ? FINAL_SECURITY_RETENTION_NOTE : null,
+    ),
     row("advanceRecovery", terms.advanceRecoveryPercent, advance.value, previous, true, advance.capped),
     row("socialInsurance", socialInsuranceEffective, socialInsurance, previous, true),
     row("withholdingTax", terms.withholdingTaxPercent, withholdingTax, previous, true),

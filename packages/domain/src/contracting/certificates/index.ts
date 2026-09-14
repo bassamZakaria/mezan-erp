@@ -22,6 +22,7 @@ export {
   completionPercentOfMoney,
   computeCertificate,
   emptyComputation,
+  FINAL_SECURITY_RETENTION_NOTE,
   extendQty as extendCertificateQty,
   parsePercent,
   percentOf as certificatePercentOf,

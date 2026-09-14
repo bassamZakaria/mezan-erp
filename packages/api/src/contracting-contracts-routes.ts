@@ -114,6 +114,17 @@ function serializeContract(view: WorksContractView) {
     boqLineCount: view.boqLineCount,
     variationCount: view.variationCount,
     canComplete: view.canComplete,
+    finalSecurityStatus:
+      view.finalSecurityStatus === null
+        ? null
+        : {
+            required: view.finalSecurityStatus.required.toString(),
+            covered: view.finalSecurityStatus.covered.toString(),
+            shortfall: view.finalSecurityStatus.shortfall.toString(),
+            guaranteeId: view.finalSecurityStatus.guaranteeId,
+            guaranteeDocNo: view.finalSecurityStatus.guaranteeDocNo,
+            expiryDate: view.finalSecurityStatus.expiryDate,
+          },
   };
 }
 

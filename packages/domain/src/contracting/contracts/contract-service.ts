@@ -31,6 +31,13 @@ import {
 } from "./amounts.js";
 import { reviewBoqImport, type BoqImportReview, type BoqImportRow } from "./boq-import.js";
 import {
+  finalSecurityShortfallReason,
+  finalSecurityStatusOf,
+  requiresFinalSecurity,
+  type ContractGuaranteePort,
+  type FinalSecurityStatus,
+} from "./final-security.js";
+import {
   WorksContractNotDraftError,
   WorksContractNotFoundError,
   InvalidWorksContractError,
@@ -64,6 +71,12 @@ export interface WorksContractServiceDeps {
    * so the certificate slice tightens this without editing the contract.
    */
   readonly completionGuard?: (contractId: string) => Promise<string | null>;
+  /**
+   * سجل خطابات الضمان. A Law 182/2018 contract's 5% تأمين نهائي is a letter on
+   * the register, so without it the check cannot be answered and a public
+   * contract carrying the flag never activates.
+   */
+  readonly guarantees?: ContractGuaranteePort;
   /** ISO `YYYY-MM-DD` "today", overridable for deterministic tests. */
   readonly today?: () => string;
 }
@@ -150,6 +163,8 @@ export interface WorksContractView {
   readonly boqLineCount: number;
   readonly variationCount: number;
   readonly canComplete: boolean;
+  /** التأمين النهائي — the Law 182/2018 check. Null on every contract the flag does not apply to. */
+  readonly finalSecurityStatus: FinalSecurityStatus | null;
 }
 
 export interface VariationOrderView {
@@ -470,6 +485,10 @@ export class WorksContractService {
         `المشروع مرتبط بعقد سارٍ بالفعل (${live.docNo}) — لا يمكن تفعيل عقد ثانٍ على نفس المشروع قبل إنهائه أو فسخه.`,
       );
     }
+    const shortfall = finalSecurityShortfallReason(
+      await this.finalSecurityStatus(current, computeContractValue(lines)),
+    );
+    if (shortfall) reasons.push(shortfall);
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
     const contract: WorksContract = { ...current, status: "active", activatedAt };
     await this.deps.store.saveContract(contract);
@@ -791,7 +810,14 @@ export class WorksContractService {
       boqLineCount: lines.length,
       variationCount: orders.length,
       canComplete: contract.status === "active" && !refusal,
+      finalSecurityStatus: await this.finalSecurityStatus(contract, contractValue),
     };
+  }
+
+  private async finalSecurityStatus(contract: WorksContract, contractValue: Money): Promise<FinalSecurityStatus | null> {
+    if (!requiresFinalSecurity(contract)) return null;
+    const letters = (await this.deps.guarantees?.listPerformanceGuarantees(contract.id)) ?? [];
+    return finalSecurityStatusOf(contract, contractValue, letters);
   }
 
   private buildBoqLines(contractId: string, inputs: readonly BoqLineInput[]): BoqLine[] {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { Money } from "../../money/index.js";
 import { NextNumberService, type SequenceStore } from "../../numbering/index.js";
 import type {
   BoqLine,
@@ -151,6 +152,60 @@ describe("contract defaults", () => {
   it("refuses a contract whose project or customer does not exist", async () => {
     await expect(service.create({ ...base, projectId: "PRJ-NOPE" })).rejects.toThrow(InvalidWorksContractError);
     await expect(service.create({ ...base, customerId: "CUST-NOPE" })).rejects.toThrow(InvalidWorksContractError);
+  });
+});
+
+describe("التأمين النهائي — the Law 182/2018 gate", () => {
+  const PUBLIC = { ...base, id: "CTR-P", contractType: "public" as const };
+  const PUBLIC_BOQ = BOQ.map((l, i) => ({ ...l, id: `CTR-P-B${i + 1}` }));
+  // 12,000 × 185 + 1,450 × 1,980 = 5,091,000; 5% of it is 254,550.
+  const REQUIRED = "254550.000000";
+
+  function withGuarantees(letters: readonly { id: string; docNo: string | null; currentValue: string; expiryDate: string }[]) {
+    service = new WorksContractService({
+      store,
+      numbering: new NextNumberService(sequences),
+      projects: { findById: async (id) => (id === "PRJ-1" ? ({ id } as never) : null) },
+      customers: { findById: async (id) => (id === "CUST-1" ? ({ id } as never) : null) },
+      guarantees: {
+        listPerformanceGuarantees: async () =>
+          letters.map((l) => ({ ...l, currentValue: Money.fromMajor(l.currentValue) })),
+      },
+    });
+  }
+
+  it("refuses activation when no performance bond covers the 5%, naming both figures in Arabic", async () => {
+    withGuarantees([]);
+    await service.create(PUBLIC);
+    await service.putBoq("CTR-P", PUBLIC_BOQ);
+    await expect(service.activate("CTR-P", "2026-03-01")).rejects.toThrow(
+      /تأمين نهائي ناقص: المطلوب 254550\.00، القائم 0\.00/,
+    );
+  });
+
+  it("refuses a bond that is SHORT of the requirement, and accepts one that covers it", async () => {
+    withGuarantees([{ id: "LG-1", docNo: "LG-0001", currentValue: "200000", expiryDate: "2027-04-30" }]);
+    await service.create(PUBLIC);
+    await service.putBoq("CTR-P", PUBLIC_BOQ);
+    await expect(service.activate("CTR-P", "2026-03-01")).rejects.toThrow(/تأمين نهائي ناقص/);
+
+    withGuarantees([{ id: "LG-1", docNo: "LG-0001", currentValue: "254550", expiryDate: "2027-04-30" }]);
+    const view = await service.activate("CTR-P", "2026-03-01");
+    expect(view.contract.status).toBe("active");
+    expect(view.finalSecurityStatus?.required.toString()).toBe(REQUIRED);
+    expect(view.finalSecurityStatus?.covered.toString()).toBe(REQUIRED);
+    expect(view.finalSecurityStatus?.shortfall.toString()).toBe("0.000000");
+    expect(view.finalSecurityStatus?.guaranteeDocNo).toBe("LG-0001");
+    expect(view.finalSecurityStatus?.expiryDate).toBe("2027-04-30");
+  });
+
+  it("leaves a PRIVATE contract alone — it retains cash and has no final-security status", async () => {
+    withGuarantees([]);
+    await service.create(base);
+    await service.putBoq("CTR-1", BOQ);
+    const view = await service.activate("CTR-1", "2026-03-01");
+    expect(view.contract.status).toBe("active");
+    expect(view.finalSecurityStatus).toBeNull();
   });
 });
 

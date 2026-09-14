@@ -23,6 +23,8 @@ import {
   type AssetCategory,
   type AssetCategoryRepository,
   type Asset,
+  type AssetInternalRateHistoryRepository,
+  type AssetInternalRateRow,
   type AssetRepository,
   type DepreciationRun,
   type DepreciationRunRepository,
@@ -31,6 +33,7 @@ import {
   type SettingsRepository,
   createDefaultSettings,
   matchesSearch,
+  sortInternalRateHistory,
 } from "@mezan/domain";
 import {
   createAssetCategorySchema,
@@ -39,7 +42,13 @@ import {
   disposeAssetSchema,
   setInternalHourlyRateSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import {
+  createPermissionGate,
+  getAuthContext,
+  type AuthContextResolver,
+  branchScopeOf,
+  withinScope,
+} from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 
@@ -62,6 +71,11 @@ export interface FixedAssetsRoutesDeps {
     readonly disposalGainAccountId?: string;
     readonly disposalLossAccountId?: string;
   };
+  /**
+   * تاريخ سعر الساعة الداخلي. The rate is effective-dated because an equipment
+   * log is priced at the rate in force on ITS date, not on today's.
+   */
+  readonly rateHistory: AssetInternalRateHistoryRepository;
   /** Generates ids when the request omits them. Defaults to `randomUUID`. */
   readonly idGen?: () => string;
   /** سجل العمليات الحساسة — a سعر الساعة الداخلي change is recorded with its before and after. */
@@ -92,7 +106,16 @@ function serializeCategory(category: AssetCategory) {
   };
 }
 
-function serializeAsset(asset: Asset) {
+function serializeRateRow(row: AssetInternalRateRow) {
+  return {
+    effectiveFrom: row.effectiveFrom,
+    hourlyRate: row.hourlyRate.toString(),
+    setBy: row.setBy,
+    setAt: row.setAt,
+  };
+}
+
+function serializeAsset(asset: Asset, history: readonly AssetInternalRateRow[] = []) {
   return {
     id: asset.id,
     code: asset.code,
@@ -116,6 +139,7 @@ function serializeAsset(asset: Asset) {
     notes: asset.notes,
     projectId: asset.projectId,
     internalHourlyRate: asset.internalHourlyRate?.toString() ?? null,
+    rateHistory: sortInternalRateHistory(history).map(serializeRateRow),
   };
 }
 
@@ -226,7 +250,14 @@ export function createFixedAssetsRoutes(
 
   app.get("/", gate("assets.view"), async (c) => {
     const assets = await listFilteredAssets(c, parseAssetListQuery(c));
-    return c.json(assets.map(serializeAsset));
+    const history = await deps.rateHistory.listAll();
+    const byAsset = new Map<string, AssetInternalRateRow[]>();
+    for (const row of history) {
+      const bucket = byAsset.get(row.assetId) ?? [];
+      bucket.push(row);
+      byAsset.set(row.assetId, bucket);
+    }
+    return c.json(assets.map((asset) => serializeAsset(asset, byAsset.get(asset.id) ?? [])));
   });
 
   /**
@@ -285,7 +316,7 @@ export function createFixedAssetsRoutes(
   app.get("/:id", gate("assets.view"), async (c) => {
     const asset = await deps.assets.findById(c.req.param("id"));
     if (!asset) return c.json({ error: "ASSET_NOT_FOUND" }, 404);
-    return c.json(serializeAsset(asset));
+    return c.json(serializeAsset(asset, await deps.rateHistory.list(asset.id)));
   });
 
   /**
@@ -294,6 +325,11 @@ export function createFixedAssetsRoutes(
    * percentage of completion, then recognised revenue. The site log therefore
    * has no override; the rate is changed here, under `assets.manage`, and the
    * before and after are recorded.
+   *
+   * INVARIANT: the rate is APPENDED at an effective date, never overwritten. A
+   * log entered today for work done last month must price at the rate that was
+   * in force then — overwriting restates a month that has already been
+   * reported, in WIP, in cost, and in recognised revenue.
    */
   app.patch("/:id/internal-hourly-rate", gate("assets.manage"), async (c) => {
     const parsed = setInternalHourlyRateSchema.safeParse(await c.req.json().catch(() => ({})));
@@ -302,13 +338,22 @@ export function createFixedAssetsRoutes(
     }
     const asset = await deps.assets.findById(c.req.param("id"));
     if (!asset) return c.json({ error: "ASSET_NOT_FOUND" }, 404);
-    const next =
-      parsed.data.internalHourlyRate === null ? null : Money.fromMajor(parsed.data.internalHourlyRate);
+    const next = parsed.data.hourlyRate === null ? null : Money.fromMajor(parsed.data.hourlyRate);
     if (next !== null && next.scaled < 0n) {
       return c.json({ error: "VALIDATION_ERROR", message: "سعر الساعة الداخلي لا يمكن أن يكون سالبًا" }, 422);
     }
+    const effectiveFrom = await tenantDay(c, parsed.data.effectiveFrom ?? new Date().toISOString());
     const updated: Asset = { ...asset, internalHourlyRate: next };
     await deps.assets.update(updated);
+    if (next !== null) {
+      await deps.rateHistory.append({
+        assetId: asset.id,
+        effectiveFrom,
+        hourlyRate: next,
+        setBy: getAuthContext(c)?.userId ?? null,
+        setAt: new Date().toISOString(),
+      });
+    }
     await recordAdminEvent(deps.audit, c, {
       module: "assets",
       entityType: "ASSET",
@@ -319,10 +364,11 @@ export function createFixedAssetsRoutes(
         code: asset.code,
         before: asset.internalHourlyRate?.toString() ?? null,
         after: next?.toString() ?? null,
+        effectiveFrom,
         reason: parsed.data.reason ?? null,
       },
     });
-    return c.json(serializeAsset(updated));
+    return c.json(serializeAsset(updated, await deps.rateHistory.list(asset.id)));
   });
 
   /**

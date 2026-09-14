@@ -23,6 +23,7 @@ import type {
   BoqLineInputDTO,
   BoqUnitDTO,
   CostCategoryDTO,
+  FinalSecurityStatusDTO,
   RecognitionPolicyDTO,
   VatBasisDTO,
   WorksContractDTO,
@@ -609,7 +610,7 @@ function ContractDetailPage({
           content: (
             <>
               {error ? <p className="mb-[10px] text-[12.5px] font-semibold text-danger-ink">{error}</p> : null}
-              <ContractTermsPanel contract={contract} />
+              <ContractTermsPanel contract={contract} onOpenGuarantee={(docNo) => openScreenAt("guarantees", [docNo])} />
             </>
           ),
         },
@@ -701,7 +702,13 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function ContractTermsPanel({ contract }: { contract: WorksContractDTO }) {
+function ContractTermsPanel({
+  contract,
+  onOpenGuarantee,
+}: {
+  contract: WorksContractDTO;
+  onOpenGuarantee: (docNo: string) => void;
+}) {
   const { t } = useAppTranslation();
   const pct = (v: string | null) => (v === null ? "—" : <span className="mz-num">{v}%</span>);
   return (
@@ -732,9 +739,69 @@ function ContractTermsPanel({ contract }: { contract: WorksContractDTO }) {
         <Row label={t("worksContracts.field.latePenaltyPercentPerPeriod")} value={pct(contract.latePenaltyPercentPerPeriod)} />
         <Row label={t("worksContracts.field.latePenaltyCapPercent")} value={pct(contract.latePenaltyCapPercent)} />
         <Row label={t("worksContracts.field.finalSecurityPercent")} value={pct(contract.finalSecurityPercent)} />
+        <FinalSecurityRows status={contract.finalSecurityStatus} onOpenGuarantee={onOpenGuarantee} />
         <Row label={t("worksContracts.field.socialInsuranceNote")} value={contract.socialInsuranceNote ?? "—"} />
       </Card>
     </div>
+  );
+}
+
+/**
+ * التأمين النهائي — on a Law 182/2018 contract the 5% is a letter on the
+ * register, not cash held back, so the terms panel has to say whether that
+ * letter actually covers the requirement and point at it.
+ */
+function FinalSecurityRows({
+  status,
+  onOpenGuarantee,
+}: {
+  status: FinalSecurityStatusDTO | null;
+  onOpenGuarantee: (docNo: string) => void;
+}) {
+  const { t } = useAppTranslation();
+  if (status === null) return null;
+  const short = majorOf(status.shortfall) > 0;
+  return (
+    <>
+      <Row
+        label={t("worksContracts.finalSecurity.required")}
+        value={<MoneyValue value={majorOf(status.required)} showUnit={false} />}
+      />
+      <Row
+        label={t("worksContracts.finalSecurity.covered")}
+        value={
+          <span className={short ? "text-danger-ink" : undefined}>
+            <MoneyValue value={majorOf(status.covered)} showUnit={false} />
+          </span>
+        }
+      />
+      <Row
+        label={t("worksContracts.finalSecurity.guarantee")}
+        value={
+          status.guaranteeDocNo ? (
+            <button
+              type="button"
+              className="text-[12.5px] font-semibold text-brand underline"
+              onClick={() => onOpenGuarantee(status.guaranteeDocNo ?? "")}
+            >
+              {status.guaranteeDocNo}
+            </button>
+          ) : (
+            <span className="text-danger-ink">{t("worksContracts.finalSecurity.none")}</span>
+          )
+        }
+      />
+      {short ? (
+        <Row
+          label={t("worksContracts.finalSecurity.shortfall")}
+          value={
+            <span className="text-danger-ink">
+              <MoneyValue value={majorOf(status.shortfall)} showUnit={false} />
+            </span>
+          }
+        />
+      ) : null}
+    </>
   );
 }
 

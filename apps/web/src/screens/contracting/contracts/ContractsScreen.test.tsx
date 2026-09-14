@@ -71,6 +71,7 @@ const contract: WorksContractDTO = {
   provisionalReleasePercent: "50",
   provisionalHandoverDate: null,
   finalHandoverDate: null,
+  finalSecurityStatus: null,
 };
 
 const boqLines: BoqLineDTO[] = [

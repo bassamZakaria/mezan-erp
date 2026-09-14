@@ -442,10 +442,9 @@ the net payable).
 
 **Open, small:** BOQ unit codes render raw (`m3`, `lump_sum`) on the certificate grid and
 print instead of م٣ / مقطوعية; percentages print with six decimals (`3.750000%`); a
-dedicated slot for the employer-supplied-material deduction exists (5157) but the
-consultant's «تأمين نهائي» for public contracts (Law 182) is a flag, not a posting; equipment
-hours have no internal rate history; the two empty exception reports (`boq-overrun`,
-`late-variation-approvals`) are allowed-empty by design and say so.
+dedicated slot for the employer-supplied-material deduction exists (5157); the two empty
+exception reports (`boq-overrun`, `late-variation-approvals`) are allowed-empty by design
+and say so.
 
 ## 3.3 Outbound notification channels
 

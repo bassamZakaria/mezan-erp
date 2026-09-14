@@ -220,9 +220,11 @@ export {
 } from "./contracting-subcontracts-store.js";
 export {
   createSqliteAssetCategoryRepository,
+  createSqliteAssetInternalRateHistoryRepository,
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
   type SqliteAssetCategoryRepositoryHandle,
+  type SqliteAssetInternalRateHistoryRepositoryHandle,
   type SqliteAssetRepositoryHandle,
   type SqliteDepreciationRunRepositoryHandle,
 } from "./fixed-assets-store.js";

@@ -126,6 +126,16 @@ export const budgetRevisionSchema = z.object({
 });
 export type BudgetRevisionDTO = z.infer<typeof budgetRevisionSchema>;
 
+export const finalSecurityStatusSchema = z.object({
+  required: moneyString,
+  covered: moneyString,
+  shortfall: moneyString,
+  guaranteeId: z.string().nullable(),
+  guaranteeDocNo: z.string().nullable(),
+  expiryDate: z.string().nullable(),
+});
+export type FinalSecurityStatusDTO = z.infer<typeof finalSecurityStatusSchema>;
+
 export const worksContractSchema = z.object({
   id: z.string(),
   docNo: z.string(),
@@ -174,6 +184,8 @@ export const worksContractSchema = z.object({
   boqLineCount: z.number(),
   variationCount: z.number(),
   canComplete: z.boolean(),
+  /** التأمين النهائي — the Law 182/2018 check. Null on every contract the flag does not apply to. */
+  finalSecurityStatus: finalSecurityStatusSchema.nullable(),
 });
 export type WorksContractDTO = z.infer<typeof worksContractSchema>;
 

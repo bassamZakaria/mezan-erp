@@ -1,15 +1,14 @@
 import { describe, it, expect, afterEach } from "vitest";
-import type { Account, JournalPostingDeps } from "@mezan/domain";
-import { createSqliteLedgerStore, createSqliteAccountRepository, createSqliteFiscalPeriodRepository } from "@mezan/persistence";
-// NOTE: the three fixed-assets stores aren't re-exported from the `@mezan/persistence`
-// barrel yet (packages/persistence/src/index.ts is intentionally left untouched here
-// to avoid a concurrent-edit conflict with another agent wiring it centrally — see
-// this file's containing task notes), so this test imports the module directly.
+import type { Account, AuditEvent, AuditSink, JournalPostingDeps } from "@mezan/domain";
 import {
+  createSqliteLedgerStore,
+  createSqliteAccountRepository,
+  createSqliteFiscalPeriodRepository,
   createSqliteAssetCategoryRepository,
+  createSqliteAssetInternalRateHistoryRepository,
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
-} from "../../persistence/src/fixed-assets-store.js";
+} from "@mezan/persistence";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
@@ -27,6 +26,7 @@ let idSeq = 0;
 async function newApp() {
   const categories = createSqliteAssetCategoryRepository();
   const assets = createSqliteAssetRepository();
+  const rateHistory = createSqliteAssetInternalRateHistoryRepository();
   const runs = createSqliteDepreciationRunRepository();
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
@@ -54,16 +54,35 @@ async function newApp() {
   };
 
   idSeq = 0;
+  const auditEvents: AuditEvent[] = [];
+  const audit: AuditSink = {
+    async append(event) {
+      auditEvents.push(event);
+    },
+    async query() {
+      return auditEvents;
+    },
+  };
   const deps: FixedAssetsRoutesDeps = {
     categories,
     assets,
+    rateHistory,
     runs,
     gl,
     defaultAccounts: { depreciationExpenseAccountId: "5499", accumulatedDepreciationAccountId: "1599" },
     idGen: () => `run-${++idSeq}`,
+    audit,
   };
 
-  return { app: createFixedAssetsRoutes(deps, insecureHeaderAuthContextResolver), categories, assets, runs, ledger };
+  return {
+    app: createFixedAssetsRoutes(deps, insecureHeaderAuthContextResolver),
+    categories,
+    assets,
+    rateHistory,
+    runs,
+    ledger,
+    auditEvents,
+  };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -158,6 +177,81 @@ describe("fixed-assets router — assets", () => {
       }),
     );
     expect(notFound.status).toBe(404);
+  });
+});
+
+describe("fixed-assets router — سعر الساعة الداخلي as a dated series", () => {
+  async function plant() {
+    const h = await newApp();
+    await h.app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
+    await h.app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "assets.create",
+        body: JSON.stringify({
+          id: "plant-1",
+          code: "AST-0101",
+          nameAr: "خلاطة خرسانة",
+          categoryId: "cat-1",
+          acquisitionDate: "2025-01-01",
+          acquisitionCost: "900000.00",
+        }),
+      }),
+    );
+    return h;
+  }
+
+  it("appends a row at its effective date, reports the whole history, and audits the change", async () => {
+    const h = await plant();
+    const first = await h.app.fetch(
+      req("/plant-1/internal-hourly-rate", {
+        method: "PATCH",
+        permissions: "assets.manage",
+        body: JSON.stringify({ hourlyRate: "450.00", effectiveFrom: "2026-01-01", reason: "سعر ٢٠٢٦" }),
+      }),
+    );
+    expect(first.status).toBe(200);
+
+    const second = await h.app.fetch(
+      req("/plant-1/internal-hourly-rate", {
+        method: "PATCH",
+        permissions: "assets.manage",
+        body: JSON.stringify({ hourlyRate: "520.00", effectiveFrom: "2026-08-01" }),
+      }),
+    );
+    const body = (await second.json()) as {
+      internalHourlyRate: string;
+      rateHistory: { effectiveFrom: string; hourlyRate: string }[];
+    };
+    expect(body.internalHourlyRate).toBe("520.000000");
+    expect(body.rateHistory.map((r) => [r.effectiveFrom, r.hourlyRate])).toEqual([
+      ["2026-01-01", "450.000000"],
+      ["2026-08-01", "520.000000"],
+    ]);
+
+    // The earlier row is NOT overwritten — that is the whole point of the series.
+    expect(await h.rateHistory.list("plant-1")).toHaveLength(2);
+
+    const audited = h.auditEvents.filter((e) => e.action === "SET_INTERNAL_HOURLY_RATE");
+    expect(audited).toHaveLength(2);
+    expect(audited[1]?.details).toMatchObject({
+      before: "450.000000",
+      after: "520.000000",
+      effectiveFrom: "2026-08-01",
+    });
+  });
+
+  it("422s a negative rate and leaves the series untouched", async () => {
+    const h = await plant();
+    const res = await h.app.fetch(
+      req("/plant-1/internal-hourly-rate", {
+        method: "PATCH",
+        permissions: "assets.manage",
+        body: JSON.stringify({ hourlyRate: "-5.00" }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(await h.rateHistory.list("plant-1")).toHaveLength(0);
   });
 });
 

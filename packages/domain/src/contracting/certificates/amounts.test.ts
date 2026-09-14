@@ -170,6 +170,38 @@ describe("certificate arithmetic", () => {
     expect(row.cumulative.toString()).toBe("24940.000000");
   });
 
+  it("withholds NOTHING on a public contract secured by a تأمين نهائي letter, and says why", () => {
+    const publicContract = compute([workLine("1600", "185")], null, {
+      contractType: "public",
+      finalSecurityPercent: "5",
+    });
+    const row = publicContract.deductions.find((d) => d.key === "retention")!;
+    expect(row.cumulative.toString()).toBe("0.000000");
+    expect(row.thisCertificate.toString()).toBe("0.000000");
+    expect(row.percent).toBe("0");
+    expect(row.noteAr).toBe("تأمين نهائي بخطاب ضمان");
+    expect(publicContract.retentionHeldCumulative.toString()).toBe("0.000000");
+
+    // Every other deduction is untouched, and the money not retained is payable.
+    const privateContract = compute([workLine("1600", "185")], null);
+    const retained = privateContract.deductions.find((d) => d.key === "retention")!;
+    expect(retained.cumulative.toString()).toBe("14134.000000");
+    expect(retained.noteAr).toBeNull();
+    expect(
+      publicContract.netPayableThisCertificate.scaled - privateContract.netPayableThisCertificate.scaled,
+    ).toBe(retained.cumulative.scaled);
+  });
+
+  it("keeps the cash retention on a public contract whose تأمين نهائي is zero", () => {
+    const computed = compute([workLine("1600", "185")], null, {
+      contractType: "public",
+      finalSecurityPercent: "0",
+    });
+    const row = computed.deductions.find((d) => d.key === "retention")!;
+    expect(row.cumulative.toString()).toBe("14134.000000");
+    expect(row.noteAr).toBeNull();
+  });
+
   it("never recovers more advance than was actually received", () => {
     const computed = compute([workLine("4000", "185")], null, {
       advanceReceived: Money.fromMajor("60000"),

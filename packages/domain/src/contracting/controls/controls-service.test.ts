@@ -249,7 +249,11 @@ interface Harness {
   subLedger: Map<string, Money>;
 }
 
-function harness(options: { heldRetention?: string; contract?: Partial<WorksContract> } = {}): Harness {
+function harness(options: {
+  heldRetention?: string;
+  contract?: Partial<WorksContract>;
+  performanceGuarantees?: readonly { id: string; docNo: string | null; currentValue: string; expiryDate: string }[];
+} = {}): Harness {
   const ledger = new FakeLedger();
   const contracts = new MemoryContractStore();
   const releases = new MemoryReleaseStore();
@@ -332,11 +336,64 @@ function harness(options: { heldRetention?: string; contract?: Partial<WorksCont
     gl,
     numbering: new NextNumberService(sequences),
     invoicing,
+    guarantees: options.performanceGuarantees
+      ? {
+          listPerformanceGuarantees: async () =>
+            (options.performanceGuarantees ?? []).map((g) => ({ ...g, currentValue: m(g.currentValue) })),
+        }
+      : undefined,
     today: () => "2026-09-13",
   };
   const service = new ControlsService(deps);
   return { service, deps, contracts, releases, ledger, certificates, subLedger };
 }
+
+describe("تقويم المحتجزات — a public contract secured by a letter", () => {
+  // 1,450 × 1,980 = 2,871,000; 5% of it is 143,550.
+  const PUBLIC = {
+    contractType: "public" as const,
+    finalSecurityPercent: "5",
+    provisionalHandoverDate: null,
+    finalHandoverDate: null,
+  };
+
+  it("lists the contract with the letter's expiry as its release event, though nothing is held", async () => {
+    const h = harness({
+      contract: PUBLIC,
+      performanceGuarantees: [{ id: "LG-5", docNo: "LG-0005", currentValue: "143550", expiryDate: "2026-11-12" }],
+    });
+    const calendar = await h.service.calendar("2026-09-13");
+    expect(calendar.receivable).toHaveLength(1);
+    const row = calendar.receivable[0]!;
+    expect(row.held.toString()).toBe("0.000000");
+    expect(row.balance.toString()).toBe("0.000000");
+    expect(row.finalSecurity?.required.toString()).toBe("143550.000000");
+    expect(row.finalSecurity?.covered.toString()).toBe("143550.000000");
+    expect(row.finalSecurity?.shortfall.toString()).toBe("0.000000");
+    expect(row.finalSecurity?.guaranteeDocNo).toBe("LG-0005");
+    // The release event is the LETTER's expiry, not a handover date the contract does not have.
+    expect(row.event.date).toBe("2026-11-12");
+    expect(row.event.kind).toBeNull();
+    expect(row.event.daysToEvent).toBe(60);
+    expect(row.event.due).toBe(false);
+  });
+
+  it("ages a public contract from the day the letter expired, and reports an uncovered one", async () => {
+    const h = harness({
+      contract: PUBLIC,
+      performanceGuarantees: [{ id: "LG-5", docNo: "LG-0005", currentValue: "100000", expiryDate: "2026-08-14" }],
+    });
+    const row = (await h.service.calendar("2026-09-13")).receivable[0]!;
+    expect(row.event.due).toBe(true);
+    expect(row.event.ageDays).toBe(30);
+    expect(row.finalSecurity?.shortfall.toString()).toBe("43550.000000");
+  });
+
+  it("leaves a PRIVATE contract with nothing held off the calendar entirely", async () => {
+    const h = harness();
+    expect((await h.service.calendar("2026-09-13")).receivable).toHaveLength(0);
+  });
+});
 
 describe("الإفراج عن المحتجزات", () => {
   it("derives the release event and flags an early release without refusing it", async () => {

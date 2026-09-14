@@ -6,6 +6,8 @@ import {
   type AssetCategoryRepository,
   type DepreciationMethod,
   type Asset,
+  type AssetInternalRateHistoryRepository,
+  type AssetInternalRateRow,
   type AssetRepository,
   type AssetScope,
   type AssetStatus,
@@ -368,6 +370,93 @@ export function createSqliteAssetRepository(path: SqliteConnectionInput = ":memo
   addAssetProjectColumnIfMissing(sqlite);
   const repo = new SqliteAssetRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetRepositoryHandle;
+}
+
+// --- Internal hourly-rate history -------------------------------------------
+
+const CREATE_ASSET_INTERNAL_RATE_HISTORY = `
+CREATE TABLE IF NOT EXISTS asset_internal_rate_history (
+  asset_id       TEXT NOT NULL,
+  effective_from TEXT NOT NULL,
+  hourly_rate    INTEGER NOT NULL,
+  set_by         TEXT,
+  set_at         TEXT NOT NULL,
+  PRIMARY KEY (asset_id, effective_from)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_internal_rate_history ON asset_internal_rate_history(asset_id, effective_from);
+`;
+
+interface AssetInternalRateHistoryRow {
+  asset_id: string;
+  effective_from: string;
+  hourly_rate: number;
+  set_by: string | null;
+  set_at: string;
+}
+
+function toRateRow(row: AssetInternalRateHistoryRow): AssetInternalRateRow {
+  return {
+    assetId: row.asset_id,
+    effectiveFrom: row.effective_from,
+    hourlyRate: Money.fromScaled(row.hourly_rate),
+    setBy: row.set_by,
+    setAt: row.set_at,
+  };
+}
+
+class SqliteAssetInternalRateHistoryRepository implements AssetInternalRateHistoryRepository {
+  private readonly upsert: Database.Statement;
+  private readonly selectByAsset: Database.Statement;
+  private readonly selectAll: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.upsert = sqlite.prepare(`
+      INSERT INTO asset_internal_rate_history (asset_id, effective_from, hourly_rate, set_by, set_at)
+      VALUES (@asset_id, @effective_from, @hourly_rate, @set_by, @set_at)
+      ON CONFLICT(asset_id, effective_from) DO UPDATE SET
+        hourly_rate = excluded.hourly_rate,
+        set_by = excluded.set_by,
+        set_at = excluded.set_at
+    `);
+    this.selectByAsset = sqlite.prepare(
+      `SELECT * FROM asset_internal_rate_history WHERE asset_id = ? ORDER BY effective_from, set_at`,
+    );
+    this.selectAll = sqlite.prepare(
+      `SELECT * FROM asset_internal_rate_history ORDER BY asset_id, effective_from, set_at`,
+    );
+  }
+
+  async list(assetId: string): Promise<readonly AssetInternalRateRow[]> {
+    return (this.selectByAsset.all(assetId) as AssetInternalRateHistoryRow[]).map(toRateRow);
+  }
+
+  async listAll(): Promise<readonly AssetInternalRateRow[]> {
+    return (this.selectAll.all() as AssetInternalRateHistoryRow[]).map(toRateRow);
+  }
+
+  async append(row: AssetInternalRateRow): Promise<void> {
+    this.upsert.run({
+      asset_id: row.assetId,
+      effective_from: row.effectiveFrom,
+      hourly_rate: row.hourlyRate.toScaledNumber(),
+      set_by: row.setBy,
+      set_at: row.setAt,
+    });
+  }
+}
+
+export interface SqliteAssetInternalRateHistoryRepositoryHandle extends AssetInternalRateHistoryRepository {
+  close(): void;
+}
+
+/** Open a SQLite-backed rate-history repository. ":memory:" for tests, a path for real. */
+export function createSqliteAssetInternalRateHistoryRepository(
+  path: SqliteConnectionInput = ":memory:",
+): SqliteAssetInternalRateHistoryRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
+  sqlite.exec(CREATE_ASSET_INTERNAL_RATE_HISTORY);
+  const repo = new SqliteAssetInternalRateHistoryRepository(sqlite);
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetInternalRateHistoryRepositoryHandle;
 }
 
 // --- Depreciation Run ---------------------------------------------------------

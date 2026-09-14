@@ -716,6 +716,8 @@ export class CertificateService {
       advanceReceived: advance.received,
       advanceOutstanding: advance.outstanding,
       advanceRecoveryCeiling: advance.ceiling,
+      contractType: contract.contractType,
+      finalSecurityPercent: contract.finalSecurityPercent,
     });
 
     return { workLines, materialLines, computed, manual, executionDate, asOfNow: ctx.asOfNow };

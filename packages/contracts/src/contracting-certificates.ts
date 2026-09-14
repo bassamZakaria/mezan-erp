@@ -61,6 +61,8 @@ export const certificateDeductionRowSchema = z.object({
   thisCertificate: moneyString,
   posted: z.boolean(),
   capped: z.boolean(),
+  /** «تأمين نهائي بخطاب ضمان» on a Law 182/2018 contract, where the row reads zero by design. */
+  noteAr: z.string().nullable(),
 });
 export type CertificateDeductionRowDTO = z.infer<typeof certificateDeductionRowSchema>;
 

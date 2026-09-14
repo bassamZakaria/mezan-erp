@@ -42,6 +42,8 @@ import {
   type CertificateInvoicingPort,
   type RetentionReleaseInvoicingPort,
   type CertificateGuaranteePort,
+  type ContractGuaranteePort,
+  isGuaranteeOutstanding,
   type ContractBillingRoutingPort,
   createTreasuryLedgerReader,
   VoucherService,
@@ -138,6 +140,7 @@ import {
   createSqliteContractingRecognitionStore,
   createSqliteContractingControlsStore,
   createSqliteAssetCategoryRepository,
+  createSqliteAssetInternalRateHistoryRepository,
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
   createSqliteVanTripRepository,
@@ -792,6 +795,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const retentionReleases = createSqliteContractingControlsStore(sqlite);
   const assetCategories = createSqliteAssetCategoryRepository(sqlite);
   const assets = createSqliteAssetRepository(sqlite);
+  const assetRateHistory = createSqliteAssetInternalRateHistoryRepository(sqlite);
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
   const vanTrips = createSqliteVanTripRepository(sqlite);
 
@@ -1033,6 +1037,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     warehouses,
     projects,
     assets,
+    assetRateHistory,
     stockLedger: stockService,
     gl: salesInvoiceGl,
     audit: auditSink,
@@ -1248,6 +1253,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * Art. 44). Optional: a contract with no advance guarantee on the register
    * simply has nothing to reduce.
    */
+  /**
+   * التأمين النهائي (قانون ١٨٢ لسنة ٢٠١٨): the outstanding خطابات حسن التنفيذ
+   * a public contract's 5% security is covered by. `reduced` counts — a letter
+   * stepped down is still the employer's security for what is left of it.
+   */
+  const contractPerformanceGuarantees: ContractGuaranteePort = {
+    async listPerformanceGuarantees(contractId) {
+      return (await guarantees.list())
+        .filter((g) => g.contractId === contractId && g.kind === "performance" && isGuaranteeOutstanding(g))
+        .map((g) => ({ id: g.id, docNo: g.docNo, currentValue: g.currentValue, expiryDate: g.expiryDate }));
+    },
+  };
+
   const certificateGuarantees: CertificateGuaranteePort = {
     async reduceAdvanceGuarantee({ contractId, projectId, date, amount, sourceRef, actor }) {
       const live = (await guarantees.list()).find(
@@ -2721,6 +2739,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // certificate, so one with certificates still in flight — or with none
       // of them final — is refused rather than quietly closed.
       completionGuard: (contractId) => certificateService.completionRefusal(contractId),
+      guarantees: contractPerformanceGuarantees,
     },
     contractingCertificates: certificateDeps,
     contractingSubcontracts: { subcontracts: subcontractDeps, certificates: subCertificateDeps },
@@ -2746,6 +2765,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // an early release to a subcontractor is the same exception as one to a
       // client.
       subcontracts: { list: () => new SubcontractService(subcontractDeps).list() },
+      guarantees: contractPerformanceGuarantees,
       projectCostToDate: contractingProjectCostToDate,
       releaseItemId: RETENTION_RELEASE_ITEM_ID,
       segregationWaived,
@@ -2779,6 +2799,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     fixedAssets: {
       categories: assetCategories,
       assets,
+      rateHistory: assetRateHistory,
       runs: depreciationRuns,
       gl: salesInvoiceGl,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,

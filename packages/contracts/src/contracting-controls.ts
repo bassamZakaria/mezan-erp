@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { finalSecurityStatusSchema } from "./contracting-contracts.js";
 
 /**
  * Wire contracts for تقارير الاستثناءات السبعة، الإفراج عن المحتجزات وتقويمها —
@@ -308,6 +309,8 @@ export const retentionCalendarRowSchema = z.object({
   balance: moneyString,
   provisionalReleasedToDate: moneyString,
   event: retentionCalendarEventSchema,
+  /** التأمين النهائي — set on a Law 182/2018 contract, where the letter replaces held cash. */
+  finalSecurity: finalSecurityStatusSchema.nullable(),
 });
 export type RetentionCalendarRowDTO = z.infer<typeof retentionCalendarRowSchema>;
 

@@ -111,6 +111,7 @@ function serializeComputation(computed: CertificateComputation) {
       thisCertificate: d.thisCertificate.toString(),
       posted: d.posted,
       capped: d.capped,
+      noteAr: d.noteAr,
     })),
     deductionsThisCertificate: computed.deductionsThisCertificate.toString(),
     deductionsCumulative: computed.deductionsCumulative.toString(),

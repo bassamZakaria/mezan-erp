@@ -155,6 +155,7 @@ export function AssetRegisterScreen() {
   const disposeAsset = useDisposeAsset();
   const setInternalHourlyRate = useSetInternalHourlyRate();
   const [rateDraft, setRateDraft] = useState<number | null>(null);
+  const [rateEffectiveFrom, setRateEffectiveFrom] = useState("");
   const [rateError, setRateError] = useState<string | null>(null);
   const [disposeOpen, setDisposeOpen] = useState(false);
   const [disposeDate, setDisposeDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -424,6 +425,12 @@ export function AssetRegisterScreen() {
                     value={rateDraft}
                     onChange={setRateDraft}
                   />
+                  <TextField
+                    label={t("asset.rateEffectiveFrom")}
+                    value={rateEffectiveFrom}
+                    onChange={setRateEffectiveFrom}
+                    placeholder="YYYY-MM-DD"
+                  />
                   <Button
                     disabled={setInternalHourlyRate.isPending}
                     onClick={() => {
@@ -431,9 +438,13 @@ export function AssetRegisterScreen() {
                       setInternalHourlyRate
                         .mutateAsync({
                           id: selected.id,
-                          internalHourlyRate: rateDraft === null ? null : rateDraft.toFixed(6),
+                          hourlyRate: rateDraft === null ? null : rateDraft.toFixed(6),
+                          ...(rateEffectiveFrom.trim() ? { effectiveFrom: rateEffectiveFrom.trim() } : {}),
                         })
-                        .then(() => setRateDraft(null))
+                        .then(() => {
+                          setRateDraft(null);
+                          setRateEffectiveFrom("");
+                        })
                         .catch((err: unknown) =>
                           setRateError(err instanceof ApiError ? err.message : t("asset.rateCouldNotBeSaved")),
                         );
@@ -444,6 +455,24 @@ export function AssetRegisterScreen() {
                 </div>
                 <p className="mt-[6px] text-[11.5px] text-ink-muted">{t("asset.internalHourlyRateAudited")}</p>
                 {rateError ? <p className="mt-[6px] text-[11.5px] font-semibold text-danger-ink">{rateError}</p> : null}
+                <div className="mt-[10px]">
+                  <div className="text-[11px] font-semibold text-ink-faint">{t("asset.rateHistory")}</div>
+                  {selected.rateHistory.length === 0 ? (
+                    <p className="mt-[4px] text-[11.5px] text-ink-muted">{t("asset.rateHistoryEmpty")}</p>
+                  ) : (
+                    <ul className="mt-[4px] flex flex-col gap-[3px]">
+                      {[...selected.rateHistory].reverse().map((row) => (
+                        <li
+                          key={`${row.effectiveFrom}-${row.setAt}`}
+                          className="flex items-baseline justify-between gap-[10px] text-[11.5px] text-ink-muted"
+                        >
+                          <span className="mz-num">{row.effectiveFrom}</span>
+                          <MoneyDisplay value={toMajor(row.hourlyRate)} className="font-semibold text-ink" />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.accumulatedDepreciation")}</div>

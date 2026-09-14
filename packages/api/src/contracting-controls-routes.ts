@@ -147,6 +147,17 @@ function serializeCalendar(calendar: RetentionCalendar) {
         due: row.event.due,
         ageDays: row.event.ageDays,
       },
+      finalSecurity:
+        row.finalSecurity === null
+          ? null
+          : {
+              required: row.finalSecurity.required.toString(),
+              covered: row.finalSecurity.covered.toString(),
+              shortfall: row.finalSecurity.shortfall.toString(),
+              guaranteeId: row.finalSecurity.guaranteeId,
+              guaranteeDocNo: row.finalSecurity.guaranteeDocNo,
+              expiryDate: row.finalSecurity.expiryDate,
+            },
     })),
     payable: calendar.payable.map((row) => ({
       projectId: row.projectId,

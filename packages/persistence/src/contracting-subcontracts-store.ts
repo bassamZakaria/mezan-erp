@@ -465,6 +465,7 @@ function toDeduction(row: DeductionRow): CertificateDeductionRow {
     thisCertificate: Money.fromScaled(row.this_certificate),
     posted: row.posted === 1,
     capped: row.capped === 1,
+    noteAr: null,
   };
 }
 

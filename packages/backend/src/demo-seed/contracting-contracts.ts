@@ -120,6 +120,28 @@ export async function seedContractingContracts(app: App): Promise<void> {
       { id: `${PUBLIC_CONTRACT}-B3`, code: "3", descriptionAr: "الأرضيات الصناعية والعزل", unit: "lump_sum", qty: "1", unitRate: "1500000.00", estimatedUnitCost: "1100000", costCategory: "subcontract" },
     ],
   });
+  /**
+   * التأمين النهائي — 5% of 9,300,000. A Law 182/2018 contract retains no cash
+   * from its certificates, so this letter IS the security and the contract
+   * cannot be activated without it on the register.
+   */
+  await step(app, "POST", "/contracting/guarantees", {
+    id: "LG-DEMO-5",
+    kind: "performance",
+    projectId: WAREHOUSE_EXPANSION,
+    contractId: PUBLIC_CONTRACT,
+    beneficiaryNameAr: "جهاز تنمية المشروعات — وزارة التموين",
+    bankTreasuryAccountId: "TR-DEMO-BANK",
+    faceValue: "465000",
+    percentOfContract: "5",
+    cashMarginPercent: "20",
+    cashMarginAmount: "93000",
+    issueDate: "2025-04-10",
+    expiryDate: "2027-04-30",
+    notes: "تأمين نهائي ٥٪ طبقاً للقانون ١٨٢ لسنة ٢٠١٨ — يحل محل المحتجزات النقدية.",
+  });
+  await step(app, "POST", "/contracting/guarantees/LG-DEMO-5/issue", {});
+
   await step(app, "POST", `/contracting/contracts/${PUBLIC_CONTRACT}/activate`, { activatedAt: "2025-04-15" });
 
   await step(app, "POST", "/contracting/contracts", {

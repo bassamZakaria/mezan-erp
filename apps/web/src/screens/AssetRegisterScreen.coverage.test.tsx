@@ -74,6 +74,7 @@ function asset(overrides: Partial<AssetDTO> & { id: string; code: string }): Ass
     notes: overrides.notes ?? null,
     projectId: overrides.projectId ?? null,
     internalHourlyRate: overrides.internalHourlyRate ?? null,
+  rateHistory: [],
   };
 }
 

@@ -10,6 +10,10 @@ import { recordTransition } from "../audit.js";
 import type { ProjectRepository } from "../../projects/project.js";
 import { ProjectNotFoundError } from "../../projects/errors.js";
 import type { AssetRepository } from "../../fixed-assets/asset.js";
+import {
+  resolveInternalHourlyRate,
+  type AssetInternalRateHistoryRepository,
+} from "../../fixed-assets/internal-rate-history.js";
 import { createWarehouse, type Warehouse } from "../../settings/warehouse.js";
 import type { WarehouseRepository } from "../../settings/ports.js";
 import {
@@ -53,6 +57,12 @@ export interface SiteServiceDeps {
   readonly warehouses: WarehouseRepository;
   readonly projects: Pick<ProjectRepository, "findById">;
   readonly assets: Pick<AssetRepository, "findById">;
+  /**
+   * تاريخ سعر الساعة الداخلي. Present, a log is priced at the rate in force on
+   * ITS date; absent — or empty for the asset — the asset's current rate stands,
+   * which is what the register did before the series existed.
+   */
+  readonly assetRateHistory?: Pick<AssetInternalRateHistoryRepository, "list">;
   readonly stockLedger: StockLedgerService;
   /** The REAL GL posting engine's ports — consumption and plant hours post through it, nothing else. */
   readonly gl: JournalPostingDeps;
@@ -626,9 +636,19 @@ export class SiteService {
     // WIP, then cost, then the percentage of completion, then recognised
     // revenue — with no approval anywhere. Changing the rate is an edit of the
     // asset register, gated and audited there.
-    const hourlyRate = asset.internalHourlyRate;
-    if (!hourlyRate || hourlyRate.scaled <= 0n) {
+    if (!asset.internalHourlyRate || asset.internalHourlyRate.scaled <= 0n) {
       throw new InvalidSiteDocumentError(["سعر الساعة الداخلي غير محدد على هذه المعدة — حدّده على الأصل أولاً"]);
+    }
+    // INVARIANT: the rate is the one effective on the LOG's date, not today's.
+    // Pricing last month's hours at a rate changed yesterday restates the WIP,
+    // the cost and the recognised revenue of a month already reported.
+    const history = (await this.deps.assetRateHistory?.list(asset.id)) ?? [];
+    const hourlyRate =
+      history.length === 0 ? asset.internalHourlyRate : resolveInternalHourlyRate(history, command.date);
+    if (!hourlyRate || hourlyRate.scaled <= 0n) {
+      throw new InvalidSiteDocumentError([
+        `لا يوجد سعر ساعة داخلي سارٍ للمعدة في ${command.date} — أقدم سعر مسجل يبدأ في ${history[0]?.effectiveFrom ?? "—"}`,
+      ]);
     }
     const boqLineId = command.boqLineId?.trim() ? command.boqLineId.trim() : null;
     if (boqLineId && this.deps.boqLines && !(await this.deps.boqLines.exists(boqLineId))) {

@@ -5,7 +5,15 @@ import type { JournalPostingDeps } from "../../gl/index.js";
 import type { AuditSink } from "../../audit/index.js";
 import { recordTransition } from "../audit.js";
 import type { ProjectRepository } from "../../projects/project.js";
-import { approvalDates, contractedQtyOf } from "../contracts/index.js";
+import {
+  approvalDates,
+  contractedQtyOf,
+  computeContractValue,
+  finalSecurityStatusOf,
+  requiresFinalSecurity,
+  type ContractGuaranteePort,
+  type FinalSecurityStatus,
+} from "../contracts/index.js";
 import type {
   BoqLine,
   BoqLineAdjustment,
@@ -168,6 +176,14 @@ export interface RetentionReleaseInvoicingPort {
  * the final one — so the payable side ages from when it becomes claimable
  * rather than from the certificate that withheld it.
  */
+/** The release event of a contract secured by a letter: the letter's own expiry. */
+function guaranteeExpiryEvent(expiryDate: string | null, asOfDate: string): RetentionCalendarEvent {
+  if (expiryDate === null) return { kind: null, date: null, daysToEvent: null, due: false, ageDays: null };
+  const daysToEvent = daysBetweenDates(asOfDate, expiryDate);
+  const due = expiryDate <= asOfDate;
+  return { kind: null, date: expiryDate, daysToEvent, due, ageDays: due ? -daysToEvent : null };
+}
+
 function subcontractRetentionClock(view: SubcontractView, asOfDate: string): RetentionPayableSubcontractRow {
   const s = view.subcontract;
   const releaseEventDate =
@@ -209,6 +225,12 @@ export interface ControlsServiceDeps {
    * which is honest, not silently half-right.
    */
   readonly subcontracts?: { list(): Promise<readonly SubcontractView[]> };
+  /**
+   * سجل خطابات الضمان. A Law 182/2018 contract holds no cash retention at all,
+   * so its release event is the تأمين نهائي letter's expiry — without this port
+   * such a contract simply never appears on the calendar.
+   */
+  readonly guarantees?: ContractGuaranteePort;
   /**
    * التكلفة حتى تاريخه for a project, on the recognition run's OWN basis —
    * the same `costToDateOf` the run posts through, so report 7 and the run can
@@ -286,6 +308,8 @@ export interface RetentionCalendarRow {
   readonly balance: Money;
   readonly provisionalReleasedToDate: Money;
   readonly event: RetentionCalendarEvent;
+  /** التأمين النهائي — set on a public contract, where the letter replaces held cash. */
+  readonly finalSecurity: FinalSecurityStatus | null;
 }
 
 export interface RetentionPayableRow {
@@ -764,6 +788,20 @@ export class ControlsService {
     return retentionPositionOf(Money.fromScaled(debits), Money.fromScaled(credits));
   }
 
+  /**
+   * التأمين النهائي on a Law 182/2018 contract: what the employer requires
+   * against what the register holds, and the letter whose expiry the calendar
+   * ages from instead of a handover date.
+   */
+  private async finalSecurityStatus(contract: WorksContract): Promise<FinalSecurityStatus | null> {
+    if (!requiresFinalSecurity(contract)) return null;
+    const [lines, letters] = await Promise.all([
+      this.deps.contracts.listBoqLines(contract.id),
+      this.deps.guarantees?.listPerformanceGuarantees(contract.id) ?? Promise.resolve([]),
+    ]);
+    return finalSecurityStatusOf(contract, computeContractValue(lines), letters);
+  }
+
   private async provisionalReleasedToDate(contractId: string): Promise<Money> {
     const rows = await this.deps.releases.list({ contractId, status: "released" });
     return Money.sum(rows.filter((r) => r.kind === "provisional").map((r) => r.amount));
@@ -776,7 +814,8 @@ export class ControlsService {
     for (const contract of contracts) {
       const position = await this.retentionPosition(contract.projectId);
       const provisionalReleasedToDate = await this.provisionalReleasedToDate(contract.id);
-      if (position.held.scaled === 0n && position.released.scaled === 0n) continue;
+      const finalSecurity = await this.finalSecurityStatus(contract);
+      if (finalSecurity === null && position.held.scaled === 0n && position.released.scaled === 0n) continue;
       receivable.push({
         contractId: contract.id,
         contractDocNo: contract.docNo,
@@ -794,15 +833,19 @@ export class ControlsService {
         released: position.released,
         balance: position.balance,
         provisionalReleasedToDate,
-        event: nextRetentionEvent({
-          provisionalHandoverDate: contract.provisionalHandoverDate,
-          finalHandoverDate: contract.finalHandoverDate,
-          defectsLiabilityMonths: contract.defectsLiabilityMonths,
-          position,
-          provisionalReleasePercent: contract.provisionalReleasePercent,
-          provisionalReleasedToDate,
-          asOfDate: on,
-        }),
+        event:
+          finalSecurity === null
+            ? nextRetentionEvent({
+                provisionalHandoverDate: contract.provisionalHandoverDate,
+                finalHandoverDate: contract.finalHandoverDate,
+                defectsLiabilityMonths: contract.defectsLiabilityMonths,
+                position,
+                provisionalReleasePercent: contract.provisionalReleasePercent,
+                provisionalReleasedToDate,
+                asOfDate: on,
+              })
+            : guaranteeExpiryEvent(finalSecurity.expiryDate, on),
+        finalSecurity,
       });
     }
     return { asOfDate: on, receivable, payable: await this.payableRows(contracts, names, on) };

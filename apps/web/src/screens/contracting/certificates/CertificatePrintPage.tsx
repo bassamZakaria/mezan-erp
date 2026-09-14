@@ -215,7 +215,7 @@ export function CertificatePrintPage({
         <div>
           {computed.deductions.map((deduction) =>
             totalsRow(
-              deduction.percent ? `${deduction.labelAr} — ${formatPercent(deduction.percent)}%` : deduction.labelAr,
+              `${deduction.percent ? `${deduction.labelAr} — ${formatPercent(deduction.percent)}%` : deduction.labelAr}${deduction.noteAr ? ` — ${deduction.noteAr}` : ""}`,
               deduction.thisCertificate,
               false,
               true,

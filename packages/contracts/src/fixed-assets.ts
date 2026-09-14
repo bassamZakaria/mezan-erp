@@ -44,6 +44,14 @@ export const createAssetCategorySchema = z.object({
   lossOnDisposalAccountId: z.string().nullable().optional(),
 });
 
+export const assetInternalRateRowSchema = z.object({
+  effectiveFrom: z.string(),
+  hourlyRate: moneyString,
+  setBy: z.string().nullable(),
+  setAt: z.string(),
+});
+export type AssetInternalRateRowDTO = z.infer<typeof assetInternalRateRowSchema>;
+
 export const assetSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
@@ -67,8 +75,10 @@ export const assetSchema = z.object({
   notes: z.string().nullable(),
   /** بُعد المشروع — the contracting project this asset is assigned to. */
   projectId: z.string().nullable(),
-  /** سعر الساعة الداخلي — the rate تشغيل المعدات charges a project per operating hour. */
+  /** سعر الساعة الداخلي — the rate in force TODAY. What a log is priced at comes from `rateHistory`. */
   internalHourlyRate: z.string().nullable(),
+  /** تاريخ سعر الساعة الداخلي, oldest first. A log resolves the row effective on its own date. */
+  rateHistory: z.array(assetInternalRateRowSchema),
 });
 
 export const createAssetSchema = z.object({
@@ -148,7 +158,9 @@ export type CreateDepreciationRunDTO = z.infer<typeof createDepreciationRunSchem
  * completion, then in recognised revenue.
  */
 export const setInternalHourlyRateSchema = z.object({
-  internalHourlyRate: moneyString.nullable(),
+  hourlyRate: moneyString.nullable(),
+  /** `YYYY-MM-DD`; the tenant's today when omitted. Never the instant the edit was made. */
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ مطلوب بصيغة YYYY-MM-DD").optional(),
   reason: z.string().max(500).nullable().optional(),
 });
 export type SetInternalHourlyRateDTO = z.infer<typeof setInternalHourlyRateSchema>;

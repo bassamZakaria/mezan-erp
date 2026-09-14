@@ -52,6 +52,7 @@ const sampleAssets: AssetDTO[] = [
     notes: null,
     projectId: null,
     internalHourlyRate: null,
+  rateHistory: [],
   },
 ];
 

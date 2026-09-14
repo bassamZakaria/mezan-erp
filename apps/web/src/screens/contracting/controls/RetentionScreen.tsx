@@ -484,6 +484,9 @@ export function RetentionScreen() {
                     <td className="p-[7px_8px]">
                       <span className="mz-num text-ink">{row.contractDocNo}</span>
                       <div className="truncate text-[11.5px] text-ink-muted">{row.contractTitleAr}</div>
+                      {row.finalSecurity ? (
+                        <div className="text-[11.5px] text-ink-muted">{t("retention.finalSecurityContract")}</div>
+                      ) : null}
                     </td>
                     <td className="p-[7px_8px]">{row.projectNameAr ?? row.projectId}</td>
                     <td className="mz-num p-[7px_8px] text-end">
@@ -502,7 +505,13 @@ export function RetentionScreen() {
                         <>
                           <span className="mz-num">{row.event.date}</span>
                           <div className="text-[11.5px] text-ink-muted">
-                            {row.event.kind === null ? "" : t(KIND_KEY[row.event.kind])}
+                            {row.finalSecurity
+                              ? t("retention.finalSecurityEvent", {
+                                  docNo: row.finalSecurity.guaranteeDocNo ?? "—",
+                                })
+                              : row.event.kind === null
+                                ? ""
+                                : t(KIND_KEY[row.event.kind])}
                           </div>
                         </>
                       )}

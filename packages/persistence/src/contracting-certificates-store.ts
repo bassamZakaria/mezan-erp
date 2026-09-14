@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS contracting_certificate_deduction (
   this_certificate INTEGER NOT NULL,
   posted           INTEGER NOT NULL,
   capped           INTEGER NOT NULL,
+  note_ar          TEXT,
   sort_order       INTEGER NOT NULL,
   PRIMARY KEY (certificate_id, key)
 );
@@ -256,6 +257,7 @@ interface DeductionRow {
   this_certificate: number;
   posted: number;
   capped: number;
+  note_ar: string | null;
   sort_order: number;
 }
 
@@ -305,6 +307,7 @@ function toDeduction(row: DeductionRow): CertificateDeductionRow {
     thisCertificate: Money.fromScaled(row.this_certificate),
     posted: row.posted === 1,
     capped: row.capped === 1,
+    noteAr: row.note_ar ?? null,
   };
 }
 
@@ -477,9 +480,9 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
     `);
     this.insertDeduction = sqlite.prepare(`
       INSERT INTO contracting_certificate_deduction (
-        certificate_id, key, label_ar, percent, cumulative, previous, this_certificate, posted, capped, sort_order
+        certificate_id, key, label_ar, percent, cumulative, previous, this_certificate, posted, capped, note_ar, sort_order
       ) VALUES (
-        @certificate_id, @key, @label_ar, @percent, @cumulative, @previous, @this_certificate, @posted, @capped, @sort_order
+        @certificate_id, @key, @label_ar, @percent, @cumulative, @previous, @this_certificate, @posted, @capped, @note_ar, @sort_order
       )
     `);
     this.selectWorkLines = sqlite.prepare(
@@ -681,6 +684,7 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
           this_certificate: deduction.thisCertificate.toScaledNumber(),
           posted: deduction.posted ? 1 : 0,
           capped: deduction.capped ? 1 : 0,
+          note_ar: deduction.noteAr,
           sort_order: index,
         });
       });
@@ -719,6 +723,14 @@ export function createSqliteProgressCertificateStore(
     "void_journal_entry_id",
   ]) {
     if (!headerColumns.has(name)) sqlite.exec(`ALTER TABLE contracting_certificate ADD COLUMN ${name} TEXT`);
+  }
+  const deductionColumns = new Set(
+    (sqlite.prepare(`PRAGMA table_info(contracting_certificate_deduction)`).all() as { name: string }[]).map(
+      (c) => c.name,
+    ),
+  );
+  if (!deductionColumns.has("note_ar")) {
+    sqlite.exec(`ALTER TABLE contracting_certificate_deduction ADD COLUMN note_ar TEXT`);
   }
   const store = new SqliteProgressCertificateStore(sqlite);
   return Object.assign(store, {

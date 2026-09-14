@@ -170,6 +170,13 @@ export async function seedContractingSite(app: App): Promise<void> {
     projectId: TOWER,
     internalHourlyRate: "450",
   });
+  // The rate as a DATED series, so every log below prices at the rate in force
+  // on its own date rather than at whatever the register last happened to hold.
+  await step(app, "PATCH", `/assets/${PLANT_ASSET_ID}/internal-hourly-rate`, {
+    hourlyRate: "450",
+    effectiveFrom: "2026-01-01",
+    reason: "سعر الساعة المعتمد لسنة ٢٠٢٦",
+  });
   await step(app, "POST", "/contracting/site/equipment-logs", {
     id: "EQL-DEMO-1",
     projectId: TOWER,

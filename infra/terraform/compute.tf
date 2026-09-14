@@ -162,7 +162,10 @@ resource "aws_ecs_task_definition" "app" {
       ]
 
       healthCheck = {
-        command     = ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+        command = [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
         interval    = 30
         timeout     = 5
         retries     = 3
@@ -180,20 +183,25 @@ resource "aws_ecs_task_definition" "app" {
     },
     {
       name      = "backup"
-      image     = "public.ecr.aws/aws-cli/aws-cli:latest"
+      image     = "public.ecr.aws/aws-cli/aws-cli:2.31.19"
       essential = false
 
+      # NOT readOnly: the sidecar has to `mkdir -p /data/backups` on a fresh
+      # filesystem, and `aws s3 sync` on a directory that does not exist is an
+      # error, not an empty sync. A read-only mount forbids the mkdir, so the
+      # sidecar would crash-loop until the app happened to create the
+      # directory first. It still only ever reads what it syncs.
       mountPoints = [
         {
           sourceVolume  = "data"
           containerPath = "/data"
-          readOnly      = true
+          readOnly      = false
         },
       ]
 
       entryPoint = ["/bin/sh", "-c"]
       command = [
-        "while true; do aws s3 sync /data/backups s3://${aws_s3_bucket.backup.id}/backups --only-show-errors; sleep ${var.backup_interval_minutes * 60}; done",
+        "mkdir -p /data/backups; while true; do aws s3 sync /data/backups s3://${aws_s3_bucket.backup.id}/backups --only-show-errors; sleep ${var.backup_interval_minutes * 60}; done",
       ]
 
       logConfiguration = {
@@ -216,9 +224,18 @@ resource "aws_service_discovery_private_dns_namespace" "main" {
 resource "aws_service_discovery_service" "app" {
   name = "app"
 
+  # The SRV record is what carries the port. An API Gateway private
+  # integration to a Cloud Map service reads AWS_INSTANCE_PORT off the
+  # registered instance, and only an SRV registration publishes it; with A
+  # records alone the integration has no port and every request fails.
   dns_config {
     namespace_id   = aws_service_discovery_private_dns_namespace.main.id
     routing_policy = "MULTIVALUE"
+
+    dns_records {
+      type = "SRV"
+      ttl  = 10
+    }
 
     dns_records {
       type = "A"
@@ -253,6 +270,8 @@ resource "aws_ecs_service" "app" {
   }
 
   service_registries {
-    registry_arn = aws_service_discovery_service.app.arn
+    registry_arn   = aws_service_discovery_service.app.arn
+    container_name = "app"
+    container_port = 8080
   }
 }

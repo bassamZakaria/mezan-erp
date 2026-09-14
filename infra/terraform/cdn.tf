@@ -2,6 +2,14 @@ resource "aws_s3_bucket" "web" {
   bucket = "${local.name}-web-${random_id.bucket_suffix.hex}"
 }
 
+resource "aws_s3_bucket_versioning" "web" {
+  bucket = aws_s3_bucket.web.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "web" {
   bucket = aws_s3_bucket.web.id
 
@@ -132,11 +140,6 @@ resource "aws_cloudfront_distribution" "main" {
     cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
-
-    function_association {
-      event_type   = "viewer-request"
-      function_arn = aws_cloudfront_function.forwarded_host.arn
-    }
   }
 
   ordered_cache_behavior {

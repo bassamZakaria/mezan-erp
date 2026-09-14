@@ -57,6 +57,13 @@ minutes and can take a day. When `dig NS <domain>` answers with them, re-run
 
 ## 4. First login
 
+> The container image this infrastructure runs is the cloud entrypoint that
+> arrives in slice C: the one that reads `MEZAN_PLATFORM_DIR`,
+> `MEZAN_SQLITE_EXCLUSIVE`, `MEZAN_TENANT_DOMAIN` and the two owner secrets,
+> mounts `/platform`, and writes its archives into `/data/backups`. Until that
+> lands, the Terraform here stands up the footprint but the task has nothing
+> to serve.
+
 The platform owner is seeded from the two SSM parameters on the server's first
 start: `/mezan/<env>/platform-owner-email` and
 `/mezan/<env>/platform-owner-password`. Open `https://<domain>/platform`, sign
@@ -74,10 +81,25 @@ four repository secrets:
 
 | Secret | What it is |
 |---|---|
-| `AWS_DEPLOY_ROLE_ARN` | Role the workflow assumes through GitHub OIDC |
+| `AWS_DEPLOY_ROLE_ARN` | `terraform output -raw deploy_role_arn` |
 | `AWS_TF_STATE_BUCKET` | The bootstrap state bucket |
 | `AWS_TF_LOCK_TABLE` | The bootstrap lock table |
 | `MEZAN_PLATFORM_OWNER_PASSWORD` | Only read on the very first apply |
+
+The role is created by `infra/terraform/github-oidc.tf`, along with the OIDC
+provider for `token.actions.githubusercontent.com`. It trusts exactly
+`repo:<github_repository>:ref:refs/heads/main`, so no pull-request branch can
+assume it, and there are no long-lived AWS keys anywhere. Set
+`github_repository` in `envs/demo.tfvars` to your `owner/name`.
+
+`deploy_role_admin` defaults to `true` and attaches `AdministratorAccess`,
+because a full `terraform apply` creates VPCs, IAM roles and CloudFront
+distributions. `infra/terraform/README.md` says how to narrow it.
+
+The workflow applies in a fixed order: `terraform init`, a targeted apply of
+the ECR repository, build and push the image, the full apply with the new tag,
+then the web sync and the invalidation. The registry must exist before a push,
+and the full apply names a tag that does not exist until the push has happened.
 
 The same thing by hand:
 

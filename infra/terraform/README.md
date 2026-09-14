@@ -31,9 +31,13 @@ terraform init \
   -backend-config="dynamodb_table=mezan-tfstate-lock"
 ```
 
+`envs/demo.tfvars` also carries `github_repository`, `state_bucket` and
+`state_lock_table`: the deploy role trusts `repo:<github_repository>:ref:refs/heads/main`
+and is granted the state bucket and lock table by name.
+
 ## Secrets
 
-`platform_owner_password` has no default and is never written to a tfvars file:
+`platform_owner_password` is required and is never written to a tfvars file:
 
 ```sh
 export TF_VAR_platform_owner_password='…'
@@ -66,9 +70,40 @@ validate the certificate and CloudFront cannot finish.
 
 ## Deploy loop
 
-`.github/workflows/deploy-aws.yml` runs it on every push to `main`: build and
-push the ARM64 image to ECR under the commit SHA, `terraform apply` with that
-tag, sync `apps/web/dist` into the web bucket, invalidate the distribution.
+`.github/workflows/deploy-aws.yml` runs it on every push to `main`, in this
+order: `terraform init`, a targeted apply of the ECR repository alone (the full
+apply names an image tag that does not exist yet, so the registry has to come
+first), build and push the ARM64 image under the commit SHA, the full
+`terraform apply` with that tag, sync `apps/web/dist` into the web bucket,
+invalidate the distribution.
+
+It signs in with the role `github-oidc.tf` creates, assumed through GitHub's
+OIDC provider — no long-lived keys. Put
+
+```sh
+terraform output -raw deploy_role_arn
+```
+
+in the `AWS_DEPLOY_ROLE_ARN` repository secret.
+
+### Narrowing the deploy role
+
+`deploy_role_admin` defaults to `true`, which attaches `AdministratorAccess`:
+`terraform apply` creates VPCs, IAM roles, CloudFront distributions and ACM
+certificates, and a hand-written policy for that drifts every time the
+footprint changes. Once it stops changing, set `deploy_role_admin = false` and
+replace it with the services the apply actually touches — run the apply once
+with CloudTrail on and read the calls off it. The inline policy in the same
+file (ECR push, ECS update, the web bucket, CloudFront invalidation, the state
+bucket and lock table) is what the workflow's own steps need and stays either
+way.
+
+## Price class
+
+`PriceClass_100` is Europe, Israel and North America only. Egypt is served out
+of the European edges, which is one extra hop and a few tens of milliseconds;
+`PriceClass_All` adds the Middle East edges and roughly doubles the delivery
+price for a demo that does not need them.
 
 ## Cost
 

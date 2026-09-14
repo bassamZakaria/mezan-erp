@@ -77,6 +77,61 @@ resource "aws_s3_bucket_public_access_block" "backup" {
   restrict_public_buckets = true
 }
 
+data "aws_iam_policy_document" "backup" {
+  statement {
+    sid       = "TaskRoleOnly"
+    effect    = "Allow"
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:ListBucket"]
+    resources = [aws_s3_bucket.backup.arn, "${aws_s3_bucket.backup.arn}/*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.task.arn]
+    }
+  }
+
+  statement {
+    sid       = "DenyEverythingElse"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.backup.arn, "${aws_s3_bucket.backup.arn}/*"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "ArnNotEquals"
+      variable = "aws:PrincipalArn"
+      values   = [aws_iam_role.task.arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid       = "DenyInsecureTransport"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.backup.arn, "${aws_s3_bucket.backup.arn}/*"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "backup" {
+  bucket = aws_s3_bucket.backup.id
+  policy = data.aws_iam_policy_document.backup.json
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "backup" {
   bucket = aws_s3_bucket.backup.id
 

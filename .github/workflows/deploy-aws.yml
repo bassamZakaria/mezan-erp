@@ -53,6 +53,17 @@ jobs:
             -backend-config="region=${AWS_REGION}" \
             -backend-config="dynamodb_table=${{ secrets.AWS_TF_LOCK_TABLE }}"
 
+      # The registry has to exist before the image can be pushed, and the full
+      # apply refers to an image tag that does not exist yet. Targeting the
+      # repository alone breaks that cycle on a first run and is a no-op after.
+      - name: Terraform apply (registry only)
+        working-directory: infra/terraform
+        run: |
+          terraform apply -input=false -auto-approve \
+            -target=aws_ecr_repository.app \
+            -var-file=envs/demo.tfvars \
+            -var "image_tag=${{ github.sha }}"
+
       - name: Read the registry URL
         id: registry
         working-directory: infra/terraform
@@ -78,7 +89,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Terraform apply
+      - name: Terraform apply (everything)
         working-directory: infra/terraform
         run: |
           terraform apply -input=false -auto-approve \

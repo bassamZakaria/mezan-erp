@@ -1,3 +1,47 @@
+variable "region" {
+  description = "AWS region every resource but the CloudFront certificate is created in."
+  type        = string
+  default     = "eu-central-1"
+}
+
+variable "vpc_cidr" {
+  description = "IPv4 range of the VPC; the two public subnets are /24s cut out of it."
+  type        = string
+  default     = "10.42.0.0/16"
+
+  validation {
+    condition     = can(cidrsubnet(var.vpc_cidr, 8, 1))
+    error_message = "vpc_cidr must be a CIDR block with room for at least two /24 subnets."
+  }
+}
+
+variable "github_repository" {
+  description = "owner/name of the GitHub repository the deploy role trusts on refs/heads/main."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
+    error_message = "github_repository must look like owner/name."
+  }
+}
+
+variable "state_bucket" {
+  description = "Bootstrap state bucket the deploy role is allowed to read and write; the same name passed to -backend-config=bucket=."
+  type        = string
+}
+
+variable "state_lock_table" {
+  description = "Bootstrap lock table the deploy role is allowed to lock; the same name passed to -backend-config=dynamodb_table=."
+  type        = string
+  default     = "mezan-tfstate-lock"
+}
+
+variable "deploy_role_admin" {
+  description = "Attaches AdministratorAccess to the deploy role so terraform apply can create anything; narrow it per the README once the footprint stops changing."
+  type        = bool
+  default     = true
+}
+
 variable "environment" {
   description = "Environment name; every resource is called mezan-<environment>-<resource> and tagged with it."
   type        = string
@@ -84,11 +128,10 @@ variable "platform_owner_password" {
   description = "Initial password of the platform owner account; supply through TF_VAR_platform_owner_password, never a tfvars file."
   type        = string
   sensitive   = true
-  default     = null
 
   validation {
-    condition     = var.platform_owner_password == null || length(coalesce(var.platform_owner_password, "")) >= 12
-    error_message = "platform_owner_password must be at least 12 characters."
+    condition     = length(trimspace(var.platform_owner_password)) >= 12
+    error_message = "platform_owner_password must be set and at least 12 characters; export TF_VAR_platform_owner_password."
   }
 }
 
@@ -126,7 +169,7 @@ variable "alarm_email" {
 }
 
 locals {
-  region        = "eu-central-1"
+  region        = var.region
   name          = "mezan-${var.environment}"
   tenant_domain = coalesce(var.tenant_domain, var.domain)
   wildcard      = "*.${var.domain}"

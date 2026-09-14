@@ -22,7 +22,7 @@ import type {
   ProgressCertificateDTO,
   ProgressCertificateDerivedStatusDTO,
 } from "@mezan/contracts";
-import { TextAreaField, TextField } from "../../../settings/form-controls";
+import { SelectField, TextAreaField, TextField } from "../../../settings/form-controls";
 import { useSubPage } from "../../../navigation";
 import { useApi } from "../../../data/ApiContext";
 import { useCustomers, useProjects } from "../../../data/hooks";
@@ -39,7 +39,7 @@ import { useAppTranslation } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
-import { unitLabel } from "../../../lib/boq-unit-label";
+import { BOQ_UNITS, unitLabel } from "../../../lib/boq-unit-label";
 import { formatPercent } from "../../../lib/percent";
 import { CERTIFICATE_STATUS_KEY, CERTIFICATE_STATUS_TONE, CERTIFICATE_STEPS, trimScale } from "./certificate-common";
 import { CertificatePrintPage } from "./CertificatePrintPage";
@@ -550,6 +550,7 @@ function MaterialsCard({
   onChange: (next: MaterialDraft[]) => void;
 }) {
   const { t } = useAppTranslation();
+  const unitOptions = BOQ_UNITS.map((unit) => ({ value: unit, label: unitLabel(unit, t) }));
   return (
     <Card className="mb-[16px] p-[16px_18px]">
       <div className="mb-[4px] flex items-center justify-between gap-[10px]">
@@ -579,9 +580,10 @@ function MaterialsCard({
                 value={material.descriptionAr}
                 onChange={(v) => onChange(materials.map((m, i) => (i === index ? { ...m, descriptionAr: v } : m)))}
               />
-              <TextField
+              <SelectField
                 label={t("certificates.col.unit")}
                 value={material.unit}
+                options={unitOptions}
                 onChange={(v) => onChange(materials.map((m, i) => (i === index ? { ...m, unit: v } : m)))}
               />
               <TextField

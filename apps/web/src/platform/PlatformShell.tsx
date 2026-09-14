@@ -2,26 +2,19 @@ import { NavLink, Route, Routes } from "react-router";
 import { BrandMark, cn } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { usePlatformApi } from "./api";
+import { PlanEditor } from "./PlanEditor";
+import { PlansPage } from "./PlansPage";
+import { OperatorsPage } from "./OperatorsPage";
 
 /**
- * Tenants, plans and operators each get their real screen in a later task
- * (B8/B9) — for now the shell's job is only to prove the door works: sign in,
- * see a rail that goes somewhere, sign out. A title-only placeholder is
- * honest about that instead of a blank pane.
+ * Tenants gets its real screen in a later task (B8) — for now the shell's
+ * job there is only to prove the door works: sign in, see a rail that goes
+ * somewhere, sign out. A title-only placeholder is honest about that instead
+ * of a blank pane.
  */
 function TenantsPlaceholder() {
   const { t } = useAppTranslation();
   return <h1 className="font-display text-[19px] font-bold text-ink">{t("platform.nav.tenants")}</h1>;
-}
-
-function PlansPlaceholder() {
-  const { t } = useAppTranslation();
-  return <h1 className="font-display text-[19px] font-bold text-ink">{t("platform.nav.plans")}</h1>;
-}
-
-function OperatorsPlaceholder() {
-  const { t } = useAppTranslation();
-  return <h1 className="font-display text-[19px] font-bold text-ink">{t("platform.nav.operators")}</h1>;
 }
 
 const RAIL_ITEMS = [
@@ -82,8 +75,9 @@ export function PlatformShell() {
         <Routes>
           <Route index element={<TenantsPlaceholder />} />
           <Route path="tenants" element={<TenantsPlaceholder />} />
-          <Route path="plans" element={<PlansPlaceholder />} />
-          <Route path="users" element={<OperatorsPlaceholder />} />
+          <Route path="plans" element={<PlansPage />} />
+          <Route path="plans/:id" element={<PlanEditor />} />
+          <Route path="users" element={<OperatorsPage />} />
         </Routes>
       </main>
     </div>

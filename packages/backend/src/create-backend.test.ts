@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, type WebhookHttpRequest } from "@mezan/domain";
+import { ALL_SCOPE, createEntitlements, type WebhookHttpRequest } from "@mezan/domain";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -2695,4 +2695,30 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
     const customersList = (await res.json()) as unknown[];
     expect(customersList.length).toBeGreaterThan(0);
   }, 60000);
+});
+
+describe("resolveEntitlements", () => {
+  it("passes through to GET /entitlements, replacing the default ENTERPRISE catalog resolver", async () => {
+    const app = keep(
+      await createBackend({
+        dbPath: ":memory:",
+        resolveEntitlements: () =>
+          createEntitlements({ plan: "core", activeModules: ["sales"], features: {}, seats: 1, expiresAt: null }),
+      }),
+    );
+    const res = await app.fetch(new Request("http://local/entitlements", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { plan: string; activeModules: string[]; seats: number };
+    expect(body.plan).toBe("core");
+    expect(body.activeModules).toEqual(["sales"]);
+    expect(body.seats).toBe(1);
+  });
+
+  it("defaults to the full ENTERPRISE catalog when omitted", async () => {
+    const app = keep(await createBackend({ dbPath: ":memory:" }));
+    const res = await app.fetch(new Request("http://local/entitlements", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { plan: string };
+    expect(body.plan).toBe("ENTERPRISE");
+  });
 });

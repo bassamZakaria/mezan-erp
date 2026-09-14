@@ -529,6 +529,12 @@ export interface CreateBackendOptions {
    * writable.
    */
   readonly resolveLicenseState?: CreateAppOptions["resolveLicenseState"];
+  /**
+   * The tenant's subscription-derived capability set (docs/archive/plan.md §2.5).
+   * Supplied by apps/server from the platform database; omitted by every other
+   * edition, which falls back to `createApp`'s own default resolver.
+   */
+  readonly resolveEntitlements?: CreateAppOptions["resolveEntitlements"];
 }
 
 /**
@@ -1241,6 +1247,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // into, or a disconnect revokes a token nobody is holding.
     ...(options.lan ? { lan: { ...options.lan, sessions } } : {}),
     ...(options.resolveLicenseState ? { resolveLicenseState: options.resolveLicenseState } : {}),
+    ...(options.resolveEntitlements ? { resolveEntitlements: options.resolveEntitlements } : {}),
     settingsStore: settings,
     branchStore: branches,
     warehouseStore: warehouses,

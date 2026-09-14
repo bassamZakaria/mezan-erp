@@ -24,7 +24,8 @@ export interface ProvisionTenantDeps {
 export interface ProvisionTenantResult {
   readonly tenant: Tenant;
   readonly adminEmail: string;
-  readonly adminPin: string;
+  /** Null on a resumed provision — the admin already exists and its PIN is not re-issued. */
+  readonly adminPin: string | null;
 }
 
 export class TenantProvisioningError extends Error {
@@ -43,20 +44,6 @@ function defaultPinOf(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
-/**
- * The tenant's own backend gates every write behind its subscription-derived
- * license (packages/api/src/license-gate.ts), and a "provisioning" tenant with
- * no live subscription resolves to UNLICENSED — `canWrite: false` — same as an
- * expired one. `/bootstrap/admin` is a write, so the subscription has to start
- * and the tenant has to go "active" BEFORE that call, not after; seeding itself
- * needs no such ordering because `createBackend` seeds an empty tenant directly
- * against its stores the moment the backend opens, never through this gate.
- *
- * A code already claimed by a live tenant is told apart from a resumable one by
- * `GET /bootstrap/status` — a safe method, so it reads through the gate at any
- * license state — rather than by tenant status, which this function moves to
- * "active" before that tenant is actually reachable.
- */
 export async function provisionTenant(cmd: ProvisionTenantCommand, deps: ProvisionTenantDeps): Promise<ProvisionTenantResult> {
   const nowIso = deps.now().toISOString();
   const pinOf = deps.pinOf ?? defaultPinOf;
@@ -72,10 +59,26 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
   try {
     const backend = await deps.router.backendFor(tenant.code);
 
-    if (existing) {
-      const statusRes = await backend.app.fetch(new Request("http://tenant.internal/bootstrap/status"));
-      const { claimed } = (await statusRes.json()) as { claimed: boolean };
-      if (claimed) throw new TenantCodeTakenError(cmd.code);
+    await backend.app.fetch(new Request("http://tenant.internal/bootstrap/seed", { method: "POST" }));
+
+    const statusRes = await backend.app.fetch(new Request("http://tenant.internal/bootstrap/status"));
+    const { claimed } = (await statusRes.json()) as { claimed: boolean };
+
+    let adminPin: string | null = null;
+    if (claimed) {
+      if (tenant.status !== "provisioning") throw new TenantCodeTakenError(cmd.code);
+    } else {
+      adminPin = pinOf();
+      const adminRes = await backend.app.fetch(
+        new Request("http://tenant.internal/bootstrap/admin", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ nameAr: cmd.ownerNameAr, email: cmd.ownerEmail, pin: adminPin }),
+        }),
+      );
+      if (adminRes.status !== 201) {
+        throw new Error(`bootstrap/admin responded ${adminRes.status}`);
+      }
     }
 
     const live = await deps.platform.stores.subscriptions.findLiveByTenant(tenant.id);
@@ -96,22 +99,6 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
 
     if (tenant.status === "provisioning") {
       tenant = await activateTenant({ id: tenant.id, now: nowIso }, deps.platform.stores.tenants);
-    }
-    // The tenant's own resolver may have cached an UNLICENSED snapshot from the
-    // `/bootstrap/status` read above (or a prior sweep) — bust it so the write
-    // gate for the admin POST that follows sees this subscription and status.
-    deps.router.invalidate(tenant.code);
-
-    const adminPin = pinOf();
-    const adminRes = await backend.app.fetch(
-      new Request("http://tenant.internal/bootstrap/admin", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ nameAr: cmd.ownerNameAr, email: cmd.ownerEmail, pin: adminPin }),
-      }),
-    );
-    if (adminRes.status !== 201 && adminRes.status !== 409) {
-      throw new Error(`bootstrap/admin responded ${adminRes.status}`);
     }
 
     return { tenant, adminEmail: cmd.ownerEmail, adminPin };

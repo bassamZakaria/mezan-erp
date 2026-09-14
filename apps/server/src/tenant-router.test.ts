@@ -291,6 +291,36 @@ describe("createTenantRouter", () => {
     });
   });
 
+  describe("backendFor", () => {
+    it("refuses an archived tenant", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform);
+
+      await expect(router.backendFor("old")).rejects.toThrow();
+    });
+
+    it("refuses an archived tenant even after its backend was already cached", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform);
+
+      await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "susp" } }));
+      await archiveTenant({ id: "t-susp", now: T }, platform.stores.tenants);
+
+      await expect(router.backendFor("susp")).rejects.toThrow();
+    });
+
+    it("opens a provisioning tenant's own backend even though the public dispatcher 404s on it", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform);
+
+      const backend = await router.backendFor("new");
+      expect(backend.app).toBeTruthy();
+
+      const dispatchRes = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "new" } }));
+      expect(dispatchRes.status).toBe(404);
+    });
+  });
+
   describe("dispatch preserves encoded path segments", () => {
     function stubRouter(platform: PlatformHandle): { router: TenantRouter; captured: string[] } {
       const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-tenant-router-stub-"));
@@ -373,14 +403,28 @@ describe("createTenantRouter", () => {
       expect(readRes.status).toBe(200);
 
       const writeRes = await router.app.fetch(
+        new Request("http://ignored/customers", {
+          method: "POST",
+          headers: { "content-type": "application/json", [TENANT_HEADER]: "susp" },
+          body: JSON.stringify({ id: "c-susp", code: "C000001", nameAr: "عميل" }),
+        }),
+      );
+      expect(writeRes.status).toBe(403);
+      expect(await writeRes.json()).toMatchObject({ error: "LICENSE_READ_ONLY" });
+    });
+
+    it("still lets /bootstrap/admin through — it is allowlisted and self-closing", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform);
+
+      const res = await router.app.fetch(
         new Request("http://ignored/bootstrap/admin", {
           method: "POST",
           headers: { "content-type": "application/json", [TENANT_HEADER]: "susp" },
           body: JSON.stringify({ nameAr: "المدير", email: "owner-susp@example.com", pin: "123456" }),
         }),
       );
-      expect(writeRes.status).toBe(403);
-      expect(await writeRes.json()).toMatchObject({ error: "LICENSE_READ_ONLY" });
+      expect(res.status).toBe(201);
     });
   });
 

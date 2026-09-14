@@ -119,6 +119,10 @@ describe("provisionResultSchema", () => {
   it("rejects a PIN that is not 6 digits", () => {
     expect(provisionResultSchema.safeParse({ ...result, adminPin: "12345" }).success).toBe(false);
   });
+
+  it("accepts a null PIN for a resumed provision", () => {
+    expect(provisionResultSchema.safeParse({ ...result, adminPin: null }).success).toBe(true);
+  });
 });
 
 describe("startSubscriptionRequestSchema", () => {

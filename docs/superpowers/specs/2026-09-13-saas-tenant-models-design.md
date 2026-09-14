@@ -186,8 +186,8 @@ partial earlier seed never leaves one out:
 | `business` | core plus crm, installments, financial_papers, field, assets, projects | 10 | 14 days |
 | `enterprise` | all nineteen (adds hr, manufacturing) | 25 | 14 days |
 
-**Open decision for the owner:** monthly and yearly EGP prices. The seed writes `0` for
-all six until they are given; this line is the register for that placeholder.
+**Prices (decided 2026-09-14):** core 490 / 4900 EGP (monthly / yearly), business
+980 / 9800 EGP, enterprise 1960 / 19600 EGP — `packages/backend/src/create-platform.ts`.
 
 The demo mount (`apps/server/src/cloud.ts`) is untouched in this slice.
 

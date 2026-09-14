@@ -27,25 +27,21 @@ const BUSINESS_MODULES = [...CORE_MODULES, "crm", "installments", "financial_pap
 
 type SeedPlan = Omit<CreatePlanCommand, "now">;
 
-/**
- * Prices are 0 until the owner sets them — see the open decision in
- * docs/superpowers/specs/2026-09-13-saas-tenant-models-design.md §7.
- */
 export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
   {
     id: "PLAN-CORE", code: "core", nameAr: "الأساسية", nameEn: "Core", modules: CORE_MODULES,
     seatsIncluded: 3, branchesIncluded: 1, warehousesIncluded: 1,
-    priceMonthly: Money.zero(), priceYearly: Money.zero(), trialDays: 14, isPublic: true, sortOrder: 1,
+    priceMonthly: Money.fromMajor("490"), priceYearly: Money.fromMajor("4900"), trialDays: 14, isPublic: true, sortOrder: 1,
   },
   {
     id: "PLAN-BUSINESS", code: "business", nameAr: "الأعمال", nameEn: "Business", modules: BUSINESS_MODULES,
     seatsIncluded: 10, branchesIncluded: 3, warehousesIncluded: 3,
-    priceMonthly: Money.zero(), priceYearly: Money.zero(), trialDays: 14, isPublic: true, sortOrder: 2,
+    priceMonthly: Money.fromMajor("980"), priceYearly: Money.fromMajor("9800"), trialDays: 14, isPublic: true, sortOrder: 2,
   },
   {
     id: "PLAN-ENTERPRISE", code: "enterprise", nameAr: "المؤسسات", nameEn: "Enterprise", modules: [...MODULE_CATALOG],
     seatsIncluded: 25, branchesIncluded: 10, warehousesIncluded: 10,
-    priceMonthly: Money.zero(), priceYearly: Money.zero(), trialDays: 14, isPublic: true, sortOrder: 3,
+    priceMonthly: Money.fromMajor("1960"), priceYearly: Money.fromMajor("19600"), trialDays: 14, isPublic: true, sortOrder: 3,
   },
 ];
 

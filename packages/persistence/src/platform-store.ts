@@ -351,17 +351,15 @@ function toPayment(r: PaymentRow): Payment {
 }
 
 class SqlitePaymentStore implements PaymentRepository {
-  private readonly upsert: Database.Statement;
+  private readonly insert: Database.Statement;
   private readonly byId: Database.Statement;
   private readonly byTenant: Database.Statement;
 
   constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(
+    /** Payments are append-only: no ON CONFLICT — a reused id is a bug and must reject, never silently overwrite the row it is renewing a subscription against. */
+    this.insert = sqlite.prepare(
       `INSERT INTO payment (id, tenant_id, subscription_id, amount, currency, reference, paid_at, recorded_by, note, created_at)
-       VALUES (@id, @tenantId, @subscriptionId, @amount, @currency, @reference, @paidAt, @recordedBy, @note, @createdAt)
-       ON CONFLICT(id) DO UPDATE SET
-         tenant_id = @tenantId, subscription_id = @subscriptionId, amount = @amount, currency = @currency,
-         reference = @reference, paid_at = @paidAt, recorded_by = @recordedBy, note = @note, created_at = @createdAt`,
+       VALUES (@id, @tenantId, @subscriptionId, @amount, @currency, @reference, @paidAt, @recordedBy, @note, @createdAt)`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM payment WHERE id = ?`);
     this.byTenant = sqlite.prepare(`SELECT * FROM payment WHERE tenant_id = ? ORDER BY paid_at DESC, id DESC`);
@@ -377,7 +375,7 @@ class SqlitePaymentStore implements PaymentRepository {
   }
 
   async save(p: Payment): Promise<void> {
-    this.upsert.run({
+    this.insert.run({
       id: p.id, tenantId: p.tenantId, subscriptionId: p.subscriptionId, amount: p.amount.toScaledNumber(),
       currency: p.currency, reference: p.reference, paidAt: p.paidAt, recordedBy: p.recordedBy,
       note: p.note, createdAt: p.createdAt,

@@ -3,7 +3,7 @@ import {
   createPlatformUser, verifyPlatformLogin, deactivatePlatformUser,
   type PlatformUser, type PlatformUserRepository,
 } from "./platform-user.js";
-import { InvalidPlatformUserError, PlatformUserEmailTakenError } from "./errors.js";
+import { InvalidPlatformUserError, PlatformUserEmailTakenError, PlatformUserNotFoundError } from "./errors.js";
 import type { SecretHasher } from "../users/user.js";
 
 const hasher: SecretHasher = {
@@ -81,13 +81,21 @@ describe("verifyPlatformLogin", () => {
     expect(found).toBeNull();
   });
 
-  it("returns null for an unknown email, spending exactly one verify call on a decoy", async () => {
+  it("memoises the decoy hash: two unknown-email attempts hash the decoy at most once and verify once each", async () => {
+    // A hasher private to this test, so the memoised decoy from any other test never leaks in.
+    const localHasher: SecretHasher = {
+      async hash(secret) { return `hashed:${secret}`; },
+      async verify(secret, hash) { return hash === `hashed:${secret}`; },
+    };
     const repo = memoryRepo();
-    const verify = vi.spyOn(hasher, "verify");
-    const found = await verifyPlatformLogin({ email: "nobody@mezan.app", password: "whatever12345" }, repo, hasher);
-    expect(found).toBeNull();
-    expect(verify).toHaveBeenCalledTimes(1);
-    verify.mockRestore();
+    const hash = vi.spyOn(localHasher, "hash");
+    const verify = vi.spyOn(localHasher, "verify");
+
+    await verifyPlatformLogin({ email: "nobody@mezan.app", password: "whatever12345" }, repo, localHasher);
+    await verifyPlatformLogin({ email: "nobody@mezan.app", password: "whatever12345" }, repo, localHasher);
+
+    expect(hash.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(verify).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -122,5 +130,12 @@ describe("deactivatePlatformUser", () => {
     const owner2 = await createPlatformUser({ ...cmd, id: "U2", email: "owner2@mezan.app" }, repo, hasher);
     const result = await deactivatePlatformUser({ id: owner1.id, actorId: owner2.id }, repo);
     expect(result.status).toBe("inactive");
+  });
+
+  it("refuses an unknown id", async () => {
+    const repo = memoryRepo();
+    const owner = await createPlatformUser(cmd, repo, hasher);
+    await expect(deactivatePlatformUser({ id: "NOPE", actorId: owner.id }, repo))
+      .rejects.toThrow(PlatformUserNotFoundError);
   });
 });

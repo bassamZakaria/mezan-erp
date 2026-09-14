@@ -117,4 +117,11 @@ describe("createSqlitePlatformStores", () => {
     await expect(stores.platformUsers.save({ ...user, id: "U2" })).rejects.toThrow(/UNIQUE/);
     stores.close();
   });
+
+  it("refuses a duplicate payment id — payments are append-only", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.payments.save(payment);
+    await expect(stores.payments.save({ ...payment, note: "second write" })).rejects.toThrow(/UNIQUE/);
+    stores.close();
+  });
 });

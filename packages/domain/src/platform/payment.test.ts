@@ -104,10 +104,12 @@ describe("recordPayment", () => {
     ).rejects.toThrow(SubscriptionNotFoundError);
   });
 
-  it("surfaces the renew error for a cancelled subscription", async () => {
+  it("surfaces the renew error for a cancelled subscription and writes no payment", async () => {
     const cancelled: Subscription = { ...sub, status: "cancelled", cancelledAt: NOW };
+    const payments = memoryPayments();
     await expect(
-      recordPayment(cmd, memoryPayments(), memorySubscriptions([cancelled])),
+      recordPayment(cmd, payments, memorySubscriptions([cancelled])),
     ).rejects.toThrow(InvalidSubscriptionTransitionError);
+    expect(payments.rows.size).toBe(0);
   });
 });

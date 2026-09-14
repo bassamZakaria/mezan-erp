@@ -1,7 +1,7 @@
 import type { SecretHasher } from "../users/user.js";
 import { normalizeEmail } from "../users/save-user.js";
 import { isoTimestamp } from "./validation.js";
-import { InvalidPlatformUserError, PlatformUserEmailTakenError } from "./errors.js";
+import { InvalidPlatformUserError, PlatformUserEmailTakenError, PlatformUserNotFoundError } from "./errors.js";
 
 export type PlatformRole = "owner" | "support";
 export type PlatformUserStatus = "active" | "inactive";
@@ -68,12 +68,18 @@ export interface VerifyPlatformLoginCommand {
 /** Never used to authenticate; only to spend the same hasher cost an unknown or inactive account would. */
 const DECOY_SECRET = "mezan-platform-login-timing-decoy";
 
-/**
- * Mirrors auth-routes.ts's decoy verification: an unknown email or an
- * inactive account must cost the caller exactly the same one `hasher.verify`
- * call a wrong password would, so the response time never answers "does this
- * account exist" for free.
- */
+/** One memoised decoy hash per hasher instance, so it is computed at most once — mirrors auth-routes.ts. */
+const decoyHashes = new WeakMap<SecretHasher, Promise<string>>();
+
+function decoyHashFor(hasher: SecretHasher): Promise<string> {
+  let decoy = decoyHashes.get(hasher);
+  if (!decoy) {
+    decoy = hasher.hash(DECOY_SECRET);
+    decoyHashes.set(hasher, decoy);
+  }
+  return decoy;
+}
+
 export async function verifyPlatformLogin(
   cmd: VerifyPlatformLoginCommand,
   repo: PlatformUserRepository,
@@ -84,7 +90,7 @@ export async function verifyPlatformLogin(
   const ok =
     user && user.status === "active"
       ? await hasher.verify(cmd.password, user.passwordHash)
-      : (await hasher.verify(cmd.password, await hasher.hash(DECOY_SECRET)), false);
+      : (await hasher.verify(cmd.password, await decoyHashFor(hasher)), false);
   return user && ok ? user : null;
 }
 
@@ -99,7 +105,7 @@ export async function deactivatePlatformUser(
 ): Promise<PlatformUser> {
   if (cmd.id === cmd.actorId) throw new InvalidPlatformUserError(["لا يمكنك تعطيل حسابك"]);
   const user = await repo.findById(cmd.id);
-  if (!user) throw new InvalidPlatformUserError([`platform user "${cmd.id}" not found`]);
+  if (!user) throw new PlatformUserNotFoundError(cmd.id);
   if (user.role === "owner" && user.status === "active") {
     const users = await repo.list();
     const activeOwners = users.filter((u) => u.role === "owner" && u.status === "active");

@@ -125,3 +125,11 @@ export class PlatformUserEmailTakenError extends Error {
     this.name = "PlatformUserEmailTakenError";
   }
 }
+
+export class PlatformUserNotFoundError extends Error {
+  readonly code = "PLATFORM_USER_NOT_FOUND";
+  constructor(readonly id: string) {
+    super(`مستخدم المنصة "${id}" غير موجود`);
+    this.name = "PlatformUserNotFoundError";
+  }
+}

@@ -39,6 +39,42 @@ jobs:
       - name: Build (packages + web Vite bundle)
         run: pnpm build
 
+  # THE SUITE THIS WORKFLOW NEVER RAN.
+  #
+  # `docs/TESTING.md` §1 has said since 2026-08-30, at the owner's instruction,
+  # that automated tests run "locally and in CI". There was no job here that ran
+  # them. 10,014 vitest tests — the unit, HTTP-route and Testing Library suites
+  # the whole repo is written against — were maintained, relied on in review,
+  # and executed by nothing on a pull request.
+  #
+  # That is the failure this repo keeps finding in its own product and had in
+  # its pipeline: a rule stated in writing with no code path behind it. A suite
+  # nothing runs rots silently, and the first person to notice is whoever
+  # bisects a regression it would have caught.
+  #
+  # BLOCKS. It is the cheapest gate in the workflow.
+  tests:
+    name: unit · route · UI tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Tests (vitest)
+        run: pnpm test
+
   # The gate that actually holds the security fixes down. `pnpm build` cannot
   # see an authorization hole — the code compiles either way — so the suite that
   # drives a seeded backend has to run here too, or `scripts/scenarios/security.ts`
@@ -76,8 +112,20 @@ jobs:
   # flaky/slow browser install or a real UI regression here never fails the
   # required typecheck/lint/test/build gate above. Run locally with
   # `pnpm test:e2e` (see playwright.config.ts / e2e/).
+  #
+  # THE STEP BELOW USED TO BE AN `echo`. It printed "E2E running is disabled
+  # (see docs/TESTING.md §1)" and exited 0, and the check reported PASS in 22
+  # seconds — while §1 of the document it cited says the opposite, having
+  # reversed that decision on 2026-08-30. So the one check on the pull request
+  # named after the browser was the only one that never opened one, and it said
+  # so by citing a policy that had been withdrawn two weeks earlier.
+  #
+  # The name now says it does not gate, because `continue-on-error` means a red
+  # run still reports green to the branch — and a green check nobody can
+  # distinguish from an enforced one is the exact thing this repo keeps filing
+  # defects about.
   e2e:
-    name: e2e (Playwright, web)
+    name: e2e (Playwright, web) · non-blocking
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -96,8 +144,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install the Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Run Playwright E2E
-        run: echo "E2E running is disabled (see docs/TESTING.md §1)."
+        run: pnpm test:e2e
 
       - name: Upload Playwright report
         if: always()

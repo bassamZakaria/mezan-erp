@@ -2,18 +2,15 @@ import { Navigate, NavLink, Route, Routes } from "react-router";
 import { BrandMark, cn } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { usePlatformApi } from "./api";
+import { TenantsPage } from "./TenantsPage";
+import { TenantDetailPage } from "./TenantDetailPage";
 
 /**
- * Tenants, plans and operators each get their real screen in a later task
- * (B8/B9) — for now the shell's job is only to prove the door works: sign in,
+ * Plans and operators each get their real screen in a later task (B9) — for
+ * now the shell's job for those two is only to prove the door works: sign in,
  * see a rail that goes somewhere, sign out. A title-only placeholder is
  * honest about that instead of a blank pane.
  */
-function TenantsPlaceholder() {
-  const { t } = useAppTranslation();
-  return <h1 className="font-display text-[19px] font-bold text-ink">{t("platform.nav.tenants")}</h1>;
-}
-
 function PlansPlaceholder() {
   const { t } = useAppTranslation();
   return <h1 className="font-display text-[19px] font-bold text-ink">{t("platform.nav.plans")}</h1>;
@@ -80,12 +77,9 @@ export function PlatformShell() {
 
       <main className="flex-1 p-[24px]">
         <Routes>
-          {/* Redirects rather than rendering the same placeholder at both
-              addresses — the rail's "المنشآت" `NavLink` only lights up at
-              `/platform/tenants`, and a bare `/platform` left it dark despite
-              the tenants pane being exactly what was on screen. */}
           <Route index element={<Navigate to="tenants" replace />} />
-          <Route path="tenants" element={<TenantsPlaceholder />} />
+          <Route path="tenants" element={<TenantsPage />} />
+          <Route path="tenants/:id" element={<TenantDetailPage />} />
           <Route path="plans" element={<PlansPlaceholder />} />
           <Route path="users" element={<OperatorsPlaceholder />} />
         </Routes>

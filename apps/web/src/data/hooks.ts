@@ -217,6 +217,7 @@ import type {
   SupplierDTO,
   TaxRateDTO,
   TenantSettingsDTO,
+  UserPreferencesDTO,
   TransitionLeadDTO,
   TreasuryAccountDTO,
   UpdateAccountDTO,
@@ -1356,6 +1357,26 @@ export function useDeleteRole() {
 /* -------------------------------------------------------------------- */
 
 /** إعدادات المنشأة (docs/archive/catalog/09 §"الإعدادات — عام") — the single tenant config bag. */
+/**
+ * This user's own preferences — the dashboard layout among them (§8.5).
+ *
+ * Returns null rather than throwing when the server has no preferences route
+ * mounted: the dashboard falls back to the default arrangement, which is
+ * exactly what a user who has never customised it should see anyway.
+ */
+export function useUserPreferences(): UseQueryResult<UserPreferencesDTO | null, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<UserPreferencesDTO | null, ApiError>({
+    queryKey: ["preferences", session?.userId ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/preferences");
+      if (!res.ok) return null;
+      return res.json<UserPreferencesDTO>();
+    },
+  });
+}
+
 export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();

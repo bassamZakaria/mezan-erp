@@ -30,9 +30,9 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | 1 | Where the work stands |
 | 2 | Done — the product as it stands, and the parity list item by item |
 | 3 | Open now |
-| 4 | Deferred by decision |
+| 4 | Deferred by decision — including §4.4, what we may and may not claim |
 | 5 | Defects |
-| 6 | Decisions waiting on a human |
+| 6 | Decisions — §6.1 and §6.2 are empty; the record is §6.4 |
 | 7 | Beyond parity — the enhancement backlog (E1–E3) |
 | 9 | Small screens |
 | 8 | Shell follow-ups |
@@ -539,6 +539,22 @@ the owner sets them.
 
 ---
 
+## 4.4 What we may claim, and what we must not
+
+Five of the decisions taken on 2026-09-14 constrain what a salesperson or a rollout consultant
+is allowed to say. They are collected here because none of them is discoverable from the code,
+and each of them is a promise the buyer will hold us to.
+
+| Claim | Ruling |
+|---|---|
+| **E-invoicing compliance** | **Do not claim it.** B2B invoices are prepared but never filed to production until the customer's own e-seal is connected through a signing agent that is not shipped. Say the sentence recorded in §6.4 DEC-10 — in writing, on the rollout sheet, before contract. Every such invoice shows «في انتظار الختم الإلكتروني» and is not filed. |
+| **E-receipt compliance** | **Claim it** — the B2C receipt regime requires no seal, and this is precisely what unblocks retail, pharmacy and restaurants. |
+| **Contracting as a Daftra gap** | **Do not.** Daftra ships مستخلصات المقاولات and خصم ضمان الأعمال. Contracting is a genuine strength of this build (§3.2) but it is not a hole in the incumbent, and a buyer who checks will find that out. |
+| **POS** | **State the absence in the first sales conversation**, not the fifth. "Mezan runs the books, stock and branches behind your existing till; every consumer sale it records is an e-receipt." An unstated "no POS" becomes the most common refund request. |
+| **An API / webhooks** | **Say "integrations arrive with the cloud edition."** The back end is being removed (DEC-17): on desktop the only network surface is the LAN socket, which allow-lists five routes, and nothing authenticates by API key. The comparison-grid row will read "API: no", and that is the accepted price. |
+| **Statutory payroll** | Employees, contracts, attendance, leave and advances are real and licensable. **Net pay is not computed.** Say both halves. |
+| **Law 6/2025 simplified regime** | **Built, not claimed** (DEC-13). Do not market it until a محاسب قانوني has signed off on the turnover base. A regime computation with the wrong base is the buyer's tax exposure. |
+| **The QuickBooks baseline** | Internal only. QuickBooks has no Arabic and is not sold in Egypt; no Egyptian buyer compares to it. It is an engineering yardstick — Online Plus for interaction, Desktop **Enterprise** for depth — and every claim in this repo about it comes from documentation, never a live tenant. |
 
 ---
 
@@ -1585,6 +1601,13 @@ reads looks identical, on screen, to one that is enforced.
 2. **Value-dense before broad.** Phase E1 is the six items every persona notices immediately.
 3. **Shared substrate early.** The **Audit Ledger** (ENH-050) and the **event/notification taxonomy** underpin many later items — build them early.
 4. **Vertical unlocks together.** Expiry/FEFO + van + reorder ship as the "distribution & pharma" cluster.
+5. **The offline bet is funded before cloud parity is** — DEC-15, taken 2026-09-14. The desktop
+   architecture is the product, and it is only as good as the day the machine dies: **ENH-E1-06
+   (verified backup and restore drills) and the key-card recovery path in §5.2 come before any
+   Phase E3 cloud-parity item**, ENH-E3-01 (read-only remote glance) included. The dissent is
+   recorded and real — for a bookkeeping bureau running 60 sets of books, single-tenant desktop
+   is a cost rather than a moat, and the SaaS models slice is the answer for that buyer, not a
+   retreat from this one.
 
 ---
 
@@ -1633,7 +1656,7 @@ reads looks identical, on screen, to one that is enforced.
 
 | Issue | Title | Req | WF | Size | Depends on |
 |---|---|---|---|---|---|
-| ENH-E3-01 | Read-only remote/mobile glance | ENH-003 | WF-01 | L | Cockpit (E1-01), sync transport |
+| ENH-E3-01 | Read-only remote/mobile glance | ENH-003 | WF-01 | L | Cockpit (E1-01), sync transport, **and ENH-E1-06 landed first (DEC-15)** |
 | ENH-E3-02 | Owner daily digest & anomaly alerts | ENH-004 | WF-01 | M | Notifications, Reports |
 | ENH-E3-03 | Reorder-point & replenishment suggestions | ENH-022 | WF-07 | M | Inventory, Purchases, velocity reports |
 | ENH-E3-04 | Van/mobile-warehouse reconciliation | ENH-023 | WF-08 | M | Inventory transfers, Sales rep, Treasury |

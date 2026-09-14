@@ -7329,6 +7329,8 @@ const webAr = {
   "platform.tenantDetail.entitlementsWarehouses": "المخازن المسموح بها",
   "platform.tenantDetail.entitlementsExpiry": "تاريخ الانتهاء",
   "platform.tenantDetail.entitlementsNoExpiry": "بلا تاريخ انتهاء",
+  "platform.operators.deactivateFailed": "تعذّر تعطيل المشغّل.",
+  "platform.error.validation": "تحقق من الحقول المدخلة.",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -14662,6 +14664,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "platform.tenantDetail.entitlementsWarehouses": "Warehouses allowed",
   "platform.tenantDetail.entitlementsExpiry": "Expires",
   "platform.tenantDetail.entitlementsNoExpiry": "No expiry",
+  "platform.operators.deactivateFailed": "Could not deactivate the operator.",
+  "platform.error.validation": "Check the fields you entered.",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { Button, DocumentList, Money, StatusPill, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { PlanDTO, PlanStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { PlatformApiError, usePlatformApi } from "./api";
+import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 
 const STATUS_KEY: Record<PlanStatusDTO, AppTranslationKey> = {
   active: "platform.plans.status.active",
@@ -16,27 +16,28 @@ export const PLANS_QUERY_KEY = ["platform", "plans"] as const;
 
 /** GET /plans — shared between the list and the editor, which resolves its plan from this same cache. */
 export function usePlansQuery(): UseQueryResult<PlanDTO[], PlatformApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = usePlatformApi();
   return useQuery<PlanDTO[], PlatformApiError>({
     queryKey: PLANS_QUERY_KEY,
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/plans");
-      if (!res.ok) throw new PlatformApiError(res.status, "load-failed");
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.plans.loadFailed"));
       return res.json<PlanDTO[]>();
     },
   });
 }
 
 export function useRetirePlan() {
+  const { t } = useAppTranslation();
   const { request } = usePlatformApi();
   const queryClient = useQueryClient();
   return useMutation<PlanDTO, PlatformApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/plans/${encodeURIComponent(id)}/retire`, { method: "POST" });
       if (!res.ok) {
-        const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new PlatformApiError(res.status, body.message ?? "retire-failed");
+        throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.plans.retireFailed"));
       }
       return res.json<PlanDTO>();
     },

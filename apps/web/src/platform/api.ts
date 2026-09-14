@@ -1,5 +1,6 @@
 import { createContext, createElement, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { createHttpTransport, type Transport, type TransportResponse } from "../data/transport";
+import type { AppTranslationKey } from "../i18n";
 import { loadPersistedPlatformSession, persistPlatformSession, type PlatformSession } from "./session";
 
 /**
@@ -76,4 +77,30 @@ export function usePlatformApi(): PlatformApiContextValue {
   const ctx = useContext(PlatformApiContext);
   if (!ctx) throw new Error("usePlatformApi must be used within a <PlatformApiProvider>.");
   return ctx;
+}
+
+/** Server error codes with no `message` of their own (`VALIDATION_ERROR`'s body only carries `details`) mapped to a catalog string. */
+const PLATFORM_ERROR_CODE_KEY: Readonly<Record<string, AppTranslationKey>> = {
+  VALIDATION_ERROR: "platform.error.validation",
+};
+
+/**
+ * Reads a failed response's `{ error, message?, details? }` body into a
+ * string that is always a catalog translation, never the bare `error` code —
+ * a domain refusal carries its own Arabic `message`; a route-level
+ * `VALIDATION_ERROR` (zod) carries only `error` + `details`, so it is looked
+ * up by code; anything unrecognised falls back to the caller's own key.
+ */
+export async function readPlatformErrorMessage(
+  res: Pick<TransportResponse, "json">,
+  t: (key: AppTranslationKey) => string,
+  fallbackKey: AppTranslationKey,
+): Promise<string> {
+  const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as {
+    error?: string;
+    message?: string;
+  };
+  if (body.message) return body.message;
+  const key = body.error ? PLATFORM_ERROR_CODE_KEY[body.error] : undefined;
+  return t(key ?? fallbackKey);
 }

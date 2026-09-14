@@ -28,3 +28,9 @@ export {
   type PlatformUser, type PlatformRole, type PlatformUserStatus,
   type PlatformUserRepository, type CreatePlatformUserCommand,
 } from "./platform-user.js";
+export {
+  recordPayment,
+  type Payment, type PaymentRepository,
+  type RecordPaymentCommand, type RecordPaymentResult,
+} from "./payment.js";
+export type { PaymentProvider } from "./payment-provider.js";

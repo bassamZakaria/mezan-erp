@@ -102,6 +102,14 @@ export class InvalidSubscriptionTransitionError extends Error {
   }
 }
 
+export class InvalidPaymentError extends Error {
+  readonly code = "INVALID_PAYMENT";
+  constructor(readonly reasons: string[]) {
+    super(reasons.join("; "));
+    this.name = "InvalidPaymentError";
+  }
+}
+
 export class InvalidPlatformUserError extends Error {
   readonly code = "INVALID_PLATFORM_USER";
   constructor(readonly reasons: string[]) {

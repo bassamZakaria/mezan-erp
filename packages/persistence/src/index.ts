@@ -332,3 +332,4 @@ export {
   createSqliteContractingSiteStore,
   type SqliteContractingSiteStoreHandle,
 } from "./contracting-site-store.js";
+export { createSqlitePlatformStores, type SqlitePlatformStoresHandle } from "./platform-store.js";

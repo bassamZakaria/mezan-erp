@@ -104,12 +104,13 @@ import {
   SalesInvoiceService,
   type ApprovalRequestRecord,
   type GateableActionType,
+  MODULE_CATALOG,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createLanRoutes } from "./lan/routes.js";
 import { sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
-import type { EntitlementsResolver } from "./module-gate.js";
+import { entitlementsBinding, type EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
 import { createPermissionGate, insecureHeaderAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 import {
@@ -230,44 +231,15 @@ import { createProfileRoutes } from "./profile-routes.js";
 import { createApiKeysRoutes } from "./api-keys-routes.js";
 import { createWebhooksRoutes } from "./webhooks-routes.js";
 
-/**
- * Modules this build can actually serve, used as the default entitlements the
- * `/roles` route validates grants against and as what `GET /entitlements`
- * reports. Listing a module here makes its permissions grantable, so an
- * unimplemented domain must stay out: `pos` has no domain, routes or
- * persistence anywhere in this repo. Ids are ENTITLEMENT ids, not catalog
- * ids — the catalog's `cheques` module is the `financial_papers` entitlement
- * (packages/domain/src/permissions/module-licensing.ts).
- */
-const DEFAULT_ACTIVE_MODULES = [
-  "dashboard",
-  "sales",
-  "purchases",
-  "inventory",
-  "accounting",
-  "treasury",
-  "installments",
-  "financial_papers",
-  "crm",
-  "hr",
-  "manufacturing",
-  "assets",
-  "field",
-  "workflow",
-  "audit",
-  "transactions",
-  "admin",
-  "notifications",
-  "projects",
-  "contracting",
-];
-
 function defaultEntitlementsResolver(): EntitlementsResolver {
   const entitlements: Entitlements = createEntitlements({
     plan: "ENTERPRISE",
-    activeModules: DEFAULT_ACTIVE_MODULES,
+    activeModules: MODULE_CATALOG,
     features: {},
-    seats: 10,
+    // Every dev/test composition without its own resolveEntitlements — demo
+    // seed's ~15-user tenant included — runs on this default; a low cap here
+    // is a global seat limit the moment A3's SEAT_LIMIT_REACHED check lands.
+    seats: 999,
     expiresAt: null,
   });
   return () => entitlements;
@@ -871,7 +843,7 @@ export interface CreateAppOptions {
    * Entitlements resolver the `/roles` route validates permission grants
    * against (docs/archive/catalog/09 §الأدوار — only licensed-module permissions are
    * grantable), and that `GET /entitlements` reports. Defaults to
-   * `DEFAULT_ACTIVE_MODULES` until a real per-tenant source is wired up.
+   * `MODULE_CATALOG` until a real per-tenant source is wired up.
    */
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
@@ -996,6 +968,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // — or silently steal — each other's forensic trail. Registered before every
   // route so a refusal anywhere below reaches it.
   if (options.onPermissionRefused) app.use("*", permissionRefusalReporting(options.onPermissionRefused));
+
+  // Binds this request's entitlements so every permission gate below can
+  // refuse an unlicensed module (permission-gate.ts) — the module gate was
+  // exported and unit-tested but never wired to a route until this mount.
+  app.use("*", entitlementsBinding(resolveEntitlements));
 
   // A session token presented from an address it was not issued to. The
   // REFUSAL happens in session-auth.ts regardless of this mount (the resolver

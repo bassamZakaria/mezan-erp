@@ -521,6 +521,14 @@ and label a purchase return correctly.
 The build plan for the deferred areas — HR/Payroll (27 tasks), POS (26 tasks) and the
 Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated here.
 
+Cloud-1 #6–8 (models only) and Cloud-3 #13 landed 2026-09-13 as `packages/domain/src/platform`,
+`packages/persistence/src/platform-store.ts` and `createPlatform` in `packages/backend`: tenant,
+plan and subscription records, one SQLite database per tenant, and the two derivations that
+feed the existing entitlements and licence-state gates. Per-request tenant routing, onboarding,
+the platform console and billing remain open — see
+`superpowers/specs/2026-09-13-saas-tenant-models-design.md`. Seeded plan prices are zero until
+the owner sets them.
+
 ---
 
 

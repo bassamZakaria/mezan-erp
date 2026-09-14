@@ -64,7 +64,7 @@ import {
 import type { CurrencyCheck } from "./currency-policy.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
-import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
 import { tenantDay } from "./tenant-day.js";
 
 /**
@@ -586,15 +586,19 @@ export function createSalesInvoicesRoutes(
       }
       return false;
     });
-    if (giveaway && !(ctx && can(ctx, "sales.price.override"))) {
-      return c.json(
-        {
-          error: "PERMISSION_DENIED",
-          permission: "sales.price.override",
-          message: "سعر صفري أو خصم كامل يحتاج صلاحية تعديل السعر.",
-        },
-        403,
-      );
+    if (giveaway) {
+      const moduleRefused = moduleRefusalFor(c, "sales.price.override");
+      if (moduleRefused) return moduleRefused;
+      if (!(ctx && can(ctx, "sales.price.override"))) {
+        return c.json(
+          {
+            error: "PERMISSION_DENIED",
+            permission: "sales.price.override",
+            message: "سعر صفري أو خصم كامل يحتاج صلاحية تعديل السعر.",
+          },
+          403,
+        );
+      }
     }
 
     /**
@@ -614,6 +618,9 @@ export function createSalesInvoicesRoutes(
       (Qty.fromMajor(line.qty).scaled * Money.fromMajor(line.unitPrice).scaled) / 1_000_000n;
 
     const overCeiling =
+      // D87: an AMOUNT discount is measured against the line gross. Checking
+      // only `percent` let a 90%-of-line amount discount through with no
+      // approval at all, which is how a kickback gets priced.
       body.lines.some((line) => {
         if (line.discountType === "percent") return (line.discountPercent ?? 0) > ceiling;
         if (line.discountType === "amount" && line.discountAmount !== undefined) {
@@ -629,15 +636,28 @@ export function createSalesInvoicesRoutes(
               Money.fromMajor(body.discount.amount).scaled,
             )
           : false);
-    if (overCeiling && !(ctx && can(ctx, "pos.discount.approve"))) {
-      return c.json(
-        {
-          error: "PERMISSION_DENIED",
-          permission: "pos.discount.approve",
-          message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
-        },
-        403,
-      );
+    if (overCeiling) {
+      /*
+       * NO module refusal here, deliberately.
+       *
+       * `pos.discount.approve` is a misnamed catalogue code — it guards the
+       * discount ceiling on a SALES invoice, which has nothing to do with the
+       * POS module. And `pos` is excluded from `MODULE_CATALOG` on purpose
+       * (it has no domain, routes or persistence in this repo), so a module
+       * gate here answers MODULE_NOT_LICENSED for EVERY tenant: the ceiling
+       * becomes unapprovable by anyone, and an oversized discount is refused
+       * outright instead of being escalated. The scenarios catch exactly that.
+       */
+      if (!(ctx && can(ctx, "pos.discount.approve"))) {
+        return c.json(
+          {
+            error: "PERMISSION_DENIED",
+            permission: "pos.discount.approve",
+            message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
+          },
+          403,
+        );
+      }
     }
     return null;
   }

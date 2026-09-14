@@ -1,7 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { Hono } from "hono";
 import { createSqliteNotificationStore, type SqliteNotificationStoreHandle } from "@mezan/persistence";
-import { ALL_SCOPE, createAuthContext, type Notification } from "@mezan/domain";
+import { ALL_SCOPE, createAuthContext, createEntitlements, type Notification } from "@mezan/domain";
 import { createNotificationsRoutes } from "./notifications-routes.js";
+import { entitlementsBinding } from "./module-gate.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteNotificationStoreHandle[] = [];
@@ -214,5 +216,31 @@ describe("POST /notifications/drain — sending what is waiting (ROADMAP §3.3)"
     const res = await app.fetch(post("/drain", "admin.settings.edit"));
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: string }).error).toBe("NOTIFICATION_TRANSPORT_UNAVAILABLE");
+  });
+});
+
+/** `notifications` is a licensable module (docs/superpowers/plans/2026-09-14-saas-slice-a-routing.md, Task A2b). */
+describe("notifications router — module gate", () => {
+  function newBoundApp(activeModules: string[]) {
+    const repo = createSqliteNotificationStore();
+    handles.push(repo);
+    const entitlements = createEntitlements({ plan: "core", activeModules, features: {}, seats: 1, expiresAt: null });
+    const wrapper = new Hono();
+    wrapper.use("*", entitlementsBinding(() => entitlements));
+    wrapper.route("/", createNotificationsRoutes(repo, insecureHeaderAuthContextResolver));
+    return wrapper;
+  }
+
+  it("refuses 403 MODULE_NOT_LICENSED when notifications is not in the plan", async () => {
+    const app = newBoundApp(["sales"]);
+    const res = await app.fetch(req("/", "u-1"));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "notifications" });
+  });
+
+  it("passes through when notifications is licensed", async () => {
+    const app = newBoundApp(["notifications"]);
+    const res = await app.fetch(req("/", "u-1"));
+    expect(res.status).toBe(200);
   });
 });

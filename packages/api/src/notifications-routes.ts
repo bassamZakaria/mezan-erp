@@ -1,6 +1,7 @@
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   can,
+  isModuleLicensed,
   markAllNotificationsRead,
   markNotificationRead,
   NotificationNotFoundError,
@@ -9,6 +10,24 @@ import {
 } from "@mezan/domain";
 import { notificationListQuerySchema } from "@mezan/contracts";
 import { createAuthenticatedGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { moduleRefusal } from "./module-gate.js";
+
+/**
+ * Refuses the bell panel when `notifications` isn't licensed. Unlike the other
+ * routes, there is no permission code here to route through
+ * `createPermissionGate` (every route already scopes to "your own inbox"), so
+ * this reads the bound entitlements directly — the same source
+ * `createPermissionGate` reads, just without a permission code to key off.
+ */
+function notificationsModuleGate(): MiddlewareHandler {
+  return async function moduleGate(c, next) {
+    const entitlements = c.get("entitlements");
+    if (entitlements && !isModuleLicensed("notifications", entitlements)) {
+      return c.json(moduleRefusal("notifications"), 403);
+    }
+    await next();
+  };
+}
 
 function serialize(n: Notification) {
   return {
@@ -77,6 +96,7 @@ export function createNotificationsRoutes(
 ) {
   const app = new Hono();
   app.use("*", createAuthenticatedGate(resolveAuthContext));
+  app.use("*", notificationsModuleGate());
 
   /**
    * Sends what is waiting. Deliberately an OPERATOR ACTION, not a timer: a

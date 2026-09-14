@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPlatform, type PlatformHandle } from "@mezan/backend";
-import { activateTenant, cancelSubscription, createTenant, startSubscription, suspendSubscription } from "@mezan/domain";
+import { activateTenant, archiveTenant, cancelSubscription, createTenant, startSubscription, suspendSubscription } from "@mezan/domain";
 import { runDunningSweep, startDunningTimer } from "./dunning.js";
 
 const T = "2026-01-15T00:00:00.000Z";
@@ -29,9 +29,9 @@ describe("runDunningSweep", () => {
     await activateTenant({ id: fresh.id, now: laterStart }, platform.stores.tenants);
     await startSubscription({ id: "sub-fresh", tenantId: fresh.id, planId: "PLAN-CORE", billingCycle: "monthly", now: laterStart }, platform.stores.subscriptions, platform.stores.plans);
 
-    const count = await runDunningSweep(platform, () => new Date(PAST_END));
+    const result = await runDunningSweep(platform, () => new Date(PAST_END));
 
-    expect(count).toBe(1);
+    expect(result).toEqual({ marked: 1, failed: 0 });
     const expiredSub = await platform.stores.subscriptions.findById("sub-expired");
     expect(expiredSub?.status).toBe("past_due");
     const freshSub = await platform.stores.subscriptions.findById("sub-fresh");
@@ -55,9 +55,9 @@ describe("runDunningSweep", () => {
     await startSubscription({ id: "sub-cancel", tenantId: cancelled.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans);
     await cancelSubscription({ id: "sub-cancel", now: T }, platform.stores.subscriptions);
 
-    const count = await runDunningSweep(platform, () => new Date(PAST_END));
+    const result = await runDunningSweep(platform, () => new Date(PAST_END));
 
-    expect(count).toBe(0);
+    expect(result).toEqual({ marked: 0, failed: 0 });
     expect((await platform.stores.subscriptions.findById("sub-trial"))?.status).toBe("trialing");
     expect((await platform.stores.subscriptions.findById("sub-susp"))?.status).toBe("suspended");
     expect((await platform.stores.subscriptions.findById("sub-cancel"))?.status).toBe("cancelled");
@@ -69,9 +69,9 @@ describe("runDunningSweep", () => {
     await activateTenant({ id: tenant.id, now: T }, platform.stores.tenants);
     await startSubscription({ id: "sub-live", tenantId: tenant.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans);
 
-    const count = await runDunningSweep(platform, () => new Date(T));
+    const result = await runDunningSweep(platform, () => new Date(T));
 
-    expect(count).toBe(0);
+    expect(result).toEqual({ marked: 0, failed: 0 });
     expect((await platform.stores.subscriptions.findById("sub-live"))?.status).toBe("active");
   });
 
@@ -79,9 +79,46 @@ describe("runDunningSweep", () => {
     const platform = await newPlatform();
     await createTenant({ id: "t-none", code: "none", nameAr: "بلا اشتراك", ownerEmail: "g@x.example", now: T }, platform.stores.tenants);
 
-    const count = await runDunningSweep(platform, () => new Date(PAST_END));
+    const result = await runDunningSweep(platform, () => new Date(PAST_END));
 
-    expect(count).toBe(0);
+    expect(result).toEqual({ marked: 0, failed: 0 });
+  });
+
+  it("skips an archived tenant even if its subscription still reads active and past its period", async () => {
+    const platform = await newPlatform();
+    const tenant = await createTenant({ id: "t-arch", code: "arch", nameAr: "مؤرشفة", ownerEmail: "j@x.example", now: T }, platform.stores.tenants);
+    await activateTenant({ id: tenant.id, now: T }, platform.stores.tenants);
+    await startSubscription({ id: "sub-arch", tenantId: tenant.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans);
+    await archiveTenant({ id: tenant.id, now: T }, platform.stores.tenants);
+
+    const result = await runDunningSweep(platform, () => new Date(PAST_END));
+
+    expect(result).toEqual({ marked: 0, failed: 0 });
+    expect((await platform.stores.subscriptions.findById("sub-arch"))?.status).toBe("active");
+  });
+
+  it("does not let one subscription's failure abort the sweep", async () => {
+    const platform = await newPlatform();
+
+    const bad = await createTenant({ id: "t-bad", code: "bad", nameAr: "سيئة", ownerEmail: "k@x.example", now: T }, platform.stores.tenants);
+    await activateTenant({ id: bad.id, now: T }, platform.stores.tenants);
+    await startSubscription({ id: "sub-bad", tenantId: bad.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans);
+
+    const good = await createTenant({ id: "t-good", code: "good", nameAr: "جيدة", ownerEmail: "l@x.example", now: T }, platform.stores.tenants);
+    await activateTenant({ id: good.id, now: T }, platform.stores.tenants);
+    await startSubscription({ id: "sub-good", tenantId: good.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans);
+
+    const originalSave = platform.stores.subscriptions.save.bind(platform.stores.subscriptions);
+    platform.stores.subscriptions.save = async (s) => {
+      if (s.id === "sub-bad" && s.status === "past_due") throw new Error("boom");
+      return originalSave(s);
+    };
+
+    const result = await runDunningSweep(platform, () => new Date(PAST_END));
+
+    expect(result).toEqual({ marked: 1, failed: 1 });
+    expect((await platform.stores.subscriptions.findById("sub-bad"))?.status).toBe("active");
+    expect((await platform.stores.subscriptions.findById("sub-good"))?.status).toBe("past_due");
   });
 });
 

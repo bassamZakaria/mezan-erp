@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
-import { createTenant, startSubscription, TenantCodeTakenError } from "@mezan/domain";
-import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
+import { createTenant, retirePlan, startSubscription, TenantCodeTakenError } from "@mezan/domain";
+import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant, TenantProvisioningError } from "./provision-tenant.js";
 
 const T = "2026-01-15T00:00:00.000Z";
@@ -44,7 +44,7 @@ async function newPlatform(): Promise<PlatformHandle> {
 }
 
 describe("provisionTenant", () => {
-  it("creates, seeds, subscribes, activates and admins a brand-new tenant", async () => {
+  it("creates, seeds, admins, subscribes and activates a brand-new tenant", async () => {
     const platform = await newPlatform();
     const router = newRouter(platform);
 
@@ -101,8 +101,9 @@ describe("provisionTenant", () => {
     ).rejects.toBeInstanceOf(TenantCodeTakenError);
   });
 
-  it("leaves the tenant provisioning and rethrows with the tenant id when a step fails, and resumes on the next call", async () => {
+  it("leaves the tenant provisioning and rethrows with the tenant id when subscribing fails AFTER seeding and admin creation, and a resumed call completes without a second admin", async () => {
     const platform = await newPlatform();
+    await retirePlan({ id: "PLAN-CORE" }, platform.stores.plans);
     const router = newRouter(platform);
 
     const cmd = {
@@ -110,7 +111,7 @@ describe("provisionTenant", () => {
       nameAr: "قديمة",
       ownerEmail: "owner@old.example",
       ownerNameAr: "المدير",
-      planId: "PLAN-GHOST",
+      planId: "PLAN-CORE",
       billingCycle: "monthly" as const,
       trial: false,
     };
@@ -126,16 +127,38 @@ describe("provisionTenant", () => {
     expect(failedTenant?.status).toBe("provisioning");
     expect((thrown as TenantProvisioningError).tenantId).toBe(failedTenant?.id);
 
+    // Seeding already ran, through the in-process handle.
+    const backend = await router.backendFor("old");
+    const statusRes = await backend.app.fetch(new Request("http://tenant.internal/bootstrap/status"));
+    const status = (await statusRes.json()) as Record<string, number | boolean>;
+    expect(status["claimed"]).toBe(true);
+    expect(Object.values(status).some((v) => typeof v === "number" && v > 0)).toBe(true);
+
+    // The router's public dispatch still refuses a provisioning tenant.
+    const dispatchRes = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "old" } }));
+    expect(dispatchRes.status).toBe(404);
+
     const resumed = await provisionTenant(
-      { ...cmd, planId: "PLAN-CORE" },
+      { ...cmd, planId: "PLAN-BUSINESS" },
       { platform, router, now: () => new Date(T), pinOf: () => "222222" },
     );
     expect(resumed.tenant.status).toBe("active");
     expect(resumed.tenant.id).toBe(failedTenant?.id);
-    expect(resumed.adminPin).toBe("222222");
+    expect(resumed.adminPin).toBeNull();
+    expect(resumed.adminEmail).toBe(cmd.ownerEmail);
 
     const sub = await platform.stores.subscriptions.findLiveByTenant(resumed.tenant.id);
-    expect(sub?.planId).toBe("PLAN-CORE");
+    expect(sub?.planId).toBe("PLAN-BUSINESS");
+
+    // No second admin was created — the original PIN still logs the owner in.
+    const loginRes = await backend.app.fetch(
+      new Request("http://tenant.internal/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: cmd.ownerEmail, pin: "111111" }),
+      }),
+    );
+    expect(loginRes.status).toBe(200);
   });
 
   it("does not re-start a subscription that is already live on a resumed tenant", async () => {
@@ -158,6 +181,7 @@ describe("provisionTenant", () => {
     );
 
     expect(result.tenant.status).toBe("active");
+    expect(result.adminPin).toBe("333333");
     const subs = await platform.stores.subscriptions.listByTenant(tenant.id);
     expect(subs.length).toBe(1);
     expect(subs[0]?.planId).toBe("PLAN-CORE");

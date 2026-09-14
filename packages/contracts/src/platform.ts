@@ -88,7 +88,8 @@ export const createTenantRequestSchema = z.object({
 export const provisionResultSchema = z.object({
   tenant: tenantSchema,
   adminEmail: z.string().min(1),
-  adminPin: z.string().regex(/^\d{6}$/, "must be exactly 6 digits"),
+  /** Null on a resumed provision — the admin already exists from an earlier call, and its PIN is not re-issued. */
+  adminPin: z.string().regex(/^\d{6}$/, "must be exactly 6 digits").nullable(),
 });
 
 export const startSubscriptionRequestSchema = z.object({

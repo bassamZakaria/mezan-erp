@@ -7175,6 +7175,7 @@ const webAr = {
   "platform.nav.plans": "الباقات",
   "platform.nav.operators": "المشغّلون",
   "platform.nav.signOut": "تسجيل الخروج",
+  "platform.login.error.invalidCredentials": "بيانات الدخول غير صحيحة",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -14354,6 +14355,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "platform.nav.plans": "Plans",
   "platform.nav.operators": "Operators",
   "platform.nav.signOut": "Sign out",
+  "platform.login.error.invalidCredentials": "Invalid email or password",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

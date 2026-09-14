@@ -1,4 +1,4 @@
-import { NavLink, Route, Routes } from "react-router";
+import { Navigate, NavLink, Route, Routes } from "react-router";
 import { BrandMark, cn } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { usePlatformApi } from "./api";
@@ -80,7 +80,11 @@ export function PlatformShell() {
 
       <main className="flex-1 p-[24px]">
         <Routes>
-          <Route index element={<TenantsPlaceholder />} />
+          {/* Redirects rather than rendering the same placeholder at both
+              addresses — the rail's "المنشآت" `NavLink` only lights up at
+              `/platform/tenants`, and a bare `/platform` left it dark despite
+              the tenants pane being exactly what was on screen. */}
+          <Route index element={<Navigate to="tenants" replace />} />
           <Route path="tenants" element={<TenantsPlaceholder />} />
           <Route path="plans" element={<PlansPlaceholder />} />
           <Route path="users" element={<OperatorsPlaceholder />} />

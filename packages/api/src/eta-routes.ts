@@ -10,6 +10,7 @@ import {
   suggestEtaUnitCode,
   DuplicateEtaSubmissionError,
   EtaExclusionReasonRequiredError,
+  EtaDeviceSerialNotRegisteredError,
   EtaOfflineError,
   EtaReceiptUuidUnavailableError,
   EtaSubmissionNotFoundError,
@@ -93,6 +94,7 @@ function serializeConfig(config: EtaConfig, counts?: EtaReadinessCounts) {
       signingMethod: config.signingMethod,
       clientId: config.clientId,
       hasClientSecret: config.hasClientSecret,
+      receiptReportingWindowHours: config.receiptReportingWindowHours,
     },
     readiness: computeEtaReadiness(config, counts),
   };
@@ -131,6 +133,9 @@ function handleError(c: Context, err: unknown): Response {
   // No UUID service means no receipt can be issued at all — a configuration
   // gap, not a bad request, and it must not read as one.
   if (err instanceof EtaReceiptUuidUnavailableError) return c.json({ error: err.code, message: err.message }, 501);
+  // A till whose device is not registered must be told so, loudly — not have a
+  // receipt filed with a blank serial the authority will not accept.
+  if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message }, 409);
   throw err;
 }
 
@@ -168,9 +173,10 @@ const issueReceiptSchema = z.object({
   currency: z.string().optional(),
   exchangeRate: AMOUNT.optional(),
   referenceOldUuid: z.string().nullable().optional(),
+  // The till identity is NOT caller-supplied: the branch says which device the
+  // authority has registered, and the serial and branch code are read from it.
   seller: z.object({
-    deviceSerialNumber: z.string().min(1),
-    branchCode: z.string().nullable().default(null),
+    branchId: z.string().min(1),
     syndicateLicenseNumber: z.string().nullable().optional(),
   }),
   buyer: z.object({
@@ -189,6 +195,22 @@ const issueReceiptSchema = z.object({
   totalAmount: AMOUNT,
   taxTotals: z.array(z.object({ taxType: z.string().min(1), amount: AMOUNT })),
 });
+
+/**
+ * The till the authority has registered for this branch. A receipt is bound to
+ * a device serial, so a branch with none cannot issue one at all.
+ */
+async function resolveReceiptDevice(
+  deps: EtaRoutesDeps,
+  branchId: string,
+): Promise<{ readonly deviceSerialNumber: string; readonly etaBranchCode: string | null }> {
+  const mapping = deps.branchCodes
+    ? (await deps.branchCodes.list()).find((m) => m.branchId === branchId)
+    : undefined;
+  const serial = mapping?.deviceSerialNumber?.trim() ?? "";
+  if (serial === "") throw new EtaDeviceSerialNotRegisteredError(branchId);
+  return { deviceSerialNumber: serial, etaBranchCode: mapping?.etaBranchCode ?? null };
+}
 
 /**
  * الفاتورة الإلكترونية (ETA) routes (docs/archive/catalog/04), mounted under `/eta`:
@@ -268,16 +290,22 @@ export function createEtaRoutes(
   app.get("/branch-codes", gate("accounting.eta.view"), async (c) => {
     if (!deps.branches || !deps.branchCodes) return c.json([]);
     const [branches, codes] = await Promise.all([deps.branches.findAll(), deps.branchCodes.list()]);
-    const byId = new Map(codes.map((m) => [m.branchId, m.etaBranchCode]));
+    const byId = new Map(codes.map((m) => [m.branchId, m]));
     return c.json(
       branches
         .filter((b) => b.active)
-        .map((b) => ({
-          branchId: b.id,
-          branchCode: b.code,
-          branchName: b.name,
-          etaBranchCode: byId.get(b.id) ?? null,
-        })),
+        .map((b) => {
+          const mapping = byId.get(b.id) ?? null;
+          return {
+            branchId: b.id,
+            branchCode: b.code,
+            branchName: b.name,
+            etaBranchCode: mapping?.etaBranchCode ?? null,
+            deviceSerialNumber: mapping?.deviceSerialNumber ?? null,
+            posClientId: mapping?.posClientId ?? null,
+            hasPosClientSecret: mapping?.hasPosClientSecret ?? false,
+          };
+        }),
     );
   });
 
@@ -288,9 +316,32 @@ export function createEtaRoutes(
     const branchId = c.req.param("branchId");
     const branch = await deps.branches.findById(branchId);
     if (!branch) return c.json({ error: "BRANCH_NOT_FOUND", message: `Branch ${branchId} does not exist` }, 404);
-    const etaBranchCode = parsed.data.etaBranchCode.trim();
-    await deps.branchCodes.save({ branchId, etaBranchCode });
-    return c.json({ branchId, branchCode: branch.code, branchName: branch.name, etaBranchCode });
+    const current = (await deps.branchCodes.list()).find((m) => m.branchId === branchId) ?? null;
+    const { posClientSecret, ...patch } = parsed.data;
+    const etaBranchCode = patch.etaBranchCode.trim();
+    const deviceSerialNumber =
+      patch.deviceSerialNumber !== undefined
+        ? (patch.deviceSerialNumber?.trim() || null)
+        : (current?.deviceSerialNumber ?? null);
+    const posClientId =
+      patch.posClientId !== undefined ? (patch.posClientId?.trim() || null) : (current?.posClientId ?? null);
+    await deps.branchCodes.save({
+      branchId,
+      etaBranchCode,
+      deviceSerialNumber,
+      posClientId,
+      hasPosClientSecret: current?.hasPosClientSecret ?? false,
+    });
+    if (posClientSecret) await deps.branchCodes.setPosClientSecret(branchId, posClientSecret);
+    return c.json({
+      branchId,
+      branchCode: branch.code,
+      branchName: branch.name,
+      etaBranchCode,
+      deviceSerialNumber,
+      posClientId,
+      hasPosClientSecret: !!posClientSecret || (current?.hasPosClientSecret ?? false),
+    });
   });
 
   app.get("/item-mappings", gate("accounting.eta.view"), async (c) => {
@@ -443,7 +494,16 @@ export function createEtaRoutes(
     const parsed = issueReceiptSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const printed = await service.enqueueReceipt(parsed.data as EtaReceiptInput);
+      const { seller, ...rest } = parsed.data;
+      const device = await resolveReceiptDevice(deps, seller.branchId);
+      const printed = await service.enqueueReceipt({
+        ...rest,
+        seller: {
+          deviceSerialNumber: device.deviceSerialNumber,
+          branchCode: device.etaBranchCode,
+          syndicateLicenseNumber: seller.syndicateLicenseNumber ?? null,
+        },
+      } as EtaReceiptInput);
       return c.json({
         submission: serializeSubmission(printed.submission),
         uuid: printed.uuid,

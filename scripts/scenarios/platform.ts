@@ -374,20 +374,26 @@ export async function run(ctx: Ctx): Promise<void> {
     const confirmed = rows((await req("GET", "/sales-invoices", undefined, {})).body).filter(
       (i: any) => i.status !== "draft" && i.status !== "pending" && i.status !== "cancelled",
     );
-    // The queue holds invoices AND the إشعارات دائنة raised by confirmed sales
-    // returns (D77/D122), so the two document types are counted separately —
-    // a single total would go stale the moment either side moves.
+    // The queue holds invoices, the إشعارات دائنة raised by confirmed sales
+    // returns (D77/D122), AND the e-receipts raised by consumer sales — a sale
+    // to a customer with no tax registration number is a B2C receipt, a
+    // separate authority mandate, not an invoice with receiver type "P". The
+    // three document types are counted separately; a single total would go
+    // stale the moment any of them moves.
     const queuedInvoices = queued.filter((s: any) => s.documentType === "invoice");
+    const queuedReceipts = queued.filter((s: any) => s.documentType === "receipt");
     const queuedNotes = queued.filter((s: any) => s.documentType === "credit_note");
     const confirmedReturns = rows((await req("GET", "/sales-returns", undefined, {})).body).filter(
       (r: any) => r.status === "confirmed",
     );
 
-    check("D5 — every live sales invoice is queued exactly once", queuedInvoices.length === confirmed.length, `queued=${queuedInvoices.length} live invoices=${confirmed.length}`);
+    check("D5 — every live sales invoice is queued exactly once, as an invoice or as a receipt", queuedInvoices.length + queuedReceipts.length === confirmed.length, `invoices=${queuedInvoices.length} receipts=${queuedReceipts.length} live invoices=${confirmed.length}`);
+    check("D5 — the B2C half of the queue is not empty: consumer sales really do produce receipts", queuedReceipts.length > 0, `receipts=${queuedReceipts.length}`);
     check("D5 — every confirmed sales return is queued as a credit note", queuedNotes.length === confirmedReturns.length, `notes=${queuedNotes.length} confirmed returns=${confirmedReturns.length}`);
-    check("D5 — nothing else is in the queue", queuedInvoices.length + queuedNotes.length === queued.length, JSON.stringify(queued.map((s: any) => s.documentType)));
+    check("D5 — nothing else is in the queue", queuedInvoices.length + queuedReceipts.length + queuedNotes.length === queued.length, JSON.stringify(queued.map((s: any) => s.documentType)));
     check("D5 — a queued submission starts جاهز", queued.every((s: any) => s.status === "ready"), JSON.stringify(queued.map((s: any) => s.status)));
-    check("D5 — the queue keys each invoice row by the invoice's own document number", queuedInvoices.every((s: any) => confirmed.some((i: any) => (i.docNo ?? i.id) === s.internalId)), JSON.stringify(queuedInvoices.map((s: any) => s.internalId)));
+    check("D5 — the queue keys each invoice row by the invoice's own document number", [...queuedInvoices, ...queuedReceipts].every((s: any) => confirmed.some((i: any) => (i.docNo ?? i.id) === s.internalId)), JSON.stringify(queuedInvoices.map((s: any) => s.internalId)));
+    check("D5 — every queued receipt carries the identifier its printed QR encodes", queuedReceipts.every((s: any) => typeof s.etaUuid === "string" && /^[0-9a-f]{64}$/.test(s.etaUuid)), JSON.stringify(queuedReceipts.slice(0, 5).map((s: any) => s.etaUuid)));
     check("D5 — the queue keys each credit note by the return's own document number", queuedNotes.every((s: any) => confirmedReturns.some((r: any) => (r.docNo ?? r.id) === s.internalId)), JSON.stringify(queuedNotes.map((s: any) => s.internalId)));
   });
 

@@ -589,6 +589,17 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
    * date order: a backdated confirm would issue stock at a weighted-average
    * cost the earlier receipt had not yet set.
    */
+  // The branch's registration with the authority, and the POS device bound to
+  // it, are seeded BEFORE any sale is confirmed: a consumer sale is reported as
+  // an e-receipt, and the authority identifies the issuing till by the serial
+  // registered here — a branch with no registered device cannot receipt at all.
+  await step(app, "PUT", `/eta/branch-codes/${BRANCH_ID}`, {
+    etaBranchCode: "1",
+    deviceSerialNumber: "MEZAN-POS-0001",
+    posClientId: "mezan-demo-pos-client",
+    posClientSecret: "demo-pos-secret-never-returned",
+  });
+
   await seedHistory(app);
 
   for (const invoice of [...PURCHASE_INVOICES, ...PERISHABLE_PURCHASE_INVOICES]) {
@@ -634,7 +645,6 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
     clientId: "mezan-demo-client",
     clientSecret: "demo-secret-never-returned",
   });
-  await step(app, "PUT", `/eta/branch-codes/${BRANCH_ID}`, { etaBranchCode: "1" });
   for (const mapping of ETA_ITEM_CODES) {
     await step(app, "PUT", `/eta/item-mappings/${mapping.itemId}`, {
       etaCodeType: "EGS",

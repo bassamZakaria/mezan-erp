@@ -201,8 +201,8 @@ export class EtaService {
    * above zero is the number a shop must act on.
    */
   async receiptQueueSummary(now?: string): Promise<EtaReceiptQueueSummary> {
-    const all = await this.deps.submissions.list();
-    return summarizeEtaReceiptQueue(all, now ?? this.now());
+    const [all, config] = await Promise.all([this.deps.submissions.list(), this.deps.config.get()]);
+    return summarizeEtaReceiptQueue(all, now ?? this.now(), config.receiptReportingWindowHours);
   }
 
   private receiptPrintData(submission: EtaSubmission, config: EtaConfig): EtaReceiptPrintData {
@@ -232,7 +232,13 @@ export class EtaService {
     }
     const config = await this.deps.config.get();
 
-    if (config.signingMethod === "eseal" && !etaPayloadIsSigned(submission.payload)) {
+    // EXTERNAL CONTRACT: an e-receipt (B2C) carries NO e-signature or e-seal —
+    // the accounting system registered as the software POS is itself the
+    // issuing device. Only the B2B e-invoice needs the CAdES seal. Gating
+    // receipts on `signingMethod` parked every consumer sale in
+    // بانتظار التوقيع waiting for a signature the regime never asks for.
+    const needsSeal = config.signingMethod === "eseal" && submission.documentType !== "receipt";
+    if (needsSeal && !etaPayloadIsSigned(submission.payload)) {
       try {
         const signature = await this.signingPort.sign(submission, config);
         submission = await this.persist({

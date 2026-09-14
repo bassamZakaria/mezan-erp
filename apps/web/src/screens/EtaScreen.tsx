@@ -26,6 +26,7 @@ import type {
   EtaTaxSubTypeRowDTO,
   EtaUnitMappingRowDTO,
 } from "@mezan/contracts";
+import { ETA_RECEIPT_REPORTING_WINDOW_HOURS } from "@mezan/domain";
 import {
   useApplyEtaUnitSuggestions,
   useEtaActivityCodes,
@@ -72,6 +73,7 @@ const TYPE_KEYS: Record<EtaDocumentTypeDTO, AppTranslationKey> = {
   invoice: "eta.typeInvoice",
   credit_note: "eta.typeCreditNote",
   debit_note: "eta.typeDebitNote",
+  receipt: "eta.typeReceipt",
 };
 
 const READINESS_KEYS: Record<string, AppTranslationKey> = {
@@ -134,6 +136,10 @@ export function EtaScreen() {
         <div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("eta.eInvoicing")}</h1>
           <p className="mt-[5px] max-w-[70ch] text-[12.5px] text-ink-muted">{t("eta.theQueueOfConfirmedDocuments")}</p>
+          <p className="mt-[8px] max-w-[70ch] text-[12.5px] text-ink">
+            <strong className="font-semibold">{t("eta.filingScopeTitle")}</strong>{" "}
+            <span className="text-ink-muted">{t("eta.filingScope")}</span>
+          </p>
         </div>
         {config ? (
           <StatusPill
@@ -202,6 +208,7 @@ function GeneralTab({ config }: { config: EtaConfigDTO | null }) {
     buildingNumber: "",
     postalCode: "",
     buyerDataThreshold: "25000",
+    receiptReportingWindowHours: String(ETA_RECEIPT_REPORTING_WINDOW_HOURS),
     documentVersion: "1.0" as EtaConfigDTO["documentVersion"],
     autoSubmitOnConfirm: true,
   });
@@ -219,6 +226,7 @@ function GeneralTab({ config }: { config: EtaConfigDTO | null }) {
       buildingNumber: config.address?.buildingNumber ?? "",
       postalCode: config.address?.postalCode ?? "",
       buyerDataThreshold: String(config.buyerDataThreshold),
+      receiptReportingWindowHours: String(config.receiptReportingWindowHours),
       documentVersion: config.documentVersion,
       autoSubmitOnConfirm: config.autoSubmitOnConfirm,
     });
@@ -252,6 +260,8 @@ function GeneralTab({ config }: { config: EtaConfigDTO | null }) {
             }
           : null,
         buyerDataThreshold: Number(form.buyerDataThreshold) || 0,
+        receiptReportingWindowHours:
+          Number(form.receiptReportingWindowHours) || ETA_RECEIPT_REPORTING_WINDOW_HOURS,
         documentVersion: form.documentVersion,
         autoSubmitOnConfirm: form.autoSubmitOnConfirm,
       });
@@ -327,6 +337,15 @@ function GeneralTab({ config }: { config: EtaConfigDTO | null }) {
               onChange={(e) => setForm((f) => ({ ...f, buyerDataThreshold: e.target.value.replace(/[^0-9]/g, "") }))}
             />
           </Field>
+          <Field label={t("eta.receiptWindowHours")} hint={t("eta.receiptWindowHoursHint")} htmlFor="eta-receipt-window">
+            <TextInput
+              id="eta-receipt-window"
+              inputMode="numeric"
+              className="mz-num"
+              value={form.receiptReportingWindowHours}
+              onChange={(e) => setForm((f) => ({ ...f, receiptReportingWindowHours: e.target.value.replace(/[^0-9]/g, "") }))}
+            />
+          </Field>
           <Field label={t("eta.documentVersion")}>
             <Select
               value={form.documentVersion}
@@ -390,17 +409,22 @@ function BranchCodesCard() {
   const branchCodes = useEtaBranchCodes();
   const save = useSaveEtaBranchCode();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [serialDrafts, setSerialDrafts] = useState<Record<string, string>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const rows = branchCodes.data ?? [];
   const valueOf = (row: EtaBranchCodeRowDTO) => drafts[row.branchId] ?? row.etaBranchCode ?? "";
+  const serialOf = (row: EtaBranchCodeRowDTO) => serialDrafts[row.branchId] ?? row.deviceSerialNumber ?? "";
 
   async function saveRow(row: EtaBranchCodeRowDTO) {
     const value = valueOf(row).trim();
     if (value === "" || pendingId !== null) return;
     setPendingId(row.branchId);
     try {
-      await save.mutateAsync({ branchId: row.branchId, body: { etaBranchCode: value } });
+      await save.mutateAsync({
+        branchId: row.branchId,
+        body: { etaBranchCode: value, deviceSerialNumber: serialOf(row).trim() || null },
+      });
     } finally {
       setPendingId(null);
     }
@@ -410,11 +434,13 @@ function BranchCodesCard() {
     <Card className="p-[16px_18px]">
       <div className="text-[13px] font-semibold text-ink">{t("eta.branchCodes")}</div>
       <p className="mt-[4px] text-[12px] text-ink-muted">{t("eta.branchCodesHint")}</p>
+      <p className="mt-[2px] text-[12px] text-ink-muted">{t("eta.branchDeviceHint")}</p>
       <table className="mt-[12px] w-full text-[12.5px]">
         <thead>
           <tr className="text-ink-faint">
             <th className="p-[6px_8px] text-start font-semibold">{t("eta.branch")}</th>
             <th className="p-[6px_8px] text-start font-semibold">{t("eta.etaBranchCode")}</th>
+            <th className="p-[6px_8px] text-start font-semibold">{t("eta.deviceSerialNumber")}</th>
             <th className="p-[6px_8px]" />
           </tr>
         </thead>
@@ -431,6 +457,15 @@ function BranchCodesCard() {
                   aria-label={`${t("eta.etaBranchCode")} — ${row.branchName}`}
                   value={valueOf(row)}
                   onChange={(e) => setDrafts((d) => ({ ...d, [row.branchId]: e.target.value }))}
+                />
+              </td>
+              <td className="p-[8px]">
+                <TextInput
+                  size="sm"
+                  className="mz-num max-w-[200px]"
+                  aria-label={`${t("eta.deviceSerialNumber")} — ${row.branchName}`}
+                  value={serialOf(row)}
+                  onChange={(e) => setSerialDrafts((d) => ({ ...d, [row.branchId]: e.target.value }))}
                 />
               </td>
               <td className="p-[8px] text-end">
@@ -909,9 +944,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
       key: "type",
       header: t("common.type"),
       render: (s) => (
-        <span className="text-ink-muted">
-          {(s.documentType as string) === "receipt" ? et("typeReceipt") : t(TYPE_KEYS[s.documentType])}
-        </span>
+        <span className="text-ink-muted">{t(TYPE_KEYS[s.documentType])}</span>
       ),
     },
     {

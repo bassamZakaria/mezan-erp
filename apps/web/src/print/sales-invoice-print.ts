@@ -34,6 +34,13 @@ export interface SalesInvoicePrintContext {
   readonly customerCode?: string;
   /** The authority's identifier, once ETA has accepted this invoice. */
   readonly etaUuid?: string | null;
+  /**
+   * What the QR on the paper encodes — the authority's own share URL for the
+   * document. A consumer sale is reported as an e-RECEIPT, and the receipt
+   * regime requires the QR on the printed copy: it is the only thing a
+   * customer or an inspector can check the paper against at the counter.
+   */
+  readonly etaQrValue?: string | null;
   readonly currencyLabel: string;
   readonly documentTypeLabel: string;
   readonly statusLabel?: string;
@@ -113,6 +120,7 @@ export function salesInvoicePrintModel(ctx: SalesInvoicePrintContext): PrintDocu
     },
     notes: invoice.notes ?? undefined,
     etaUuid: ctx.etaUuid ?? undefined,
+    etaQrValue: ctx.etaQrValue ?? undefined,
     lines,
     totals: {
       subtotal: majorOf(invoice.totals.subtotal),

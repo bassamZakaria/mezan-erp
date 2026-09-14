@@ -1,5 +1,6 @@
 export {
   DEFAULT_ETA_CONFIG,
+  ETA_RECEIPT_REPORTING_WINDOW_HOURS,
   computeEtaReadiness,
   type EtaEnvironment,
   type EtaDocumentVersion,
@@ -12,7 +13,6 @@ export {
   type EtaConfigRepository,
 } from "./config.js";
 export {
-  ETA_RECEIPT_REPORTING_WINDOW_HOURS,
   buildEtaReceiptPayload,
   canonicalizeEtaDocument,
   etaReceiptHoursRemaining,
@@ -67,6 +67,7 @@ export {
   InvalidEtaTransitionError,
   EtaOfflineError,
   EtaExclusionReasonRequiredError,
+  EtaDeviceSerialNotRegisteredError,
 } from "./errors.js";
 export {
   ETA_UNIT_CODES,

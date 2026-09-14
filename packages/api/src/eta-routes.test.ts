@@ -519,7 +519,7 @@ describe("eta router — config readiness counts the master-data prerequisites, 
     // Two active branches: one coded, one not.
     await branches.save(createBranch({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" }));
     await branches.save(createBranch({ id: "b2", code: "BR2", name: "فرع ثانٍ" }));
-    await branchCodes.save({ branchId: "b1", etaBranchCode: "1" });
+    await branchCodes.save({ branchId: "b1", etaBranchCode: "1", deviceSerialNumber: null, posClientId: null, hasPosClientSecret: false });
 
     // Two active tax rates: one resolved, one left "auto".
     await createTaxRate({ id: "t1", code: "T1", name: "ضريبة أساسية", rate: 14, etaSubType: "V009" }, taxRates);
@@ -560,7 +560,17 @@ describe("eta router — branch codes", () => {
     await branches.save(createBranch({ id: "b2", code: "OLD", name: "فرع مغلق", active: false }));
 
     const before = (await (await app.fetch(req("/branch-codes", { permissions: VIEW }))).json()) as { branchId: string; etaBranchCode: string | null }[];
-    expect(before).toEqual([{ branchId: "b1", branchCode: "MAIN", branchName: "الفرع الرئيسي", etaBranchCode: null }]);
+    expect(before).toEqual([
+      {
+        branchId: "b1",
+        branchCode: "MAIN",
+        branchName: "الفرع الرئيسي",
+        etaBranchCode: null,
+        deviceSerialNumber: null,
+        posClientId: null,
+        hasPosClientSecret: false,
+      },
+    ]);
 
     const put = await app.fetch(req("/branch-codes/b1", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ etaBranchCode: " 001 " }) }));
     expect(put.status).toBe(200);
@@ -594,6 +604,47 @@ describe("eta router — branch codes", () => {
     await branches.save(createBranch({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" }));
     const res = await app.fetch(req("/branch-codes/b1", { method: "PUT", permissions: VIEW, body: JSON.stringify({ etaBranchCode: "1" }) }));
     expect(res.status).toBe(403);
+  });
+
+  it("registers the POS device on the branch and never returns its secret", async () => {
+    const { app, branches } = await fullDeps();
+    await branches.save(createBranch({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" }));
+
+    const put = await app.fetch(
+      req("/branch-codes/b1", {
+        method: "PUT",
+        permissions: SUBMIT,
+        body: JSON.stringify({
+          etaBranchCode: "1",
+          deviceSerialNumber: " POS-0001 ",
+          posClientId: "pos-client",
+          posClientSecret: "s3cr3t",
+        }),
+      }),
+    );
+    expect(put.status).toBe(200);
+
+    const rows = (await (await app.fetch(req("/branch-codes", { permissions: VIEW }))).json()) as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({ deviceSerialNumber: "POS-0001", posClientId: "pos-client", hasPosClientSecret: true });
+    expect(JSON.stringify(rows)).not.toContain("s3cr3t");
+  });
+
+  it("keeps the registered device when a later PUT only changes the branch code", async () => {
+    const { app, branches } = await fullDeps();
+    await branches.save(createBranch({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" }));
+    await app.fetch(
+      req("/branch-codes/b1", {
+        method: "PUT",
+        permissions: SUBMIT,
+        body: JSON.stringify({ etaBranchCode: "1", deviceSerialNumber: "POS-0001" }),
+      }),
+    );
+    await app.fetch(
+      req("/branch-codes/b1", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ etaBranchCode: "2" }) }),
+    );
+
+    const rows = (await (await app.fetch(req("/branch-codes", { permissions: VIEW }))).json()) as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({ etaBranchCode: "2", deviceSerialNumber: "POS-0001" });
   });
 });
 
@@ -772,7 +823,7 @@ function countingUuidPort(): EtaReceiptUuidPort & { calls: number } {
   return port;
 }
 
-function receiptApp(uuid?: EtaReceiptUuidPort) {
+async function receiptApp(uuid?: EtaReceiptUuidPort, deviceSerialNumber: string | null = "POS-0001") {
   const store = createSqliteEtaStore();
   handles.push(store);
   let seq = 0;
@@ -783,7 +834,18 @@ function receiptApp(uuid?: EtaReceiptUuidPort) {
     now: () => "2026-09-01T10:00:00.000Z",
     newId: () => `sub-${++seq}`,
   });
-  return { app: createEtaRoutes({ service }, insecureHeaderAuthContextResolver), service, store };
+  await store.branchCodes.save({
+    branchId: "b1",
+    etaBranchCode: "1",
+    deviceSerialNumber,
+    posClientId: null,
+    hasPosClientSecret: false,
+  });
+  return {
+    app: createEtaRoutes({ service, branchCodes: store.branchCodes }, insecureHeaderAuthContextResolver),
+    service,
+    store,
+  };
 }
 
 const receiptBody = {
@@ -791,7 +853,7 @@ const receiptBody = {
   issueDateTime: "2026-09-01T10:00:00.000Z",
   receiptType: "sale",
   previousUuid: null,
-  seller: { deviceSerialNumber: "POS-0001", branchCode: "1" },
+  seller: { branchId: "b1" },
   buyer: { type: "P", id: null, name: null },
   paymentMethod: "cash",
   lines: [
@@ -823,7 +885,7 @@ function issue(body: unknown = receiptBody, permissions = "accounting.eta.submit
 
 describe("eta router — receipts", () => {
   it("issues a receipt with its UUID and QR, gated behind eta.submit", async () => {
-    const { app } = receiptApp(countingUuidPort());
+    const { app } = await receiptApp(countingUuidPort());
 
     expect((await app.fetch(issue(receiptBody, "accounting.eta.view"))).status).toBe(403);
 
@@ -838,7 +900,7 @@ describe("eta router — receipts", () => {
 
   it("reprints the same UUID and QR instead of minting a second submission", async () => {
     const uuid = countingUuidPort();
-    const { app } = receiptApp(uuid);
+    const { app } = await receiptApp(uuid);
 
     type Printed = { uuid: string; qrValue: string; submission: { id: string } };
     const first = (await (await app.fetch(issue())).json()) as Printed;
@@ -854,7 +916,7 @@ describe("eta router — receipts", () => {
   });
 
   it("serves the stored receipt for a reprint, payload and all", async () => {
-    const { app } = receiptApp(countingUuidPort());
+    const { app } = await receiptApp(countingUuidPort());
     await app.fetch(issue());
 
     const res = await app.fetch(req("/receipts/RCP-000001", { permissions: "accounting.eta.view" }));
@@ -869,32 +931,32 @@ describe("eta router — receipts", () => {
   });
 
   it("404s a reprint of a receipt that was never issued", async () => {
-    const { app } = receiptApp(countingUuidPort());
+    const { app } = await receiptApp(countingUuidPort());
     const res = await app.fetch(req("/receipts/RCP-999", { permissions: "accounting.eta.view" }));
     expect(res.status).toBe(404);
   });
 
   it("refuses money that is not an exact decimal string", async () => {
-    const { app } = receiptApp(countingUuidPort());
+    const { app } = await receiptApp(countingUuidPort());
     const res = await app.fetch(issue({ ...receiptBody, totalAmount: 57 }));
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
   });
 
   it("refuses a receipt with no lines", async () => {
-    const { app } = receiptApp(countingUuidPort());
+    const { app } = await receiptApp(countingUuidPort());
     expect((await app.fetch(issue({ ...receiptBody, lines: [] }))).status).toBe(400);
   });
 
   it("reports 501, not a bad request, when no UUID service is configured", async () => {
-    const { app } = receiptApp();
+    const { app } = await receiptApp();
     const res = await app.fetch(issue());
     expect(res.status).toBe(501);
     expect(((await res.json()) as { error: string }).error).toBe("ETA_RECEIPT_UUID_UNAVAILABLE");
   });
 
-  it("counts what has not been reported and what has aged past the 72-hour window", async () => {
-    const { app, service } = receiptApp(countingUuidPort());
+  it("counts what has not been reported and what has aged past the reporting window", async () => {
+    const { app, service } = await receiptApp(countingUuidPort());
     await app.fetch(issue());
     await app.fetch(
       issue({ ...receiptBody, internalId: "RCP-000002", issueDateTime: "2026-08-20T10:00:00.000Z" }),
@@ -908,7 +970,7 @@ describe("eta router — receipts", () => {
       overdue: number;
       overdueEntries: { internalId: string }[];
     };
-    expect(summary.windowHours).toBe(72);
+    expect(summary.windowHours).toBe(24);
     expect(summary.pending).toBe(2);
     // "now" is the service clock: 2026-09-01T10:00Z, so the August receipt is long past its window.
     expect(summary.overdue).toBe(1);
@@ -916,8 +978,33 @@ describe("eta router — receipts", () => {
     expect((await service.receiptQueueSummary()).pending).toBe(2);
   });
 
+  it("takes the device serial from the branch registration, not from the caller", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+    const res = await app.fetch(issue({ ...receiptBody, seller: { branchId: "b1", deviceSerialNumber: "SPOOFED" } }));
+    expect(res.status).toBe(200);
+
+    const reprint = (await (
+      await app.fetch(req("/receipts/RCP-000001", { permissions: "accounting.eta.view" }))
+    ).json()) as { submission: { payload: { seller: { deviceSerialNumber: string; branchCode: string } } } };
+    expect(reprint.submission.payload.seller.deviceSerialNumber).toBe("POS-0001");
+    expect(reprint.submission.payload.seller.branchCode).toBe("1");
+  });
+
+  it("refuses, in Arabic and English, a receipt from a branch with no registered device", async () => {
+    const { app } = await receiptApp(countingUuidPort(), null);
+    const res = await app.fetch(issue());
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("ETA_DEVICE_SERIAL_NOT_REGISTERED");
+    expect(body.message).toContain("جهاز نقطة البيع");
+    expect(body.message).toContain("POS device serial number");
+
+    const listed = (await (await app.fetch(req("/submissions", { permissions: "accounting.eta.view" }))).json()) as unknown[];
+    expect(listed).toHaveLength(0);
+  });
+
   it("gates the summary behind eta.view", async () => {
-    const { app } = receiptApp(countingUuidPort());
+    const { app } = await receiptApp(countingUuidPort());
     expect((await app.fetch(req("/receipts/summary"))).status).toBe(403);
   });
 });

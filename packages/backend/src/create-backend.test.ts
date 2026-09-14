@@ -163,7 +163,7 @@ function authedGet(app: App, path: string) {
   return app.fetch(new Request(`http://local${path}`, { headers: authed(app) }));
 }
 
-async function createCustomer(app: App, id: string, creditLimit: string) {
+async function createCustomer(app: App, id: string, creditLimit: string, taxNumber?: string) {
   const res = await authedPost(app, "/customers", {
     id,
     code: id,
@@ -175,6 +175,7 @@ async function createCustomer(app: App, id: string, creditLimit: string) {
     creditLimit,
     taxExempt: false,
     etaBuyerType: "auto",
+    ...(taxNumber ? { taxNumber } : {}),
   });
   expect(res.status).toBe(201);
 }
@@ -833,8 +834,9 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
  * through the real backend rather than by reading the wiring.
  */
 describe("createBackend — ETA enqueue bridge (D122)", () => {
+  /** A B2B sale: the customer has a tax registration number, so it is filed as an e-invoice. */
   async function confirmedInvoice(app: App, id: string, customerId: string) {
-    await createCustomer(app, customerId, "0");
+    await createCustomer(app, customerId, "0", "300123456700003");
     const create = await authedPost(app, "/sales-invoices", invoiceBody(id, customerId, "100"));
     expect(create.status).toBe(201);
     const confirm = await authedPost(app, `/sales-invoices/${id}/confirm`, {});
@@ -864,6 +866,67 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
     const invoice = await confirmedInvoice(app, "inv-eta-1", "cust-eta-1");
     const rows = await waitForQueueEntry(app, invoice.docNo);
     expect(rows.some((r) => r.internalId === invoice.docNo && r.documentType === "invoice")).toBe(true);
+  });
+
+  /** Registers the till the authority binds a receipt to, for the branch every invoice above is booked in. */
+  async function registerDevice(app: App) {
+    const res = await app.fetch(
+      new Request("http://local/eta/branch-codes/BR-MAIN", {
+        method: "PUT",
+        headers: { ...admin(app), "content-type": "application/json" },
+        body: JSON.stringify({ etaBranchCode: "1", deviceSerialNumber: "POS-0001" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+  }
+
+  it("a CONSUMER sale is reported as an e-receipt, not as an invoice with buyer type P", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await registerDevice(app);
+    await createCustomer(app, "cust-b2c-1", "0");
+    const create = await authedPost(app, "/sales-invoices", {
+      ...invoiceBody("inv-b2c-1", "cust-b2c-1", "100"),
+      branchId: "BR-MAIN",
+    });
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-b2c-1/confirm", {});
+    expect(confirm.status).toBe(200);
+    const { docNo } = (await confirm.json()) as { docNo: string };
+
+    const rows = await waitForQueueEntry(app, docNo);
+    const queued = rows.find((r) => r.internalId === docNo);
+    expect(queued?.documentType).toBe("receipt");
+
+    // The receipt carries the identifier the paper's QR encodes, and the QR
+    // resolves at the authority's own portal — the whole point of the receipt
+    // regime, and the thing a walk-in customer leaves the shop holding.
+    const printed = await app.fetch(
+      new Request(`http://local/eta/receipts/${encodeURIComponent(docNo)}`, { headers: admin(app) }),
+    );
+    expect(printed.status).toBe(200);
+    const body = (await printed.json()) as {
+      uuid: string;
+      qrValue: string;
+      submission: { payload: { seller: { deviceSerialNumber: string; branchCode: string } } };
+    };
+    expect(body.uuid).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.qrValue).toContain(`/receipts/search/${body.uuid}/share/`);
+    expect(body.submission.payload.seller.deviceSerialNumber).toBe("POS-0001");
+    expect(body.submission.payload.seller.branchCode).toBe("1");
+  });
+
+  it("a consumer sale from a branch with no registered device queues nothing, and the confirm still succeeds", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await createCustomer(app, "cust-b2c-2", "0");
+    const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-b2c-2", "cust-b2c-2", "100"));
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-b2c-2/confirm", {});
+    expect(confirm.status).toBe(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await submissions(app)).toEqual([]);
   });
 
   it("queues a confirmed sales return as its own credit note, alongside the invoice (D77/D122)", async () => {

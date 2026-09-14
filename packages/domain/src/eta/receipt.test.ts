@@ -160,15 +160,20 @@ describe("the receipt UUID port", () => {
 });
 
 describe("the post-sale reporting window", () => {
-  it("is 72 hours from the sale", () => {
-    expect(ETA_RECEIPT_REPORTING_WINDOW_HOURS).toBe(72);
-    expect(etaReceiptReportingDeadline("2026-09-01T10:00:00.000Z")).toBe("2026-09-04T10:00:00.000Z");
+  it("defaults to the authority's own 24 hours from the sale", () => {
+    expect(ETA_RECEIPT_REPORTING_WINDOW_HOURS).toBe(24);
+    expect(etaReceiptReportingDeadline("2026-09-01T10:00:00.000Z")).toBe("2026-09-02T10:00:00.000Z");
+  });
+
+  it("takes the configured window when a tenant has been told a different figure", () => {
+    expect(etaReceiptReportingDeadline("2026-09-01T10:00:00.000Z", 72)).toBe("2026-09-04T10:00:00.000Z");
+    expect(etaReceiptHoursRemaining("2026-09-01T10:00:00.000Z", "2026-09-03T10:00:00.000Z", 72)).toBe(24);
   });
 
   it("counts down and then goes negative", () => {
-    expect(etaReceiptHoursRemaining("2026-09-01T10:00:00.000Z", "2026-09-01T10:00:00.000Z")).toBe(72);
-    expect(etaReceiptHoursRemaining("2026-09-01T10:00:00.000Z", "2026-09-03T10:00:00.000Z")).toBe(24);
-    expect(etaReceiptHoursRemaining("2026-09-01T10:00:00.000Z", "2026-09-05T10:00:00.000Z")).toBe(-24);
+    expect(etaReceiptHoursRemaining("2026-09-01T10:00:00.000Z", "2026-09-01T10:00:00.000Z")).toBe(24);
+    expect(etaReceiptHoursRemaining("2026-09-01T10:00:00.000Z", "2026-09-02T10:00:00.000Z")).toBe(0);
+    expect(etaReceiptHoursRemaining("2026-09-01T10:00:00.000Z", "2026-09-03T10:00:00.000Z")).toBe(-24);
   });
 
   it("reads the sale moment from the payload, not the enqueue stamp", () => {
@@ -207,6 +212,7 @@ describe("summarizeEtaReceiptQueue — saying out loud what has aged past the wi
         queued("RCP-3", "2026-09-05T00:00:00.000Z"),
       ],
       "2026-09-05T12:00:00.000Z",
+      72,
     );
     expect(summary.pending).toBe(3);
     expect(summary.overdue).toBe(1);
@@ -218,9 +224,23 @@ describe("summarizeEtaReceiptQueue — saying out loud what has aged past the wi
     const summary = summarizeEtaReceiptQueue(
       [queued("RCP-1", "2026-09-01T10:00:00.000Z")],
       "2026-09-04T00:00:00.000Z",
+      72,
     );
     expect(summary.overdue).toBe(0);
     expect(summary.dueSoon).toBe(1);
+  });
+
+  it("scales «due soon» to the window, so a 24-hour window does not call every pending receipt urgent", () => {
+    const fresh = summarizeEtaReceiptQueue(
+      [queued("RCP-1", "2026-09-01T10:00:00.000Z")],
+      "2026-09-01T14:00:00.000Z",
+    );
+    expect(fresh.dueSoon).toBe(0);
+    const near = summarizeEtaReceiptQueue(
+      [queued("RCP-1", "2026-09-01T10:00:00.000Z")],
+      "2026-09-01T23:00:00.000Z",
+    );
+    expect(near.dueSoon).toBe(1);
   });
 
   it("ignores receipts the authority already has, and every non-receipt document", () => {

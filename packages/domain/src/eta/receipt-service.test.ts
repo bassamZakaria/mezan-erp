@@ -189,9 +189,9 @@ describe("receiptQueueSummary — the pending count a shop can see", () => {
 
     const summary = await svc.receiptQueueSummary("2026-09-05T10:00:00.000Z");
     expect(summary.pending).toBe(2);
-    expect(summary.overdue).toBe(1);
+    expect(summary.overdue).toBe(2);
     expect(summary.overdueEntries[0]?.internalId).toBe("RCP-000001");
-    expect(summary.windowHours).toBe(72);
+    expect(summary.windowHours).toBe(24);
     expect(submissions.rows.size).toBe(2);
   });
 
@@ -202,5 +202,62 @@ describe("receiptQueueSummary — the pending count a shop can see", () => {
     submissions.rows.set(stored.id, { ...stored, status: "accepted" });
 
     expect((await svc.receiptQueueSummary("2026-09-30T00:00:00.000Z")).pending).toBe(0);
+  });
+});
+
+describe("the e-seal never gates a consumer receipt", () => {
+  it("submits a receipt for an eseal tenant instead of parking it in بانتظار التوقيع", async () => {
+    const { svc } = service({ config: { signingMethod: "eseal" } });
+    const printed = await svc.enqueueReceipt(receipt);
+
+    // The transmit port is the offline stub, so the receipt stays queued — what
+    // matters is that it never reached pending_signature on the way there.
+    await expect(svc.submit(printed.submission.id)).rejects.toMatchObject({ code: "ETA_OFFLINE" });
+    expect((await svc.findById(printed.submission.id))?.status).toBe("ready");
+  });
+
+  it("reaches مرسل on an eseal tenant once the gateway answers", async () => {
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig({ ...DEFAULT_ETA_CONFIG, signingMethod: "eseal" }),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      transmit: {
+        async transmit() {
+          return { ok: true, etaUuid: "authority-uuid" };
+        },
+      },
+      now: () => "2026-09-01T10:00:00.000Z",
+      newId: () => `eta-seal-${++ids}`,
+    });
+
+    const printed = await svc.enqueueReceipt(receipt);
+    expect((await svc.submit(printed.submission.id)).status).toBe("submitted");
+  });
+
+  it("still parks a B2B invoice for the same tenant — the seal gate is intact", async () => {
+    const { svc } = service({ config: { signingMethod: "eseal" } });
+    const queued = await svc.enqueue({
+      internalId: "INV-SEAL-1",
+      documentType: "invoice",
+      issueDateTime: "2026-09-01T10:00:00.000Z",
+      receiver: { registrationNumber: "300123456700003", name: "عميل", type: "B" },
+      branchCode: null,
+      lines: [],
+      totalNet: "0",
+      totalTax: "0",
+      totalAmount: "0",
+    });
+    expect((await svc.submit(queued.id)).status).toBe("pending_signature");
+  });
+});
+
+describe("a receipt is refused rather than reported with a blank device serial", () => {
+  it("refuses and queues nothing", async () => {
+    const { svc, submissions } = service();
+    await expect(
+      svc.enqueueReceipt({ ...receipt, seller: { deviceSerialNumber: "  ", branchCode: "1" } }),
+    ).rejects.toMatchObject({ code: "ETA_DEVICE_SERIAL_NOT_REGISTERED" });
+    expect(submissions.rows.size).toBe(0);
   });
 });

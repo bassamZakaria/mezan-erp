@@ -18,7 +18,10 @@
  *     recompute or re-mint one — see `EtaService.enqueueReceipt`.
  */
 
-import type { EtaConfig } from "./config.js";
+import { ETA_RECEIPT_REPORTING_WINDOW_HOURS, type EtaConfig } from "./config.js";
+import { EtaDeviceSerialNotRegisteredError } from "./errors.js";
+
+export { ETA_RECEIPT_REPORTING_WINDOW_HOURS };
 
 /** بيع / مرتجع — the authority's receipt kinds. */
 export type EtaReceiptType = "sale" | "refund";
@@ -159,6 +162,12 @@ const DEFAULT_RECEIPT_CURRENCY = "EGP";
  * once computed (see {@link canonicalizeEtaDocument}).
  */
 export function buildEtaReceiptPayload(input: EtaReceiptInput, config: EtaConfig): Record<string, unknown> {
+  // EXTERNAL CONTRACT: the authority binds an e-receipt to the POS device that
+  // issued it. A blank serial is accepted by this builder's own shape and
+  // rejected by the authority, so it is refused here instead of being reported.
+  if (input.seller.deviceSerialNumber.trim() === "") {
+    throw new EtaDeviceSerialNotRegisteredError(input.seller.branchCode);
+  }
   const currency = input.currency ?? DEFAULT_RECEIPT_CURRENCY;
   return {
     header: {
@@ -300,13 +309,6 @@ export function unavailableEtaReceiptUuidPort(): EtaReceiptUuidPort {
   };
 }
 
-/**
- * الإطار الزمني للإبلاغ — the window inside which a printed receipt must reach
- * the authority. See docs: this is the number the queue is judged against, and
- * it is a single named constant precisely so a change to it is one edit.
- */
-export const ETA_RECEIPT_REPORTING_WINDOW_HOURS = 72;
-
 const HOUR_MS = 3_600_000;
 
 export function etaReceiptReportingDeadline(
@@ -352,7 +354,11 @@ export interface EtaReceiptQueueEntry {
 export interface EtaReceiptQueueSummary {
   readonly pending: number;
   readonly overdue: number;
-  /** Pending and inside the window, but with less than 24 hours left. */
+  /**
+   * Pending, inside the window, and close to its end — the last 24 hours, or
+   * the second half of the window when the window itself is shorter than that.
+   * A fixed 24 made every pending receipt "due soon" on a 24-hour window.
+   */
   readonly dueSoon: number;
   readonly oldestPendingIssuedAt: string | null;
   readonly windowHours: number;
@@ -389,10 +395,11 @@ export function summarizeEtaReceiptQueue(
     .sort((a, b) => (a.issuedAt < b.issuedAt ? -1 : a.issuedAt > b.issuedAt ? 1 : 0));
 
   const overdueEntries = unreported.filter((e) => e.hoursRemaining <= 0);
+  const dueSoonThreshold = Math.min(24, windowHours / 2);
   return {
     pending: unreported.length,
     overdue: overdueEntries.length,
-    dueSoon: unreported.filter((e) => e.hoursRemaining > 0 && e.hoursRemaining <= 24).length,
+    dueSoon: unreported.filter((e) => e.hoursRemaining > 0 && e.hoursRemaining <= dueSoonThreshold).length,
     oldestPendingIssuedAt: unreported[0]?.issuedAt ?? null,
     windowHours,
     overdueEntries,

@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createApp,
   createLoginThrottle,
   createSessionAuthContextResolver,
   createSessionRegistry,
+  createSimplifiedRegimeRoutes,
   type App,
   type PermissionRefusal,
   type CreateAppOptions,
@@ -103,6 +104,7 @@ import {
   createSqliteAccountRepository,
   createSqliteSettingsStore,
   createSqliteVatFilingStore,
+  createSqliteSimplifiedRegimeStore,
   createSqliteBranchStore,
   createSqliteWarehouseStore,
   createSqliteCustomerRepository,
@@ -199,13 +201,20 @@ import {
   createDefaultSettings,
   NotificationDispatcher,
   type NotificationTransport,
+  type EtaBranchCode,
   type EtaBranchCodeRepository,
+  type EtaReceiptLineInput,
   type EtaUnitMappingRepository,
+  type SalesInvoice,
+  type SalesInvoiceTotals,
+  type SalesInvoiceLineTotals,
+  type TaxRate,
   type SalesInvoiceRepository,
   type SalesReturnLine,
   type DocumentRepository,
   type SalesInvoiceLine,
   type CustomerRepository,
+  type Item,
   type ItemRepository,
   type TaxRateRepository,
   extend as extendQtyByPrice,
@@ -438,6 +447,14 @@ function createDocumentEventBridge(
  * Deliberately fire-and-forget, like the notification and webhook bridges: a
  * queueing failure must never fail the confirm that emitted it. A document
  * already queued (a re-confirm after an approval) is not an error.
+ *
+ * WHICH DOCUMENT gets built is decided by the customer, not by a setting: a
+ * customer with a tax registration number is a B2B sale and becomes an
+ * e-invoice; one without is a consumer sale and becomes an e-RECEIPT, which is
+ * a separate authority mandate with its own payload, its own post-sale
+ * reporting window and no e-seal. Filing a consumer sale as an invoice with
+ * receiver type "P" reported it as something it is not, and meant the receipt
+ * path — built in full — had no producer at all.
  */
 function createEtaEnqueueBridge(deps: {
   readonly eta: EtaService;
@@ -466,15 +483,32 @@ function createEtaEnqueueBridge(deps: {
         ]);
         const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
         const lineItems = await Promise.all(invoice.lines.map((line: SalesInvoiceLine) => deps.items.findById(line.itemId)));
+        const branchMapping = branchCodes.find((b) => b.branchId === invoice.branchId) ?? null;
+
+        if (!customer?.taxNumber) {
+          await enqueueSalesInvoiceAsReceipt({
+            eta: deps.eta,
+            invoice,
+            totals,
+            lineTotals,
+            lineItems,
+            taxRates,
+            unitByCode,
+            branchMapping,
+            issueDateTime: event.occurredAt,
+          });
+          return;
+        }
+
         await deps.eta.enqueue({
           internalId: invoice.docNo ?? invoice.id,
           documentType: "invoice",
           issueDateTime: event.occurredAt,
-          branchCode: branchCodes.find((b) => b.branchId === invoice.branchId)?.etaBranchCode ?? null,
+          branchCode: branchMapping?.etaBranchCode ?? null,
           receiver: {
-            registrationNumber: customer?.taxNumber ?? null,
+            registrationNumber: customer.taxNumber,
             name: invoice.customerNameAr,
-            type: customer?.taxNumber ? "B" : "P",
+            type: "B",
           },
           // The document's OWN currency and the rate it was booked at. Filing
           // every line as EGP misstated a foreign invoice to the authority
@@ -517,6 +551,92 @@ function createEtaEnqueueBridge(deps: {
       });
     },
   };
+}
+
+/**
+ * A consumer sale as the authority's e-receipt.
+ *
+ * The device serial comes off the BRANCH's registration, never off the caller:
+ * the authority binds the receipt to the till it has on file, and a branch with
+ * no registered device cannot issue one — `enqueueReceipt` refuses rather than
+ * reporting a blank serial.
+ */
+async function enqueueSalesInvoiceAsReceipt(args: {
+  readonly eta: EtaService;
+  readonly invoice: SalesInvoice;
+  readonly totals: SalesInvoiceTotals;
+  readonly lineTotals: ReadonlyMap<string, SalesInvoiceLineTotals>;
+  readonly lineItems: readonly (Item | null)[];
+  readonly taxRates: readonly TaxRate[];
+  readonly unitByCode: ReadonlyMap<string, string>;
+  readonly branchMapping: EtaBranchCode | null;
+  readonly issueDateTime: string;
+}): Promise<void> {
+  const { invoice, totals, lineTotals, lineItems, taxRates, unitByCode, branchMapping } = args;
+
+  const lines: EtaReceiptLineInput[] = invoice.lines.map((line: SalesInvoiceLine, index: number) => {
+    const lt = lineTotals.get(line.lineId);
+    const item = lineItems[index] ?? null;
+    const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
+    const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
+    const discount = (lt?.lineDiscount ?? Money.zero())
+      .add(lt?.promotionDiscount ?? Money.zero())
+      .add(lt?.invoiceDiscount ?? Money.zero());
+    return {
+      internalCode: item?.code ?? line.itemId,
+      description: line.itemNameAr,
+      // EXTERNAL CONTRACT: the authority's coding schemes on a receipt line are
+      // "EGS" and "GS1"; a GPC-coded item is the GS1 scheme under its own name.
+      itemType: item?.etaCodeType === "GPC" ? "GS1" : "EGS",
+      itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
+      unitType: unitByCode.get(unitCode) ?? unitCode,
+      quantity: line.qty.toString(),
+      unitPrice: line.unitPrice.toString(),
+      totalSale: (lt?.gross ?? Money.zero()).toString(),
+      netSale: (lt?.taxableBase ?? Money.zero()).toString(),
+      total: (lt?.total ?? Money.zero()).toString(),
+      commercialDiscount: discount.scaled === 0n ? undefined : discount.toString(),
+      taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, line.taxRatePercent),
+      taxRate: String(line.taxRatePercent),
+      taxAmount: (lt?.tax ?? Money.zero()).toString(),
+    };
+  });
+
+  const totalDiscount = totals.lineDiscountTotal
+    .add(totals.promotionDiscountTotal)
+    .add(totals.invoiceDiscountTotal);
+
+  // The chain the authority uses to detect a missing receipt from a device:
+  // every receipt names the previous one, so a gap in the chain is visible.
+  const previous = (await args.eta.list())
+    .filter((s) => s.documentType === "receipt" && s.etaUuid)
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+    .at(-1);
+
+  await args.eta.enqueueReceipt({
+    internalId: invoice.docNo ?? invoice.id,
+    issueDateTime: args.issueDateTime,
+    receiptType: "sale",
+    previousUuid: previous?.etaUuid ?? null,
+    currency: invoice.currency,
+    exchangeRate: invoice.fxRate ?? undefined,
+    seller: {
+      deviceSerialNumber: branchMapping?.deviceSerialNumber ?? "",
+      branchCode: branchMapping?.etaBranchCode ?? null,
+    },
+    // B2C: the buyer stays anonymous — a walk-in has no registration number and
+    // the authority accepts the receipt without one.
+    buyer: { type: "P", id: null, name: invoice.customerNameAr },
+    // Mezan does not yet record HOW a sale was paid, so the only two states it
+    // can tell the authority truthfully are "settled at the till" and "not".
+    paymentMethod: invoice.amountPaid.scaled >= totals.grandTotal.scaled ? "cash" : "other",
+    lines,
+    totalSales: totals.grossTotal.toString(),
+    totalCommercialDiscount: totalDiscount.scaled === 0n ? undefined : totalDiscount.toString(),
+    netAmount: totals.taxableTotal.toString(),
+    totalAmount: totals.grandTotal.toString(),
+    taxTotals: [{ taxType: "T1", amount: totals.taxTotal.toString() }],
+  });
 }
 
 /**
@@ -745,6 +865,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const uow = createSqliteUnitOfWork(sqlite);
   const settings = createSqliteSettingsStore(sqlite);
   const vatFilings = createSqliteVatFilingStore(sqlite);
+  const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);
   const branches = createSqliteBranchStore(sqlite);
   const warehouses = createSqliteWarehouseStore(sqlite);
   const accounts = createSqliteAccountRepository(sqlite);
@@ -766,7 +887,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const salesQuotes = createSqliteSalesQuoteStore(sqlite);
   const exchangeRates = createSqliteExchangeRateRepository(sqlite);
   const etaStore = createSqliteEtaStore(sqlite);
-  const etaService = new EtaService({ config: etaStore.config, submissions: etaStore.submissions });
+  const etaService = new EtaService({
+    config: etaStore.config,
+    submissions: etaStore.submissions,
+    // EXTERNAL CONTRACT: the e-receipt UUID is the SHA-256 of the authority's
+    // canonical serialization of the document, computed by the till before the
+    // paper is printed. Without this port no consumer sale can be receipted at
+    // all — the service refuses rather than inventing an identifier.
+    receiptUuid: { compute: async (canonical) => createHash("sha256").update(canonical, "utf8").digest("hex") },
+  });
   const hasher = createScryptHasher();
 
   // --- phase9/operational-reports — read-only repositories the /reports routes aggregate over,
@@ -3261,6 +3390,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // supplied is how four inventory-ops routes 404'd live while their files
   // existed. The store is created above, always.
   app.route("/preferences", createPreferencesRoutes({ store: userPreferences, uow }, resolveAuthContext));
+  // النظام الضريبي المبسط (قانون 6 لسنة 2025). Mounted unconditionally beside
+  // the settings bag it belongs with: the record of what the taxpayer filed on
+  // Form 1/10, the estimated liability, and the regime comparison.
+  app.route(
+    "/tax/simplified-regime",
+    createSimplifiedRegimeRoutes(
+      { regime: simplifiedRegime, salesInvoices, customers, accounts, ledger },
+      resolveAuthContext,
+    ),
+  );
 
   const closers = [
     uow,

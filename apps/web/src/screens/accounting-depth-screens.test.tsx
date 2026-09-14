@@ -122,6 +122,7 @@ describe("EtaScreen", () => {
       documentVersion: "1.0",
       autoSubmitOnConfirm: false,
       signingMethod: "eseal",
+      receiptReportingWindowHours: 24,
       clientId: "client-1",
       hasClientSecret: true,
     };

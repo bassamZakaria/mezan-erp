@@ -66,6 +66,7 @@ function config(overrides: Partial<EtaConfigDTO> = {}): EtaConfigDTO {
     signingMethod: "none",
     clientId: null,
     hasClientSecret: false,
+    receiptReportingWindowHours: 24,
     ...overrides,
   };
 }
@@ -186,6 +187,7 @@ describe("EtaScreen — عام (general)", () => {
       activityCode: "4610",
       address: { governorate: "القاهرة", city: "مدينة نصر", street: "شارع مصطفى النحاس", buildingNumber: "12", postalCode: null },
       buyerDataThreshold: 25000,
+      receiptReportingWindowHours: 24,
       documentVersion: "1.0",
       autoSubmitOnConfirm: false,
     });
@@ -235,7 +237,17 @@ describe("EtaScreen — عام (general)", () => {
       "GET /eta/activity-codes": () => ({ body: [] as EtaActivityCodeDTO[] }),
       "GET /eta/tax-subtypes": () => ({ body: [] as EtaTaxSubTypeRowDTO[] }),
       "GET /eta/branch-codes": () => ({
-        body: [{ branchId: "b1", branchCode: "MAIN", branchName: "الفرع الرئيسي", etaBranchCode: null }] as EtaBranchCodeRowDTO[],
+        body: [
+          {
+            branchId: "b1",
+            branchCode: "MAIN",
+            branchName: "الفرع الرئيسي",
+            etaBranchCode: null,
+            deviceSerialNumber: null,
+            posClientId: null,
+            hasPosClientSecret: false,
+          },
+        ] as EtaBranchCodeRowDTO[],
       }),
       "PUT /eta/branch-codes/b1": (init) => {
         saved = JSON.parse((init?.body as string) ?? "{}");
@@ -249,7 +261,9 @@ describe("EtaScreen — عام (general)", () => {
     const row = input.closest("tr") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "حفظ" }));
 
-    await waitFor(() => expect(saved).toEqual({ etaBranchCode: "EG-MAIN-01" }));
+    // The till identity travels with the branch code now, so the PUT carries it
+    // too — null here because this branch has no device registered yet.
+    await waitFor(() => expect(saved).toEqual({ etaBranchCode: "EG-MAIN-01", deviceSerialNumber: null }));
   });
 });
 

@@ -19,6 +19,8 @@ export interface PlatformHandle {
   readonly hasher: SecretHasher;
   readonly ownerSeeded: boolean;
   seedPlansIfEmpty(): Promise<void>;
+  /** Copies the live platform database to `destination` via better-sqlite3's online backup API. */
+  backupTo(destination: string): Promise<void>;
   close(): void;
 }
 
@@ -82,6 +84,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     hasher,
     ownerSeeded,
     seedPlansIfEmpty,
+    backupTo: (destination) => stores.sqlite.backup(destination).then(() => undefined),
     close: () => { stores.close(); audit.close(); },
   };
 }

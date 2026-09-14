@@ -14,6 +14,8 @@ export interface BackendCache<H> {
   sweep(): Promise<void>;
   close(): Promise<void>;
   readonly size: number;
+  /** The codes with a currently open (cached) handle — a closed tenant's code is absent, not merely idle. */
+  openCodes(): string[];
 }
 
 export const DEFAULT_IDLE_MS = 30 * 60 * 1000;
@@ -43,6 +45,7 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
 
   return {
     get size() { return entries.size; },
+    openCodes: () => [...entries.keys()],
     async get(code) {
       if (closed) throw new Error("CACHE_CLOSED");
       const existing = entries.get(code);

@@ -553,6 +553,12 @@ function createEtaEnqueueBridge(deps: {
   };
 }
 
+/** The till a stored receipt was issued from, read back out of its payload. */
+function receiptDeviceOf(payload: unknown): string {
+  const seller = (payload as { seller?: { deviceSerialNumber?: unknown } } | null)?.seller;
+  return typeof seller?.deviceSerialNumber === "string" ? seller.deviceSerialNumber : "";
+}
+
 /**
  * A consumer sale as the authority's e-receipt.
  *
@@ -606,10 +612,13 @@ async function enqueueSalesInvoiceAsReceipt(args: {
     .add(totals.promotionDiscountTotal)
     .add(totals.invoiceDiscountTotal);
 
-  // The chain the authority uses to detect a missing receipt from a device:
-  // every receipt names the previous one, so a gap in the chain is visible.
+  const deviceSerialNumber = branchMapping?.deviceSerialNumber ?? "";
+
+  // EXTERNAL CONTRACT: previousUUID chains the receipts OF ONE DEVICE, which is
+  // how the authority detects a receipt that was printed and never reported.
+  // Chaining across devices would make every till's chain look broken.
   const previous = (await args.eta.list())
-    .filter((s) => s.documentType === "receipt" && s.etaUuid)
+    .filter((s) => s.documentType === "receipt" && s.etaUuid && receiptDeviceOf(s.payload) === deviceSerialNumber)
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
     .at(-1);
 
@@ -620,10 +629,7 @@ async function enqueueSalesInvoiceAsReceipt(args: {
     previousUuid: previous?.etaUuid ?? null,
     currency: invoice.currency,
     exchangeRate: invoice.fxRate ?? undefined,
-    seller: {
-      deviceSerialNumber: branchMapping?.deviceSerialNumber ?? "",
-      branchCode: branchMapping?.etaBranchCode ?? null,
-    },
+    seller: { deviceSerialNumber, branchCode: branchMapping?.etaBranchCode ?? null },
     // B2C: the buyer stays anonymous — a walk-in has no registration number and
     // the authority accepts the receipt without one.
     buyer: { type: "P", id: null, name: invoice.customerNameAr },

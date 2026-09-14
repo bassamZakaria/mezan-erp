@@ -15,7 +15,30 @@ import { moneyString } from "./money-string.js";
  * against these strings.
  */
 export const itemTypeSchema = z.enum(["stock", "service", "raw_material", "finished_good", "consumable", "recipe"]);
+/**
+ * What an item's costing method may READ BACK as.
+ *
+ * `FIFO` stays here because rows already carry it and a stored value the
+ * contract refuses to parse would make those items unreadable.
+ */
 export const costingMethodSchema = z.enum(["WAC", "FIFO"]);
+
+/**
+ * What an item's costing method may be SET TO — WAC only (D146).
+ *
+ * The valuation engine is weighted-average end to end (`inventory/wac.ts`,
+ * `wac-math.ts`, `WacSnapshot`); the cost layers beside it order batch draw-down
+ * for FEFO and are not a second costing engine. Nothing anywhere reads
+ * `costingMethod`, so an item set to FIFO was valued WAC, issued at a WAC unit
+ * cost and reported at a WAC figure — while the item screen told the user it
+ * was «الأقدم أولاً (FIFO)».
+ *
+ * Offering a choice the engine ignores is the failure this codebase keeps
+ * shipping (DEC-1's `minAmount`, D72's purchasing toggles, D116's permissions):
+ * on screen it is indistinguishable from one that works. So the choice is
+ * withdrawn until the engine can honour it, rather than left as decoration.
+ */
+export const settableCostingMethodSchema = z.enum(["WAC"]);
 export const itemStatusSchema = z.enum(["active", "inactive"]);
 export const etaCodeTypeSchema = z.enum(["EGS", "GPC"]);
 
@@ -83,7 +106,7 @@ export const createItemSchema = z.object({
   description: z.string().nullable().optional(),
   defaultSupplierId: z.string().nullable().optional(),
   specifications: z.array(z.object({ code: z.string().min(1), value: z.string() })).optional(),
-  costingMethod: costingMethodSchema.optional(),
+  costingMethod: settableCostingMethodSchema.optional(),
   salePrice: moneyString.nullable().optional(),
   costPrice: moneyString.nullable().optional(),
   taxRatePercent: z.number().optional(),
@@ -115,7 +138,7 @@ export const updateItemSchema = z.object({
   description: z.string().nullable().optional(),
   defaultSupplierId: z.string().nullable().optional(),
   specifications: z.array(z.object({ code: z.string().min(1), value: z.string() })).optional(),
-  costingMethod: costingMethodSchema.optional(),
+  costingMethod: settableCostingMethodSchema.optional(),
   salePrice: moneyString.nullable().optional(),
   costPrice: moneyString.nullable().optional(),
   taxRatePercent: z.number().optional(),

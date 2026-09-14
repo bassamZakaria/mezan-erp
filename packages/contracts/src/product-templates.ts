@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { costingMethodSchema, settableCostingMethodSchema } from "./items.js";
 
 /**
  * Wire contracts for Product Templates (docs/archive/catalog/03-inventory.md
@@ -25,7 +26,7 @@ export const productTemplateSchema = z.object({
   baseUnitCode: z.string().min(1),
   categoryId: z.string().nullable(),
   brandId: z.string().nullable(),
-  costingMethod: z.enum(["WAC", "FIFO"]),
+  costingMethod: costingMethodSchema,
   defaultSalePrice: z.string().nullable(),
   defaultCost: z.string().nullable(),
   taxRatePercent: z.number(),
@@ -40,7 +41,7 @@ export const createProductTemplateSchema = z.object({
   baseUnitCode: z.string().min(1),
   categoryId: z.string().nullable().optional(),
   brandId: z.string().nullable().optional(),
-  costingMethod: z.enum(["WAC", "FIFO"]).optional(),
+  costingMethod: settableCostingMethodSchema.optional(),
   defaultSalePrice: z.string().nullable().optional(),
   defaultCost: z.string().nullable().optional(),
   taxRatePercent: z.number().optional(),

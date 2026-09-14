@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   itemTypeSchema,
   costingMethodSchema,
+  settableCostingMethodSchema,
   itemStatusSchema,
   etaCodeTypeSchema,
   alternateUnitSchema,
@@ -35,6 +36,41 @@ describe("costingMethodSchema", () => {
 
   it("rejects a method outside the enum", () => {
     expect(costingMethodSchema.safeParse("LIFO").success).toBe(false);
+  });
+});
+
+describe("settableCostingMethodSchema", () => {
+  it("accepts WAC", () => {
+    expect(settableCostingMethodSchema.safeParse("WAC").success).toBe(true);
+  });
+
+  it("refuses FIFO, which no valuation path honours (D146)", () => {
+    expect(settableCostingMethodSchema.safeParse("FIFO").success).toBe(false);
+  });
+});
+
+describe("costing method: readable is wider than settable (D146)", () => {
+  it("reads back a stored FIFO item so legacy rows stay parseable", () => {
+    expect(costingMethodSchema.safeParse("FIFO").success).toBe(true);
+  });
+
+  it("refuses FIFO on create", () => {
+    const result = createItemSchema.safeParse({
+      id: "item-1",
+      code: "ITM-1",
+      nameAr: "قميص قطن",
+      type: "stock",
+      baseUnitCode: "PCS",
+      costingMethod: "FIFO",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("costingMethod");
+  });
+
+  it("refuses FIFO on update", () => {
+    const result = updateItemSchema.safeParse({ costingMethod: "FIFO" });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("costingMethod");
   });
 });
 

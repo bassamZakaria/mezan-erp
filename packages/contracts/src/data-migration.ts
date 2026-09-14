@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { settableCostingMethodSchema } from "./items.js";
 
 /**
  * Wire contracts for the data-migration import wizard (docs/archive/catalog/09 "نقل
@@ -89,7 +90,7 @@ export const itemImportRowSchema = z.object({
   barcodes: z.array(z.string()).optional(),
   categoryId: z.string().nullable().optional(),
   brand: z.string().nullable().optional(),
-  costingMethod: z.enum(["WAC", "FIFO"]).optional(),
+  costingMethod: settableCostingMethodSchema.optional(),
   salePrice: decimalString.nullable().optional(),
   costPrice: decimalString.nullable().optional(),
   taxRatePercent: z.number().optional(),

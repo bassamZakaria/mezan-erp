@@ -674,6 +674,14 @@ comparing two numbers that must agree.
 
 ---
 
+### Filed 2026-09-14 while settling §6.3
+
+| # | Defect | Evidence | State |
+|---|---|---|---|
+| D146 | **An item marked FIFO is valued WAC.** `costingMethod` is a real field — `z.enum(["WAC", "FIFO"])` on the wire, a column on `item`, round-tripped by the store, settable on an item, a product template and a data-migration import — and **no valuation path reads it**. Grepping the domain, backend and persistence for `costingMethod` outside its own definition and storage returns only writes. The stock ledger values every position weighted-average regardless, so a tenant who deliberately sets FIFO on an item gets WAC costing, a WAC unit cost on every issue, and a WAC figure in the valuation report — with a screen telling them otherwise. Found while checking whether §6.3's "FIFO-in-v1 scope" was still an open decision: it is not a decision, it is this. The failure shape is the one this repo keeps shipping — a configurable field no code path reads, indistinguishable on screen from an enforced one (DEC-1's `minAmount`, D72's purchasing toggles, D116's permissions) | `packages/contracts/src/items.ts:18`, `packages/persistence/src/item-store.ts:106,223`, and the absence of any reader in `packages/domain/src/inventory/` | reported |
+
+---
+
 ## 5.1 Filing a new one
 
 - **Found something new** → add a row here, with the **measured** evidence, not a
@@ -1011,13 +1019,21 @@ them could build it in a sprint.
 
 ## 6.3 Longer-standing product decisions
 
-These predate the build and are carried in `archive/plan.md` §6.3 (`backlog.md`, which also held them, was merged into `archive/plan.md` on 2026-08-27);
-none of them blocks ongoing development, but each blocks calling its specific
-issue done: licensing mechanism finalization, the installment late-fee rule,
-FIFO-in-v1 scope, delivery notes, branch-scoped numbering, lead → opportunity
-conversion mechanism, projects progress billing (مستخلصات), and a third locale.
+Eight were carried here from `archive/plan.md` §6.3. **Measured against the code on
+2026-09-14, five are already settled by shipped work and one was not a decision at all.**
 
----
+| Carried as | Actually |
+|---|---|
+| Licensing mechanism finalization | **Settled.** `verifyLicense` runs end to end on desktop startup — signature, clock-rollback guard, machine fingerprint, expiry and grace — through `main/license.ts`, `license-runtime.ts` and `license-checkin.ts`, with a server-side write gate past grace (D115) |
+| Branch-scoped numbering | **Settled.** `next-number.ts` scopes a sequence by `branchId` when `def.branchScoped`, and formats with the branch code |
+| Lead → opportunity conversion mechanism | **Settled.** `crm/convert-lead.ts` and `crm/move-opportunity-stage.ts` |
+| Projects progress billing (مستخلصات) | **Settled** — and then some. The whole contracting module shipped (§3.2), المستخلص included |
+| FIFO-in-v1 scope | **NOT a decision — a defect, now filed as D146.** `costingMethod` accepts `"FIFO"`, stores it and reads it back, and no valuation path anywhere reads the field: an item marked FIFO is valued WAC while the screen says otherwise |
+| Installment late-fee rule | **Genuinely open.** `computeLateFee` in `installments/overdue.ts` is an explicit stub returning zero, with `LateFeeConfig`'s fields typed and threaded so the real rule is a drop-in. It needs a product answer — grace period, flat vs percent, and whether the fee is revenue or a recovery |
+| Delivery notes | **Genuinely open.** Nothing in the tree implements one. A scope question, not a defect |
+| A third locale | **Genuinely open.** `Locale` is `"ar" \| "en"`. A scope question |
+
+So three remain, and each is a scope or pricing question rather than anything blocked in code.
 
 ## 6.4 Decided
 

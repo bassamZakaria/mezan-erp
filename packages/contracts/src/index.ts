@@ -178,6 +178,7 @@ export {
   type ItemBrandDTO,
   type ItemSeasonDTO,
   costingMethodSchema,
+  settableCostingMethodSchema,
   itemStatusSchema,
   etaCodeTypeSchema,
   alternateUnitSchema,

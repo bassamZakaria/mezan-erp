@@ -18,12 +18,14 @@ gates and browser proof pass.
 
 ### 1.1 Resolver
 `apps/server/src/tenant-resolver.ts`: `resolveTenantCode(request, { tenantDomain })`.
-- The host is `x-forwarded-host` when present (CloudFront rewrites `Host` to the origin's, so
-  the edge copies the viewer host into that header), else `Host`; the port is stripped.
+- The host is `Host`, or `x-forwarded-host` when `trustForwardedHost` is on (CloudFront rewrites
+  `Host` to the origin's, so the edge copies the viewer host into that header; only a deployment
+  behind such a proxy turns this on). The port is stripped.
 - If `tenantDomain` is set and the host ends with `.<tenantDomain>`, the code is the
   label before it, lower-cased. A host that is exactly the domain, or has a deeper label, resolves
   to null.
-- Otherwise the `x-mezan-tenant` header, trimmed and lower-cased; absent means null.
+- Otherwise the `x-mezan-tenant` header, trimmed and lower-cased, when `allowTenantHeader` is on
+  (default); absent means null.
 - A resolved code that fails `isValidSlug` is treated as null.
 
 ### 1.2 Router
@@ -53,8 +55,9 @@ serialised per code so two concurrent first requests share one handle.
 returns `{ resolveEntitlements, resolveLicenseState }`. Both read the tenant, its live
 subscription and the plan from the platform stores, cached per tenant for `ttlMs`
 (default 30 s), and call `deriveEntitlements` / `subscriptionLicenseState`. A tenant with no
-live subscription yields `UNLICENSED_ENTITLEMENTS` (no modules, 0 seats) and licence
-`UNLICENSED`. `invalidate(code)` is exposed so the platform routes drop the cache after a
+live subscription derives its modules from its most recent subscription so reads keep working,
+while the licence state (READ_ONLY after cancellation or lapse) refuses writes; only a tenant
+that never had a subscription is `UNLICENSED` with `UNLICENSED_ENTITLEMENTS`. `invalidate(code)` is exposed so the platform routes drop the cache after a
 change.
 
 `createBackend` gains `resolveEntitlements?: EntitlementsResolver`, passed to `createApp`

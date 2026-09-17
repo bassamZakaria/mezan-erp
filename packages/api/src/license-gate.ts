@@ -88,9 +88,13 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 /**
  * Path prefixes whose mutations must survive READ_ONLY, or the lockout becomes
  * a trap: you could neither sign in to SEE your (still-readable) data, nor
- * activate the new license that lifts the lockout.
+ * activate the new license that lifts the lockout. `/bootstrap` is here for
+ * the same reason on a tenant that has never been licensed at all — a fresh
+ * "provisioning" tenant resolves UNLICENSED, and both of its routes are
+ * self-closing regardless: `/bootstrap/seed` is a no-op once the tenant is
+ * non-empty, `/bootstrap/admin` refuses with 409 once it is claimed.
  */
-const DEFAULT_WRITE_ALLOWLIST: readonly string[] = ["/auth", "/license"];
+const DEFAULT_WRITE_ALLOWLIST: readonly string[] = ["/auth", "/license", "/bootstrap"];
 
 export interface WriteGateOptions {
   /** Path prefixes exempt from the read-only block for mutating methods. */

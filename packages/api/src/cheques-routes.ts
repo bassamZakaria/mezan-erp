@@ -17,6 +17,7 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  type AuditSink,
   type Cheque,
   type ChequeServiceDeps,
 } from "@mezan/domain";
@@ -29,11 +30,20 @@ import {
   chequeListQuerySchema,
   type ChequeListQueryDTO,
 } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
+import { tenantDay } from "./tenant-day.js";
 
 export type ChequeRoutesDeps = ChequeServiceDeps & {
   /** Generates ids (cheque id, journal-entry id) when the request omits them. Defaults to a UUID. */
   readonly idGen?: () => string;
+  /**
+   * The forensic trail for the lifecycle (D80). A cheque moving through seven
+   * states with no attribution left nobody to ask who deposited or bounced it,
+   * and the audit stream is where that answer survives a restart today —
+   * storage does not carry the per-transition actor columns yet.
+   */
+  readonly audit?: AuditSink;
 };
 
 function serialize(cheque: Cheque, asOfDate: string) {
@@ -60,6 +70,11 @@ function serialize(cheque: Cheque, asOfDate: string) {
     depositedAt: cheque.depositedAt,
     collectedAt: cheque.collectedAt,
     bouncedAt: cheque.bouncedAt,
+    createdBy: cheque.createdBy ?? null,
+    depositedBy: cheque.depositedBy ?? null,
+    collectedBy: cheque.collectedBy ?? null,
+    bouncedBy: cheque.bouncedBy ?? null,
+    replacedBy: cheque.replacedBy ?? null,
     replacesChequeId: cheque.replacesChequeId,
     replacedByChequeId: cheque.replacedByChequeId,
     creationJournalEntryId: cheque.creationJournalEntryId,
@@ -115,6 +130,28 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
   const idGen = deps.idGen ?? (() => randomUUID());
   const service = new ChequeService(deps);
   const asOf = () => (deps.now ? deps.now() : new Date().toISOString()).slice(0, 10);
+  /**
+   * WHO. Read off the resolved session, never `x-user-id` — an actor the
+   * caller named would make the register's attribution fiction (D80).
+   */
+  const actorOf = (c: Context) => getAuthContext(c)?.userId ?? deps.actor ?? "system";
+
+  function auditTransition(c: Context, action: string, cheque: Cheque) {
+    return recordAdminEvent(deps.audit, c, {
+      module: "treasury",
+      entityType: "CHEQUE",
+      entityId: cheque.id,
+      action,
+      details: {
+        chequeNumber: cheque.chequeNumber,
+        direction: cheque.direction,
+        status: cheque.status,
+        amount: cheque.amount.toString(),
+        partyId: cheque.partyId,
+        dueDate: cheque.dueDate,
+      },
+    });
+  }
 
   type ChequeListFilter = ChequeListQueryDTO & { readonly search?: string };
 
@@ -247,7 +284,9 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         counterpartyGlAccountId: d.counterpartyGlAccountId,
         controlAccounts: { underCollectionAccountId: d.controlAccounts.underCollectionAccountId, bouncedAccountId: d.controlAccounts.bouncedAccountId ?? null },
         journalEntryId: idGen(),
+        actor: actorOf(c),
       });
+      await auditTransition(c, "CREATE", cheque);
       return c.json(serialize(cheque, asOf()), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -260,7 +299,12 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const cheque = await service.deposit({ chequeId: c.req.param("id"), bankTreasuryAccountId: parsed.data.bankTreasuryAccountId });
+      const cheque = await service.deposit({
+        chequeId: c.req.param("id"),
+        bankTreasuryAccountId: parsed.data.bankTreasuryAccountId,
+        actor: actorOf(c),
+      });
+      await auditTransition(c, "DEPOSIT", cheque);
       return c.json(serialize(cheque, asOf()));
     } catch (err) {
       return handleDomainError(c, err);
@@ -276,9 +320,11 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       const cheque = await service.collect({
         chequeId: c.req.param("id"),
         bankGlAccountId: parsed.data.bankGlAccountId,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         journalEntryId: idGen(),
+        actor: actorOf(c),
       });
+      await auditTransition(c, "COLLECT", cheque);
       return c.json(serialize(cheque, asOf()));
     } catch (err) {
       return handleDomainError(c, err);
@@ -297,7 +343,13 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const cheque = await service.bounce({ chequeId: c.req.param("id"), date: parsed.data.date, journalEntryId: idGen() });
+      const cheque = await service.bounce({
+        chequeId: c.req.param("id"),
+        date: await tenantDay(c, parsed.data.date),
+        journalEntryId: idGen(),
+        actor: actorOf(c),
+      });
+      await auditTransition(c, "BOUNCE", cheque);
       return c.json(serialize(cheque, asOf()));
     } catch (err) {
       return handleDomainError(c, err);
@@ -326,7 +378,9 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         },
         date: d.date,
         journalEntryId: idGen(),
+        actor: actorOf(c),
       });
+      await auditTransition(c, "REPLACE", result.original);
       return c.json({ original: serialize(result.original, asOf()), replacement: serialize(result.replacement, asOf()) }, 201);
     } catch (err) {
       return handleDomainError(c, err);

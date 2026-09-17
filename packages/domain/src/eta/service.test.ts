@@ -7,7 +7,6 @@ import {
   DuplicateEtaSubmissionError,
   EtaExclusionReasonRequiredError,
   EtaOfflineError,
-  EtaSignerNotConfiguredError,
   InvalidEtaTransitionError,
 } from "./errors.js";
 
@@ -115,26 +114,37 @@ describe("EtaService — lifecycle", () => {
     expect(errored.errors[0]).toContain("غير صالح");
   });
 
-  it("routes a v1.0 e-seal document to بانتظار التوقيع, then signs and transmits it", async () => {
+  it("signs a v1.0 e-seal document with the external signer, then transmits it", async () => {
     const { svc } = service({ signingMethod: "eseal" }, acceptingPort, fakeSigner);
     const s = await svc.enqueue(doc);
-    const pending = await svc.submit(s.id);
-    expect(pending.status).toBe("pending_signature");
     const submitted = await svc.submit(s.id);
     expect(submitted.status).toBe("submitted");
     expect(submitted.signature).toBe("CADES-SIGNATURE");
   });
 
-  // guards P-1 — an unsigned v1.0 document must not be transmitted; it stays
-  // بانتظار التوقيع and the reason is Arabic.
+  it("routes a v1.0 e-seal document to بانتظار التوقيع before transmission", async () => {
+    const { svc } = service({ signingMethod: "eseal" }, acceptingPort);
+    const s = await svc.enqueue(doc);
+    const pending = await svc.submit(s.id);
+    expect(pending.status).toBe("pending_signature");
+    // No signing agent is wired, so the row says why it is parked...
+    expect(pending.errors[0]).toContain("ختم إلكتروني");
+    // ...and pressing إرسال again parks it again rather than transmitting an
+    // unsigned version-1.0 document, which is what it used to do.
+    const again = await svc.submit(s.id);
+    expect(again.status).toBe("pending_signature");
+  });
+
+  // guards P-1 — an unsigned v1.0 document must not be transmitted; the row it
+  // leaves behind stays بانتظار التوقيع and the reason on it is Arabic.
   it("refuses to transmit a v1.0 document when no signing program is configured", async () => {
     const { svc, submissions } = service({ signingMethod: "eseal" }, acceptingPort);
     const s = await svc.enqueue(doc);
     await svc.submit(s.id);
-    await expect(svc.submit(s.id)).rejects.toBeInstanceOf(EtaSignerNotConfiguredError);
+    await svc.submit(s.id);
     const after = submissions.rows.get(s.id)!;
     expect(after.status).toBe("pending_signature");
-    expect(after.errors[0]).toContain("جهاز التوقيع");
+    expect(after.errors[0]).toContain("ختم إلكتروني");
   });
 
   // guards P-1 — the queue driver a scheduler calls.
@@ -145,7 +155,6 @@ describe("EtaService — lifecycle", () => {
     };
     const { svc } = service({ signingMethod: "eseal" }, polling, fakeSigner);
     const s = await svc.enqueue(doc);
-    await svc.submit(s.id);
 
     const result = await svc.processQueue();
     expect(result.submitted.map((x) => x.id)).toEqual([s.id]);

@@ -958,7 +958,33 @@ export async function run(ctx: Ctx): Promise<void> {
     const denied = await req("GET", "/items", undefined, { ...confirmOnly });
     check("a permission the caller does not hold is refused with the code it is missing", denied.status === 403 && denied.body?.error === "PERMISSION_DENIED", `status ${denied.status} ${JSON.stringify(denied.body).slice(0, 200)}`);
 
-    const listAsConfirmer = await req("GET", "/sales-invoices", undefined, confirmOnly);
+    // `view_own` narrows on `salespersonId`, which holds an EMPLOYEE id — so
+    // the tier can only be proven through a user actually linked to an
+    // employee. Asserting it against a header-invented user id passed
+    // vacuously on the empty list every such caller is shown (D147).
+    const allUsers = rows((await req("GET", "/users")).body);
+    const linkedUser = allUsers.find((u: any) => typeof u.employeeId === "string" && u.employeeId.length > 0);
+    check(
+      "the seed links at least one user to an employee, which is what `view_own` on a sales invoice narrows by",
+      Boolean(linkedUser),
+      `users=${allUsers.length} linked=${allUsers.filter((u: any) => u.employeeId).length}`,
+    );
+
+    const repHeaders = { "x-permissions": "sales.invoice.confirm", "x-user-id": String(linkedUser?.id ?? "USER-SCN-CONFIRM") };
+    const repEmployeeId = String(linkedUser?.employeeId ?? "");
+
+    const repInvoice = await req("POST", "/sales-invoices", {
+      id: "SCN-S-INV-REP", date: TODAY, dueDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل المندوب",
+      warehouseId: WH, branchId: BRANCH, arAccountId: AR, taxAccountId: OUTPUT_TAX, salespersonId: repEmployeeId,
+      lines: [{ lineId: "L1", itemId: "SCN-S-SVC", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "500", taxRatePercent: VAT, revenueAccountId: REVENUE }],
+    });
+    check(
+      "an invoice is raised with that employee as its salesperson",
+      repInvoice.status === 201 && repInvoice.body?.salespersonId === repEmployeeId,
+      `status ${repInvoice.status} ${JSON.stringify(repInvoice.body).slice(0, 250)}`,
+    );
+
+    const listAsConfirmer = await req("GET", "/sales-invoices", undefined, repHeaders);
     check(
       "granting `.confirm` implies `.view_own`, and the read route honours that tier rather than demanding `.view` (docs/archive/defect-register.md D31)",
       listAsConfirmer.status === 200,
@@ -966,9 +992,14 @@ export async function run(ctx: Ctx): Promise<void> {
     );
     const confirmerSees = rows(listAsConfirmer.body);
     check(
-      "and `view_own` NARROWS: a confirmer sees only what they are the salesperson on, not every colleague's invoice",
-      confirmerSees.every((i: any) => i.salespersonId === "USER-SCN-CONFIRM"),
-      `rows=${confirmerSees.length} salespeople=${[...new Set(confirmerSees.map((i: any) => String(i.salespersonId)))].join(",")}`,
+      "and `view_own` NARROWS to the caller's own EMPLOYEE id: at least one row, and every row theirs",
+      confirmerSees.length > 0 && confirmerSees.every((i: any) => i.salespersonId === repEmployeeId),
+      `rows=${confirmerSees.length} employee=${repEmployeeId} salespeople=${[...new Set(confirmerSees.map((i: any) => String(i.salespersonId)))].join(",")}`,
+    );
+    check(
+      "and a user id is NOT accepted in its place — the two id spaces never collide (D147)",
+      confirmerSees.every((i: any) => i.salespersonId !== String(linkedUser?.id ?? "")),
+      `employee=${repEmployeeId} user=${String(linkedUser?.id ?? "")}`,
     );
 
     const listAsViewer = await req("GET", "/sales-invoices", undefined, viewOnly);

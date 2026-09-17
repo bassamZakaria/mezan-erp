@@ -20,5 +20,29 @@
  */
 export const RAIL_WIDTH = "w-[256px]";
 
+/**
+ * Where the shell stops being a two-column desktop layout.
+ *
+ * Below this the workspace column becomes an OVERLAY rather than a sibling of
+ * the content. A fixed 256px column on a 390px phone leaves 134px for the
+ * screen itself, so every table, form and KPI row overflowed and the PAGE
+ * scrolled sideways — the user dragged the whole layout left and right to read
+ * one row, and the chrome went with it.
+ *
+ * 900px rather than a Tailwind breakpoint: the column plus a usable content
+ * area needs roughly 256 + 640, and `lg` (1024) would take the column away from
+ * tablets that have room for it.
+ */
+export const RAIL_BREAKPOINT = 900;
+
+/** The rail as a sibling column: its normal desktop self, hidden once it overlays. */
+export const RAIL_DOCKED = "max-[900px]:hidden";
+
+/** The rail as an overlay: off the flow, above the content, full height. */
+export const RAIL_OVERLAY = "fixed inset-y-0 start-0 z-50 max-w-[85vw] shadow-2";
+
+/** Shown only below the breakpoint — the menu button, and the bar that holds it. */
+export const SMALL_ONLY = "min-[901px]:hidden";
+
 /** The screens bar's own inline padding; the header matches it after the brand. */
 export const BAR_INSET = "ps-[12px]";

@@ -156,11 +156,19 @@ function countQueryString(filters: PhysicalCountListFilters): string {
   return qs === "" ? "" : `?${qs}`;
 }
 
+/**
+ * The cache key is `["physical-counts", …]` and NOT `["inventory", …]`: the
+ * الجرد الفعلي screen reads its list, its chip counts and its KPI strip through
+ * `hooks.ts` under that prefix, while these mutations invalidated a prefix
+ * nothing read — so starting a count bounced back to an empty list and
+ * completing one left the row on قيد التنفيذ (D66). One prefix, or the screen
+ * never refreshes.
+ */
 export function usePhysicalCounts(filters: PhysicalCountListFilters = {}): UseQueryResult<PhysicalCountDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PhysicalCountDTO[], ApiError>({
-    queryKey: ["inventory", "physical-counts", filters],
+    queryKey: ["physical-counts", filters],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/inventory/physical-counts${countQueryString(filters)}`);
@@ -180,7 +188,7 @@ export function useStartPhysicalCount() {
       if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCountCouldNotBe")));
       return res.json<PhysicalCountDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory", "physical-counts"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
   });
 }
 
@@ -194,7 +202,7 @@ export function useRecordPhysicalCounts() {
       if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("stockOps.theCountedQuantitiesCouldNot")));
       return res.json<PhysicalCountDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory", "physical-counts"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
   });
 }
 
@@ -208,7 +216,7 @@ export function useCompletePhysicalCount() {
       if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCountCouldNotBe2")));
       return res.json<PhysicalCountDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory", "physical-counts"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
   });
 }
 
@@ -222,7 +230,7 @@ export function useCancelPhysicalCount() {
       if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCountCouldNotBe3")));
       return res.json<PhysicalCountDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory", "physical-counts"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
   });
 }
 
@@ -241,7 +249,7 @@ export function useGenerateAdjustmentFromCount() {
       return res.json<{ count: PhysicalCountDTO; adjustment: StockAdjustmentDocumentDTO | null }>();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inventory", "physical-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["physical-counts"] });
       queryClient.invalidateQueries({ queryKey: ["inventory", "stock-adjustments"] });
       queryClient.invalidateQueries({ queryKey: ["inventory", "stock-balance"] });
     },

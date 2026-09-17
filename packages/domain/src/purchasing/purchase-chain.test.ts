@@ -244,7 +244,7 @@ describe("Goods Receipt", () => {
         numbering,
         policy: { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, trackSoldPurchaseItems: true },
       }),
-    ).rejects.toThrow(/PURCHASE_OVER_RECEIPT|outstanding/);
+    ).rejects.toThrow(/تتجاوز المتبقي/);
     // default policy (gate off) allows it
     const gr = await createGoodsReceipt(over, { receipts, orders, numbering });
     expect(gr.status).toBe("draft");
@@ -555,7 +555,7 @@ describe("Purchase Invoice", () => {
         numbering,
         policy: { requirePoForGrn: false, requireReceiptForInvoice: true, blockOverReceipt: false, trackSoldPurchaseItems: true },
       }),
-    ).rejects.toThrow(/PURCHASE_RECEIPT_REQUIRED|required/);
+    ).rejects.toThrow(/إلزام إذن الاستلام قبل الفاتورة/);
     const inv = await createPurchaseInvoice(manual, { invoices, numbering });
     expect(inv.status).toBe("draft");
   });

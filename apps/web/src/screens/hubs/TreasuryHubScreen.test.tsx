@@ -28,8 +28,8 @@ function TestNavigation({ navigate, children }: { navigate: (screen: string, int
 }
 
 const accounts: TreasuryAccountDTO[] = [
-  { id: "ta-1", code: "CASH-001", name: "صندوق نقدي", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "active" },
-  { id: "ta-2", code: "CASH-002", name: "صندوق موقوف", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "inactive" },
+  { id: "ta-1", code: "CASH-001", name: "صندوق نقدي", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
+  { id: "ta-2", code: "CASH-002", name: "صندوق موقوف", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "inactive" },
 ];
 
 function voucher(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {
@@ -39,6 +39,7 @@ function voucher(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {
     baseAmount: "3500.500000", branchId: "MAIN", paymentMethod: "cash",
     treasuryAccountId: "ta-1", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", counterTreasuryAccountId: null,
     counterTreasuryGlAccountId: null, customerId: null, supplierId: null, referenceNo: null, costCenterId: null,
+    projectId: null, costCategory: null,
     withholdingAmount: null, withholdingRatePercent: null, netPaidAmount: "3500.500000", journalEntryId: "je-1",
     confirmedAt: "2026-08-07T10:00:00.000Z",
     allocatable: false,

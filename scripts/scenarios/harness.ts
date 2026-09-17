@@ -1,5 +1,5 @@
 import { createBackend } from "../../packages/backend/src/create-backend.js";
-import { ALL_SCOPE } from "../../packages/domain/src/index.js";
+import { ALL_SCOPE, createEntitlements, MODULE_CATALOG } from "../../packages/domain/src/index.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,7 +27,11 @@ export interface Res {
 
 export async function boot() {
   const dir = mkdtempSync(join(tmpdir(), "mezan-scn-"));
-  const { app, sessions } = await createBackend({ dbPath: join(dir, "s.db"), seedDemoData: true });
+  // The demo seed creates more accounts than the platform default's 10 seats
+  // allow (A3's SEAT_LIMIT_REACHED); this stand-in resolver keeps every cap off.
+  const resolveEntitlements = () =>
+    createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+  const { app, sessions } = await createBackend({ dbPath: join(dir, "s.db"), seedDemoData: true, resolveEntitlements });
 
   /**
    * A scenario acts as an identity by minting a session for it, not by writing

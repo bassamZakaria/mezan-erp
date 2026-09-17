@@ -1,7 +1,15 @@
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
-import { createAuthContext, ALL_SCOPE } from "@mezan/domain";
-import { createPermissionGate, insecureHeaderAuthContextResolver, getAuthContext, isProductionRuntime } from "./permission-gate.js";
+import { createAuthContext, ALL_SCOPE, createEntitlements } from "@mezan/domain";
+import {
+  createPermissionGate,
+  createAnyPermissionGate,
+  insecureHeaderAuthContextResolver,
+  getAuthContext,
+  isProductionRuntime,
+  permissionRefusalReporting,
+} from "./permission-gate.js";
+import { entitlementsBinding } from "./module-gate.js";
 
 function appWithContext(permissions: string[]) {
   const ctx = createAuthContext({ userId: "u1", permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
@@ -30,6 +38,51 @@ describe("permission gate middleware", () => {
     const res = await app.fetch(new Request("http://x/settings"));
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ error: "PERMISSION_DENIED", permission: "admin.settings.view" });
+  });
+});
+
+describe("module refusal reaches the bound reporter", () => {
+  function appFor(gateAny: boolean) {
+    const entitlements = createEntitlements({
+      plan: "core",
+      activeModules: ["sales"],
+      features: {},
+      seats: 1,
+      expiresAt: null,
+    });
+    const ctx = createAuthContext({ userId: "u1", permissions: ["*"], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const report = vi.fn();
+    const app = new Hono();
+    app.use("*", permissionRefusalReporting(report));
+    app.use("*", entitlementsBinding(() => entitlements));
+    if (gateAny) {
+      const gate = createAnyPermissionGate(() => ctx);
+      app.get("/hr", gate("hr.employee.view", "hr.employee.create"), (c) => c.json({ ok: true }));
+    } else {
+      const gate = createPermissionGate(() => ctx);
+      app.get("/hr", gate("hr.employee.view"), (c) => c.json({ ok: true }));
+    }
+    return { app, report };
+  }
+
+  it("createPermissionGate: writes a refusal row for a module refusal, even for the tenant admin", async () => {
+    const { app, report } = appFor(false);
+    const res = await app.fetch(new Request("http://x/hr"));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "u1", permission: "hr.employee.view", path: "/hr" }),
+    );
+  });
+
+  it("createAnyPermissionGate: writes a refusal row for a module refusal", async () => {
+    const { app, report } = appFor(true);
+    const res = await app.fetch(new Request("http://x/hr"));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "u1", permission: "hr.employee.view", path: "/hr" }),
+    );
   });
 });
 

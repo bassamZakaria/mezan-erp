@@ -1,4 +1,4 @@
-import { createEntitlements, verifyLicense } from "@mezan/domain";
+import { createEntitlements, UNLICENSED_ENTITLEMENTS, verifyLicense } from "@mezan/domain";
 import type {
   Clock,
   EntitlementsView,
@@ -30,15 +30,6 @@ import {
  * air-gapped activation codes, key distribution. This reads an already-issued
  * `license.mezan` from disk and enforces it.
  */
-
-/** Fully-closed entitlements — an install with no valid license licenses nothing. */
-const UNLICENSED_ENTITLEMENTS: EntitlementsView = createEntitlements({
-  plan: "UNLICENSED",
-  activeModules: [],
-  features: {},
-  seats: 0,
-  expiresAt: null,
-});
 
 /** State for the write-gate + banner when no authentic license is present. */
 export const UNLICENSED_STATE: LicenseStateView = {

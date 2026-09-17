@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for Bank Statement Reconciliation (docs/archive/catalog/04
@@ -39,7 +40,7 @@ export const bankStatementSchema = z.object({
   statementNumber: z.string().nullable(),
   periodStart: z.string(),
   periodEnd: z.string(),
-  openingBalance: z.string(),
+  openingBalance: moneyString,
   closingBalance: z.string(),
   status: bankStatementStatusSchema,
   importedAt: z.string(),
@@ -52,7 +53,7 @@ export const statementLineSchema = z.object({
   date: z.string(),
   description: z.string(),
   reference: z.string().nullable(),
-  amount: z.string(),
+  amount: moneyString,
   status: statementLineStatusSchema,
   matchedEntryId: z.string().nullable(),
   /**
@@ -72,7 +73,7 @@ export const importBankStatementSchema = z.object({
   mapping: columnMappingInputSchema,
   periodStart: z.string().min(1),
   periodEnd: z.string().min(1),
-  openingBalance: z.string(),
+  openingBalance: moneyString,
   closingBalance: z.string(),
   statementNumber: z.string().nullish(),
 });
@@ -86,7 +87,7 @@ export const addManualLineSchema = z.object({
   date: z.string().min(1),
   description: z.string().min(1),
   reference: z.string().nullish(),
-  amount: z.string(),
+  amount: moneyString,
 });
 
 export const matchSummarySchema = z.object({
@@ -106,7 +107,7 @@ export const matchCandidateSchema = z.object({
   entryId: z.string(),
   entryNo: z.string().nullable(),
   date: z.string(),
-  amount: z.string(),
+  amount: moneyString,
   description: z.string().nullable(),
 });
 

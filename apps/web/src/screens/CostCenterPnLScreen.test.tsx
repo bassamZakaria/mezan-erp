@@ -10,8 +10,8 @@ import { monthEndIso, monthStartIso } from "../lib/dates";
 function report(overrides: Partial<CostCenterPnLReportDTO> = {}): CostCenterPnLReportDTO {
   return {
     rows: [
-      { costCenterId: "cc-1", code: "CC-01", name: "الإنتاج", revenue: "12500.000000", expense: "9000.000000", profit: "3500.000000" },
-      { costCenterId: null, code: "—", name: "غير مخصص", revenue: "0.000000", expense: "1200.000000", profit: "-1200.000000" },
+      { costCenterId: "cc-1", code: "CC-01", name: "الإنتاج", revenue: "12500.000000", expense: "9000.000000", profit: "3500.000000", parentId: null, rollup: { revenue: "12500.000000", expense: "9000.000000", profit: "3500.000000" } },
+      { costCenterId: null, code: "—", name: "غير مخصص", revenue: "0.000000", expense: "1200.000000", profit: "-1200.000000", parentId: null, rollup: { revenue: "0.000000", expense: "1200.000000", profit: "-1200.000000" } },
     ],
     totals: { revenue: "12500.000000", expense: "10200.000000", profit: "2300.000000" },
     ...overrides,

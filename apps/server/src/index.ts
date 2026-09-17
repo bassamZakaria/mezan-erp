@@ -1,16 +1,21 @@
 import { serve } from "@hono/node-server";
-import { createBackend, takeSeededAdminSecrets } from "@mezan/backend";
+import { takeSeededAdminSecrets } from "@mezan/backend";
+import { parseEnv } from "./env.js";
+import { createCloudApp } from "./cloud-app.js";
 
 /**
- * Cloud-edition mount: the shared, seeded Hono app served over an HTTP socket.
- * SQLite here stands in for Postgres (Path A); the app code is unchanged. Point
- * MEZAN_DB at a real file for durable storage (defaults to a local file so the
- * web dev build always has a live backend); the DB is bootstrapped + seeded on
- * first start.
+ * Dev entrypoint: the same cloud composition `cloud.ts` runs, pointed at a
+ * local, gitignored data directory instead of `.data/platform` so a
+ * developer's platform and tenant databases never collide with a deployed
+ * one on the same machine.
  */
-const dbPath = process.env.MEZAN_DB ?? "./mezan.db";
-const seedDemoData = process.env.MEZAN_SEED_DEMO === "1";
-const { app } = await createBackend({ dbPath, seedDemoData });
+const env = parseEnv({
+  ...process.env,
+  MEZAN_PLATFORM_DIR: process.env["MEZAN_PLATFORM_DIR"] ?? "./.data/dev-platform",
+  PORT: process.env["PORT"] ?? "3000",
+});
+
+const { root } = await createCloudApp(env);
 
 /**
  * A generated seed PIN is PRINTED, once, on the run that generated it.
@@ -32,7 +37,19 @@ if (seeded?.generated) {
   console.log("[server] Sign in, create your own admin, and disable this account.");
   console.log("[server] ------------------------------------------------------------");
 }
-const port = Number(process.env.PORT ?? 3000);
+
+/**
+ * A rejected promise that reaches the process must not end it. Node's default
+ * on an unhandled rejection is to exit, and a single refused posting — a
+ * document approved into a closed fiscal period — was taking the whole backend
+ * with it, which on a LAN install means every till at once. Logged, never
+ * fatal; `app.onError` has already answered the request. Registered AFTER the
+ * boot above, so a failure to start is still fatal and visible.
+ */
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandled rejection (ignored, server stays up):", reason);
+});
+
 /**
  * SECURITY: LOOPBACK BY DEFAULT.
  *
@@ -42,14 +59,14 @@ const port = Number(process.env.PORT ?? 3000);
  * being told it was local-only. Set MEZAN_BIND deliberately (a container needs
  * `0.0.0.0`); the address actually bound is printed below, never a guess.
  */
-const hostname = process.env.MEZAN_BIND ?? "127.0.0.1";
+const hostname = process.env["MEZAN_BIND"] ?? "127.0.0.1";
 
-serve({ fetch: app.fetch, port, hostname }, (info) => {
+serve({ fetch: root.fetch, port: env.port, hostname }, (info) => {
   const shown = info.family === "IPv6" ? `[${info.address}]` : info.address;
-  console.log(`[server] Mezan API listening on http://${shown}:${info.port} (db: ${dbPath}${seedDemoData ? ", demo seed ON" : ""})`);
+  console.log(`[server] Mezan platform listening on http://${shown}:${info.port} (platform dir: ${env.platformDir})`);
   if (hostname !== "127.0.0.1" && hostname !== "localhost") {
     console.log(`[server] NOTE: bound to ${hostname} — reachable from other machines on this network.`);
   }
-  console.log(`[server] try: POST /auth/login , GET /dashboard/summary`);
-  console.log(`[server] try: GET /reports/sales/by-period , /reports/inventory/valuation , /reports/aging/customers , etc. (docs/archive/catalog/08-reports.md)`);
+  console.log(`[server] try: POST /api/platform/auth/login , GET /api/platform/resolve`);
+  console.log(`[server] try: POST /api/auth/login (with x-mezan-tenant) , GET /api/dashboard/summary`);
 });

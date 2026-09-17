@@ -63,7 +63,7 @@ describe("the four exception-report screens", () => {
     expect(path).toContain("/security-reports/exceptions");
     expect(path).toContain("from=");
     expect(path).toContain("to=");
-    expect(screen.getByText("الضوابط المراقَبة")).toBeInTheDocument();
+    expect(screen.getByText("قائمة المراقبة")).toBeInTheDocument();
     expect(screen.getByText("إعادة تعيين رمز مدير")).toBeInTheDocument();
   });
 

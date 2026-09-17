@@ -17,9 +17,11 @@ import {
   type RowMenuItem,
 } from "@mezan/ui";
 import { canTransitionProject, matchesSearch } from "@mezan/domain";
-import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/contracts";
-import { ApiError, useCreateProject, useCustomers, useProjects, useUpdateProject, useUsers } from "../data/hooks";
+import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO, ProjectStatusFlagDTO } from "@mezan/contracts";
+import { ApiError, useCreateProject, useCustomers, useProjectPnL, useProjects, useUpdateProject, useUsers } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useWorksContracts } from "../data/contracting-contracts-hooks";
+import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -32,6 +34,12 @@ const STATUS_KEY: Record<ProjectStatusDTO, AppTranslationKey> = {
   on_hold: "projects.status.on_hold",
   completed: "projects.status.completed",
   cancelled: "projects.status.cancelled",
+};
+
+/** The derived flags the P&L reports per project — never stored, recomputed on every read. */
+const PROJECT_FLAG_KEY: Record<ProjectStatusFlagDTO, AppTranslationKey> = {
+  onerous_contract: "projects.flag.onerousContract",
+  late_penalty_risk: "projects.flag.latePenaltyRisk",
 };
 
 const STATUS_TONE: Record<ProjectStatusDTO, PillTone> = {
@@ -106,8 +114,10 @@ export function ProjectsScreen() {
   const usersQuery = useUsers();
   const createProject = useCreateProject();
   const updateProject = useUpdateProject();
+  const pnlQuery = useProjectPnL();
 
   const projects = query.data ?? EMPTY;
+  const pnlByProject = useMemo(() => new Map((pnlQuery.data?.rows ?? []).map((r) => [r.projectId, r])), [pnlQuery.data]);
   const customers = customersQuery.data ?? [];
   const users = usersQuery.data ?? [];
 
@@ -233,6 +243,102 @@ export function ProjectsScreen() {
     { key: "customer", header: t("common.customer"), render: (p) => customerName(p.customerId) },
     { key: "manager", header: t("projects.projectManager"), render: (p) => managerName(p.managerId) },
     { key: "budget", header: t("projects.budget"), align: "end", render: (p) => <MoneyDisplay value={toMajor(p.budget)} /> },
+    {
+      key: "actualCost",
+      header: t("projects.actualCost"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.cost)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "margin",
+      header: t("projects.margin"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        if (!row) return <span className="text-ink-muted">—</span>;
+        return <MoneyDisplay value={toMajor(row.margin)} className={Number(row.margin) < 0 ? "text-danger-ink" : "text-success-ink"} />;
+      },
+    },
+    {
+      key: "revenueRecognised",
+      header: t("projects.revenueRecognised"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.revenueRecognised)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "billedToDate",
+      header: t("projects.billedToDate"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.billedToDate)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "wipBalance",
+      header: t("projects.wipBalance"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.wipBalance)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "contractPosition",
+      header: t("projects.contractPosition"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        if (!row) return <span className="text-ink-muted">—</span>;
+        // One column, two accounts: a credit position is التزام العقد and is
+        // shown as the negative of the asset it is the other side of.
+        return Number(row.contractLiability) > 0 ? (
+          <MoneyDisplay value={-toMajor(row.contractLiability)} className="text-danger-ink" />
+        ) : (
+          <MoneyDisplay value={toMajor(row.contractAsset)} />
+        );
+      },
+    },
+    {
+      key: "advanceOutstanding",
+      header: t("projects.advanceOutstanding"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.advanceOutstanding)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "retentionHeld",
+      header: t("projects.retentionHeld"),
+      align: "end",
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        return row ? <MoneyDisplay value={toMajor(row.retentionHeld)} /> : <span className="text-ink-muted">—</span>;
+      },
+    },
+    {
+      key: "flags",
+      header: t("projects.flags"),
+      numeric: false,
+      render: (p) => {
+        const row = pnlByProject.get(p.id);
+        if (!row || row.flags.length === 0) return <span className="text-ink-muted">—</span>;
+        return (
+          <div className="flex flex-wrap gap-[6px]">
+            {row.flags.map((flag) => (
+              <StatusPill key={flag} label={t(PROJECT_FLAG_KEY[flag])} tone="danger" />
+            ))}
+          </div>
+        );
+      },
+    },
     { key: "status", header: t("common.status"), render: (p) => <StatusPill label={t(STATUS_KEY[p.status])} tone={STATUS_TONE[p.status]} /> },
   ];
 
@@ -375,6 +481,41 @@ export function ProjectsScreen() {
                 <MoneyDisplay value={toMajor(selected.budget)} className="text-[18px] font-bold" />
               </div>
             </Card>
+            <ProjectContractsCard projectId={selected.id} />
+            {(() => {
+              const row = pnlByProject.get(selected.id);
+              if (!row) return null;
+              const categories = ["materials", "labour", "equipment", "subcontract", "indirect", "uncategorised"] as const;
+              return (
+                <Card className="divide-y divide-border">
+                  <div className="grid grid-cols-1 divide-y divide-border">
+                    <div className="p-[13px_15px]">
+                      <div className="text-[11px] font-semibold text-ink-faint">{t("projects.actualCost")}</div>
+                      <div className="mt-[6px]"><MoneyDisplay value={toMajor(row.cost)} className="text-[16px] font-bold" /></div>
+                    </div>
+                    <div className="p-[13px_15px]">
+                      <div className="text-[11px] font-semibold text-ink-faint">{t("projects.margin")}</div>
+                      <div className="mt-[6px]"><MoneyDisplay value={toMajor(row.margin)} className={`text-[16px] font-bold ${Number(row.margin) < 0 ? "text-danger-ink" : "text-success-ink"}`} /></div>
+                    </div>
+                    <div className="p-[13px_15px]">
+                      <div className="text-[11px] font-semibold text-ink-faint">{t("projects.budgetRemaining")}</div>
+                      <div className="mt-[6px]"><MoneyDisplay value={toMajor(row.budgetRemaining)} className={`text-[16px] font-bold ${Number(row.budgetRemaining) < 0 ? "text-danger-ink" : "text-ink"}`} /></div>
+                    </div>
+                  </div>
+                  <div className="p-[13px_15px]">
+                    <div className="text-[11px] font-semibold text-ink-faint">{t("projects.costByCategory")}</div>
+                    <dl className="mt-[6px] grid grid-cols-2 gap-x-[16px] gap-y-[4px] text-[12.5px]">
+                      {categories.map((c) => (
+                        <div key={c} className="flex justify-between gap-[8px]">
+                          <dt className="text-ink-muted">{t(`costCategory.${c}`)}</dt>
+                          <dd><MoneyDisplay value={toMajor(row.costByCategory[c])} /></dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                </Card>
+              );
+            })()}
             {selected.notes ? (
               <Card className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("common.notes")}</div>
@@ -452,5 +593,41 @@ export function ProjectsScreen() {
         </form>
       </SidePanel>
     </div>
+  );
+}
+
+/**
+ * عقود المشروع — the contracts raised against this project, with the value the
+ * server derived from each one's BOQ. A project can carry several; the first is
+ * the main one.
+ */
+function ProjectContractsCard({ projectId }: { projectId: string }) {
+  const { t } = useAppTranslation();
+  const { openScreenAt } = useNavigation();
+  const contracts = useWorksContracts({ projectId }).data ?? EMPTY;
+
+  return (
+    <Card className="p-[13px_15px]">
+      <div className="text-[11px] font-semibold text-ink-faint">{t("worksContracts.title")}</div>
+      {contracts.length === 0 ? (
+        <div className="mt-[6px] text-[12.5px] text-ink-muted">{t("projects.noContracts")}</div>
+      ) : (
+        <ul className="mt-[8px] flex flex-col gap-[6px]">
+          {contracts.map((contract) => (
+            <li key={contract.id} className="flex items-center justify-between gap-[10px]">
+              <Button size="sm" onClick={() => openScreenAt("contracting-contracts", [contract.docNo])}>
+                <span className="mz-num">{contract.docNo}</span>
+              </Button>
+              <span className="flex-1 truncate text-[12.5px] text-ink">{contract.titleAr}</span>
+              <MoneyDisplay value={toMajor(contract.contractValueAfterVariations)} className="text-[12.5px] font-bold" showUnit={false} />
+              <StatusPill
+                label={t(`worksContracts.status.${contract.status}` as AppTranslationKey)}
+                tone={contract.status === "active" ? "success" : contract.status === "terminated" ? "danger" : "neutral"}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }

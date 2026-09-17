@@ -48,8 +48,8 @@ async function resolveAccounts(asset: Asset, deps: PostDepreciationRunDeps): Pro
   };
 }
 
-function pairKey(accounts: ResolvedAccounts): string {
-  return `${accounts.depreciationExpenseAccountId}::${accounts.accumulatedDepreciationAccountId}`;
+function pairKey(accounts: ResolvedAccounts, projectId: string | null): string {
+  return `${accounts.depreciationExpenseAccountId}::${accounts.accumulatedDepreciationAccountId}::${projectId ?? ""}`;
 }
 
 /**
@@ -72,21 +72,40 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
     assetsById.set(line.assetId, asset);
   }
 
-  const totalsByPair = new Map<string, { accounts: ResolvedAccounts; total: Money }>();
+  const totalsByPair = new Map<
+    string,
+    { accounts: ResolvedAccounts; projectId: string | null; total: Money }
+  >();
   for (const line of run.lines) {
     const asset = assetsById.get(line.assetId)!;
     const accounts = await resolveAccounts(asset, deps);
-    const key = pairKey(accounts);
+    // Use the asset's CURRENT project assignment, not whatever the draft line
+    // captured — an asset reassigned between drafting and posting the run
+    // should post equipment cost to the project it belongs to today.
+    const projectId = asset.projectId;
+    const key = pairKey(accounts, projectId);
     const existing = totalsByPair.get(key);
     totalsByPair.set(key, {
       accounts,
+      projectId,
       total: existing ? existing.total.add(line.amount) : line.amount,
     });
   }
 
-  const journalLines = [...totalsByPair.values()].flatMap(({ accounts, total }) => [
-    { accountId: accounts.depreciationExpenseAccountId, debit: total, credit: Money.zero() },
-    { accountId: accounts.accumulatedDepreciationAccountId, debit: Money.zero(), credit: total },
+  const journalLines = [...totalsByPair.values()].flatMap(({ accounts, projectId, total }) => [
+    {
+      accountId: accounts.depreciationExpenseAccountId,
+      debit: total,
+      credit: Money.zero(),
+      projectId,
+      costCategory: projectId ? ("equipment" as const) : null,
+    },
+    {
+      accountId: accounts.accumulatedDepreciationAccountId,
+      debit: Money.zero(),
+      credit: total,
+      projectId,
+    },
   ]);
 
   const [yearStr, monthStr] = run.period.split("-");

@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS eta_config (
   production_identity_url    TEXT,
   production_api_url         TEXT,
   signing_command            TEXT,
-  signing_command_args       TEXT
+  signing_command_args       TEXT,
+  receipt_reporting_window_hours INTEGER
 );
 CREATE TABLE IF NOT EXISTS eta_submission (
   id               TEXT PRIMARY KEY,
@@ -65,7 +66,10 @@ CREATE TABLE IF NOT EXISTS eta_submission (
 CREATE INDEX IF NOT EXISTS idx_eta_submission_status ON eta_submission(status);
 CREATE TABLE IF NOT EXISTS eta_branch_code (
   branch_id      TEXT PRIMARY KEY,
-  eta_branch_code TEXT NOT NULL
+  eta_branch_code TEXT NOT NULL,
+  device_serial_number TEXT,
+  pos_client_id  TEXT,
+  pos_client_secret_enc TEXT
 );
 CREATE TABLE IF NOT EXISTS eta_unit_mapping (
   unit_code      TEXT PRIMARY KEY,
@@ -76,30 +80,6 @@ CREATE TABLE IF NOT EXISTS eta_unit_mapping (
 const SINGLETON = "singleton";
 
 /** Columns added after the first release; existing files get them here rather than on a rebuild. */
-function addMissingColumns(sqlite: Database.Database): void {
-  const columnsOf = (table: string): Set<string> =>
-    new Set((sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
-  const config = columnsOf("eta_config");
-  for (const [name, type] of [
-    ["preproduction_identity_url", "TEXT"],
-    ["preproduction_api_url", "TEXT"],
-    ["production_identity_url", "TEXT"],
-    ["production_api_url", "TEXT"],
-    ["signing_command", "TEXT"],
-    ["signing_command_args", "TEXT"],
-  ] as const) {
-    if (!config.has(name)) sqlite.exec(`ALTER TABLE eta_config ADD COLUMN ${name} ${type}`);
-  }
-  const submission = columnsOf("eta_submission");
-  for (const [name, type] of [
-    ["gateway_submission_id", "TEXT"],
-    ["signature", "TEXT"],
-    ["transmit_log", "TEXT"],
-  ] as const) {
-    if (!submission.has(name)) sqlite.exec(`ALTER TABLE eta_submission ADD COLUMN ${name} ${type}`);
-  }
-}
-
 /**
  * Placeholder secret-at-rest transform. A real deployment swaps this for
  * AES-256 (the catalog's "يحفظ السر مشفراً"); base64 here keeps the secret out
@@ -131,6 +111,7 @@ interface ConfigRow {
   production_api_url: string | null;
   signing_command: string | null;
   signing_command_args: string | null;
+  receipt_reporting_window_hours: number | null;
 }
 
 class SqliteEtaConfigRepository implements EtaConfigRepository {
@@ -146,12 +127,12 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
         (id, environment, tax_registration_number, activity_code, address, buyer_data_threshold,
          document_version, auto_submit_on_confirm, signing_method, client_id,
          preproduction_identity_url, preproduction_api_url, production_identity_url, production_api_url,
-         signing_command, signing_command_args)
+         signing_command, signing_command_args, receipt_reporting_window_hours)
       VALUES
         (@id, @environment, @tax_registration_number, @activity_code, @address, @buyer_data_threshold,
          @document_version, @auto_submit_on_confirm, @signing_method, @client_id,
          @preproduction_identity_url, @preproduction_api_url, @production_identity_url, @production_api_url,
-         @signing_command, @signing_command_args)
+         @signing_command, @signing_command_args, @receipt_reporting_window_hours)
       ON CONFLICT(id) DO UPDATE SET
         environment = excluded.environment,
         tax_registration_number = excluded.tax_registration_number,
@@ -167,7 +148,8 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
         production_identity_url = excluded.production_identity_url,
         production_api_url = excluded.production_api_url,
         signing_command = excluded.signing_command,
-        signing_command_args = excluded.signing_command_args
+        signing_command_args = excluded.signing_command_args,
+        receipt_reporting_window_hours = excluded.receipt_reporting_window_hours
     `);
     this.setSecret = sqlite.prepare(`UPDATE eta_config SET client_secret_enc = ? WHERE id = ?`);
     this.readSecret = sqlite.prepare(`SELECT client_secret_enc FROM eta_config WHERE id = ?`);
@@ -194,6 +176,8 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
       productionApiUrl: row.production_api_url ?? ETA_DEFAULT_ENDPOINTS.productionApiUrl,
       signingCommand: row.signing_command,
       signingCommandArgs: row.signing_command_args ? (JSON.parse(row.signing_command_args) as string[]) : [],
+      receiptReportingWindowHours:
+        row.receipt_reporting_window_hours ?? DEFAULT_ETA_CONFIG.receiptReportingWindowHours,
     };
   }
 
@@ -215,6 +199,7 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
       production_api_url: config.productionApiUrl,
       signing_command: config.signingCommand,
       signing_command_args: JSON.stringify(config.signingCommandArgs),
+      receipt_reporting_window_hours: config.receiptReportingWindowHours,
     });
   }
 
@@ -348,25 +333,49 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   }
 }
 
+interface BranchCodeRow {
+  branch_id: string;
+  eta_branch_code: string;
+  device_serial_number: string | null;
+  pos_client_id: string | null;
+  pos_client_secret_enc: string | null;
+}
+
 class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
   private readonly selectAll: Database.Statement;
   private readonly upsert: Database.Statement;
+  private readonly setSecret: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     this.selectAll = sqlite.prepare(`SELECT * FROM eta_branch_code ORDER BY branch_id`);
     this.upsert = sqlite.prepare(`
-      INSERT INTO eta_branch_code (branch_id, eta_branch_code) VALUES (?, ?)
-      ON CONFLICT(branch_id) DO UPDATE SET eta_branch_code = excluded.eta_branch_code
+      INSERT INTO eta_branch_code (branch_id, eta_branch_code, device_serial_number, pos_client_id)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(branch_id) DO UPDATE SET
+        eta_branch_code = excluded.eta_branch_code,
+        device_serial_number = excluded.device_serial_number,
+        pos_client_id = excluded.pos_client_id
     `);
+    this.setSecret = sqlite.prepare(`UPDATE eta_branch_code SET pos_client_secret_enc = ? WHERE branch_id = ?`);
   }
 
   async list(): Promise<EtaBranchCode[]> {
-    const rows = this.selectAll.all() as { branch_id: string; eta_branch_code: string }[];
-    return rows.map((r) => ({ branchId: r.branch_id, etaBranchCode: r.eta_branch_code }));
+    const rows = this.selectAll.all() as BranchCodeRow[];
+    return rows.map((r) => ({
+      branchId: r.branch_id,
+      etaBranchCode: r.eta_branch_code,
+      deviceSerialNumber: r.device_serial_number,
+      posClientId: r.pos_client_id,
+      hasPosClientSecret: r.pos_client_secret_enc != null,
+    }));
   }
 
   async save(mapping: EtaBranchCode): Promise<void> {
-    this.upsert.run(mapping.branchId, mapping.etaBranchCode);
+    this.upsert.run(mapping.branchId, mapping.etaBranchCode, mapping.deviceSerialNumber, mapping.posClientId);
+  }
+
+  async setPosClientSecret(branchId: string, secret: string): Promise<void> {
+    this.setSecret.run(seal(secret), branchId);
   }
 }
 
@@ -407,12 +416,40 @@ export interface SqliteEtaStoreHandle {
   close(): void;
 }
 
+function addColumnIfMissing(sqlite: Database.Database, table: string, column: string, ddl: string): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!existing.has(column)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+
+/**
+ * An existing books file already has these tables, and CREATE TABLE IF NOT
+ * EXISTS no-ops on it, so every column added after they shipped is widened
+ * in place here. Dropping one silently loses the setting it carries.
+ */
+function migrateEtaTables(sqlite: Database.Database): void {
+  addColumnIfMissing(sqlite, "eta_config", "receipt_reporting_window_hours", "receipt_reporting_window_hours INTEGER");
+  addColumnIfMissing(sqlite, "eta_config", "preproduction_identity_url", "preproduction_identity_url TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "preproduction_api_url", "preproduction_api_url TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "production_identity_url", "production_identity_url TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "production_api_url", "production_api_url TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "signing_command", "signing_command TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "signing_command_args", "signing_command_args TEXT");
+  addColumnIfMissing(sqlite, "eta_submission", "gateway_submission_id", "gateway_submission_id TEXT");
+  addColumnIfMissing(sqlite, "eta_submission", "signature", "signature TEXT");
+  addColumnIfMissing(sqlite, "eta_submission", "transmit_log", "transmit_log TEXT");
+  addColumnIfMissing(sqlite, "eta_branch_code", "device_serial_number", "device_serial_number TEXT");
+  addColumnIfMissing(sqlite, "eta_branch_code", "pos_client_id", "pos_client_id TEXT");
+  addColumnIfMissing(sqlite, "eta_branch_code", "pos_client_secret_enc", "pos_client_secret_enc TEXT");
+}
+
 /** Open the SQLite-backed ETA stores. ":memory:" for tests, a path for real. */
 export function createSqliteEtaStore(path: SqliteConnectionInput = ":memory:"): SqliteEtaStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
-  addMissingColumns(sqlite);
+  migrateEtaTables(sqlite);
   return {
     config: new SqliteEtaConfigRepository(sqlite),
     submissions: new SqliteEtaSubmissionRepository(sqlite),

@@ -1,19 +1,11 @@
-import { createEntitlements, type Clock, type EntitlementsView } from "@mezan/domain";
+import {
+  createEntitlements,
+  UNLICENSED_ENTITLEMENTS,
+  type Clock,
+  type EntitlementsView,
+} from "@mezan/domain";
 import { entitlementsSchema } from "@mezan/contracts";
 import type { LicenceCode } from "../shared/ipc-contract.js";
-
-/**
- * Safe default: nothing licensed, zero seats, LAN mode off. An install with
- * no entitlements source configured stays fully closed rather than silently
- * permissive — same "fail closed" posture as the module gate and LAN gate.
- */
-const UNLICENSED_ENTITLEMENTS: EntitlementsView = createEntitlements({
-  plan: "UNLICENSED",
-  activeModules: [],
-  features: {},
-  seats: 0,
-  expiresAt: null,
-});
 
 /**
  * Parses the dev/back-compat `MEZAN_ENTITLEMENTS_JSON` blob, returning `null`

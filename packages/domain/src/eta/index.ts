@@ -1,6 +1,7 @@
 export {
   DEFAULT_ETA_CONFIG,
   ETA_DEFAULT_ENDPOINTS,
+  ETA_RECEIPT_REPORTING_WINDOW_HOURS,
   computeEtaReadiness,
   resolveEtaEndpoints,
   type EtaEndpoints,
@@ -14,6 +15,29 @@ export {
   type EtaReadinessCounts,
   type EtaConfigRepository,
 } from "./config.js";
+export {
+  buildEtaReceiptPayload,
+  canonicalizeEtaDocument,
+  etaReceiptHoursRemaining,
+  etaReceiptIssuedAt,
+  etaReceiptQrValue,
+  etaReceiptReportingDeadline,
+  getEtaReceiptPaymentMethodLabel,
+  getEtaReceiptTypeLabel,
+  summarizeEtaReceiptQueue,
+  unavailableEtaReceiptUuidPort,
+  EtaReceiptUuidUnavailableError,
+  type EtaReceiptBuyerInput,
+  type EtaReceiptInput,
+  type EtaReceiptLineInput,
+  type EtaReceiptPaymentMethod,
+  type EtaReceiptQueueEntry,
+  type EtaReceiptQueueSummary,
+  type EtaReceiptSellerInput,
+  type EtaReceiptTaxTotalInput,
+  type EtaReceiptType,
+  type EtaReceiptUuidPort,
+} from "./receipt.js";
 export {
   ETA_SUBMISSION_STATUSES,
   getEtaStatusLabel,
@@ -30,6 +54,7 @@ export {
   type EtaPartyInput,
   type EtaLineInput,
   type EtaDocumentInput,
+  type EtaInvoiceDocumentType,
 } from "./payload.js";
 export {
   EtaService,
@@ -40,6 +65,7 @@ export {
   type EtaTransmitPort,
   type EtaServiceDeps,
   type EtaEnqueueInput,
+  type EtaReceiptPrintData,
 } from "./service.js";
 export {
   DEFAULT_ETA_RETRY,
@@ -70,6 +96,7 @@ export {
   EtaExclusionReasonRequiredError,
   EtaSignerNotConfiguredError,
   EtaSigningFailedError,
+  EtaDeviceSerialNotRegisteredError,
 } from "./errors.js";
 export {
   ETA_UNIT_CODES,
@@ -87,4 +114,13 @@ export {
   searchEtaActivityCodes,
   type EtaActivityCode,
 } from "./activity-codes.js";
-export { resolveEtaVatSubType } from "./tax-subtype.js";
+export {
+  attachEtaSignature,
+  etaComplianceNotice,
+  etaPayloadIsSigned,
+  unavailableEsealSigningPort,
+  EtaSigningUnavailableError,
+  type EtaSignatureResult,
+  type EtaSigningPort,
+} from "./signing.js";
+export { resolveEtaVatSubType, findLineTaxRate, ZERO_RATED_SUBTYPES } from "./tax-subtype.js";

@@ -561,7 +561,9 @@ export async function voucherTypesRouteToTheirOwnAccounts_R81(ctx: Ctx): Promise
         treasuryGlAccountId: treasury.glAccountId,
         // Deliberately wrong. The server must not take it.
         counterpartyGlAccountId: "9999-WRONG",
-        ...(type === "customer_advance" ? { customerId: "CUST-DEMO-1" } : {}),
+        // An advance with no project could never be recovered from that
+        // project's certificates, so the type refuses to draft without one.
+        ...(type === "customer_advance" ? { customerId: "CUST-DEMO-1", projectId: "PRJ-DEMO-1" } : {}),
       });
       ctx.check(`${type} — voucher drafts`, created.status === 201, JSON.stringify(created.body));
       ctx.checkEq(`${type} — routed to ${account}: ${why}`, created.body?.counterpartyGlAccountId, account);
@@ -1134,7 +1136,7 @@ export async function aPostedEntryCannotBeEditedOrDeletedThroughAnyRoute(ctx: Ct
  * An opening balance is how every migration starts: the shop's existing
  * debtors are typed in on day one. If that figure never reaches the AR control
  * account, the sub-ledger and the GL disagree from the very first day and no
- * amount of correct posting afterwards will close the gap.
+ * amount of correct posting afterwards will close the gap. Guards D142.
  */
 export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: Ctx): Promise<void> {
   await ctx.scenario("opening balances — a customer's opening balance against GL 1105", async () => {
@@ -1142,6 +1144,7 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
     const opening = 4250;
 
     const arBefore = await accountBalance(ctx, "1105");
+    const equityBefore = await accountBalance(ctx, "3210");
 
     const created = await ctx.req("POST", "/customers", {
       id,
@@ -1165,26 +1168,49 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
       JSON.stringify(listed).slice(0, 220),
     );
 
-    // guards B-2 — the opening balance used to be held on the customer record
-    // only, so the AR sub-ledger exceeded its control account by exactly the
-    // opening balances typed in at go-live and nothing ever closed the gap.
-    const arAfter = await accountBalance(ctx, "1105");
-    ctx.check(
-      "GL 1105 moves by exactly the opening balance — it is a posted receivable, not a stored number",
-      Math.abs(arAfter - arBefore - opening) < 0.000001,
-      `1105 before ${arBefore} after ${arAfter} (opening ${opening})`,
+    // D142 / guards B-2 — the opening balance used to be held on the customer
+    // record only, so the AR sub-ledger exceeded its control account by exactly
+    // the opening balances typed in at go-live and nothing ever closed the gap.
+    // It moves the control account against أرصدة افتتاحية (3210) instead: the
+    // sub-ledger and the GL agree from day one.
+    ctx.checkEq("GL 1105 moved by exactly the opening balance", await accountBalance(ctx, "1105"), arBefore + opening);
+    ctx.checkEq("and the other side landed in opening-balance equity 3210 as a credit", await accountBalance(ctx, "3210"), equityBefore - opening);
+
+    /*
+     * Found by its SOURCE DOCUMENT, not by a guessable id. The entry key is
+     * `CUST-OPEN-JE:<customer>:<uuid>` on purpose: correcting an opening
+     * balance posts a NEW delta entry rather than editing the one already on
+     * the ledger, so a stable key would have to be overwritten to work — which
+     * is exactly what a posted entry must never be.
+     */
+    const allEntries = await ctx.allRows("/gl/journal-entries");
+    const openingRow = allEntries.find(
+      (e: any) => e.sourceDocType === "CUSTOMER_OPENING_BALANCE" && e.sourceDocId === id,
     );
-    const openingEntry = await ctx.req("GET", `/gl/journal-entries/OB-CUST-JE:${id}`);
+    const openingEntry = openingRow
+      ? await ctx.req("GET", `/gl/journal-entries/${openingRow.id}`)
+      : { status: 404, body: null };
     ctx.check(
-      "and the entry behind it is Dr 1105 / Cr 3210, keyed deterministically so it posts once",
+      "and the entry behind it is Dr 1105 / Cr 3210, posted against the customer it belongs to",
       openingEntry.status === 200 &&
         (openingEntry.body?.lines ?? []).some((l: any) => l.accountId === "1105" && ctx.n(l.debit) === opening) &&
         (openingEntry.body?.lines ?? []).some((l: any) => l.accountId === "3210" && ctx.n(l.credit) === opening),
       `status ${openingEntry.status} body ${JSON.stringify(openingEntry.body).slice(0, 240)}`,
     );
 
-    // Put it back — the standing entry is reversed and 1105 returns to where
-    // it started, or every reconciliation scenario after this one inherits it.
+    // Correcting an opening balance after it was posted moves the control
+    // account by the DIFFERENCE, so a typo fixed on the customer screen cannot
+    // put the sub-ledger and the GL back out of step.
+    const corrected = await ctx.req("PATCH", `/customers/${id}`, { openingBalance: `${opening + 270}.00` });
+    ctx.check(
+      "the opening balance can be corrected after it was posted",
+      corrected.status === 200 && ctx.n(corrected.body?.openingBalance) === opening + 270,
+      `status ${corrected.status} body ${JSON.stringify(corrected.body).slice(0, 200)}`,
+    );
+    ctx.checkEq("and GL 1105 followed the correction, not the whole figure twice", await accountBalance(ctx, "1105"), arBefore + opening + 270);
+
+    // Put it back — the standing entry is reversed and 1105 returns to where it
+    // started, or every reconciliation scenario after this one inherits it.
     const cleared = await ctx.req("PATCH", `/customers/${id}`, { openingBalance: "0.00" });
     ctx.check(
       "the opening balance is cleared again so later scenarios start level",
@@ -1192,6 +1218,7 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
       `status ${cleared.status} body ${JSON.stringify(cleared.body).slice(0, 200)}`,
     );
     ctx.checkEq("and GL 1105 is exactly where it started", await accountBalance(ctx, "1105"), arBefore);
+    ctx.checkEq("and so is 3210", await accountBalance(ctx, "3210"), equityBefore);
   });
 }
 
@@ -1270,7 +1297,7 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     ctx.check("scenario leaves March open, as it found it", finalState.body?.status === "open", String(finalState.body?.status));
   });
 
-  await ctx.scenario("journal entry — the last day of a month is postable, as an instant", async () => {
+  await ctx.scenario("journal entry — the last day of a month is postable, as an instant still on that day in Cairo", async () => {
     // THE DAY A SHOP POSTS MOST IS THE DAY IT COULD NOT POST AT ALL.
     //
     // A fiscal period's `endDate` is a DAY ("2026-08-31") and a document's date
@@ -1284,12 +1311,20 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     // Asserted here with a full timestamp on purpose: the existing repository
     // test asked with a mid-month DAY, which is exactly the shape that cannot
     // fail.
+    //
+    // THE INSTANTS ARE CHOSEN TO STILL BE THAT DAY IN CAIRO. The engine keeps
+    // refusing instants; the ROUTE narrows one to the tenant's calendar day,
+    // and the tenant is Egyptian (Africa/Cairo, +02:00 or +03:00). So
+    // `…T23:59:59.999Z` on the 30th is the 1st of the next month here, and
+    // asserting it lands on the 30th would only be true of a UTC tenant. The
+    // late-in-the-day probes therefore ask at 20:00Z — still the same day in
+    // Cairo, still late enough to be a real end-of-day timestamp.
     const year = new Date().getUTCFullYear();
     for (const [label, date] of [
       ["a 31-day month", `${year}-08-31T03:10:33.016Z`],
-      ["a 30-day month", `${year}-09-30T23:59:59.999Z`],
+      ["a 30-day month", `${year}-09-30T20:00:00.000Z`],
       ["the first instant of a period", `${year}-08-01T00:00:00.000Z`],
-      ["the last instant of the year", `${year}-12-31T23:59:59.999Z`],
+      ["the last day of the year", `${year}-12-31T20:00:00.000Z`],
     ] as const) {
       const id = `SCN-JE-MONTHEND-${date.slice(5, 10)}`;
       const posted = await ctx.req("POST", "/gl/journal-entries", {

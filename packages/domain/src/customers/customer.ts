@@ -48,6 +48,8 @@ export class InvalidCustomerError extends Error {
 
 export interface CreateCustomerInput {
   readonly id: string;
+  /** The branch that owns this record; omitted, the record is tenant-wide (D71). */
+  readonly branchId?: string | null;
   readonly code: string;
   readonly nameAr: string;
   readonly nameEn?: string | null;
@@ -86,6 +88,7 @@ function validate(customer: Customer): string[] {
 export function createCustomer(input: CreateCustomerInput): Customer {
   const customer: Customer = {
     id: input.id,
+    branchId: input.branchId ?? null,
     code: input.code,
     nameAr: input.nameAr,
     nameEn: input.nameEn ?? null,

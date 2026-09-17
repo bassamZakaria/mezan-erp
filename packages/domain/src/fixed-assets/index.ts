@@ -8,6 +8,12 @@ export { DEFAULT_ASSET_GL_ACCOUNT_CODES, createAssetCategory } from "./asset-cat
 
 export type { Asset, AssetRepository, AssetScope, AssetStatus } from "./asset.js";
 
+export type {
+  AssetInternalRateRow,
+  AssetInternalRateHistoryRepository,
+} from "./internal-rate-history.js";
+export { resolveInternalHourlyRate, sortInternalRateHistory } from "./internal-rate-history.js";
+
 export type { CreateAssetCommand, CreateAssetDeps } from "./create-asset.js";
 export { createAsset } from "./create-asset.js";
 

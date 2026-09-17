@@ -84,6 +84,10 @@ describe("etaConfigSchema", () => {
     productionApiUrl: "https://api.invoicing.eta.gov.eg/api/v1",
     signingCommand: null,
     signingCommandArgs: [] as string[],
+    // 24, not 72: the ETA's own POS FAQ says a receipt must be reported within
+    // 24 hours. It is configuration rather than a constant because the
+    // secondary compliance sources disagree (D148).
+    receiptReportingWindowHours: 24,
   };
 
   it("accepts a minimal valid config and preserves every field verbatim", () => {
@@ -163,8 +167,15 @@ describe("etaSubmissionSchema", () => {
     if (result.success) expect(result.data).toEqual(submission);
   });
 
+  it("accepts `receipt` — the B2C submission type the enum used to omit", () => {
+    // The domain has carried `receipt` all along; the contract did not list it,
+    // so the ETA screen was casting around the gap and no consumer sale could
+    // be typed as what it is (DEC-9).
+    expect(etaSubmissionSchema.safeParse({ ...submission, documentType: "receipt" }).success).toBe(true);
+  });
+
   it("rejects an out-of-enum documentType", () => {
-    const result = etaSubmissionSchema.safeParse({ ...submission, documentType: "receipt" });
+    const result = etaSubmissionSchema.safeParse({ ...submission, documentType: "quotation" });
     expect(result.success).toBe(false);
   });
 });
@@ -234,7 +245,17 @@ describe("etaUnitCodeSchema", () => {
 
 describe("etaBranchCodeRowSchema", () => {
   it("accepts a minimal valid row and preserves it verbatim", () => {
-    const row = { branchId: "branch-1", branchCode: "CAI-01", branchName: "الفرع الرئيسي", etaBranchCode: null };
+    // The device the authority binds a receipt to is branch configuration, not
+    // something the caller sends per request (DEC-9).
+    const row = {
+      branchId: "branch-1",
+      branchCode: "CAI-01",
+      branchName: "الفرع الرئيسي",
+      etaBranchCode: null,
+      deviceSerialNumber: null,
+      posClientId: null,
+      hasPosClientSecret: false,
+    };
     const result = etaBranchCodeRowSchema.safeParse(row);
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toEqual(row);

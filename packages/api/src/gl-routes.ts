@@ -45,6 +45,7 @@ import {
   type OpenPartyDocument,
   type CurrencyBalanceGroup,
 } from "@mezan/domain";
+import { tenantDay } from "./tenant-day.js";
 import {
   createGlJournalEntrySchema,
   reverseGlJournalEntrySchema,
@@ -68,6 +69,14 @@ export interface GlRoutesDeps {
   readonly vatFilings?: VatFilingRepository;
   readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
   readonly numbering: NextNumberService;
+  /** So a manual entry's `projectId` names a project that exists (D-01). */
+  readonly projects?: JournalPostingDeps["projects"];
+  /**
+   * Accounts whose lines must name a project — the routed contracting control
+   * and cost slots. The hand-written journal is exactly where an unattributed
+   * movement on 1230 or 2160 gets in.
+   */
+  readonly projectRequiredAccountIds?: JournalPostingDeps["projectRequiredAccountIds"];
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
   readonly now?: () => string;
@@ -111,6 +120,9 @@ function serialize(entry: JournalEntry) {
       currency: l.currency ?? null,
       fxRate: l.fxRate ?? null,
       taxRatePercent: l.taxRatePercent ?? null,
+      projectId: l.projectId ?? null,
+      costCategory: l.costCategory ?? null,
+      branchId: l.branchId ?? null,
     })),
   };
 }
@@ -249,6 +261,8 @@ export function createGlRoutes(
       periods: deps.periods,
       vatFilings: deps.vatFilings,
       numbering: deps.numbering,
+      projects: deps.projects,
+      projectRequiredAccountIds: deps.projectRequiredAccountIds,
       audit: deps.audit,
       events: deps.events,
       now: deps.now,
@@ -265,7 +279,7 @@ export function createGlRoutes(
       const entry = await postJournalEntry(
         {
           id: parsed.data.id,
-          date: parsed.data.date,
+          date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
           source: parsed.data.source,
           lines: parsed.data.lines.map((l) => ({
@@ -277,6 +291,9 @@ export function createGlRoutes(
             taxRatePercent: l.taxRatePercent ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
           })),
         },
         postingDeps(c),
@@ -366,6 +383,7 @@ export function createGlRoutes(
           accountCode: line.accountCode,
           accountNameAr: line.accountNameAr,
           accountType: line.accountType,
+          projectId: line.projectId,
           debit: line.debit.toString(),
           credit: line.credit.toString(),
         })),
@@ -417,7 +435,7 @@ export function createGlRoutes(
       const entry = await createJournalEntry(
         {
           id: parsed.data.id,
-          date: parsed.data.date,
+          date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
           source: parsed.data.source,
           lines: parsed.data.lines.map((l) => ({
@@ -429,6 +447,9 @@ export function createGlRoutes(
             taxRatePercent: l.taxRatePercent ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
           })),
         },
         postingDeps(c),
@@ -462,7 +483,7 @@ export function createGlRoutes(
     try {
       const result = await reverseJournalEntry(c.req.param("id"), postingDeps(c), {
         reversalId: parsed.data.reversalId ?? idGen(),
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
       });
       return c.json(

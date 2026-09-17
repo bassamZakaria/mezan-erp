@@ -22,6 +22,7 @@ import {
   type SqliteEtaStoreHandle,
 } from "@mezan/persistence";
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
+import type { EtaReceiptUuidPort } from "@mezan/domain";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteEtaStoreHandle[] = [];
@@ -356,14 +357,38 @@ describe("eta router — submission not-found and invalid-transition refusals", 
   });
 });
 
+/**
+ * The e-seal seam, after both branches' fixes for the same defect were merged.
+ *
+ * One branch parked an unsealed v1.0 document behind an unavailable signing
+ * port; the other shelled out to the taxpayer's own CAdES program. The merged
+ * service keeps the first's PORT and behaviour and uses the second as its
+ * implementation, so there are exactly two states worth asserting:
+ *
+ *   - no signing agent on the machine → the document PARKS at بانتظار التوقيع
+ *     and is never transmitted, however many times إرسال is pressed;
+ *   - an agent configured → one submit seals and transmits.
+ *
+ * The invariant both branches were protecting is the same either way: an
+ * unsigned v1.0 document must never reach the authority.
+ */
 describe("eta router — the e-seal hold before transmit", () => {
-  it("a ready submission moves to بانتظار التوقيع under eseal signing, without ever calling transmit", async () => {
+  /** A service with NO signing agent — the shape of an install that has not bought a token yet. */
+  function newAppWithoutSigner(transmit?: EtaTransmitPort) {
+    const store = createSqliteEtaStore();
+    handles.push(store);
+    const service = new EtaService({ config: store.config, submissions: store.submissions, transmit, now: () => "2026-08-22T10:00:00.000Z", newId: () => "sub-1" });
+    const app = createEtaRoutes({ service, setClientSecret: (x) => store.config.setClientSecret(x) }, insecureHeaderAuthContextResolver);
+    return { app, service };
+  }
+
+  it("parks a ready submission at بانتظار التوقيع with no signing agent, without ever calling transmit", async () => {
     const failIfCalled: EtaTransmitPort = {
       async transmit(): Promise<EtaTransmitResult> {
         throw new Error("transmit must not be called while awaiting the e-seal");
       },
     };
-    const { app, service } = newApp(failIfCalled);
+    const { app, service } = newAppWithoutSigner(failIfCalled);
     await app.fetch(req("/config", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ signingMethod: "eseal" }) }));
     await service.enqueue(invoiceInput);
 
@@ -374,11 +399,10 @@ describe("eta router — the e-seal hold before transmit", () => {
     expect(body.submittedAt).toBeNull();
   });
 
-  it("a second submit call on a pending_signature document signs it, then transmits", async () => {
+  it("with a signing agent configured, one submit seals the document and transmits it", async () => {
     const { app, service } = newApp(accepting);
     await app.fetch(req("/config", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ signingMethod: "eseal" }) }));
     await service.enqueue(invoiceInput);
-    await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
 
     const res = await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
     const body = (await res.json()) as { status: string; signed: boolean };
@@ -386,9 +410,9 @@ describe("eta router — the e-seal hold before transmit", () => {
     expect(body.signed).toBe(true);
   });
 
-  // guards P-1 — an unsigned v1.0 document is refused in Arabic and stays
-  // بانتظار التوقيع rather than being transmitted for the authority to reject.
-  it("refuses in Arabic when no external signing command is configured, and does not transmit", async () => {
+  // guards P-1 — an unsigned v1.0 document stays بانتظار التوقيع rather than
+  // being transmitted for the authority to reject, however often إرسال runs.
+  it("keeps parking, and never transmits, while no signing agent is configured", async () => {
     const store = createSqliteEtaStore();
     handles.push(store);
     const failIfCalled: EtaTransmitPort = {
@@ -404,10 +428,12 @@ describe("eta router — the e-seal hold before transmit", () => {
     await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
 
     const res = await app.fetch(req("/submissions/sub-1/submit", { method: "POST", permissions: SUBMIT }));
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as { error: string; message: string };
-    expect(body.error).toBe("ETA_SIGNER_NOT_CONFIGURED");
-    expect(body.message).toContain("جهاز التوقيع");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; submittedAt: string | null };
+    expect(body.status).toBe("pending_signature");
+    expect(body.submittedAt).toBeNull();
+    // The point of the test: the transmit port above throws if it is ever
+    // reached, so a second إرسال re-parking rather than 500ing IS the guarantee.
     expect((await service.findById("sub-1"))!.status).toBe("pending_signature");
   });
 });
@@ -597,7 +623,7 @@ describe("eta router — config readiness counts the master-data prerequisites, 
     // Two active branches: one coded, one not.
     await branches.save(createBranch({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" }));
     await branches.save(createBranch({ id: "b2", code: "BR2", name: "فرع ثانٍ" }));
-    await branchCodes.save({ branchId: "b1", etaBranchCode: "1" });
+    await branchCodes.save({ branchId: "b1", etaBranchCode: "1", deviceSerialNumber: null, posClientId: null, hasPosClientSecret: false });
 
     // Two active tax rates: one resolved, one left "auto".
     await createTaxRate({ id: "t1", code: "T1", name: "ضريبة أساسية", rate: 14, etaSubType: "V009" }, taxRates);
@@ -638,7 +664,17 @@ describe("eta router — branch codes", () => {
     await branches.save(createBranch({ id: "b2", code: "OLD", name: "فرع مغلق", active: false }));
 
     const before = (await (await app.fetch(req("/branch-codes", { permissions: VIEW }))).json()) as { branchId: string; etaBranchCode: string | null }[];
-    expect(before).toEqual([{ branchId: "b1", branchCode: "MAIN", branchName: "الفرع الرئيسي", etaBranchCode: null }]);
+    expect(before).toEqual([
+      {
+        branchId: "b1",
+        branchCode: "MAIN",
+        branchName: "الفرع الرئيسي",
+        etaBranchCode: null,
+        deviceSerialNumber: null,
+        posClientId: null,
+        hasPosClientSecret: false,
+      },
+    ]);
 
     const put = await app.fetch(req("/branch-codes/b1", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ etaBranchCode: " 001 " }) }));
     expect(put.status).toBe(200);
@@ -672,6 +708,47 @@ describe("eta router — branch codes", () => {
     await branches.save(createBranch({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" }));
     const res = await app.fetch(req("/branch-codes/b1", { method: "PUT", permissions: VIEW, body: JSON.stringify({ etaBranchCode: "1" }) }));
     expect(res.status).toBe(403);
+  });
+
+  it("registers the POS device on the branch and never returns its secret", async () => {
+    const { app, branches } = await fullDeps();
+    await branches.save(createBranch({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" }));
+
+    const put = await app.fetch(
+      req("/branch-codes/b1", {
+        method: "PUT",
+        permissions: SUBMIT,
+        body: JSON.stringify({
+          etaBranchCode: "1",
+          deviceSerialNumber: " POS-0001 ",
+          posClientId: "pos-client",
+          posClientSecret: "s3cr3t",
+        }),
+      }),
+    );
+    expect(put.status).toBe(200);
+
+    const rows = (await (await app.fetch(req("/branch-codes", { permissions: VIEW }))).json()) as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({ deviceSerialNumber: "POS-0001", posClientId: "pos-client", hasPosClientSecret: true });
+    expect(JSON.stringify(rows)).not.toContain("s3cr3t");
+  });
+
+  it("keeps the registered device when a later PUT only changes the branch code", async () => {
+    const { app, branches } = await fullDeps();
+    await branches.save(createBranch({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" }));
+    await app.fetch(
+      req("/branch-codes/b1", {
+        method: "PUT",
+        permissions: SUBMIT,
+        body: JSON.stringify({ etaBranchCode: "1", deviceSerialNumber: "POS-0001" }),
+      }),
+    );
+    await app.fetch(
+      req("/branch-codes/b1", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ etaBranchCode: "2" }) }),
+    );
+
+    const rows = (await (await app.fetch(req("/branch-codes", { permissions: VIEW }))).json()) as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({ etaBranchCode: "2", deviceSerialNumber: "POS-0001" });
   });
 });
 
@@ -831,5 +908,207 @@ describe("eta router — tax sub-types", () => {
     expect(body.map((r) => r.taxRateId).sort()).toEqual(["t1", "t2"]);
     expect(body.find((r) => r.taxRateId === "t1")).toMatchObject({ etaSubType: "V009", resolved: true });
     expect(body.find((r) => r.taxRateId === "t2")).toMatchObject({ etaSubType: "auto", resolved: false });
+  });
+});
+
+
+/* ------------------------------------------------------------------ */
+/* الإيصال الإلكتروني — the B2C receipt surface                        */
+/* ------------------------------------------------------------------ */
+
+function countingUuidPort(): EtaReceiptUuidPort & { calls: number } {
+  const port = {
+    calls: 0,
+    async compute(): Promise<string> {
+      port.calls += 1;
+      return `uuid-${port.calls}`;
+    },
+  };
+  return port;
+}
+
+async function receiptApp(uuid?: EtaReceiptUuidPort, deviceSerialNumber: string | null = "POS-0001") {
+  const store = createSqliteEtaStore();
+  handles.push(store);
+  let seq = 0;
+  const service = new EtaService({
+    config: store.config,
+    submissions: store.submissions,
+    receiptUuid: uuid,
+    now: () => "2026-09-01T10:00:00.000Z",
+    newId: () => `sub-${++seq}`,
+  });
+  await store.branchCodes.save({
+    branchId: "b1",
+    etaBranchCode: "1",
+    deviceSerialNumber,
+    posClientId: null,
+    hasPosClientSecret: false,
+  });
+  return {
+    app: createEtaRoutes({ service, branchCodes: store.branchCodes }, insecureHeaderAuthContextResolver),
+    service,
+    store,
+  };
+}
+
+const receiptBody = {
+  internalId: "RCP-000001",
+  issueDateTime: "2026-09-01T10:00:00.000Z",
+  receiptType: "sale",
+  previousUuid: null,
+  seller: { branchId: "b1" },
+  buyer: { type: "P", id: null, name: null },
+  paymentMethod: "cash",
+  lines: [
+    {
+      internalCode: "SKU-1",
+      description: "شاي",
+      itemType: "EGS",
+      itemCode: "EG-1",
+      unitType: "EA",
+      quantity: "2",
+      unitPrice: "25.00",
+      totalSale: "50.00",
+      netSale: "50.00",
+      total: "57.00",
+      taxSubType: "V009",
+      taxRate: "14",
+      taxAmount: "7.00",
+    },
+  ],
+  totalSales: "50.00",
+  netAmount: "50.00",
+  totalAmount: "57.00",
+  taxTotals: [{ taxType: "T1", amount: "7.00" }],
+};
+
+function issue(body: unknown = receiptBody, permissions = "accounting.eta.submit") {
+  return req("/receipts", { method: "POST", permissions, body: JSON.stringify(body) });
+}
+
+describe("eta router — receipts", () => {
+  it("issues a receipt with its UUID and QR, gated behind eta.submit", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+
+    expect((await app.fetch(issue(receiptBody, "accounting.eta.view"))).status).toBe(403);
+
+    const res = await app.fetch(issue());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { uuid: string; qrValue: string; submission: { documentType: string; status: string } };
+    expect(body.uuid).toBe("uuid-1");
+    expect(body.qrValue).toContain("/receipts/search/uuid-1/share/");
+    expect(body.submission.documentType).toBe("receipt");
+    expect(body.submission.status).toBe("ready");
+  });
+
+  it("reprints the same UUID and QR instead of minting a second submission", async () => {
+    const uuid = countingUuidPort();
+    const { app } = await receiptApp(uuid);
+
+    type Printed = { uuid: string; qrValue: string; submission: { id: string } };
+    const first = (await (await app.fetch(issue())).json()) as Printed;
+    const again = (await (await app.fetch(issue())).json()) as Printed;
+
+    expect(again.uuid).toBe(first.uuid);
+    expect(again.qrValue).toBe(first.qrValue);
+    expect(again.submission.id).toBe(first.submission.id);
+    expect(uuid.calls).toBe(1);
+
+    const listed = (await (await app.fetch(req("/submissions", { permissions: "accounting.eta.view" }))).json()) as unknown[];
+    expect(listed).toHaveLength(1);
+  });
+
+  it("serves the stored receipt for a reprint, payload and all", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+    await app.fetch(issue());
+
+    const res = await app.fetch(req("/receipts/RCP-000001", { permissions: "accounting.eta.view" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      uuid: string;
+      submission: { payload: { header: { uuid: string }; seller: { deviceSerialNumber: string } } };
+    };
+    expect(body.uuid).toBe("uuid-1");
+    expect(body.submission.payload.header.uuid).toBe("uuid-1");
+    expect(body.submission.payload.seller.deviceSerialNumber).toBe("POS-0001");
+  });
+
+  it("404s a reprint of a receipt that was never issued", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+    const res = await app.fetch(req("/receipts/RCP-999", { permissions: "accounting.eta.view" }));
+    expect(res.status).toBe(404);
+  });
+
+  it("refuses money that is not an exact decimal string", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+    const res = await app.fetch(issue({ ...receiptBody, totalAmount: 57 }));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
+  });
+
+  it("refuses a receipt with no lines", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+    expect((await app.fetch(issue({ ...receiptBody, lines: [] }))).status).toBe(400);
+  });
+
+  it("reports 501, not a bad request, when no UUID service is configured", async () => {
+    const { app } = await receiptApp();
+    const res = await app.fetch(issue());
+    expect(res.status).toBe(501);
+    expect(((await res.json()) as { error: string }).error).toBe("ETA_RECEIPT_UUID_UNAVAILABLE");
+  });
+
+  it("counts what has not been reported and what has aged past the reporting window", async () => {
+    const { app, service } = await receiptApp(countingUuidPort());
+    await app.fetch(issue());
+    await app.fetch(
+      issue({ ...receiptBody, internalId: "RCP-000002", issueDateTime: "2026-08-20T10:00:00.000Z" }),
+    );
+
+    const res = await app.fetch(req("/receipts/summary", { permissions: "accounting.eta.view" }));
+    expect(res.status).toBe(200);
+    const summary = (await res.json()) as {
+      windowHours: number;
+      pending: number;
+      overdue: number;
+      overdueEntries: { internalId: string }[];
+    };
+    expect(summary.windowHours).toBe(24);
+    expect(summary.pending).toBe(2);
+    // "now" is the service clock: 2026-09-01T10:00Z, so the August receipt is long past its window.
+    expect(summary.overdue).toBe(1);
+    expect(summary.overdueEntries[0]?.internalId).toBe("RCP-000002");
+    expect((await service.receiptQueueSummary()).pending).toBe(2);
+  });
+
+  it("takes the device serial from the branch registration, not from the caller", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+    const res = await app.fetch(issue({ ...receiptBody, seller: { branchId: "b1", deviceSerialNumber: "SPOOFED" } }));
+    expect(res.status).toBe(200);
+
+    const reprint = (await (
+      await app.fetch(req("/receipts/RCP-000001", { permissions: "accounting.eta.view" }))
+    ).json()) as { submission: { payload: { seller: { deviceSerialNumber: string; branchCode: string } } } };
+    expect(reprint.submission.payload.seller.deviceSerialNumber).toBe("POS-0001");
+    expect(reprint.submission.payload.seller.branchCode).toBe("1");
+  });
+
+  it("refuses, in Arabic and English, a receipt from a branch with no registered device", async () => {
+    const { app } = await receiptApp(countingUuidPort(), null);
+    const res = await app.fetch(issue());
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("ETA_DEVICE_SERIAL_NOT_REGISTERED");
+    expect(body.message).toContain("جهاز نقطة البيع");
+    expect(body.message).toContain("POS device serial number");
+
+    const listed = (await (await app.fetch(req("/submissions", { permissions: "accounting.eta.view" }))).json()) as unknown[];
+    expect(listed).toHaveLength(0);
+  });
+
+  it("gates the summary behind eta.view", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+    expect((await app.fetch(req("/receipts/summary"))).status).toBe(403);
   });
 });

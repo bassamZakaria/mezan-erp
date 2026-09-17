@@ -5,17 +5,20 @@ import {
   Card,
   DocumentList,
   EmptyState,
+  EntityPicker,
   Money as MoneyDisplay,
   RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
+  type EntityPickerOption,
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
 import { Money, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
 import type {
+  CostCategoryDTO,
   DocumentStatusDTO,
   LandedCostDistributionMethodDTO,
   LandedCostItemEntryDTO,
@@ -29,6 +32,7 @@ import {
   useCreateLandedCost,
   useItems,
   useLandedCosts,
+  useProjects,
   usePurchaseInvoices,
   useWarehouses,
 } from "../data/hooks";
@@ -66,6 +70,15 @@ const METHOD_HINT_KEY: Record<LandedCostDistributionMethodDTO, AppTranslationKey
 
 const num = (v: string) => Number(v);
 
+const COST_CATEGORY_VALUES = ["materials", "labour", "equipment", "subcontract", "indirect"] as const satisfies readonly CostCategoryDTO[];
+const COST_CATEGORY_KEY: Record<CostCategoryDTO, AppTranslationKey> = {
+  materials: "costCategory.materials",
+  labour: "costCategory.labour",
+  equipment: "costCategory.equipment",
+  subcontract: "costCategory.subcontract",
+  indirect: "costCategory.indirect",
+};
+
 interface CostItemDraft {
   key: string;
   costType: LandedCostTypeDTO;
@@ -78,6 +91,7 @@ interface TargetDraft {
   qty: number;
   unitCost: number;
   weight: number;
+  costCategory: CostCategoryDTO | null;
 }
 let seq = 0;
 function blankCostItem(): CostItemDraft {
@@ -86,7 +100,7 @@ function blankCostItem(): CostItemDraft {
 }
 function blankTarget(itemId: string, qty: number, unitCost: number): TargetDraft {
   seq += 1;
-  return { key: `t${seq}`, itemId, qty, unitCost, weight: 0 };
+  return { key: `t${seq}`, itemId, qty, unitCost, weight: 0, costCategory: null };
 }
 
 export function LandedCostsScreen() {
@@ -95,6 +109,7 @@ export function LandedCostsScreen() {
   const invoicesQuery = usePurchaseInvoices();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
+  const projectsQuery = useProjects();
   const createLandedCost = useCreateLandedCost();
   const confirmLandedCost = useConfirmLandedCost();
   const cancelLandedCost = useCancelLandedCost();
@@ -103,11 +118,24 @@ export function LandedCostsScreen() {
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
   const warehouses = warehousesQuery.data ?? EMPTY;
   const items = itemsQuery.data ?? EMPTY;
+  const projects = projectsQuery.data ?? EMPTY;
 
   const itemName = useMemo(() => {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [items]);
+  const projectName = useMemo(() => {
+    const map = new Map(projects.map((p) => [p.id, p.nameAr]));
+    return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
+  }, [projects, t]);
+  /** Only a live project can absorb new cost — a project already closed or cancelled stays out of the picker (D-01). */
+  const projectOptions: EntityPickerOption[] = useMemo(
+    () =>
+      projects
+        .filter((p) => p.status === "planned" || p.status === "active" || p.status === "on_hold")
+        .map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code })),
+    [projects],
+  );
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
@@ -127,7 +155,14 @@ export function LandedCostsScreen() {
   const [method, setMethod] = useState<LandedCostDistributionMethodDTO>("BY_VALUE");
   const [costItems, setCostItems] = useState<CostItemDraft[]>([]);
   const [targets, setTargets] = useState<TargetDraft[]>([]);
+  const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /** Clearing the header project also clears every target's category — a category without a project is meaningless (D-01). */
+  function changeProject(opt: EntityPickerOption | null) {
+    setProject(opt);
+    if (!opt) setTargets((prev) => prev.map((target) => ({ ...target, costCategory: null })));
+  }
 
   // Defaults the create form's invoice/warehouse pickers once their queries resolve —
   // `openCreate` alone can't do this if the panel is opened before `invoices`/`warehouses` load.
@@ -246,6 +281,7 @@ export function LandedCostsScreen() {
     setCostItems([blankCostItem()]);
     const firstLine = firstInvoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
     setTargets(firstLine?.itemId ? [blankTarget(firstLine.itemId, Number(firstLine.qty), Number(firstLine.unitCost))] : []);
+    setProject(null);
     setPanel("create");
   }
 
@@ -284,6 +320,7 @@ export function LandedCostsScreen() {
       qty: String(target.qty),
       unitCost: String(target.unitCost),
       weight: String(target.weight || 0),
+      costCategory: target.costCategory,
     }));
     try {
       const id = crypto.randomUUID();
@@ -294,6 +331,7 @@ export function LandedCostsScreen() {
         distributionMethod: method,
         costItems: costItemEntries,
         targets: targetEntries,
+        projectId: project?.id ?? null,
       });
       if (confirmAfter) await confirmLandedCost.mutateAsync(created.id);
       setPanel("none");
@@ -471,6 +509,14 @@ export function LandedCostsScreen() {
             options={Object.entries(METHOD_KEY).map(([value, key]) => ({ value, label: t(key) }))}
           />
           <p className="-mt-2 text-[11.5px] leading-[1.9] text-ink-muted">{t(METHOD_HINT_KEY[method])}</p>
+          <EntityPicker
+            label={t("common.project")}
+            value={project}
+            onChange={changeProject}
+            options={projectOptions}
+            placeholder={t("common.noProject")}
+            emptyMessage={t("common.noProject")}
+          />
           {method === "BY_WEIGHT" && targets.every((target) => (target.weight || 0) <= 0) ? (
             <div role="alert" className="rounded-[8px] border border-warning bg-warning-soft px-3 py-2 text-[12.5px] text-warning-ink">
               {t("landedCosts.error.needWeight")}
@@ -540,6 +586,17 @@ export function LandedCostsScreen() {
                     <NumberField label={t("landedCosts.field.weight")} value={target.weight} onChange={(v) => setTargets((prev) => prev.map((x) => (x.key === target.key ? { ...x, weight: v } : x)))} min={0} />
                   ) : null}
                 </div>
+                <SelectField
+                  label={t("common.costCategory")}
+                  value={target.costCategory ?? ""}
+                  onChange={(v) =>
+                    setTargets((prev) =>
+                      prev.map((x) => (x.key === target.key ? { ...x, costCategory: v === "" ? null : (v as CostCategoryDTO) } : x)),
+                    )
+                  }
+                  options={[{ value: "", label: t("common.none") }, ...COST_CATEGORY_VALUES.map((c) => ({ value: c, label: t(COST_CATEGORY_KEY[c]) }))]}
+                  disabled={project === null}
+                />
                 <div className="flex justify-end">
                   <Button variant="ghost" onClick={() => setTargets((prev) => prev.filter((x) => x.key !== target.key))} disabled={targets.length === 1}>
                     {t("common.delete")}
@@ -597,6 +654,10 @@ export function LandedCostsScreen() {
               <span className="text-ink-muted">{t("landedCosts.field.method")}</span>
               <span className="font-semibold text-ink">{t(METHOD_KEY[selected.lines[0]?.distributionMethod ?? "BY_VALUE"])}</span>
             </div>
+            <div className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[12.5px]">
+              <span className="text-ink-muted">{t("common.project")}</span>
+              <span className="font-semibold text-ink">{projectName(selected.lines[0]?.projectId ?? null)}</span>
+            </div>
             {selectedByType.length > 0 ? (
               <div className="rounded-[10px] border border-border bg-surface-2 p-[10px_12px]">
                 <div className="mb-[6px] text-[11.5px] font-bold text-ink-muted">{t("landedCosts.byTypeHeading")}</div>
@@ -615,6 +676,7 @@ export function LandedCostsScreen() {
                 <div key={i} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">
                   <span>
                     {itemName(l.itemId)}
+                    <span className="ms-[6px] text-[11.5px] text-ink-faint">{l.costCategory ? t(COST_CATEGORY_KEY[l.costCategory]) : "—"}</span>
                     {l.distributionMethod === "BY_WEIGHT" ? (
                       <span className="mz-num ms-[6px] text-[11.5px] text-ink-faint">{t("landedCosts.weightOf", { weight: l.weight })}</span>
                     ) : null}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   DocumentList,
   EmptyState,
+  EntityPicker,
   Money as MoneyDisplay,
   StatusPill,
   Card,
@@ -10,6 +11,7 @@ import {
   SidePanel,
   MoneyInput,
   type DocumentListColumn,
+  type EntityPickerOption,
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
@@ -23,11 +25,14 @@ import {
   useBranches,
   useCreateAsset,
   useDisposeAsset,
+  useProjects,
+  useSetInternalHourlyRate,
   type AssetListFilter,
 } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber, useUrlSearch } from "../lib/url-state";
+import { EMPTY } from "../lib/empty";
 
 /** سجل الأصول (Asset Register) — docs/archive/catalog/07 §"سجل الأصول". List + detail + register-asset panel. */
 
@@ -71,6 +76,7 @@ interface AssetDraft {
   depreciationStartDate: string;
   usefulLifeMonths: number;
   salvageValue: number | null;
+  internalHourlyRate: number | null;
 }
 
 function blankDraft(): AssetDraft {
@@ -87,6 +93,7 @@ function blankDraft(): AssetDraft {
     depreciationStartDate: "",
     usefulLifeMonths: 60,
     salvageValue: null,
+    internalHourlyRate: null,
   };
 }
 
@@ -107,10 +114,23 @@ export function AssetRegisterScreen() {
   const { t } = useAppTranslation();
   const categoriesQuery = useAssetCategories();
   const branchesQuery = useBranches();
+  const projectsQuery = useProjects();
   const createAsset = useCreateAsset();
 
   const categories = categoriesQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
+  const projects = projectsQuery.data ?? EMPTY;
+  const projectName = useMemo(() => {
+    const map = new Map(projects.map((p) => [p.id, p.nameAr]));
+    return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
+  }, [projects, t]);
+  const projectOptions: EntityPickerOption[] = useMemo(
+    () =>
+      projects
+        .filter((p) => p.status === "planned" || p.status === "active" || p.status === "on_hold")
+        .map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code })),
+    [projects],
+  );
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -133,6 +153,10 @@ export function AssetRegisterScreen() {
 
   const [formOpen, setFormOpen] = useState(false);
   const disposeAsset = useDisposeAsset();
+  const setInternalHourlyRate = useSetInternalHourlyRate();
+  const [rateDraft, setRateDraft] = useState<number | null>(null);
+  const [rateEffectiveFrom, setRateEffectiveFrom] = useState("");
+  const [rateError, setRateError] = useState<string | null>(null);
   const [disposeOpen, setDisposeOpen] = useState(false);
   const [disposeDate, setDisposeDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [disposeProceeds, setDisposeProceeds] = useState<number | null>(null);
@@ -152,6 +176,7 @@ export function AssetRegisterScreen() {
   ];
   const [disposeProceedsAccountId, setDisposeProceedsAccountId] = useState("");
   const [draft, setDraft] = useState<AssetDraft>(blankDraft());
+  const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -175,6 +200,7 @@ export function AssetRegisterScreen() {
 
   function openCreateForm() {
     setDraft(blankDraft());
+    setProject(null);
     setFormError(null);
     setFormOpen(true);
   }
@@ -201,6 +227,8 @@ export function AssetRegisterScreen() {
       depreciationStartDate: draft.depreciationStartDate.trim() === "" ? undefined : draft.depreciationStartDate.trim(),
       usefulLifeMonths: draft.usefulLifeMonths,
       salvageValue: draft.salvageValue === null ? undefined : draft.salvageValue.toFixed(6),
+      projectId: project?.id ?? null,
+      internalHourlyRate: draft.internalHourlyRate === null ? null : draft.internalHourlyRate.toFixed(6),
     };
     try {
       await createAsset.mutateAsync(body);
@@ -370,6 +398,10 @@ export function AssetRegisterScreen() {
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.depreciationMethod")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{t("asset.straightLine")}</div>
               </div>
+              <div className="border-e border-t border-border p-[13px_15px]">
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.assignedProject")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{projectName(selected.projectId)}</div>
+              </div>
             </Card>
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
@@ -379,6 +411,68 @@ export function AssetRegisterScreen() {
               <div className="border-b border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.residualValue")}</div>
                 <MoneyDisplay value={toMajor(selected.salvageValue)} className="mt-[5px] text-[14px] font-bold" />
+              </div>
+              <div className="border-b border-border p-[13px_15px]">
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.internalHourlyRate")}</div>
+                {selected.internalHourlyRate ? (
+                  <MoneyDisplay value={toMajor(selected.internalHourlyRate)} className="mt-[5px] text-[14px] font-bold" />
+                ) : (
+                  <div className="mt-[5px] text-[14px] font-bold text-ink">{t("asset.notPlant")}</div>
+                )}
+                <div className="mt-[8px] flex items-end gap-[8px]">
+                  <MoneyInput
+                    aria-label={t("asset.internalHourlyRate")}
+                    value={rateDraft}
+                    onChange={setRateDraft}
+                  />
+                  <TextField
+                    label={t("asset.rateEffectiveFrom")}
+                    value={rateEffectiveFrom}
+                    onChange={setRateEffectiveFrom}
+                    placeholder="YYYY-MM-DD"
+                  />
+                  <Button
+                    disabled={setInternalHourlyRate.isPending}
+                    onClick={() => {
+                      setRateError(null);
+                      setInternalHourlyRate
+                        .mutateAsync({
+                          id: selected.id,
+                          hourlyRate: rateDraft === null ? null : rateDraft.toFixed(6),
+                          ...(rateEffectiveFrom.trim() ? { effectiveFrom: rateEffectiveFrom.trim() } : {}),
+                        })
+                        .then(() => {
+                          setRateDraft(null);
+                          setRateEffectiveFrom("");
+                        })
+                        .catch((err: unknown) =>
+                          setRateError(err instanceof ApiError ? err.message : t("asset.rateCouldNotBeSaved")),
+                        );
+                    }}
+                  >
+                    {t("asset.saveRate")}
+                  </Button>
+                </div>
+                <p className="mt-[6px] text-[11.5px] text-ink-muted">{t("asset.internalHourlyRateAudited")}</p>
+                {rateError ? <p className="mt-[6px] text-[11.5px] font-semibold text-danger-ink">{rateError}</p> : null}
+                <div className="mt-[10px]">
+                  <div className="text-[11px] font-semibold text-ink-faint">{t("asset.rateHistory")}</div>
+                  {selected.rateHistory.length === 0 ? (
+                    <p className="mt-[4px] text-[11.5px] text-ink-muted">{t("asset.rateHistoryEmpty")}</p>
+                  ) : (
+                    <ul className="mt-[4px] flex flex-col gap-[3px]">
+                      {[...selected.rateHistory].reverse().map((row) => (
+                        <li
+                          key={`${row.effectiveFrom}-${row.setAt}`}
+                          className="flex items-baseline justify-between gap-[10px] text-[11.5px] text-ink-muted"
+                        >
+                          <span className="mz-num">{row.effectiveFrom}</span>
+                          <MoneyDisplay value={toMajor(row.hourlyRate)} className="font-semibold text-ink" />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.accumulatedDepreciation")}</div>
@@ -403,7 +497,11 @@ export function AssetRegisterScreen() {
                     <TextField label={t("assets.disposeDate")} value={disposeDate} onChange={setDisposeDate} placeholder="YYYY-MM-DD" />
                     <div>
                       <div className="mb-[5px] text-[11px] font-semibold text-ink-faint">{t("assets.disposeProceeds")}</div>
-                      <MoneyInput value={disposeProceeds} onChange={setDisposeProceeds} />
+                      <MoneyInput
+                        aria-label={t("assets.disposeProceeds")}
+                        value={disposeProceeds}
+                        onChange={setDisposeProceeds}
+                      />
                     </div>
                     <SelectField
                       label={t("assets.disposeProceedsAccount")}
@@ -495,6 +593,14 @@ export function AssetRegisterScreen() {
               {draft.scope === "warehouse" ? (
                 <TextField label={t("common.warehouse")} value={draft.warehouseId} onChange={(v) => setDraft((d) => ({ ...d, warehouseId: v }))} />
               ) : null}
+              <EntityPicker
+                label={t("asset.assignedProject")}
+                value={project}
+                onChange={setProject}
+                options={projectOptions}
+                placeholder={t("common.noProject")}
+                emptyMessage={t("common.noProject")}
+              />
             </div>
           </div>
 
@@ -538,6 +644,15 @@ export function AssetRegisterScreen() {
               <div>
                 <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("asset.residualValue")}</div>
                 <MoneyInput aria-label={t("asset.residualValue")} value={draft.salvageValue} onChange={(v) => setDraft((d) => ({ ...d, salvageValue: v }))} />
+              </div>
+              <div>
+                <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("asset.internalHourlyRate")}</div>
+                <MoneyInput
+                  aria-label={t("asset.internalHourlyRate")}
+                  value={draft.internalHourlyRate}
+                  onChange={(v) => setDraft((d) => ({ ...d, internalHourlyRate: v }))}
+                />
+                <p className="mt-[6px] text-[11.5px] text-ink-muted">{t("asset.internalHourlyRateHint")}</p>
               </div>
             </div>
           </div>

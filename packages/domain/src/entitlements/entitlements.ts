@@ -6,6 +6,11 @@
  * knows nor cares which source produced it.
  */
 
+export interface EntitlementLimits {
+  readonly branches: number;
+  readonly warehouses: number;
+}
+
 export interface Entitlements {
   readonly plan: string;
   /** Per-tenant module toggle list gating the whole nav (recon §tenant payload). */
@@ -15,6 +20,7 @@ export interface Entitlements {
   readonly seats: number;
   /** ISO timestamp, or null for a perpetual/no-expiry grant. */
   readonly expiresAt: string | null;
+  readonly limits?: EntitlementLimits;
 }
 
 export interface EntitlementsView extends Entitlements {
@@ -41,6 +47,7 @@ export function createEntitlements(data: Entitlements): EntitlementsView {
     features: data.features,
     seats: data.seats,
     expiresAt: data.expiresAt,
+    ...(data.limits !== undefined ? { limits: data.limits } : {}),
     has(module: string) {
       return hasModule(data, module);
     },
@@ -49,3 +56,16 @@ export function createEntitlements(data: Entitlements): EntitlementsView {
     },
   });
 }
+
+/**
+ * Safe default: nothing licensed, zero seats. Any resolver that cannot
+ * establish a real subscription/license returns this rather than a
+ * permissive default — same "fail closed" posture as every gate that reads it.
+ */
+export const UNLICENSED_ENTITLEMENTS: EntitlementsView = createEntitlements({
+  plan: "UNLICENSED",
+  activeModules: [],
+  features: {},
+  seats: 0,
+  expiresAt: null,
+});

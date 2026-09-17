@@ -284,6 +284,11 @@ export { PrintView, type PrintViewProps } from "./print/PrintView";
 export { useElectronPrintToPdf, type PrintToPdfOptions, type UseElectronPrintToPdfResult } from "./print/useElectronPrintToPdf";
 export { useElectronSavePdf, type SavePdfOptions, type SavePdfOutcome, type UseElectronSavePdfResult } from "./print/useElectronSavePdf";
 export { PrintToolbar } from "./print/PrintToolbar";
+export {
+  PaginatedTable,
+  type PaginatedTableColumn,
+  type PaginatedTableProps,
+} from "./print/PaginatedTable";
 export { Barcode128, encodeCode128B, type Barcode128Props } from "./print/Barcode128";
 export {
   LabelSheetView,

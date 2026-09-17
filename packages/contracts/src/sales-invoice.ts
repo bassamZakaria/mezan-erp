@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
+import { moneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for Sales Invoices (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
@@ -42,22 +44,31 @@ export const createSalesInvoiceLineSchema = z.object({
    * item's unit setup later cannot restate a document already in the books.
    */
   unitFactor: z.number().positive().nullish(),
-  unitPrice: z.string(),
+  unitPrice: moneyString,
   /** Whether `discountPercent` or `discountAmount` is the live field. */
   discountType: z.enum(["percent", "amount"]).optional(),
   discountPercent: z.number().min(0).max(100).optional(),
   /** Fixed line discount as an exact decimal string; capped at the line's gross. */
-  discountAmount: z.string().optional(),
+  discountAmount: moneyString.optional(),
   taxRatePercent: z.number().min(0).optional(),
   revenueAccountId: z.string().min(1),
   cogsAccountId: z.string().min(1).nullish(),
   inventoryAccountId: z.string().min(1).nullish(),
+  /**
+   * Cost centre ("مركز التكلفة") this line's revenue and COGS belong to.
+   *
+   * The line had no such field, so a revenue line could not be attributed at
+   * creation and the Cost Centre P&L saw sales as unattributed no matter how
+   * the cost centres were set up (D97). The GL posting groups by it, so two
+   * lines on one invoice can be booked to two different centres.
+   */
+  costCenterId: z.string().min(1).nullish(),
 });
 
 /** Create a draft sales invoice. */
 export const createSalesInvoiceSchema = z.object({
   id: z.string().min(1).optional(),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   dueDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string().min(1),
@@ -67,6 +78,8 @@ export const createSalesInvoiceSchema = z.object({
   /** HR employee id (`/hr/employees`) credited with the sale. */
   salespersonId: z.string().min(1).nullish(),
   salespersonNameAr: z.string().min(1).nullish(),
+  /** بُعد المشروع — the contracting project this invoice's revenue and COGS belong to. */
+  projectId: z.string().min(1).nullish(),
   /** Coupon presented by the customer; the server evaluates promotions with it at confirm. */
   couponCode: z.string().min(1).nullish(),
   currency: z.string().optional(),
@@ -98,10 +111,10 @@ export const confirmSalesInvoiceSchema = z.object({
  * The route creates and confirms a real collection voucher and allocates it.
  */
 export const salesInvoicePaymentSchema = z.object({
-  amount: z.string(),
+  amount: moneyString,
   treasuryAccountId: z.string().min(1),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   referenceNo: z.string().nullish(),
   notes: z.string().nullish(),
 });

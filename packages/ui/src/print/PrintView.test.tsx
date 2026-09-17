@@ -96,6 +96,57 @@ describe("PrintView", () => {
     expect(screen.queryByText("طباعة")).not.toBeInTheDocument();
   });
 
+  it("prints the ETA identifier without a QR when only the identifier is known", () => {
+    const doc = { ...createSampleInvoiceDocument(), etaUuid: "ETA-UUID-1" };
+    const { container } = render(<PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={doc} />);
+    expect(screen.getByText("ETA-UUID-1")).toBeInTheDocument();
+    expect(container.querySelector('svg[role="img"]')).toBeNull();
+  });
+
+  it("prints a QR symbol for an e-receipt, which is the only thing scannable at the counter", () => {
+    const doc = {
+      ...createSampleInvoiceDocument(),
+      etaUuid: "ETA-UUID-1",
+      etaQrValue: "https://invoicing.eta.gov.eg/receipts/search/ETA-UUID-1/share/2026-09-01T10%3A00%3A00Z",
+    };
+    const { container } = render(<PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={doc} />);
+    const qr = container.querySelector('svg[role="img"]');
+    expect(qr).not.toBeNull();
+    expect(qr?.getAttribute("aria-label")).toBe("رقم الفاتورة الإلكترونية لدى مصلحة الضرائب:");
+    expect(qr?.querySelector("path")?.getAttribute("d")).toBeTruthy();
+  });
+
+  it("prints nothing about ETA when the document has neither identifier nor QR", () => {
+    const { container } = render(
+      <PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={createSampleInvoiceDocument()} />,
+    );
+    expect(screen.queryByText("رقم الفاتورة الإلكترونية لدى مصلحة الضرائب:")).not.toBeInTheDocument();
+    expect(container.querySelector('svg[role="img"]')).toBeNull();
+  });
+
+  it("prints the compliance notice, so a test-mode or unsealed document says so on paper", () => {
+    const doc = { ...createSampleInvoiceDocument(), complianceNotice: "وضع الاختبار — لم تُرسل هذه الوثيقة إلى مصلحة الضرائب" };
+    render(<PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={doc} />);
+    expect(
+      screen.getByText("وضع الاختبار — لم تُرسل هذه الوثيقة إلى مصلحة الضرائب"),
+    ).toBeInTheDocument();
+  });
+
+  it("turns the page sideways on landscape — the @page rule AND the sheet's own dimensions", () => {
+    const { container } = render(
+      <PrintView
+        config={DEFAULT_PRINT_TEMPLATE_CONFIG}
+        document={createSampleInvoiceDocument()}
+        orientation="landscape"
+        showToolbar={false}
+      />,
+    );
+    expect(container.querySelector("style")?.textContent).toContain("size: A4 landscape");
+    const sheet = container.querySelector<HTMLElement>("div[dir=\"rtl\"]");
+    expect(sheet?.style.width).toBe("297mm");
+    expect(sheet?.style.minHeight).toBe("210mm");
+  });
+
   it("matches the rendered structure snapshot for the sample invoice", () => {
     const { container } = render(
       <PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={createSampleInvoiceDocument()} showToolbar={false} />,

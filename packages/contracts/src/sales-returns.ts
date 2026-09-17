@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for Sales Returns (مرتجعات المبيعات، docs/archive/catalog/01), a
@@ -7,7 +9,8 @@ import { documentStatusSchema } from "./documents.js";
  * strings (same convention as journal.ts/inventory.ts) — never floats.
  */
 
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const salesReturnReasonSchema = z.enum([
   "DEFECTIVE",
@@ -31,11 +34,13 @@ export const salesReturnLineSchema = z.object({
   taxAmount: positiveDecimalString,
   /** The VAT rate the source invoice line charged, so a mixed-rate return posts one tagged VAT line per rate (D76). */
   taxRatePercent: z.number().nullable().optional(),
+  /** بُعد المشروع, inherited from the source invoice — see `/from-invoice`. */
+  projectId: z.string().min(1).nullable().optional(),
 });
 
 export const createSalesReturnSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().default(""),
   lines: z.array(salesReturnLineSchema).min(1),
 });
@@ -50,7 +55,7 @@ export const salesReturnRequestedQtySchema = z.object({
 
 export const buildSalesReturnFromInvoiceSchema = z.object({
   id: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().default(""),
   sourceInvoiceId: z.string().min(1),
   warehouseId: z.string().min(1),
@@ -82,7 +87,7 @@ export const salesReturnDocumentSchema = z.object({
       voucherId: z.string(),
       voucherNo: z.string().nullable(),
       date: z.string(),
-      amount: z.string(),
+      amount: moneyString,
     }),
   ),
 });
@@ -92,7 +97,7 @@ export const refundSalesReturnSchema = z.object({
   amount: positiveDecimalString,
   treasuryAccountId: z.string().min(1),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   referenceNo: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
 });

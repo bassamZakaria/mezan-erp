@@ -34,9 +34,9 @@ export const TEST_ACCOUNTS: Account[] = [
 ];
 
 export const TEST_TREASURY_ACCOUNTS: TreasuryAccount[] = [
-  { id: "ta-cash1", code: "CASH-001", name: "صندوق 1", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: Money.zero(), openingBalanceDate: null, status: "active" },
-  { id: "ta-cash2", code: "CASH-002", name: "صندوق 2", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-2", openingBalance: Money.zero(), openingBalanceDate: null, status: "active" },
-  { id: "ta-bank1", code: "BANK-001", name: "بنك", nameEn: null, type: "bank", currency: "EGP", branchId: "b1", glAccountId: "1310", openingBalance: Money.zero(), openingBalanceDate: null, status: "active" },
+  { id: "ta-cash1", code: "CASH-001", name: "صندوق 1", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
+  { id: "ta-cash2", code: "CASH-002", name: "صندوق 2", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-2", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
+  { id: "ta-bank1", code: "BANK-001", name: "بنك", nameEn: null, type: "bank", currency: "EGP", branchId: "b1", glAccountId: "1310", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
 ];
 
 export const TEST_PERIOD: FiscalPeriod = {

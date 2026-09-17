@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createEntitlements, type Entitlements } from "../entitlements/entitlements.js";
 import { createFakeUow } from "../test-support/fake-uow.js";
+import { createAuthContext } from "../permissions/auth-context.js";
 import {
   saveRole,
   deleteRole,
@@ -21,6 +22,14 @@ function fullEntitlements(): Entitlements {
   });
 }
 
+const TENANT_ADMIN = createAuthContext({
+  userId: "actor-1",
+  permissions: ["*"],
+  branchScope: "*",
+  warehouseScope: "*",
+  authenticated: true,
+});
+
 describe("saveRole", () => {
   it("creates a custom role with a valid permission set", async () => {
     const uow = createFakeUow();
@@ -35,6 +44,7 @@ describe("saveRole", () => {
       },
       uow,
       fullEntitlements(),
+      TENANT_ADMIN,
     );
 
     expect(role.isSystem).toBe(false);
@@ -56,6 +66,7 @@ describe("saveRole", () => {
         },
         uow,
         fullEntitlements(),
+        TENANT_ADMIN,
       ),
     ).rejects.toBeInstanceOf(UnknownPermissionError);
   });
@@ -81,6 +92,7 @@ describe("saveRole", () => {
         },
         uow,
         ent,
+        TENANT_ADMIN,
       ),
     ).rejects.toBeInstanceOf(UnlicensedPermissionError);
   });
@@ -91,12 +103,14 @@ describe("saveRole", () => {
       { id: "role-1", code: "VAN_SALES", name: "أ", description: "", permissions: [], createdAt: "2026-08-08T00:00:00.000Z" },
       uow,
       fullEntitlements(),
+      TENANT_ADMIN,
     );
     await expect(
       saveRole(
         { id: "role-2", code: "VAN_SALES", name: "ب", description: "", permissions: [], createdAt: "2026-08-08T00:00:00.000Z" },
         uow,
         fullEntitlements(),
+        TENANT_ADMIN,
       ),
     ).rejects.toBeInstanceOf(DuplicateRoleCodeError);
   });
@@ -107,6 +121,7 @@ describe("saveRole", () => {
       { id: "role-1", code: "VAN_SALES", name: "أ", description: "", permissions: [], createdAt: "2026-08-08T00:00:00.000Z" },
       uow,
       fullEntitlements(),
+      TENANT_ADMIN,
     );
     const updated = await saveRole(
       {
@@ -119,6 +134,7 @@ describe("saveRole", () => {
       },
       uow,
       fullEntitlements(),
+      TENANT_ADMIN,
     );
     expect(updated.name).toBe("مندوب مبيعات محدث");
     expect(updated.createdAt).toBe("2026-08-08T00:00:00.000Z");
@@ -140,6 +156,7 @@ describe("saveRole", () => {
         { id: "sys-1", code: "OWNER", name: "تعديل", description: "", permissions: [], createdAt: "2026-01-01T00:00:00.000Z" },
         uow,
         fullEntitlements(),
+        TENANT_ADMIN,
       ),
     ).rejects.toBeInstanceOf(SystemRoleImmutableError);
   });
@@ -152,6 +169,7 @@ describe("deleteRole", () => {
       { id: "role-1", code: "VAN_SALES", name: "أ", description: "", permissions: [], createdAt: "2026-08-08T00:00:00.000Z" },
       uow,
       fullEntitlements(),
+      TENANT_ADMIN,
     );
     await deleteRole("role-1", uow);
     expect(await uow.roles.findById("role-1")).toBeNull();
@@ -163,6 +181,7 @@ describe("deleteRole", () => {
       { id: "role-1", code: "VAN_SALES", name: "أ", description: "", permissions: [], createdAt: "2026-08-08T00:00:00.000Z" },
       uow,
       fullEntitlements(),
+      TENANT_ADMIN,
     );
     uow.userRecords.set("user-1", {
       id: "user-1",

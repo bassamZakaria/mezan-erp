@@ -65,6 +65,8 @@ export function createInventoryOpsStockHook(
         adjustmentNumber: plan.sourceDocNumber,
         warehouseId: plan.warehouseId,
         reason,
+        projectId: plan.projectId ?? null,
+        costCategory: plan.costCategory ?? null,
         occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
         lines: plan.lines.map((l) => ({
           itemId: l.itemId,
@@ -124,6 +126,8 @@ export function createInventoryGlPostingHook(deps: JournalPostingDeps): Inventor
             accountId: l.accountId,
             debit: l.debit,
             credit: l.credit,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
           })),
         },
         deps,

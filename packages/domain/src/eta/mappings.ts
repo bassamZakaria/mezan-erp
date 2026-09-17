@@ -6,15 +6,36 @@
  * elsewhere.
  */
 
+/**
+ * One branch as the authority knows it: its branch code, and the POS device
+ * registered for that branch.
+ *
+ * The device identity belongs HERE and not on the request that issues a
+ * receipt. The authority treats the registered device as the issuing till and
+ * binds every receipt to it, so a caller-supplied serial lets any client claim
+ * any till's identity — and issues the POS credentials per device, not per
+ * company, which is why they sit beside the serial rather than in `EtaConfig`.
+ */
 export interface EtaBranchCode {
   readonly branchId: string;
   /** كود الفرع لدى المصلحة — the branch code registered with the authority. */
   readonly etaBranchCode: string;
+  /** الرقم التسلسلي لجهاز نقطة البيع — null until the device is registered. */
+  readonly deviceSerialNumber: string | null;
+  /** POS client id the authority issues for this device. */
+  readonly posClientId: string | null;
+  /**
+   * True when a per-device client secret is on file (sealed). The secret
+   * itself is never read back, exactly as `EtaConfig.hasClientSecret`.
+   */
+  readonly hasPosClientSecret: boolean;
 }
 
 export interface EtaBranchCodeRepository {
   list(): Promise<EtaBranchCode[]>;
+  /** Writes everything but the secret — `hasPosClientSecret` is read-only. */
   save(mapping: EtaBranchCode): Promise<void>;
+  setPosClientSecret(branchId: string, secret: string): Promise<void>;
 }
 
 export interface EtaUnitMapping {

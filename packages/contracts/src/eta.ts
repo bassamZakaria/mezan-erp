@@ -4,7 +4,7 @@ import { z } from "zod";
 export const etaEnvironmentSchema = z.enum(["preproduction", "production"]);
 export const etaDocumentVersionSchema = z.enum(["0.9", "1.0"]);
 export const etaSigningMethodSchema = z.enum(["none", "eseal"]);
-export const etaDocumentTypeSchema = z.enum(["invoice", "credit_note", "debit_note"]);
+export const etaDocumentTypeSchema = z.enum(["invoice", "credit_note", "debit_note", "receipt"]);
 export const etaSubmissionStatusSchema = z.enum([
   "ready",
   "pending_signature",
@@ -40,6 +40,7 @@ export const etaConfigSchema = z.object({
   productionApiUrl: z.string(),
   signingCommand: z.string().nullable(),
   signingCommandArgs: z.array(z.string()),
+  receiptReportingWindowHours: z.number().int().positive(),
 });
 
 /** Config update — `clientSecret` (plain) is accepted here but never returned. */
@@ -60,6 +61,7 @@ export const updateEtaConfigSchema = z.object({
   productionApiUrl: z.string().url().optional(),
   signingCommand: z.string().nullable().optional(),
   signingCommandArgs: z.array(z.string()).optional(),
+  receiptReportingWindowHours: z.number().int().positive().optional(),
 });
 
 export const etaReadinessSchema = z.object({
@@ -119,9 +121,19 @@ export const etaBranchCodeRowSchema = z.object({
   branchCode: z.string(),
   branchName: z.string(),
   etaBranchCode: z.string().nullable(),
+  /** الرقم التسلسلي لجهاز نقطة البيع المسجَّل لهذا الفرع. */
+  deviceSerialNumber: z.string().nullable(),
+  posClientId: z.string().nullable(),
+  /** The per-device secret is never returned — only whether one is on file. */
+  hasPosClientSecret: z.boolean(),
 });
 
-export const updateEtaBranchCodeSchema = z.object({ etaBranchCode: z.string().min(1) });
+export const updateEtaBranchCodeSchema = z.object({
+  etaBranchCode: z.string().min(1),
+  deviceSerialNumber: z.string().nullable().optional(),
+  posClientId: z.string().nullable().optional(),
+  posClientSecret: z.string().optional(),
+});
 
 export const etaItemMappingRowSchema = z.object({
   itemId: z.string(),

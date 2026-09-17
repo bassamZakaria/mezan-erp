@@ -7,6 +7,7 @@ import {
   createSqliteFiscalPeriodRepository,
   createSqliteLedgerStore,
   createSqliteUnitOfWork,
+  type SqliteUnitOfWorkHandle,
 } from "@mezan/persistence";
 
 /**
@@ -14,6 +15,13 @@ import {
  *   Path A (cloud):   over HTTP via @hono/node-server, hit with real fetch().
  *   Path B (desktop): in-process via app.fetch(new Request(...)) — no socket.
  * A given entry must yield byte-identical responses on both paths.
+ *
+ * It proves this over `/gl`, the route the product actually posts through. It
+ * used to prove it over a bare `POST /journal-entries` — the spike's original
+ * poster, which checked no fiscal period, validated no account, stamped no
+ * number and wrote no audit row. Being one of its last two callers is what kept
+ * that second way into the books alive (D99), so the proof moved and the route
+ * went.
  */
 
 const balancedEntry = {
@@ -37,38 +45,31 @@ const unbalancedEntry = {
   ],
 };
 
-const handles: { close(): void }[] = [];
+const handles: Array<SqliteUnitOfWorkHandle | { close(): void }> = [];
 const servers: { close: (cb?: () => void) => void }[] = [];
 
+const POSTABLE = {
+  nameEn: null,
+  parentId: null,
+  isHeader: false,
+  status: "active" as const,
+};
+
 /**
- * The legacy `POST /journal-entries` spike is gone (B-6): it wrote into
- * `uow_journal_*`, which no report reads, and skipped the period gate, the
- * account check, numbering and audit. Both mount points now exercise the one
- * real posting engine, `/gl/journal-entries`.
+ * The same seeded books behind both mounts: `/gl` validates every account and
+ * refuses a date outside an open period, so the two paths can only be compared
+ * against identical master data.
  */
-async function newApp() {
+async function seededApp() {
   const uow = createSqliteUnitOfWork(":memory:");
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
   const periods = createSqliteFiscalPeriodRepository();
   handles.push(uow, ledger, accounts, periods);
-  for (const [id, type, naturalBalance] of [
-    ["1300-1", "asset", "debit"],
-    ["4000", "revenue", "credit"],
-    ["2200", "liability", "credit"],
-  ] as const) {
-    await accounts.create({
-      id,
-      code: id,
-      nameAr: id,
-      nameEn: null,
-      type,
-      naturalBalance,
-      parentId: null,
-      isHeader: false,
-      status: "active",
-    });
-  }
+
+  await accounts.create({ id: "1300-1", code: "1300-1", nameAr: "النقدية", type: "asset", naturalBalance: "debit", ...POSTABLE });
+  await accounts.create({ id: "4000", code: "4000", nameAr: "الإيرادات", type: "revenue", naturalBalance: "credit", ...POSTABLE });
+  await accounts.create({ id: "2200", code: "2200", nameAr: "ضريبة القيمة المضافة", type: "liability", naturalBalance: "credit", ...POSTABLE });
   await periods.create({
     id: "fp-2026-08",
     year: 2026,
@@ -77,13 +78,20 @@ async function newApp() {
     endDate: "2026-08-31",
     status: "open",
   });
+
   return createApp(uow, {
+    // A fixed clock on both mounts: proof test #2 compares raw response TEXT,
+    // and a real clock would differ between the two apps by milliseconds.
     gl: { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-22T10:00:00.000Z" },
   });
 }
 
+async function newInProcessApp() {
+  return seededApp();
+}
+
 async function newHttpApp(): Promise<{ baseUrl: string }> {
-  const app = await newApp();
+  const app = await seededApp();
   const server = serve({ fetch: app.fetch, port: 0 });
   servers.push(server as unknown as { close: (cb?: () => void) => void });
   // @hono/node-server exposes the underlying node server synchronously.
@@ -101,7 +109,7 @@ afterEach(async () => {
 describe("dual-mount journal posting", () => {
   // Proof test #1
   it("posts a balanced entry and persists it as 'posted' (retrievable via GET)", async () => {
-    const app = await newApp();
+    const app = await newInProcessApp();
 
     const postRes = await app.fetch(
       new Request("http://local/gl/journal-entries", {
@@ -139,7 +147,7 @@ describe("dual-mount journal posting", () => {
   // guards B-6: the spike's unprefixed mount posted into uow_journal_*, which
   // no report reads, with no period gate, no account check and no numbering.
   it("no longer mounts the unprefixed legacy poster", async () => {
-    const app = await newApp();
+    const app = await newInProcessApp();
     const res = await app.fetch(
       new Request("http://local/journal-entries", {
         method: "POST",
@@ -159,7 +167,7 @@ describe("dual-mount journal posting", () => {
 
   // Proof test #2
   it("returns byte-identical responses over HTTP and via app.fetch()", async () => {
-    const inProcApp = await newApp();
+    const inProcApp = await newInProcessApp();
     const { baseUrl } = await newHttpApp();
 
     const requestInit: RequestInit = {
@@ -186,7 +194,7 @@ describe("dual-mount journal posting", () => {
 
   // Proof test #3
   it("rejects an unbalanced entry with 422 on BOTH mount points", async () => {
-    const inProcApp = await newApp();
+    const inProcApp = await newInProcessApp();
     const { baseUrl } = await newHttpApp();
 
     const requestInit: RequestInit = {

@@ -29,6 +29,11 @@ export async function run(ctx: Ctx): Promise<void> {
     };
   }
 
+  async function accountBalance(accountId: string): Promise<number> {
+    const res = await req("GET", `/gl/accounts/${accountId}/ledger`);
+    return n(res.body?.balance?.balance);
+  }
+
   async function confirmedInvoiceTotals() {
     return (await ctx.allRows("/purchases/invoices"))
       .filter((x: any) => x.status === "confirmed")
@@ -642,6 +647,88 @@ export async function run(ctx: Ctx): Promise<void> {
       afterConfirm.ap - beforeConfirm.ap,
       0,
     );
+  });
+
+  // --- 8b. Landed cost that lands AFTER the goods were sold (D84) ---------
+  /**
+   * The freight invoice usually arrives weeks after the shipment, by which
+   * time some of it has been sold. Only the units still on hand can carry the
+   * cost; the rest is a period cost. Debiting the whole amount to GL 1200 left
+   * the ledger above the valuation report by exactly the difference, forever.
+   */
+  await scenario("purchases: a landed cost booked after part of the goods were sold reclassifies the unabsorbed share to COGS, and GL 1200 still equals the valuation report", async () => {
+    // Its own item, so the position holds this receipt and nothing else — a
+    // shared item's earlier layers would absorb the whole cost and hide the case.
+    const item = await req("POST", "/items", {
+      id: "SCN-ITEM-LC-LATE",
+      code: "SCN-ITEM-LC-LATE",
+      nameAr: "صنف تكلفة إضافية متأخرة",
+      type: "stock",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+      revenueAccountId: "4100",
+      cogsAccountId: "5100",
+      inventoryAccountId: "1200",
+    });
+    check("a dedicated item for the late landed cost", item.status === 201, item.status.toString());
+
+    const invoice = await req("POST", "/purchases/invoices", {
+      id: "SCN-PI-LC-LATE",
+      supplierId: "SUPP-DEMO-1",
+      date: "2026-08-24",
+      branchId: BRANCH_ID,
+      warehouseId: WAREHOUSE_ID,
+      lines: [{ itemId: "SCN-ITEM-LC-LATE", kind: "inventory", qty: "100", unitCost: "100", taxRatePercent: VAT }],
+    });
+    check("source invoice for the late landed cost created", invoice.status === 201, invoice.status.toString());
+    const invConfirm = await req("POST", "/purchases/invoices/SCN-PI-LC-LATE/confirm", {});
+    check("source invoice confirmed", invConfirm.status === 200, invConfirm.status.toString());
+
+    const beforeIssue = await itemBalance("SCN-ITEM-LC-LATE");
+    // 60 of the 100 leave before the freight invoice arrives.
+    const issue = await req("POST", "/inventory/adjustments", {
+      adjustmentId: "SCN-ADJ-LC-LATE",
+      warehouseId: WAREHOUSE_ID,
+      reason: "SHORTAGE",
+      lines: [{ itemId: "SCN-ITEM-LC-LATE", direction: "OUT", qty: "60" }],
+    });
+    check("60 of the 100 pieces leave before the freight invoice arrives", issue.status === 201, issue.status.toString());
+
+    const cogsBefore = await accountBalance("5100");
+    const lc = await req("POST", "/landed-costs", {
+      id: "SCN-LC-LATE",
+      date: "2026-08-24",
+      memo: "شحن متأخر — بعد بيع جزء من البضاعة",
+      distributionMethod: "BY_VALUE",
+      costItems: [{ costType: "SHIPPING", description: "نقل بري", amount: "1000" }],
+      targets: [
+        { itemId: "SCN-ITEM-LC-LATE", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-LC-LATE", sourceInvoiceNumber: null, qty: "100", unitCost: "100" },
+      ],
+    });
+    check("late landed cost created as a draft", lc.status === 201 && lc.body?.status === "draft", lc.status.toString());
+
+    const beforeValue = (await itemBalance("SCN-ITEM-LC-LATE")).totalValue;
+    const confirm = await req("POST", "/landed-costs/SCN-LC-LATE/confirm", {});
+    check("late landed cost confirms", confirm.status === 200, JSON.stringify(confirm.body).slice(0, 200));
+
+    // The whole 1,000 was allocated to this one line, but the position holds
+    // only what the earlier receipts left. Whatever the layers could not
+    // absorb is reported, and it is the same figure the valuation report
+    // failed to rise by.
+    const unabsorbed = n(confirm.body?.unabsorbedTotal);
+    const afterValue = (await itemBalance("SCN-ITEM-LC-LATE")).totalValue;
+    check("part of the late landed cost could NOT be capitalised", unabsorbed > 0, `unabsorbed ${unabsorbed}`);
+    checkEq("the valuation report rose by exactly the part the stock could absorb", afterValue - beforeValue, 1000 - unabsorbed, 0.000001);
+    check(
+      "the reclassification is a real posted entry, named on the response",
+      confirm.body?.unabsorbedJournalEntryId === "SCN-LC-LATE:UNABSORBED",
+      String(confirm.body?.unabsorbedJournalEntryId),
+    );
+    checkEq("and COGS 5100 carries exactly the unabsorbed share", (await accountBalance("5100")) - cogsBefore, unabsorbed, 0.000001);
+    // The scenario harness asserts `inventory` — the stock valuation minus GL
+    // 1200 — is unchanged either side of every scenario, so a 1200 that ran
+    // ahead of the valuation report by the unabsorbed figure fails right here.
+    check("the goods really had left before the cost landed", beforeIssue.onHand > 0, `on hand before the issue ${beforeIssue.onHand}`);
   });
 
   // --- 9. Landed costs: BY_QUANTITY on the seeded draft LC-DEMO-2 ---------

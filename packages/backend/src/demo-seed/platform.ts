@@ -7,9 +7,9 @@ import { CORE, VAT_PERCENT, WAREHOUSE_ID, seedActorHeaders, step } from "./share
  * Platform administration: notification rules, notifications, and workflow
  * configs/requests.
  *
- * Notification rules may only subscribe to events this build actually emits —
- * `GET /notification-rules/triggers` reports that live set, so it is read here
- * rather than assumed.
+ * A notification rule may only subscribe to an event this build actually
+ * emits — `GET /notification-rules/triggers` reports that live set, so it is
+ * read here rather than assumed.
  *
  * `/eta/submissions` is deliberately NOT seeded here: this build has no HTTP
  * route that enqueues an ETA submission (`EtaService.enqueue` is never wired
@@ -53,11 +53,11 @@ async function stepAs(app: App, method: string, path: string, actor: ActorOption
 
 /**
  * `shared.step`'s ADMIN_HEADERS attributes writes to "SEED-ADMIN", a synthetic
- * seeder identity — fine for most modules, but `/notifications` and
- * `/profile/activity` show only the CALLING user's own rows. Attributing these
- * to the real bootstrapped tenant admin (USER-ADMIN — see `backend/src/seed.ts`)
- * is both more realistic and the only way that admin's own inbox and activity
- * feed have anything in them.
+ * seeder identity — fine for most modules, but the writes below are
+ * audited (`recordSensitiveEvent`) and `/profile/activity` shows only the
+ * CALLING user's own trail. Attributing these to the real bootstrapped tenant
+ * admin (USER-ADMIN — see `backend/src/seed.ts`) is both more realistic and
+ * the only way that admin's own activity feed has anything in it.
  */
 const PLATFORM_ADMIN: ActorOptions = { userId: "USER-ADMIN", permissions: "*" };
 

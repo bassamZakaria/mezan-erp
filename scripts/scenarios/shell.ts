@@ -118,6 +118,8 @@ const NAV_ENDPOINTS: readonly (readonly [string, string])[] = [
   ["journals", "/gl/journal-entries"],
   ["fiscal-periods", "/fiscal-periods"],
   ["taxes", "/tax-rates"],
+  ["tax-simplified-regime", "/tax/simplified-regime"],
+  ["report-simplified-regime-comparison", "/tax/simplified-regime/comparison"],
   ["exchange-rates", "/exchange-rates"],
   ["reconciliation", "/reconciliation"],
   ["eta", "/eta/submissions"],

@@ -90,7 +90,15 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
       setScopeSelection,
       async request(path, init) {
         const headers = new Headers(init?.headers);
-        for (const [k, v] of Object.entries(authHeaders(session, scopeSelection))) headers.set(k, v);
+        // The topbar picker is a VIEW narrowing, not a grant, so it rides on
+        // reads only. Write routes enforce warehouse scope as authority (D103),
+        // and a transfer names two warehouses — sending the one the reader
+        // happened to be looking at would refuse a move the user is entitled
+        // to make. The server clamps the header to the session's own grant
+        // either way, so omitting it can never widen anything.
+        const method = (init?.method ?? "GET").toUpperCase();
+        const narrowing = method === "GET" || method === "HEAD" ? scopeSelection : undefined;
+        for (const [k, v] of Object.entries(authHeaders(session, narrowing))) headers.set(k, v);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
         const response = await resolvedTransport(path, { ...init, headers });
 

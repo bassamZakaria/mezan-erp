@@ -39,10 +39,11 @@ export interface TextFieldProps {
   placeholder?: string;
   hint?: string;
   disabled?: boolean;
-  type?: "text" | "email" | "tel" | "date" | "password";
+  type?: "text" | "email" | "tel" | "date" | "password" | "number";
+  autoComplete?: string;
 }
 
-export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text" }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text", autoComplete }: TextFieldProps) {
   const id = useId();
   return (
     <Field label={label} hint={hint} htmlFor={id}>
@@ -52,6 +53,7 @@ export function TextField({ label, value, onChange, placeholder, hint, disabled,
         value={value}
         placeholder={placeholder}
         disabled={disabled}
+        autoComplete={autoComplete}
         onChange={(e) => onChange(e.target.value)}
       />
     </Field>
@@ -172,6 +174,7 @@ export interface MultiChipFieldProps {
    */
   allowCustom?: boolean;
   customPlaceholder?: string;
+  disabled?: boolean;
 }
 
 /** Toggleable chip picker — used for weekend days, secondary currencies and email domains. */
@@ -183,10 +186,12 @@ export function MultiChipField({
   onChange,
   allowCustom = false,
   customPlaceholder,
+  disabled = false,
 }: MultiChipFieldProps) {
   const [entry, setEntry] = useState("");
 
   function toggle(optValue: string) {
+    if (disabled) return;
     onChange(value.includes(optValue) ? value.filter((v) => v !== optValue) : [...value, optValue]);
   }
 
@@ -221,8 +226,8 @@ export function MultiChipField({
             type="button"
             toggle
             active={value.includes(opt.value)}
-            disabled={opt.disabled}
-            className={opt.disabled ? "cursor-not-allowed opacity-55" : undefined}
+            disabled={disabled || opt.disabled}
+            className={disabled || opt.disabled ? "cursor-not-allowed opacity-55" : undefined}
             onClick={() => {
               if (opt.disabled) return;
               toggle(opt.value);
@@ -232,7 +237,7 @@ export function MultiChipField({
           </Chip>
         ))}
         {customChips.map((v) => (
-          <Chip key={v} type="button" toggle active onClick={() => toggle(v)}>
+          <Chip key={v} type="button" toggle active disabled={disabled} onClick={() => toggle(v)}>
             <span className="mz-lat">{v}</span> ×
           </Chip>
         ))}
@@ -243,6 +248,7 @@ export function MultiChipField({
             value={entry}
             placeholder={customPlaceholder}
             className="mz-lat"
+            disabled={disabled}
             onChange={(e) => setEntry(e.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={commitEntry}

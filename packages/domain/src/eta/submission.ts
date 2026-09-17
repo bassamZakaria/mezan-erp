@@ -6,7 +6,13 @@
  * exceptional and requires a reason.
  */
 
-export type EtaDocumentType = "invoice" | "credit_note" | "debit_note";
+/**
+ * الإيصال الإلكتروني (`receipt`) is a SEPARATE authority mandate from the
+ * e-invoice, with its own document shape and its own post-sale reporting
+ * window — see receipt.ts. It shares this queue because the queue is what
+ * makes both work offline, not because the documents are alike.
+ */
+export type EtaDocumentType = "invoice" | "credit_note" | "debit_note" | "receipt";
 
 export type EtaSubmissionStatus =
   | "ready" // جاهز — in the queue, not yet sent
@@ -38,6 +44,7 @@ const ETA_DOCUMENT_TYPE_LABELS: Record<EtaDocumentType, string> = {
   invoice: "فاتورة",
   credit_note: "إشعار خصم",
   debit_note: "إشعار إضافة",
+  receipt: "إيصال إلكتروني",
 };
 
 export function getEtaDocumentTypeLabel(type: EtaDocumentType): string {

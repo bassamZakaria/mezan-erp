@@ -1,3 +1,4 @@
+import type { CostCategory } from "../contracting/cost-category.js";
 /**
  * Shared types + ports for the manufacturing module (docs/archive/catalog/07):
  * قوائم المواد (BOMs), أوامر التصنيع (Work Orders), المنتجات القابلة للتهيئة
@@ -84,6 +85,10 @@ export interface ManufacturingGlPostingLine {
   readonly accountId: string;
   readonly debit: Money;
   readonly credit: Money;
+  /** بُعد المشروع — the contracting project the line belongs to (D-01). Dropped here, it is gone for good. */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  readonly costCategory?: CostCategory | null;
 }
 
 /**

@@ -32,3 +32,45 @@
 export function calendarDay(value: string): string {
   return value.length > 10 ? value.slice(0, 10) : value;
 }
+
+/**
+ * The default tenant timezone. Egypt is the product's home market, and Cairo
+ * observes DST again since 2023, so the offset is +02:00 or +03:00 depending
+ * on the date — which is exactly why the conversion below goes through `Intl`
+ * rather than a fixed offset.
+ */
+export const DEFAULT_TIME_ZONE = "Africa/Cairo";
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const INSTANT = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:?\d{2})?$/;
+
+/**
+ * The calendar day an ISO value falls on IN THE TENANT'S OWN TIMEZONE.
+ *
+ * A day-shaped value is already a day and is returned untouched. An instant is
+ * resolved through the tenant zone, so `2026-09-30T23:59:59Z` is the 1st of
+ * October for an Egyptian shop — because it is. `calendarDay` slices in UTC
+ * and is therefore the wrong tool at a wire boundary; use it only where the
+ * two sides of a comparison are already known to share a zone.
+ *
+ * A value that is neither shape, or a timezone the platform does not know, is
+ * returned narrowed in UTC rather than thrown on: the caller's own validation
+ * owns the rejection, and a typo in one settings field must not make every
+ * posting in the system impossible.
+ */
+export function toTenantDay(value: string, timeZone: string = DEFAULT_TIME_ZONE): string {
+  if (DAY.test(value)) return value;
+  if (!INSTANT.test(value)) return calendarDay(value);
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return calendarDay(value);
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(at);
+  } catch {
+    return calendarDay(value);
+  }
+}

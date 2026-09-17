@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteRead, withSqliteTransaction } from "./sqlite-connection.js";
+import { openSqliteConnection, withSqliteRead, withSqliteTransaction, type SqliteDriver } from "./sqlite-connection.js";
 
 describe("openSqliteConnection", () => {
   it("opens and owns a fresh connection for a string path, with WAL + busy_timeout set", () => {
@@ -8,6 +8,48 @@ describe("openSqliteConnection", () => {
     try {
       expect(owned).toBe(true);
       expect(sqlite.pragma("busy_timeout", { simple: true })).toBe(5000);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("leaves locking_mode alone unless asked — desktop and LAN must keep sharing the file", () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    try {
+      expect(sqlite.pragma("locking_mode", { simple: true })).toBe("normal");
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("sets locking_mode = EXCLUSIVE when asked, which is what lets WAL live on EFS", () => {
+    const { sqlite } = openSqliteConnection(":memory:", { exclusive: true });
+    try {
+      expect(sqlite.pragma("locking_mode", { simple: true })).toBe("exclusive");
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("sets locking_mode BEFORE journal_mode — after WAL it is accepted but does nothing", () => {
+    const pragmas: string[] = [];
+    const recordingDriver = function (path: string) {
+      const db = new Database(path);
+      const original = db.pragma.bind(db);
+      db.pragma = (source: string, options?: Database.PragmaOptions) => {
+        pragmas.push(source);
+        return original(source, options);
+      };
+      return db;
+    } as unknown as SqliteDriver;
+
+    const { sqlite } = openSqliteConnection(":memory:", { exclusive: true, driver: recordingDriver });
+    try {
+      const locking = pragmas.findIndex((p) => p.startsWith("locking_mode"));
+      const journal = pragmas.findIndex((p) => p.startsWith("journal_mode"));
+      expect(locking).toBeGreaterThanOrEqual(0);
+      expect(journal).toBeGreaterThanOrEqual(0);
+      expect(locking).toBeLessThan(journal);
     } finally {
       sqlite.close();
     }

@@ -1,5 +1,22 @@
 import { resolveEtaEndpoints, type EtaConfig, type EtaConfigRepository } from "./config.js";
 import { buildEtaPayload, type EtaDocumentInput } from "./payload.js";
+import {
+  buildEtaReceiptPayload,
+  canonicalizeEtaDocument,
+  etaReceiptQrValue,
+  summarizeEtaReceiptQueue,
+  unavailableEtaReceiptUuidPort,
+  type EtaReceiptInput,
+  type EtaReceiptQueueSummary,
+  type EtaReceiptUuidPort,
+} from "./receipt.js";
+import {
+  attachEtaSignature,
+  etaPayloadIsSigned,
+  EtaSigningUnavailableError,
+  type EtaSignatureResult,
+  type EtaSigningPort,
+} from "./signing.js";
 import type {
   EtaSubmission,
   EtaSubmissionRepository,
@@ -80,10 +97,51 @@ export interface EtaServiceDeps {
   readonly now?: () => string;
   /** Generates ids for new submissions. */
   readonly newId?: () => string;
+  /**
+   * SHA-256 for the e-receipt UUID. Defaults to a port that REFUSES rather
+   * than inventing one — a fabricated UUID prints a QR that resolves to
+   * nothing at the authority.
+   */
+  readonly receiptUuid?: EtaReceiptUuidPort;
+  /**
+   * الختم الإلكتروني — the signing agent. Defaults to a port that refuses, so
+   * a submission parks in بانتظار التوقيع and stays there instead of being
+   * transmitted unsigned.
+   */
+  readonly signing?: EtaSigningPort;
+}
+
+/** What a till needs to print (or reprint) one receipt. */
+export interface EtaReceiptPrintData {
+  readonly submission: EtaSubmission;
+  readonly uuid: string;
+  readonly qrValue: string;
 }
 
 /** Input to enqueue a confirmed document. */
 export type EtaEnqueueInput = EtaDocumentInput;
+
+/**
+ * EXTERNAL CONTRACT: the CAdES-BES key lives on the taxpayer's hardware token
+ * and never leaves it, so the only e-seal implementation that can exist is an
+ * out-of-process one. This adapts that external signing program to the e-seal
+ * port; its refusals become {@link EtaSigningUnavailableError} so a v1.0
+ * document parks in بانتظار التوقيع instead of being transmitted unsigned.
+ */
+function esealPortFromExternalSigner(signer: EtaSignerPort, now: () => string): EtaSigningPort {
+  return {
+    async sign(submission: EtaSubmission): Promise<EtaSignatureResult> {
+      try {
+        const value = await signer.sign(canonicalEtaJson(submission.payload));
+        return { signatureType: "I", value, signedAt: now() };
+      } catch (err) {
+        if (err instanceof EtaSignerNotConfiguredError) throw new EtaSigningUnavailableError();
+        if (err instanceof EtaSigningFailedError) throw new EtaSigningUnavailableError(err.message);
+        throw err;
+      }
+    },
+  };
+}
 
 /**
  * The ETA e-invoicing service: build the payload, queue a confirmed document,
@@ -93,13 +151,17 @@ export type EtaEnqueueInput = EtaDocumentInput;
 export class EtaService {
   private readonly transmitPort: EtaTransmitPort;
   private readonly signerPort: EtaSignerPort;
+  private readonly receiptUuidPort: EtaReceiptUuidPort;
+  private readonly signingPort: EtaSigningPort;
   private readonly now: () => string;
   private readonly newId: () => string;
 
   constructor(private readonly deps: EtaServiceDeps) {
     this.transmitPort = deps.transmit ?? stubOnlineTransmitPort();
     this.signerPort = deps.signer ?? unconfiguredEtaSigner();
+    this.receiptUuidPort = deps.receiptUuid ?? unavailableEtaReceiptUuidPort();
     this.now = deps.now ?? (() => new Date().toISOString());
+    this.signingPort = deps.signing ?? esealPortFromExternalSigner(this.signerPort, () => this.now());
     this.newId = deps.newId ?? (() => `eta-${Math.random().toString(36).slice(2)}`);
   }
 
@@ -142,6 +204,78 @@ export class EtaService {
   }
 
   /**
+   * إصدار إيصال إلكتروني — queue one receipt and hand back what the paper
+   * needs. Unlike {@link enqueue} this is IDEMPOTENT: a receipt already in the
+   * queue is returned as it stands, with the UUID it was printed with the
+   * first time. A reprint is the same piece of paper, so it carries the same
+   * identifier and the same QR — minting a second submission would report one
+   * sale to the authority twice.
+   *
+   * The UUID is computed here, before printing, because the receipt is
+   * reported AFTER the sale and the customer walks out with the QR in hand.
+   */
+  async enqueueReceipt(input: EtaReceiptInput): Promise<EtaReceiptPrintData> {
+    const config = await this.deps.config.get();
+    const existing = await this.deps.submissions.findByInternalId(input.internalId);
+    if (existing) return this.receiptPrintData(existing, config);
+
+    const payload = buildEtaReceiptPayload(input, config);
+    const uuid = await this.receiptUuidPort.compute(canonicalizeEtaDocument(payload));
+    const header = payload.header as Record<string, unknown>;
+    header.uuid = uuid;
+    const stamp = this.now();
+    const submission: EtaSubmission = {
+      id: this.newId(),
+      internalId: input.internalId,
+      documentType: "receipt",
+      status: "ready",
+      etaUuid: uuid,
+      payload,
+      errors: [],
+      exclusionReason: null,
+      createdAt: stamp,
+      updatedAt: stamp,
+      submittedAt: null,
+      gatewaySubmissionId: null,
+      signature: null,
+      transmitLog: [],
+    };
+    await this.deps.submissions.create(submission);
+    return this.receiptPrintData(submission, config);
+  }
+
+  /** إعادة طباعة — the stored identifier, never a fresh one. */
+  async receiptForPrint(internalId: string): Promise<EtaReceiptPrintData | null> {
+    const submission = await this.deps.submissions.findByInternalId(internalId);
+    if (!submission || submission.documentType !== "receipt") return null;
+    return this.receiptPrintData(submission, await this.deps.config.get());
+  }
+
+  /**
+   * كم إيصالاً لم يُبلَّغ بعد — the pending and past-window counts. Offline is
+   * a normal state for a till, so a rising `pending` is expected; `overdue`
+   * above zero is the number a shop must act on.
+   */
+  async receiptQueueSummary(now?: string): Promise<EtaReceiptQueueSummary> {
+    const [all, config] = await Promise.all([this.deps.submissions.list(), this.deps.config.get()]);
+    return summarizeEtaReceiptQueue(all, now ?? this.now(), config.receiptReportingWindowHours);
+  }
+
+  private receiptPrintData(submission: EtaSubmission, config: EtaConfig): EtaReceiptPrintData {
+    const payload = submission.payload as { header?: { dateTimeIssued?: string } } | null;
+    const uuid = submission.etaUuid ?? "";
+    return {
+      submission,
+      uuid,
+      qrValue: etaReceiptQrValue({
+        uuid,
+        issueDateTime: payload?.header?.dateTimeIssued ?? submission.createdAt,
+        environment: config.environment,
+      }),
+    };
+  }
+
+  /**
    * Submit one queued document. When the config requires an e-seal (v1.0
    * signing) a ready submission first moves to بانتظار التوقيع; from there the
    * external signer runs and the signed document is transmitted. An install
@@ -149,33 +283,38 @@ export class EtaService {
    * document stays queued.
    */
   async submit(id: string): Promise<EtaSubmission> {
-    const submission = await this.require(id);
+    let submission = await this.require(id);
     if (!["ready", "pending_signature", "error"].includes(submission.status)) {
       throw new InvalidEtaTransitionError(submission.status, "submit");
     }
     const config = await this.deps.config.get();
 
-    if (config.signingMethod === "eseal" && submission.status === "ready") {
-      return this.persist({ ...submission, status: "pending_signature", errors: [] });
-    }
-
-    let toTransmit = submission;
-    if (config.signingMethod === "eseal" && !submission.signature) {
+    // EXTERNAL CONTRACT: an e-receipt (B2C) carries NO e-signature or e-seal —
+    // the accounting system registered as the software POS is itself the
+    // issuing device. Only the B2B e-invoice needs the CAdES seal. Gating
+    // receipts on `signingMethod` parked every consumer sale in
+    // بانتظار التوقيع waiting for a signature the regime never asks for.
+    const needsSeal = config.signingMethod === "eseal" && submission.documentType !== "receipt";
+    if (needsSeal && !etaPayloadIsSigned(submission.payload)) {
       try {
-        const signature = await this.signerPort.sign(canonicalEtaJson(submission.payload));
-        toTransmit = { ...submission, signature };
-        await this.persist(toTransmit);
+        const signature = await this.signingPort.sign(submission, config);
+        submission = await this.persist({
+          ...submission,
+          payload: attachEtaSignature(submission.payload, signature),
+          signature: signature.value,
+          status: "ready",
+          errors: [],
+        });
       } catch (err) {
-        if (err instanceof EtaSignerNotConfiguredError || err instanceof EtaSigningFailedError) {
-          // Stays بانتظار التوقيع: the document is not rejected, it is unsigned.
-          await this.persist({ ...submission, status: "pending_signature", errors: [err.message] });
-        }
-        throw err;
+        if (!(err instanceof EtaSigningUnavailableError)) throw err;
+        // Parked, and it says why. Pressing إرسال again re-enters this branch
+        // and parks again: an unsigned 1.0 document is never transmitted.
+        return this.persist({ ...submission, status: "pending_signature", errors: [err.message] });
       }
     }
 
-    const result = await this.transmitPort.transmit(toTransmit, config);
-    const withLog = this.appendLog(toTransmit, result.log);
+    const result = await this.transmitPort.transmit(submission, config);
+    const withLog = this.appendLog(submission, result.log);
     if (result.ok) {
       return this.persist({
         ...withLog,
@@ -240,6 +379,7 @@ export class EtaService {
         const next = await this.submit(s.id);
         if (next.status === "submitted") submitted.push(next);
         else if (next.status === "error") rejected.push(next);
+        else if (next.status === "pending_signature") unsigned.push(s.id);
       } catch (err) {
         if (err instanceof EtaOfflineError) queued.push(s.id);
         else if (err instanceof EtaSignerNotConfiguredError || err instanceof EtaSigningFailedError) unsigned.push(s.id);
@@ -347,6 +487,10 @@ export class EtaService {
    */
   async findById(id: string): Promise<EtaSubmission | null> {
     return this.deps.submissions.findById(id);
+  }
+
+  async findByInternalId(internalId: string): Promise<EtaSubmission | null> {
+    return this.deps.submissions.findByInternalId(internalId);
   }
 
   private async require(id: string): Promise<EtaSubmission> {

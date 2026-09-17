@@ -93,10 +93,19 @@ describe("createSalesInvoiceLineSchema", () => {
     if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("revenueAccountId");
   });
 
-  it("silently strips an unrecognised costCenterId — a real dimension a caller could lose on a revenue line", () => {
+  it("carries costCenterId, so a revenue line can be attributed at creation (D97)", () => {
     const result = createSalesInvoiceLineSchema.safeParse({ ...line, costCenterId: "cc-1" });
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data).not.toHaveProperty("costCenterId");
+    if (result.success) expect(result.data.costCenterId).toBe("cc-1");
+  });
+
+  it("accepts a line with no cost centre — unattributed stays a legitimate answer", () => {
+    const result = createSalesInvoiceLineSchema.safeParse(line);
+    expect(result.success).toBe(true);
+  });
+
+  it("refuses an empty costCenterId rather than booking revenue to a centre named ''", () => {
+    expect(createSalesInvoiceLineSchema.safeParse({ ...line, costCenterId: "" }).success).toBe(false);
   });
 });
 

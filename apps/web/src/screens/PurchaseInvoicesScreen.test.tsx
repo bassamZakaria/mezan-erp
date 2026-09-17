@@ -62,17 +62,17 @@ const branches: BranchDTO[] = [
   { id: "MAIN", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
 ];
 const warehouses: WarehouseDTO[] = [
-  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true },
+  { id: "MAIN-WH", code: "MAIN-WH", name: "المخزن الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
 ];
 const suppliers: SupplierDTO[] = [
-  { id: "sup-1", code: "S1", nameAr: "شركة النيل للتوريدات", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null, category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null },
+  { id: "sup-1", code: "S1", nameAr: "شركة النيل للتوريدات", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null, category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null, bankAccount: null },
 ];
 const items: ItemDTO[] = [
   { id: "item-cement", code: "ITM-1", nameAr: "أسمنت بورتلاندي", nameEn: null, type: "stock", baseUnitCode: "PCS", alternateUnits: [], barcodes: [], categoryId: null, brandId: null, seasonId: null, description: null, defaultSupplierId: null, specifications: [], costingMethod: "WAC", salePrice: "100.00", costPrice: "85.00", taxRatePercent: 14, trackInventory: true, trackBatches: false, trackExpiry: false, reorderPoint: null, imageAttachmentId: null, reorderQty: null, revenueAccountId: null, cogsAccountId: null, inventoryAccountId: null, etaCodeType: null, etaItemCode: null, gpcCode: null, status: "active" },
 ];
 const users: UserDTO[] = [{ id: "USER-ADMIN", nameAr: "محمد الشهابي", nameEn: null, email: "admin@cyag.example", isCompanyAdmin: true, active: true, roleCode: null, photoUrl: null } as unknown as UserDTO];
 const treasuryAccounts: TreasuryAccountDTO[] = [
-  { id: "treas-1", code: "CASH-1", name: "خزينة الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, status: "active" },
+  { id: "treas-1", code: "CASH-1", name: "خزينة الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
 ];
 
 function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO {
@@ -90,6 +90,7 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
     totalCost: "1700.000000",
     createdBy: "USER-ADMIN",
     createdAt: "2026-08-19T10:00:00.000Z",
+    projectId: null,
     ...overrides,
   };
 }
@@ -107,6 +108,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
     currency: "EGP",
     notes: null,
     receiptId: null,
+    projectId: null,
     lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, batchNo: null, expiryDate: null }],
     status: "confirmed",
     subtotal: "100.000000",
@@ -137,6 +139,7 @@ function renderScreen(
     "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
     "GET /purchases/receipts": () => ({ body: [] }),
     "GET /landed-costs": () => ({ body: [] }),
+    "GET /projects": () => ({ body: [] }),
     "GET /settings/currencies": () => ({ body: { base: "EGP", multiCurrencyEnabled: false, allowed: [] } }),
     "GET /purchases/invoices": (_init, path) => {
       lastListPath = path;

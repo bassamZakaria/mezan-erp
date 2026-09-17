@@ -32,7 +32,7 @@ function TestNavigation({ children }: { children: ReactNode }) {
 }
 
 const warehouses: WarehouseDTO[] = [
-  { id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
+  { id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
 ];
 
 function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
@@ -105,19 +105,13 @@ describe("PhysicalCountsScreen — empty seeded state", () => {
 
 describe("PhysicalCountsScreen — count → variance → adjustment flow", () => {
   /**
-   * PRODUCT DEFECT (not fixed here — see repair report): `useStartPhysicalCount`
-   * and its sibling mutations in ../data/inventory-ops-hooks.ts invalidate
-   * queryKey ["inventory", "physical-counts"], but the list/detail this screen
-   * actually reads is `usePhysicalCounts` from ../data/hooks.ts, keyed
-   * ["physical-counts", filter] — a different cache entry that never refetches.
-   * Every one of starting, recording, completing, cancelling a count, or
-   * generating its adjustment silently fails to update what the screen shows.
-   * This test guards the FIRST manifestation: starting a count never opens its
-   * counting sheet, because `active`/`selected` are looked up in the stale
-   * (still-empty) cache. Flip this assertion to the "opens the counting sheet"
-   * behaviour once the query keys are unified.
+   * D66. The count mutations invalidated `["inventory","physical-counts"]`
+   * while this screen reads `["physical-counts", filter]`, so the list never
+   * refetched: starting a count bounced straight back to the empty state,
+   * because `active`/`selected` were looked up in a cache the POST had not
+   * touched. The two prefixes are now one.
    */
-  it("starting a new count falls back to the stale list instead of opening its counting sheet", async () => {
+  it("D66: starting a new count refetches the list and opens its counting sheet", async () => {
     let current: PhysicalCountDTO[] = [];
     const transport = stubTransport({
       ...baseHandlers(current),
@@ -164,11 +158,12 @@ describe("PhysicalCountsScreen — count → variance → adjustment flow", () =
     await waitFor(() => expect(addButton).toBeEnabled());
     fireEvent.click(addButton);
 
-    // The POST above succeeded (a real count now exists server-side) but the
-    // screen falls straight back to its list, still showing the empty state.
-    await waitFor(() => expect(screen.getByRole("heading", { name: "الجرد الفعلي" })).toBeInTheDocument());
-    expect(screen.getByText("لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "إنهاء الجرد" })).not.toBeInTheDocument();
+    // The POST created a real count, the list refetched, and the screen lands
+    // on that count's own counting sheet rather than on an empty list.
+    await waitFor(() => expect(screen.getByRole("button", { name: "إنهاء الجرد" })).toBeInTheDocument());
+    expect(
+      screen.queryByText("لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام"),
+    ).not.toBeInTheDocument();
   });
 
   it("records a client-computed variance and submits the correct finish request, from a count already in the list", async () => {

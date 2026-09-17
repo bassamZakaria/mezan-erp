@@ -1,18 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { createEntitlements, SeatSessionRegistry } from "@mezan/domain";
 import {
+  createSqliteUnitOfWork,
+  createSqliteLedgerStore,
   createSqliteAccountRepository,
   createSqliteFiscalPeriodRepository,
-  createSqliteLedgerStore,
-  createSqliteUnitOfWork,
 } from "@mezan/persistence";
 import { createApp } from "../app.js";
 
 /**
  * Proves the LAN routes mount onto the SAME shared app `createApp` returns
  * (docs/archive/plan.md §2.2's "one HTTP app, two mount points") — not a separately
- * wired instance — and that /gl/journal-entries keeps working unchanged when
- * `/lan` is mounted alongside it.
+ * wired instance — and that the journal keeps working unchanged when `/lan` is
+ * mounted alongside it. The journal half posts through `/gl`, the one way into
+ * the books since the spike's original poster was deleted (D99).
  */
 describe("createApp({ lan }) — same shared app, /lan mounted alongside /gl", () => {
   it("omits /lan entirely when no lan option is passed (existing callers unaffected)", async () => {
@@ -23,18 +24,22 @@ describe("createApp({ lan }) — same shared app, /lan mounted alongside /gl", (
     uow.close();
   });
 
-  it("serves both /gl/journal-entries and /lan on the one app instance when lan is configured", async () => {
+  it("serves both /gl and /lan on the one app instance when lan is configured", async () => {
     const uow = createSqliteUnitOfWork(":memory:");
     const ledger = createSqliteLedgerStore();
     const accounts = createSqliteAccountRepository();
     const periods = createSqliteFiscalPeriodRepository();
-    for (const [id, type, naturalBalance] of [
-      ["1300-1", "asset", "debit"],
-      ["4000", "revenue", "credit"],
-    ] as const) {
-      await accounts.create({ id, code: id, nameAr: id, nameEn: null, type, naturalBalance, parentId: null, isHeader: false, status: "active" });
-    }
-    await periods.create({ id: "fp-2026-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
+    const postable = { nameEn: null, parentId: null, isHeader: false, status: "active" as const };
+    await accounts.create({ id: "1300-1", code: "1300-1", nameAr: "النقدية", type: "asset", naturalBalance: "debit", ...postable });
+    await accounts.create({ id: "4000", code: "4000", nameAr: "الإيرادات", type: "revenue", naturalBalance: "credit", ...postable });
+    await periods.create({
+      id: "fp-2026-08",
+      year: 2026,
+      periodNumber: 8,
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+      status: "open",
+    });
     const entitlements = createEntitlements({
       plan: "ENTERPRISE",
       activeModules: ["sales"],

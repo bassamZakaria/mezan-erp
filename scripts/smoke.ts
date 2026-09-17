@@ -1,4 +1,5 @@
 import { createBackend, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "@mezan/backend";
+import { createEntitlements, MODULE_CATALOG } from "@mezan/domain";
 
 /**
  * Smoke check — "does the code still run?", not "is the business logic right?".
@@ -136,6 +137,47 @@ const READ_PATHS = [
   "/crm/pipeline-stages",
   "/crm/activities",
   "/projects",
+  "/contracting/site/issues",
+  "/contracting/site/receipts",
+  "/contracting/site/consumptions",
+  "/contracting/site/custody",
+  "/contracting/site/equipment-logs",
+  "/contracting/site/unreceived?olderThanDays=7",
+  "/contracting/site/consumption-by-boq-line?projectId=PRJ-DEMO-1",
+  "/contracting/site/equipment-hours?projectId=PRJ-DEMO-1",
+  "/projects/pnl",
+  "/contracting/contracts",
+  "/contracting/variation-orders",
+  "/contracting/certificates",
+  "/contracting/certificates?contractId=CTR-DEMO-1",
+  "/contracting/certificates/internal?contractId=CTR-DEMO-1",
+  "/contracting/guarantees",
+  "/contracting/guarantees/summary",
+  "/contracting/guarantees/expiring",
+  "/contracting/recognition/runs",
+  "/contracting/recognition/status?periodEnd=2026-08-31",
+  "/contracting/recognition/preview?contractId=CTR-DEMO-1&periodEnd=2026-08-31",
+  "/contracting/subcontracts",
+  "/contracting/subcontracts?contractId=CTR-DEMO-1",
+  "/contracting/subcontracts/SUB-DEMO-1",
+  "/contracting/subcontracts/SUB-DEMO-1/retention",
+  "/contracting/subcontracts/SUB-DEMO-3",
+  "/contracting/subcontracts/SUB-DEMO-3/retention",
+  "/contracting/subcontract-certificates",
+  "/contracting/subcontract-certificates?subcontractId=SUB-DEMO-1",
+  "/contracting/site/consumptions?subcontractId=SUB-DEMO-1",
+  "/contracting/reports/summary",
+  "/contracting/reports/boq-overrun",
+  "/contracting/reports/unreceived-issues?olderThanDays=7",
+  "/contracting/reports/consumption-variance?thresholdPercent=10",
+  "/contracting/reports/equipment-without-certificate?olderThanDays=30",
+  "/contracting/reports/late-variation-approvals",
+  "/contracting/reports/early-retention-release",
+  "/contracting/reports/cost-overrun-vs-estimate?thresholdPercent=10&stalenessMonths=6",
+  "/contracting/retention/calendar",
+  "/contracting/retention/releases",
+  "/contracting/retention/releases/RET-DEMO-1",
+  "/contracting/retention/headroom?contractId=CTR-DEMO-1&kind=provisional",
   "/assets",
   "/assets/counts",
   "/assets/stats",
@@ -259,7 +301,11 @@ async function main(): Promise<void> {
   const failures: Failure[] = [];
 
   process.stdout.write("booting backend with the demo seed…\n");
-  const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
+  // The demo seed creates more accounts than the platform default's 10 seats
+  // allow (A3's SEAT_LIMIT_REACHED); this stand-in resolver keeps every cap off.
+  const resolveEntitlements = () =>
+    createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+  const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements });
   process.stdout.write("boot + seed OK\n\n");
   const headers = await signIn(handle.app);
 

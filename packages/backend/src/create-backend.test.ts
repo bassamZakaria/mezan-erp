@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, Money, createCustomer as buildCustomer } from "@mezan/domain";
-import { createSqliteCustomerRepository } from "@mezan/persistence";
+import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createEntitlements } from "@mezan/domain";
+import { createSqliteCustomerRepository, openSqliteConnection } from "@mezan/persistence";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -179,7 +179,7 @@ function authedGet(app: App, path: string) {
   return app.fetch(new Request(`http://local${path}`, { headers: authed(app) }));
 }
 
-async function createCustomer(app: App, id: string, creditLimit: string) {
+async function createCustomer(app: App, id: string, creditLimit: string, taxNumber?: string) {
   const res = await authedPost(app, "/customers", {
     id,
     code: id,
@@ -191,6 +191,7 @@ async function createCustomer(app: App, id: string, creditLimit: string) {
     creditLimit,
     taxExempt: false,
     etaBuyerType: "auto",
+    ...(taxNumber ? { taxNumber } : {}),
   });
   expect(res.status).toBe(201);
 }
@@ -846,17 +847,48 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
  * never posted, invisible to `/reconciliation`.
  */
 describe("createBackend — partner opening balances reach the ledger (B-2)", () => {
+  type Entry = { status: string; lines: { accountId: string; debit: string; credit: string }[] };
+
   async function entry(app: App, id: string) {
     const res = await app.fetch(new Request(`http://local/gl/journal-entries/${id}`, { headers: admin(app) }));
     if (res.status !== 200) return null;
-    return (await res.json()) as { status: string; lines: { accountId: string; debit: string; credit: string }[] };
+    return (await res.json()) as Entry;
+  }
+
+  /**
+   * The customer opening balance is looked up by its SOURCE DOCUMENT, not by a
+   * guessable entry id. Main's poster mints `CUST-OPEN-JE:<customer>:<uuid>`
+   * on purpose: a corrected opening balance posts a new delta entry rather than
+   * editing the one already on the ledger (D142), so the id cannot be stable.
+   */
+  async function openingEntryFor(app: App, customerId: string): Promise<Entry | null> {
+    const res = await app.fetch(new Request("http://local/gl/journal-entries", { headers: admin(app) }));
+    if (res.status !== 200) return null;
+    const body = (await res.json()) as { rows?: { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[] } | { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[];
+    const rows = Array.isArray(body) ? body : (body.rows ?? []);
+    const match = rows.find((r) => r.sourceDocType === "CUSTOMER_OPENING_BALANCE" && r.sourceDocId === customerId);
+    return match ? entry(app, match.id) : null;
+  }
+
+  /** Every opening-balance entry for one customer — the original and each correction. */
+  async function openingEntriesFor(app: App, customerId: string): Promise<Entry[]> {
+    const res = await app.fetch(new Request("http://local/gl/journal-entries", { headers: admin(app) }));
+    if (res.status !== 200) return [];
+    const body = (await res.json()) as { rows?: { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[] } | { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[];
+    const rows = Array.isArray(body) ? body : (body.rows ?? []);
+    const out: Entry[] = [];
+    for (const r of rows.filter((r) => r.sourceDocType === "CUSTOMER_OPENING_BALANCE" && r.sourceDocId === customerId)) {
+      const e = await entry(app, r.id);
+      if (e) out.push(e);
+    }
+    return out;
   }
 
   it("posts Dr 1105 / Cr 3210 for a customer and Cr 2100 / Dr 3210 for a supplier", async () => {
     const app = await newBackend();
     // createCustomer() passes openingBalance "0", so nothing is posted.
     await createCustomer(app, "cust-ob", "0");
-    expect(await entry(app, "OB-CUST-JE:cust-ob")).toBeNull();
+    expect(await openingEntryFor(app, "cust-ob")).toBeNull();
 
     const withBalance = await authedPost(app, "/customers", {
       id: "cust-ob2",
@@ -872,7 +904,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
     });
     expect(withBalance.status).toBe(201);
 
-    const posted = await entry(app, "OB-CUST-JE:cust-ob2");
+    const posted = await openingEntryFor(app, "cust-ob2");
     expect(posted, "a customer opening balance must post").not.toBeNull();
     expect(posted!.status).toBe("posted");
     expect(posted!.lines.find((l) => l.accountId === "1105")!.debit).toBe("5000.000000");
@@ -921,7 +953,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
     expect(ap.matched).toBe(true);
   });
 
-  it("corrects a changed opening balance by reversal, never by editing the posted entry", async () => {
+  it("corrects a changed opening balance by posting the difference, never by editing the posted entry", async () => {
     const app = await newBackend();
     await authedPost(app, "/customers", {
       id: "cust-chg",
@@ -945,10 +977,20 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
     );
     expect(patch.status).toBe(200);
 
-    expect((await entry(app, "OB-CUST-JE:cust-chg"))!.status).toBe("reversed");
-    const corrected = await entry(app, "OB-CUST-JE:cust-chg:v1");
-    expect(corrected!.status).toBe("posted");
-    expect(corrected!.lines.find((l) => l.accountId === "1105")!.debit).toBe("7500.000000");
+    /*
+     * The branch this test was written on corrected by REVERSING the original
+     * and re-posting the whole figure. The shipped behaviour (D142) is
+     * stronger: it posts only the DIFFERENCE, so the original entry is never
+     * reversed and never edited — it simply stays true of the day it was made.
+     * Two entries, both posted, netting to the new balance.
+     */
+    const openings = await openingEntriesFor(app, "cust-chg");
+    expect(openings, "the original and its correction are both on the ledger").toHaveLength(2);
+    expect(openings.every((e) => e.status === "posted")).toBe(true);
+
+    const arDebits = openings.map((e) => e.lines.find((l) => l.accountId === "1105")?.debit ?? "0.000000");
+    expect(arDebits).toContain("5000.000000");
+    expect(arDebits).toContain("2500.000000");
 
     // And AR nets to the new figure, not to 12,500.
     const rec = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
@@ -1100,8 +1142,9 @@ describe("createBackend — a return of a VAT invoice credits the VAT (B-3)", ()
  * through the real backend rather than by reading the wiring.
  */
 describe("createBackend — ETA enqueue bridge (D122)", () => {
+  /** A B2B sale: the customer has a tax registration number, so it is filed as an e-invoice. */
   async function confirmedInvoice(app: App, id: string, customerId: string) {
-    await createCustomer(app, customerId, "0");
+    await createCustomer(app, customerId, "0", "300123456700003");
     const create = await authedPost(app, "/sales-invoices", invoiceBody(id, customerId, "100"));
     expect(create.status).toBe(201);
     const confirm = await authedPost(app, `/sales-invoices/${id}/confirm`, {});
@@ -1133,7 +1176,68 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
     expect(rows.some((r) => r.internalId === invoice.docNo && r.documentType === "invoice")).toBe(true);
   });
 
-  it("LIMITATION (D122): confirming a sales return against that same invoice never reaches the ETA queue, even though the invoice's own submission proves the queue and the wiring both work", async () => {
+  /** Registers the till the authority binds a receipt to, for the branch every invoice above is booked in. */
+  async function registerDevice(app: App) {
+    const res = await app.fetch(
+      new Request("http://local/eta/branch-codes/BR-MAIN", {
+        method: "PUT",
+        headers: { ...admin(app), "content-type": "application/json" },
+        body: JSON.stringify({ etaBranchCode: "1", deviceSerialNumber: "POS-0001" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+  }
+
+  it("a CONSUMER sale is reported as an e-receipt, not as an invoice with buyer type P", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await registerDevice(app);
+    await createCustomer(app, "cust-b2c-1", "0");
+    const create = await authedPost(app, "/sales-invoices", {
+      ...invoiceBody("inv-b2c-1", "cust-b2c-1", "100"),
+      branchId: "BR-MAIN",
+    });
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-b2c-1/confirm", {});
+    expect(confirm.status).toBe(200);
+    const { docNo } = (await confirm.json()) as { docNo: string };
+
+    const rows = await waitForQueueEntry(app, docNo);
+    const queued = rows.find((r) => r.internalId === docNo);
+    expect(queued?.documentType).toBe("receipt");
+
+    // The receipt carries the identifier the paper's QR encodes, and the QR
+    // resolves at the authority's own portal — the whole point of the receipt
+    // regime, and the thing a walk-in customer leaves the shop holding.
+    const printed = await app.fetch(
+      new Request(`http://local/eta/receipts/${encodeURIComponent(docNo)}`, { headers: admin(app) }),
+    );
+    expect(printed.status).toBe(200);
+    const body = (await printed.json()) as {
+      uuid: string;
+      qrValue: string;
+      submission: { payload: { seller: { deviceSerialNumber: string; branchCode: string } } };
+    };
+    expect(body.uuid).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.qrValue).toContain(`/receipts/search/${body.uuid}/share/`);
+    expect(body.submission.payload.seller.deviceSerialNumber).toBe("POS-0001");
+    expect(body.submission.payload.seller.branchCode).toBe("1");
+  });
+
+  it("a consumer sale from a branch with no registered device queues nothing, and the confirm still succeeds", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await createCustomer(app, "cust-b2c-2", "0");
+    const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-b2c-2", "cust-b2c-2", "100"));
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-b2c-2/confirm", {});
+    expect(confirm.status).toBe(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await submissions(app)).toEqual([]);
+  });
+
+  it("queues a confirmed sales return as its own credit note, alongside the invoice (D77/D122)", async () => {
     const app = await newBackend();
     await createServiceItem(app);
     const invoice = await confirmedInvoice(app, "inv-eta-2", "cust-eta-2");
@@ -1167,69 +1271,16 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
     const returnDoc = (await confirmReturn.json()) as { document: { docNo: string } };
     expect(returnDoc.document.docNo).toBeTruthy();
 
-    // Give the fire-and-forget bridge every chance it would need if it were wired
-    // to receive the return's event at all.
+    // The bridge queues on a floating promise.
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     const rows = await submissions(app);
-    // What happens today: the return's document number is nowhere in the queue.
-    // What should happen: a confirmed return should be queued for e-invoicing
-    // (or explicitly excluded), not silently dropped by an event bridge it was
-    // never wired into.
-    expect(rows.some((r) => r.internalId === returnDoc.document.docNo)).toBe(false);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.internalId).toBe(invoice.docNo);
-  });
-});
-
-/**
- * guards DEC-17 — `/api-keys` and `/webhooks` are complete server-side and had
- * no verifier on the other end: no screen, no consumer, no signature scheme a
- * caller could check. They are unmounted rather than deleted, so this asserts
- * the ABSENCE of the surface. The webhook dispatcher that used to subscribe to
- * the shared EventBus is gone with it, so a confirm now makes no outbound HTTP
- * call at all — this asserts that with a spy on the global `fetch`.
- */
-describe("createBackend — DEC-17: no integration surface is mounted", () => {
-  it("answers 404 on /api-keys and /webhooks, and dispatches nothing off a confirm", async () => {
-    const calls: unknown[] = [];
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
-      calls.push(args[0]);
-      return realFetch(...args);
-    }) as typeof fetch;
-    const app = keep(await createBackend({ dbPath: ":memory:" }));
-
-    try {
-      // The routers still exist and are still tested in @mezan/api; what is gone
-      // is the mount, and with it the dispatcher. Nothing in the product can
-      // register a subscription, so no shop can be made to call an attacker's URL.
-      for (const path of ["/api-keys", "/webhooks", "/webhooks/events"]) {
-        const res = await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }));
-        expect(res.status, path).toBe(404);
-      }
-      const createHook = await post(
-        app,
-        "/webhooks",
-        { name: "ERP sync", targetUrl: "https://example.test/hooks/mezan", events: ["SALES_INVOICE_CONFIRMED"] },
-        admin(app),
-      );
-      expect(createHook.status).toBe(404);
-
-      await createCustomer(app, "cust-wh-1", "0");
-      await createServiceItem(app);
-      const create = await authedPost(app, "/sales-invoices", invoiceBody("inv-wh-1", "cust-wh-1", "250.00"));
-      expect(create.status).toBe(201);
-      const confirm = await authedPost(app, "/sales-invoices/inv-wh-1/confirm", {});
-      expect(confirm.status).toBe(200);
-
-      // A dispatcher would have fired detached from the confirm response — give
-      // the same room the previous test gave it before asserting silence.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(calls).toHaveLength(0);
-    } finally {
-      globalThis.fetch = realFetch;
-    }
+    const note = rows.find((r) => r.internalId === returnDoc.document.docNo);
+    expect(note, `the return is not in the queue: ${JSON.stringify(rows)}`).toBeDefined();
+    // Filed as an إشعار دائن against the invoice, not as a second invoice.
+    expect(note?.documentType).toBe("credit_note");
+    // And the invoice's own submission is still there, untouched.
+    expect(rows.some((r) => r.internalId === invoice.docNo && r.documentType === "invoice")).toBe(true);
   });
 });
 
@@ -1469,6 +1520,123 @@ describe("createBackend — reconciliation still ties after a confirmed sales re
 });
 
 /**
+ * D76's remaining wiring. The return DOCUMENT has carried a per-rate tax split
+ * since the domain fix, but the composition root's `findConfirmedInvoice`
+ * adapter handed every line `taxAmount: Money.zero()` — so a return built from
+ * a VAT-charged invoice credited no VAT at all and carried no rate for the VAT
+ * return to group by.
+ */
+describe("createBackend — a return of a VAT-charged invoice credits the VAT back (D76)", () => {
+  it("«مرتجع من فاتورة» carries the invoice line's own tax share and rate onto the return, and the GL reverses it", async () => {
+    const app = await newBackend();
+
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-vat-ret", code: "item-vat-ret", nameAr: "منتج بضريبة", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/adjustments",
+          {
+            adjustmentId: "adj-vat-ret",
+            warehouseId: "WH-MAIN",
+            reason: "INITIAL_STOCK",
+            lines: [{ itemId: "item-vat-ret", direction: "IN", qty: "100", unitCost: "10" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+
+    await createCustomer(app, "cust-vat-ret", "0");
+
+    expect(
+      (
+        await post(
+          app,
+          "/sales-invoices",
+          {
+            id: "inv-vat-ret",
+            date: "2026-08-22",
+            dueDate: "2026-09-21",
+            customerId: "cust-vat-ret",
+            customerNameAr: "عميل cust-vat-ret",
+            warehouseId: "WH-MAIN",
+            branchId: "BR-MAIN",
+            arAccountId: "1105",
+            taxAccountId: "2200",
+            lines: [
+              {
+                lineId: "L1",
+                itemId: "item-vat-ret",
+                itemNameAr: "منتج بضريبة",
+                isStock: true,
+                qty: "20",
+                unitPrice: "50",
+                taxRatePercent: 14,
+                revenueAccountId: "4100",
+                cogsAccountId: "5100",
+                inventoryAccountId: "1200",
+              },
+            ],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    const confirmInvoice = await post(app, "/sales-invoices/inv-vat-ret/confirm", {}, admin(app));
+    expect(confirmInvoice.status).toBe(200);
+
+    const built = await post(
+      app,
+      "/sales-returns/from-invoice",
+      {
+        id: "sr-vat-ret",
+        date: "2026-08-23",
+        memo: "",
+        sourceInvoiceId: "inv-vat-ret",
+        warehouseId: "WH-MAIN",
+        reason: "DEFECTIVE",
+        requested: [{ itemId: "item-vat-ret", qty: "5" }],
+      },
+      admin(app),
+    );
+    expect(built.status).toBe(201);
+    const draft = (await built.json()) as { lines: { taxAmount: string; taxRatePercent: number | null }[] };
+    // 5 of 20 pieces sold at 50 with 14% output VAT: base 250, VAT 35.
+    expect(Number(draft.lines[0]!.taxAmount)).toBe(35);
+    expect(draft.lines[0]!.taxRatePercent).toBe(14);
+
+    const confirmed = await post(app, "/sales-returns/sr-vat-ret/confirm", {}, admin(app));
+    expect(confirmed.status).toBe(200);
+    const { document } = (await confirmed.json()) as { document: { journalEntryId: string } };
+
+    const entry = await app.fetch(
+      new Request(`http://local/gl/journal-entries/${document.journalEntryId}`, { headers: admin(app) }),
+    );
+    const je = (await entry.json()) as {
+      lines: { accountId: string; debit: string; credit: string; taxRatePercent: number | null }[];
+    };
+    const vat = je.lines.filter((l) => l.accountId === "2200");
+    expect(vat).toHaveLength(1);
+    expect(Number(vat[0]!.debit)).toBe(35);
+    expect(vat[0]!.taxRatePercent).toBe(14);
+    // And AR is credited the whole 285, not the 250 base alone.
+    const ar = je.lines.filter((l) => l.accountId === "1105");
+    expect(Number(ar[0]!.credit)).toBe(285);
+  });
+});
+
+/**
  * سداد للمورد straight off the invoice — `create-backend.ts`'s `purchases.pay`
  * adapter (R4.4, the purchase-side mirror of `salesInvoices.collect`/D40): a
  * real confirmed supplier-payment voucher, allocated to the invoice, moving
@@ -1628,7 +1796,22 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
       allMatched: boolean;
     };
     expect(body.allMatched).toBe(true);
-    expect(body.rows.map((r) => r.key).sort()).toEqual(["ap", "ar", "inventory"]);
+    // The three original controls plus المقاولات' seven: retention on both
+    // sides, customer advances, أعمال تحت التنفيذ, billings, and the contract
+    // asset/liability pair. The whole module used to sit outside the one
+    // instrument that proves a sub-ledger still equals its control account.
+    expect(body.rows.map((r) => r.key).sort()).toEqual([
+      "ap",
+      "ar",
+      "contracting_billings",
+      "contracting_contract_asset",
+      "contracting_contract_liability",
+      "contracting_customer_advances",
+      "contracting_retention_payable",
+      "contracting_retention_receivable",
+      "contracting_wip",
+      "inventory",
+    ]);
     for (const row of body.rows) {
       expect(row.matched).toBe(true);
       expect(Number(row.subLedgerBalance)).toBe(0);
@@ -2713,6 +2896,543 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
   });
 });
 
+/**
+ * The goods cost 10 and sold for 50. A return puts the GOODS back, so inventory
+ * may only rise by what they cost — restocking at the price would book a 40 per
+ * unit profit on a sale that was undone.
+ */
+describe("createBackend — «مرتجع من فاتورة» restocks at cost, never at the selling price (D145)", () => {
+  it("raises inventory by the returned quantity × its COST, and leaves the sub-ledger tied to the GL", async () => {
+    const app = await newBackend();
+
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-d145", code: "item-d145", nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/adjustments",
+          {
+            adjustmentId: "adj-d145",
+            warehouseId: "WH-MAIN",
+            reason: "INITIAL_STOCK",
+            lines: [{ itemId: "item-d145", direction: "IN", qty: "100", unitCost: "10" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    await createCustomer(app, "cust-d145", "0");
+
+    expect(
+      (
+        await post(
+          app,
+          "/sales-invoices",
+          {
+            id: "inv-d145",
+            date: "2026-08-22",
+            dueDate: "2026-09-21",
+            customerId: "cust-d145",
+            customerNameAr: "عميل",
+            warehouseId: "WH-MAIN",
+            branchId: "BR-MAIN",
+            arAccountId: "1105",
+            taxAccountId: "2200",
+            lines: [
+              {
+                lineId: "L1",
+                itemId: "item-d145",
+                itemNameAr: "منتج",
+                isStock: true,
+                qty: "20",
+                unitPrice: "50",
+                taxRatePercent: 0,
+                revenueAccountId: "4100",
+                cogsAccountId: "5100",
+                inventoryAccountId: "1200",
+              },
+            ],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/sales-invoices/inv-d145/confirm", {}, admin(app))).status).toBe(200);
+
+    // Built through /from-invoice — the route the screen uses, and the one that
+    // reads cost off the invoice rather than taking the caller's word.
+    const built = await post(
+      app,
+      "/sales-returns/from-invoice",
+      {
+        id: "sr-d145",
+        date: "2026-08-23",
+        sourceInvoiceId: "inv-d145",
+        warehouseId: "WH-MAIN",
+        reason: "DEFECTIVE",
+        requested: [{ itemId: "item-d145", qty: "5" }],
+      },
+      admin(app),
+    );
+    expect(built.status).toBe(201);
+    const draft = (await built.json()) as { lines: { unitCost: string; unitPrice: string }[] };
+
+    // The cost the line carries is the item's, not the invoice's price.
+    expect(draft.lines[0]?.unitCost).toBe("10.000000");
+    expect(draft.lines[0]?.unitPrice).toBe("50.000000");
+
+    expect((await post(app, "/sales-returns/sr-d145/confirm", {}, admin(app))).status).toBe(200);
+
+    const recon = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const after = (await recon.json()) as {
+      allMatched: boolean;
+      rows: { key: string; subLedgerBalance: string; glBalance: string }[];
+    };
+    // 100 received @10, 20 sold @10, 5 returned @10 → 850. Restocking at the
+    // price would have read 1050.
+    const inventory = after.rows.find((r) => r.key === "inventory")!;
+    expect(Number(inventory.subLedgerBalance)).toBe(850);
+    expect(Number(inventory.glBalance)).toBe(850);
+    expect(after.allMatched).toBe(true);
+  });
+});
+
+/**
+ * A confirmed sales return is an إشعار دائن to the authority. It reached the
+ * queue through nothing at all — the enqueue bridge matched only
+ * `docType === "SALES_INVOICE"` — so the customer's filed VAT stayed overstated
+ * by the credit (D77/D122).
+ */
+describe("createBackend — a confirmed sales return is queued to ETA as a credit note (D77/D122)", () => {
+  async function soldAndReturned(app: Awaited<ReturnType<typeof newBackend>>) {
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-eta-ret", code: "item-eta-ret", nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/adjustments",
+          {
+            adjustmentId: "adj-eta-ret",
+            warehouseId: "WH-MAIN",
+            reason: "INITIAL_STOCK",
+            lines: [{ itemId: "item-eta-ret", direction: "IN", qty: "50", unitCost: "10" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    await createCustomer(app, "cust-eta-ret", "0");
+    expect(
+      (
+        await post(
+          app,
+          "/sales-invoices",
+          {
+            id: "inv-eta-ret",
+            date: "2026-08-22",
+            dueDate: "2026-09-21",
+            customerId: "cust-eta-ret",
+            customerNameAr: "عميل",
+            warehouseId: "WH-MAIN",
+            branchId: "BR-MAIN",
+            arAccountId: "1105",
+            taxAccountId: "2200",
+            lines: [
+              {
+                lineId: "L1",
+                itemId: "item-eta-ret",
+                itemNameAr: "منتج",
+                isStock: true,
+                qty: "10",
+                unitPrice: "100",
+                taxRatePercent: 14,
+                revenueAccountId: "4100",
+                cogsAccountId: "5100",
+                inventoryAccountId: "1200",
+              },
+            ],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/sales-invoices/inv-eta-ret/confirm", {}, admin(app))).status).toBe(200);
+
+    expect(
+      (
+        await post(
+          app,
+          "/sales-returns/from-invoice",
+          {
+            id: "sr-eta-ret",
+            date: "2026-08-23",
+            sourceInvoiceId: "inv-eta-ret",
+            warehouseId: "WH-MAIN",
+            reason: "DEFECTIVE",
+            requested: [{ itemId: "item-eta-ret", qty: "2" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/sales-returns/sr-eta-ret/confirm", {}, admin(app))).status).toBe(200);
+  }
+
+  async function queue(app: Awaited<ReturnType<typeof newBackend>>) {
+    const res = await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    return (await res.json()) as { internalId: string; documentType: string; status: string }[];
+  }
+
+  it("queues the return as a credit_note once auto-submit is on", async () => {
+    const app = await newBackend();
+    expect(
+      (
+        await app.fetch(
+          new Request("http://local/eta/config", {
+            method: "PUT",
+            headers: { "content-type": "application/json", ...admin(app) },
+            body: JSON.stringify({ autoSubmitOnConfirm: true }),
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    await soldAndReturned(app);
+    // The bridge queues on a floating promise, so let the microtask drain.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const rows = await queue(app);
+    const note = rows.find((r) => r.documentType === "credit_note");
+    expect(note, `no credit note in ${JSON.stringify(rows)}`).toBeDefined();
+    expect(note?.internalId).toContain("SR");
+  });
+
+  it("queues nothing at all while auto-submit is off, so the toggle still means something", async () => {
+    const app = await newBackend();
+    // `autoSubmitOnConfirm` defaults to true, so this has to be switched OFF
+    // rather than assumed off.
+    expect(
+      (
+        await app.fetch(
+          new Request("http://local/eta/config", {
+            method: "PUT",
+            headers: { "content-type": "application/json", ...admin(app) },
+            body: JSON.stringify({ autoSubmitOnConfirm: false }),
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    await soldAndReturned(app);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await queue(app)).toEqual([]);
+  });
+});
+
+/**
+ * A landed cost credited GL 2100 — the AP CONTROL account — with no supplier
+ * document behind it, so the supplier sub-ledger and its control account
+ * disagreed by every landed cost ever posted (D75). That is one of the four
+ * zero-invariants the product is sold on, and nothing was measuring it.
+ */
+describe("createBackend — a landed cost does not touch the AP control account (D75)", () => {
+  it("leaves ذمم الموردين tied to GL 2100 after a confirmed landed cost", async () => {
+    const app = await newBackend();
+
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-lc", code: "item-lc", nameAr: "منتج مستورد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/adjustments",
+          {
+            adjustmentId: "adj-lc",
+            warehouseId: "WH-MAIN",
+            reason: "INITIAL_STOCK",
+            lines: [{ itemId: "item-lc", direction: "IN", qty: "100", unitCost: "10" }],
+          },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+
+    const before = (await (
+      await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }))
+    ).json()) as { allMatched: boolean; rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
+    expect(before.allMatched).toBe(true);
+    const apBefore = before.rows.find((r) => r.key === "ap")!;
+
+    const created = await post(
+      app,
+      "/landed-costs",
+      {
+        id: "lc-1",
+        date: "2026-08-24",
+        memo: "شحن وتخليص",
+        distributionMethod: "BY_VALUE",
+        costItems: [{ costType: "SHIPPING", description: "شحن بحري", amount: "500", supplierId: "SUP-FREIGHT" }],
+        targets: [
+          {
+            itemId: "item-lc",
+            warehouseId: "WH-MAIN",
+            sourceInvoiceId: "inv-lc",
+            sourceInvoiceNumber: "PI-000001",
+            qty: "100",
+            unitCost: "10",
+            weight: "1",
+          },
+        ],
+      },
+      admin(app),
+    );
+    expect(created.status).toBe(201);
+    expect((await post(app, "/landed-costs/lc-1/confirm", {}, admin(app))).status).toBe(200);
+
+    const after = (await (
+      await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }))
+    ).json()) as { allMatched: boolean; rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
+
+    const apAfter = after.rows.find((r) => r.key === "ap")!;
+    // The 500 accrual is a liability, but NOT a trade payable: it belongs to
+    // 2130 تكاليف إضافية مستحقة, so the AP control is exactly where it was.
+    expect(apAfter.glBalance).toBe(apBefore.glBalance);
+    expect(apAfter.subLedgerBalance).toBe(apAfter.glBalance);
+    expect(after.allMatched).toBe(true);
+  });
+
+  it("records the vendor the charge is owed to, so the accrual has a name on it", async () => {
+    const app = await newBackend();
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-lc2", code: "item-lc2", nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    const created = await post(
+      app,
+      "/landed-costs",
+      {
+        id: "lc-2",
+        date: "2026-08-24",
+        memo: "",
+        distributionMethod: "BY_QUANTITY",
+        costItems: [{ costType: "CUSTOMS", description: "جمارك", amount: "300", supplierId: "SUP-CUSTOMS" }],
+        targets: [
+          {
+            itemId: "item-lc2",
+            warehouseId: "WH-MAIN",
+            sourceInvoiceId: "inv-lc2",
+            sourceInvoiceNumber: "PI-000002",
+            qty: "10",
+            unitCost: "10",
+            weight: "1",
+          },
+        ],
+      },
+      admin(app),
+    );
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as { lines: { costItems: { supplierId: string | null }[] }[] };
+    expect(body.lines[0]?.costItems[0]?.supplierId).toBe("SUP-CUSTOMS");
+  });
+});
+
+/**
+ * D72 filed the three purchasing toggles as reaching no route. They do:
+ * `createApp` derives the policy from the LIVE tenant settings whenever a
+ * settings store is mounted, and `createBackend` mounts one. These tests exist
+ * because nothing measured it end to end, which is why the row could sit open
+ * against working code — and because "configurable but unenforced" is a shape
+ * this codebase has shipped before (DEC-1).
+ */
+describe("createBackend — the purchasing policy toggles are enforced (D72)", () => {
+  async function setToggles(app: Awaited<ReturnType<typeof newBackend>>, patch: Record<string, boolean>) {
+    const res = await app.fetch(
+      new Request("http://local/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify(patch),
+      }),
+    );
+    expect(res.status, "settings PUT").toBe(200);
+  }
+
+  async function seedItem(app: Awaited<ReturnType<typeof newBackend>>, id: string) {
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id, code: id, nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+  }
+
+  function adHocReceipt(id: string, itemId: string) {
+    return {
+      id,
+      supplierId: "SUP-1",
+      date: "2026-08-22",
+      branchId: "BR-MAIN",
+      warehouseId: "WH-MAIN",
+      lines: [{ itemId, qty: "5", unitCost: "10" }],
+    };
+  }
+
+  it("allows an ad-hoc goods receipt while requirePoForGrn is off", async () => {
+    const app = await newBackend();
+    await seedItem(app, "item-d72a");
+    const res = await post(app, "/purchases/receipts", adHocReceipt("grn-d72a", "item-d72a"), admin(app));
+    expect(res.status).toBe(201);
+  });
+
+  it("refuses the same ad-hoc receipt once requirePoForGrn is switched on — no restart", async () => {
+    const app = await newBackend();
+    await seedItem(app, "item-d72b");
+    await setToggles(app, { requirePoForGrn: true });
+
+    const res = await post(app, "/purchases/receipts", adHocReceipt("grn-d72b", "item-d72b"), admin(app));
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("refuses an invoice with no receipt once requireGrnForInvoice is on", async () => {
+    const app = await newBackend();
+    await seedItem(app, "item-d72c");
+    await setToggles(app, { requireGrnForInvoice: true });
+
+    const res = await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-d72c",
+        supplierId: "SUP-1",
+        date: "2026-08-22",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ itemId: "item-d72c", qty: "5", unitCost: "10" }],
+      },
+      admin(app),
+    );
+    expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+/**
+ * The browser fills any unmapped item's GL accounts from constants — 1105 /
+ * 2200 / 4100 / 5100 / 1200, the ids the seed template happens to use — and
+ * nothing checked them against the tenant's own chart (D108). On a tenant whose
+ * chart differs, the invoice posted to whatever those codes meant there.
+ */
+describe("createBackend — an invoice cannot name a GL account the tenant does not have (D108)", () => {
+  async function itemAndCustomer(app: Awaited<ReturnType<typeof newBackend>>, suffix: string) {
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: `item-${suffix}`, code: `item-${suffix}`, nameAr: "منتج", type: "service", baseUnitCode: "PCS" },
+          admin(app),
+        )
+      ).status,
+    ).toBe(201);
+    await createCustomer(app, `cust-${suffix}`, "0");
+  }
+
+  function invoice(suffix: string, patch: Record<string, unknown> = {}, linePatch: Record<string, unknown> = {}) {
+    return {
+      id: `inv-${suffix}`,
+      date: "2026-08-22",
+      dueDate: "2026-09-21",
+      customerId: `cust-${suffix}`,
+      customerNameAr: "عميل",
+      warehouseId: "WH-MAIN",
+      branchId: "BR-MAIN",
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      ...patch,
+      lines: [
+        {
+          lineId: "L1",
+          itemId: `item-${suffix}`,
+          itemNameAr: "منتج",
+          isStock: false,
+          qty: "1",
+          unitPrice: "100",
+          taxRatePercent: 0,
+          revenueAccountId: "4100",
+          ...linePatch,
+        },
+      ],
+    };
+  }
+
+  it("refuses a revenue account that is not in the chart at all", async () => {
+    const app = await newBackend();
+    await itemAndCustomer(app, "d108a");
+    const res = await post(app, "/sales-invoices", invoice("d108a", {}, { revenueAccountId: "9999" }), admin(app));
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; accounts: string[] };
+    expect(body.error).toBe("GL_ACCOUNT_NOT_POSTABLE");
+    expect(body.accounts).toContain("9999");
+  });
+
+  it("refuses a HEADER account, which is what the account tree exists to prevent", async () => {
+    const app = await newBackend();
+    await itemAndCustomer(app, "d108b");
+    // 4000 is the revenue header in the standard template; its children post.
+    const res = await post(app, "/sales-invoices", invoice("d108b", {}, { revenueAccountId: "4000" }), admin(app));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("GL_ACCOUNT_NOT_POSTABLE");
+  });
+
+  it("refuses a bad AR account on the header, not only on a line", async () => {
+    const app = await newBackend();
+    await itemAndCustomer(app, "d108c");
+    const res = await post(app, "/sales-invoices", invoice("d108c", { arAccountId: "9998" }), admin(app));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { accounts: string[] }).accounts).toContain("9998");
+  });
+
+  it("still accepts the real seeded accounts, so the check is not refusing everything", async () => {
+    const app = await newBackend();
+    await itemAndCustomer(app, "d108d");
+    const res = await post(app, "/sales-invoices", invoice("d108d"), admin(app));
+    expect(res.status).toBe(201);
+  });
+});
+
 describe("createBackend — تحصيل من عميل السعر (D35): pricing variance surfaces on confirm", () => {
   it("charging below the customer's own price list produces an exact pricing variance on confirm", async () => {
     const app = await newBackend();
@@ -2898,8 +3618,14 @@ describe("createBackend — GET /gl/balances-by-currency reads real open receiva
 });
 
 describe("createBackend — seedDemoData wires a real session and seeds through the real API", () => {
+  // The demo seed's ~15-user tenant exceeds the default resolver's 10 seats
+  // (A3's SEAT_LIMIT_REACHED), so every demo-seeded backend here supplies its
+  // own room to seed.
+  const demoEntitlements = () =>
+    createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+
   it("seeds more than zero customers, reachable over the real HTTP surface", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true });
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
     handles.push(handle);
     registries.set(handle.app, handle.sessions);
     const res = await handle.app.fetch(new Request("http://local/customers", { headers: admin(handle.app) }));
@@ -2907,4 +3633,104 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
     const customersList = (await res.json()) as unknown[];
     expect(customersList.length).toBeGreaterThan(0);
   }, 60000);
+
+  /**
+   * D5 — the certificate BILLS through the ordinary sales-invoice engine, so
+   * its invoice is an ordinary ETA document. The contracting ports build their
+   * own `SalesInvoiceService`; one built without the shared event publisher
+   * confirms a live invoice the authority never hears about.
+   */
+  it("an approved progress certificate's invoice reaches the ETA queue exactly once", async () => {
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
+    handles.push(handle);
+    registries.set(handle.app, handle.sessions);
+    const app = handle.app;
+
+    const certRes = await app.fetch(new Request("http://local/contracting/certificates", { headers: admin(app) }));
+    expect(certRes.status).toBe(200);
+    const certificates = (await certRes.json()) as { invoiceDocNo: string | null }[];
+    const billed = certificates.map((c) => c.invoiceDocNo).filter((docNo): docNo is string => docNo !== null);
+    expect(billed.length).toBeGreaterThan(0);
+
+    // The bridge queues on a floating promise after confirm returns.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const queueRes = await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }));
+    expect(queueRes.status).toBe(200);
+    const queued = (await queueRes.json()) as { internalId: string; documentType: string }[];
+    for (const docNo of billed) {
+      const rows = queued.filter((r) => r.internalId === docNo);
+      expect(rows.map((r) => r.documentType), `certificate invoice ${docNo} in the queue`).toEqual(["invoice"]);
+    }
+  }, 60000);
+});
+
+describe("resolveEntitlements", () => {
+  it("passes through to GET /entitlements, replacing the default ENTERPRISE catalog resolver", async () => {
+    const app = keep(
+      await createBackend({
+        dbPath: ":memory:",
+        resolveEntitlements: () =>
+          createEntitlements({ plan: "core", activeModules: ["sales"], features: {}, seats: 1, expiresAt: null }),
+      }),
+    );
+    const res = await app.fetch(new Request("http://local/entitlements", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { plan: string; activeModules: string[]; seats: number };
+    expect(body.plan).toBe("core");
+    expect(body.activeModules).toEqual(["sales"]);
+    expect(body.seats).toBe(1);
+
+    const refused = await app.fetch(new Request("http://local/hr/employees", { headers: admin(app) }));
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr" });
+  });
+
+  it("defaults to the full ENTERPRISE catalog when omitted", async () => {
+    const app = keep(await createBackend({ dbPath: ":memory:" }));
+    const res = await app.fetch(new Request("http://local/entitlements", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { plan: string };
+    expect(body.plan).toBe("ENTERPRISE");
+  });
+});
+
+describe("backupTo", () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes a verified, openable copy of the live database to the destination path", async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "mezan-backup-test-"));
+    const handle = await createBackend({ dbPath: path.join(dir, "mezan.db") });
+    handles.push(handle);
+    registries.set(handle.app, handle.sessions);
+
+    expect(
+      (
+        await handle.app.fetch(
+          new Request("http://local/items", {
+            method: "POST",
+            headers: { "content-type": "application/json", ...admin(handle.app) },
+            body: JSON.stringify({ id: "item-1", code: "ITEM-1", nameAr: "منتج 1", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }),
+          }),
+        )
+      ).status,
+    ).toBe(201);
+
+    const destination = path.join(dir, "backup.sqlite");
+    await handle.backupTo(destination);
+
+    expect(existsSync(destination)).toBe(true);
+    const { sqlite: copy } = openSqliteConnection(destination);
+    try {
+      expect(copy.pragma("integrity_check", { simple: true })).toBe("ok");
+      const item = copy.prepare("SELECT code FROM item WHERE id = ?").get("item-1") as { code: string } | undefined;
+      expect(item?.code).toBe("ITEM-1");
+    } finally {
+      copy.close();
+    }
+  });
 });

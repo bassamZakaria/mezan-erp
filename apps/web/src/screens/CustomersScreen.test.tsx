@@ -224,6 +224,8 @@ function voucherRow(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {
     supplierId: null,
     referenceNo: null,
     costCenterId: null,
+    projectId: null,
+    costCategory: null,
     withholdingAmount: null,
     withholdingRatePercent: null,
     netPaidAmount: "500.000000",

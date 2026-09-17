@@ -11,6 +11,16 @@ export type EtaEnvironment = "preproduction" | "production";
 export type EtaDocumentVersion = "0.9" | "1.0";
 export type EtaSigningMethod = "none" | "eseal";
 
+/**
+ * EXTERNAL CONTRACT — الإطار الزمني للإبلاغ عن الإيصال الإلكتروني. The tax
+ * authority's own POS FAQ puts the e-receipt reporting window at 24 hours from
+ * the sale; secondary compliance vendors publish 72. The primary source sets
+ * the default here, and `EtaConfig.receiptReportingWindowHours` exists at all
+ * because the enforced figure is disputed — a tenant told a different number
+ * by their own inspector must be able to set it without a release.
+ */
+export const ETA_RECEIPT_REPORTING_WINDOW_HOURS = 24;
+
 export interface EtaCompanyAddress {
   readonly governorate: string;
   readonly city: string;
@@ -47,6 +57,8 @@ export interface EtaConfig {
    */
   readonly signingCommand: string | null;
   readonly signingCommandArgs: readonly string[];
+  /** مهلة الإبلاغ عن الإيصال — see {@link ETA_RECEIPT_REPORTING_WINDOW_HOURS}. */
+  readonly receiptReportingWindowHours: number;
 }
 
 /** The authority's published addresses. Overridable per install; these are the defaults. */
@@ -84,6 +96,7 @@ export const DEFAULT_ETA_CONFIG: EtaConfig = {
   ...ETA_DEFAULT_ENDPOINTS,
   signingCommand: null,
   signingCommandArgs: [],
+  receiptReportingWindowHours: ETA_RECEIPT_REPORTING_WINDOW_HOURS,
 };
 
 /** One readiness checklist item (docs/archive/catalog/04 "الجاهزية: 22%"). */

@@ -23,6 +23,7 @@ function invoice(id: string) {
     customerId: "cust-1",
     customerNameAr: "عميل",
     customerTaxExempt: false,
+    projectId: null,
     taxInclusive: false,
     warehouseId: "wh-1",
     branchId: "br-1",
@@ -63,6 +64,7 @@ function invoice(id: string) {
         cogsAccountId: null,
         inventoryAccountId: null,
         unitCost: null,
+        costCenterId: null,
       },
     ],
   };

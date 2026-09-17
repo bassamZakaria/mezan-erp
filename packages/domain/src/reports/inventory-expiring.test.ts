@@ -61,7 +61,7 @@ const items: Item[] = [
 ];
 
 const warehouses: Warehouse[] = [
-  { id: "wh-1", code: "WH1", name: "المستودع الرئيسي", nameEn: "Main Warehouse", branchId: "br-1", type: "MAIN", isDefault: true, active: true },
+  { id: "wh-1", code: "WH1", name: "المستودع الرئيسي", nameEn: "Main Warehouse", branchId: "br-1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
 ];
 
 const baseParams = { window: "" as const, search: "", warehouseId: "" };

@@ -4,11 +4,19 @@ services:
     runtime: docker
     plan: free
     region: frankfurt
+    # Without these two keys Render tracks whichever branch was selected in the
+    # dashboard when the blueprint was first created — which is how a merge to
+    # main deployed nothing at all. Naming the branch here keeps the trigger in
+    # the repo instead of in someone's browser session.
+    branch: main
+    autoDeploy: true
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
     envVars:
-      - key: MEZAN_DB
-        value: /tmp/mezan-demo.db
+      - key: MEZAN_PLATFORM_DIR
+        value: /tmp/platform
+      - key: MEZAN_SEED_DEMO
+        value: "1"
       # The free plan caps the instance at 512 MB and the seeded process sits
       # around 375 MB; without a heap ceiling V8 grows into the OOM killer.
       - key: NODE_OPTIONS
@@ -24,5 +32,14 @@ services:
       # deploy log. MEZAN_SEED_ADMIN_PIN is deliberately absent: it used to pin
       # the published `123456` here, and cloud.ts now refuses to start if it is
       # set at all.
-      - key: NODE_ENV
-        value: production
+      # MEZAN_PLATFORM_OWNER_EMAIL / _PASSWORD are `sync: false`: the
+      # blueprint stops and asks for a value before it will deploy, so the
+      # platform owner's login is never committed to the repo.
+      - key: MEZAN_PLATFORM_OWNER_EMAIL
+        sync: false
+      - key: MEZAN_PLATFORM_OWNER_PASSWORD
+        sync: false
+      # MEZAN_ANALYTICS_TOKEN is left out deliberately, for the same reason a
+      # `sync: false` var would stop the blueprint: set it in the dashboard to a
+      # Cloudflare Web Analytics site token and the demo page starts reporting
+      # visitors; leave it unset and no beacon is served.

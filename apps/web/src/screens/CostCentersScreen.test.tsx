@@ -115,8 +115,8 @@ describe("CostCentersScreen", () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "مراكز التكلفة" })).toBeInTheDocument();
     expect(await screen.findByText("الإدارة العامة")).toBeInTheDocument();
-    expect(screen.getByText("المبيعات")).toBeInTheDocument();
-    expect(screen.getByText("فرع الإسكندرية")).toBeInTheDocument();
+    expect(await screen.findByText("المبيعات")).toBeInTheDocument();
+    expect(await screen.findByText("فرع الإسكندرية")).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no cost centers yet", async () => {

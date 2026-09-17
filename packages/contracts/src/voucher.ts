@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
+import { moneyString } from "./money-string.js";
+import { costCategorySchema } from "./contracting.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for Treasury Vouchers (docs/archive/catalog/04 §"السندات النقدية") —
@@ -38,7 +41,7 @@ export const voucherSchema = z.object({
   date: z.string().min(1),
   memo: z.string(),
   /** The figure the voucher states, in `currency` — not necessarily base. */
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string(),
   /**
    * Base units per one unit of `currency`, stamped from the approved rate table
@@ -60,7 +63,11 @@ export const voucherSchema = z.object({
   supplierId: z.string().nullable(),
   referenceNo: z.string().nullable(),
   costCenterId: z.string().nullable(),
-  withholdingAmount: z.string().nullable(),
+  /** بُعد المشروع — the contracting project this voucher belongs to (D-01). */
+  projectId: z.string().nullable(),
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  costCategory: costCategorySchema.nullable(),
+  withholdingAmount: moneyString.nullable(),
   withholdingRatePercent: z.number().nullable(),
   /** What actually leaves the treasury: amount − withholdingAmount. */
   netPaidAmount: z.string(),
@@ -71,10 +78,10 @@ export const voucherSchema = z.object({
 /** Create a voucher draft. */
 export const createVoucherSchema = z.object({
   id: z.string().min(1).optional(),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   memo: z.string().optional(),
   voucherType: voucherTypeSchema,
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string().optional(),
   branchId: z.string().min(1),
   paymentMethod: voucherPaymentMethodSchema,
@@ -87,8 +94,12 @@ export const createVoucherSchema = z.object({
   supplierId: z.string().nullish(),
   referenceNo: z.string().nullish(),
   costCenterId: z.string().nullish(),
+  /** بُعد المشروع — the contracting project this voucher belongs to (D-01). */
+  projectId: z.string().nullish(),
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  costCategory: costCategorySchema.nullish(),
   /** Tax withheld from this payment and owed to the authority instead of to the payee. */
-  withholdingAmount: z.string().nullish(),
+  withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
 });
@@ -101,7 +112,7 @@ export const confirmVoucherSchema = z.object({
 /** Reverse a confirmed voucher. */
 export const reverseVoucherSchema = z.object({
   reversalId: z.string().min(1).optional(),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
 });
 
@@ -112,7 +123,7 @@ export const openInvoiceSchema = z.object({
   kind: allocationInvoiceKindSchema,
   partyId: z.string(),
   date: z.string(),
-  total: z.string(),
+  total: moneyString,
   allocated: z.string(),
   outstanding: z.string(),
 });
@@ -122,7 +133,7 @@ export const voucherAllocationSchema = z.object({
   id: z.string(),
   voucherId: z.string(),
   invoiceId: z.string(),
-  amount: z.string(),
+  amount: moneyString,
   status: allocationStatusSchema,
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
@@ -132,7 +143,7 @@ export const voucherAllocationSchema = z.object({
 export const createAllocationSchema = z.object({
   allocationId: z.string().min(1).optional(),
   invoiceId: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
 });
 
 /** The allocation summary returned alongside a voucher. */

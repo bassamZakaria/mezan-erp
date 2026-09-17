@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contract for a Supplier (docs/archive/catalog/02-purchases.md "الموردون") —
@@ -18,11 +19,12 @@ export const supplierSchema = z.object({
   notes: z.string().nullable(),
   paymentTermsDays: z.number().int().nonnegative(),
   currency: z.string().min(1),
-  openingBalance: z.string(),
+  openingBalance: moneyString,
   active: z.boolean(),
   addressCity: z.string().nullable(),
   addressDistrict: z.string().nullable(),
   addressStreet: z.string().nullable(),
+  bankAccount: z.string().nullable(),
 });
 
 /** POST /suppliers body — matches the catalog's "Add/Edit Supplier" modal defaults. */
@@ -39,11 +41,12 @@ export const createSupplierSchema = z.object({
   notes: z.string().nullable().optional(),
   paymentTermsDays: z.number().int().nonnegative().optional(),
   currency: z.string().min(1).optional(),
-  openingBalance: z.string().optional(),
+  openingBalance: moneyString.optional(),
   active: z.boolean().optional(),
   addressCity: z.string().nullable().optional(),
   addressDistrict: z.string().nullable().optional(),
   addressStreet: z.string().nullable().optional(),
+  bankAccount: z.string().nullable().optional(),
 });
 
 /** PATCH /suppliers/:id body — every field but id optional. */

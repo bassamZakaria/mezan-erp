@@ -1,6 +1,17 @@
 import { Money } from "../money/index.js";
-import type { TreasuryAccount, TreasuryAccountRepository, TreasuryAccountType } from "./treasury-account.js";
-import { DuplicateTreasuryAccountCodeError, NegativeCashBalanceError } from "./errors.js";
+import {
+  MAX_GUARANTEE_FACILITY_LIMIT_SCALED,
+  MAX_OPENING_BALANCE_SCALED,
+  type TreasuryAccount,
+  type TreasuryAccountRepository,
+  type TreasuryAccountType,
+} from "./treasury-account.js";
+import {
+  DuplicateTreasuryAccountCodeError,
+  InvalidGuaranteeFacilityLimitError,
+  InvalidOpeningBalanceError,
+  NegativeCashBalanceError,
+} from "./errors.js";
 
 export interface CreateTreasuryAccountCommand {
   readonly nameEn?: string | null;
@@ -14,11 +25,39 @@ export interface CreateTreasuryAccountCommand {
   /** Exact decimal string (e.g. "0.00", "338.00") — parsed via `Money.fromMajor`. */
   readonly openingBalance?: string;
   readonly openingBalanceDate?: string | null;
+  /** Exact decimal string. Omitted, the account has no guarantee facility. */
+  readonly guaranteeFacilityLimit?: string | null;
+}
+
+/**
+ * The facility limit must be storable and must not be negative. Without this
+ * an over-large figure reaches the SQLite writer and throws a RangeError there
+ * — a 500 where the caller should have been told what is wrong.
+ */
+function assertFacilityLimit(accountId: string, limit: Money | null): void {
+  if (limit === null) return;
+  if (limit.scaled < 0n) {
+    throw new InvalidGuaranteeFacilityLimitError(accountId, "حد تسهيلات خطابات الضمان لا يمكن أن يكون سالباً.");
+  }
+  if (limit.scaled > MAX_GUARANTEE_FACILITY_LIMIT_SCALED) {
+    throw new InvalidGuaranteeFacilityLimitError(accountId, "حد تسهيلات خطابات الضمان أكبر من أن يُسجَّل — راجع الرقم المُدخل.");
+  }
 }
 
 function assertNoNegativeCashBalance(id: string, type: TreasuryAccountType, openingBalance: Money): void {
   if (type === "cash" && openingBalance.scaled < 0n) {
     throw new NegativeCashBalanceError(id);
+  }
+}
+
+/**
+ * The opening balance must be storable. Without this an over-large figure
+ * reaches the SQLite writer and throws a RangeError there — a 500 where the
+ * caller should have been told what is wrong.
+ */
+function assertOpeningBalanceBound(accountId: string, openingBalance: Money): void {
+  if (openingBalance.scaled > MAX_OPENING_BALANCE_SCALED || openingBalance.scaled < -MAX_OPENING_BALANCE_SCALED) {
+    throw new InvalidOpeningBalanceError(accountId, "الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل.");
   }
 }
 
@@ -36,6 +75,7 @@ export function validateNewTreasuryAccount(
     throw new DuplicateTreasuryAccountCodeError(command.code);
   }
   const openingBalance = command.openingBalance ? Money.fromMajor(command.openingBalance) : Money.zero();
+  assertOpeningBalanceBound(command.id, openingBalance);
   assertNoNegativeCashBalance(command.id, command.type ?? "cash", openingBalance);
 }
 
@@ -54,6 +94,9 @@ export async function createTreasuryAccount(
 
   const type = command.type ?? "cash";
   const openingBalance = command.openingBalance ? Money.fromMajor(command.openingBalance) : Money.zero();
+  const guaranteeFacilityLimit =
+    command.guaranteeFacilityLimit != null ? Money.fromMajor(command.guaranteeFacilityLimit) : null;
+  assertFacilityLimit(command.id, guaranteeFacilityLimit);
 
   const account: TreasuryAccount = {
     id: command.id,
@@ -66,6 +109,7 @@ export async function createTreasuryAccount(
     glAccountId: command.glAccountId ?? null,
     openingBalance,
     openingBalanceDate: command.openingBalanceDate ?? null,
+    guaranteeFacilityLimit,
     status: "active",
   };
 

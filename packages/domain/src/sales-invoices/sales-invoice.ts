@@ -95,6 +95,8 @@ export interface SalesInvoiceLine {
   readonly cogsAccountId: string | null;
   /** Inventory GL account credited for COGS (stock lines only). */
   readonly inventoryAccountId: string | null;
+  /** Cost centre this line's revenue and COGS are booked to — the Cost Centre P&L's input (D97). */
+  readonly costCenterId: string | null;
   /**
    * Moving-average unit cost captured when the line was issued on confirm
    * (null while draft). Retained so the detail view can show التكلفة / الربح.
@@ -163,6 +165,8 @@ export interface SalesInvoice {
   readonly salespersonId: string | null;
   /** Name snapshot at draft time, like `customerNameAr` — print/history must not re-resolve it. */
   readonly salespersonNameAr: string | null;
+  /** بُعد المشروع — the contracting project this invoice's revenue and COGS belong to; null when unattributed. */
+  readonly projectId: string | null;
   readonly currency: string;
   /**
    * The rate this invoice was CONFIRMED at, when its currency is not the base

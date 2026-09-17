@@ -173,6 +173,17 @@ async function startAsLanClient(config: ClientConfig): Promise<void> {
   });
 }
 
+/**
+ * A rejected promise that reaches the process must not end it. The LAN host
+ * serves every till in the shop out of THIS process, and a single refused
+ * posting — a document approved into a closed fiscal period — was taking it
+ * down for all of them. Logged, never fatal; `app.onError` in @mezan/api has
+ * already answered the request.
+ */
+process.on("unhandledRejection", (reason) => {
+  console.error("[desktop] unhandled rejection (ignored, host stays up):", reason);
+});
+
 app.whenReady().then(async () => {
   const dbPath = isDev() ? ":memory:" : defaultDbPath();
   // Tells the seed whether this is a real install: a packaged build must not
@@ -643,6 +654,13 @@ app.whenReady().then(async () => {
   backend = startBackendProcess({
     dbPath,
     cipherKey: cipher?.key ?? null,
+    /*
+     * The VERIFIED licence's capability set, applied to the TOP-LEVEL app and
+     * not only to `/lan/*` — the worker passes it to both (main/backend-worker.ts).
+     * Handing it to `lan` alone left every non-LAN route, the machine's own
+     * IPC-driven UI included, running on `createBackend`'s permissive
+     * ENTERPRISE default; backend-entitlements.test.ts guards that.
+     */
     entitlements,
     /*
      * MODULE gating, from the VERIFIED licence and only from it. Passed only

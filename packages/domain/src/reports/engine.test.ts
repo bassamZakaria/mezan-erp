@@ -11,7 +11,9 @@ const trialBalance = createTrialBalanceReport("2026-08-22");
 describe("validateReportParams", () => {
   it("accepts params matching the schema", () => {
     const result = validateReportParams(trialBalance, { asOfDate: "2026-08-22" });
-    expect(result).toEqual({ ok: true, params: { asOfDate: "2026-08-22" } });
+    // `branchId` defaults to "" — every branch (DEC-20). It is defaulted rather
+    // than required so a caller that predates the dimension still validates.
+    expect(result).toEqual({ ok: true, params: { asOfDate: "2026-08-22", branchId: "" } });
   });
 
   it("rejects params that fail the schema, with a field-scoped message", () => {
@@ -78,7 +80,10 @@ describe("runReport — trial balance (grouping + totals + reconciliation)", () 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected success");
 
-    expect(outcome.grandTotals).toEqual({ debit: 147000, credit: 147000 });
+    // «غير مخصص» totals alongside مدين/دائن and is zero here: this fixture's
+    // lines carry no branch at all, so all of it is unattributed — the column
+    // reports the net (debit − credit), which for a balanced ledger is zero.
+    expect(outcome.grandTotals).toEqual({ debit: 147000, credit: 147000, unattributed: 0 });
     expect(outcome.reconciliation).toEqual({
       labelAr: "إجمالي المدين = إجمالي الدائن",
       reportTotal: 147000,
@@ -88,7 +93,7 @@ describe("runReport — trial balance (grouping + totals + reconciliation)", () 
     });
 
     const assets = outcome.groups.find((g) => g.key === "الأصول");
-    expect(assets?.totals).toEqual({ debit: 130000, credit: 0 }); // Cash 122,000 + AR 5,000 + Inventory 3,000
+    expect(assets?.totals).toEqual({ debit: 130000, credit: 0, unattributed: 130000 }); // Cash 122,000 + AR 5,000 + Inventory 3,000 — none of it branch-tagged
     const cash = outcome.rows.find((r) => r.accountId === "1100");
     expect(cash).toMatchObject({ debit: 122000, credit: 0 });
   });
@@ -97,7 +102,7 @@ describe("runReport — trial balance (grouping + totals + reconciliation)", () 
     const outcome = runReport(trialBalance, { asOfDate: "2026-01-01" }, ctx);
     if (!outcome.ok) throw new Error("expected success");
     // Only je-1 (open capital) has posted by 2026-01-01.
-    expect(outcome.grandTotals).toEqual({ debit: 100000, credit: 100000 });
+    expect(outcome.grandTotals).toEqual({ debit: 100000, credit: 100000, unattributed: 0 });
   });
 
   it("returns validation errors instead of running the query plan for bad params", () => {

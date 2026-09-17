@@ -13,13 +13,13 @@ function typeMoney(input: HTMLElement, value: string) {
 }
 
 const warehouses: WarehouseDTO[] = [
-  { id: "wh-van1", code: "VAN-01", name: "مخزن ڤان القاهرة", nameEn: null, branchId: "b1", type: "VAN", isDefault: false, active: true },
-  { id: "wh-main1", code: "MAIN-01", name: "المخزن الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
+  { id: "wh-van1", code: "VAN-01", name: "مخزن ڤان القاهرة", nameEn: null, branchId: "b1", type: "VAN", isDefault: false, active: true, projectId: null, custodianUserId: null },
+  { id: "wh-main1", code: "MAIN-01", name: "المخزن الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
 ];
 
 const treasuryAccounts: TreasuryAccountDTO[] = [
-  { id: "ta-van1", code: "CASH-VAN1", name: "خزينة الڤان", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "active" },
-  { id: "ta-main1", code: "CASH-001", name: "الصندوق الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "active" },
+  { id: "ta-van1", code: "CASH-VAN1", name: "خزينة الڤان", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
+  { id: "ta-main1", code: "CASH-001", name: "الصندوق الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
 ];
 
 const branches: BranchDTO[] = [

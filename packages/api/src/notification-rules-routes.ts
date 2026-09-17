@@ -76,14 +76,12 @@ export function createNotificationRulesRoutes(
    * registry it replaced recorded every write; these routes recorded nothing.
    */
   function record(c: Context, rule: NotificationRule, action: string, severity: "INFO" | "WARNING" | "CRITICAL") {
-    const ctx = getAuthContext(c);
     return recordAdminEvent(audit, c, {
       module: "notification-rules",
       entityType: "NOTIFICATION_RULE",
       entityId: rule.id,
       action,
       severity,
-      branchId: ctx ? auditBranchFromScope(ctx.branchScope) : null,
       details: {
         id: rule.id,
         name: rule.name,

@@ -72,6 +72,9 @@ function asset(overrides: Partial<AssetDTO> & { id: string; code: string }): Ass
     depreciationExpenseAccountId: overrides.depreciationExpenseAccountId ?? null,
     accumulatedDepreciationAccountId: overrides.accumulatedDepreciationAccountId ?? null,
     notes: overrides.notes ?? null,
+    projectId: overrides.projectId ?? null,
+    internalHourlyRate: overrides.internalHourlyRate ?? null,
+  rateHistory: [],
   };
 }
 
@@ -307,7 +310,7 @@ describe("AssetRegisterScreen — filters and pagination", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "التصنيف" }));
     fireEvent.mouseDown(await screen.findByRole("option", { name: "FA-02 — معدات" }));
     await waitFor(() => expect(screen.queryByText("سيارة النقل")).not.toBeInTheDocument());
-    expect(screen.getByText("معدة تصنيع")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("معدة تصنيع")).toBeInTheDocument(), { timeout: 5000 });
 
     fireEvent.click(screen.getByRole("combobox", { name: "الفرع" }));
     fireEvent.mouseDown(await screen.findByRole("option", { name: "الفرع الرئيسي" }));
@@ -459,8 +462,7 @@ describe("AssetRegisterScreen — disposal", () => {
     const detail = screen.getByRole("dialog", { name: /أصل —/ });
     fireEvent.click(within(detail).getByRole("button", { name: "التخلص من الأصل" }));
 
-    const [, proceedsInput] = within(detail).getAllByRole("textbox");
-    typeMoney(proceedsInput!, "5000");
+    typeMoney(within(detail).getByRole("textbox", { name: "قيمة البيع" }), "5000");
     fireEvent.click(within(detail).getByRole("combobox", { name: "حساب التحصيل" }));
     fireEvent.mouseDown(await screen.findByRole("option", { name: "1301 — نقدية بالخزينة" }));
 

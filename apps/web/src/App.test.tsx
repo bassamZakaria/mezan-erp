@@ -86,11 +86,13 @@ describe("App", () => {
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
-    // المحاسبة is now المالية والإقفال, and its "الدليل والتعريفات" shelf
-    // (only 4 items) flattens straight onto row two instead of staying a
-    // dropdown — see WorkspaceScreensBar's `isFlattenable`.
+    // المحاسبة is now المالية والإقفال. Its "الدليل والتعريفات" shelf used to
+    // flatten straight onto row two, because WorkspaceScreensBar flattens a
+    // shelf of 4 or fewer; DEC-13 added the simplified-regime screen beside
+    // الضرائب, which makes 5, so the shelf is a dropdown again.
     fireEvent.click(screen.getByRole("button", { name: "المالية والإقفال" }));
-    fireEvent.click(screen.getByRole("button", { name: "دليل الحسابات" }));
+    fireEvent.click(screen.getByRole("button", { name: "الدليل والتعريفات" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "دليل الحسابات" }));
     // The router resolves the screen's lazy module before it swaps the match,
     // so the assertion has to await it — a synchronous read here still sees
     // the outgoing screen, which is exactly the behaviour that stops the list

@@ -45,3 +45,12 @@ export {
   buildNotificationTriggerCatalog,
   type NotificationTrigger,
 } from "./triggers.js";
+export {
+  NotificationDispatcher,
+  DEFAULT_DISPATCH_POLICY,
+  type NotificationDispatcherDeps,
+  type NotificationTransport,
+  type DispatchOutcome,
+  type DispatchPolicy,
+  type DrainResult,
+} from "./dispatcher.js";

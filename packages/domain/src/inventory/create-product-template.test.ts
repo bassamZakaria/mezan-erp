@@ -33,14 +33,14 @@ describe("createProductTemplate", () => {
         baseUnitCode: "PCS",
         categoryId: "cat-1",
         brandId: "brand-1",
-        costingMethod: "FIFO",
+        costingMethod: "WAC",
         defaultSalePrice: Money.fromMajor("150.00"),
         defaultCost: Money.fromMajor("80.00"),
         taxRatePercent: 5,
       },
       templates,
     );
-    expect(template.costingMethod).toBe("FIFO");
+    expect(template.costingMethod).toBe("WAC");
     expect(template.taxRatePercent).toBe(5);
     expect(template.defaultSalePrice!.toString()).toBe("150.000000");
     expect(template.defaultCost!.toString()).toBe("80.000000");

@@ -86,7 +86,7 @@ export interface TenantSettings {
   readonly creditControlMode: CreditControlMode;
   /**
    * The line discount a salesperson may give unaided, as a percent. Above it
-   * the caller must additionally hold `pos.discount.approve` — the permission
+   * the caller must additionally hold `sales.discount.approve` — the permission
    * existed in the catalogue and was enforced nowhere, so a rep with plain
    * invoice-create could discount a line to nothing.
    *
@@ -97,6 +97,24 @@ export interface TenantSettings {
    * requires the elevated permission.
    */
   readonly maxLineDiscountPercent: number;
+
+  // --- المقاولات (Contracting) ---
+  /**
+   * سعر الائتمان والخصم المعلن من البنك المركزي, as a percent. Law 182/2018
+   * Art. 45 compensates a contractor for a public employer's late payment at
+   * this rate, and almost no contractor ever invoices it. NULL means the
+   * tenant has not set it: the certificate screen then says «غير مُعد» and
+   * reports zero rather than inventing a rate.
+   */
+  readonly contractingCbeCreditDiscountRatePercent: number | null;
+  /**
+   * وضع المشغّل الواحد. FALSE by default: فصل المهام on a مستخلص — preparer ≠
+   * certifier ≠ approver — is enforced against EVERYONE, the tenant admin
+   * holding the `"*"` wildcard included. A genuinely one-person install turns
+   * this on and the admin may sign every step; every other tenant leaves it
+   * off, and the admin bypass that used to be unconditional is gone.
+   */
+  readonly contractingSingleOperatorMode: boolean;
 
   // --- سياسة المخزون (Inventory policy) ---
   readonly allowCrossWarehouseSales: boolean;
@@ -188,6 +206,8 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   creditControlEnabled: false,
   creditControlMode: "WARNING",
   maxLineDiscountPercent: 100,
+  contractingCbeCreditDiscountRatePercent: null,
+  contractingSingleOperatorMode: false,
 
   allowCrossWarehouseSales: true,
   showOtherWarehouseStock: true,
@@ -303,6 +323,12 @@ function validate(settings: TenantSettings): string[] {
   }
   if (settings.maxLineDiscountPercent < 0 || settings.maxLineDiscountPercent > 100) {
     reasons.push("maxLineDiscountPercent must be in 0..100");
+  }
+  if (
+    settings.contractingCbeCreditDiscountRatePercent !== null &&
+    (settings.contractingCbeCreditDiscountRatePercent < 0 || settings.contractingCbeCreditDiscountRatePercent > 100)
+  ) {
+    reasons.push("contractingCbeCreditDiscountRatePercent must be in 0..100");
   }
   if (settings.agingWritedownRatePercent < 0 || settings.agingWritedownRatePercent > 100) {
     reasons.push("agingWritedownRatePercent must be in 0..100");

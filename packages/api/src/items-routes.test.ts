@@ -331,3 +331,54 @@ describe("items router — the list is a page (guards Q-8)", () => {
     expect(counts.all).toBe(30);
   });
 });
+
+describe("items router — the cost price is a separate grant (D94)", () => {
+  const withCost = { ...VALID_PAYLOAD, costPrice: "42.50", salePrice: "70.00" };
+
+  async function seed(app: ReturnType<typeof newApp>["app"]) {
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "inventory.item.create",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(withCost),
+      }),
+    );
+    expect(res.status).toBe(201);
+  }
+
+  it("omits costPrice from the list for a caller who holds only the item permission", async () => {
+    const { app } = newApp();
+    await seed(app);
+    const rows = (await (await app.fetch(req("/", { permissions: "inventory.item.view" }))).json()) as Record<
+      string,
+      unknown
+    >[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).not.toHaveProperty("costPrice");
+    expect(rows[0]?.salePrice).toBe("70.000000");
+  });
+
+  it("serves costPrice to a caller who also holds sales.invoice.view_cost", async () => {
+    const { app } = newApp();
+    await seed(app);
+    const rows = (await (
+      await app.fetch(req("/", { permissions: "inventory.item.view,sales.invoice.view_cost" }))
+    ).json()) as Record<string, unknown>[];
+    expect(rows[0]?.costPrice).toBe("42.500000");
+  });
+
+  it("omits it on the detail route too, so the id is not a way round the list", async () => {
+    const { app } = newApp();
+    await seed(app);
+    const hidden = (await (await app.fetch(req("/itm-1", { permissions: "inventory.item.view" }))).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(hidden).not.toHaveProperty("costPrice");
+    const shown = (await (
+      await app.fetch(req("/itm-1", { permissions: "inventory.item.view,sales.invoice.view_cost" }))
+    ).json()) as Record<string, unknown>;
+    expect(shown.costPrice).toBe("42.500000");
+  });
+});

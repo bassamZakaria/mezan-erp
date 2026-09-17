@@ -65,6 +65,8 @@ describe("voucherSchema", () => {
     supplierId: "sup-1",
     referenceNo: null,
     costCenterId: "cc-1",
+    projectId: "proj-1",
+    costCategory: "subcontract" as const,
     withholdingAmount: "500.000000",
     withholdingRatePercent: 5,
     netPaidAmount: "9500.123456",
@@ -81,6 +83,27 @@ describe("voucherSchema", () => {
   it("accepts a null costCenterId and null withholding fields for a voucher without them", () => {
     const result = voucherSchema.safeParse({ ...voucher, costCenterId: null, withholdingAmount: null, withholdingRatePercent: null });
     expect(result.success).toBe(true);
+  });
+
+  it("accepts a null projectId and null costCategory for a voucher without the contracting dimension", () => {
+    const result = voucherSchema.safeParse({ ...voucher, projectId: null, costCategory: null });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.projectId).toBeNull();
+      expect(result.data.costCategory).toBeNull();
+    }
+  });
+
+  it("rejects an out-of-enum costCategory", () => {
+    const result = voucherSchema.safeParse({ ...voucher, costCategory: "overhead" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a voucher missing projectId", () => {
+    const { projectId, ...rest } = voucher;
+    const result = voucherSchema.safeParse(rest);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("projectId");
   });
 
   it("never coerces withholdingAmount to a float — high-precision decimal string survives verbatim", () => {
@@ -157,6 +180,21 @@ describe("createVoucherSchema", () => {
       expect(result.data.withholdingRatePercent).toBe(5);
       expect(result.data.withholdingGlAccountId).toBe("acc-wht");
     }
+  });
+
+  it("PRESERVES projectId and costCategory — the contracting dimension is not stripped on create", () => {
+    const full = { ...create, projectId: "proj-1", costCategory: "labour" as const };
+    const result = createVoucherSchema.safeParse(full);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.projectId).toBe("proj-1");
+      expect(result.data.costCategory).toBe("labour");
+    }
+  });
+
+  it("rejects an out-of-enum costCategory on create", () => {
+    const result = createVoucherSchema.safeParse({ ...create, costCategory: "overhead" });
+    expect(result.success).toBe(false);
   });
 
   it("never coerces amount to a float — high-precision decimal string survives verbatim", () => {
@@ -312,6 +350,8 @@ describe("voucherSchema — the FX dimensions", () => {
     supplierId: null,
     referenceNo: null,
     costCenterId: null,
+    projectId: null,
+    costCategory: null,
     withholdingAmount: null,
     withholdingRatePercent: null,
     netPaidAmount: "49350.000000",

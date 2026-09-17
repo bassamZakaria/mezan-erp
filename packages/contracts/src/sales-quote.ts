@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for Sales Quotations (docs/archive/catalog/01-sales.md §"عروض الأسعار").
@@ -27,7 +28,7 @@ export const createSalesQuoteLineSchema = z.object({
   itemId: z.string().min(1),
   itemNameAr: z.string().min(1),
   qty: z.string(),
-  unitPrice: z.string(),
+  unitPrice: moneyString,
   discountPercent: z.number().min(0).max(100).optional(),
   taxRatePercent: z.number().min(0).optional(),
 });

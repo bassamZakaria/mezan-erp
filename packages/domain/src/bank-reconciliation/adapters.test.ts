@@ -35,6 +35,7 @@ const BANK_ACCOUNT: TreasuryAccount = {
   glAccountId: "1310",
   openingBalance: Money.zero(),
   openingBalanceDate: null,
+  guaranteeFacilityLimit: null,
   status: "active",
 };
 

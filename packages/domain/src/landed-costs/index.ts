@@ -25,6 +25,11 @@ export {
   type LandedCostGlAccounts,
 } from "./landed-cost-document.js";
 
-export { LandedCostService } from "./service.js";
+export {
+  LandedCostService,
+  type LandedCostConfirmResult,
+  type LandedCostUnabsorbedGlPort,
+  type UnabsorbedLandedCost,
+} from "./service.js";
 
 export { EmptyLandedCostTargetsError, ZeroLandedCostWeightError } from "./errors.js";

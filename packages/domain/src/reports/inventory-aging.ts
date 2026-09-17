@@ -6,6 +6,7 @@ import type { CostLayer } from "../inventory/cost-layer.js";
 import { layerRemainingValue } from "../inventory/cost-layer.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, maxOf, percentOf } from "./kpi.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
 
 /**
  * أعمار المخزون — Inventory Aging (docs/archive/catalog/08-reports.md): the age of
@@ -43,6 +44,7 @@ export interface InventoryAgingParams {
   readonly bucket: "" | AgeBucket;
   readonly search: string;
   readonly warehouseId: string;
+  readonly branchId: string;
 }
 
 export interface InventoryAgingRow {
@@ -62,6 +64,7 @@ const paramsSchema = z.object({
   bucket: z.enum(["", "under30", "30to90", "90to180", "180to365", "over365"]),
   search: z.string(),
   warehouseId: z.string(),
+  branchId: branchIdParamSchema,
 });
 
 export function createInventoryAgingReport(today: string): ReportDefinition<
@@ -74,7 +77,7 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
     titleAr: "أعمار المخزون",
     descriptionAr: "عمر أقدم وحدة من كل صنف في كل مستودع — البضاعة الأقدم من 180 يوم تستحق المراجعة.",
     paramsSchema,
-    defaultParams: { bucket: "", search: "", warehouseId: "" },
+    defaultParams: { bucket: "", search: "", warehouseId: "", branchId: "" },
     paramFields: [
       {
         kind: "select",
@@ -91,6 +94,7 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
       },
       { kind: "text", key: "search", label: "بحث", placeholder: "اسم الصنف أو الكود" },
       { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,
     columns: [
@@ -119,6 +123,7 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
+      const branchOf = branchOfWarehouse(ctx.warehouses);
       const search = params.search.trim().toLowerCase();
       const todayMs = Date.parse(`${today}T00:00:00Z`);
 
@@ -126,6 +131,7 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
       for (const layer of ctx.layers) {
         if (layer.remainingQty.scaled <= 0n) continue;
         if (params.warehouseId !== "" && layer.warehouseId !== params.warehouseId) continue;
+        if (!matchesBranch(branchOf(layer.warehouseId), params.branchId)) continue;
         const key = `${layer.itemId}|${layer.warehouseId}`;
         const existing = byPosition.get(key) ?? [];
         existing.push(layer);

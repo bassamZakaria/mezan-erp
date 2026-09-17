@@ -1,9 +1,9 @@
 import { createApp } from "@mezan/api";
 import {
+  createSqliteUnitOfWork,
+  createSqliteLedgerStore,
   createSqliteAccountRepository,
   createSqliteFiscalPeriodRepository,
-  createSqliteLedgerStore,
-  createSqliteUnitOfWork,
 } from "@mezan/persistence";
 
 /**
@@ -13,6 +13,12 @@ import {
  * ./index.ts). This script performs exactly that call sequence in a plain Node
  * process so the dual-mount can be exercised in CI/dev without a display or the
  * Electron binary. `pnpm --filter desktop demo`.
+ *
+ * It posts through `/gl`, the route the product uses. It used to post through a
+ * bare `POST /journal-entries` — the spike's original poster, which checked no
+ * fiscal period, validated no account, stamped no number and wrote no audit
+ * row. Being one of its last two callers is what kept that second way into the
+ * books alive (D99).
  */
 async function main() {
   const uow = createSqliteUnitOfWork(":memory:");
@@ -20,22 +26,28 @@ async function main() {
   const accounts = createSqliteAccountRepository();
   const periods = createSqliteFiscalPeriodRepository();
 
-  for (const [id, type, naturalBalance] of [
-    ["1300-1", "asset", "debit"],
-    ["4000", "revenue", "credit"],
-  ] as const) {
-    await accounts.create({
-      id,
-      code: id,
-      nameAr: id,
-      nameEn: null,
-      type,
-      naturalBalance,
-      parentId: null,
-      isHeader: false,
-      status: "active",
-    });
-  }
+  await accounts.create({
+    id: "1300-1",
+    code: "1300-1",
+    nameAr: "النقدية بالخزينة",
+    nameEn: "Cash on hand",
+    type: "asset",
+    naturalBalance: "debit",
+    parentId: null,
+    isHeader: false,
+    status: "active",
+  });
+  await accounts.create({
+    id: "4000",
+    code: "4000",
+    nameAr: "إيرادات المبيعات",
+    nameEn: "Sales revenue",
+    type: "revenue",
+    naturalBalance: "credit",
+    parentId: null,
+    isHeader: false,
+    status: "active",
+  });
   await periods.create({
     id: "fp-2026-08",
     year: 2026,

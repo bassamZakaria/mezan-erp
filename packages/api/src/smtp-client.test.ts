@@ -196,7 +196,34 @@ describe("sendTestEmail — TLS is what it claims to be", () => {
     expect(server.transcript).not.toContain(B64_PASSWORD);
   });
 
-  it("LIMITATION: with smtpSecurity NONE the password crosses the wire in base64, which is not encryption", async () => {
+  it("refuses to send the password unencrypted to a remote host, rather than downgrading quietly (D133)", async () => {
+    // AUTH LOGIN is base64 — an encoding, not encryption — so on a plain
+    // connection anyone with a packet capture reverses it in one step. The
+    // settings screen offers NONE, so the refusal lives here, where every
+    // caller passes, and not on the screen.
+    const server = await smtpServer({
+      EHLO: "250-mail.test\r\n250 AUTH LOGIN\r\n",
+      AUTH: "334 VXNlcm5hbWU6\r\n",
+      "*": "334 UGFzc3dvcmQ6\r\n",
+      [B64_PASSWORD]: "235 2.7.0 Authentication successful\r\n",
+    });
+
+    const result = await sendTestEmail(
+      settingsFor(server.port, { smtpUsername: USERNAME, smtpHost: "mail.example.com" }),
+      "owner@mezan.test",
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("auth");
+    expect(result.message).toContain("غير مُشفَّر");
+    noSecretIn(result.message);
+    // And nothing resembling the password reached the wire.
+    expect(server.transcript).not.toContain(B64_PASSWORD);
+  });
+
+  it("still allows an unencrypted AUTH to a loopback relay, where there is no wire to capture", async () => {
+    // A local postfix or a relay bound to 127.0.0.1 is an ordinary small-shop
+    // setup and has no network segment between the two ends.
     const server = await smtpServer({
       EHLO: "250-mail.test\r\n250 AUTH LOGIN\r\n",
       AUTH: "334 VXNlcm5hbWU6\r\n",
@@ -211,12 +238,21 @@ describe("sendTestEmail — TLS is what it claims to be", () => {
 
     const result = await sendTestEmail(settingsFor(server.port, { smtpUsername: USERNAME }), "owner@mezan.test");
     expect(result.ok).toBe(true);
+    expect(server.transcript).toContain(B64_PASSWORD);
+  });
 
-    // Anyone on the shop wifi with a packet capture reverses this in one step.
-    // The settings screen offers NONE and nothing warns the person choosing it.
-    const onWire = server.transcript.find((line) => line === B64_PASSWORD);
-    expect(onWire).toBeDefined();
-    expect(Buffer.from(onWire!, "base64").toString("utf8")).toBe(PASSWORD);
+  it("sends with no AUTH at all over a plain connection, so a passwordless relay still works", async () => {
+    const server = await smtpServer({
+      EHLO: "250 mail.test\r\n",
+      MAIL: "250 OK\r\n",
+      RCPT: "250 OK\r\n",
+      DATA: "354 End data with .\r\n",
+      ".": "250 2.0.0 Ok: queued\r\n",
+      QUIT: "221 Bye\r\n",
+    });
+
+    const result = await sendTestEmail(settingsFor(server.port, { smtpUsername: "" }), "owner@mezan.test");
+    expect(result.ok).toBe(true);
   });
 });
 

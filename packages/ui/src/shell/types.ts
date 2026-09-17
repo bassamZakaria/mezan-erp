@@ -120,6 +120,15 @@ export interface CommandItem {
   group: string;
   hint?: string;
   icon?: ReactNode;
+  /**
+   * Extra text this command should also match on.
+   *
+   * A report that lives INSIDE another screen has no nav label of its own —
+   * «قائمة الدخل» sits inside «التقارير المالية» — so searching for it found
+   * nothing at all (§8.4). The titles go here instead of inventing a nav entry
+   * per statement.
+   */
+  keywords?: readonly string[];
   onSelect: () => void;
 }
 

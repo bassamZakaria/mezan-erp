@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { cn } from "../lib/cn";
 import { RAIL_WIDTH } from "./metrics";
 import type { NavGroup, NavItem } from "./types";
@@ -43,6 +43,17 @@ export interface WorkspaceRailProps {
   /** The brand lockup, pinned above the list — the column's own header. */
   brand?: ReactNode;
   /**
+   * The column's own element, so the shell can trap focus in it while it is an
+   * overlay. Unused above the breakpoint, where it is an ordinary column.
+   */
+  containerRef?: RefObject<HTMLElement | null>;
+  /**
+   * Fired after any navigation inside the column. The shell uses it to close
+   * the drawer: a drawer that stays open over the screen it just navigated to
+   * is the single most common way this pattern is got wrong.
+   */
+  onNavigate?: () => void;
+  /**
    * THE FOOT: everything global — search, the working scope, appearance,
    * language, notifications, the user. It sits at the BOTTOM of the column
    * rather than in a bar of its own, because none of it is touched more than
@@ -64,6 +75,8 @@ export function WorkspaceRail({
   brand,
   footer,
   className,
+  containerRef,
+  onNavigate,
 }: WorkspaceRailProps) {
   const refs = useRef<(HTMLElement | null)[]>([]);
 
@@ -88,6 +101,7 @@ export function WorkspaceRail({
 
   return (
     <nav
+      ref={containerRef as RefObject<HTMLElement> | undefined}
       aria-label={ariaLabel}
       className={cn(
         RAIL_WIDTH,
@@ -181,7 +195,7 @@ export function WorkspaceRail({
                     ROW,
                     active ? "bg-chrome-active font-semibold text-chrome-ink" : "text-chrome-ink-muted",
                   )}
-                  onClick={() => onChange?.(group.key)}
+                  onClick={() => { onChange?.(group.key); onNavigate?.(); }}
                 >
                   {/* Never colour alone: the open workspace also carries this
                       inline-start bar, the recessed fill and a heavier weight. */}
@@ -196,7 +210,7 @@ export function WorkspaceRail({
 
         <div aria-hidden className="mx-[12px] my-[8px] h-px flex-none bg-chrome-border" />
 
-        <button type="button" onClick={onOpenAllScreens} className={cn(ROW, "flex-none text-chrome-ink-muted hover:text-chrome-ink")}>
+        <button type="button" onClick={() => { onOpenAllScreens?.(); onNavigate?.(); }} className={cn(ROW, "flex-none text-chrome-ink-muted hover:text-chrome-ink")}>
           <span aria-hidden className="flex-none">
             ☰
           </span>

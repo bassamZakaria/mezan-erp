@@ -36,6 +36,16 @@ export const createProjectSchema = z.object({
   budget: z.string().optional(),
   siteAddress: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  /**
+   * An EXISTING cost centre to book this project against. Omitted, the project
+   * gets a `PRJ-{code}` cost centre of its own, which is the usual case.
+   *
+   * `projectSchema` has always required `costCenterId` and neither the create
+   * nor the update contract carried it, so the choice could not be made through
+   * any surface and the Cost Centre P&L could only ever group by the auto-made
+   * one (D95).
+   */
+  costCenterId: z.string().min(1).optional(),
 });
 
 /** All fields optional — a PATCH applies only what's supplied. */
@@ -50,6 +60,10 @@ export const updateProjectSchema = z.object({
   budget: z.string().optional(),
   siteAddress: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  // No `costCenterId` here on purpose: re-booking a live project against a
+  // different cost centre moves every cost already posted under the old one,
+  // which is an accounting decision and not a patch field. Choosing it at
+  // CREATE is what D95 was about.
 });
 
 export type ProjectStatusDTO = z.infer<typeof projectStatusSchema>;

@@ -15,6 +15,12 @@ export interface Supplier extends PartnerBase {
   readonly addressCity: string | null;
   readonly addressDistrict: string | null;
   readonly addressStreet: string | null;
+  /**
+   * رقم الحساب البنكي / IBAN. A subcontractor cannot be certified for payment
+   * without one (design §03 "THE MIRROR"), and every supplier paid by transfer
+   * needs it somewhere other than a note field.
+   */
+  readonly bankAccount: string | null;
 }
 
 export class InvalidSupplierError extends Error {
@@ -27,6 +33,8 @@ export class InvalidSupplierError extends Error {
 
 export interface CreateSupplierInput {
   readonly id: string;
+  /** The branch that owns this record; omitted, the record is tenant-wide (D71). */
+  readonly branchId?: string | null;
   readonly code: string;
   readonly nameAr: string;
   readonly nameEn?: string | null;
@@ -43,6 +51,7 @@ export interface CreateSupplierInput {
   readonly addressCity?: string | null;
   readonly addressDistrict?: string | null;
   readonly addressStreet?: string | null;
+  readonly bankAccount?: string | null;
 }
 
 function validate(supplier: Supplier): string[] {
@@ -53,6 +62,7 @@ function validate(supplier: Supplier): string[] {
 export function createSupplier(input: CreateSupplierInput): Supplier {
   const supplier: Supplier = {
     id: input.id,
+    branchId: input.branchId ?? null,
     code: input.code,
     nameAr: input.nameAr,
     nameEn: input.nameEn ?? null,
@@ -69,6 +79,7 @@ export function createSupplier(input: CreateSupplierInput): Supplier {
     addressCity: input.addressCity ?? null,
     addressDistrict: input.addressDistrict ?? null,
     addressStreet: input.addressStreet ?? null,
+    bankAccount: input.bankAccount ?? null,
   };
   const reasons = validate(supplier);
   if (reasons.length > 0) throw new InvalidSupplierError(reasons);

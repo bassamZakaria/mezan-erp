@@ -172,3 +172,69 @@ describe("ApiProvider request() — 401 session expiry", () => {
     expect(clearSpy).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The topbar's working-branch/warehouse picker narrows what the user is
+ * LOOKING AT. It is not a narrowing of what they may DO — and once the stock
+ * write paths enforce warehouse scope as authority (D103), sending it on a
+ * write refuses moves the user is entitled to make: a transfer names two
+ * warehouses and the picker can only name one.
+ */
+describe("ApiProvider request() — the topbar narrowing rides on reads only", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  function ScopeProbe({ path }: { path: string }) {
+    const { request, setScopeSelection } = useApi();
+    return (
+      <div>
+        <button onClick={() => setScopeSelection({ branchId: "BR-CAIRO", warehouseId: "W1" })}>narrow</button>
+        <button onClick={() => void request(path)}>read</button>
+        <button onClick={() => void request(path, { method: "POST", body: "{}" })}>write</button>
+      </div>
+    );
+  }
+
+  function renderScopeProbe() {
+    const seen: { method: string; warehouse: string | null; branch: string | null }[] = [];
+    const transport = (path: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      seen.push({
+        method: (init?.method ?? "GET").toUpperCase(),
+        warehouse: headers.get("x-warehouse-scope"),
+        branch: headers.get("x-branch-scope"),
+      });
+      void path;
+      return Promise.resolve({ status: 200, ok: true, json: <T,>() => Promise.resolve({} as T), text: () => Promise.resolve("{}") });
+    };
+    const queryClient = createQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ApiProvider transport={transport} initialSession={testAdminSession}>
+          <ScopeProbe path="/inventory/transfers" />
+        </ApiProvider>
+      </QueryClientProvider>,
+    );
+    return seen;
+  }
+
+  it("a GET carries the picked warehouse, and a POST carries the session's full grant instead", async () => {
+    const seen = renderScopeProbe();
+    fireEvent.click(screen.getByText("narrow"));
+
+    fireEvent.click(screen.getByText("read"));
+    await new Promise((r) => setTimeout(r, 10));
+    fireEvent.click(screen.getByText("write"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    const read = seen.find((r) => r.method === "GET");
+    const write = seen.find((r) => r.method === "POST");
+    expect(read?.warehouse).toBe("W1");
+    expect(read?.branch).toBe("BR-CAIRO");
+    // testAdminSession holds the all-scope sentinel, so the write is unnarrowed.
+    expect(write?.warehouse).toBe("*");
+    expect(write?.branch).toBe("*");
+  });
+});

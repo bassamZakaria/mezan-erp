@@ -5,6 +5,8 @@ import {
   ungrantablePermissions,
   UnknownPermissionError,
   UnlicensedPermissionError,
+  PlatformOnlyPermissionError,
+  UngrantablePermissionError,
   DuplicateRoleCodeError,
   SystemRoleImmutableError,
   RoleNotFoundError,
@@ -43,6 +45,9 @@ function roleErrorResponse(c: Context, err: unknown) {
   }
   if (err instanceof SystemRoleImmutableError) {
     return c.json({ error: err.code, message: err.message }, 403);
+  }
+  if (err instanceof PlatformOnlyPermissionError || err instanceof UngrantablePermissionError) {
+    return c.json({ error: err.code, message: err.message, permission: err.permission }, 403);
   }
   if (err instanceof RoleNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
@@ -119,6 +124,13 @@ export function createRolesRoutes(
    * for a role manager to rewrite their own role's permission list — measured, and
    * it worked.
    */
+  function refuseUnauthenticated(c: Context) {
+    return c.json(
+      { error: "PRIVILEGE_ESCALATION_DENIED", message: "لا يمكنك منح صلاحيات لا تملكها." },
+      403,
+    );
+  }
+
   function refuseUngrantable(c: Context, permissions: readonly string[]) {
     const ctx = getAuthContext(c);
     const ungrantable = ctx ? ungrantablePermissions(ctx, permissions) : [...permissions];
@@ -151,6 +163,8 @@ export function createRolesRoutes(
     }
     const escalation = refuseUngrantable(c, parsed.data.permissions);
     if (escalation) return escalation;
+    const actor = getAuthContext(c);
+    if (!actor) return refuseUnauthenticated(c);
     const entitlements = await resolveEntitlements(c);
     if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);
     try {
@@ -158,6 +172,7 @@ export function createRolesRoutes(
         { id: crypto.randomUUID(), ...parsed.data, createdAt: new Date().toISOString() },
         uow,
         entitlements,
+        actor,
       );
       await auditRole(c, role, "CREATE");
       return c.json(serializeRole(role), 201);
@@ -186,6 +201,8 @@ export function createRolesRoutes(
     }
     const escalation = refuseUngrantable(c, parsed.data.permissions);
     if (escalation) return escalation;
+    const actor = getAuthContext(c);
+    if (!actor) return refuseUnauthenticated(c);
     const entitlements = await resolveEntitlements(c);
     if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);
     // Read BEFORE the write: an after-only record cannot answer "what did this
@@ -209,6 +226,7 @@ export function createRolesRoutes(
         { id: c.req.param("id"), ...parsed.data, createdAt: new Date().toISOString() },
         uow,
         entitlements,
+        actor,
       );
       await auditRole(c, role, "UPDATE", before);
       return c.json(serializeRole(role));

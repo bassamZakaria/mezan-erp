@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for the historical purchase-document import (docs/archive/catalog/02
@@ -6,8 +8,10 @@ import { z } from "zod";
  * wire as EXACT decimal strings, same convention as purchasing.ts.
  */
 
-const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, "must be an exact decimal string");
-const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
+/** @see moneyString — one guard for every exact-decimal field on the wire (D126). */
+const decimalString = moneyString;
+/** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
+const positiveDecimalString = nonNegativeMoneyString;
 
 export const historicalPurchaseDocTypeSchema = z.enum(["PURCHASE_INVOICE", "PURCHASE_RETURN"]);
 
@@ -17,7 +21,7 @@ export const historicalImportRowSchema = z.object({
   docType: historicalPurchaseDocTypeSchema,
   documentNumber: z.string().min(1),
   supplierId: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDateOrInstant,
   dueDate: z.string().nullable().optional(),
   itemId: z.string().nullable().optional(),
   description: z.string().nullable().optional(),

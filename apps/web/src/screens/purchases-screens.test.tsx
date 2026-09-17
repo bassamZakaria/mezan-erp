@@ -39,7 +39,7 @@ function TestNavigation({ children }: { children: ReactNode }) {
 const suppliers: SupplierDTO[] = [
   {
     id: "sup-1", code: "S1", nameAr: "شركة النيل للتوريدات", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
-    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null,
+    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, addressCity: null, addressDistrict: null, addressStreet: null, bankAccount: null,
   },
 ];
 
@@ -77,6 +77,7 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
   return {
     id: "gr-1",
     number: "GR-000001",
+    projectId: null,
     purchaseOrderId: "po-2",
     supplierId: "sup-1",
     warehouseId: "MAIN-WH",
@@ -96,6 +97,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
   return {
     id: "pi-1",
     number: "PI-000001",
+    projectId: null,
     supplierId: "sup-1",
     date: "2026-08-20",
     dueDate: "2026-09-04",

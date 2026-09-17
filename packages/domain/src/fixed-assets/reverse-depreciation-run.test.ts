@@ -59,6 +59,8 @@ function category(overrides: Partial<AssetCategory> = {}): AssetCategory {
 
 function asset(id: string, overrides: Partial<Asset> = {}): Asset {
   return {
+    projectId: null,
+    internalHourlyRate: null,
     id,
     code: id,
     nameAr: id,

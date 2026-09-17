@@ -23,6 +23,7 @@ import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/doc
 import { buildEffects } from "../documents/effects.js";
 import type { DocumentGlPosting } from "../documents/hooks.js";
 import { InvalidDocumentError } from "../documents/errors.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import {
   getVoucherTypeDefinition,
   type VoucherDirection,
@@ -69,6 +70,18 @@ export interface VoucherLine {
   readonly referenceNo: string | null;
   /** Cost centre the spending/income belongs to; tagged onto the counterparty GL line. */
   readonly costCenterId?: string | null;
+  /**
+   * بُعد المشروع — the contracting project this voucher's spending/income
+   * belongs to. Tagged onto EVERY posted line (cash/bank side included) so a
+   * project's cash movements can be traced from either leg of the entry.
+   */
+  readonly projectId?: string | null;
+  /**
+   * فئة التكلفة — only meaningful with `projectId`, and tagged ONLY onto the
+   * counterparty (expense/income) line: the treasury leg is a cash movement,
+   * not a cost, and tagging both would double the spend in a cost report.
+   */
+  readonly costCategory?: CostCategory | null;
   /**
    * Tax withheld from this payment. `amount` remains what SETTLES the payee —
    * the supplier is discharged in full — while only `amount − withholdingAmount`
@@ -172,20 +185,24 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   // Only the counterparty side carries the cost centre: the treasury leg is a
   // cash movement, and tagging both would double the spend in the P&L.
   const cc = line.costCenterId ?? null;
+  // بُعد المشروع travels on EVERY line (cash/bank side too); فئة التكلفة only
+  // on the counterparty (expense/income) line — see the field docs above.
+  const projectId = line.projectId ?? null;
+  const costCategory = line.costCategory ?? null;
   if (line.direction === "transfer") {
     const destGl = line.counterTreasuryGlAccountId;
     if (!destGl) throw new Error("transfer voucher missing destination GL account");
     return [
-      { accountId: destGl, debit: amount, credit: zero, memo: null },
-      { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null },
+      { accountId: destGl, debit: amount, credit: zero, memo: null, projectId },
+      { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId },
     ];
   }
   const counter = line.counterpartyGlAccountId;
   if (!counter) throw new Error("voucher missing counterparty GL account");
   if (line.direction === "receipt") {
     return [
-      { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null },
-      { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc, ...fx },
+      { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null, projectId },
+      { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
     ];
   }
   // payment
@@ -194,14 +211,14 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
     const whtAccount = line.withholdingGlAccountId;
     if (!whtAccount) throw new Error("a withholding voucher needs a withholding-tax GL account");
     return [
-      { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, ...fx },
-      { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null },
-      { accountId: whtAccount, debit: zero, credit: withheld, memo: null },
+      { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
+      { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null, projectId },
+      { accountId: whtAccount, debit: zero, credit: withheld, memo: null, projectId },
     ];
   }
   return [
-    { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, ...fx },
-    { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null },
+    { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
+    { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId },
   ];
 }
 
@@ -258,6 +275,13 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
     if (def.requiresSupplier && !line.supplierId) {
       throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مورّد.");
     }
+    const projectId = line.projectId ?? null;
+    if (def.requiresProject && !projectId) {
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مشروع.");
+    }
+    if (line.costCategory && !projectId) {
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "فئة التكلفة تتطلب اختيار مشروع.");
+    }
   },
 
   branchOf(doc) {
@@ -272,7 +296,9 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       sourceDocNumber: doc.docNo,
       date: doc.date,
       memo: doc.memo,
-      lines: buildVoucherLines(line),
+      // بُعد الفرع (DEC-20) on both legs: a branch cash statement that saw the
+      // counterparty leg but not the treasury one would not balance.
+      lines: buildVoucherLines(line).map((l) => ({ ...l, branchId: line.branchId ?? null })),
     };
   },
 

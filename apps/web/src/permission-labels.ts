@@ -71,6 +71,9 @@ const ACTION_KEYS = [
   "recall",
   "manage_own",
   "execute",
+  "prepare",
+  "certify",
+  "release",
 ] as const;
 
 const KNOWN_ACTIONS: ReadonlySet<string> = new Set(ACTION_KEYS);

@@ -130,7 +130,7 @@ export async function run(ctx: Ctx): Promise<void> {
     ctx.checkEq("PR-15 — net = gross (no deductions)", ctx.n(mohamed.netPay), 22000);
 
     const salma = run.payslips.find((p: any) => p.employeeId === "EMP-DEMO-2");
-    ctx.checkEq("PR-19 سلمى فؤاد — the RENEWAL contract (CTR-DEMO-3) is picked: 7,800 + 600 = 8,400 gross, not CTR-DEMO-2's 7,000", ctx.n(salma.grossEarnings), 8400);
+    ctx.checkEq("PR-19 سلمى فؤاد — the RENEWAL contract (ECT-DEMO-3) is picked: 7,800 + 600 = 8,400 gross, not ECT-DEMO-2's 7,000", ctx.n(salma.grossEarnings), 8400);
 
     const hoda = run.payslips.find((p: any) => p.employeeId === "EMP-DEMO-4");
     ctx.checkEq("PR-16 هدى مصطفى — «في إجازة» employee STATUS alone does not reduce pay: net = 8,100.00", ctx.n(hoda.netPay), 8100);
@@ -149,9 +149,9 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   await ctx.scenario("hr / contracts — a lapsed fixed-term contract keeps reporting status ساري (known behavior)", async () => {
-    const c = (await ctx.req("GET", "/hr/contracts/CTR-DEMO-2")).body;
+    const c = (await ctx.req("GET", "/hr/contracts/ECT-DEMO-2")).body;
     ctx.check(
-      "CT-02 — CTR-DEMO-2 ended 2026-01-14 (over 7 months ago) but is still status active, not auto-terminated by the passed date",
+      "CT-02 — ECT-DEMO-2 ended 2026-01-14 (over 7 months ago) but is still status active, not auto-terminated by the passed date",
       c.status === "active" && c.endDate < "2026-08-24",
       `status=${c.status} endDate=${c.endDate}`,
     );
@@ -596,7 +596,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const transport = components.find((c: any) => c.id === "PC-DEMO-TRANSPORT");
     ctx.check("the transport allowance is routed to its own account, not the salary account", transport?.glAccountId === "5121", JSON.stringify(transport));
 
-    const contract = (await ctx.req("GET", "/hr/contracts/CTR-DEMO-1")).body;
+    const contract = (await ctx.req("GET", "/hr/contracts/ECT-DEMO-1")).body;
     ctx.check(
       "every allowance line on the contract binds to a REAL component id, never free text alone",
       contract.allowances.length > 0 && contract.allowances.every((a: any) => typeof a.componentId === "string" && a.componentId.length > 0),

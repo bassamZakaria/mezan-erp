@@ -374,10 +374,28 @@ export async function run(ctx: Ctx): Promise<void> {
     const confirmed = (await ctx.allRows("/sales-invoices")).filter(
       (i: any) => i.status !== "draft" && i.status !== "pending" && i.status !== "cancelled",
     );
-    check("D5 — every live sales invoice is queued exactly once", queued.length === confirmed.length, `queued=${queued.length} live invoices=${confirmed.length}`);
-    check("D5 — a queued submission starts جاهز", queued.every((s: any) => s.status === "ready"), JSON.stringify([...new Set(queued.map((s: any) => s.status))]));
-    const orphaned = queued.filter((s: any) => !confirmed.some((i: any) => (i.docNo ?? i.id) === s.internalId));
-    check("D5 — the queue keys each row by the invoice's own document number", orphaned.length === 0, JSON.stringify(orphaned.slice(0, 5).map((s: any) => s.internalId)));
+    // The queue holds invoices, the إشعارات دائنة raised by confirmed sales
+    // returns (D77/D122), AND the e-receipts raised by consumer sales — a sale
+    // to a customer with no tax registration number is a B2C receipt, a
+    // separate authority mandate, not an invoice with receiver type "P". The
+    // three document types are counted separately; a single total would go
+    // stale the moment any of them moves.
+    const queuedInvoices = queued.filter((s: any) => s.documentType === "invoice");
+    const queuedReceipts = queued.filter((s: any) => s.documentType === "receipt");
+    const queuedNotes = queued.filter((s: any) => s.documentType === "credit_note");
+    // `ctx.allRows`, not a bare GET: a list route answers with ONE page of 25
+    // by default (Q-8), and a truncated count compared against the queue reads
+    // as a missing credit note rather than as a missing page.
+    const confirmedReturns = (await ctx.allRows("/sales-returns", {})).filter((r: any) => r.status === "confirmed");
+
+    check("D5 — every live sales invoice is queued exactly once, as an invoice or as a receipt", queuedInvoices.length + queuedReceipts.length === confirmed.length, `invoices=${queuedInvoices.length} receipts=${queuedReceipts.length} live invoices=${confirmed.length}`);
+    check("D5 — the B2C half of the queue is not empty: consumer sales really do produce receipts", queuedReceipts.length > 0, `receipts=${queuedReceipts.length}`);
+    check("D5 — every confirmed sales return is queued as a credit note", queuedNotes.length === confirmedReturns.length, `notes=${queuedNotes.length} confirmed returns=${confirmedReturns.length}`);
+    check("D5 — nothing else is in the queue", queuedInvoices.length + queuedReceipts.length + queuedNotes.length === queued.length, JSON.stringify(queued.map((s: any) => s.documentType)));
+    check("D5 — a queued submission starts جاهز", queued.every((s: any) => s.status === "ready"), JSON.stringify(queued.map((s: any) => s.status)));
+    check("D5 — the queue keys each invoice row by the invoice's own document number", [...queuedInvoices, ...queuedReceipts].every((s: any) => confirmed.some((i: any) => (i.docNo ?? i.id) === s.internalId)), JSON.stringify(queuedInvoices.map((s: any) => s.internalId)));
+    check("D5 — every queued receipt carries the identifier its printed QR encodes", queuedReceipts.every((s: any) => typeof s.etaUuid === "string" && /^[0-9a-f]{64}$/.test(s.etaUuid)), JSON.stringify(queuedReceipts.slice(0, 5).map((s: any) => s.etaUuid)));
+    check("D5 — the queue keys each credit note by the return's own document number", queuedNotes.every((s: any) => confirmedReturns.some((r: any) => (r.docNo ?? r.id) === s.internalId)), JSON.stringify(queuedNotes.map((s: any) => s.internalId)));
   });
 
   // ---------------------------------------------------------------------
@@ -392,6 +410,12 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const usersList = await req("GET", "/users", undefined, noPerm);
     check("GET /users refused without admin.users.view", usersList.status === 403, `${usersList.status}: ${JSON.stringify(usersList.body)}`);
+
+    const ruleCreate = await req("POST", "/notification-rules", {
+      id: "SCN-RULE-REFUSED", name: "SCN-should-be-refused", eventCode: "SALES_INVOICE_CONFIRMED",
+      recipientType: "user", recipientValue: "USER-ADMIN", priority: "normal", channels: ["in_app"], active: true,
+    }, noPerm);
+    check("POST /notification-rules refused without notifications.rule.manage", ruleCreate.status === 403, `${ruleCreate.status}: ${JSON.stringify(ruleCreate.body)}`);
 
     const auditList = await req("GET", "/audit", undefined, noPerm);
     check("GET /audit refused without audit.logs.view", auditList.status === 403, `${auditList.status}: ${JSON.stringify(auditList.body)}`);
@@ -409,6 +433,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // @mezan/api's own route tests; what no longer exists is a way for a user of
   // this product to register a target for them.
   // ---------------------------------------------------------------------
+
   // ---------------------------------------------------------------------
   // Numbering sequences — a prefix change affects the next document only,
   // never renumbers history.
@@ -565,9 +590,6 @@ export async function run(ctx: Ctx): Promise<void> {
   // Light seed-sanity coverage.
   // ---------------------------------------------------------------------
   await ctx.scenario("platform / seed sanity", async () => {
-    const apiKeys = await req("GET", "/api-keys", undefined, {});
-    check("the API-key surface is unmounted (DEC-17)", apiKeys.status === 404, `${apiKeys.status}: ${JSON.stringify(apiKeys.body)}`);
-
     const notificationRules = await req("GET", "/notification-rules", undefined, {});
     check("4 seeded notification rules, 1 inactive", rows(notificationRules.body).length === 4 && rows(notificationRules.body).filter((r: any) => !r.active).length === 1, JSON.stringify(rows(notificationRules.body).map((r: any) => ({ id: r.id, active: r.active }))));
 

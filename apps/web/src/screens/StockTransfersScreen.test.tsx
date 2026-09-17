@@ -44,8 +44,8 @@ function chooseSelectOption(triggerLabel: string, optionLabel: string) {
 }
 
 const warehouses: WarehouseDTO[] = [
-  { id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
-  { id: "WH-VAN", code: "WH-VAN", name: "مستودع الفان", nameEn: null, branchId: "b1", type: "VAN", isDefault: false, active: true },
+  { id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null },
+  { id: "WH-VAN", code: "WH-VAN", name: "مستودع الفان", nameEn: null, branchId: "b1", type: "VAN", isDefault: false, active: true, projectId: null, custodianUserId: null },
 ];
 
 function item(overrides: Partial<ItemDTO> = {}): ItemDTO {

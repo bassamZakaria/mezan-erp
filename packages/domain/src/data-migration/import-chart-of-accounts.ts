@@ -60,6 +60,9 @@ const NATURAL_BY_TYPE: Readonly<Record<AccountType, NaturalBalance>> = {
   liability: "credit",
   equity: "credit",
   revenue: "credit",
+  // حسابات نظامية — the memorandum pair (9100 debit / 9200 credit) nets to
+  // zero, so an import that names no side follows the template's own header.
+  memorandum: "debit",
 };
 
 const NATURAL_BY_TEXT: Readonly<Record<string, NaturalBalance>> = {

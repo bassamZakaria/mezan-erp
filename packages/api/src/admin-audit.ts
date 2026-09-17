@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { recordSecurityEvent, recordSensitiveEvent, type AuditSeverity, type AuditSink } from "@mezan/domain";
+import { auditBranchFromScope, recordSecurityEvent, recordSensitiveEvent, type AuditSeverity, type AuditSink } from "@mezan/domain";
 import { getAuthContext } from "./permission-gate.js";
 import { requestOrigin } from "./request-origin.js";
 
@@ -24,12 +24,6 @@ export interface AdminAuditEntry {
   readonly action: string;
   readonly severity?: AuditSeverity;
   readonly details?: Readonly<Record<string, unknown>> | null;
-  /**
-   * The branch the act belongs to, for callers that know it. Omitted means
-   * "no branch", which is what the audit viewer's unfiltered view shows and
-   * what every branch filter deliberately excludes.
-   */
-  readonly branchId?: string | null;
 }
 
 export async function recordAdminEvent(
@@ -38,6 +32,7 @@ export async function recordAdminEvent(
   entry: AdminAuditEntry,
 ): Promise<void> {
   if (!audit) return;
+  const ctx = getAuthContext(c);
   await recordSensitiveEvent(audit, {
     module: entry.module,
     entityType: entry.entityType,
@@ -46,8 +41,16 @@ export async function recordAdminEvent(
     // The RESOLVED caller, never a header: the actor on a forensic record has
     // to be the identity the server issued, or the log is writable by whoever
     // it is meant to incriminate.
-    actor: getAuthContext(c)?.userId ?? "system",
-    branchId: entry.branchId ?? null,
+    actor: ctx?.userId ?? "system",
+    /*
+     * WHICH branch the act came from, read off the caller's own scope rather
+     * than anything they send. The webhook routes were the ONLY writer that
+     * ever stamped this, and DEC-17 deleted them — which would have left
+     * `AuditEvent.branchId` and the audit screen's branch filter with no
+     * producer at all, the exact failure shape this field was added to avoid.
+     * An all-branch caller resolves to null and stays visible unfiltered.
+     */
+    branchId: ctx ? auditBranchFromScope(ctx.branchScope) : null,
     severity: entry.severity ?? "WARNING",
     details: withOrigin(c, entry.details),
   });

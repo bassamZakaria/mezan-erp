@@ -248,11 +248,12 @@ describe("what the caller may claim on a return (D102)", () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
-  it("LIMITATION (D102): the caller's own unitCost is still taken verbatim, even with the invoice resolvable", async () => {
+  it("takes the unit cost off the invoice, not off the request (D102)", async () => {
     const app = await appWithInvoices();
 
-    // The invoice cost is 60.00. The caller says 600.00, and the return
-    // restocks at the caller's figure — ten times what the goods actually cost.
+    // The invoice cost is 60.00. The caller says 600.00. Cost decides the COGS
+    // reversal and therefore the margin, so letting the caller state it is
+    // letting them state their own profit.
     const res = await app.fetch(
       req("/", {
         method: "POST",
@@ -267,10 +268,7 @@ describe("what the caller may claim on a return (D102)", () => {
 
     expect(res.status).toBe(201);
     const created = (await res.json()) as { lines: { unitCost: string }[] };
-    expect(created.lines[0]?.unitCost).toBe("600.000000");
-
-    // When D102 is closed the cost should come off the invoice line (60.00)
-    // rather than off the request — that is the expectation to rewrite.
+    expect(created.lines[0]?.unitCost).toBe("60.000000");
   });
 
   it("LIMITATION (D102): with no invoices port wired, the caller's own availableQty IS the limit", async () => {
@@ -322,12 +320,12 @@ describe("who a return credits (D89)", () => {
     });
   }
 
-  it("LIMITATION (D89): the return credits whatever customer the request names, not the invoice's own", async () => {
+  it("refuses a return whose customer is not the invoice's own (D89)", async () => {
     const app = await appWithInvoices();
 
-    // The invoice belongs to CUST1. The request says CUST-ACCOMPLICE, and the
-    // route resolves the returnable quantity by item id alone — it never
-    // compares the customer.
+    // The invoice belongs to CUST1. A return naming CUST-ACCOMPLICE would send
+    // the credit — and any refund raised against it — to an account that never
+    // bought the goods, which is a credit note to a stranger.
     const res = await app.fetch(
       req("/", {
         method: "POST",
@@ -340,14 +338,41 @@ describe("who a return credits (D89)", () => {
       }),
     );
 
-    expect(res.status).toBe(201);
-    const created = (await res.json()) as { lines: { customerId: string }[] };
-    expect(created.lines[0]?.customerId).toBe("CUST-ACCOMPLICE");
-    expect(created.lines[0]?.customerId).not.toBe(sourceInvoice.customerId);
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("RETURN_CUSTOMER_MISMATCH");
+  });
 
-    // The credit — and any refund raised against it — therefore lands on an
-    // account that never bought the goods. When D89 is closed, the customer
-    // must come off the invoice, or a mismatch must be refused.
+  it("refuses an item that is not on the invoice it names", async () => {
+    const app = await appWithInvoices();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-WRONG-ITEM",
+          lines: [{ ...payload.lines[0], itemId: "ITEM-NEVER-SOLD", availableQty: "3", qty: "1" }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("RETURN_ITEM_NOT_ON_INVOICE");
+  });
+
+  it("still accepts a return whose customer DOES match, so the guard is not refusing everything", async () => {
+    const app = await appWithInvoices();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-LEGIT",
+          lines: [{ ...payload.lines[0], customerId: "CUST1", availableQty: "2", qty: "1" }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 
   it("still resolves the QUANTITY from the invoice even when the customer is wrong", async () => {

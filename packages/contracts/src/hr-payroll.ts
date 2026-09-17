@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
+import { isoDateOrInstant } from "./iso-date.js";
 
 /**
  * Wire contracts for HR payroll (docs/archive/catalog/06-crm-hr.md "الرواتب" and
@@ -13,7 +15,7 @@ export const employeeAdvanceStatusSchema = z.enum(["pending", "approved", "disbu
 export const advanceInstallmentSchema = z.object({
   seq: z.number().int().positive(),
   dueDate: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
   recovered: z.string(),
 });
 
@@ -21,7 +23,7 @@ export const employeeAdvanceSchema = z.object({
   id: z.string().min(1),
   number: z.string().min(1),
   employeeId: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string().min(1),
   installmentCount: z.number().int().positive(),
   firstDeductionDate: z.string().min(1),
@@ -43,7 +45,7 @@ export const employeeAdvanceSchema = z.object({
 export const createEmployeeAdvanceSchema = z.object({
   id: z.string().min(1).optional(),
   employeeId: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
   currency: z.string().min(1).optional(),
   installmentCount: z.number().int().positive(),
   firstDeductionDate: z.string().min(1),
@@ -54,7 +56,7 @@ export const createEmployeeAdvanceSchema = z.object({
 export const treasuryDisbursementSchema = z.object({
   treasuryAccountId: z.string().min(1),
   branchId: z.string().min(1),
-  date: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
   referenceNo: z.string().nullable().optional(),
 });
@@ -82,7 +84,7 @@ export const payslipLineSchema = z.object({
   kind: payslipLineKindSchema,
   source: payslipLineSourceSchema,
   nameAr: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
   glAccountId: z.string().nullable(),
   referenceId: z.string().nullable(),
 });
@@ -120,7 +122,7 @@ export const payrollRunSchema = z.object({
   totalGross: z.string(),
   totalDeductions: z.string(),
   totalEmployerContributions: z.string(),
-  totalNet: z.string(),
+  totalNet: moneyString,
   unpaidLeaveSource: z.enum(["none", "provider"]),
   warnings: z.array(z.string()),
   journalEntryId: z.string().nullable(),

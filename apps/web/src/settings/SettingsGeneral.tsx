@@ -366,6 +366,30 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                 />
               </SectionCard>
 
+              <SectionCard title={t("settingsGeneral.contracting")}>
+                <NumberField
+                  label={t("settingsGeneral.cbeCreditDiscountRate")}
+                  value={draft.contractingCbeCreditDiscountRatePercent ?? 0}
+                  min={0}
+                  max={100}
+                  step={0.25}
+                  onChange={(v) => patch({ contractingCbeCreditDiscountRatePercent: v === 0 ? null : v })}
+                  hint={t("settingsGeneral.cbeCreditDiscountRateHint")}
+                />
+                {/*
+                  The backend has always read this setting — it is the only
+                  thing that lets a wildcard admin prepare, certify and approve
+                  the same progress certificate. Until now nothing could set it,
+                  so a one-person contracting firm could never issue one.
+                */}
+                <ToggleField
+                  label={t("settingsGeneral.singleOperatorMode")}
+                  checked={draft.contractingSingleOperatorMode}
+                  onChange={(v) => patch({ contractingSingleOperatorMode: v })}
+                  hint={t("settingsGeneral.singleOperatorModeHint")}
+                />
+              </SectionCard>
+
               <SectionCard title={t("settingsGeneral.treasuryPolicy")}>
                 <ToggleField
                   label={t("settingsGeneral.blockANegativeBalanceOn")}

@@ -57,3 +57,8 @@ coverage/
 
 # Local staging/testing databases (scripts/env.mjs)
 .data/
+
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars.local

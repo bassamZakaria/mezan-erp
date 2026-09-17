@@ -7,6 +7,7 @@ import { SCREEN_MODULES, type RoutableKey } from "./screens";
 import { routePathForScreen } from "../routing";
 import { listLoader } from "./loader";
 import { customerFilterFromUrl, customersQuery } from "../data/list-queries";
+import { PlatformApp } from "../platform/PlatformApp";
 
 /**
  * The route table, derived from the nav tree rather than written out.
@@ -69,6 +70,14 @@ function GatedAppLayout() {
 }
 
 export const routes: RouteObject[] = [
+  /*
+   * The platform console — an operator's door onto every tenant, not a
+   * screen a tenant user can ever reach. It is a SIBLING of the tenant app's
+   * `/` route, mounted first so it never falls through to the tenant
+   * catch-all, and it owns its own session and layout entirely (see
+   * `platform/PlatformApp.tsx`) rather than nesting under `AppLayout`.
+   */
+  { path: "/platform/*", Component: PlatformApp },
   /**
    * PAIRING SITS OUTSIDE THE SHELL, and outside the gate, deliberately: it is
    * the screen you reach BECAUSE there is no session and no reachable host, so

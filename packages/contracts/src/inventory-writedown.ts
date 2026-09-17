@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the Inventory aging-based write-down batch
@@ -13,10 +14,10 @@ export const writedownRunLineSchema = z.object({
   itemId: z.string().min(1),
   warehouseId: z.string().min(1),
   onHandQty: z.string(),
-  unitCost: z.string(),
+  unitCost: moneyString,
   agingDays: z.number().int().nonnegative(),
   writedownRateBps: z.number().int().nonnegative(),
-  amount: z.string(),
+  amount: moneyString,
 });
 
 export const writedownRunSchema = z.object({
@@ -25,7 +26,7 @@ export const writedownRunSchema = z.object({
   warehouseId: z.string().nullable(),
   status: writedownRunStatusSchema,
   lines: z.array(writedownRunLineSchema),
-  totalAmount: z.string(),
+  totalAmount: moneyString,
   journalEntryId: z.string().nullable(),
   createdAt: z.string(),
   postedAt: z.string().nullable(),

@@ -4098,15 +4098,15 @@ different seed profile changed that order.
 
 | Internal id | Code (assumed) | Name | Dept / title | Status | Contract |
 |---|---|---|---|---|---|
-| EMP-DEMO-1 | EMP-0001 | كريم عادل | مبيعات / مشرف مبيعات | نشط | CTR-DEMO-1, غير محدد المدة، 9,000 |
-| EMP-DEMO-2 | EMP-0002 | سلمى فؤاد | مبيعات / مندوب مبيعات | نشط | CTR-DEMO-2 (منتهي، مفسوخ فعلياً بالتاريخ) + CTR-DEMO-3 (الساري)، 7,800 |
-| EMP-DEMO-3 | EMP-0003 | محمد الشهابي | الإدارة العامة / مدير عام | نشط | CTR-DEMO-4، 18,000، إجازة سنوية override 30 يوم |
-| EMP-DEMO-4 | EMP-0004 | هدى مصطفى | الموارد البشرية / أخصائي موارد بشرية | **في إجازة** | CTR-DEMO-5، 7,500 |
-| EMP-DEMO-5 | EMP-0005 | أحمد الشناوي | الحسابات / محاسب | نشط | CTR-DEMO-6، 8,200 |
-| EMP-DEMO-6 | EMP-0006 | مصطفى رزق | الإنتاج / مشرف إنتاج | نشط (تجربة انتهت 2026-04-30) | CTR-DEMO-7 محدد المدة حتى 2027-01-31، 6,800 |
-| EMP-DEMO-7 | EMP-0007 | ياسمين حجازي | المخازن / أمين مخزن | نشط، **تجربة تنتهي 2026-08-31** | CTR-DEMO-8 تجريبي حتى 2026-08-31، 5,600 |
-| EMP-DEMO-8 | EMP-0008 | عمرو الديب | الإنتاج / عامل إنتاج | **موقوف** | CTR-DEMO-9 موسمي، **بالساعة**، حتى 2026-11-09، 4,200 |
-| EMP-DEMO-9 | EMP-0009 | نورهان سليم | مبيعات / مندوب مبيعات | **منتهية خدمته** | CTR-DEMO-10 مفسوخ |
+| EMP-DEMO-1 | EMP-0001 | كريم عادل | مبيعات / مشرف مبيعات | نشط | ECT-DEMO-1, غير محدد المدة، 9,000 |
+| EMP-DEMO-2 | EMP-0002 | سلمى فؤاد | مبيعات / مندوب مبيعات | نشط | ECT-DEMO-2 (منتهي، مفسوخ فعلياً بالتاريخ) + ECT-DEMO-3 (الساري)، 7,800 |
+| EMP-DEMO-3 | EMP-0003 | محمد الشهابي | الإدارة العامة / مدير عام | نشط | ECT-DEMO-4، 18,000، إجازة سنوية override 30 يوم |
+| EMP-DEMO-4 | EMP-0004 | هدى مصطفى | الموارد البشرية / أخصائي موارد بشرية | **في إجازة** | ECT-DEMO-5، 7,500 |
+| EMP-DEMO-5 | EMP-0005 | أحمد الشناوي | الحسابات / محاسب | نشط | ECT-DEMO-6، 8,200 |
+| EMP-DEMO-6 | EMP-0006 | مصطفى رزق | الإنتاج / مشرف إنتاج | نشط (تجربة انتهت 2026-04-30) | ECT-DEMO-7 محدد المدة حتى 2027-01-31، 6,800 |
+| EMP-DEMO-7 | EMP-0007 | ياسمين حجازي | المخازن / أمين مخزن | نشط، **تجربة تنتهي 2026-08-31** | ECT-DEMO-8 تجريبي حتى 2026-08-31، 5,600 |
+| EMP-DEMO-8 | EMP-0008 | عمرو الديب | الإنتاج / عامل إنتاج | **موقوف** | ECT-DEMO-9 موسمي، **بالساعة**، حتى 2026-11-09، 4,200 |
+| EMP-DEMO-9 | EMP-0009 | نورهان سليم | مبيعات / مندوب مبيعات | **منتهية خدمته** | ECT-DEMO-10 مفسوخ |
 
 Payroll runs: June 2026 = **مصروف** (7 موظف، 70,950.00 إجمالي، 1,200.00 استقطاعات،
 69,750.00 صافي). July 2026 = **معتمد** (70,950.00 إجمالي، صافي ≈ 69,282.26 بعد خصم
@@ -4143,8 +4143,8 @@ retry, no forms.
 
 - **HR-02 — Contracts-expiring-soon tile, danger tone, matches the 30-day window.**
   Pre: كما سبق. Steps: انظر بطاقة «عقود تنتهي خلال 30 يوماً». Assert: القيمة = **1**
-  (فقط CTR-DEMO-8 — ينتهي 2026-08-31، بعد 7 أيام؛ CTR-DEMO-2 منتهٍ فعلاً فلا يُحتسب
-  «قريب الانتهاء»، وCTR-DEMO-7/CTR-DEMO-9 بعيدان)؛ لون القيمة **أحمر (danger)** لأن
+  (فقط ECT-DEMO-8 — ينتهي 2026-08-31، بعد 7 أيام؛ ECT-DEMO-2 منتهٍ فعلاً فلا يُحتسب
+  «قريب الانتهاء»، وECT-DEMO-7/ECT-DEMO-9 بعيدان)؛ لون القيمة **أحمر (danger)** لأن
   العدد > 0.
 
 - **HR-03 — Probation-ending-soon tile, danger tone.**
@@ -4298,7 +4298,7 @@ combined detail/action side panel (no tabs — see EM-24).
   حالة «نشط»؛ بطاقة 2×3 تعرض القسم «الإدارة العامة»، المسمى «مدير عام»، الفرع، تاريخ
   التعيين «2023-01-02»، فئة العامل، احتساب العمل الإضافي؛ قسم معلومات شخصية (تاريخ
   الميلاد، الجنس، الحالة الاجتماعية، نوع التوظيف، نهاية فترة التجربة «—»، سنوات
-  الخدمة السابقة «11»)؛ قسم العقود يعرض CTR-DEMO-4 برقمه وراتبه 18,000.00 ج.م.
+  الخدمة السابقة «11»)؛ قسم العقود يعرض ECT-DEMO-4 برقمه وراتبه 18,000.00 ج.م.
 
 - **EM-26 — Contracts sub-list empty state.** Pre: افتح موظفاً بلا عقود (لا يوجد في
   البذرة — استخدم موظفاً جديداً تم إنشاؤه في EM-14 قبل ربط عقد). Assert: نص «لا توجد
@@ -4447,26 +4447,26 @@ match the Arabic name (unlike Departments).
 contract's own fields.
 
 - **CT-01 — List load, 10 rows.** Steps: افتح «العقود». Assert: 10 صفوف تشمل
-  CTR-DEMO-1..10؛ عمود «الراتب الأساسي» يعرض `MoneyDisplay` (مثال: كريم 9,000.00
+  ECT-DEMO-1..10؛ عمود «الراتب الأساسي» يعرض `MoneyDisplay` (مثال: كريم 9,000.00
   ج.م، محمد 18,000.00 ج.م).
 
-- **CT-02 — Lapsed contract still shows «ساري».** Pre: CTR-DEMO-2 (سلمى، محدد المدة،
-  انتهى 2026-01-14) لم يُفسخ يدوياً قط. Steps: ابحث عن CTR-DEMO-2 في القائمة. Assert:
+- **CT-02 — Lapsed contract still shows «ساري».** Pre: ECT-DEMO-2 (سلمى، محدد المدة،
+  انتهى 2026-01-14) لم يُفسخ يدوياً قط. Steps: ابحث عن ECT-DEMO-2 في القائمة. Assert:
   شارة الحالة تقرأ **«ساري»** رغم أن تاريخ الانتهاء 2026-01-14 مضى منذ أكثر من 7
   أشهر — الحالة لا تنقلب تلقائياً بمرور تاريخ الانتهاء، فقط عبر «إنهاء العقد» اليدوي.
   هذا يفسّر لماذا لا يظهر ضمن أي عدّاد «قريبة الانتهاء» (تلك مشتقة من تاريخ + حالة
   نشطة، وحالته لا تزال نشطة لكن تاريخه فات نافذة الـ30 يوماً أصلاً).
 
 - **CT-03 — Renewal contract picked automatically by payroll, not by this screen.**
-  Pre: CTR-DEMO-2 (سلمى، لاحق) وCTR-DEMO-3 (لاحقتها) كلاهما ظاهر كصفّين مستقلّين.
+  Pre: ECT-DEMO-2 (سلمى، لاحق) وECT-DEMO-3 (لاحقتها) كلاهما ظاهر كصفّين مستقلّين.
   Assert: هذه الشاشة لا تُظهر أي ربط مرئي بين العقدين (لا "تجديد لـ")؛ فقط عند حساب
-  الرواتب (PR-04) يُختار CTR-DEMO-3 تلقائياً لأن تاريخه أحدث ويغطي الفترة.
+  الرواتب (PR-04) يُختار ECT-DEMO-3 تلقائياً لأن تاريخه أحدث ويغطي الفترة.
 
 - **CT-04 — Search matches contract number or employee name.** Steps: اكتب «CTR-
   DEMO-4» ثم امسح واكتب «الشهابي». Assert: كلا البحثين يُرجع صف محمد الشهابي.
 
-- **CT-05 — Status chips «الكل/ساري/مفسوخ».** Assert: «مفسوخ» = 1 فقط (CTR-DEMO-10،
-  نورهان) رغم أن CTR-DEMO-2 منتهي التاريخ فعلياً — يبقى محسوباً ضمن «ساري» (CT-02).
+- **CT-05 — Status chips «الكل/ساري/مفسوخ».** Assert: «مفسوخ» = 1 فقط (ECT-DEMO-10،
+  نورهان) رغم أن ECT-DEMO-2 منتهي التاريخ فعلياً — يبقى محسوباً ضمن «ساري» (CT-02).
 
 - **CT-06 `[NOT IMPLEMENTED]` — «قريبة الانتهاء» stat/filter on this screen.**
   Assert: لا توجد بطاقة إحصاء ولا شريحة فلترة باسم «قريبة الانتهاء» على شاشة العقود
@@ -4504,27 +4504,27 @@ contract's own fields.
   عملاء المبيعات.
 
 - **CT-14 — Leave-entitlement overrides, optional, employee-level example.**
-  Pre: CTR-DEMO-4 (محمد) يحمل `annualLeaveDays: 30` override. Steps: افتح تفاصيل
-  CTR-DEMO-4. Assert: قسم «استحقاق الإجازات» يعرض «السنوية: 30»، «المرضية: —»،
+  Pre: ECT-DEMO-4 (محمد) يحمل `annualLeaveDays: 30` override. Steps: افتح تفاصيل
+  ECT-DEMO-4. Assert: قسم «استحقاق الإجازات» يعرض «السنوية: 30»، «المرضية: —»،
   «الشخصية: —» — الحقول غير المحدَّدة تُعرض شرطة، لا صفر.
 
-- **CT-15 — Allowances / deductions detail lists.** Steps: افتح تفاصيل CTR-DEMO-1
+- **CT-15 — Allowances / deductions detail lists.** Steps: افتح تفاصيل ECT-DEMO-1
   (كريم). Assert: قسم «البدلات» يعرض «بدل انتقال 800.00» و«بدل هاتف 200.00»؛ قسم
   «الاستقطاعات» يعرض «اشتراك صندوق الزمالة 100.00».
 
-- **CT-16 — Empty allowances/deductions state.** Steps: افتح تفاصيل CTR-DEMO-2
+- **CT-16 — Empty allowances/deductions state.** Steps: افتح تفاصيل ECT-DEMO-2
   (بدون استقطاعات). Assert: قسم الاستقطاعات يعرض «لا توجد خصومات».
 
-- **CT-17 — Terminate contract, active only, no confirmation.** Pre: CTR-DEMO-1
+- **CT-17 — Terminate contract, active only, no confirmation.** Pre: ECT-DEMO-1
   (ساري). Steps: افتح تفاصيله، اضغط «إنهاء العقد». Assert: الزر ظاهر فقط لأن الحالة
   «active»؛ الطلب يُرسل فوراً بلا حوار تأكيد؛ الحالة تتحول إلى «مفسوخ» وزر «إنهاء
   العقد» يختفي بعدها.
 
-- **CT-18 — Terminated contract has no terminate button.** Pre: CTR-DEMO-10 (مفسوخ).
+- **CT-18 — Terminated contract has no terminate button.** Pre: ECT-DEMO-10 (مفسوخ).
   Assert: لا زر «إنهاء العقد» ظاهر في لوحته.
 
 - **CT-19 — Hourly contract flagged for exclusion (context for PR-08).** Pre:
-  CTR-DEMO-9 (عمرو، بالساعة). Steps: افتح تفاصيله. Assert: «أساس الدفع» يعرض
+  ECT-DEMO-9 (عمرو، بالساعة). Steps: افتح تفاصيله. Assert: «أساس الدفع» يعرض
   «بالساعة»؛ هذه الشاشة نفسها لا تحذّر من أي استبعاد من الرواتب — التحذير يظهر فقط
   داخل شاشة الرواتب عند الحساب (PR-08).
 
@@ -4796,8 +4796,8 @@ end-of-service gratuity.
 
 - **PR-19 — سلمى فؤاد: the renewal contract's allowance is picked, not the lapsed
   one's.** Steps: افتح كشفها ضمن أي دورة. Assert: الراتب الأساسي 7,800.00 (من
-  CTR-DEMO-3) + بدل انتقال 600.00 (من CTR-DEMO-3 أيضاً) = 8,400.00 — وليس 6,500 +
-  500 من CTR-DEMO-2 المنتهي.
+  ECT-DEMO-3) + بدل انتقال 600.00 (من ECT-DEMO-3 أيضاً) = 8,400.00 — وليس 6,500 +
+  500 من ECT-DEMO-2 المنتهي.
 
 - **PR-20 — Proration rule (no seeded example in these 3 runs — assert the rule
   directly).** Assert (من الكود، `calculate-payroll-run.ts`): موظف يبدأ عقده أو
@@ -8330,7 +8330,150 @@ severe finding in this pass and is not yet tracked as D1–D6. Everything else
 above is either a smaller UI gap or a fixture-data defect in
 `test-fixtures/data-migration/`, not a product defect.
 
+### 20 — SaaS platform console (`/platform`) and multi-tenant login
+
+Sources: `docs/superpowers/specs/2026-09-14-saas-completion-design.md` §1-3,
+`docs/superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Code:
+`apps/web/src/platform/*` (`PlatformApp`, `PlatformLogin`, `TenantsPage`,
+`NewTenantDialog`, `TenantDetailPage`, `RecordPaymentDialog`, `PlansPage`),
+`apps/web/src/login/LoginScreen.tsx` (the company-code field),
+`apps/server/src/{cloud-app,tenant-router,tenant-resolver,provision-tenant,
+tenant-entitlements}.ts`, `packages/api/src/module-gate.ts`,
+`packages/domain/src/platform/derive.ts`.
+
+This is a different "platform" than the rest of this section: sections 1-19
+above audit each tenant's own الإعدادات screens, while this one is the
+operator-facing console that creates and manages tenants. Unlike the rest of
+this SPA (see "How this build's navigation actually works" at the top of this
+section), `/platform` DOES have real URL routing (`react-router`,
+`PlatformApp.tsx`) — it is a second app, mounted before the tenant app, with
+its own session in `localStorage` (`mezan.platform.session`), entirely apart
+from a tenant user's session.
+
+These eight scenarios are new with slice C's deploy and proof work and have
+not yet had their first browser pass — see the C5 task in
+`docs/superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Run them on
+`pnpm env:testing:fresh` (which seeds the platform owner and the `demo`
+tenant automatically, `scripts/env.mjs`) and tick each with the date once it
+passes, filing any deviation exactly like the rest of this document.
+
+- **PLT-SAAS-01** — Platform owner signs in.
+  **Pre**: `pnpm env:testing:fresh` running. `scripts/env.mjs` seeds the
+  platform owner from `MEZAN_PLATFORM_OWNER_EMAIL`/`_PASSWORD` =
+  `owner@mezan.local` / `owner-password-123`. Open `/platform/login`.
+  **Steps**: Enter the owner email and password, click "دخول".
+  **Assert**: Redirects into the console at `/platform/tenants`; the sidebar
+  shows المنشآت / الباقات / المشغّلون and "تسجيل الخروج" (`platform.nav.*`);
+  the list shows only the seeded demo tenant `demo` (`MEZAN_SEED_DEMO=1`).
+
+- **PLT-SAAS-02** — Create tenant `cyag` on the business plan with a trial.
+  **Pre**: Signed in as the platform owner from PLT-SAAS-01.
+  **Steps**: Click "منشأة جديدة"; fill الكود = `cyag`, الاسم بالعربية =
+  "شركة سياج", اسم مالك الحساب, البريد الإلكتروني لمالك الحساب; set الباقة =
+  الأعمال (business); leave فترة تجريبية on; click "إنشاء المنشأة".
+  **Assert**: A result panel shows the tenant code, the admin email and a
+  one-time PIN (`ProvisionResultDTO.adminPin`) with a warning that it will
+  never be shown again — copy it down for PLT-SAAS-03. Closing the panel
+  returns to the list; `cyag` now appears with status "نشطة" and licence
+  "تجريبي" (`platform.subscriptionStatus.trialing`).
+
+- **PLT-SAAS-03** — Tenant owner signs in with the company code and the
+  one-time PIN.
+  **Pre**: Sign out of `/platform` (a separate session from the tenant app);
+  open the ordinary login screen.
+  **Steps**: In رمز المنشأة enter `cyag`, wait for the tenant name to resolve;
+  enter the admin email from PLT-SAAS-02 and the PIN it returned.
+  **Assert**: Signs in to `cyag`'s own dashboard — a company with none of the
+  `demo` tenant's seed data (fresh, empty lists everywhere). The company code
+  persists in `localStorage` (`login.tenantCode`) across a reload.
+
+- **PLT-SAAS-04** — Business-plan entitlements: HR is licensed nowhere in the
+  API, but not yet hidden from the nav.
+  **Pre**: Signed in as `cyag`'s owner (PLT-SAAS-03). `cyag`'s plan
+  (`BUSINESS_MODULES`, `packages/backend/src/create-platform.ts`) excludes
+  `hr` and `manufacturing`.
+  **Steps**: Call `GET /api/hr/employees` (or any `/hr/*` route) with header
+  `x-mezan-tenant: cyag` and the session token — from the browser's network
+  panel, or a direct fetch.
+  **Assert**: 403 `{"error":"MODULE_NOT_LICENSED","module":"hr","message":
+  "وحدة الموارد البشرية غير مفعّلة في باقتكم"}` (`packages/api/src/
+  module-gate.ts`'s `moduleRefusal`). **Note, verified by reading the code**:
+  the sidebar itself does NOT filter by `GET /entitlements`'s modules list —
+  `AppLayout.tsx` fetches `entitlements` but never uses it to hide a nav
+  group, so الموارد البشرية still shows for a business-plan tenant and only
+  403s once clicked. If reproduced live, record this nav-vs-API mismatch as a
+  new defect rather than assuming the spec's "nav shows only business
+  modules" already holds client-side.
+
+- **PLT-SAAS-05** — Operator records a payment; the subscription period
+  advances.
+  **Pre**: Signed back in to `/platform` as the owner; open `cyag`'s tenant
+  detail page, note the current نهاية الفترة date.
+  **Steps**: Click "تسجيل دفعة"; fill المبلغ (> 0) and المرجع, leave تاريخ
+  الدفع = today; click "تسجيل الدفعة".
+  **Assert**: Panel closes; the payment appears in the الدفعات table; نهاية
+  الفترة advances by one billing period from the payment
+  (`recordPayment` → `renewSubscription`, `packages/domain/src/platform/
+  subscription.ts`); حالة الاشتراك reads "نشط" (no longer "تجريبي" once a
+  real payment lands).
+
+- **PLT-SAAS-06** — Operator suspends `cyag`; writes refuse in Arabic, reads
+  still work.
+  **Pre**: `cyag` active, from PLT-SAAS-05.
+  **Steps**: On `cyag`'s tenant detail page, click "إيقاف المنشأة". Then, as
+  `cyag`'s owner (company code `cyag`), sign in and try to save any document
+  (e.g. confirm a new sales invoice).
+  **Assert**: Tenant status flips to "موقوفة"; the owner can still sign in
+  and the tenant's lists still load — the tenant router still dispatches a
+  suspended tenant (`apps/server/src/tenant-router.ts`, §1.2 of the spec); the
+  write is refused with 403 `LICENSE_READ_ONLY` and the Arabic message
+  "الترخيص غير فعّال حاليًا، والبرنامج في وضع القراءة فقط…"
+  (`packages/api/src/license-gate.ts`; `derive.ts`'s reason is
+  `TENANT_SUSPENDED`). Resume it afterwards ("استئناف المنشأة") to avoid
+  polluting later scenarios.
+
+- **PLT-SAAS-07** — A second tenant never sees the first tenant's data.
+  **Pre**: Signed in as the platform owner.
+  **Steps**: Create a second tenant, code `nile` (any plan, no trial needed).
+  Sign in as `nile`'s owner with its own one-time PIN; open العملاء.
+  **Assert**: Zero customers — none of `cyag`'s or `demo`'s seeded/created
+  customers appear; `nile`'s SQLite file is a distinct
+  `<platform dir>/tenants/nile.db` from `cyag`'s and `demo`'s
+  (`apps/server/src/backend-cache.ts` opens one handle per code).
+
+- **PLT-SAAS-08** — Subdomain mode: a hosts-file tenant logs in with no
+  company-code field.
+  **Pre**: Add `127.0.0.1 cyag.mezan.test` to `/etc/hosts`. Start a second
+  instance on another port with `MEZAN_TENANT_DOMAIN=mezan.test` set and its
+  OWN platform dir (one process per data directory, always), e.g.
+  `MEZAN_TENANT_DOMAIN=mezan.test PORT=4103 MEZAN_PLATFORM_DIR=.data/subdomain-platform
+  MEZAN_SEED_DEMO=1 pnpm exec tsx apps/server/src/cloud.ts`, and use the seeded
+  `demo` tenant. Chrome resolves `*.localhost` to loopback without a hosts entry,
+  so `MEZAN_TENANT_DOMAIN=localhost` and `http://demo.localhost:4103` also work.
+  **Steps**: Open `http://cyag.mezan.test:4103`.
+  **Assert**: `GET /platform/resolve` answers
+  `{"mode":"subdomain","tenant":{"code":"cyag",...}}`; the login screen
+  renders with NO رمز المنشأة field at all (`LoginScreen.tsx`'s
+  `tenantMode === "subdomain"` branch hides it); signing in with the admin
+  email and PIN reaches `cyag` directly, the same as PLT-SAAS-03 but without
+  typing the code.
+
 ---
+
+### Run record — 2026-09-14, `pnpm env:testing:fresh` on :4101, Chrome
+
+| ID | Result | Notes |
+|---|---|---|
+| PLT-SAAS-01 | pass, one defect | Owner signed in; the console stayed on `/platform/login` with an empty pane and the rail links were relative (`/platform/login/tenants`). Fixed the same day (console lands on tenants, absolute rail links). |
+| PLT-SAAS-02 | pass | `cyag` created on business with a trial; `POST /api/platform/tenants` 201; PIN shown once with a copy button; the list refreshed with the new row. |
+| PLT-SAAS-03 | pass | Code field, email and PIN; auto-submit on the sixth digit; landed on the dashboard as أحمد سياج. |
+| PLT-SAAS-04 | pass at the API, two defects in the UI | `GET /api/hr/dashboard` answered 403 `MODULE_NOT_LICENSED`. The rail still listed «الأشخاص» and «التصنيع», and the screen showed a generic load error instead of the Arabic refusal. Both fixed the same day. |
+| PLT-SAAS-05 | pass | Payment INSTAPAY-1001 of 980.00 recorded (201); period end moved 14/10/2026 → 14/11/2026; entitlements expiry followed. |
+| PLT-SAAS-06 | pass | Suspend from the console; the tenant app raised the read-only banner within the 60-second poll; `POST /api/customers` 403 with the Arabic read-only message inline; every read 200. Resume restored it. |
+| PLT-SAAS-07 | pass | Same server, same session tab: `cyag` listed no customers, then switching the code to `demo` listed 27. |
+| PLT-SAAS-08 | pass at the API | Second instance with `MEZAN_TENANT_DOMAIN=localhost` on :4103: `/api/platform/resolve` with host `demo.localhost` → subdomain mode and tenant `demo`; `POST /api/auth/login` with that host and no header succeeded and `GET /api/customers` returned 27 rows; without the host the same login answered 400 `TENANT_REQUIRED`. The code-field-hidden branch is covered by `LoginScreen.test.tsx`; the Chrome extension refuses `*.localhost` navigation, so the screen itself was not driven. |
+
+Found by the final code review the same day and fixed: cached tenant answers and the remembered-users list survived a sign-out and a code switch (cross-tenant leak in one browser); the CloudFront origin secret was never set; a failed provisioning could not be retried from the console.
 
 # 12. Shell, dashboard and reports
 

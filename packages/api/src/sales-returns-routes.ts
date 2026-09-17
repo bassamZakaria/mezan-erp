@@ -3,6 +3,7 @@ import {
   Money,
   Qty,
   assertRefundable,
+  can,
   buildSalesReturnLinesFromInvoice,
   isAwaitingRefund,
   refundDue,
@@ -21,8 +22,9 @@ import {
   createSalesReturnSchema,
   refundSalesReturnSchema,
 } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { tenantDay } from "./tenant-day.js";
 
 function serializeLine(l: SalesReturnLine) {
   return {
@@ -38,6 +40,7 @@ function serializeLine(l: SalesReturnLine) {
     unitCost: l.unitCost.toString(),
     taxAmount: l.taxAmount.toString(),
     taxRatePercent: l.taxRatePercent ?? null,
+    projectId: l.projectId ?? null,
   };
 }
 
@@ -93,6 +96,29 @@ export function createSalesReturnsRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
+
+  /*
+   * D70 — the `sales.return.view_own` tier, enforced.
+   *
+   * SALES_REP and VAN_SALES are seeded with `sales.return.view_own` and the
+   * list gated on `sales.return.view` alone, so the rep was refused their OWN
+   * returns with a 403 rather than being narrowed to them — the screen had no
+   * fallback, because counts and stats refused too.
+   *
+   * A return document records no author (`FrameworkDocument` has no creator
+   * field), so "own" cannot be evaluated by who raised it. The narrowing that
+   * IS available is the warehouse scope the session already carries — a return
+   * puts goods back into a warehouse, and a van rep is scoped to their van —
+   * which is the same answer `sales-quotes-routes.ts` reached for a quote. A
+   * `view_own` caller carrying the all-warehouse sentinel is shown NOTHING
+   * rather than the whole tenant: widening a gate without a narrowing key is a
+   * leak.
+   */
+  const ownVisibilityOnly = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? !can(ctx, "sales.return.view") : false;
+  };
 
   async function refundsOf(id: string): Promise<readonly SalesReturnRefund[]> {
     return refunds ? refunds.list(id) : [];
@@ -110,6 +136,63 @@ export function createSalesReturnsRoutes(
     const line = invoice?.lines.find((il) => il.itemId === itemId);
     if (!line) return Qty.zero();
     return line.qty.subtract(line.alreadyReturnedQty);
+  }
+
+  /**
+   * Every figure a caller stated on a `POST /` line, checked against the
+   * invoice it names (D89, D102).
+   *
+   * The `/from-invoice` route reads price, cost, tax and returnable quantity
+   * off the invoice and cannot be lied to. `POST /` lets the caller state them
+   * all — including `customerId`, which nothing validated, so a confirmed
+   * return's refund could be directed at ANY customer while the goods came
+   * back against someone else's invoice. That is a credit note to a stranger,
+   * and it needed no permission beyond the one that raises an ordinary return.
+   *
+   * Returns an Arabic refusal, or null when the line is consistent. A line
+   * whose invoice cannot be resolved is left alone: editions that mount
+   * returns without an invoices module have no invoice to check against, and
+   * refusing there would break them rather than protect them.
+   */
+  async function refuseInconsistentLine(
+    line: { sourceInvoiceId: string; customerId: string; itemId: string; unitCost?: string },
+  ): Promise<{ error: string; message: string } | null> {
+    if (!invoices) return null;
+    const invoice = await invoices.findConfirmedInvoice(line.sourceInvoiceId);
+    if (!invoice) {
+      return {
+        error: "SOURCE_INVOICE_NOT_FOUND",
+        message: "الفاتورة المصدر غير موجودة أو غير مؤكدة.",
+      };
+    }
+    if (invoice.customerId !== line.customerId) {
+      return {
+        error: "RETURN_CUSTOMER_MISMATCH",
+        message: "عميل المرتجع لا يطابق عميل الفاتورة المصدر.",
+      };
+    }
+    if (!invoice.lines.some((il) => il.itemId === line.itemId)) {
+      return {
+        error: "RETURN_ITEM_NOT_ON_INVOICE",
+        message: "الصنف غير موجود في الفاتورة المصدر.",
+      };
+    }
+    return null;
+  }
+
+  /**
+   * The unit cost the INVOICE recorded, not the one the caller sent (D102).
+   *
+   * Cost decides the COGS reversal and therefore the margin; letting the
+   * caller state it is letting them state their own profit. `/from-invoice`
+   * always derived it, and this makes `POST /` derive it too wherever the
+   * invoice is resolvable, so the two routes cannot disagree.
+   */
+  async function resolveUnitCost(sourceInvoiceId: string, itemId: string, claimed: string): Promise<Money> {
+    if (!invoices) return Money.fromMajor(claimed);
+    const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
+    const line = invoice?.lines.find((il) => il.itemId === itemId);
+    return line ? line.unitCost : Money.fromMajor(claimed);
   }
 
   interface SalesReturnListFilter {
@@ -160,6 +243,7 @@ export function createSalesReturnsRoutes(
     // scope when any of its lines is — the same rule the stock-document
     // routes already apply.
     const scope = warehouseScopeOf(c);
+    if (!scope && ownVisibilityOnly(c)) return { rows: [], refunds: new Map() };
     let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
     if (filter.customerId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.customerId === filter.customerId));
@@ -185,7 +269,7 @@ export function createSalesReturnsRoutes(
     return { rows, refunds };
   }
 
-  app.get("/", gate("sales.return.view"), async (c) => {
+  app.get("/", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const { rows, refunds } = await listFilteredReturns(c, parseListQuery(c));
     return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [])));
   });
@@ -196,7 +280,7 @@ export function createSalesReturnsRoutes(
    * many rows it WOULD show; counting the already-filtered set renders every
    * chip but the active one as zero. Every other filter still applies.
    */
-  app.get("/counts", gate("sales.return.view"), async (c) => {
+  app.get("/counts", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const { status: _status, awaitingRefund: _awaiting, ...withoutStatus } = parseListQuery(c);
     const { rows, refunds } = await listFilteredReturns(c, withoutStatus);
     const counts: Record<string, number> = {
@@ -220,7 +304,7 @@ export function createSalesReturnsRoutes(
    * confirmed return has taken anything off the customer's receivable, so a
    * draft's value is not returned money.
    */
-  app.get("/stats", gate("sales.return.view"), async (c) => {
+  app.get("/stats", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const { rows, refunds } = await listFilteredReturns(c, parseListQuery(c));
     let confirmed = 0;
     let awaitingRefund = 0;
@@ -250,9 +334,17 @@ export function createSalesReturnsRoutes(
     });
   });
 
-  app.get("/:id", gate("sales.return.view"), async (c) => {
+  app.get("/:id", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
     if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
+    // A `view_own` holder gets 404, not 403: whether a return they may not see
+    // exists at all is itself information, and the list already hides it.
+    if (ownVisibilityOnly(c)) {
+      const scope = warehouseScopeOf(c);
+      if (!scope || !doc.lines.some((line) => scope.includes(line.warehouseId))) {
+        return c.json({ error: "NOT_FOUND" }, 404);
+      }
+    }
     return c.json(serialize(doc, await refundsOf(doc.id)));
   });
 
@@ -261,10 +353,14 @@ export function createSalesReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    for (const line of parsed.data.lines) {
+      const refusal = await refuseInconsistentLine(line);
+      if (refusal) return c.json(refusal, 422);
+    }
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
         lines: await Promise.all(parsed.data.lines.map(async (l) => ({
           itemId: l.itemId,
@@ -276,9 +372,10 @@ export function createSalesReturnsRoutes(
           availableQty: await resolveAvailableQty(l.sourceInvoiceId, l.itemId, l.availableQty),
           qty: Qty.fromMajor(l.qty),
           unitPrice: Money.fromMajor(l.unitPrice),
-          unitCost: Money.fromMajor(l.unitCost),
+          unitCost: await resolveUnitCost(l.sourceInvoiceId, l.itemId, l.unitCost),
           taxAmount: Money.fromMajor(l.taxAmount),
           taxRatePercent: l.taxRatePercent ?? null,
+          projectId: l.projectId ?? null,
         }))),
       });
       return c.json(serialize(doc), 201);
@@ -318,7 +415,7 @@ export function createSalesReturnsRoutes(
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
-        date: parsed.data.date,
+        date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
         lines,
       });
@@ -383,7 +480,7 @@ export function createSalesReturnsRoutes(
         amount,
         treasuryAccountId: parsed.data.treasuryAccountId,
         paymentMethod: parsed.data.paymentMethod ?? "cash",
-        date: parsed.data.date ?? doc.date,
+        date: (await tenantDay(c, parsed.data.date)) ?? doc.date,
         memo: parsed.data.notes ?? `استرداد على المرتجع ${doc.docNo ?? doc.id}`,
         referenceNo: parsed.data.referenceNo ?? null,
         actor: callerUserId(c),

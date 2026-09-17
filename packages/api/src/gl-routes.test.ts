@@ -1196,3 +1196,59 @@ describe("gl-routes — the journal register is a page (guards Q-8)", () => {
     expect(new Set(ids).size).toBe(60);
   });
 });
+
+describe("gl-routes — an instant on the wire lands on the tenant's calendar day", () => {
+  /**
+   * The engine keeps refusing instants (`assertEntryDate`), because a stored
+   * instant sorts after the day it belongs to and falls outside its own fiscal
+   * period. Clients still send them, so the ROUTE narrows one to the tenant's
+   * day first. With no app-level middleware the default tenant is Cairo.
+   */
+  async function post(date: string) {
+    const { app, ledger } = await newApp();
+    const res = await app.fetch(
+      req("/journal-entries", {
+        method: "POST",
+        permissions: "accounting.journal.post",
+        body: JSON.stringify({ ...balanced, id: `je-${date}`, date }),
+      }),
+    );
+    return { res, body: (await res.json()) as any, ledger };
+  }
+
+  it("posts an instant on the last day of a 31-day month — the day the old defect refused", async () => {
+    const { res, body } = await post("2026-08-31T03:10:33.016Z");
+    expect(res.status).toBe(201);
+    expect(body.date).toBe("2026-08-31");
+    expect(body.status).toBe("posted");
+  });
+
+  it("stores the day, never the instant, so a date-range report still finds it", async () => {
+    const { res, body } = await post("2026-08-22T10:00:00.000Z");
+    expect(res.status).toBe(201);
+    expect(body.date).toBe("2026-08-22");
+    expect(body.date <= "2026-08-31").toBe(true);
+  });
+
+  it("rolls an instant that is ALREADY TOMORROW in Cairo onto the next day", async () => {
+    // 23:59:59Z on the 30th of November is the 1st of December in Egypt. The
+    // honest answer is the 1st; pretending otherwise would be a UTC tenant.
+    const { res, body } = await post("2026-11-30T23:59:59.999Z");
+    expect(res.status).toBe(201);
+    expect(body.date).toBe("2026-12-01");
+  });
+
+  it("leaves a day-shaped date exactly as sent", async () => {
+    const { res, body } = await post("2026-08-15");
+    expect(res.status).toBe(201);
+    expect(body.date).toBe("2026-08-15");
+  });
+
+  it("400s a date that is neither a day nor an instant, before the engine sees it", async () => {
+    for (const date of ["31/08/2026", "2026-8-3", "2026-02-30", "today"]) {
+      const { res, body } = await post(date);
+      expect(res.status, date).toBe(400);
+      expect(body.error).toBe("VALIDATION_ERROR");
+    }
+  });
+});

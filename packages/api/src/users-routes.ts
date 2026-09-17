@@ -310,6 +310,25 @@ export function createUsersRoutes(
     return null;
   }
 
+  /**
+   * Refuses a write that would push the tenant's ACTIVE user count past its
+   * plan's seat count — create, and reactivation via `/activate` or a `PUT`
+   * that flips `status` from `inactive` to `active`. Null when there is
+   * nothing to refuse (no bound entitlements, or seats still have room).
+   */
+  async function refuseIfOverSeatCap(c: Context) {
+    const entitlements = c.get("entitlements");
+    if (!entitlements) return null;
+    const activeCount = (await uow.users.list()).filter((u) => u.status === "active").length;
+    if (activeCount >= entitlements.seats) {
+      return c.json(
+        { error: "SEAT_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للمستخدمين في باقتكم" },
+        409,
+      );
+    }
+    return null;
+  }
+
   /** Refuses any write against an account that already outranks the caller. */
   async function refuseIfTargetOutranks(c: Context, targetId: string) {
     const ctx = getAuthContext(c);
@@ -340,6 +359,8 @@ export function createUsersRoutes(
     }
     const escalation = await refuseIfEscalating(c, parsed.data, null);
     if (escalation) return escalation;
+    const overCap = await refuseIfOverSeatCap(c);
+    if (overCap) return overCap;
     try {
       const user = await saveUser(
         { id: crypto.randomUUID(), ...parsed.data, createdAt: new Date().toISOString() },
@@ -369,6 +390,13 @@ export function createUsersRoutes(
     if (outranked) return outranked;
     const escalation = await refuseIfEscalating(c, parsed.data, id);
     if (escalation) return escalation;
+    // Reactivation is a seat grant like any other: a PUT that flips a
+    // deactivated account back to `active` must stop at the same cap
+    // `POST /` and `/activate` do, or the cap is only a suggestion.
+    if (before.status === "inactive" && parsed.data.status === "active") {
+      const overCap = await refuseIfOverSeatCap(c);
+      if (overCap) return overCap;
+    }
     const change = credentialChange(parsed.data);
     try {
       // ONE transaction around read-check-write. Without it two concurrent
@@ -428,10 +456,16 @@ export function createUsersRoutes(
   });
 
   app.post("/:id/activate", gate("admin.users.edit"), async (c) => {
-    const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
+    const id = c.req.param("id");
+    const outranked = await refuseIfTargetOutranks(c, id);
     if (outranked) return outranked;
+    const target = await uow.users.findById(id);
+    if (target?.status === "inactive") {
+      const overCap = await refuseIfOverSeatCap(c);
+      if (overCap) return overCap;
+    }
     try {
-      const user = await setUserStatus(c.req.param("id"), "active", uow);
+      const user = await setUserStatus(id, "active", uow);
       await auditUser(c, user, "ACTIVATE");
       return c.json(serializeUser(user));
     } catch (err) {

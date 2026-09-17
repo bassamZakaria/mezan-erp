@@ -1,3 +1,4 @@
+import type { CostCategory } from "../contracting/cost-category.js";
 /**
  * التخلص من أصل — Asset disposal (docs/archive/catalog/07 §الأصول الثابتة).
  *
@@ -33,6 +34,8 @@ export interface DisposeAssetPostingLine {
   readonly accountId: string;
   readonly debit: Money;
   readonly credit: Money;
+  readonly projectId?: string | null;
+  readonly costCategory?: CostCategory | null;
 }
 
 export interface DisposeAssetPosting {
@@ -127,18 +130,19 @@ export async function disposeAsset(
     const category = await deps.categories.findById(asset.categoryId);
     const accounts = resolveAccounts(asset, category, deps.accounts);
     const zero = Money.zero();
+    const projectId = asset.projectId;
     const lines: DisposeAssetPostingLine[] = [];
     if (asset.accumulatedDepreciation.scaled > 0n) {
-      lines.push({ accountId: accounts.accumulatedDepreciationAccountId, debit: asset.accumulatedDepreciation, credit: zero });
+      lines.push({ accountId: accounts.accumulatedDepreciationAccountId, debit: asset.accumulatedDepreciation, credit: zero, projectId });
     }
     if (proceeds.scaled > 0n) {
-      lines.push({ accountId: cmd.proceedsAccountId as string, debit: proceeds, credit: zero });
+      lines.push({ accountId: cmd.proceedsAccountId as string, debit: proceeds, credit: zero, projectId });
     }
-    lines.push({ accountId: accounts.assetAccountId, debit: zero, credit: asset.acquisitionCost });
+    lines.push({ accountId: accounts.assetAccountId, debit: zero, credit: asset.acquisitionCost, projectId });
     if (gainOrLoss.scaled > 0n) {
-      lines.push({ accountId: deps.accounts.gainAccountId, debit: zero, credit: gainOrLoss });
+      lines.push({ accountId: deps.accounts.gainAccountId, debit: zero, credit: gainOrLoss, projectId });
     } else if (gainOrLoss.scaled < 0n) {
-      lines.push({ accountId: deps.accounts.lossAccountId, debit: Money.fromScaled(-gainOrLoss.scaled), credit: zero });
+      lines.push({ accountId: deps.accounts.lossAccountId, debit: Money.fromScaled(-gainOrLoss.scaled), credit: zero, projectId });
     }
     await deps.gl.post({
       sourceDocType: "ASSET_DISPOSAL",

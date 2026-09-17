@@ -15,10 +15,11 @@ describe("STANDARD_COA_TEMPLATE", () => {
     }
   });
 
-  it("has exactly the 5 top-level roots documented in the catalog (1000/2000/3000/4000/5000)", () => {
+  it("has 6 top-level roots: the catalog's 5 plus 9000 حسابات نظامية, which is off balance sheet and so cannot hang under any of them", () => {
     const roots = STANDARD_COA_TEMPLATE.filter((r) => r.parentId == null);
-    expect(roots.map((r) => r.code).sort()).toEqual(["1000", "2000", "3000", "4000", "5000"]);
+    expect(roots.map((r) => r.code).sort()).toEqual(["1000", "2000", "3000", "4000", "5000", "9000"]);
     expect(roots.every((r) => r.isHeader)).toBe(true);
+    expect(roots.find((r) => r.code === "9000")?.type).toBe("memorandum");
   });
 });
 
@@ -34,10 +35,10 @@ describe("seedStandardChartOfAccounts", () => {
     const repo = new InMemoryAccountRepository();
     await seedStandardChartOfAccounts(repo);
     const tree = buildAccountTree(await repo.list());
-    expect(tree.map((n) => n.code)).toEqual(["1000", "2000", "3000", "4000", "5000"]);
+    expect(tree.map((n) => n.code)).toEqual(["1000", "2000", "3000", "4000", "5000", "9000"]);
     const assets = tree[0]!;
     const cash = assets.children.find((n) => n.code === "1300")!;
-    expect(cash.children.map((n) => n.code)).toEqual(["1300-1", "1310", "1315", "1320", "1330"]);
+    expect(cash.children.map((n) => n.code)).toEqual(["1300-1", "1310", "1315", "1320", "1330", "1340"]);
     // Every leaf (no children) must be postable (isHeader: false).
     function assertLeavesPostable(nodes: readonly (typeof tree)[number][]): void {
       for (const node of nodes) {

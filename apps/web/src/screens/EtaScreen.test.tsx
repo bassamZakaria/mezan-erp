@@ -72,6 +72,7 @@ function config(overrides: Partial<EtaConfigDTO> = {}): EtaConfigDTO {
     productionApiUrl: "https://api.invoicing.eta.gov.eg/api/v1",
     signingCommand: null,
     signingCommandArgs: [],
+    receiptReportingWindowHours: 24,
     ...overrides,
   };
 }
@@ -194,6 +195,7 @@ describe("EtaScreen — عام (general)", () => {
       activityCode: "4610",
       address: { governorate: "القاهرة", city: "مدينة نصر", street: "شارع مصطفى النحاس", buildingNumber: "12", postalCode: null },
       buyerDataThreshold: 25000,
+      receiptReportingWindowHours: 24,
       documentVersion: "1.0",
       autoSubmitOnConfirm: false,
     });
@@ -243,7 +245,17 @@ describe("EtaScreen — عام (general)", () => {
       "GET /eta/activity-codes": () => ({ body: [] as EtaActivityCodeDTO[] }),
       "GET /eta/tax-subtypes": () => ({ body: [] as EtaTaxSubTypeRowDTO[] }),
       "GET /eta/branch-codes": () => ({
-        body: [{ branchId: "b1", branchCode: "MAIN", branchName: "الفرع الرئيسي", etaBranchCode: null }] as EtaBranchCodeRowDTO[],
+        body: [
+          {
+            branchId: "b1",
+            branchCode: "MAIN",
+            branchName: "الفرع الرئيسي",
+            etaBranchCode: null,
+            deviceSerialNumber: null,
+            posClientId: null,
+            hasPosClientSecret: false,
+          },
+        ] as EtaBranchCodeRowDTO[],
       }),
       "PUT /eta/branch-codes/b1": (init) => {
         saved = JSON.parse((init?.body as string) ?? "{}");
@@ -257,7 +269,9 @@ describe("EtaScreen — عام (general)", () => {
     const row = input.closest("tr") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "حفظ" }));
 
-    await waitFor(() => expect(saved).toEqual({ etaBranchCode: "EG-MAIN-01" }));
+    // The till identity travels with the branch code now, so the PUT carries it
+    // too — null here because this branch has no device registered yet.
+    await waitFor(() => expect(saved).toEqual({ etaBranchCode: "EG-MAIN-01", deviceSerialNumber: null }));
   });
 });
 
@@ -579,5 +593,100 @@ describe("EtaScreen — الإرسالات (submissions)", () => {
     await waitFor(() => expect(screen.queryByText("INV-000014")).not.toBeInTheDocument());
     expect(screen.getByText("INV-000015")).toBeInTheDocument();
     expect(calls.filter((c) => c.startsWith("GET /eta/submissions"))).toEqual(["GET /eta/submissions"]);
+  });
+});
+
+
+describe("EtaScreen — الإيصالات الإلكترونية and the e-seal state", () => {
+  function receiptSummary(overrides: Record<string, unknown> = {}) {
+    return {
+      pending: 0,
+      overdue: 0,
+      dueSoon: 0,
+      oldestPendingIssuedAt: null,
+      windowHours: 72,
+      overdueEntries: [],
+      ...overrides,
+    };
+  }
+
+  it("shows the pending count and says offline selling is fine", async () => {
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config({ environment: "production" }), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [] }),
+      "GET /eta/receipts/summary": () => ({ body: receiptSummary({ pending: 3 }) }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    expect(await screen.findByText("الإيصالات الإلكترونية (تجزئة)")).toBeInTheDocument();
+    expect(screen.getByText("في انتظار الإبلاغ — 3")).toBeInTheDocument();
+    expect(screen.getByText("تجاوزت مهلة الإبلاغ — 0")).toBeInTheDocument();
+    expect(screen.getByText(/البيع دون إنترنت مسموح/)).toBeInTheDocument();
+  });
+
+  it("raises an alert when a receipt has aged past the 72-hour window", async () => {
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config({ environment: "production" }), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [] }),
+      "GET /eta/receipts/summary": () => ({
+        body: receiptSummary({
+          pending: 2,
+          overdue: 1,
+          oldestPendingIssuedAt: "2026-08-20T10:00:00.000Z",
+          overdueEntries: [
+            { id: "s9", internalId: "RCP-000002", issuedAt: "2026-08-20T10:00:00.000Z", deadline: "2026-08-23T10:00:00.000Z", hoursRemaining: -100 },
+          ],
+        }),
+      }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("1 إيصال تجاوز مهلة الإبلاغ");
+    expect(screen.getByText(/أقدم إيصال لم يُبلَّغ/)).toBeInTheDocument();
+  });
+
+  it("labels a queued e-receipt row as an e-receipt, not as an unknown type", async () => {
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config({ environment: "production" }), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({
+        body: [{ ...submission({ id: "r1", internalId: "RCP-000001" }), documentType: "receipt" }],
+      }),
+      "GET /eta/receipts/summary": () => ({ body: receiptSummary({ pending: 1 }) }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    expect(await screen.findByText("RCP-000001")).toBeInTheDocument();
+    expect(screen.getByText("إيصال إلكتروني")).toBeInTheDocument();
+  });
+
+  it("says the e-seal is not wired, so a parked submission is not mistaken for a filed one", async () => {
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config({ environment: "production", signingMethod: "eseal" }), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [submission({ status: "pending_signature" })] }),
+      "GET /eta/receipts/summary": () => ({ body: receiptSummary() }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    expect(await screen.findByText(/الختم الإلكتروني غير مُفعَّل/)).toBeInTheDocument();
+    expect(screen.getByText("في انتظار الختم الإلكتروني")).toBeInTheDocument();
+  });
+
+  it("marks every row as test mode while the pre-production environment is selected", async () => {
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [submission()] }),
+      "GET /eta/receipts/summary": () => ({ body: receiptSummary() }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    expect(await screen.findByText(/لا تعتمد على هذه النتائج في إقرار ضريبي/)).toBeInTheDocument();
+    expect(screen.getByText("بيئة الاختبار (Preproduction)")).toBeInTheDocument();
+    expect(screen.getByText("وضع الاختبار")).toBeInTheDocument();
   });
 });

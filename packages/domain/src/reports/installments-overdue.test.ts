@@ -56,6 +56,7 @@ function customer(overrides: Partial<Customer> = {}): Customer {
     paymentTermsDays: 0,
     currency: "EGP",
     openingBalance: Money.zero(),
+    branchId: null,
     active: true,
     priceListId: null,
     creditLimit: Money.zero(),

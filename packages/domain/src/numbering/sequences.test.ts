@@ -6,8 +6,9 @@ import {
 } from "./sequences.js";
 
 describe("sequence definitions", () => {
-  it("encodes the 25 catalog-09 sequences plus SALES_RETURN, SALES_QUOTE, WORK_ORDER and the 3 phase4 inventory-ops sequences (STOCK_ADJUSTMENT, STOCK_TRANSFER, PHYSICAL_COUNT)", () => {
-    expect(SEQUENCE_DEFINITIONS).toHaveLength(33);
+  it("encodes the 25 catalog-09 sequences plus SALES_RETURN, SALES_QUOTE, WORK_ORDER, the 3 phase4 inventory-ops sequences (STOCK_ADJUSTMENT, STOCK_TRANSFER, PHYSICAL_COUNT), the 11 contracting documents, and EMPLOYMENT_CONTRACT (HR contracts no longer share the works-contract CONTRACT sequence)", () => {
+    expect(SEQUENCE_DEFINITIONS).toHaveLength(45);
+    expect(getSequenceDefinition("PROGRESS_CERTIFICATE").prefix).toBe("MST-");
     expect(getSequenceDefinition("WORK_ORDER").prefix).toBe("WO-");
     expect(getSequenceDefinition("STOCK_ADJUSTMENT").prefix).toBe("ADJ-");
     expect(getSequenceDefinition("PHYSICAL_COUNT").prefix).toBe("CNT-");
@@ -16,8 +17,8 @@ describe("sequence definitions", () => {
   it("has unique codes and unique prefixes", () => {
     const codes = new Set(SEQUENCE_DEFINITIONS.map((d) => d.code));
     const prefixes = new Set(SEQUENCE_DEFINITIONS.map((d) => d.prefix));
-    expect(codes.size).toBe(33);
-    expect(prefixes.size).toBe(33);
+    expect(codes.size).toBe(45);
+    expect(prefixes.size).toBe(45);
   });
 
   it("matches the catalog's next-number previews", () => {

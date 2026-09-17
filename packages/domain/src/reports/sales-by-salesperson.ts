@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
 import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * المبيعات حسب المندوب — Sales by Salesperson (docs/archive/catalog/08-reports.md).
@@ -33,6 +35,7 @@ export interface SalesBySalespersonParams {
   readonly dateFrom: string;
   readonly dateTo: string;
   readonly taxMode: "inc" | "exc";
+  readonly branchId: string;
 }
 
 export interface SalesBySalespersonRow {
@@ -46,9 +49,10 @@ export interface SalesBySalespersonRow {
 }
 
 const paramsSchema = z.object({
-  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
-  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
+  dateFrom: isoDateParamSchema,
+  dateTo: isoDateParamSchema,
   taxMode: z.enum(["inc", "exc"]),
+  branchId: branchIdParamSchema,
 });
 
 export function createSalesBySalespersonReport(
@@ -61,7 +65,7 @@ export function createSalesBySalespersonReport(
     descriptionAr:
       "أداء مندوبي المبيعات في الفترة: عدد الفواتير، الإجمالي المُفوتر، خصومات العروض الممنوحة، والمتبقي على العملاء. الفواتير غير المنسوبة لمندوب تظهر في صف «غير محدد» حتى يساوي إجمالي التقرير إجمالي مبيعات الفترة.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, taxMode: "inc" },
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, taxMode: "inc", branchId: "" },
     paramFields: [
       { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
@@ -73,6 +77,7 @@ export function createSalesBySalespersonReport(
           { value: "exc", label: "غير شامل الضريبة" },
         ],
       },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.salespersonId,
     columns: [
@@ -103,6 +108,7 @@ export function createSalesBySalespersonReport(
       for (const invoice of ctx.invoices) {
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
+        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const totals = salesInvoiceTotals(invoice);
         const revenue = params.taxMode === "inc" ? totals.grandTotal : totals.taxableTotal;
         const outstanding = Money.fromScaled(totals.grandTotal.scaled - invoice.amountPaid.scaled);

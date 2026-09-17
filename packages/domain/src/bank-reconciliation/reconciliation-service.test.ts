@@ -8,11 +8,13 @@ import {
 } from "./test-helpers/in-memory-stores.js";
 import {
   FinalizeOverrideReasonRequiredError,
+  InvalidStatementBalanceError,
   LineAlreadyMatchedError,
   LineNotMatchedError,
   StatementAlreadyFinalizedError,
   StatementHasUnmatchedLinesError,
 } from "./errors.js";
+import { MAX_STATEMENT_BALANCE_SCALED } from "./bank-statement.js";
 import type { TreasuryLedgerCandidate } from "./matching.js";
 
 const RAW_CSV =
@@ -61,6 +63,39 @@ describe("BankReconciliationService.importStatement", () => {
 
     const savedMapping = await mappings.findByTreasuryAccount("ta-bank1");
     expect(savedMapping?.dateColumn).toBe("Date");
+  });
+
+  it("rejects an opening balance too large to store, instead of throwing a RangeError at the SQLite writer", async () => {
+    const { service } = buildService();
+    const tooLarge = Money.fromScaled(MAX_STATEMENT_BALANCE_SCALED + 1n);
+    await expect(service.importStatement(importCmd({ openingBalance: tooLarge }))).rejects.toBeInstanceOf(
+      InvalidStatementBalanceError,
+    );
+  });
+
+  it("rejects a closing balance too large to store", async () => {
+    const { service } = buildService();
+    const tooLarge = Money.fromScaled(-(MAX_STATEMENT_BALANCE_SCALED + 1n));
+    await expect(service.importStatement(importCmd({ closingBalance: tooLarge }))).rejects.toBeInstanceOf(
+      InvalidStatementBalanceError,
+    );
+  });
+
+  it("accepts a balance at exactly the bound, and later updates (auto-match, finalize) to that same statement keep working", async () => {
+    const { service, statements } = buildService();
+    const atBound = Money.fromScaled(MAX_STATEMENT_BALANCE_SCALED);
+    const { statement, lines } = await service.importStatement(
+      importCmd({ openingBalance: atBound, closingBalance: atBound }),
+    );
+    expect(statement.openingBalance.scaled).toBe(MAX_STATEMENT_BALANCE_SCALED);
+
+    // finalize triggers the repository's update() path, which serializes the
+    // same (already-validated) balances again — it must not throw either.
+    for (const line of lines) {
+      await statements.updateLine({ ...line, status: "matched", matchedEntryId: "je-1", matchedAt: "2026-08-22" });
+    }
+    const finalized = await service.finalize(statement.id);
+    expect(finalized.status).toBe("completed");
   });
 });
 

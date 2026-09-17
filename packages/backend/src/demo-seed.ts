@@ -10,6 +10,14 @@ import { seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
 import { seedHistory } from "./demo-seed/history.js";
+import { seedContracting, seedContractingProjectInvoice } from "./demo-seed/contracting.js";
+import { seedContractingContracts } from "./demo-seed/contracting-contracts.js";
+import { seedContractingSite } from "./demo-seed/contracting-site.js";
+import { seedContractingGuarantees } from "./demo-seed/contracting-guarantees.js";
+import { seedContractingCertificates } from "./demo-seed/contracting-certificates.js";
+import { seedContractingSubcontracts } from "./demo-seed/contracting-subcontracts.js";
+import { seedContractingRecognition } from "./demo-seed/contracting-recognition.js";
+import { seedContractingControls } from "./demo-seed/contracting-controls.js";
 
 /**
  * SEED PROFILE FOR TESTS AND LOCAL DEVELOPMENT ONLY.
@@ -581,6 +589,17 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
    * date order: a backdated confirm would issue stock at a weighted-average
    * cost the earlier receipt had not yet set.
    */
+  // The branch's registration with the authority, and the POS device bound to
+  // it, are seeded BEFORE any sale is confirmed: a consumer sale is reported as
+  // an e-receipt, and the authority identifies the issuing till by the serial
+  // registered here — a branch with no registered device cannot receipt at all.
+  await step(app, "PUT", `/eta/branch-codes/${BRANCH_ID}`, {
+    etaBranchCode: "1",
+    deviceSerialNumber: "MEZAN-POS-0001",
+    posClientId: "mezan-demo-pos-client",
+    posClientSecret: "demo-pos-secret-never-returned",
+  });
+
   await seedHistory(app);
 
   for (const invoice of [...PURCHASE_INVOICES, ...PERISHABLE_PURCHASE_INVOICES]) {
@@ -626,7 +645,6 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
     clientId: "mezan-demo-client",
     clientSecret: "demo-secret-never-returned",
   });
-  await step(app, "PUT", `/eta/branch-codes/${BRANCH_ID}`, { etaBranchCode: "1" });
   for (const mapping of ETA_ITEM_CODES) {
     await step(app, "PUT", `/eta/item-mappings/${mapping.itemId}`, {
       etaCodeType: "EGS",
@@ -672,8 +690,50 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   await seedInventoryOps(app);
   await seedPurchasing(app);
   await seedTreasury(app);
+  await seedContracting(app);
+  await seedContractingContracts(app);
+  // After the contract, so the invoice's project HAS one: a direct invoice on a
+  // cost_to_cost project bills through 2165 rather than crediting revenue twice.
+  await seedContractingProjectInvoice(app);
+  await seedContractingSite(app);
+  await seedContractingGuarantees(app);
+  await seedContractingCertificates(app);
+  await seedContractingSubcontracts(app);
+  await seedContractingRecognition(app);
+  await seedContractingControls(app);
   await seedPlatform(app);
   await seedAttachments(app);
+  // LAST. Everything above is dated into 2024–2026 and needs its period open
+  // to post; the close is what the accountant would have done at each
+  // year-end, and it has to happen after the books are written.
+  await closeHistoricPeriods(app);
+}
+
+/**
+ * إقفال الفترات السابقة — every period before the current year is CLOSED
+ * through the real close path.
+ *
+ * The demo shipped 36 open periods, so a document could be backdated two years
+ * into a "closed" year with nothing refusing it, and the period gate — the one
+ * control that stops a posted month from being restated — was never exercised
+ * by anything the demo contained.
+ */
+const OPEN_FROM_PERIOD = "2026-01";
+
+async function closeHistoricPeriods(app: App): Promise<void> {
+  const periods = (await step(app, "GET", "/fiscal-periods")) as readonly {
+    id: string;
+    year: number;
+    periodNumber: number;
+    status: string;
+  }[];
+  const historic = periods
+    .filter((p) => `${p.year}-${String(p.periodNumber).padStart(2, "0")}` < OPEN_FROM_PERIOD)
+    .filter((p) => p.status === "open")
+    .sort((a, b) => (a.year === b.year ? a.periodNumber - b.periodNumber : a.year - b.year));
+  for (const period of historic) {
+    await step(app, "POST", `/fiscal-periods/${period.id}/close`, {});
+  }
 }
 
 /**

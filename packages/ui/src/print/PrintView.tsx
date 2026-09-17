@@ -4,6 +4,7 @@ import { cn } from "../lib/cn";
 import { formatDate, formatNumber } from "../lib/format";
 import { Money } from "../primitives/atoms";
 import { PrintToolbar } from "./PrintToolbar";
+import { QrCode } from "./QrCode";
 import { resolvePrintTemplateConfig, type PrintDocumentModel, type PrintTemplateConfig } from "./types";
 
 /**
@@ -21,12 +22,19 @@ export interface PrintViewProps {
   document: PrintDocumentModel;
   /** Hides the on-screen "طباعة" / "حفظ PDF" toolbar (it's always excluded from the printed output via `@media print`). */
   showToolbar?: boolean;
+  /**
+   * Paper orientation. Landscape is what a مستخلص needs — nine columns per BOQ
+   * line do not fit across 210mm — and it drives BOTH output paths: the `@page`
+   * rule the browser prints from, and the Electron `printToPDF` flag.
+   */
+  orientation?: "portrait" | "landscape";
   className?: string;
 }
 
 const PAGE_WIDTH_MM: Record<"A4" | "A5", number> = { A4: 210, A5: 148 };
+const PAGE_HEIGHT_MM: Record<"A4" | "A5", number> = { A4: 297, A5: 210 };
 
-export function PrintView({ config, document, showToolbar = true, className }: PrintViewProps) {
+export function PrintView({ config, document, showToolbar = true, orientation = "portrait", className }: PrintViewProps) {
   const { t } = useTranslation();
   const effective = useMemo(
     () => resolvePrintTemplateConfig(config, document.documentType),
@@ -35,20 +43,22 @@ export function PrintView({ config, document, showToolbar = true, className }: P
 
   const { identity, header, content, columns, totals: totalsConfig, footer, watermark } = effective;
   const currencyLabel = document.totals.currencyLabel ?? t("ui.currency");
-  const pageWidthMm = PAGE_WIDTH_MM[effective.pageSize];
+  const landscape = orientation === "landscape";
+  const pageWidthMm = landscape ? PAGE_HEIGHT_MM[effective.pageSize] : PAGE_WIDTH_MM[effective.pageSize];
+  const pageHeightMm = landscape ? PAGE_WIDTH_MM[effective.pageSize] : PAGE_HEIGHT_MM[effective.pageSize];
   const signatureLabels = footer.signatureLabels.slice(0, footer.signatureCount);
   while (signatureLabels.length < footer.signatureCount) signatureLabels.push("");
 
   return (
     <div className={cn("mz-print-root", className)}>
-      <style>{`@page { size: ${effective.pageSize}; margin: 14mm 12mm; }`}</style>
+      <style>{`@page { size: ${effective.pageSize}${landscape ? " landscape" : ""}; margin: 14mm 12mm; }`}</style>
 
-      {showToolbar ? <PrintToolbar pageSize={effective.pageSize} /> : null}
+      {showToolbar ? <PrintToolbar pageSize={effective.pageSize} landscape={landscape} /> : null}
 
       <div
         dir="rtl"
         className="relative mx-auto overflow-hidden bg-surface p-[16mm_14mm] text-[12.5px] text-ink print:m-0"
-        style={{ width: `${pageWidthMm}mm`, minHeight: `${(pageWidthMm * 297) / 210}mm`, borderColor: identity.primaryColor }}
+        style={{ width: `${pageWidthMm}mm`, minHeight: `${pageHeightMm}mm`, borderColor: identity.primaryColor }}
       >
         {watermark.text ? (
           <div
@@ -304,25 +314,39 @@ export function PrintView({ config, document, showToolbar = true, className }: P
             </div>
           ) : null}
 
-          {/*
-            The authority's block, and ONLY on a document the authority has
-            accepted. The square is a stated placeholder, not a drawn code:
-            the ETA QR encodes the signed submission, which this build cannot
-            produce (P-1), and printing an invented pattern beside a real UUID
-            would put a scannable-looking mark on a tax document that decodes
-            to nothing.
-          */}
-          {document.etaUuid ? (
-            <div className="mt-[8px] flex items-center justify-center gap-[10px] border-t border-border pt-[8px]">
-              <div className="flex h-[54px] w-[54px] flex-none items-center justify-center rounded-sm border border-dashed border-border p-[4px] text-center text-[7.5px] leading-[1.15] text-ink-faint">
-                {t("print.etaQrPlaceholder")}
-              </div>
-              <p className="text-[10px] text-ink-muted">
-                <span>{t("print.etaUuid")}</span>{" "}
-                <span className="mz-num" dir="ltr">
-                  {document.etaUuid}
-                </span>
-              </p>
+          {document.complianceNotice ? (
+            <p
+              className="mt-[8px] rounded-md border border-warning bg-warning-soft p-[6px_10px] text-center text-[10.5px] font-semibold text-warning-ink"
+              style={{ borderColor: identity.primaryColor }}
+            >
+              {document.complianceNotice}
+            </p>
+          ) : null}
+
+          {document.etaUuid || document.etaQrValue ? (
+            <div className="mt-[8px] flex flex-col items-center gap-[6px] border-t border-border pt-[6px]">
+              {document.etaQrValue ? (
+                <QrCode value={document.etaQrValue} label={t("print.etaUuid")} className="h-[26mm] w-[26mm]" />
+              ) : (
+                /*
+                 * A UUID with no QR payload yet. A STATED empty box, never an
+                 * invented code: the scannable thing encodes a submission the
+                 * authority has actually cleared, and drawing a plausible
+                 * square from the UUID alone would print something a customer
+                 * could scan and a tax inspector could not verify (P-1).
+                 */
+                <div className="flex h-[26mm] w-[26mm] flex-none items-center justify-center rounded-sm border border-dashed border-border p-[4px] text-center text-[7.5px] leading-[1.15] text-ink-faint">
+                  {t("print.etaQrPlaceholder")}
+                </div>
+              )}
+              {document.etaUuid ? (
+                <p className="text-center text-[10px] text-ink-muted">
+                  <span>{t("print.etaUuid")}</span>{" "}
+                  <span className="mz-num" dir="ltr">
+                    {document.etaUuid}
+                  </span>
+                </p>
+              ) : null}
             </div>
           ) : null}
 

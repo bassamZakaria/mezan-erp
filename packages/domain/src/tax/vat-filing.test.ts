@@ -21,6 +21,12 @@ import {
   type VatFiling,
   type VatFilingRepository,
 } from "./vat-filing.js";
+/**
+ * The LIVE lock. It lives in `gl/post.ts`, next to the posting path that
+ * calls it, and this file used to test a second copy that had no caller
+ * (D104). Testing the live one is the difference between guarding the rule
+ * and guarding a decoration.
+ */
 import { assertVatNotFiled } from "../gl/post.js";
 
 interface FakeRepo extends VatFilingRepository {
@@ -201,7 +207,6 @@ describe("amendVatFiling — reopening a filed period is a decision, with a reas
   });
 });
 
-// guards B-11: the one lock lives in gl/post.ts; the tax module's duplicate copy is gone.
 describe("assertVatNotFiled — the lock a backdated document must hit", () => {
   it("refuses a posting dated anywhere inside a FILED window, including both boundary days", async () => {
     const repo = repository([filedRow()]);

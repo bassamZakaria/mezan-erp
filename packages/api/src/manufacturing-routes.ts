@@ -287,6 +287,7 @@ function serializeWorkOrder(o: WorkOrder, onHand?: ReadonlyMap<string, number>) 
     issuedAt: o.issuedAt,
     receivedAt: o.receivedAt,
     completedAt: o.completedAt,
+    projectId: o.projectId,
   };
 }
 
@@ -759,6 +760,7 @@ export function createManufacturingRoutes(
           scheduledStartDate: parsed.data.scheduledStartDate,
           scheduledEndDate: parsed.data.scheduledEndDate,
           notes: parsed.data.notes,
+          projectId: parsed.data.projectId,
           createdBy: actor(c),
         },
         { workOrders: deps.workOrders, boms: deps.boms, numbering: deps.numbering, now: deps.now },

@@ -50,7 +50,6 @@ const ROLES = [
     name: "محاسب",
     description: "يقيّد ويراجع الحركات المالية ويقفل الفترة.",
     permissions: [
-      "dashboard.view",
       "accounting.journal.view",
       "accounting.journal.create",
       "accounting.coa.view",
@@ -66,7 +65,6 @@ const ROLES = [
     name: "أمين مخزن",
     description: "يستلم ويصرف ويحوّل المخزون ويجري الجرد.",
     permissions: [
-      "dashboard.view",
       "inventory.stock.view",
       "inventory.transfer.view",
       "inventory.transfer.create",
@@ -81,7 +79,6 @@ const ROLES = [
     name: "مندوب مبيعات",
     description: "يصدر عروض الأسعار والفواتير لعملائه فقط.",
     permissions: [
-      "dashboard.view",
       "sales.quote.view_own",
       "sales.quote.create",
       "sales.invoice.view_own",
@@ -95,13 +92,16 @@ const ROLES = [
     name: "مشرف المبيعات",
     description: "يراجع فواتير المندوبين ويعتمد ما يحتاج موافقة قبل التأكيد.",
     permissions: [
-      "dashboard.view",
       // view_all, where SALES_REP has view_own: the two halves of the
       // visibility model, so a screen that ignores the tier has a control.
       "sales.invoice.view",
       "sales.invoice.view_all",
       "sales.invoice.confirm",
-      "sales.invoice.print",
+      // «يعتمد ما يحتاج موافقة» in this role's own description. Until the code
+      // moved out of the POS module nobody could be granted it, so the ceiling
+      // escalated to a right that did not exist and the invoice was simply
+      // refused.
+      "sales.discount.approve",
       "sales.quote.view",
       "sales.return.view",
       "sales.return.confirm",
@@ -110,7 +110,6 @@ const ROLES = [
       "workflow.view",
       "workflow.approve",
       "workflow.reject",
-      "transactions.view",
       // A supervisor is on the sales floor when a till hangs; the same
       // person who already approves the tills' invoices can free a stuck
       // seat without paging the owner (PR #54 review finding #4).
@@ -130,12 +129,9 @@ const ROLES = [
     name: "المدير المالي",
     description: "يعتمد القيود وفواتير الشراء والرواتب ويقفل الفترة المالية.",
     permissions: [
-      "dashboard.view",
-      "dashboard.export",
       "accounting.coa.view",
       "accounting.journal.view",
       "accounting.journal.post",
-      "accounting.journal.approve",
       "accounting.period.view",
       "accounting.period.close",
       "accounting.reports.view",
@@ -163,9 +159,15 @@ const ROLES = [
       "workflow.view",
       "workflow.approve",
       "workflow.reject",
-      "transactions.view",
-      "transactions.view_all",
       "audit.logs.view",
+      // المقاولات: the same person who approves a purchase invoice approves a
+      // مستخلص for payment and signs off a retention release.
+      "contracting.certificate.view",
+      "contracting.certificate.approve",
+      "contracting.certificate.collect",
+      "contracting.retention.release",
+      "contracting.guarantee.view",
+      "contracting.guarantee.release",
     ],
   },
   {
@@ -173,7 +175,6 @@ const ROLES = [
     name: "مسؤول المشتريات",
     description: "يطلب عروض الأسعار ويصدر أوامر الشراء ويستلم البضاعة.",
     permissions: [
-      "dashboard.view",
       "purchases.supplier.view",
       "purchases.supplier.create",
       "purchases.supplier.edit",
@@ -204,16 +205,13 @@ const ROLES = [
     name: "أمين الخزنة",
     description: "يحصّل ويصرف ويودع الشيكات ويطابق كشف البنك.",
     permissions: [
-      "dashboard.view",
       "treasury.account.view",
       "treasury.cash_voucher.view",
       "treasury.cash_voucher.create",
       "treasury.cash_voucher.confirm",
       "treasury.allocation.view",
       "treasury.allocation.manage",
-      "treasury.transfer.view",
       "treasury.transfer.create",
-      "treasury.customer_refund.view",
       "treasury.customer_refund.create",
       "treasury.reconciliation.view",
       "treasury.reconciliation.import",
@@ -225,7 +223,6 @@ const ROLES = [
       "cheques.bounce",
       "installments.plan.view",
       "installments.collect",
-      "installments.collection.create",
       "sales.invoice.view",
       "sales.customer.view",
       "purchases.invoice.view",
@@ -242,7 +239,6 @@ const ROLES = [
     name: "مسؤول شؤون العاملين",
     description: "يدير ملفات الموظفين والحضور والإجازات — دون رؤية الرواتب.",
     permissions: [
-      "dashboard.view",
       // No `hr.employee.view_salary` and no `hr.employee.view_personal`: the
       // two ⚠ sensitive codes belong to PAYROLL_OFFICER. A tenant where the
       // same person holds both cannot show that the flag means anything.
@@ -274,14 +270,11 @@ const ROLES = [
     name: "مسؤول الرواتب",
     description: "يحسب مسيّر الرواتب ويعرضه للاعتماد — ولا يعتمده ولا يصرفه.",
     permissions: [
-      "dashboard.view",
       "hr.employee.view",
       "hr.employee.view_salary",
-      "hr.employee.view_personal",
       "hr.payroll.view",
       "hr.payroll.create",
       "hr.payroll.calculate",
-      "hr.payroll.run",
       "hr.attendance.view",
       "hr.advance.view",
       "hr.leave.view",
@@ -294,8 +287,6 @@ const ROLES = [
     name: "مدير الفرع",
     description: "يتابع بيع وشراء ومخزون فرعه ويعتمد إجازات فريقه.",
     permissions: [
-      "dashboard.view",
-      "dashboard.export",
       "sales.invoice.view",
       "sales.invoice.view_all",
       "sales.invoice.confirm",
@@ -317,7 +308,6 @@ const ROLES = [
       "hr.leave.view",
       "hr.leave.approve",
       "workflow.view",
-      "transactions.view",
       // The branch manager is the operational owner of every till in the
       // branch, so freeing one blocks nobody but them — before this only the
       // tenant's `isCompanyAdmin` account could clear a stuck seat, which
@@ -342,8 +332,6 @@ const ROLES = [
       // Every code here is a `.view`. An auditor who can confirm, void or
       // post is not an auditor, and a role list with no read-only row cannot
       // show that a screen opens without its write controls.
-      "dashboard.view",
-      "dashboard.export",
       "accounting.coa.view",
       "accounting.journal.view",
       "accounting.period.view",
@@ -375,7 +363,6 @@ const ROLES = [
       "treasury.account.view",
       "treasury.cash_voucher.view",
       "treasury.allocation.view",
-      "treasury.transfer.view",
       "treasury.reconciliation.view",
       "cheques.view",
       "crm.customer360.view",
@@ -384,11 +371,13 @@ const ROLES = [
       "assets.depreciation.view",
       "workflow.view",
       "audit.logs.view",
-      "transactions.view",
-      "transactions.view_all",
       "admin.users.view",
       "admin.roles.view",
       "admin.settings.view",
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.certificate.view",
+      "contracting.guarantee.view",
     ],
   },
   {
@@ -396,14 +385,12 @@ const ROLES = [
     name: "مندوب توزيع",
     description: "يبيع من عربة التوزيع ويحصّل نقداً ويسوّي عهدته آخر اليوم.",
     permissions: [
-      "dashboard.view",
       "field.van_trip.view_own",
       "field.van_trip.open",
       "field.van_trip.settle",
       "sales.invoice.view_own",
       "sales.invoice.create",
       "sales.invoice.confirm",
-      "sales.invoice.print",
       "sales.return.view_own",
       "sales.return.create",
       "sales.customer.view",
@@ -412,16 +399,79 @@ const ROLES = [
       "treasury.cash_voucher.create",
     ],
   },
+  /**
+   * المقاولات — four roles, because the certificate's preparer, certifier,
+   * approver and collector are FOUR people (design §06) and no seeded role
+   * held a single contracting code, so the segregation rules the module
+   * enforces could not be demonstrated against anyone who could sign in.
+   */
+  {
+    code: "TECHNICAL_OFFICE",
+    name: "المكتب الفني",
+    description: "يُعدّ جداول الكميات والمستخلصات ويرفعها للاعتماد — ولا يعتمدها.",
+    permissions: [
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.boq.manage",
+      "contracting.certificate.view",
+      "contracting.certificate.prepare",
+      "inventory.stock.view",
+      "inventory.transfer.view",
+    ],
+  },
+  {
+    code: "CONSULTANT_QS",
+    name: "الاستشاري — مساح الكميات",
+    description: "يراجع الحصر ويعتمده فنيًا — ولا يُعدّ مستخلصًا ولا يصرفه.",
+    permissions: [
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.certificate.view",
+      "contracting.certificate.certify",
+    ],
+  },
+  {
+    code: "CONTRACTS_ADMIN",
+    name: "إدارة العقود",
+    description: "يعتمد أوامر التغيير ويدير سجل خطابات الضمان — ولا يُفرج عن خطاب.",
+    permissions: [
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.variation.approve",
+      "contracting.certificate.view",
+      // No `.release`: issuing a letter and giving it back are two decisions.
+      "contracting.guarantee.view",
+      "contracting.guarantee.manage",
+      "purchases.supplier.view",
+    ],
+  },
+  {
+    code: "FINANCE_CONTRACTING",
+    name: "المالية — المقاولات",
+    description: "يعتمد المستخلصات للصرف ويحصّلها ويُفرج عن المحتجزات وخطابات الضمان.",
+    permissions: [
+      "projects.project.view",
+      "contracting.boq.view",
+      "contracting.certificate.view",
+      "contracting.certificate.approve",
+      "contracting.certificate.collect",
+      "contracting.retention.release",
+      "contracting.guarantee.view",
+      "contracting.guarantee.release",
+      "accounting.reports.view",
+      "treasury.cash_voucher.view",
+      "sales.invoice.view",
+      "sales.invoice.view_all",
+    ],
+  },
   {
     code: "CRM_MANAGER",
     name: "مسؤول علاقات العملاء",
     description: "يتابع العملاء المحتملين والفرص وعروض الأسعار حتى الفاتورة.",
     permissions: [
-      "dashboard.view",
       "crm.lead.view",
       "crm.lead.create",
       "crm.lead.edit",
-      "crm.lead.assign",
       "crm.lead.convert",
       "crm.opportunity.view",
       "crm.opportunity.create",
@@ -501,6 +551,14 @@ const PEOPLE: readonly Person[] = [
   { nameAr: "ليلى إبراهيم", nameEn: "Laila Ibrahim", local: "laila.ibrahim", role: "AUDITOR", status: "active" },
   { nameAr: "سامح فتحي", nameEn: "Sameh Fathy", local: "sameh.fathy", role: "CRM_MANAGER", status: "active" },
 
+  // المقاولات — one person per contracting role, so the module's segregation
+  // rules (preparer ≠ certifier ≠ approver) are demonstrable against real
+  // accounts rather than against the admin bypass.
+  { nameAr: "شريف الجندي", nameEn: "Sherif El-Gendy", local: "sherif.elgendy", role: "TECHNICAL_OFFICE", status: "active" },
+  { nameAr: "منار عبد العزيز", nameEn: "Manar Abdelaziz", local: "manar.abdelaziz", role: "CONSULTANT_QS", status: "active" },
+  { nameAr: "هشام لطفي", nameEn: "Hesham Lotfy", local: "hesham.lotfy", role: "CONTRACTS_ADMIN", status: "active" },
+  { nameAr: "نورهان سمير", nameEn: "Nourhan Samir", local: "nourhan.samir", role: "FINANCE_CONTRACTING", status: "active" },
+
   // Scoped to the one branch by an explicit allow-list rather than "*" — the
   // same value a second branch would narrow against.
   { nameAr: "حسام نبيل", nameEn: "Hossam Nabil", local: "hossam.nabil", role: "BRANCH_MANAGER", status: "active", branchScope: [BRANCH_ID] },
@@ -526,7 +584,14 @@ export async function seedAccess(app: App): Promise<void> {
   // Read-modify-write: settings is one bag and a PUT replaces it, so writing
   // only this key would blank every other policy the seed has set.
   const settings = (await step(app, "GET", "/settings")) as Record<string, unknown>;
-  await step(app, "PUT", "/settings", { ...settings, allowedEmailDomains: [TENANT_DOMAIN] });
+  await step(app, "PUT", "/settings", {
+    ...settings,
+    allowedEmailDomains: [TENANT_DOMAIN],
+    // FALSE, explicitly: this tenant has four contracting people, so the
+    // wildcard admin is subject to فصل المهام exactly like they are. A demo
+    // that waived it could not show the rule refusing anything.
+    contractingSingleOperatorMode: false,
+  });
 
   // --- الأدوار ---
   const roleIdByCode = new Map<string, string>();

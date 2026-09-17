@@ -17,6 +17,7 @@ function base(overrides: Partial<PartnerBase> = {}): PartnerBase {
     paymentTermsDays: 30,
     currency: "EGP",
     openingBalance: Money.zero(),
+    branchId: null,
     active: true,
     ...overrides,
   };
@@ -69,6 +70,18 @@ describe("validatePartnerBase", () => {
 
   it("rejects a blank currency", () => {
     expect(validatePartnerBase(base({ currency: " " }))).toContain("العملة مطلوبة");
+  });
+
+  it("rejects an opening balance too large to round-trip through the SQLite writer, instead of throwing there as a 500", () => {
+    expect(validatePartnerBase(base({ openingBalance: Money.fromMajor("1000000012000000") }))).toContain(
+      "الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل",
+    );
+  });
+
+  it("rejects an opening balance too negative to round-trip", () => {
+    expect(validatePartnerBase(base({ openingBalance: Money.fromMajor("-1000000012000000") }))).toContain(
+      "الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل",
+    );
   });
 
   it("accumulates every violation, not just the first", () => {

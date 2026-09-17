@@ -91,3 +91,40 @@ describe("CommandBar", () => {
     expect(screen.getByPlaceholderText("دوّر على حاجة")).toBeInTheDocument();
   });
 });
+
+describe("CommandBar — finding a report by its own title (§8.4)", () => {
+  const items = [
+    { id: "goto-financial-reports", label: "التقارير المالية", group: "انتقل", keywords: ["قائمة الدخل", "الميزانية العمومية"], onSelect: () => {} },
+    { id: "goto-customers", label: "العملاء", group: "انتقل", onSelect: () => {} },
+  ];
+
+  function type(query: string) {
+    render(<CommandBar items={items} />);
+    const field = screen.getByRole("combobox");
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: query } });
+    return screen.queryAllByRole("option").map((o) => o.textContent ?? "");
+  }
+
+  it("finds a statement that lives inside another screen", () => {
+    // «قائمة الدخل» is a tab within «التقارير المالية» and has no nav label, so
+    // the bar used to return nothing at all for it.
+    const results = type("قائمة الدخل");
+    expect(results.join(" ")).toContain("التقارير المالية");
+  });
+
+  it("forgives the hamza the user did not type", () => {
+    // A raw `includes` matched nothing here, which in an Arabic product is the
+    // common case rather than an edge one.
+    expect(type("الميزانيه").join(" ")).toContain("التقارير المالية");
+  });
+
+  it("still matches on the label itself", () => {
+    expect(type("العملاء").join(" ")).toContain("العملاء");
+  });
+
+  it("does not turn a keyword into a false positive for an unrelated command", () => {
+    const results = type("قائمة الدخل");
+    expect(results.join(" ")).not.toContain("العملاء");
+  });
+});

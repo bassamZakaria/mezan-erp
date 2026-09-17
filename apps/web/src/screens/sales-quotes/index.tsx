@@ -336,7 +336,7 @@ export function SalesQuotesScreen() {
               : []),
           ];
           return (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
               {q.status === "draft" ? (
                 <Button size="sm" variant="default" disabled={pendingId === q.id} onClick={() => void runTransition(q.id, send, q.version)}>
                   {t("quotes.send")}

@@ -49,8 +49,8 @@ function preview(overrides: Partial<YearEndClosePreviewDTO> = {}): YearEndCloseP
     revenueClosed: "20000.000000",
     expensesClosed: "15000.000000",
     lines: [
-      { accountId: "acc-4100", accountCode: "4100", accountNameAr: "المبيعات", accountType: "revenue", debit: "20000.000000", credit: "0" },
-      { accountId: "acc-5000", accountCode: "5000", accountNameAr: "مصروفات عمومية", accountType: "expense", debit: "0", credit: "15000.000000" },
+      { accountId: "acc-4100", accountCode: "4100", accountNameAr: "المبيعات", accountType: "revenue", projectId: null, debit: "20000.000000", credit: "0" },
+      { accountId: "acc-5000", accountCode: "5000", accountNameAr: "مصروفات عمومية", accountType: "expense", projectId: null, debit: "0", credit: "15000.000000" },
     ],
     ...overrides,
   };

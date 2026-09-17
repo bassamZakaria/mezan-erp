@@ -43,6 +43,10 @@ export function useUpdateSequence() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
+      // The server's refusal is the useful half — «البادئة مستخدمة بالفعل»
+      // tells the admin what to change; the generic sentence does not (D100).
+      // `readError` prefers that message and falls back to the sentence with a
+      // support code appended.
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("platformApi.theSequenceSettingsCouldNot"), t));
       return res.json<SequenceListItemDTO>();
     },

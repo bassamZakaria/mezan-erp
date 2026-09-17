@@ -5,6 +5,9 @@
   "type": "module",
   "dependencies": {
     "@mezan/backend": "workspace:*",
+    "@mezan/domain": "workspace:*",
+    "@mezan/api": "workspace:*",
+    "@mezan/persistence": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.6.14"
   }

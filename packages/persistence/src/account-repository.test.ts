@@ -68,7 +68,7 @@ describe("SqliteAccountRepository", () => {
       const all = await repo.list();
       expect(all).toHaveLength(STANDARD_COA_TEMPLATE.length);
       const tree = buildAccountTree(all);
-      expect(tree.map((n) => n.code)).toEqual(["1000", "2000", "3000", "4000", "5000"]);
+      expect(tree.map((n) => n.code)).toEqual(["1000", "2000", "3000", "4000", "5000", "9000"]);
     } finally {
       repo.close();
     }

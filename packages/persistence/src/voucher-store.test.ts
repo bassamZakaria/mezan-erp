@@ -58,6 +58,26 @@ describe("SqliteVoucherStore — documents", () => {
     expect(loaded!.journalEntryId).toBe("je-1");
   });
 
+  it("round-trips the contracting project dimension (projectId, costCategory)", async () => {
+    handle = createSqliteVoucherStore();
+    const doc = voucherDoc("v2", "confirmed", "300");
+    await handle.documents.save({
+      ...doc,
+      lines: [{ ...doc.lines[0]!, projectId: "proj-1", costCategory: "labour" }],
+    });
+    const loaded = await handle.documents.findById("v2");
+    expect(loaded!.lines[0]!.projectId).toBe("proj-1");
+    expect(loaded!.lines[0]!.costCategory).toBe("labour");
+  });
+
+  it("defaults projectId/costCategory to null when the voucher carries no contracting dimension", async () => {
+    handle = createSqliteVoucherStore();
+    await handle.documents.save(voucherDoc("v3", "confirmed", "100"));
+    const loaded = await handle.documents.findById("v3");
+    expect(loaded!.lines[0]!.projectId).toBeNull();
+    expect(loaded!.lines[0]!.costCategory).toBeNull();
+  });
+
   it("update persists a status/number transition", async () => {
     handle = createSqliteVoucherStore();
     await handle.documents.save(voucherDoc("v1", "draft", "100"));

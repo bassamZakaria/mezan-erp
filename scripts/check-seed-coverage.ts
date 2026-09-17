@@ -1,5 +1,6 @@
 import { createBackend } from "../packages/backend/src/create-backend.js";
 import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "../packages/backend/src/seed.js";
+import { createEntitlements, MODULE_CATALOG } from "../packages/domain/src/index.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,6 +45,12 @@ const NEEDS_PARAMS = new Set(["/inventory/drift"]);
 const ALLOWED_EMPTY: Record<string, string> = {
   "/hr/leave-requests/me": "the seed admin is not an employee, so their own queue is correctly empty",
   "/notifications": "per-user inbox; the seed admin has received none",
+  "/contracting/reports/boq-overrun":
+    "an EXCEPTIONS report: certifying beyond the contracted quantity is refused at measure, so a healthy " +
+    "tenant has no row; it exists to prove that refusal and to catch imported history",
+  "/contracting/reports/late-variation-approvals":
+    "an EXCEPTIONS report: a certificate line that leans on a variation approved after execution is " +
+    "refused, so an empty table is the clean control; the rule is printed on the screen",
   "/reports/inventory/drift":
     "an EXCEPTIONS report: it lists only positions whose cache disagrees with a replay of the ledger. " +
     "It was populated while landed costs bypassed the ledger (D36); now that they do not, an empty " +
@@ -101,7 +108,11 @@ function windowFor(path: string): string {
 
 async function main() {
   const dir = mkdtempSync(join(tmpdir(), "mezan-coverage-"));
-  const { app } = await createBackend({ dbPath: join(dir, "coverage.db"), seedDemoData: true });
+  // The demo seed creates more accounts than the platform default's 10 seats
+  // allow (A3's SEAT_LIMIT_REACHED); this stand-in resolver keeps every cap off.
+  const resolveEntitlements = () =>
+    createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+  const { app } = await createBackend({ dbPath: join(dir, "coverage.db"), seedDemoData: true, resolveEntitlements });
   const HEADERS = await signIn(app);
 
   const source = await (await import("node:fs/promises")).readFile(new URL("./smoke.ts", import.meta.url), "utf8");

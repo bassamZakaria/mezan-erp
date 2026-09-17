@@ -42,6 +42,9 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHo
             taxRatePercent: l.taxRatePercent ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
           })),
         },
         deps,
@@ -93,6 +96,7 @@ export function createSalesInvoiceStockHook(
         sourceDocNumber: plan.sourceDocNumber,
         warehouseId: plan.warehouseId,
         occurredAt: plan.occurredAt,
+        projectId: plan.projectId ?? null,
         lines,
       });
       return {

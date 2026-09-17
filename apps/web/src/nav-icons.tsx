@@ -18,6 +18,10 @@ import {
   BookOpenCheck,
   BookText,
   Boxes,
+  Timer,
+  SendHorizontal,
+  HardHat,
+  Construction,
   Briefcase,
   Building,
   Building2,
@@ -45,6 +49,7 @@ import {
   FileCheck,
   FileSignature,
   FileText,
+  FileWarning,
   Filter,
   FolderKanban,
   FolderTree,
@@ -69,6 +74,7 @@ import {
   MapPin,
   DatabaseBackup,
   Monitor,
+  MoonStar,
   Network,
   Package,
   PackageCheck,
@@ -90,6 +96,7 @@ import {
   ScrollText,
   Send,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   Ship,
   ShoppingBag,
@@ -170,6 +177,8 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   journals: BookText,
   "fiscal-periods": CalendarRange,
   taxes: Percent,
+  "tax-simplified-regime": Scale,
+  "report-simplified-regime-comparison": GitCompare,
   "exchange-rates": ArrowRightLeft,
   revaluation: RefreshCw,
   reconciliation: GitCompare,
@@ -208,6 +217,16 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "my-leave": CalendarDays,
 
   projects: FolderKanban,
+  subcontracts: Users,
+  "subcontract-certificates": FileCheck,
+  guarantees: Landmark,
+  "revenue-recognition": LineChart,
+  "site-issues": SendHorizontal,
+  "material-consumption": HardHat,
+  "custody-register": Construction,
+  "equipment-logs": Timer,
+  retention: Landmark,
+  "contracting-reports": ShieldAlert,
 
   "assets-hub": Building,
   "asset-register": ClipboardList,
@@ -229,6 +248,7 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "report-purchases-by-supplier": PackageSearch,
   "report-purchases-by-item": ListOrdered,
   "report-inventory-stock-levels": Container,
+  "report-inventory-goods-in-transit": Container,
   "report-inventory-movement": Shuffle,
   "report-inventory-ledger": BookOpen,
   "report-inventory-valuation": CircleDollarSign,
@@ -256,6 +276,10 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "settings-barcode": Barcode,
   "settings-profile": CircleUser,
   audit: History,
+  "security-exceptions": ShieldAlert,
+  "security-post-posting-changes": FileWarning,
+  "security-after-hours": MoonStar,
+  "security-new-accounts": UserPlus,
   users: UserCog,
   roles: ShieldCheck,
 
@@ -290,10 +314,51 @@ const navGroupIcons: Readonly<Record<string, LucideIcon>> = {
   system: Activity,
 };
 
+/**
+ * Icons whose meaning POINTS, and therefore have to flip under RTL (§8.8).
+ *
+ * The app is Arabic-first and runs RTL, and almost nothing in the icon set was
+ * mirrored: `Send` pointed away from the reader, `Undo2` and `RotateCcw` curved
+ * the wrong way, the transfer arrows ran backwards. `beams.tsx` was the only
+ * place that got it right.
+ *
+ * This is a RULE and not a sweep: the registry is the one place a nav icon is
+ * rendered, so a new screen cannot reintroduce an unmirrored arrow by importing
+ * lucide directly into a nav entry.
+ *
+ * The list is deliberately SHORT. An icon that carries an OBJECT must not flip
+ * — a clock, a coin, a building, a magnifier read the same in both directions,
+ * and mirroring them is the usual overcorrection. Only direction-carrying
+ * glyphs are here.
+ */
+const DIRECTIONAL_ICONS: ReadonlySet<LucideIcon> = new Set<LucideIcon>([
+  ArrowLeftRight,
+  ArrowRightLeft,
+  SendHorizontal,
+  Route,
+  TrendingDown,
+  ClipboardList,
+  ListOrdered,
+  ListChecks,
+  Undo2,
+  RotateCcw,
+]);
+
 function renderIcon(Icon: LucideIcon | undefined) {
   if (!Icon) return undefined;
-  return <Icon aria-hidden focusable="false" strokeWidth={1.75} className="h-[13px] w-[13px]" />;
+  const directional = DIRECTIONAL_ICONS.has(Icon);
+  return (
+    <Icon
+      aria-hidden
+      focusable="false"
+      strokeWidth={1.75}
+      className={`h-[13px] w-[13px]${directional ? " rtl:-scale-x-100" : ""}`}
+    />
+  );
 }
+
+/** Exported for the test that proves the set holds only icons the registry uses. */
+export const DIRECTIONAL_NAV_ICONS = DIRECTIONAL_ICONS;
 
 export function navItemIcon(key: string) {
   return renderIcon(navItemIcons[key]);

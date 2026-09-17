@@ -27,6 +27,21 @@ import { branchScopeOf, createPermissionGate, type AuthContextResolver } from ".
  * the live posted general ledger (`LedgerRepository`) plus the tenant's chart
  * of accounts — never a fixture. All aggregation/validation lives in
  * `@mezan/domain/reports/*`; this file is wiring only.
+ *
+ * BRANCH (DEC-20). The posted journal LINE now carries a `branchId`, so the
+ * four statements that aggregate it — ميزان المراجعة، قائمة الدخل، الميزانية
+ * العمومية، التدفقات النقدية — take a `branchId` parameter and narrow on it.
+ * `branchScopeOf` is AUTHORITY and `branchId` is presentation, exactly the
+ * split ./reports-routes.ts already draws: a caller scoped to فرع القاهرة never
+ * receives another branch's figures with or without the parameter, and the
+ * parameter can only narrow what is left. A line with no branch on it stays
+ * visible under a narrowed SCOPE (it is not attributable to anyone) but is not
+ * returned for a specific requested BRANCH — which is why every one of those
+ * statements also reports «غير مخصص» on its own.
+ *
+ * The remaining statements (VAT return, general ledger, account ledger) read
+ * the same entries but answer questions that are not branch questions, so they
+ * declare nothing rather than offering a control that would only confuse.
  */
 export interface FinancialReportsRoutesDeps {
   readonly ledger: Pick<LedgerRepository, "list"> & Pick<Partial<LedgerRepository>, "accountBalances">;
@@ -114,35 +129,12 @@ export function createFinancialReportsRoutes(
    * original in place, so loading only "posted" would keep the mirror and drop
    * what it offsets.
    */
-  async function loadJournalEntries(
-    bounds: { fromDate?: string; toDate?: string },
-    branches?: readonly string[],
-  ): Promise<JournalEntry[]> {
+  async function loadJournalEntries(bounds: { fromDate?: string; toDate?: string }): Promise<JournalEntry[]> {
     const [posted, reversed] = await Promise.all([
       deps.ledger.list({ ...bounds, status: "posted" }),
       deps.ledger.list({ ...bounds, status: "reversed" }),
     ]);
-    const entries = [...posted, ...reversed].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-    if (!branches || !deps.branchOfEntry) return entries;
-    const allowed = new Set(branches);
-    const branchByEntryId = await deps.branchOfEntry(entries);
-    return entries.filter((e) => {
-      const branchId = branchByEntryId.get(e.id) ?? null;
-      return branchId !== null && allowed.has(branchId);
-    });
-  }
-
-  /**
-   * The branches a statement may cover (P-7). `branchScopeOf` is the scope;
-   * `?branchId=` may only narrow it, never widen it. `undefined` means the
-   * whole company and no per-entry attribution is attempted at all.
-   */
-  function statementBranches(c: Context): readonly string[] | undefined {
-    const scope = branchScopeOf(c);
-    const requested = (c.req.query("branchId") ?? "").trim();
-    if (requested === "" || requested === "*") return scope;
-    if (scope && !scope.includes(requested)) return [];
-    return [requested];
+    return [...posted, ...reversed].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   }
 
   async function loadGlContext(
@@ -152,9 +144,11 @@ export function createFinancialReportsRoutes(
   ): Promise<GlReportContext> {
     const [accounts, journalEntries] = await Promise.all([
       preloadedAccounts ? Promise.resolve(preloadedAccounts) : deps.accounts.list(),
-      loadJournalEntries(bounds, statementBranches(c)),
+      loadJournalEntries(bounds),
     ]);
-    return { accounts, journalEntries, cashAccountIds: deps.cashAccountIds };
+    // The scope rides on the context, not on the query: it has to cut at the
+    // posted LINE, and `ledger.list` can only bound whole entries by date.
+    return { accounts, journalEntries, cashAccountIds: deps.cashAccountIds, branchScope: branchScopeOf(c) };
   }
 
   // --- ميزان المراجعة --------------------------------------------------
@@ -162,19 +156,7 @@ export function createFinancialReportsRoutes(
   app.get("/trial-balance", gate("accounting.reports.view"), async (c) => {
     const definition = createTrialBalanceReport(todayIso(deps));
     const params = mergeParams(c, definition.defaultParams);
-    const toDate = isoDateOrUndefined(params.asOfDate);
-    // The trial balance is a balance per account and nothing else, so when the
-    // ledger can aggregate it there is no reason to read a line of the GL (Q-6).
-    // The SQL aggregate has no branch dimension to narrow by, so a
-    // branch-limited trial balance falls back to reading the entries.
-    if (deps.ledger.accountBalances && statementBranches(c) === undefined) {
-      const [accounts, balances] = await Promise.all([
-        deps.accounts.list(),
-        deps.ledger.accountBalances({ toDate }),
-      ]);
-      return respond(c, runReport(definition, params, { accounts, balances }));
-    }
-    const ctx = await loadGlContext(c, { toDate });
+    const ctx = await loadGlContext(c, { toDate: isoDateOrUndefined(params.asOfDate) });
     return respond(c, runReport(definition, params, ctx));
   });
 

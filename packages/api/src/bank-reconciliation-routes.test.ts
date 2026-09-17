@@ -164,6 +164,20 @@ describe("bank reconciliation routes — CSV import", () => {
     const res = await app.fetch(req("/import", { method: "POST", body: JSON.stringify({ treasuryAccountId: "ta-bank1" }) }));
     expect(res.status).toBe(400);
   });
+
+  it("rejects an opening balance too large to store with 422, instead of a 500 RangeError", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(importReq({ openingBalance: "99999999999999.999999" }));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as any).error).toBe("INVALID_OPENING_BALANCE");
+  });
+
+  it("rejects a closing balance too large to store with 422", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(importReq({ closingBalance: "99999999999999.999999" }));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as any).error).toBe("INVALID_OPENING_BALANCE");
+  });
 });
 
 describe("bank reconciliation routes — listing", () => {

@@ -93,10 +93,10 @@ const customers: CustomerDTO[] = [
 ];
 
 const warehouses: WarehouseDTO[] = [
-  { id: "wh-raw", code: "RAW-WH", name: "مستودع الخامات", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
-  { id: "wh-fg", code: "FG-WH", name: "مستودع المنتجات التامة", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
+  { id: "wh-raw", code: "RAW-WH", name: "مستودع الخامات", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true, projectId: null, custodianUserId: null },
+  { id: "wh-fg", code: "FG-WH", name: "مستودع المنتجات التامة", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true, projectId: null, custodianUserId: null },
   // the WIP warehouse field defaults from the shop's PRODUCTION-type warehouse.
-  { id: "wh-wip", code: "WIP-WH", name: "مستودع التشغيل", nameEn: null, branchId: "MAIN", type: "PRODUCTION", isDefault: false, active: true },
+  { id: "wh-wip", code: "WIP-WH", name: "مستودع التشغيل", nameEn: null, branchId: "MAIN", type: "PRODUCTION", isDefault: false, active: true, projectId: null, custodianUserId: null },
 ];
 
 const products: ConfigurableProductRecord[] = [

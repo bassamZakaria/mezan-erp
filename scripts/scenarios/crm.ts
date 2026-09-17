@@ -225,13 +225,15 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- Fixed Assets priority 3: straight-line matches category method/life; run posts a balanced entry ---
   // Runs FIRST among the fixed-assets scenarios, before any new asset is created, so the eligible set
-  // stays exactly the 6 seeded ASSET-DEMO-* assets and the totals below are exact.
+  // stays exactly the 7 seeded assets — the 6 ASSET-DEMO-* plus the contracting seed's project-assigned
+  // plant asset — and the totals below are exact.
 
   await scenario("fixed-assets · depreciation run matches each asset's category method/life; posting balances the GL", async () => {
     const run = await req("POST", "/assets/depreciation/runs", { period: "2026-08" });
     checkEq("run created", run.status, 201);
     check("starts 'draft'", run.body.status === "draft");
-    checkEq("exactly the 6 seeded active assets are eligible", run.body.lines.length, 6);
+    checkEq("exactly the 7 seeded active assets are eligible — the 6 ASSET-DEMO-* plus the contracting seed's project-assigned plant asset AST-0101",
+      run.body.lines.length, 7);
 
     const byAsset = new Map(run.body.lines.map((l: any) => [l.assetId, n(l.amount)]));
     checkEq("ASSET-DEMO-1 (AST-0001): (180,000 − 18,000) / 60", byAsset.get("ASSET-DEMO-1"), 2700);
@@ -240,7 +242,8 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("ASSET-DEMO-4 (AST-0004): (95,000 − 4,750) / 36", byAsset.get("ASSET-DEMO-4"), 2506.944444);
     checkEq("ASSET-DEMO-5 (AST-0005): (36,000 − 1,800) / 36", byAsset.get("ASSET-DEMO-5"), 950);
     checkEq("ASSET-DEMO-6 (AST-0006): (250,000 − 25,000) / 60", byAsset.get("ASSET-DEMO-6"), 3750);
-    checkEq("the run's totalAmount is the exact sum of its 6 lines — no rounding leak", n(run.body.totalAmount), 19459.027777);
+    checkEq("ASSET-DEMO-PLANT-1 (AST-0101): (900,000 − 90,000) / 60", byAsset.get("ASSET-DEMO-PLANT-1"), 13500);
+    checkEq("the run's totalAmount is the exact sum of its 7 lines — no rounding leak", n(run.body.totalAmount), 32959.027777);
 
     const duplicate = await req("POST", "/assets/depreciation/runs", { period: "2026-08" });
     checkEq("a second run for the same period+branch is rejected (AST-19)", duplicate.status, 409);
@@ -253,15 +256,24 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const je = await req("GET", `/gl/journal-entries/${posted.body.journalEntryId}`);
     checkEq("the posted journal entry is fetchable", je.status, 200);
-    checkEq("exactly ONE Dr/Cr pair — all 3 categories share the same 5400/1590 accounts, so lines are grouped, not one per asset",
-      je.body.lines.length, 2);
-    const debitLine = je.body.lines.find((l: any) => l.accountId === "5400");
-    const creditLine = je.body.lines.find((l: any) => l.accountId === "1590");
-    check("a 5400 (depreciation expense) debit line exists", debitLine !== undefined);
-    check("a 1590 (accumulated depreciation) credit line exists", creditLine !== undefined);
-    checkEq("Dr 5400 == the run's total", n(debitLine.debit), 19459.027777);
-    checkEq("Cr 1590 == the run's total", n(creditLine.credit), 19459.027777);
-    checkEq("the entry balances: debit == credit", n(debitLine.debit), n(creditLine.credit));
+    checkEq("exactly TWO Dr/Cr pairs — all 3 categories share the same 5400/1590 accounts so lines are grouped, but the plant asset is project-assigned and posts under its own project group",
+      je.body.lines.length, 4);
+    const debitLine = je.body.lines.find((l: any) => l.accountId === "5400" && !l.projectId);
+    const creditLine = je.body.lines.find((l: any) => l.accountId === "1590" && !l.projectId);
+    const plantDebit = je.body.lines.find((l: any) => l.accountId === "5400" && l.projectId === "PRJ-DEMO-1");
+    const plantCredit = je.body.lines.find((l: any) => l.accountId === "1590" && l.projectId === "PRJ-DEMO-1");
+    check("a 5400 (depreciation expense) debit line exists for the unassigned assets", debitLine !== undefined);
+    check("a 1590 (accumulated depreciation) credit line exists for the unassigned assets", creditLine !== undefined);
+    check("the plant asset's depreciation debits 5400 under its own project", plantDebit !== undefined);
+    check("and credits 1590 under the same project", plantCredit !== undefined);
+    check("the plant asset's expense line carries costCategory 'equipment' — plant depreciation is project equipment cost",
+      plantDebit?.costCategory === "equipment", JSON.stringify(plantDebit?.costCategory));
+    checkEq("Dr 5400 (no project) == the 6 unassigned assets' total", n(debitLine.debit), 19459.027777);
+    checkEq("Cr 1590 (no project) == the same", n(creditLine.credit), 19459.027777);
+    checkEq("Dr 5400 (PRJ-DEMO-1) == the plant asset's 13,500.00", n(plantDebit.debit), 13500);
+    checkEq("Cr 1590 (PRJ-DEMO-1) == the same", n(plantCredit.credit), 13500);
+    checkEq("the entry balances: debit == credit",
+      n(debitLine.debit) + n(plantDebit.debit), n(creditLine.credit) + n(plantCredit.credit));
 
     const asset1 = await req("GET", "/assets/ASSET-DEMO-1");
     checkEq("AST-0001's accumulated depreciation now 2,700.00", n(asset1.body.accumulatedDepreciation), 2700);

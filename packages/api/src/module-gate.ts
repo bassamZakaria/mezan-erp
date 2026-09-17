@@ -1,5 +1,11 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { hasModule, type Entitlements } from "@mezan/domain";
+import { hasModule, MODULES, type Entitlements } from "@mezan/domain";
+
+declare module "hono" {
+  interface ContextVariableMap {
+    entitlements?: Entitlements;
+  }
+}
 
 /**
  * Module-gate middleware — rejects calls into a module the current
@@ -89,6 +95,34 @@ export const MODULE_ROUTE_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["/notifications", "notifications"],
   ["/notification-rules", "notifications"],
 ];
+
+/**
+ * Binds the request's entitlements onto the Hono context, once, for every
+ * permission gate below it to read (`permission-gate.ts`). Mirrors
+ * `permissionRefusalReporting`'s shape: mounted once by `createApp`, and the
+ * only way `c.get("entitlements")` is ever populated.
+ *
+ * Sets nothing when the resolver has nothing to say — a desktop app or a unit
+ * test that builds routes directly never mounts this, and the permission
+ * gates treat an absent binding as "no module check", not as a refusal.
+ */
+export function entitlementsBinding(resolve: EntitlementsResolver): MiddlewareHandler {
+  return async function bindEntitlements(c, next) {
+    const entitlements = await resolve(c);
+    if (entitlements) c.set("entitlements", entitlements);
+    await next();
+  };
+}
+
+/** The 403 body a permission gate answers with when its permission's module isn't licensed. */
+export function moduleRefusal(moduleId: string): { error: "MODULE_NOT_LICENSED"; module: string; message: string } {
+  const labelAr = MODULES.find((m) => m.id === moduleId)?.labelAr ?? moduleId;
+  return {
+    error: "MODULE_NOT_LICENSED",
+    module: moduleId,
+    message: `وحدة ${labelAr} غير مفعّلة في باقتكم`,
+  };
+}
 
 /**
  * Builds a gate factory bound to one entitlements resolver. Apply the returned

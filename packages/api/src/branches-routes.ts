@@ -29,6 +29,13 @@ export function createBranchesRoutes(
     if (await store.findById(parsed.data.id)) {
       return c.json({ error: "ALREADY_EXISTS" }, 409);
     }
+    const limit = c.get("entitlements")?.limits?.branches;
+    if (limit !== undefined && (await store.findAll()).length >= limit) {
+      return c.json(
+        { error: "BRANCH_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للفروع في باقتكم" },
+        409,
+      );
+    }
     try {
       const branch = createBranch(parsed.data);
       await store.save(branch);

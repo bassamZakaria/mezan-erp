@@ -27,6 +27,7 @@ import {
   useLogWorkOrderWaste,
   useLogWorkOrderCost,
   useItems,
+  useProjects,
   useReceiveWorkOrderProduct,
   useStartWorkOrder,
   useWarehouses,
@@ -313,6 +314,7 @@ function WorkOrderDetail({
   order,
   itemName,
   warehouseName,
+  projectName,
   onBack,
   onAdvance,
   advancing,
@@ -320,6 +322,7 @@ function WorkOrderDetail({
   order: WorkOrderRecord;
   itemName: (id: string) => string;
   warehouseName: (id: string) => string;
+  projectName: (id: string | null) => string;
   onBack: () => void;
   onAdvance: () => void;
   advancing: boolean;
@@ -352,6 +355,7 @@ function WorkOrderDetail({
         { label: t("workOrders.wipWarehouse"), value: order.wipWarehouseId === "" ? "—" : warehouseName(order.wipWarehouseId) },
         { label: t("workOrders.finishedGoodsWarehouse"), value: warehouseName(order.destinationWarehouseId) },
         { label: t("workOrders.priority"), value: priorityLabel(order.priority, t) },
+        { label: t("common.project"), value: projectName(order.projectId) },
         { label: t("workOrders.workInProgressValue"), value: <MoneyValue value={num(order.wipTotal)} /> },
       ]}
       effects={[
@@ -532,6 +536,7 @@ export function WorkOrdersScreen() {
   const bomsQuery = useBoms();
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
+  const projectsQuery = useProjects();
   const createOrder = useCreateWorkOrder();
   const startOrder = useStartWorkOrder();
   const issueOrder = useIssueWorkOrderMaterials();
@@ -543,11 +548,24 @@ export function WorkOrdersScreen() {
   const boms = (bomsQuery.data ?? []).filter((b) => b.status === "active");
   const items = itemsQuery.data ?? EMPTY;
   const warehouses = warehousesQuery.data ?? EMPTY;
+  const projects = projectsQuery.data ?? EMPTY;
 
   const itemName = useMemo(() => {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [items]);
+  const projectName = useMemo(() => {
+    const map = new Map(projects.map((p) => [p.id, p.nameAr]));
+    return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
+  }, [projects, t]);
+  /** Only a live project can absorb new cost — a project already closed or cancelled stays out of the picker (D-01). */
+  const projectOptions: EntityPickerOption[] = useMemo(
+    () =>
+      projects
+        .filter((p) => p.status === "planned" || p.status === "active" || p.status === "on_hold")
+        .map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code })),
+    [projects],
+  );
   const bomOptions: EntityPickerOption[] = boms.map((b) => ({ id: b.id, label: `${b.number} — ${itemName(b.productItemId)}`, sublabel: `v${b.version}` }));
   const warehouseOptions: EntityPickerOption[] = warehouses.map((w) => ({ id: w.id, label: nameOf(w), sublabel: w.code }));
   /**
@@ -583,6 +601,7 @@ export function WorkOrdersScreen() {
   const [sourceWarehouse, setSourceWarehouse] = useState<EntityPickerOption | null>(null);
   const [wipWarehouse, setWipWarehouse] = useState<EntityPickerOption | null>(null);
   const [destinationWarehouse, setDestinationWarehouse] = useState<EntityPickerOption | null>(null);
+  const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [priority, setPriority] = useState<"low" | "normal" | "high">("normal");
   const [scheduledStartDate, setScheduledStartDate] = useState(today());
   const [scheduledEndDate, setScheduledEndDate] = useState("");
@@ -654,6 +673,7 @@ export function WorkOrdersScreen() {
     setSourceWarehouse(null);
     setWipWarehouse(defaultWipWarehouse);
     setDestinationWarehouse(null);
+    setProject(null);
     setPriority("normal");
     setScheduledStartDate(today());
     setScheduledEndDate("");
@@ -684,6 +704,7 @@ export function WorkOrdersScreen() {
         scheduledStartDate,
         scheduledEndDate: scheduledEndDate.trim() === "" ? null : scheduledEndDate,
         notes: notes.trim() === "" ? null : notes.trim(),
+        projectId: project?.id ?? null,
       });
       setPanelOpen(false);
     } catch (err) {
@@ -787,6 +808,14 @@ export function WorkOrdersScreen() {
             { value: "normal", label: t("manufacturingHub.priority.normal") },
             { value: "high", label: t("manufacturingHub.priority.high") },
           ]}
+        />
+        <EntityPicker
+          label={t("common.project")}
+          value={project}
+          onChange={setProject}
+          options={projectOptions}
+          placeholder={t("common.noProject")}
+          emptyMessage={t("common.noProject")}
         />
         <TextField label={t("workOrders.startDate")} value={scheduledStartDate} onChange={setScheduledStartDate} placeholder="YYYY-MM-DD" />
         <TextField label={t("workOrders.expectedFinish")} value={scheduledEndDate} onChange={setScheduledEndDate} placeholder="YYYY-MM-DD" />
@@ -906,6 +935,7 @@ export function WorkOrdersScreen() {
           order={selected}
           itemName={itemName}
           warehouseName={warehouseName}
+          projectName={projectName}
           onBack={() => setSelectedId(null)}
           onAdvance={() => {
             advance(selected).catch(() => {

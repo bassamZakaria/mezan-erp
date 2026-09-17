@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -17,8 +17,8 @@ import {
   type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
-import type { GoodsReceiptDTO, GoodsReceiptStatusDTO } from "@mezan/contracts";
-import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, usePurchaseOrders, useSettings, useSuppliers,
+import type { CostCategoryDTO, GoodsReceiptDTO, GoodsReceiptStatusDTO, PurchaseOrderDTO } from "@mezan/contracts";
+import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useSettings, useSuppliers,
   useUsers,
   useBranches,
   useWarehouses,
@@ -49,10 +49,43 @@ const STATUS_TONE: Record<GoodsReceiptStatusDTO, PillTone> = {
 
 const num = (v: string) => Number(v);
 
-interface PreviewLine {
+const COST_CATEGORY_VALUES = ["materials", "labour", "equipment", "subcontract", "indirect"] as const satisfies readonly CostCategoryDTO[];
+const COST_CATEGORY_KEY: Record<CostCategoryDTO, AppTranslationKey> = {
+  materials: "costCategory.materials",
+  labour: "costCategory.labour",
+  equipment: "costCategory.equipment",
+  subcontract: "costCategory.subcontract",
+  indirect: "costCategory.indirect",
+};
+
+/**
+ * One line of a receipt taken against a purchase order. `qty` is what the
+ * storekeeper says arrived and defaults to `outstandingQty`; a partial delivery
+ * is the normal case, so the two are not the same number (D73).
+ */
+interface FromOrderLine {
+  key: string;
   itemId: string;
   qty: number;
+  outstandingQty: number;
   unitCost: number;
+  costCategory: CostCategoryDTO | null;
+}
+
+function buildFromOrderLines(order: PurchaseOrderDTO): FromOrderLine[] {
+  return order.lines
+    .map((line, index) => {
+      const outstandingQty = Number(line.qty) - Number(line.receivedQty);
+      return {
+        key: `${order.id}:${index}`,
+        itemId: line.itemId,
+        qty: outstandingQty,
+        outstandingQty,
+        unitCost: Number(line.unitPrice),
+        costCategory: null,
+      };
+    })
+    .filter((line) => line.outstandingQty > 0);
 }
 
 /** One hand-entered line of an ad-hoc (PO-less) receipt — only reachable when the policy is off. */
@@ -64,11 +97,12 @@ interface AdHocLine {
   /** Shown only for a batch-tracked item — the contract has always accepted both. */
   batchNo: string;
   expiryDate: string;
+  costCategory: CostCategoryDTO | null;
 }
 let adHocSeq = 0;
 function blankAdHocLine(): AdHocLine {
   adHocSeq += 1;
-  return { key: `ah${adHocSeq}`, itemId: "", qty: 1, unitCost: 0, batchNo: "", expiryDate: "" };
+  return { key: `ah${adHocSeq}`, itemId: "", qty: 1, unitCost: 0, batchNo: "", expiryDate: "", costCategory: null };
 }
 
 function ReceiptDetail({
@@ -76,6 +110,7 @@ function ReceiptDetail({
   order,
   supplierName,
   itemName,
+  projectName,
   onBack,
   onConfirm,
   onPrint,
@@ -84,6 +119,7 @@ function ReceiptDetail({
   order: { number: string } | undefined;
   supplierName: (id: string) => string;
   itemName: (id: string) => string;
+  projectName: (id: string | null) => string;
   onBack: () => void;
   onConfirm: () => void;
   onPrint: () => void;
@@ -110,6 +146,7 @@ function ReceiptDetail({
         { label: t("goodsReceipts.detail.order"), value: order?.number ?? receipt.purchaseOrderId },
         { label: t("common.date"), value: receipt.date.split("-").reverse().join("/") },
         { label: t("common.warehouse"), value: receipt.warehouseId },
+        { label: t("common.project"), value: projectName(receipt.projectId) },
         { label: t("goodsReceipts.detail.totalCost"), value: <MoneyValue value={num(receipt.totalCost)} /> },
         { label: t("goodsReceipts.detail.invoiceStatus"), value: receipt.invoiced ? t("goodsReceipts.invoiced") : t("goodsReceipts.notInvoiced"), valueTone: receipt.invoiced ? "success" : undefined },
       ]}
@@ -135,6 +172,7 @@ function ReceiptDetail({
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
                     <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("common.costCategory")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.receivedQty")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.unitCost")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.lineTotal")}</th>
@@ -144,6 +182,7 @@ function ReceiptDetail({
                   {receipt.lines.map((l, i) => (
                     <tr key={i} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[10px]">{itemName(l.itemId)}</td>
+                      <td className="px-[12px] py-[10px]">{l.costCategory ? t(COST_CATEGORY_KEY[l.costCategory]) : "—"}</td>
                       <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.qty} /></td>
                       <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
                       <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost) * Number(l.qty)} showUnit={false} /></td>
@@ -169,12 +208,14 @@ export function GoodsReceiptsScreen() {
   const ordersQuery = usePurchaseOrders();
   const suppliersQuery = useSuppliers();
   const itemsQuery = useItems();
+  const projectsQuery = useProjects();
   const createReceipt = useCreateGoodsReceipt();
   const confirmReceipt = useConfirmGoodsReceipt();
 
   const orders = ordersQuery.data ?? EMPTY;
   const suppliers = suppliersQuery.data ?? EMPTY;
   const items = itemsQuery.data ?? EMPTY;
+  const projects = projectsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
@@ -184,6 +225,18 @@ export function GoodsReceiptsScreen() {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [items]);
+  const projectName = useMemo(() => {
+    const map = new Map(projects.map((p) => [p.id, p.nameAr]));
+    return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
+  }, [projects, t]);
+  /** Only a live project can absorb new cost — a project already closed or cancelled stays out of the picker (D-01). */
+  const projectOptions: EntityPickerOption[] = useMemo(
+    () =>
+      projects
+        .filter((p) => p.status === "planned" || p.status === "active" || p.status === "on_hold")
+        .map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code })),
+    [projects],
+  );
   const orderById = useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
 
   /** Only sent / partially-received POs can be received against (docs/archive/catalog/02). */
@@ -259,6 +312,7 @@ export function GoodsReceiptsScreen() {
   const [method, setMethod] = useState<"from-order" | "ad-hoc">("from-order");
   const [methodChosen, setMethodChosen] = useState(false);
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
+  const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [adHocWarehouseId, setAdHocWarehouseId] = useState("");
   const [adHocLines, setAdHocLines] = useState<AdHocLine[]>([blankAdHocLine()]);
   const workingLocation = useWorkingLocation();
@@ -269,14 +323,28 @@ export function GoodsReceiptsScreen() {
   const receipts = query.data ?? EMPTY;
   const selected = selectedId === null ? null : (receipts.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
 
-  // create-from-PO preview only — the server auto-fills the real lines from the PO's outstanding qty on save.
-  const previewLines: PreviewLine[] = useMemo(() => {
-    const order = orders.find((o) => o.id === pickedOrder?.id);
-    if (!order) return [];
-    return order.lines
-      .map((l) => ({ itemId: l.itemId, qty: Number(l.qty) - Number(l.receivedQty), unitCost: Number(l.unitPrice) }))
-      .filter((l) => l.qty > 0);
-  }, [pickedOrder, orders]);
+  /**
+   * The from-PO lines are seeded from the order's outstanding quantities and
+   * then edited per row, so they are state rather than a memo — re-seeding on
+   * every `orders` refetch would throw away what the storekeeper typed.
+   */
+  const [fromOrderLines, setFromOrderLines] = useState<FromOrderLine[]>([]);
+  const [linesOrderId, setLinesOrderId] = useState<string | null>(null);
+  useEffect(() => {
+    const orderId = pickedOrder?.id ?? null;
+    if (orderId === null) {
+      if (linesOrderId !== null) {
+        setLinesOrderId(null);
+        setFromOrderLines([]);
+      }
+      return;
+    }
+    if (orderId === linesOrderId) return;
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    setLinesOrderId(orderId);
+    setFromOrderLines(buildFromOrderLines(order));
+  }, [pickedOrder, orders, linesOrderId]);
 
   const filtered = useMemo(() => [...receipts].sort((a, b) => b.number.localeCompare(a.number)), [receipts]);
 
@@ -311,9 +379,21 @@ export function GoodsReceiptsScreen() {
     setMethod("from-order");
     setMethodChosen(false);
     setSupplier(null);
+    setProject(null);
     setAdHocWarehouseId(workingLocation.warehouseId ?? warehousesForForm[0]?.id ?? "");
     setAdHocLines([blankAdHocLine()]);
+    setFromOrderLines([]);
+    setLinesOrderId(null);
     subPage.open("new");
+  }
+
+  /** Clearing the header project also clears every line's category — a category without a project is meaningless (D-01). */
+  function changeProject(opt: EntityPickerOption | null) {
+    setProject(opt);
+    if (!opt) {
+      setFromOrderLines((prev) => prev.map((l) => ({ ...l, costCategory: null })));
+      setAdHocLines((prev) => prev.map((l) => ({ ...l, costCategory: null })));
+    }
   }
 
   async function confirmSelected(id: string) {
@@ -325,17 +405,32 @@ export function GoodsReceiptsScreen() {
   }
 
   const usableAdHocLines = adHocLines.filter((l) => l.itemId !== "" && l.qty > 0);
+  // A line received at zero is simply not on the receipt; one above the PO's
+  // outstanding quantity is an over-receipt the server would refuse anyway.
+  const usableFromOrderLines = fromOrderLines.filter((l) => l.qty > 0);
+  const overReceiptLine = fromOrderLines.some((l) => l.qty > l.outstandingQty);
   const canSave =
     method === "from-order"
-      ? pickedOrder !== null && previewLines.length > 0
+      ? pickedOrder !== null && usableFromOrderLines.length > 0 && !overReceiptLine
       : !requirePoForGrn && supplier !== null && adHocWarehouseId !== "" && usableAdHocLines.length > 0;
 
   async function save() {
     setFormError(null);
     try {
       if (method === "from-order") {
-        if (!pickedOrder || previewLines.length === 0) return;
-        await createReceipt.mutateAsync({ id: crypto.randomUUID(), purchaseOrderId: pickedOrder.id, date });
+        if (!pickedOrder || usableFromOrderLines.length === 0 || overReceiptLine) return;
+        await createReceipt.mutateAsync({
+          id: crypto.randomUUID(),
+          purchaseOrderId: pickedOrder.id,
+          date,
+          projectId: project?.id ?? null,
+          lines: usableFromOrderLines.map((l) => ({
+            itemId: l.itemId,
+            qty: String(l.qty),
+            unitCost: String(l.unitCost),
+            costCategory: l.costCategory,
+          })),
+        });
       } else {
         if (!supplier || adHocWarehouseId === "" || usableAdHocLines.length === 0) return;
         await createReceipt.mutateAsync({
@@ -343,12 +438,14 @@ export function GoodsReceiptsScreen() {
           date,
           supplierId: supplier.id,
           warehouseId: adHocWarehouseId,
+          projectId: project?.id ?? null,
           lines: usableAdHocLines.map((l) => ({
             itemId: l.itemId,
             qty: String(l.qty),
             unitCost: String(l.unitCost || 0),
             batchNo: l.batchNo.trim() === "" ? null : l.batchNo.trim(),
             expiryDate: l.expiryDate === "" ? null : l.expiryDate,
+            costCategory: l.costCategory,
           })),
         });
       }
@@ -440,20 +537,49 @@ export function GoodsReceiptsScreen() {
         {methodChosen && method === "from-order" ? (
           <>
             <EntityPicker label={t("goodsReceipts.field.order")} value={pickedOrder} onChange={setPickedOrder} options={orderOptions} placeholder={t("goodsReceipts.field.orderPlaceholder")} emptyMessage={t("goodsReceipts.field.orderEmpty")} />
-            {previewLines.length > 0 ? (
-              <div className="rounded-lg border border-border bg-surface p-[12px]">
-                <div className="mb-[8px] text-[12.5px] font-semibold text-ink">{t("goodsReceipts.linesAuto")}</div>
-                <table className="w-full border-collapse text-[12.5px]">
-                  <tbody>
-                    {previewLines.map((l, i) => (
-                      <tr key={i} className="border-b border-border last:border-b-0">
-                        <td className="py-[7px]">{itemName(l.itemId)}</td>
-                        <td className="py-[7px] text-end"><QtyDisplay value={l.qty} /></td>
-                        <td className="py-[7px] text-end"><MoneyValue value={l.unitCost} showUnit={false} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {fromOrderLines.length > 0 ? (
+              <div className="flex flex-col gap-[10px]">
+                <span className="text-[12.5px] font-semibold text-ink">{t("goodsReceipts.linesAuto")}</span>
+                {fromOrderLines.map((line) => (
+                  <div key={line.key} className="rounded-lg border border-border bg-surface p-[12px]">
+                    <div className="flex flex-wrap items-baseline justify-between gap-[8px]">
+                      <span className="text-[12.5px] font-semibold text-ink">{itemName(line.itemId)}</span>
+                      <span className="text-[12px] text-ink-muted">
+                        {t("goodsReceipts.col.unitCost")} <MoneyValue value={line.unitCost} showUnit={false} />
+                      </span>
+                    </div>
+                    <div className="mt-[10px] grid grid-cols-2 gap-[8px]">
+                      <NumberField
+                        label={t("goodsReceipts.col.receivedQty")}
+                        value={line.qty}
+                        min={0}
+                        max={line.outstandingQty}
+                        hint={`${t("goodsReceipts.line.outstanding")}: ${line.outstandingQty}`}
+                        onChange={(v) =>
+                          setFromOrderLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, qty: v } : l)))
+                        }
+                      />
+                    </div>
+                    {line.qty > line.outstandingQty ? (
+                      <p role="alert" className="mt-[8px] text-[12px] text-danger-ink">
+                        {t("goodsReceipts.error.overReceipt", { outstanding: String(line.outstandingQty) })}
+                      </p>
+                    ) : null}
+                    <div className="mt-[10px]">
+                      <SelectField
+                        label={t("common.costCategory")}
+                        value={line.costCategory ?? ""}
+                        onChange={(v) =>
+                          setFromOrderLines((prev) =>
+                            prev.map((l) => (l.key === line.key ? { ...l, costCategory: v === "" ? null : (v as CostCategoryDTO) } : l)),
+                          )
+                        }
+                        options={[{ value: "", label: t("common.none") }, ...COST_CATEGORY_VALUES.map((c) => ({ value: c, label: t(COST_CATEGORY_KEY[c]) }))]}
+                        disabled={project === null}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : null}
           </>
@@ -508,6 +634,19 @@ export function GoodsReceiptsScreen() {
                     />
                   </div>
                 ) : null}
+                <div className="mt-[10px]">
+                  <SelectField
+                    label={t("common.costCategory")}
+                    value={line.costCategory ?? ""}
+                    onChange={(v) =>
+                      setAdHocLines((prev) =>
+                        prev.map((l) => (l.key === line.key ? { ...l, costCategory: v === "" ? null : (v as CostCategoryDTO) } : l)),
+                      )
+                    }
+                    options={[{ value: "", label: t("common.none") }, ...COST_CATEGORY_VALUES.map((c) => ({ value: c, label: t(COST_CATEGORY_KEY[c]) }))]}
+                    disabled={project === null}
+                  />
+                </div>
                 {adHocLines.length > 1 ? (
                   <div className="mt-[8px] flex justify-end">
                     <Button onClick={() => setAdHocLines((prev) => prev.filter((l) => l.key !== line.key))}>{t("goodsReceipts.deleteLine")}</Button>
@@ -522,6 +661,14 @@ export function GoodsReceiptsScreen() {
         {methodChosen ? (
           <>
             <TextField label={t("goodsReceipts.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+            <EntityPicker
+              label={t("common.project")}
+              value={project}
+              onChange={changeProject}
+              options={projectOptions}
+              placeholder={t("common.noProject")}
+              emptyMessage={t("common.noProject")}
+            />
             <div className="flex justify-end gap-[9px]">
               <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
               <Button variant="primary" onClick={save} disabled={!canSave}>
@@ -547,6 +694,7 @@ export function GoodsReceiptsScreen() {
           order={selected.purchaseOrderId ? orderById.get(selected.purchaseOrderId) : undefined}
           supplierName={supplierName}
           itemName={itemName}
+          projectName={projectName}
           onBack={() => subPage.close()}
           onConfirm={() => confirmSelected(selected.id)}
           onPrint={() => subPage.open(selected.number ?? selected.id, "print")}

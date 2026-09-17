@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateParamSchema } from "./iso-date.js";
 import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
 import { Money } from "../money/index.js";
 import type { JournalEntry } from "../journal.js";
@@ -37,7 +38,7 @@ export interface VatReturnRow {
   readonly tax: number;
 }
 
-const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD");
+const DATE = isoDateParamSchema;
 const paramsSchema = z
   .object({ periodFrom: DATE, periodTo: DATE })
   .refine((p) => p.periodFrom <= p.periodTo, {
@@ -259,3 +260,6 @@ export function createVatReturnReport(
     },
   };
 }
+
+/** دفتر ملخص الضريبة — the tax-summary book required by قرار وزير المالية 420 لسنة 2025، المادة 3. */
+export const createDecree420TaxSummaryBook = createVatReturnReport;

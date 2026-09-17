@@ -1,3 +1,4 @@
+import type { CostCategory } from "../contracting/cost-category.js";
 /**
  * Journal Entry as a document-framework consumer (docs/archive/catalog/04 §القيود
  * المحاسبية) — the first module to prove the framework end to end.
@@ -36,6 +37,16 @@ export interface JournalDocLine {
   readonly debit: Money;
   readonly credit: Money;
   readonly memo?: string | null;
+  readonly costCenterId?: string | null;
+  readonly projectId?: string | null;
+  readonly costCategory?: CostCategory | null;
+  /**
+   * بُعد الفرع (DEC-20). Optional per line, not derived from any header: a
+   * manual journal has no source document to derive a branch from, and one
+   * entry can legitimately split across branches. Left empty the line lands in
+   * the statements' «غير مخصص» bucket.
+   */
+  readonly branchId?: string | null;
 }
 
 export type JournalDocument = FrameworkDocument<JournalDocLine>;
@@ -93,6 +104,10 @@ export const journalDocumentType: DocumentTypeDefinition<JournalDocLine> = {
         debit: l.debit,
         credit: l.credit,
         memo: l.memo ?? null,
+        costCenterId: l.costCenterId ?? null,
+        projectId: l.projectId ?? null,
+        costCategory: l.costCategory ?? null,
+        branchId: l.branchId ?? null,
       })),
     };
   },
@@ -150,6 +165,9 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
             // posted line and can never recover them afterwards (D24, D26).
             costCenterId: l.costCenterId ?? null,
             taxRatePercent: l.taxRatePercent ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
           })),

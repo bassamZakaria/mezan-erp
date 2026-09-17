@@ -39,6 +39,7 @@ const ADDED_COLUMNS: readonly [string, string][] = [
   ["commercial_registration_number", "TEXT"],
   ["address", "TEXT"],
   ["logo_attachment_id", "TEXT"],
+  ["branch_id", "TEXT"],
 ];
 
 function addMissingColumns(sqlite: Database.Database): void {
@@ -64,6 +65,7 @@ interface CustomerRow {
   payment_terms_days: number;
   currency: string;
   opening_balance: number;
+  branch_id: string | null;
   active: number;
   price_list_id: string | null;
   credit_limit: number;
@@ -90,6 +92,7 @@ function toCustomer(row: CustomerRow): Customer {
     paymentTermsDays: row.payment_terms_days,
     currency: row.currency,
     openingBalance: Money.fromScaled(row.opening_balance),
+    branchId: row.branch_id ?? null,
     active: row.active === 1,
     priceListId: row.price_list_id,
     creditLimit: Money.fromScaled(row.credit_limit),
@@ -112,18 +115,18 @@ class SqliteCustomerRepository implements CustomerRepository {
     this.upsert = sqlite.prepare(`
       INSERT INTO customer (
         id, code, name_ar, name_en, phone, email, contact_person, tax_number, category, notes,
-        payment_terms_days, currency, opening_balance, active, price_list_id, credit_limit, tax_exempt, eta_buyer_type,
+        payment_terms_days, currency, opening_balance, active, branch_id, price_list_id, credit_limit, tax_exempt, eta_buyer_type,
         commercial_registration_number, address, logo_attachment_id, national_id
       ) VALUES (
         @id, @code, @nameAr, @nameEn, @phone, @email, @contactPerson, @taxNumber, @category, @notes,
-        @paymentTermsDays, @currency, @openingBalance, @active, @priceListId, @creditLimit, @taxExempt, @etaBuyerType,
+        @paymentTermsDays, @currency, @openingBalance, @active, @branchId, @priceListId, @creditLimit, @taxExempt, @etaBuyerType,
         @commercialRegistrationNumber, @address, @logoAttachmentId, @nationalId
       )
       ON CONFLICT(id) DO UPDATE SET
         code = @code, name_ar = @nameAr, name_en = @nameEn, phone = @phone, email = @email,
         contact_person = @contactPerson, tax_number = @taxNumber, category = @category, notes = @notes,
         payment_terms_days = @paymentTermsDays, currency = @currency, opening_balance = @openingBalance,
-        active = @active, price_list_id = @priceListId, credit_limit = @creditLimit,
+        active = @active, branch_id = @branchId, price_list_id = @priceListId, credit_limit = @creditLimit,
         tax_exempt = @taxExempt, eta_buyer_type = @etaBuyerType,
         commercial_registration_number = @commercialRegistrationNumber, address = @address,
         logo_attachment_id = @logoAttachmentId, national_id = @nationalId
@@ -163,6 +166,7 @@ class SqliteCustomerRepository implements CustomerRepository {
       currency: customer.currency,
       openingBalance: customer.openingBalance.toScaledNumber(),
       active: customer.active ? 1 : 0,
+      branchId: customer.branchId,
       priceListId: customer.priceListId,
       creditLimit: customer.creditLimit.toScaledNumber(),
       taxExempt: customer.taxExempt ? 1 : 0,

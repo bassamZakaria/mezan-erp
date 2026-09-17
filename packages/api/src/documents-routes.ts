@@ -88,6 +88,9 @@ export function createDocumentsRoutes(
         debit: Money.fromMajor(l.debit),
         credit: Money.fromMajor(l.credit),
         memo: l.memo ?? null,
+        costCenterId: l.costCenterId ?? null,
+        projectId: l.projectId ?? null,
+        costCategory: l.costCategory ?? null,
       })),
     );
     const effects = journalDocumentType.describeEffects(draft);

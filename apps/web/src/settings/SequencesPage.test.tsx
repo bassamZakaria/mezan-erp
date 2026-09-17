@@ -101,10 +101,10 @@ describe("SequencesPage — edit panel", () => {
     expect(called).toBe(false);
   });
 
-  // guards §4.5 #13 — this test used to pin the DEFECT: every failed save
-  // showed one fixed sentence whatever the backend said. `readError` now
+  // guards D100 / §4.5 #13 — this test used to pin the DEFECT: every failed
+  // save showed one fixed sentence whatever the backend said. `readError` now
   // carries the server's own reason to the screen.
-  it("shows the server's own reason for a refused save, not the generic fallback", async () => {
+  it("D100: a save the backend refuses shows the server's own reason, not a fixed generic sentence", async () => {
     const transport = stubTransport({
       "GET /sequences": () => ({ body: [sequenceOne] }),
       "PATCH /sequences/*": () => ({ status: 409, body: { message: "البادئة مستخدمة في تسلسل آخر" } }),
@@ -115,6 +115,8 @@ describe("SequencesPage — edit panel", () => {
     fireEvent.change(screen.getByDisplayValue("TS-"), { target: { value: "DUP-" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
 
+    // «البادئة مستخدمة في تسلسل آخر» tells the admin what to change; the
+    // generic sentence told them only that something went wrong.
     expect(await screen.findByText("البادئة مستخدمة في تسلسل آخر")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("تعذّر حفظ إعدادات التسلسل.")).not.toBeInTheDocument());
   });

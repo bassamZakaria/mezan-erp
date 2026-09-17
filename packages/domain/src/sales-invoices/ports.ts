@@ -80,6 +80,14 @@ export interface SalesInvoiceStockIssue {
   readonly sourceDocId: string;
   readonly sourceDocNumber: string | null;
   readonly warehouseId: string;
+  /**
+   * بُعد المشروع, carried onto the stock-issue plan so a stock hook that
+   * threads it into the inventory engine's own issue command (once that
+   * command carries the field) has it in hand without another lookup. NOT
+   * forwarded to `StockLedgerService.postIssue` yet — its command type does
+   * not carry `projectId`.
+   */
+  readonly projectId?: string | null;
   readonly occurredAt: string;
   readonly lines: readonly SalesInvoiceIssueLine[];
 }

@@ -95,6 +95,7 @@ class SqliteNotificationRepository implements NotificationRepository {
   private readonly markReadStmt: Database.Statement;
   private readonly markAllReadStmt: Database.Statement;
   private readonly countUnreadStmt: Database.Statement;
+  private readonly listQueuedStmt: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
     this.insertStmt = sqlite.prepare(`
@@ -102,7 +103,12 @@ class SqliteNotificationRepository implements NotificationRepository {
         (id, rule_id, recipient_user_id, event_code, title, body, priority, channels_json, channel_status_json, status, payload_json, created_at, read_at)
       VALUES
         (@id, @rule_id, @recipient_user_id, @event_code, @title, @body, @priority, @channels_json, @channel_status_json, @status, @payload_json, @created_at, @read_at)
+      ON CONFLICT(id) DO UPDATE SET
+        channel_status_json = @channel_status_json, status = @status, read_at = @read_at
     `);
+    this.listQueuedStmt = sqlite.prepare(
+      `SELECT * FROM notification WHERE channel_status_json LIKE '%"queued"%' ORDER BY created_at ASC LIMIT ?`,
+    );
     this.selectByIdStmt = sqlite.prepare(`SELECT * FROM notification WHERE id = ?`);
     this.markReadStmt = sqlite.prepare(
       `UPDATE notification SET status = 'read', read_at = ? WHERE id = ? AND recipient_user_id = ? AND status = 'unread'`,
@@ -116,7 +122,23 @@ class SqliteNotificationRepository implements NotificationRepository {
   }
 
   async save(notification: Notification): Promise<void> {
+    // Upsert, not insert: the dispatcher saves the SAME notification back with
+    // a rewritten channel status, and an insert-only save made draining a
+    // queue impossible without a second write path.
     this.insertStmt.run(toRow(notification));
+  }
+
+  /**
+   * Every notification with at least one channel still `"queued"`, oldest
+   * first — the dispatcher's input.
+   *
+   * Matched on the JSON text rather than through a column: `channel_status` is
+   * a small object keyed by channel, adding a column per channel would need a
+   * migration for every future one, and this runs over the drain batch only.
+   */
+  async listQueued(limit: number): Promise<readonly Notification[]> {
+    const rows = this.listQueuedStmt.all(limit) as NotificationRow[];
+    return rows.map(fromRow);
   }
 
   async findById(id: string): Promise<Notification | null> {
@@ -153,6 +175,8 @@ class SqliteNotificationRepository implements NotificationRepository {
 }
 
 export interface SqliteNotificationStoreHandle extends NotificationRepository {
+  /** Every notification with a channel still queued — the dispatcher's input (ROADMAP §3.3). */
+  listQueued(limit: number): Promise<readonly Notification[]>;
   close(): void;
 }
 

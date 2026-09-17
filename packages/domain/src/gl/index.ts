@@ -28,6 +28,9 @@ export {
   assertBalanced,
   assertLinesPostable,
   assertPeriodOpen,
+  assertEntryDate,
+  assertMemorandumPartition,
+  assertProjectRequired,
 } from "./post.js";
 export {
   reverseJournalEntry,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 /**
  * Shared shapes for Label Printing (docs/archive/catalog/03-inventory.md
@@ -24,7 +25,7 @@ export const labelBatchLineInputSchema = z.object({
   nameAr: z.string().min(1),
   code: z.string().min(1),
   barcode: z.string(),
-  price: z.string(),
+  price: moneyString,
   copies: z.number().int().positive(),
 });
 

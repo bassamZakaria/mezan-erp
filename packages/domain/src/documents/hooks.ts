@@ -1,3 +1,4 @@
+import type { CostCategory } from "../contracting/cost-category.js";
 /**
  * The hook ports a document type may plug into (docs/archive/plan.md §3: numbering,
  * GL-posting, stock-movement, workflow-gate). Each is OPTIONAL per document
@@ -60,6 +61,18 @@ export interface DocumentGlPostingLine {
    * existed — the report falls back to the old derivation for those.
    */
   readonly taxRatePercent?: number | null;
+  /** بُعد المشروع — the contracting project the line belongs to (D-01). Dropped here, it is gone for good. */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only meaningful with `projectId`. */
+  readonly costCategory?: CostCategory | null;
+  /**
+   * بُعد الفرع (DEC-20) — the branch the document belongs to. Dropped here it
+   * is gone for good, the same way the cost centre and the project are. Null on
+   * every path that has no document branch (manual journals, payroll,
+   * depreciation, year-end close); those land in the statements' «غير مخصص»
+   * bucket rather than being derived from a join that would silently drop them.
+   */
+  readonly branchId?: string | null;
 }
 
 /**
@@ -122,6 +135,10 @@ export interface DocumentStockPlan {
    * direction validation and GL account routing at the stock-hook adapter.
    */
   readonly reason?: string;
+  /** بُعد المشروع — carried onto the GL entry the stock hook posts (D-01). */
+  readonly projectId?: string | null;
+  /** فئة التكلفة — only with `projectId`; goes on the cost-side line of that entry. */
+  readonly costCategory?: CostCategory | null;
   /**
    * The document's own date (`FrameworkDocument.date`), so the stock hook can
    * date the resulting ledger movements (and any GL entry they post) into the

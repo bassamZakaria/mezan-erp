@@ -24,6 +24,18 @@ export interface CostCenterPnLRow {
   readonly expense: Money;
   /** revenue − expense. */
   readonly profit: Money;
+  /** The parent cost centre, so a screen can indent the row under it. Null for roots and the unassigned bucket. */
+  readonly parentId: string | null;
+  /**
+   * This centre's own figures plus every descendant's. A project cost centre
+   * that sits under a regional one rolls up into it here; the own-figure
+   * columns above stay leaf-only so the report's totals still add up once.
+   */
+  readonly rollup: {
+    readonly revenue: Money;
+    readonly expense: Money;
+    readonly profit: Money;
+  };
 }
 
 export interface CostCenterPnLReport {
@@ -78,6 +90,33 @@ export function computeCostCenterPnL(
     }
   }
 
+  // A parent with no lines of its own still shows, because its children roll up into it.
+  for (const key of [...buckets.keys()]) {
+    let parentId = key === null ? null : costCenterById.get(key)?.parentId ?? null;
+    const guard = new Set<string>();
+    while (parentId !== null && !guard.has(parentId) && costCenterById.has(parentId)) {
+      guard.add(parentId);
+      bucketFor(parentId);
+      parentId = costCenterById.get(parentId)?.parentId ?? null;
+    }
+  }
+
+  const rollups = new Map<string | null, Bucket>();
+  for (const [key, bucket] of buckets) {
+    let cursor: string | null = key;
+    const guard = new Set<string>();
+    while (cursor !== null || key === null) {
+      const target = rollups.get(cursor) ?? { revenue: 0n, expense: 0n };
+      target.revenue += bucket.revenue;
+      target.expense += bucket.expense;
+      rollups.set(cursor, target);
+      if (cursor === null) break;
+      guard.add(cursor);
+      const next: string | null = costCenterById.get(cursor)?.parentId ?? null;
+      cursor = next !== null && (guard.has(next) || !costCenterById.has(next)) ? null : next;
+    }
+  }
+
   const rows: CostCenterPnLRow[] = [];
   let totalRevenue = 0n;
   let totalExpense = 0n;
@@ -96,6 +135,7 @@ export function computeCostCenterPnL(
     const cc = key === null ? null : costCenterById.get(key) ?? null;
     totalRevenue += bucket.revenue;
     totalExpense += bucket.expense;
+    const rollup = rollups.get(key) ?? { revenue: 0n, expense: 0n };
     rows.push({
       costCenterId: key,
       code: cc?.code ?? (key === null ? "—" : key),
@@ -103,6 +143,12 @@ export function computeCostCenterPnL(
       revenue: Money.fromScaled(bucket.revenue),
       expense: Money.fromScaled(bucket.expense),
       profit: Money.fromScaled(bucket.revenue - bucket.expense),
+      parentId: cc?.parentId ?? null,
+      rollup: {
+        revenue: Money.fromScaled(rollup.revenue),
+        expense: Money.fromScaled(rollup.expense),
+        profit: Money.fromScaled(rollup.revenue - rollup.expense),
+      },
     });
   }
 

@@ -2016,6 +2016,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: salesReturnEvents,
+    /*
+     * WITHOUT THIS the document's confirm and cancel write nothing to the
+     * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
+     * so an omitted sink is silent: the document posts, the ledger moves, and
+     * the act leaves no forensic record at all.
+     *
+     * Found because تقرير التعديلات بعد الترحيل was empty on a seeded tenant
+     * that demonstrably cancels a confirmed purchase return — the report was
+     * right and the trail it reads was never written.
+     */
+    audit: auditSink,
+    auditModule: "sales",
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
@@ -2024,12 +2036,36 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: returnsEventBridge,
+    /*
+     * WITHOUT THIS the document's confirm and cancel write nothing to the
+     * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
+     * so an omitted sink is silent: the document posts, the ledger moves, and
+     * the act leaves no forensic record at all.
+     *
+     * Found because تقرير التعديلات بعد الترحيل was empty on a seeded tenant
+     * that demonstrably cancels a confirmed purchase return — the report was
+     * right and the trail it reads was never written.
+     */
+    audit: auditSink,
+    auditModule: "purchases",
   });
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
     repo: landedCostStore,
     numbering: { next: (opts) => ledger.numbering.next("LANDED_COST", { branchId: opts?.branchId }) },
     gl: documentGl,
     workflow: documentWorkflowGate,
+    /*
+     * WITHOUT THIS the document's confirm and cancel write nothing to the
+     * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
+     * so an omitted sink is silent: the document posts, the ledger moves, and
+     * the act leaves no forensic record at all.
+     *
+     * Found because تقرير التعديلات بعد الترحيل was empty on a seeded tenant
+     * that demonstrably cancels a confirmed purchase return — the report was
+     * right and the trail it reads was never written.
+     */
+    audit: auditSink,
+    auditModule: "purchases",
   });
   const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
     postUnabsorbed: async (posting) => {
@@ -2063,6 +2099,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     repo: installmentPlans,
     numbering: { next: (opts) => ledger.numbering.next("INSTALLMENT_PLAN", { branchId: opts?.branchId }) },
     workflow: documentWorkflowGate,
+    /*
+     * WITHOUT THIS the document's confirm and cancel write nothing to the
+     * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
+     * so an omitted sink is silent: the document posts, the ledger moves, and
+     * the act leaves no forensic record at all.
+     *
+     * Found because تقرير التعديلات بعد الترحيل was empty on a seeded tenant
+     * that demonstrably cancels a confirmed purchase return — the report was
+     * right and the trail it reads was never written.
+     */
+    audit: auditSink,
+    auditModule: "installments",
   });
 
   // --- phase4/inventory-ops — Stock Adjustments/Transfers reuse the SAME

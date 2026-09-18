@@ -439,48 +439,50 @@ function BranchCodesCard() {
       <div className="text-[13px] font-semibold text-ink">{t("eta.branchCodes")}</div>
       <p className="mt-[4px] text-[12px] text-ink-muted">{t("eta.branchCodesHint")}</p>
       <p className="mt-[2px] text-[12px] text-ink-muted">{t("eta.branchDeviceHint")}</p>
-      <table className="mt-[12px] w-full text-[12.5px]">
-        <thead>
-          <tr className="text-ink-faint">
-            <th className="p-[6px_8px] text-start font-semibold">{t("eta.branch")}</th>
-            <th className="p-[6px_8px] text-start font-semibold">{t("eta.etaBranchCode")}</th>
-            <th className="p-[6px_8px] text-start font-semibold">{t("eta.deviceSerialNumber")}</th>
-            <th className="p-[6px_8px]" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.branchId} className="border-t border-border">
-              <td className="p-[8px]">
-                {row.branchName} <span className="mz-num text-ink-muted">({row.branchCode})</span>
-              </td>
-              <td className="p-[8px]">
-                <TextInput
-                  size="sm"
-                  className="mz-num max-w-[160px]"
-                  aria-label={`${t("eta.etaBranchCode")} — ${row.branchName}`}
-                  value={valueOf(row)}
-                  onChange={(e) => setDrafts((d) => ({ ...d, [row.branchId]: e.target.value }))}
-                />
-              </td>
-              <td className="p-[8px]">
-                <TextInput
-                  size="sm"
-                  className="mz-num max-w-[200px]"
-                  aria-label={`${t("eta.deviceSerialNumber")} — ${row.branchName}`}
-                  value={serialOf(row)}
-                  onChange={(e) => setSerialDrafts((d) => ({ ...d, [row.branchId]: e.target.value }))}
-                />
-              </td>
-              <td className="p-[8px] text-end">
-                <Button size="sm" onClick={() => saveRow(row)} disabled={pendingId === row.branchId}>
-                  {t("common.save")}
-                </Button>
-              </td>
+      <div className="mt-[12px] overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="text-ink-faint">
+              <th className="p-[6px_8px] text-start font-semibold">{t("eta.branch")}</th>
+              <th className="p-[6px_8px] text-start font-semibold">{t("eta.etaBranchCode")}</th>
+              <th className="p-[6px_8px] text-start font-semibold">{t("eta.deviceSerialNumber")}</th>
+              <th className="p-[6px_8px]" />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.branchId} className="border-t border-border">
+                <td className="p-[8px]">
+                  {row.branchName} <span className="mz-num text-ink-muted">({row.branchCode})</span>
+                </td>
+                <td className="p-[8px]">
+                  <TextInput
+                    size="sm"
+                    className="mz-num max-w-[160px]"
+                    aria-label={`${t("eta.etaBranchCode")} — ${row.branchName}`}
+                    value={valueOf(row)}
+                    onChange={(e) => setDrafts((d) => ({ ...d, [row.branchId]: e.target.value }))}
+                  />
+                </td>
+                <td className="p-[8px]">
+                  <TextInput
+                    size="sm"
+                    className="mz-num max-w-[200px]"
+                    aria-label={`${t("eta.deviceSerialNumber")} — ${row.branchName}`}
+                    value={serialOf(row)}
+                    onChange={(e) => setSerialDrafts((d) => ({ ...d, [row.branchId]: e.target.value }))}
+                  />
+                </td>
+                <td className="p-[8px] text-end">
+                  <Button size="sm" onClick={() => saveRow(row)} disabled={pendingId === row.branchId}>
+                    {t("common.save")}
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }

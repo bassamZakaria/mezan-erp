@@ -16,6 +16,7 @@ import {
   foreignInvoicesOnAccountReceiptsAndChequeVouchers_D194_D196,
   foreignSettlementReportsAndReturns_D201_D203,
   foreignRatesSettleAndReturnInputs_D213_D222,
+  foreignSettledInBaseIsNotRevalued_D260,
   everyPartyTiesItsOwedLadderAndStatement,
   laddersTieOnPastDays_D220,
 } from "./scenarios/reports.js";
@@ -52,6 +53,7 @@ if (!only.size || only.has("reports")) {
   await foreignInvoicesOnAccountReceiptsAndChequeVouchers_D194_D196(ctx);
   await foreignSettlementReportsAndReturns_D201_D203(ctx);
   await foreignRatesSettleAndReturnInputs_D213_D222(ctx);
+  await foreignSettledInBaseIsNotRevalued_D260(ctx);
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
 }
 

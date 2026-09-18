@@ -56,7 +56,7 @@ export interface VoucherAllocation {
    * Absent means equal to `amount`.
    */
   readonly invoiceAmount?: Money | null;
-  /** The realised-FX journal entry this allocation posted, if any (D221). */
+  /** The settlement entry this allocation posted, if any: its realised difference (D221) and the move of the money into the invoice's currency (D260). */
   readonly fxEntryId?: string | null;
   readonly status: AllocationStatus;
   readonly createdAt: string;
@@ -280,7 +280,8 @@ export async function allocate(
     voucherId: input.voucherId,
     invoiceId: input.invoiceId,
     amount: input.amount,
-    ...(split.fxDifference.scaled !== 0n ? { invoiceAmount: split.relief, fxEntryId: posted.fxEntryId } : {}),
+    ...(split.fxDifference.scaled !== 0n ? { invoiceAmount: split.relief } : {}),
+    ...(posted.fxEntryId ? { fxEntryId: posted.fxEntryId } : {}),
     status: "active",
     createdAt: input.now,
     reversedAt: null,

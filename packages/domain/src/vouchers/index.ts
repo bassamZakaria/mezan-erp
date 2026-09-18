@@ -62,6 +62,7 @@ export {
 export {
   FX_REALISED_DOC_TYPE,
   FX_REALISED_LINE_MEMO,
+  FX_SETTLEMENT_LINE_MEMO,
   SettlementRateMissingError,
   buildRealisedFxLines,
   postRealisedFx,
@@ -71,6 +72,7 @@ export {
   type RealisedFxPort,
   type FxDifferenceAccounts,
   type RealisedFxPostingInput,
+  type SettlingLine,
   type SettlingMoney,
 } from "./realised-fx.js";
 

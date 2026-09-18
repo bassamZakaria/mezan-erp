@@ -4963,6 +4963,9 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const stmt = await statement(app, "customers", "cust-usd");
     expect(stmt.closing).toBe("0.000000");
     expect(stmt.agingTotal).toBe("0.000000");
+    await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-30");
+    const preview = await post(app, "/revaluation/preview", { date: "2026-08-31", currencies: ["USD"] }, admin(app));
+    expect(((await preview.json()) as { hasImpact: boolean }).hasImpact).toBe(false);
   });
 
   it("D221: a USD invoice revalued at month-end and settled the next month realises its whole difference once", async () => {
@@ -5126,6 +5129,116 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
     const inventory = rows.find((r) => r.key === "inventory")!;
     expect(Number(inventory.subLedgerBalance)).toBe(Number(inventory.glBalance));
+  });
+
+  type RevaluationPreview = { hasImpact: boolean; details: { accountId: string; foreignAmount: string; bookedBase: string; delta: string; gainLoss: string }[] };
+  async function revaluationPreview(app: App, date: string): Promise<RevaluationPreview> {
+    const res = await post(app, "/revaluation/preview", { date, currencies: ["USD"] }, admin(app));
+    expect(res.status).toBe(200);
+    return (await res.json()) as RevaluationPreview;
+  }
+  async function position(app: App, date: string, accountId: string) {
+    const detail = (await revaluationPreview(app, date)).details.find((d) => d.accountId === accountId);
+    return detail ? { foreign: detail.foreignAmount, booked: detail.bookedBase, delta: detail.delta, gainLoss: detail.gainLoss } : null;
+  }
+
+  it("D260: USD 100 booked at 48.00 and paid in full by EGP 5,000 is closed — a 47.00 month-end proposes nothing, and as of a day before the payment it was open", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+    await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(200);
+    await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-30");
+
+    expect((await get(app, "/sales-invoices/inv-usd")).status).toBe("paid");
+    expect(await glBalance(app, "1105")).toBe(0);
+    expect(await glBalance(app, "4920")).toBe(-200);
+    const preview = await revaluationPreview(app, "2026-08-31");
+    expect(preview.hasImpact).toBe(false);
+    expect(preview.details.find((d) => d.accountId === "1105")).toBeUndefined();
+    expect(await position(app, "2026-08-25", "1105")).toEqual({ foreign: "100.000000", booked: "4800.000000", delta: "200.000000", gainLoss: "200.000000" });
+    expect(await reconDiff(app, "ar")).toBe(0);
+    const stmt = await statement(app, "customers", "cust-usd");
+    expect(stmt.lines.filter((line) => line.kind === "fx_difference").map((line) => line.increase)).toEqual(["200.000000"]);
+    expect(stmt.closing).toBe("0.000000");
+  });
+
+  it("D260: EGP settling half a USD invoice leaves USD 50 to restate; undoing the allocation or reversing the receipt reopens all USD 100", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+    await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
+    await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-30");
+    expect((await post(app, "/vouchers", {
+      id: "v-half", date: "2026-08-26", voucherType: "customer_collection", amount: "2500", branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-usd",
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/confirm", {}, admin(app))).status).toBe(200);
+    const open = { foreign: "100.000000", booked: "4800.000000", delta: "-100.000000", gainLoss: "-100.000000" };
+    const half = { foreign: "50.000000", booked: "2400.000000", delta: "-50.000000", gainLoss: "-50.000000" };
+
+    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+    expect(await glBalance(app, "4920")).toBe(-100);
+    expect(await position(app, "2026-08-31", "1105")).toEqual(half);
+    expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(await position(app, today, "1105")).toEqual(open);
+    expect(await position(app, "2026-08-31", "1105")).toEqual(half);
+    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+    expect(await position(app, today, "1105")).toEqual(half);
+    expect(await reconDiff(app, "ar")).toBe(0);
+
+    expect((await post(app, "/vouchers/v-half/reverse", { date: "2026-08-28" }, admin(app))).status).toBe(201);
+    expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("4800.000000");
+    expect(await glBalance(app, "4920")).toBe(0);
+    expect(await position(app, today, "1105")).toEqual(open);
+    expect(await reconDiff(app, "ar")).toBe(0);
+  });
+
+  it("D260: a USD bill paid by an EGP «شيك» at 50.00 is closed at a 47.00 month-end, and the cheque bouncing reopens it", async () => {
+    const app = await newBackend();
+    await multiCurrency(app);
+    expect((await post(app, "/suppliers", { id: "sup-usd", code: "sup-usd", nameAr: "مورد بالدولار", currency: "USD", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/purchases/invoices", {
+      id: "pi-usd", supplierId: "sup-usd", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", currency: "USD",
+      lines: [{ description: "خدمة بالدولار", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-usd/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/gl/journal-entries", {
+      id: "je-fund", date: "2026-08-24", memo: "تمويل", source: "manual", lines: [
+        { accountId: "1300-1", debit: "6000", credit: "0" },
+        { accountId: "3100", debit: "0", credit: "6000" },
+      ],
+    }, admin(app))).status).toBeLessThan(300);
+    await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
+    await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-30");
+    expect((await post(app, "/vouchers", {
+      id: "v-chq", date: "2026-08-26", voucherType: "supplier_payment", amount: "5000", branchId: "BR1", paymentMethod: "cheque", referenceNo: "OUT-260",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-usd",
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-chq/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/cheques/v-chq/allocations", { allocationId: "al-chq", invoiceId: "pi-usd", amount: "5000" }, admin(app))).status).toBe(201);
+    expect((await get(app, "/purchases/invoices/pi-usd")).remainingBalance).toBe("0.000000");
+    expect(await glBalance(app, "2100")).toBe(0);
+    expect(await glBalance(app, "5920")).toBe(200);
+
+    expect(await position(app, "2026-08-31", "2100")).toBeNull();
+    expect((await revaluationPreview(app, "2026-08-31")).hasImpact).toBe(false);
+    expect(await reconDiff(app, "ap")).toBe(0);
+
+    expect((await post(app, "/cheques/v-chq/deposit", { bankTreasuryAccountId: "ta-cash" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/cheques/v-chq/bounce", { date: "2026-08-28" }, admin(app))).status).toBe(200);
+    expect((await get(app, "/purchases/invoices/pi-usd")).remainingBalance).toBe("4800.000000");
+    expect(await glBalance(app, "5920")).toBe(0);
+    expect(await position(app, "2026-08-31", "2100")).toEqual({ foreign: "100.000000", booked: "4800.000000", delta: "-100.000000", gainLoss: "100.000000" });
+    expect(await position(app, "2026-08-27", "2100")).toBeNull();
+    expect(await reconDiff(app, "ap")).toBe(0);
   });
 });
 

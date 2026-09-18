@@ -7,10 +7,11 @@
  * a gain or a loss in the period the settlement happened — posted here, at the
  * moment the money is matched to the invoice, as QuickBooks and Odoo both do.
  *
- * The control-account line names the party and carries the invoice's currency,
- * so the difference is never left sitting on a customer or supplier and FX
- * revaluation sees the position close. It moves base only: the foreign amount
- * was settled by the voucher itself.
+ * The same entry moves the settled money off the party's control account in
+ * the currency its own line carried (none, for base money) and relieves the
+ * invoice's foreign position at the rate it was booked at, so FX revaluation
+ * sees the foreign amount close whatever currency paid it (D260). Both control
+ * lines name the party; they net to the difference.
  */
 
 import { Money } from "../money/index.js";
@@ -21,8 +22,15 @@ import type { AllocationInvoiceKind } from "./voucher-types.js";
 /** `sourceDocType` of a realised-FX entry and, through the mirror, of its reversal. The ladders skip these lines by it. */
 export const FX_REALISED_DOC_TYPE = "FX_REALISED";
 
-/** Memo on the control-account line of a realised-FX entry; FX revaluation reads it as base-only. */
+/**
+ * Memo on the gain or loss line of a realised-FX entry. Entries posted before
+ * D260 also carry it on their single control line, which FX revaluation reads
+ * as base only; it must not change.
+ */
 export const FX_REALISED_LINE_MEMO = "فروق عملة محققة";
+
+/** Memo on the two control-account lines of a settlement entry (D260); FX revaluation reads their foreign amounts. */
+export const FX_SETTLEMENT_LINE_MEMO = "تسوية فاتورة بعملة أجنبية";
 
 /** What a settlement needs to know about rates and where the difference goes. */
 export interface RealisedFxPort {
@@ -80,12 +88,20 @@ export async function settlementRatesFor(
   return { invoiceRate: booked.fxRate, settlementRate: rate };
 }
 
+/** The currency and rate on the settling money's own control-account line; a null rate is base money. */
+export interface SettlingLine {
+  readonly currency: string | null | undefined;
+  readonly fxRate: string | null | undefined;
+}
+
 export interface RealisedFxPostingInput {
   readonly allocationId: string;
   readonly invoice: AllocatableInvoice;
   readonly split: SettlementSplit;
+  /** The invoice's currency and the rate it was booked at. */
   readonly currency: string;
-  readonly settlementRate: string;
+  readonly invoiceRate: string;
+  readonly money: SettlingLine;
   /** The date the settlement happened; the entry is dated the later of it and the invoice's own date. */
   readonly date: string;
   /** The party's control account the voucher or cheque posted to (1105 / 2100). */
@@ -99,48 +115,70 @@ export function realisedFxEntryId(allocationId: string): string {
   return `FXR:${allocationId}`;
 }
 
+function sameRate(a: string, b: string): boolean {
+  return Money.fromMajor(a).scaled === Money.fromMajor(b).scaled;
+}
+
 /**
- * The balanced entry for a realised difference. A customer's control account
- * is debited by what the receipt over-credited it (a gain) or credited by what
- * it fell short (a loss); a supplier's the mirror. Null when there is none.
+ * The balanced settlement entry for one allocation. On a customer the money's
+ * line is debited back by what the allocation used and the invoice's line is
+ * credited by what it relieved; a supplier's the mirror. The difference goes
+ * to the gain or loss account. Null when the money already sits in the
+ * invoice's currency at its booked rate, so there is nothing to move.
  */
 export function buildRealisedFxLines(input: RealisedFxPostingInput, accounts: FxDifferenceAccounts): JournalLineInput[] | null {
   const diff = input.split.fxDifference.scaled;
-  if (diff === 0n) return null;
-  const magnitude = Money.fromScaled(diff < 0n ? -diff : diff);
+  const moneyRate = input.money.fxRate ?? null;
+  const moneyCurrency = moneyRate ? (input.money.currency ?? null) : null;
+  if (diff === 0n && moneyRate && moneyCurrency === input.currency && sameRate(moneyRate, input.invoiceRate)) return null;
   const zero = Money.zero();
   const receivable = input.invoice.kind === "sales";
-  const controlDebit = receivable ? diff > 0n : diff < 0n;
-  const gain = receivable ? diff > 0n : diff < 0n;
   const branchId = input.branchId ?? null;
-  return [
+  const partyId = input.invoice.partyId;
+  const used = Money.fromScaled(input.split.relief.scaled + diff);
+  const relief = input.split.relief;
+  const lines: JournalLineInput[] = [
     {
       accountId: input.controlAccountId,
-      debit: controlDebit ? magnitude : zero,
-      credit: controlDebit ? zero : magnitude,
-      memo: FX_REALISED_LINE_MEMO,
-      currency: input.currency,
-      fxRate: input.settlementRate,
-      partyId: input.invoice.partyId,
+      debit: receivable ? used : zero,
+      credit: receivable ? zero : used,
+      memo: FX_SETTLEMENT_LINE_MEMO,
+      currency: moneyCurrency,
+      fxRate: moneyRate,
+      partyId,
       branchId,
     },
     {
-      accountId: gain ? accounts.gainAccountId : accounts.lossAccountId,
-      debit: controlDebit ? zero : magnitude,
-      credit: controlDebit ? magnitude : zero,
-      memo: FX_REALISED_LINE_MEMO,
+      accountId: input.controlAccountId,
+      debit: receivable ? zero : relief,
+      credit: receivable ? relief : zero,
+      memo: FX_SETTLEMENT_LINE_MEMO,
+      currency: input.currency,
+      fxRate: input.invoiceRate,
+      partyId,
       branchId,
     },
   ];
+  if (diff !== 0n) {
+    const magnitude = Money.fromScaled(diff < 0n ? -diff : diff);
+    const gain = receivable ? diff > 0n : diff < 0n;
+    lines.push({
+      accountId: gain ? accounts.gainAccountId : accounts.lossAccountId,
+      debit: gain ? zero : magnitude,
+      credit: gain ? magnitude : zero,
+      memo: FX_REALISED_LINE_MEMO,
+      branchId,
+    });
+  }
+  return lines;
 }
 
-/** Posts the realised difference of one allocation; returns the entry id, or null when there was none. */
+/** Posts the settlement entry of one allocation; returns the entry id, or null when there was nothing to post. */
 export async function postRealisedFx(
   input: RealisedFxPostingInput,
   port: Pick<RealisedFxPort, "differenceAccounts">,
   gl: JournalPostingDeps,
 ): Promise<string | null> {
-  if (input.split.fxDifference.scaled === 0n) return null;
   const lines = buildRealisedFxLines(input, await port.differenceAccounts());
   if (!lines) return null;
   const id = realisedFxEntryId(input.allocationId);
@@ -148,7 +186,10 @@ export async function postRealisedFx(
     {
       id,
       date: input.date > input.invoice.date ? input.date : input.invoice.date,
-      memo: `فروق عملة محققة — تسوية ${input.invoice.invoiceNo} (${input.reference})`,
+      memo:
+        input.split.fxDifference.scaled === 0n
+          ? `تسوية ${input.invoice.invoiceNo} بعملة ${input.currency} (${input.reference})`
+          : `فروق عملة محققة — تسوية ${input.invoice.invoiceNo} (${input.reference})`,
       source: "system",
       sourceDocType: FX_REALISED_DOC_TYPE,
       sourceDocId: input.allocationId,
@@ -163,7 +204,7 @@ export async function postRealisedFx(
 /**
  * Mirrors the realised-FX entry of an allocation being undone, on `date` or,
  * when none is given, the later of the entry's own date and today. An
- * allocation that realised nothing has nothing to mirror.
+ * allocation that posted nothing has nothing to mirror.
  */
 export async function reverseRealisedFx(
   allocation: VoucherAllocation,

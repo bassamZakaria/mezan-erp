@@ -30,6 +30,9 @@ export interface SourcePurchaseInvoice {
   readonly lines: readonly SourcePurchaseInvoiceLine[];
   /** بُعد المشروع — a return built from this invoice inherits it (D-01). */
   readonly projectId?: string | null;
+  /** The invoice's currency and the rate it confirmed at; a return reverses at this rate (D203). */
+  readonly currency?: string | null;
+  readonly fxRate?: string | null;
 }
 
 /** Resolves a confirmed purchase invoice by id. Implemented by the real invoices module (or a demo/test double) once wired in. */

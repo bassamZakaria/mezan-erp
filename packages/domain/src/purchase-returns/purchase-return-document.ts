@@ -20,6 +20,7 @@ import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/doc
 import { buildEffects, type DocumentEffects } from "../documents/effects.js";
 import type { DocumentGlPosting, DocumentStockPlan } from "../documents/hooks.js";
 import { InvalidDocumentError } from "../documents/errors.js";
+import { convertToBase } from "../exchange-rates/convert.js";
 
 export const DOC_TYPE = "PURCHASE_RETURN";
 
@@ -61,6 +62,14 @@ export interface PurchaseReturnLine {
   readonly projectId?: string | null;
   /** فئة التكلفة — only meaningful with `projectId`. */
   readonly costCategory?: CostCategory | null;
+  /**
+   * The source invoice's currency and the rate it confirmed at, stamped by the
+   * server from that invoice — never from the caller. `unitCost` and
+   * `taxAmount` are in this currency; the return reverses them at this rate
+   * (D203). Absent for a base-currency invoice.
+   */
+  readonly currency?: string | null;
+  readonly fxRate?: string | null;
 }
 
 export type PurchaseReturnDocument = FrameworkDocument<PurchaseReturnLine>;
@@ -77,9 +86,27 @@ export interface PurchaseReturnGlAccounts {
   readonly priceVarianceAccountId: string;
 }
 
+/**
+ * One line's supplier credit and tax in BASE currency, converted per line at
+ * the source invoice's rate — the one computation the posting and every
+ * credit helper share, so the AP sub-ledger ties to 2100 to the last unit.
+ */
+export function purchaseReturnLineBase(line: PurchaseReturnLine): { readonly cost: Money; readonly tax: Money } {
+  const cost = extend(line.qty, line.unitCost);
+  if (!line.fxRate) return { cost, tax: line.taxAmount };
+  return { cost: convertToBase(cost, line.fxRate), tax: convertToBase(line.taxAmount, line.fxRate) };
+}
+
+/** What ONE return line takes off its source invoice's payable, in base currency. */
+export function purchaseReturnLineCredit(line: PurchaseReturnLine): Money {
+  const { cost, tax } = purchaseReturnLineBase(line);
+  return cost.add(tax);
+}
+
 function totals(lines: readonly PurchaseReturnLine[]) {
-  const costValue = Money.sum(lines.map((l) => extend(l.qty, l.unitCost)));
-  const taxValue = Money.sum(lines.map((l) => l.taxAmount));
+  const parts = lines.map(purchaseReturnLineBase);
+  const costValue = Money.sum(parts.map((p) => p.cost));
+  const taxValue = Money.sum(parts.map((p) => p.tax));
   return { costValue, taxValue, grandTotal: costValue.add(taxValue) };
 }
 
@@ -110,6 +137,9 @@ export function createPurchaseReturnDocumentType(
       for (const line of doc.lines) {
         if (line.sourceInvoiceId !== invoiceId) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تنتمي لنفس الفاتورة.");
+        }
+        if ((line.fxRate ?? null) !== (doc.lines[0]?.fxRate ?? null)) {
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تحمل سعر صرف الفاتورة نفسه.");
         }
         if (line.qty.isNegative() || line.qty.isZero()) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الصنف "${line.itemId}": كمية الإرجاع يجب أن تكون أكبر من صفر.`);
@@ -177,7 +207,8 @@ export function createPurchaseReturnDocumentType(
       for (const l of doc.lines) {
         const rate = l.taxRatePercent ?? null;
         const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
-        byRate.set(rate, { base: slot.base.add(extend(l.qty, l.unitCost)), tax: slot.tax.add(l.taxAmount) });
+        const part = purchaseReturnLineBase(l);
+        byRate.set(rate, { base: slot.base.add(part.cost), tax: slot.tax.add(part.tax) });
       }
       const rates = [...byRate.keys()];
       const weights = rates.map((r) => (byRate.get(r) as { base: Money }).base.scaled);
@@ -192,6 +223,8 @@ export function createPurchaseReturnDocumentType(
       // by (rate, costCategory), same largest-remainder rounding, so a
       // mixed-category return still reconciles exactly (D-01).
       const projectId = doc.lines[0]?.projectId ?? null;
+      const first = doc.lines[0];
+      const fxTag = first?.fxRate ? { currency: first.currency ?? null, fxRate: first.fxRate } : {};
       type RateCatGroup = { readonly rate: number | null; readonly costCategory: CostCategory | null; readonly base: Money };
       const byRateAndCategory = new Map<string, RateCatGroup>();
       for (const l of doc.lines) {
@@ -199,7 +232,7 @@ export function createPurchaseReturnDocumentType(
         const costCategory = l.costCategory ?? null;
         const key = `${rate}|${costCategory}`;
         const existing = byRateAndCategory.get(key);
-        const base = extend(l.qty, l.unitCost);
+        const base = purchaseReturnLineBase(l).cost;
         byRateAndCategory.set(key, { rate, costCategory, base: existing ? existing.base.add(base) : base });
       }
       const rcGroups = [...byRateAndCategory.values()];
@@ -215,7 +248,7 @@ export function createPurchaseReturnDocumentType(
         date: doc.date,
         memo: doc.memo || `مرتجع مشتريات ${doc.docNo ?? doc.id} — فاتورة ${doc.lines[0]?.sourceInvoiceNumber ?? doc.lines[0]?.sourceInvoiceId}`,
         lines: [
-          { accountId: accounts.accountsPayableId, debit: grandTotal, credit: Money.zero() },
+          { accountId: accounts.accountsPayableId, debit: grandTotal, credit: Money.zero(), ...fxTag },
           ...rates.flatMap((rate) => {
             const tax = (byRate.get(rate) as { tax: Money }).tax;
             return tax.scaled > 0n

@@ -2,12 +2,7 @@ import { Hono } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
   Money,
-  purchaseInvoiceBaseTotal,
-  extend,
-  voucherBaseAmount,
-  isStandingVoucher,
   CUSTOMER_OPENING_BALANCE_DOC_TYPE,
-  voucherLine,
   SeatSessionRegistry,
   createEntitlements,
   type UnitOfWork,

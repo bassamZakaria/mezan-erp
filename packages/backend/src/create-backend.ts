@@ -3717,6 +3717,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             customerId: invoice.customerId,
             warehouseId: invoice.warehouseId,
             projectId: invoice.projectId,
+            currency: invoice.currency,
+            fxRate: invoice.fxRate ?? null,
             date: invoice.date,
             status: "confirmed" as const,
             // A return is quoted in BASE units, because that is what it puts
@@ -3831,6 +3833,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             number: invoice.number ?? invoice.id,
             supplierId: invoice.supplierId,
             warehouseId: invoice.warehouseId,
+            currency: invoice.currency,
+            fxRate: invoice.fxRate ?? null,
             date: invoice.date,
             status: "confirmed" as const,
             lines: invoice.lines

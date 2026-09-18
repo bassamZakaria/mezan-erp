@@ -4313,4 +4313,70 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await post(app, "/purchases/invoices/pi-sar/payments", { amount: "820.01", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app))).status).toBe(422);
     expect(await reconDiff(app, "ap")).toBe(0);
   });
+
+  it("D203: a sales return against a USD invoice credits 1105 at the invoice's rate, by either route, and refunds the base amount", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    for (const id of ["inv-usd", "inv-usd2"]) {
+      expect((await authedPost(app, "/sales-invoices", { ...invoiceBody(id, "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+      expect((await authedPost(app, `/sales-invoices/${id}/confirm`, {})).status).toBe(200);
+    }
+    expect(await glBalance(app, "1105")).toBe(9600);
+
+    const fromInvoice = await post(app, "/sales-returns/from-invoice", {
+      id: "sr-usd", date: "2026-08-23", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-usd", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+    }, admin(app));
+    expect(fromInvoice.status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-usd/confirm", {}, admin(app))).status).toBe(200);
+    expect(await glBalance(app, "1105")).toBe(4800);
+    expect(await reconDiff(app, "ar")).toBe(0);
+    const returned = await get(app, "/sales-returns/sr-usd");
+    expect(returned.grandTotal).toBe("4800.000000");
+    expect(returned.refundDue).toBe("4800.000000");
+    expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("0.000000");
+
+    const raw = await post(app, "/sales-returns", {
+      id: "sr-usd2", date: "2026-08-23", memo: "",
+      lines: [{
+        itemId: "SVC-1", warehouseId: "WH1", customerId: "cust-usd", sourceInvoiceId: "inv-usd2", sourceInvoiceNumber: null, reason: "OTHER",
+        availableQty: "1", qty: "1", unitPrice: "100", unitCost: "0", taxAmount: "0", fxRate: "1", currency: "EGP",
+      }],
+    }, admin(app));
+    expect(raw.status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-usd2/confirm", {}, admin(app))).status).toBe(200);
+    expect(await glBalance(app, "1105")).toBe(0);
+    expect(await reconDiff(app, "ar")).toBe(0);
+  });
+
+  it("D203: a purchase return against a SAR invoice debits 2100 at the invoice's rate, whatever rate the caller sends", async () => {
+    const app = await newBackend();
+    await multiCurrency(app);
+    expect((await post(app, "/items", { id: "item-sar", code: "ITEM-SAR", nameAr: "صنف بالريال", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    const bill = await post(app, "/purchases/invoices", {
+      id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", currency: "SAR",
+      lines: [{ itemId: "item-sar", description: "صنف بالريال", kind: "inventory", qty: "10", unitCost: "20", taxRatePercent: 14 }],
+    }, admin(app));
+    expect(bill.status).toBe(201);
+    const confirmed = (await (await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).json()) as { number: string };
+    expect(-(await glBalance(app, "2100"))).toBe(3009.6);
+
+    const created = await post(app, "/purchase-returns", {
+      id: "pr-sar", date: "2026-08-23", memo: "",
+      lines: [{
+        itemId: "item-sar", warehouseId: "WH1", supplierId: "sup-sar", sourceInvoiceId: "pi-sar", sourceInvoiceNumber: confirmed.number, reason: "DEFECTIVE",
+        availableQty: "10", qty: "3", unitCost: "20", taxAmount: "8.40", taxRatePercent: 14, fxRate: "1", currency: "EGP",
+      }],
+    }, admin(app));
+    expect(created.status).toBe(201);
+    expect((await post(app, "/purchase-returns/pr-sar/confirm", {}, admin(app))).status).toBe(200);
+    expect(-(await glBalance(app, "2100"))).toBe(2106.72);
+    expect((await get(app, "/purchase-returns/pr-sar")).grandTotal).toBe("902.880000");
+    expect(await reconDiff(app, "ap")).toBe(0);
+    const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
+    const inventory = rows.find((r) => r.key === "inventory")!;
+    expect(Number(inventory.subLedgerBalance)).toBe(Number(inventory.glBalance));
+  });
 });

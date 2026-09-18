@@ -99,7 +99,7 @@ import {
   type PartyStatement,
   type PartyStatementEntry,
   type ProgressCertificate,
-  extend,
+  purchaseReturnLineCredit,
   type SalesReturnDocument,
   type PurchaseReturnLine,
   type ChequeRepository,
@@ -641,16 +641,11 @@ async function purchaseReturnsByInvoiceId(deps: ReportsRoutesDeps): Promise<Read
     if (doc.status !== "confirmed") continue;
     for (const line of doc.lines) {
       if (!line.sourceInvoiceId) continue;
-      const value = purchaseReturnLineValue(line).scaled;
+      const value = purchaseReturnLineCredit(line).scaled;
       out.set(line.sourceInvoiceId, (out.get(line.sourceInvoiceId) ?? 0n) + value);
     }
   }
   return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
-}
-
-/** What one purchase-return line takes off the payable. */
-function purchaseReturnLineValue(line: PurchaseReturnLine): Money {
-  return extend(line.qty, line.unitCost).add(line.taxAmount);
 }
 
 /** Confirmed sales-return credit per source invoice. */
@@ -1475,7 +1470,7 @@ export function createReportsRoutes(
         kind: "return",
         reference: doc.docNo ?? doc.id,
         increase: Money.zero(),
-        decrease: Money.sum(mine.map(purchaseReturnLineValue)),
+        decrease: Money.sum(mine.map(purchaseReturnLineCredit)),
       });
     }
     for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {

@@ -9,6 +9,7 @@ export {
   SALES_RETURN_REASONS,
   salesReturnGrandTotal,
   salesReturnLineCredit,
+  salesReturnLineBase,
   salesReturnCreditByInvoice,
   createSalesReturnDocumentType,
   type SalesReturnReason,

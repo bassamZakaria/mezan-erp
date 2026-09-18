@@ -8,6 +8,7 @@ import {
   isAwaitingRefund,
   refundDue,
   salesReturnGrandTotal,
+  salesReturnLineCredit,
   sumRefunds,
   SalesReturnNotRefundableError,
   type DocumentService,
@@ -41,6 +42,9 @@ function serializeLine(l: SalesReturnLine) {
     taxAmount: l.taxAmount.toString(),
     taxRatePercent: l.taxRatePercent ?? null,
     projectId: l.projectId ?? null,
+    currency: l.currency ?? null,
+    fxRate: l.fxRate ?? null,
+    baseCredit: salesReturnLineCredit(l).toString(),
   };
 }
 
@@ -53,6 +57,7 @@ function serialize(doc: FrameworkDocument<SalesReturnLine>, refunds: readonly Sa
     memo: doc.memo,
     status: doc.status,
     lines: doc.lines.map(serializeLine),
+    grandTotal: salesReturnGrandTotal(doc).toString(),
     createdAt: doc.createdAt,
     confirmedAt: doc.confirmedAt,
     reversesDocId: doc.reversesDocId,
@@ -193,6 +198,17 @@ export function createSalesReturnsRoutes(
     const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
     const line = invoice?.lines.find((il) => il.itemId === itemId);
     return line ? line.unitCost : Money.fromMajor(claimed);
+  }
+
+  /**
+   * The currency and rate the SOURCE INVOICE confirmed at (D203). A return
+   * reverses at the original document's rate, so the rate is read off the
+   * invoice here and never taken from the request.
+   */
+  async function resolveFx(sourceInvoiceId: string): Promise<{ currency?: string | null; fxRate?: string | null }> {
+    if (!invoices) return {};
+    const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
+    return invoice?.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {};
   }
 
   interface SalesReturnListFilter {
@@ -376,6 +392,7 @@ export function createSalesReturnsRoutes(
           taxAmount: Money.fromMajor(l.taxAmount),
           taxRatePercent: l.taxRatePercent ?? null,
           projectId: l.projectId ?? null,
+          ...(await resolveFx(l.sourceInvoiceId)),
         }))),
       });
       return c.json(serialize(doc), 201);

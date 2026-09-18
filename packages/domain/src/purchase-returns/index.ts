@@ -9,6 +9,8 @@ export {
   PURCHASE_RETURN_REASONS,
   createPurchaseReturnDocumentType,
   purchaseReturnGrandTotal,
+  purchaseReturnLineBase,
+  purchaseReturnLineCredit,
   type PurchaseReturnReason,
   type PurchaseReturnLine,
   type PurchaseReturnDocument,

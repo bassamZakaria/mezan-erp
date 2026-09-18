@@ -3,6 +3,7 @@ import {
   Money,
   Qty,
   purchaseReturnGrandTotal,
+  purchaseReturnLineCredit,
   type DocumentService,
   type FrameworkDocument,
   type PurchaseInvoiceLookupPort,
@@ -28,6 +29,9 @@ function serializeLine(l: PurchaseReturnLine) {
     taxRatePercent: l.taxRatePercent ?? null,
     projectId: l.projectId ?? null,
     costCategory: l.costCategory ?? null,
+    currency: l.currency ?? null,
+    fxRate: l.fxRate ?? null,
+    baseCredit: purchaseReturnLineCredit(l).toString(),
   };
 }
 
@@ -40,6 +44,7 @@ function serialize(doc: FrameworkDocument<PurchaseReturnLine>) {
     memo: doc.memo,
     status: doc.status,
     lines: doc.lines.map(serializeLine),
+    grandTotal: purchaseReturnGrandTotal(doc).toString(),
     createdAt: doc.createdAt,
     confirmedAt: doc.confirmedAt,
     reversesDocId: doc.reversesDocId,
@@ -217,6 +222,7 @@ export function createPurchaseReturnsRoutes(
           taxRatePercent: l.taxRatePercent ?? null,
           projectId: parsed.data.projectId ?? invoice?.projectId ?? null,
           costCategory: l.costCategory ?? invoiceLine?.costCategory ?? null,
+          ...(invoice?.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
         };
       }));
       const doc = await service.createDraft({

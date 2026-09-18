@@ -45,7 +45,7 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 |---|---|
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
 | **Open now (§3)** | **Nothing.** Row menus answered (no), contracting complete, outbound notification delivery landed 2026-09-14 |
-| **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
+| **Deferred by decision (§4)** | **Un-deferred 2026-09-19 (DEC-23)** — POS, HR depth, the cloud extras and all 27 §7 enhancements are being built, in waves, per `superpowers/plans/2026-09-19-deferred-build-pos-hr-cloud.md` and `2026-09-19-enhancements-e1-e3.md`; the combined schedule is §4.5. Statutory payroll figures stay «غير مُتحقَّق منه» until a محاسب قانوني signs them (DEC-12) |
 | **Defects (§5)** | **6 open** of the 174 filed (D66–D230, D240–D242, D260, D265, D270, D275, D280, D281) — D186–D189, the remaining HR payroll follow-ups filed 2026-09-18 (§5.0), all four reachable only with `hr.payroll.statutory` on; D280, every fixed-assets domain error carrying an English-only message that reaches the Arabic UI verbatim, filed while fixing D275; and D281, the account drill-down disagreeing with the trial balance for any account holding a document dated later than today because one report is date-bounded and the other is not — reproduces on a clean `main` too, found (not caused) while verifying D275. D275, a depreciation-run reversal with no date sent taking the RUN's own day rather than the day it is reversed — the same fault as D270, one bounded context over — is fixed on `fix/d275-depreciation-reversal-date`: the route defaults a missing date to today, refuses one dated before the run's own day, and — the QuickBooks/Odoo norm the repo did not yet enforce — refuses to reverse a run while a later posted run still shares one of its assets. D270, a voucher reversed from the treasury screen dated its own day rather than the day it was reversed, is fixed on `fix/d270-voucher-reversal-date`: a reversal now defaults to today, in the tenant's own calendar day, and refuses a date before the document it reverses. D265, an allocation undone and made again that the ledger showed as two settlements on the days between, is fixed on `fix/d265-unallocate-dating`: an allocation and its undo are dated by the events that made and removed them. D260, a foreign invoice settled in base money that revaluation still saw as open, is fixed on `fix/d260-reval-settled`. D228–D230, the voucher's allocation table, the chart's missing exchange-difference accounts and a treasury e2e locator, are fixed on `fix/fx-accounts`. D216, D217, D219, D220 and D223–D226, the ledger review's findings, and D240 are fixed on `fix/subledger-followups`; D241 is fully fixed on `fix/d241-duplicate-openings` (the duplicate-openings exceptions report and its repair action, and the customers/suppliers screens unified onto one poster); D213–D215, D218, D221, D222, D227 and D242 on `fix/fx-and-returns`. D207–D209, filed by the second e2e rewrite, are fixed. The three filed on 2026-09-14 are closed with the decisions that found them: D146 (an item marked FIFO was valued WAC), D147 (a rep holding `view_own` saw an empty list because an employee id was compared to a user id), D148 (consumer e-receipts parked awaiting a seal the regime does not require). Every open half that used to be a decision is now taken — D90 → DEC-19, D111 → DEC-20, D116 → DEC-14 |
 | **Desktop audit (2026-09-07)** | The thirty-two findings of the full desktop audit (`artifacts/audit-2026-09-07.md`, filed as D145–D176 on that branch; its first four are renumbered D177–D180 because main had already used D145–D148 — see §6.4 D-D) came in with PR #55: licence, update, LAN, books, performance and security. All fixed on that branch, including Q-1, which moved the desktop backend off the Electron main process into a `utilityProcess` |
 | **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07 — but nothing *called* the receipt path until DEC-9 wired the producer on 2026-09-14. Law 6/2025's simplified regime is built and deliberately unclaimed (DEC-13) |
@@ -548,6 +548,9 @@ it is a decision rather than a constraint from here.
 
 ## 4.1 Out of scope for v1
 
+> **Superseded 2026-09-19 by DEC-23.** Everything below is now in build; the paragraph is kept
+> as the record of what was deferred and why.
+
 POS (9 screens + 2 reports), `/settings/shifts`, a standalone label-templates
 screen, statutory payroll computation. Payroll must stay visibly flagged rather
 than silently computing a wrong net.
@@ -599,6 +602,41 @@ they still need a live-browser pass before this slice is called proven.
 
 ---
 
+
+## 4.5 The deferred build — combined schedule (DEC-23, 2026-09-19)
+
+Two plans, one queue. At most five agents run at once; lanes in one wave never edit the same file.
+The seams lane (1A) is the only one that touches the shared registries (`create-backend.ts`,
+`nav-config.tsx`, `router/screens.ts`, the permission and i18n catalogs, `run-scenarios.ts`,
+`smoke.ts`, `screen-catalog.ts`) — it gives every later POS and enhancement lane its own fragment file.
+
+| Wave | Lanes |
+|---|---|
+| 0 | D281/D280 · 0B HR D186–D189 · 0C SaaS follow-ups · 0D e-receipt path D282–D284 |
+| 1 | 1A seams + POS master data + `/settings/shifts` · 1B hourly/daily and FX pay · 1C card checkout (Paymob, sandbox) · 1D attendance grid + device import |
+| 2 | POS 2A shifts/cash drawer (E2-05's till, E3-05) · 2B sale posting + receipts · 2C thermal print · 2D HR self-service |
+| 3 | ENH E1-05 audit ledger · E1-06 backup drills + portable import · E1-02 cash runway · E1-03 bank reconciliation |
+| 4 | POS 3A selling screen (E2-05, E2-07) · 3B refunds · 3C in-till discount approval (E2-06) · 3D self-serve signup |
+| 5 | ENH E1-01 cockpit · E2-02 recurring journals · E2-01 ETA pre-validation · E2-10 segregation of duties |
+| 6 | POS 4A offline till · 4B POS reports/hub · 4C tables/reservations · 4D HR pages, accrual, bank file |
+| 7 | ENH E1-04 guided close · E2-08 price floor · E2-04 expiry/FEFO · E2-09 AR dunning |
+| 8 | POS 5A kitchen display · 5B deliveries/loyalty · 5C hardware + two-machine proof · 5D cloud backup export |
+| 9 | ENH E2-03 scanner count · E2-11 provisioning · E3-03 reorder · E3-04 van reconciliation |
+| 10 | ENH E3-06 CRM pipeline · E3-08 evidence pack · E3-02 digest · 6A cookie sessions |
+| 11 | ENH E3-10 health console · E3-09 integration API (cloud, = 6B) · E3-01 glance · E3-07 funnel |
+| 12 | 6C S3/server PDF (only with a consumer) · 6D close-out: POS in plans, strings folded, PLT-SAAS + POS/HR live pass |
+
+Every lane's done-definition: typecheck, lint, the related unit tests, scenarios with the four
+invariants exactly 0, smoke and check:seed, every-screen and the phone checks, and a read-only review
+by the personas the plan names. A wave merges only when its combined tree passes the full gates.
+
+**Needs the owner** (the build proceeds against sandboxes and test doubles meanwhile): a Paymob
+merchant account; the AWS apply (domain, account, secrets); Render dashboard variables; SMTP
+credentials; an ETA pre-production POS device registration; test hardware (80 mm printer, cash
+drawer, scanner); an SMS/WhatsApp provider if wanted; a chartered accountant's sign-off (DEC-12).
+
+---
+
 ## 4.4 What we may claim, and what we must not
 
 Five of the decisions taken on 2026-09-14 constrain what a salesperson or a rollout consultant
@@ -610,7 +648,7 @@ and each of them is a promise the buyer will hold us to.
 | **E-invoicing compliance** | **Do not claim it.** B2B invoices are prepared but never filed to production until the customer's own e-seal is connected through a signing agent that is not shipped. Say the sentence recorded in §6.4 DEC-10 — in writing, on the rollout sheet, before contract. Every such invoice shows «في انتظار الختم الإلكتروني» and is not filed. |
 | **E-receipt compliance** | **Claim it** — the B2C receipt regime requires no seal, and this is precisely what unblocks retail, pharmacy and restaurants. |
 | **Contracting as a Daftra gap** | **Do not.** Daftra ships مستخلصات المقاولات and خصم ضمان الأعمال. Contracting is a genuine strength of this build (§3.2) but it is not a hole in the incumbent, and a buyer who checks will find that out. |
-| **POS** | **State the absence in the first sales conversation**, not the fifth. "Mezan runs the books, stock and branches behind your existing till; every consumer sale it records is an e-receipt." An unstated "no POS" becomes the most common refund request. |
+| **POS** | **Until POS wave 5 closes (§4.5), unchanged:** state the absence in the first sales conversation, not the fifth. After it closes, claim POS with e-receipts only once D284's receipt path has filed a real receipt in ETA pre-production. "Mezan runs the books, stock and branches behind your existing till; every consumer sale it records is an e-receipt." An unstated "no POS" becomes the most common refund request. |
 | **An API / webhooks** | **Say "integrations arrive with the cloud edition."** The back end is being removed (DEC-17): on desktop the only network surface is the LAN socket, which allow-lists five routes, and nothing authenticates by API key. The comparison-grid row will read "API: no", and that is the accepted price. |
 | **Statutory payroll** | Employees, contracts, attendance, leave and advances are real and licensable. **Net pay is not computed.** Say both halves. |
 | **Law 6/2025 simplified regime** | **Built, not claimed** (DEC-13). Do not market it until a محاسب قانوني has signed off on the turnover base. A regime computation with the wrong base is the buyer's tax exposure. |
@@ -2073,6 +2111,65 @@ had earned. **A branch's balance sheet stopped balancing the day the year closed
 loss-making one can net to a zero company result while each still needs its own line.
 
 The four zero-invariants read exactly `0.000000` before and after.
+
+---
+
+### Taken 2026-09-19
+
+#### DEC-23 — POS, HR depth, the cloud extras and all 27 enhancements are un-deferred
+
+The owner, 2026-09-19: "handle all of these please" — POS, the cloud-edition extras, deeper HR and
+the 27 beyond-parity items — "ask stakeholders and check what other systems do and handle everything
+without asking me anything." This overrides DEC-16 (POS out of v1) and the reopening trigger recorded
+under it on 2026-09-18. DEC-12 still holds for the **figures**: statutory payroll is built, and stays
+labelled unverified until a محاسب قانوني signs each row. The `pos` module is licensable and stays out of
+the seeded plans until the POS close-out lane (6D). §4.5 is the schedule. **Reversal cost:** stopping
+mid-way leaves licensable-but-unsold modules; every lane ships complete or not at all.
+
+#### DEC-24 — A POS sale is a sales invoice
+
+**Options:** (A) a POS sale IS a sales invoice — walk-in customer, tax-inclusive prices — confirmed and
+then collected once per tender through the existing `collect` voucher, with a side table
+`pos_sale(invoice_id, session_id, terminal_id, client_sale_id UNIQUE, receipt_no, tenders)`;
+(B) a direct Dr drawer / Cr revenue entry; (C) one voucher per session at close.
+**Taken: A.** One posting path, so aging, returns, the VAT return and the four zero-invariants keep
+holding without new code. B is a second posting path and a refund could not find its source; C breaks
+the tender-to-sale link refunds need. **What others do:** Odoo POS posts per session but keeps each
+order a document; Daftra's POS invoice is a sales invoice; QuickBooks POS synced each sale as a sales
+receipt. **Panel:** accountant, treasury-cashier, chartered-accountant for A; performance-engineer's
+concern — three documents per sale — is answered by batching in one unit of work and measured in 2B.
+
+#### DEC-25 — The ETA device serial belongs to the terminal
+
+The e-receipt regime registers a device, not a branch. Each terminal carries its own serial and POS
+credentials, falling back to the branch mapping so a one-till branch keeps working (the retail dissent
+recorded under DEC-9). The receipt chain (`previousUUID`) is kept per serial in its own table, updated in
+the receipt's transaction — D283's scan of every submission is gone.
+
+#### DEC-26 — Offline POS: sell first, reconcile after
+
+A synced offline sale is never refused for stock: it posts and lands on an exceptions list (Odoo POS and
+Foodics both sell offline and reconcile after). A sale dated into a period closed since is **held**, and a
+supervisor re-dates it with a memo — never posted into a closed period. A shift cannot close with a
+non-empty outbox without `pos.session.force_close`, and the count of pending sales is recorded.
+**Panel:** warehouse-keeper, chartered-accountant, tax-expert; the tax-expert's condition — the receipt
+UUID is computed at the till and re-verified by the host, a mismatch refused — is part of the design.
+
+#### DEC-27 — The integration API returns, in the cloud edition only
+
+DEC-17 removed the desktop API; it stands for the desktop. ENH-E3-09 is built as a separately licensed
+`integrations` module mounted only in `apps/server/src/cloud-app.ts`: scoped hashed API keys, `/api/v1`,
+signed webhooks. A guard test proves `createBackend` exposes none of it and the LAN allow-list is
+unchanged. **What others do:** Daftra (REST + Zapier), QuickBooks Online and Xero (REST + webhooks) — all
+cloud. §4.4's "API: no" row changes to "cloud edition: yes" when the lane ships, not before.
+
+#### DEC-28 — Scheduled sending: opt-in in the cloud, operator-sent on the desktop
+
+§3.3 said outbound mail is always an operator action. For AR dunning (E2-09) and the owner digest
+(E3-02): the **cloud** edition may send on a schedule the tenant switches on (QuickBooks Online's
+automatic invoice reminders, Odoo's follow-up levels); the **desktop** edition computes the reminders
+and the digest on open and an operator sends them, because the machine may be off and a desktop that
+mails customers unattended is a support ticket. WhatsApp uses free `wa.me` links until a provider exists.
 
 ---
 

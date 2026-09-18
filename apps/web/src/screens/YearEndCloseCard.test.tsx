@@ -93,7 +93,7 @@ function renderCard(opts: {
       opts.previewStatus !== undefined
         ? { status: opts.previewStatus, body: {} }
         : { body: opts.previewBody === undefined ? preview() : opts.previewBody },
-    "GET /gl/journal-entries/*": () => (opts.entry === undefined ? { status: 404, body: {} } : opts.entry === null ? { status: 404, body: {} } : { body: opts.entry }),
+    "GET /gl/year-end-close/*": () => ({ body: { year: 2026, closed: Boolean(opts.entry), entry: opts.entry ?? null } }),
     "POST /gl/year-end-close": (init) => {
       lastCloseBody = JSON.parse((init?.body as string) ?? "{}");
       if (opts.closeStatus !== undefined) return { status: opts.closeStatus, body: opts.closeBody ?? {} };
@@ -109,7 +109,7 @@ describe("YearEndCloseCard", () => {
     const transport = stubTransport({
       "GET /accounts": () => new Promise(() => {}) as never,
       "GET /gl/year-end-close/*/preview": () => new Promise(() => {}) as never,
-      "GET /gl/journal-entries/*": () => new Promise(() => {}) as never,
+      "GET /gl/year-end-close/*": () => new Promise(() => {}) as never,
     });
     renderWithProviders(<YearEndCloseCard year={2026} periodsInYear={[]} />, { transport, initialSession: testAdminSession });
     expect(screen.getByText("جارِ التحميل…")).toBeInTheDocument();

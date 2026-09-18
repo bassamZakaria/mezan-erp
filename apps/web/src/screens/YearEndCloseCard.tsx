@@ -28,7 +28,7 @@ export function YearEndCloseCard({ year, periodsInYear }: { year: number; period
   const { t } = useAppTranslation();
   const accountsQuery = useAccounts();
   const postedEntry = useYearEndCloseEntry(year);
-  const preview = useYearEndClosePreview(year);
+  const preview = useYearEndClosePreview(year, postedEntry.data === null);
   const closeYear = useCloseFiscalYear();
 
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -86,6 +86,10 @@ export function YearEndCloseCard({ year, periodsInYear }: { year: number; period
 
       {postedEntry.isLoading || preview.isLoading ? (
         <p className="mt-[12px] text-[12.5px] text-ink-muted">{t("common.loading")}</p>
+      ) : postedEntry.error ? (
+        <p role="alert" className="mt-[12px] text-[12.5px] text-danger-ink">
+          {postedEntry.error.message}
+        </p>
       ) : postedEntry.data ? (
         <div className="mt-[12px] rounded-lg border border-border bg-surface-2 p-[12px_14px] text-[12.5px]">
           <div className="flex flex-wrap items-center gap-[10px]">

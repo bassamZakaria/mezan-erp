@@ -1045,6 +1045,26 @@ describe("gl-routes — year-end close", () => {
     expect(list).toHaveLength(2);
   });
 
+  it("answers whether a year is closed with 200 either way, naming the entry once it is", async () => {
+    const { app } = await withPnlActivity();
+    const before = await app.fetch(req("/year-end-close/2026", { permissions: "accounting.journal.view" }));
+    expect(before.status).toBe(200);
+    expect(await before.json()).toEqual({ year: 2026, closed: false, entry: null });
+
+    await app.fetch(
+      req("/year-end-close", {
+        method: "POST",
+        permissions: "accounting.period.close",
+        body: JSON.stringify({ year: 2026, retainedEarningsAccountId: "3900" }),
+      }),
+    );
+    const after = await app.fetch(req("/year-end-close/2026", { permissions: "accounting.journal.view" }));
+    expect(after.status).toBe(200);
+    const body = (await after.json()) as { closed: boolean; entry: { id: string } | null };
+    expect(body.closed).toBe(true);
+    expect(body.entry?.id).toBe("YEAR-CLOSE:2026");
+  });
+
   it("400s an invalid year on the preview", async () => {
     const { app } = await newApp();
     const res = await app.fetch(req("/year-end-close/not-a-year/preview", { permissions: "accounting.period.close" }));

@@ -4251,12 +4251,15 @@ export function useLockPeriod() {
  * answers 422; both are states the screen renders rather than errors, so they
  * resolve to `null` with the server's own Arabic message carried alongside.
  */
-export function useYearEndClosePreview(year: number | null): UseQueryResult<YearEndClosePreviewDTO | null, ApiError> {
+export function useYearEndClosePreview(
+  year: number | null,
+  enabled = true,
+): UseQueryResult<YearEndClosePreviewDTO | null, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<YearEndClosePreviewDTO | null, ApiError>({
     queryKey: ["gl", "year-end-close", year],
-    enabled: session !== null && year !== null,
+    enabled: session !== null && year !== null && enabled,
     queryFn: async () => {
       const res = await request(`/gl/year-end-close/${year}/preview`);
       if (res.status === 409 || res.status === 422) return null;
@@ -4276,13 +4279,12 @@ export function useYearEndCloseEntry(year: number | null): UseQueryResult<Journa
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JournalEntryDTO | null, ApiError>({
-    queryKey: ["journal-entries", "detail", year === null ? null : `YEAR-CLOSE:${year}`],
+    queryKey: ["gl", "year-end-close", "entry", year],
     enabled: session !== null && year !== null,
     queryFn: async () => {
-      const res = await request(`/gl/journal-entries/${encodeURIComponent(`YEAR-CLOSE:${year}`)}`);
-      if (res.status === 404) return null;
+      const res = await request(`/gl/year-end-close/${year}`);
       if (!res.ok) throw await loaderError(res, t("api.theJournalEntryCouldNot"), t);
-      return res.json<JournalEntryDTO>();
+      return (await res.json<{ entry: JournalEntryDTO | null }>()).entry;
     },
   });
 }

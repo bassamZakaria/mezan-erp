@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,6 +41,51 @@ function run(env: Record<string, string>): Promise<{ code: number | null; output
   });
 }
 
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+async function boot(env: Record<string, string>): Promise<{ port: number; stop: () => Promise<void> }> {
+  const port = await freePort();
+  const child = spawn(tsx, [cloudEntry], {
+    cwd: repoRoot,
+    env: {
+      PATH: process.env["PATH"] ?? "",
+      HOME: process.env["HOME"] ?? "",
+      PORT: String(port),
+      MEZAN_BACKUP_INTERVAL_MINUTES: "0",
+      ...env,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  let output = "";
+  await new Promise<void>((resolve, reject) => {
+    const onData = (c: Buffer) => {
+      output += c.toString();
+      if (output.includes("[cloud] Mezan platform on :")) resolve();
+    };
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onData);
+    child.once("close", (code) => reject(new Error(`cloud.ts exited with ${code} before listening:\n${output}`)));
+  });
+  return {
+    port,
+    stop: async () => {
+      child.kill("SIGTERM");
+      await exited;
+    },
+  };
+}
+
 /**
  * guards S-1 — the public demo shipped a published admin PIN behind basic auth
  * that was applied only if an undeclared variable happened to be set, i.e. a
@@ -45,14 +93,14 @@ function run(env: Record<string, string>): Promise<{ code: number | null; output
  */
 describe("cloud demo entry point", () => {
   it("refuses to start with no MEZAN_DEMO_PASSWORD", async () => {
-    const { code, output } = await run({});
+    const { code, output } = await run({ MEZAN_SEED_DEMO: "1" });
     expect(code).toBe(1);
     expect(output).toContain("REFUSING TO START");
     expect(output).toContain("MEZAN_DEMO_PASSWORD");
   }, 30_000);
 
   it("refuses a password too short to be a shared credential", async () => {
-    const { code, output } = await run({ MEZAN_DEMO_PASSWORD: "short" });
+    const { code, output } = await run({ MEZAN_SEED_DEMO: "1", MEZAN_DEMO_PASSWORD: "short" });
     expect(code).toBe(1);
     expect(output).toContain("REFUSING TO START");
   }, 30_000);
@@ -64,5 +112,19 @@ describe("cloud demo entry point", () => {
     });
     expect(code).toBe(1);
     expect(output).toContain("MEZAN_SEED_ADMIN_PIN");
+  }, 30_000);
+
+  it("boots without MEZAN_DEMO_PASSWORD and mounts no basic auth when no demo is seeded", async () => {
+    const platformDir = mkdtempSync(path.join(tmpdir(), "mezan-cloud-nodemo-"));
+    const { port, stop } = await boot({ MEZAN_PLATFORM_DIR: platformDir });
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/`);
+      expect(res.status).not.toBe(401);
+      expect(res.headers.get("www-authenticate")).toBeNull();
+      expect((await fetch(`http://127.0.0.1:${port}/healthz`)).status).toBe(200);
+    } finally {
+      await stop();
+      rmSync(platformDir, { recursive: true, force: true });
+    }
   }, 30_000);
 });

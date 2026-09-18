@@ -1,6 +1,5 @@
 import { serve } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
-import { takeSeededAdminSecrets } from "@mezan/backend";
 import { parseEnv } from "./env.js";
 import { createCloudApp } from "./cloud-app.js";
 
@@ -13,55 +12,62 @@ import { createCloudApp } from "./cloud-app.js";
 const env = parseEnv(process.env);
 
 /**
- * REFUSES TO START without a shared credential, and refuses to start on a
- * PUBLISHED admin PIN.
+ * REFUSES TO START on a literal fallback-admin PIN, whatever else is set.
  *
- * What shipped before: an open origin on the public internet serving the same
- * app the desktop serves, seeded with the published `123456` fallback admin, no
- * licence state, and basic auth applied only if an undeclared variable happened
- * to be set. That is a writable admin session on a real ERP handed to anyone
- * who finds the URL. `render.yaml` now declares MEZAN_DEMO_PASSWORD as
- * `sync: false`, so the blueprint stops and asks for a value before it deploys;
- * this is the second half — the process will not come up without one.
+ * `MEZAN_SEED_ADMIN_PIN` is PROCESS-WIDE: `resolveSeedAdminSecrets` reads it for
+ * every tenant this process seeds, including every real tenant the platform
+ * console provisions, each of which would open with a known company-admin PIN.
+ * The demo tenant's published PIN is set in `demo-tenant.ts`, for that tenant
+ * alone, and needs no variable.
  */
-const demoPassword = env.demoPassword ?? "";
-const MIN_DEMO_PASSWORD_LENGTH = 12;
-if (demoPassword.length < MIN_DEMO_PASSWORD_LENGTH) {
-  console.error("[cloud] REFUSING TO START: MEZAN_DEMO_PASSWORD is not set, or is shorter than");
-  console.error(`[cloud] ${MIN_DEMO_PASSWORD_LENGTH} characters. The demo serves a writable ERP on the public`);
-  console.error("[cloud] internet; the shared credential is the only thing in front of it.");
-  process.exit(1);
-}
 if (env.seedAdminPin) {
   console.error("[cloud] REFUSING TO START: MEZAN_SEED_ADMIN_PIN pins the fallback admin to a");
   console.error("[cloud] literal PIN. On a public deploy the PIN must be generated per deploy.");
   process.exit(1);
 }
-/**
- * REQUIRED ORDERING: this has to be set before `createCloudApp` provisions the
- * demo tenant, because `resolveSeedAdminSecrets` reads it at seed time to
- * decide whether that tenant's fallback admin gets the published `123456` or a
- * generated PIN.
- */
-process.env["NODE_ENV"] = "production";
 
 /**
- * The demo tenant's own users are seeded on PINs published in this repo, so the
- * whole origin sits behind one shared credential handed to whoever is being
- * shown the demo. Unconditional: the refusal above guarantees a password
- * exists, so there is no "leave it unset and the demo is open" branch any more.
+ * REFUSES TO START a seeded demo without a shared credential.
+ *
+ * The demo tenant's personas all sign in with the published `123456`, so on
+ * the public internet this basic auth is the only thing in front of a writable
+ * ERP. `render.yaml` declares MEZAN_DEMO_PASSWORD as `sync: false`, so the
+ * blueprint asks for a value before it deploys; this is the second half. Tied to
+ * `MEZAN_SEED_DEMO`, not unconditional: a platform that seeds no demo serves
+ * real tenants with their own logins and must not sit behind a `demo:` prompt.
  *
  * `/healthz` is registered ABOVE this middleware inside `createCloudApp` on
  * purpose — the platform's health probe carries no Authorization header, and a
  * 401 there marks the service unhealthy and restarts it in a loop.
  */
-const expectedAuthorization = `Basic ${Buffer.from(`demo:${demoPassword}`).toString("base64")}`;
-const authMiddleware: MiddlewareHandler = async (c: Context, next) => {
-  if (c.req.header("authorization") !== expectedAuthorization) {
-    return c.text("Unauthorized", 401, { "WWW-Authenticate": 'Basic realm="Mezan demo"' });
+const MIN_DEMO_PASSWORD_LENGTH = 12;
+let authMiddleware: MiddlewareHandler | undefined;
+if (env.seedDemo) {
+  const demoPassword = env.demoPassword ?? "";
+  if (demoPassword.length < MIN_DEMO_PASSWORD_LENGTH) {
+    console.error("[cloud] REFUSING TO START: MEZAN_SEED_DEMO=1 needs MEZAN_DEMO_PASSWORD, at least");
+    console.error(`[cloud] ${MIN_DEMO_PASSWORD_LENGTH} characters. The demo serves a writable ERP on the public`);
+    console.error("[cloud] internet; the shared credential is the only thing in front of it.");
+    process.exit(1);
   }
-  await next();
-};
+  const expectedAuthorization = `Basic ${Buffer.from(`demo:${demoPassword}`).toString("base64")}`;
+  authMiddleware = async (c: Context, next) => {
+    if (c.req.header("authorization") !== expectedAuthorization) {
+      return c.text("Unauthorized", 401, { "WWW-Authenticate": 'Basic realm="Mezan demo"' });
+    }
+    await next();
+  };
+}
+
+/**
+ * REQUIRED ORDERING: set before `createCloudApp`, the first call that can open
+ * and seed a tenant database. Every tenant this process seeds — one the
+ * platform console provisions, or an empty one the router opens — must see
+ * `production`, so `resolveSeedAdminSecrets` generates its fallback admin's PIN
+ * instead of handing out the published `123456`. The demo tenant does not
+ * depend on this: `demo-tenant.ts` pins its PIN for that tenant alone.
+ */
+process.env["NODE_ENV"] = "production";
 
 /**
  * The analytics beacon is injected HERE, at the cloud mount, and never built
@@ -78,22 +84,6 @@ const transformIndexHtml = analyticsToken
   : undefined;
 
 const { root } = await createCloudApp(env, { authMiddleware, transformIndexHtml });
-
-/**
- * The generated fallback-admin PIN of the seeded demo tenant, printed ONCE into
- * the deploy log.
- *
- * Generating a secret and printing it nowhere seeds an admin nobody can sign in
- * as — the same defect apps/server/src/index.ts closed. The deploy log is the
- * one place a Render operator can read it and nobody else can.
- */
-const seeded = takeSeededAdminSecrets();
-if (seeded?.generated) {
-  console.log("[cloud] ------------------------------------------------------------");
-  console.log("[cloud] Demo tenant admin seeded with a GENERATED PIN, shown once, here.");
-  console.log(`[cloud]   admin PIN: ${seeded.pin}`);
-  console.log("[cloud] ------------------------------------------------------------");
-}
 
 /**
  * SECURITY-RELEVANT, AND DELIBERATE: the second argument is dropped, so

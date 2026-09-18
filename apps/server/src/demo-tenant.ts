@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { createTenant, activateTenant, startSubscription } from "@mezan/domain";
-import { createBackend, type PlatformHandle } from "@mezan/backend";
+import { createBackend, SEED_ADMIN_PIN, type PlatformHandle } from "@mezan/backend";
 import { createTenantResolvers } from "./tenant-entitlements.js";
 import { tenantDbPath, type TenantRouter } from "./tenant-router.js";
 import type { CloudEnv } from "./env.js";
@@ -28,11 +28,20 @@ export interface ProvisionDemoTenantDeps {
  * `POST /bootstrap/admin` (the path `provisionTenant` uses for a real signup)
  * would 409 on the duplicate email. The demo is not "claimed" through that
  * route at all: its backend is opened directly, with `seedDemoData: true`,
- * BEFORE the tenant router ever caches it, and the fallback seed admin —
- * already known everywhere else in this repo as `admin@cyag.example` / PIN
- * `123456` — stays active as the demo's login. The tenant + subscription are
- * created first so the resolvers this backend opens with already see the
- * enterprise plan's full entitlements.
+ * BEFORE the tenant router ever caches it, and the fallback seed admin
+ * `admin@cyag.example` stays active as the demo's login. The tenant +
+ * subscription are created first so the resolvers this backend opens with
+ * already see the enterprise plan's full entitlements.
+ *
+ * The admin's PIN is pinned HERE, to the published `123456`, for this tenant
+ * only — never through the process-wide `MEZAN_SEED_ADMIN_PIN`, which would
+ * reach every tenant the platform console provisions (cloud.ts refuses it).
+ * A generated PIN is unusable on the demo: the free instance re-seeds from
+ * scratch on every wake, so it would change each time; and the ~20 demo
+ * personas in `demo-seed/access.ts`, a second company admin among them, all
+ * share `123456` anyway. The real gate in front of this tenant is the
+ * `MEZAN_DEMO_PASSWORD` basic auth that cloud.ts requires whenever the demo is
+ * seeded.
  */
 export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promise<void> {
   const now = deps.now ?? (() => new Date());
@@ -70,6 +79,7 @@ export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promis
     dbPath,
     connection: { exclusive: deps.env.sqliteExclusive },
     seedDemoData: true,
+    seedAdminPin: SEED_ADMIN_PIN,
     resolveEntitlements: () => resolvers.resolveEntitlements(),
     resolveLicenseState: () => resolvers.resolveLicenseState(),
   });

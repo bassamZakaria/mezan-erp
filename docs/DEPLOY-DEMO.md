@@ -9,10 +9,27 @@ the demo tenant from scratch. Anything a client types is lost when the instance
 restarts — the demo is deliberately ephemeral, not a bug to fix.
 
 The container runs with `NODE_ENV=production` (set in the `Dockerfile`), which
-makes `@mezan/backend`'s `resolveSeedAdminSecrets` randomise the fallback admin
-PIN on every reseed — fine for a real production tenant, useless for a demo
-nobody can log in to. `render.yaml` sets `MEZAN_SEED_ADMIN_PIN=123456` so the
-demo tenant keeps the known PIN documented below across every restart.
+makes `@mezan/backend`'s `resolveSeedAdminSecrets` generate the fallback admin
+PIN of every real tenant. The demo tenant alone keeps the published `123456`:
+`apps/server/src/demo-tenant.ts` pins it for that tenant, in code, because the
+free instance re-seeds on every wake and a generated PIN would change each time.
+`MEZAN_SEED_ADMIN_PIN` would pin every tenant the process seeds, so `cloud.ts`
+refuses to start if it is set at all.
+
+## The demo password
+
+`MEZAN_DEMO_PASSWORD` is **mandatory** whenever `MEZAN_SEED_DEMO=1`: `cloud.ts`
+refuses to start without it, or with fewer than 12 characters. Every page then
+asks for username `demo` and that password before anything loads. It is the real
+gate — every seeded demo persona shares the published PIN `123456`, so the
+password is the only thing between the open internet and a writable ERP.
+
+- Sales hands the password to each prospect with the demo link; it is never
+  published alongside the URL.
+- Rotate it monthly, and immediately after any leak (a forwarded email, a
+  screenshot, a prospect who should no longer have access). Rotation is the
+  dashboard steps below: change the value, save, redeploy.
+- `/healthz` is the only path served without it, so Render's health check passes.
 
 ## Render (no credit card)
 
@@ -20,13 +37,39 @@ demo tenant keeps the known PIN documented below across every restart.
    merge to `main` redeploys the demo on its own.
 2. On <https://dashboard.render.com> → **New → Blueprint**, point it at the repo.
    Render reads `render.yaml` and creates the `mezan-demo` web service on the free plan.
+   It stops and asks for every `sync: false` variable, `MEZAN_DEMO_PASSWORD`
+   among them.
 3. Wait for the first build (~5-8 minutes; it installs the workspace and runs
    `pnpm --filter web build`).
-4. Open `https://mezan-demo.onrender.com`.
+4. Open `https://mezan-demo.onrender.com` and sign in as `demo` with the password.
 
-To put the demo behind one shared password, set `MEZAN_DEMO_PASSWORD` in the Render
-dashboard (Environment tab). The browser then asks for username `demo` and that
-password before anything loads.
+### Existing service
+
+Render asks for `sync: false` variables only when a blueprint first creates a
+service, and it KEEPS a variable that has since been removed from `render.yaml`.
+So a service created before this change still carries `MEZAN_SEED_ADMIN_PIN=123456`
+from the old blueprint — `cloud.ts` refuses to start with it, every new deploy
+fails its health check, and Render keeps serving the previous build — and may
+have no `MEZAN_DEMO_PASSWORD`. Fix both by hand:
+
+1. <https://dashboard.render.com> → **mezan-demo** → **Environment**.
+2. Find `MEZAN_SEED_ADMIN_PIN` and delete it (the trash icon on its row).
+3. **Add Environment Variable**: key `MEZAN_DEMO_PASSWORD`, value a password of at
+   least 12 characters. If it already exists, check its value is at least 12
+   characters.
+4. **Save, rebuild, and deploy**.
+5. **Events**: wait for "Deploy live" on the latest commit. A deploy that fails its
+   health check leaves the old build serving, so read the deploy log if it does not
+   go live.
+6. Check it from any machine:
+
+   ```sh
+   curl -s -o /dev/null -w '%{http_code}\n' https://mezan-demo.onrender.com/          # 401
+   curl -s -o /dev/null -w '%{http_code}\n' https://mezan-demo.onrender.com/healthz   # 200
+   curl -s -o /dev/null -w '%{http_code}\n' -u 'demo:<password>' https://mezan-demo.onrender.com/  # 200
+   ```
+
+   A `200` on `/` without credentials means the old build is still serving.
 
 ### Free-plan behaviour
 
@@ -61,6 +104,7 @@ in.
 
 | Login | Where | Credentials |
 | --- | --- | --- |
+| Browser basic auth | every page, before anything loads | `demo` / `MEZAN_DEMO_PASSWORD` (set in the Render dashboard) |
 | Platform owner | `/platform/login` | `MEZAN_PLATFORM_OWNER_EMAIL` / `MEZAN_PLATFORM_OWNER_PASSWORD` (set in the Render dashboard) |
 | Demo tenant | company code `demo`, then the login screen | `admin@cyag.example` with PIN `123456` |
 
@@ -77,7 +121,7 @@ use `<local>@cyag.example` with the same PIN and exercise the permission matrix.
 
 ```sh
 pnpm --filter web build
-MEZAN_PLATFORM_DIR=/tmp/platform MEZAN_SEED_DEMO=1 \
+MEZAN_PLATFORM_DIR=/tmp/platform MEZAN_SEED_DEMO=1 MEZAN_DEMO_PASSWORD=local-demo-password \
   MEZAN_PLATFORM_OWNER_EMAIL=owner@mezan.local MEZAN_PLATFORM_OWNER_PASSWORD=owner-password-123 \
   PORT=8080 pnpm exec tsx apps/server/src/cloud.ts
 ```
@@ -87,7 +131,8 @@ Or through Docker:
 ```sh
 docker build -t mezan-demo .
 docker run --rm -p 8080:8080 \
-  -e MEZAN_SEED_DEMO=1 -e MEZAN_PLATFORM_OWNER_EMAIL=owner@mezan.local \
+  -e MEZAN_SEED_DEMO=1 -e MEZAN_DEMO_PASSWORD=local-demo-password \
+  -e MEZAN_PLATFORM_OWNER_EMAIL=owner@mezan.local \
   -e MEZAN_PLATFORM_OWNER_PASSWORD=owner-password-123 mezan-demo
 ```
 

@@ -336,6 +336,16 @@ describe("the seeded fallback admin's secrets (S7)", () => {
       expect(result.generated).toBe(true);
     }
   });
+
+  it("lets a per-tenant pinOverride win over the environment, even in production", () => {
+    const pinned = resolveSeedAdminSecrets({ NODE_ENV: "production", MEZAN_SEED_ADMIN_PIN: "424242" }, "123456");
+    expect(pinned).toEqual({ pin: "123456", password: expect.any(String), generated: false });
+    expect(resolveSeedAdminSecrets({ NODE_ENV: "production" }, "12345").generated).toBe(true);
+  });
+
+  it("refuses seedAdminPin on a backend that is not the demo tenant", async () => {
+    await expect(createBackend({ dbPath: ":memory:", seedAdminPin: "123456" })).rejects.toThrow(/seedDemoData/);
+  });
 });
 
 /* ================================================================== */

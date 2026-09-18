@@ -44,6 +44,7 @@ if (!skipBuild) {
 
 console.log(`[env] ${name}: http://localhost:${port}  (platform dir: ${platformDir})`);
 console.log(`[env] ${name}: platform owner at /platform/login — owner@mezan.local / owner-password-123`);
+console.log(`[env] ${name}: browser basic auth — demo / local-demo-password`);
 console.log(`[env] ${name}: demo tenant code "demo" — sign in as admin@cyag.example with PIN 123456`);
 
 const child = spawn("pnpm", ["exec", "tsx", "apps/server/src/cloud.ts"], {
@@ -55,7 +56,7 @@ const child = spawn("pnpm", ["exec", "tsx", "apps/server/src/cloud.ts"], {
     MEZAN_SEED_DEMO: "1",
     MEZAN_PLATFORM_OWNER_EMAIL: "owner@mezan.local",
     MEZAN_PLATFORM_OWNER_PASSWORD: "owner-password-123",
-    MEZAN_SEED_ADMIN_PIN: "123456",
+    MEZAN_DEMO_PASSWORD: "local-demo-password",
   },
 });
 

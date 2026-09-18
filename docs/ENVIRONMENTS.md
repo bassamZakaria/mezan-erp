@@ -52,10 +52,13 @@ Two logins, both seeded automatically by `scripts/env.mjs`:
 
 | Login | Where | Credentials |
 | --- | --- | --- |
+| Browser basic auth | every page, before anything loads | `demo` / `local-demo-password` |
 | Platform owner | `/platform/login` | `owner@mezan.local` / `owner-password-123` |
 | Demo tenant | company code `demo`, then the login screen | `admin@cyag.example` with PIN `123456` |
 
-Neither environment is password-protected, matching dev; `.data/` is gitignored.
+Both sit behind basic auth because they seed the demo tenant: `cloud.ts` refuses
+to start with `MEZAN_SEED_DEMO=1` unless `MEZAN_DEMO_PASSWORD` holds at least 12
+characters. `.data/` is gitignored.
 
 ### Why these run cloud.ts, not `pnpm dev`
 
@@ -83,7 +86,7 @@ hosted testing box is one service away:
    | `MEZAN_PLATFORM_OWNER_EMAIL` | `owner@mezan.local` |
    | `MEZAN_PLATFORM_OWNER_PASSWORD` | a password you choose |
    | `NODE_OPTIONS` | `--max-old-space-size=400` |
-   | `MEZAN_SEED_ADMIN_PIN` | `123456` |
+   | `MEZAN_DEMO_PASSWORD` | a shared password of at least 12 characters |
 
 That gives `https://mezan-testing.onrender.com`, on the same free tier as the
 demo: it sleeps after 15 minutes idle (40-60 s to wake), and has no persistent

@@ -109,3 +109,28 @@ export class NoDepreciableAssetsError extends Error {
     this.name = "NoDepreciableAssetsError";
   }
 }
+
+/**
+ * Raised when reversing a depreciation run while a LATER posted run shares
+ * one of its assets (D275). QuickBooks and Odoo both enforce this: a later
+ * run has already built its own accumulated-depreciation figure on top of
+ * this one, so undoing this run first would leave that figure standing on a
+ * run whose starting point no longer exists. Runs must be reversed
+ * newest-first.
+ */
+export class LaterDepreciationRunExistsError extends Error {
+  readonly code = "LATER_DEPRECIATION_RUN_EXISTS";
+  readonly messageEn: string;
+  constructor(
+    readonly runId: string,
+    readonly period: string,
+    readonly laterRunId: string,
+    readonly laterRunPeriod: string,
+  ) {
+    super(
+      `لا يمكن عكس تشغيل الإهلاك لفترة "${period}" لوجود تشغيل لاحق مُرحَّل لفترة "${laterRunPeriod}" يشمل نفس الأصل؛ اعكس التشغيلات الأحدث أولاً.`,
+    );
+    this.messageEn = `Depreciation run "${runId}" (period "${period}") cannot be reversed while a later posted run "${laterRunId}" (period "${laterRunPeriod}") shares one of its assets; reverse the newest run first.`;
+    this.name = "LaterDepreciationRunExistsError";
+  }
+}

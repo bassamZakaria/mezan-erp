@@ -3310,6 +3310,24 @@ export function usePostDepreciationRun() {
   });
 }
 
+/** يعكس تشغيل إهلاك مرحّلاً (POST /assets/depreciation/runs/:id/reverse, D275). No date sent defaults to today on the server; the caller may date it later but never before the run's own posting day. */
+export function useReverseDepreciationRun() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepreciationRunDTO, ApiError, { id: string; date?: string }>({
+    mutationFn: async ({ id, date }) => {
+      const res = await request(`/assets/depreciation/runs/${id}/reverse`, { method: "POST", body: JSON.stringify(date ? { date } : {}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationRunCouldNotBeReversed"), t));
+      return res.json<DepreciationRunDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Inventory aging-based write-down batch (docs/archive/phase-backlog.md Phase 4) — inv/labels-templates-writedown
 // ---------------------------------------------------------------------------

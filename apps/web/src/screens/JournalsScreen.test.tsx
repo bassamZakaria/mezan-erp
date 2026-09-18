@@ -8,6 +8,7 @@ import { JournalsScreen } from "./JournalsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { JournalEntryDTO } from "../data/hooks";
 import { NavigationProvider } from "../navigation";
+import { todayIso } from "../lib/dates";
 
 /**
  * JournalsScreen's create/detail views are sub-pages addressed via the shell's
@@ -289,7 +290,10 @@ describe("JournalsScreen — create: post flow", () => {
     // own 2026-08-05 (D270) — the caller may still change it.
     const dialog = await screen.findByRole("dialog");
     const dateInput = within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement;
-    const today = new Date().toISOString().slice(0, 10);
+    // The component's default is the LOCAL calendar day (`todayIso`), not
+    // `toISOString()`'s UTC day — the two disagree for several hours a day
+    // east of Greenwich, which is where this product ships.
+    const today = todayIso();
     expect(dateInput.value).toBe(today);
     fireEvent.click(within(dialog).getByRole("button", { name: "عكس القيد" }));
 

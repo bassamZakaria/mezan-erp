@@ -8,6 +8,7 @@ import { TreasuryVouchersScreen } from "./TreasuryVouchersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { VoucherDetailDTO, VoucherRowDTO } from "../data/hooks";
 import { NavigationProvider } from "../navigation";
+import { todayIso } from "../lib/dates";
 
 /**
  * TreasuryVouchersScreen's create and detail views are sub-pages addressed via
@@ -355,7 +356,10 @@ describe("TreasuryVouchersScreen — reversal (D270)", () => {
 
     const dialog = await screen.findByRole("dialog");
     const dateInput = within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement;
-    const today = new Date().toISOString().slice(0, 10);
+    // The component's default is the LOCAL calendar day (`todayIso`), not
+    // `toISOString()`'s UTC day — the two disagree for several hours a day
+    // east of Greenwich, which is where this product ships.
+    const today = todayIso();
     // The voucher itself is dated 2026-08-07; the dialog defaults to today, not that (D270).
     expect(dateInput.value).toBe(today);
     expect(dateInput.value).not.toBe("2026-08-07");

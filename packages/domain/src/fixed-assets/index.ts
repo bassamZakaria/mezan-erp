@@ -71,4 +71,5 @@ export {
   DepreciationRunNotPostedError,
   DuplicateDepreciationPeriodError,
   NoDepreciableAssetsError,
+  LaterDepreciationRunExistsError,
 } from "./errors.js";

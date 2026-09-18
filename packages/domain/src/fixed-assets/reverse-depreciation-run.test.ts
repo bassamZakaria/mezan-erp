@@ -6,6 +6,7 @@ import { InMemoryFiscalPeriodRepository } from "../fiscal-periods/test-helpers/i
 import { NextNumberService } from "../numbering/index.js";
 import { PeriodNotOpenForPostingError } from "../fiscal-periods/errors.js";
 import type { JournalPostingDeps } from "../gl/index.js";
+import { ReversalDateBeforeOriginalError } from "../gl/index.js";
 import {
   InMemoryLedgerRepository,
   InMemorySequenceStore,
@@ -14,9 +15,10 @@ import {
 } from "../gl/test-helpers/in-memory-ledger-repository.js";
 import type { Asset } from "./asset.js";
 import type { AssetCategory } from "./asset-category.js";
+import { createDepreciationRun } from "./create-depreciation-run.js";
 import { postDepreciationRun, type PostDepreciationRunDeps } from "./post-depreciation-run.js";
 import { reverseDepreciationRun } from "./reverse-depreciation-run.js";
-import { DepreciationRunNotPostedError } from "./errors.js";
+import { DepreciationRunNotPostedError, LaterDepreciationRunExistsError } from "./errors.js";
 import {
   createInMemoryAssetCategoryRepository,
   createInMemoryAssetRepository,
@@ -215,23 +217,74 @@ describe("reverseDepreciationRun", () => {
     expect((await h.runs.findById("run-1"))!.status).toBe("cancelled");
   });
 
+  /**
+   * The closed period sits AFTER run-1's own day (2026-03-31), so this is
+   * purely the fiscal-period gate — D275's own "dated before the run" refusal
+   * (below) is a separate check and must not be the reason this one fails.
+   */
   it("refuses a reversal dated into a closed period, and changes nothing", async () => {
     await h.periods.create({
-      id: "fp-2026-02",
+      id: "fp-2026-04",
       year: 2026,
-      periodNumber: 2,
-      startDate: "2026-02-01",
-      endDate: "2026-02-28",
+      periodNumber: 4,
+      startDate: "2026-04-01",
+      endDate: "2026-04-30",
       status: "closed",
     });
 
     await expect(
-      reverseDepreciationRun("run-1", deps(), { reversalId: "rev-1", date: "2026-02-15" }),
+      reverseDepreciationRun("run-1", deps(), { reversalId: "rev-1", date: "2026-04-15" }),
     ).rejects.toBeInstanceOf(PeriodNotOpenForPostingError);
 
     expect((await h.ledger.findById("DEP-JE:run-1"))!.status).toBe("posted");
     expect((await h.assets.findById("a1"))!.accumulatedDepreciation.toString()).toBe("3000.000000");
     expect((await h.runs.findById("run-1"))!.status).toBe("posted");
+  });
+
+  /**
+   * guards D275 — a depreciation-run reversal with no date sent took the
+   * RUN's own day rather than the day it is reversed, the same fault D270
+   * fixed for vouchers, one bounded context over.
+   */
+  it("refuses a reversal dated before the run's own posting day (D275), and changes nothing", async () => {
+    await expect(
+      reverseDepreciationRun("run-1", deps(), { reversalId: "rev-1", date: "2026-01-15" }),
+    ).rejects.toBeInstanceOf(ReversalDateBeforeOriginalError);
+
+    expect((await h.ledger.findById("DEP-JE:run-1"))!.status).toBe("posted");
+    expect((await h.assets.findById("a1"))!.accumulatedDepreciation.toString()).toBe("3000.000000");
+    expect((await h.runs.findById("run-1"))!.status).toBe("posted");
+  });
+
+  /**
+   * guards D275's second rule — the QuickBooks/Odoo norm that only the
+   * LATEST posted run touching an asset may be reversed.
+   */
+  it("refuses to reverse a run while a later posted run shares one of its assets (D275), and changes nothing", async () => {
+    await h.periods.create({
+      id: "fp-2026-04",
+      year: 2026,
+      periodNumber: 4,
+      startDate: "2026-04-01",
+      endDate: "2026-04-30",
+      status: "open",
+    });
+    const run2 = await createDepreciationRun({ id: "run-2", period: "2026-04" }, { runs: h.runs, assets: h.assets });
+    expect(run2.lines.some((l) => l.assetId === "a1")).toBe(true);
+    await postDepreciationRun("run-2", h.deps);
+
+    await expect(
+      reverseDepreciationRun("run-1", deps(), { reversalId: "rev-1" }),
+    ).rejects.toBeInstanceOf(LaterDepreciationRunExistsError);
+
+    expect((await h.ledger.findById("DEP-JE:run-1"))!.status).toBe("posted");
+    expect((await h.runs.findById("run-1"))!.status).toBe("posted");
+
+    // Reversing the LATER run first, then the earlier one, both succeed.
+    await reverseDepreciationRun("run-2", deps(), { reversalId: "rev-2" });
+    await reverseDepreciationRun("run-1", deps(), { reversalId: "rev-3" });
+    expect((await h.runs.findById("run-1"))!.status).toBe("cancelled");
+    expect((await h.runs.findById("run-2"))!.status).toBe("cancelled");
   });
 
   it("refuses to reverse a run that was never posted", async () => {

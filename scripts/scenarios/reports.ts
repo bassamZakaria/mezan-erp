@@ -1085,3 +1085,150 @@ export async function voucherReversalDatedByReversalDay_D270(ctx: Ctx): Promise<
     check("the customer ladder still ties to 1105", (await req("GET", "/reports/aging/customers")).body?.reconciliation?.withinTolerance === true);
   });
 }
+
+/**
+ * D275 — the same fault D270 fixed for vouchers, one bounded context over:
+ * `POST /depreciation/runs/:id/reverse` sent no date, and a reversal without
+ * one took the RUN's own period-end day. Fixed: the route now defaults a
+ * missing date to today, refuses a date before the run's own day, and — the
+ * QuickBooks/Odoo norm — refuses to reverse a run while a LATER posted run
+ * still stands on the same asset (reverse newest-first).
+ *
+ * The distinguishing proof is the money trail, not the flag: after BOTH runs
+ * are fully reversed, the asset's own accumulated-depreciation figure and the
+ * accumulated-depreciation CONTROL ACCOUNT it posts to must tie back to
+ * exactly where they started — not merely both read a plausible number.
+ */
+export async function depreciationRunReversalDatedByReversalDay_D275(ctx: Ctx): Promise<void> {
+  const { req, check, checkEq, n } = ctx;
+
+  await ctx.scenario(
+    "D275 — a depreciation-run reversal with no date is dated the day it is reversed, and only the latest posted run may be reversed",
+    async () => {
+      const categories = ctx.rows((await req("GET", "/assets/categories")).body);
+      const category = categories[0];
+      check("setup: there is an asset category to register against", Boolean(category?.id), JSON.stringify(category).slice(0, 200));
+      if (!category?.id) return;
+      const controlAccountId = category.accumulatedDepreciationAccountId as string | null;
+      check("setup: the category names an accumulated-depreciation control account", Boolean(controlAccountId), JSON.stringify(category).slice(0, 200));
+      if (!controlAccountId) return;
+
+      const glBalance = async () => n((await req("GET", `/gl/accounts/${controlAccountId}/ledger`)).body?.balance?.balance);
+      const controlBefore = await glBalance();
+
+      const created = await req("POST", "/assets", {
+        id: "SCN-D275-ASSET-1",
+        code: "SCN-D275-FA-1",
+        nameAr: "أصل اختبار عكس الإهلاك",
+        categoryId: category.id,
+        acquisitionDate: "2026-01-01",
+        acquisitionCost: "12000.00",
+        scope: "general",
+      });
+      check("setup: the asset registers", created.status === 201, JSON.stringify(created.body).slice(0, 200));
+
+      const run1 = await req("POST", "/assets/depreciation/runs", { period: "2026-11" });
+      const run1Id = run1.body?.id;
+      check(
+        "setup: run1 (2026-11) computes and includes the new asset",
+        run1.status === 201 && (run1.body?.lines ?? []).some((l: any) => l.assetId === "SCN-D275-ASSET-1"),
+        JSON.stringify(run1.body).slice(0, 250),
+      );
+      const posted1 = await req("POST", `/assets/depreciation/runs/${run1Id}/post`, {});
+      check("setup: run1 posts", posted1.status === 200, JSON.stringify(posted1.body).slice(0, 200));
+
+      const run2 = await req("POST", "/assets/depreciation/runs", { period: "2026-12" });
+      const run2Id = run2.body?.id;
+      const posted2 = await req("POST", `/assets/depreciation/runs/${run2Id}/post`, {});
+      check("setup: run2 (2026-12) posts", posted2.status === 200, JSON.stringify(posted2.body).slice(0, 200));
+
+      const afterRuns = (await req("GET", "/assets/SCN-D275-ASSET-1")).body;
+      const accumulatedAfterRuns = n(afterRuns?.accumulatedDepreciation);
+      check("setup: two runs raised the asset's accumulated depreciation", accumulatedAfterRuns > 0, JSON.stringify(afterRuns).slice(0, 200));
+
+      // The category's control account is shared by every seeded asset in it,
+      // not just this scenario's own — so the cross-check is against the two
+      // runs' OWN reported totals (every asset each run touched), not this
+      // one asset's figure alone.
+      const postedTotal = n(posted1.body?.totalAmount) + n(posted2.body?.totalAmount);
+      const controlAfterRuns = await glBalance();
+      checkEq(
+        "the accumulated-depreciation control account moved by exactly what the two posted runs' own totals show (a credit-natural account reads negative)",
+        controlAfterRuns - controlBefore,
+        -postedTotal,
+        0.000001,
+      );
+
+      const blockedReverse = await req("POST", `/assets/depreciation/runs/${run1Id}/reverse`, { date: "2026-12-31" });
+      check(
+        "D275: the OLDER run cannot be reversed while the later run (2026-12) still stands",
+        blockedReverse.status === 422 &&
+          blockedReverse.body?.error === "LATER_DEPRECIATION_RUN_EXISTS" &&
+          typeof blockedReverse.body?.messageEn === "string" &&
+          blockedReverse.body.messageEn.length > 0,
+        JSON.stringify(blockedReverse.body).slice(0, 250),
+      );
+      check(
+        "and nothing moved for the refused reversal — run1 is still posted",
+        (await req("GET", `/assets/depreciation/runs/${run1Id}`)).body?.status === "posted",
+      );
+
+      const tooEarly = await req("POST", `/assets/depreciation/runs/${run2Id}/reverse`, { date: "2026-01-01" });
+      check(
+        "D275: a reversal dated before the run's own day is refused, bilingually",
+        tooEarly.status === 422 &&
+          tooEarly.body?.error === "REVERSAL_DATE_BEFORE_ORIGINAL" &&
+          typeof tooEarly.body?.messageEn === "string" &&
+          tooEarly.body.messageEn.length > 0,
+        JSON.stringify(tooEarly.body).slice(0, 250),
+      );
+      check(
+        "and nothing posted for the refused reversal — run2 is still posted",
+        (await req("GET", `/assets/depreciation/runs/${run2Id}`)).body?.status === "posted",
+      );
+
+      // Reverse newest-first, each dated explicitly at its own period-end day
+      // — "no date defaults to today" is proved on its own, isolated clock in
+      // the domain and route tests; this shared demo tenant's "today" (the
+      // real wall clock) sits mid-year, BEFORE these two runs' own November/
+      // December dates, so a bare {} here would legitimately trip the
+      // date-before-original guard this same scenario just proved above.
+      const reversed2 = await req("POST", `/assets/depreciation/runs/${run2Id}/reverse`, { date: "2026-12-31" });
+      check(
+        "D275: reversing the latest run succeeds now that nothing later stands",
+        reversed2.status === 200 && reversed2.body?.status === "cancelled",
+        JSON.stringify(reversed2.body).slice(0, 200),
+      );
+      const entry2 = await req("GET", `/gl/journal-entries/DEP-JE:${run2Id}`);
+      const reversalEntry2 = await req("GET", `/gl/journal-entries/${entry2.body?.reversedByEntryId}`);
+      check(
+        "D275: the reversal posts on the date the caller sent",
+        reversalEntry2.body?.date === "2026-12-31",
+        JSON.stringify({ reversal: reversalEntry2.body?.date }),
+      );
+
+      // With the later run gone, the earlier one may be reversed too.
+      const reversed1 = await req("POST", `/assets/depreciation/runs/${run1Id}/reverse`, { date: "2026-12-31" });
+      check(
+        "D275: after the later run is reversed, the earlier run may be reversed too",
+        reversed1.status === 200 && reversed1.body?.status === "cancelled",
+        JSON.stringify(reversed1.body).slice(0, 200),
+      );
+
+      const assetAfterReversal = (await req("GET", "/assets/SCN-D275-ASSET-1")).body;
+      check(
+        "D275: the asset's accumulated depreciation is back to exactly zero",
+        assetAfterReversal?.accumulatedDepreciation === "0.000000",
+        JSON.stringify(assetAfterReversal).slice(0, 200),
+      );
+
+      const controlAfterReversal = await glBalance();
+      checkEq(
+        "D275: the accumulated-depreciation control account ties back to exactly where it started",
+        controlAfterReversal,
+        controlBefore,
+        0.000001,
+      );
+    },
+  );
+}

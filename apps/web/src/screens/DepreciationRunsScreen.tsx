@@ -8,16 +8,25 @@ import {
   Button,
   RowMenu,
   SidePanel,
+  ConfirmDialog,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
 import type { CreateDepreciationRunDTO, DepreciationRunDTO, DepreciationRunStatusDTO } from "@mezan/contracts";
-import { ApiError, useBranches, useCreateDepreciationRun, useDepreciationRuns, usePostDepreciationRun } from "../data/hooks";
-import { NumberField, SelectField } from "../settings/form-controls";
+import {
+  ApiError,
+  useBranches,
+  useCreateDepreciationRun,
+  useDepreciationRuns,
+  usePostDepreciationRun,
+  useReverseDepreciationRun,
+} from "../data/hooks";
+import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { todayIso } from "../lib/dates";
 import { useUrlNumber, useUrlParam } from "../lib/url-state";
 
 /** الإهلاك (Depreciation Runs) — docs/archive/catalog/07 §"الإهلاك". List + detail + run-creation panel. */
@@ -58,6 +67,7 @@ export function DepreciationRunsScreen() {
   const branchesQuery = useBranches();
   const createRun = useCreateDepreciationRun();
   const postRun = usePostDepreciationRun();
+  const reverseRun = useReverseDepreciationRun();
 
   const runs = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? [];
@@ -72,6 +82,11 @@ export function DepreciationRunsScreen() {
 
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
+
+  const [reversingId, setReversingId] = useState<string | null>(null);
+  const [reverseError, setReverseError] = useState<string | null>(null);
+  const [reverseConfirmOpen, setReverseConfirmOpen] = useState(false);
+  const [reverseDate, setReverseDate] = useState(todayIso());
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -133,6 +148,28 @@ export function DepreciationRunsScreen() {
     }
   }
 
+  function openReverseConfirm(run: DepreciationRunDTO) {
+    if (reversingId !== null) return;
+    setSelectedId(run.id);
+    setReverseError(null);
+    setReverseDate(todayIso());
+    setReverseConfirmOpen(true);
+  }
+
+  async function handleReverse() {
+    if (!selected || reversingId !== null) return;
+    setReverseConfirmOpen(false);
+    setReversingId(selected.id);
+    setReverseError(null);
+    try {
+      await reverseRun.mutateAsync({ id: selected.id, date: reverseDate });
+    } catch (err) {
+      setReverseError(err instanceof ApiError ? err.message : t("api.theDepreciationRunCouldNotBeReversed"));
+    } finally {
+      setReversingId(null);
+    }
+  }
+
   const columns: DocumentListColumn<DepreciationRunDTO>[] = [
     { key: "period", header: t("common.period"), render: (r) => <span className="mz-num font-semibold text-ink">{r.period}</span> },
     { key: "branch", header: t("common.branch"), render: (r) => branchName(r.branchId) },
@@ -162,6 +199,13 @@ export function DepreciationRunsScreen() {
         <Card className="mb-[18px] p-[14px_18px]">
           <p role="alert" className="text-[13px] font-semibold text-danger-ink">
             {postError}
+          </p>
+        </Card>
+      ) : null}
+      {reverseError ? (
+        <Card className="mb-[18px] p-[14px_18px]">
+          <p role="alert" className="text-[13px] font-semibold text-danger-ink">
+            {reverseError}
           </p>
         </Card>
       ) : null}
@@ -197,6 +241,9 @@ export function DepreciationRunsScreen() {
             ...(r.status === "draft"
               ? [{ key: "post", label: t("depreciation.post"), disabled: postingId === r.id, onSelect: () => void handlePost(r) }]
               : []),
+            ...(r.status === "posted"
+              ? [{ key: "reverse", label: t("depreciation.reverse"), disabled: reversingId === r.id, onSelect: () => openReverseConfirm(r) }]
+              : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.period })} />;
         }}
@@ -226,7 +273,14 @@ export function DepreciationRunsScreen() {
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("depreciation.detailTitle", { period: selected.period }) : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
-            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
+            <div className="flex items-center justify-between gap-[10px]">
+              <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
+              {selected.status === "posted" ? (
+                <Button variant="danger-outline" size="sm" disabled={reversingId === selected.id} onClick={() => openReverseConfirm(selected)}>
+                  {t("depreciation.reverse")}
+                </Button>
+              ) : null}
+            </div>
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("common.period")}</div>
@@ -278,6 +332,21 @@ export function DepreciationRunsScreen() {
           </div>
         ) : null}
       </SidePanel>
+
+      <ConfirmDialog
+        open={reverseConfirmOpen}
+        title={t("depreciation.reverseConfirmTitle")}
+        consequence={
+          <div className="flex flex-col gap-[10px]">
+            <p>{t("depreciation.reverseConfirmBody")}</p>
+            <TextField label={t("depreciation.reversalDate")} value={reverseDate} onChange={setReverseDate} type="date" />
+          </div>
+        }
+        confirmLabel={t("depreciation.reverse")}
+        tone="danger"
+        onConfirm={() => void handleReverse()}
+        onCancel={() => setReverseConfirmOpen(false)}
+      />
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("depreciation.runDepreciation")} description={t("depreciation.depreciationRunDetails")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">

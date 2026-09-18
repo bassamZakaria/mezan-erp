@@ -404,6 +404,11 @@ describe("fixed-assets router — depreciation run full flow", () => {
     expect(again.status).toBe(409);
   });
 
+  /**
+   * The closed period is AFTER the run's own day (2026-03-31) so this is
+   * purely the fiscal-period gate — D275's own "dated before the run"
+   * refusal (below) is a separate check with a separate error code.
+   */
   it("refuses a reversal dated into a closed period with 422, not a 500", async () => {
     const { app, periods } = await newApp();
     await app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
@@ -419,18 +424,149 @@ describe("fixed-assets router — depreciation run full flow", () => {
     ).json()) as { id: string };
     await app.fetch(req(`/depreciation/runs/${draftRun.id}/post`, { method: "POST", permissions: "assets.depreciation.run" }));
 
-    const feb = (await periods.findByDate("2026-02-15"))!;
-    await periods.update({ ...feb, status: "closed" });
+    await periods.create({ id: "fp-2026-04", year: 2026, periodNumber: 4, startDate: "2026-04-01", endDate: "2026-04-30", status: "closed" });
 
     const res = await app.fetch(
       req(`/depreciation/runs/${draftRun.id}/reverse`, {
         method: "POST",
         permissions: "assets.depreciation.run",
-        body: JSON.stringify({ date: "2026-02-15" }),
+        body: JSON.stringify({ date: "2026-04-15" }),
       }),
     );
     expect(res.status).toBe(422);
     expect((await res.json()) as { error: string }).toMatchObject({ error: "PERIOD_NOT_OPEN_FOR_POSTING" });
+  });
+
+  /**
+   * guards D275 — `/depreciation/runs/:id/reverse` used to pass `body.date`
+   * straight through with no default at all, so an omitted date fell back to
+   * `reverseJournalEntry`'s own default (the run's own day), the same fault
+   * D270 fixed for vouchers.
+   */
+  it("D275: no date sent defaults the reversal to today, not the run's own period-end day", async () => {
+    const { app, ledger } = await newApp();
+    await app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
+    await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "assets.create",
+        body: JSON.stringify({ id: "a1", code: "A-001", nameAr: "سيارة", categoryId: "cat-1", acquisitionDate: "2025-01-01", acquisitionCost: "12000.00" }),
+      }),
+    );
+    const draftRun = (await (
+      await app.fetch(req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-03" }) }))
+    ).json()) as { id: string };
+    const posted = (await (
+      await app.fetch(req(`/depreciation/runs/${draftRun.id}/post`, { method: "POST", permissions: "assets.depreciation.run" }))
+    ).json()) as { journalEntryId: string };
+    expect((await ledger.findById(posted.journalEntryId))!.date).toBe("2026-03-31");
+
+    // The test harness's clock (`gl.now`) reads "2026-03-31T12:00:00.000Z" —
+    // the same calendar day the run itself posted on, so a genuinely later
+    // "today" is asserted against the harness's own clock value, not a
+    // hardcoded date that would rot.
+    const reverseRes = await app.fetch(
+      req(`/depreciation/runs/${draftRun.id}/reverse`, { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({}) }),
+    );
+    expect(reverseRes.status).toBe(200);
+    const original = await ledger.findById(posted.journalEntryId);
+    expect(original!.status).toBe("reversed");
+    const reversal = await ledger.findById(original!.reversedByEntryId as string);
+    expect(reversal!.date).toBe("2026-03-31");
+  });
+
+  /**
+   * guards D275 — a user-chosen date may never be before the run's own
+   * posting day, the same rule D270 gave voucher reversals.
+   */
+  it("D275: a reversal dated before the run's own day is refused, bilingually, and posts nothing", async () => {
+    const { app, ledger, runs } = await newApp();
+    await app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
+    await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "assets.create",
+        body: JSON.stringify({ id: "a1", code: "A-001", nameAr: "سيارة", categoryId: "cat-1", acquisitionDate: "2025-01-01", acquisitionCost: "12000.00" }),
+      }),
+    );
+    const draftRun = (await (
+      await app.fetch(req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-03" }) }))
+    ).json()) as { id: string };
+    const posted = (await (
+      await app.fetch(req(`/depreciation/runs/${draftRun.id}/post`, { method: "POST", permissions: "assets.depreciation.run" }))
+    ).json()) as { journalEntryId: string };
+
+    const res = await app.fetch(
+      req(`/depreciation/runs/${draftRun.id}/reverse`, {
+        method: "POST",
+        permissions: "assets.depreciation.run",
+        body: JSON.stringify({ date: "2026-01-15" }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; messageEn: string };
+    expect(body.error).toBe("REVERSAL_DATE_BEFORE_ORIGINAL");
+    expect(body.messageEn.length).toBeGreaterThan(0);
+
+    expect((await ledger.findById(posted.journalEntryId))!.status).toBe("posted");
+    expect((await runs.findById(draftRun.id))!.status).toBe("posted");
+  });
+
+  /**
+   * guards D275's second rule — the QuickBooks/Odoo norm that only the
+   * LATEST posted run touching an asset may be reversed.
+   */
+  it("D275: reversing a run is refused while a later posted run shares its asset, bilingually", async () => {
+    const { app, periods, runs } = await newApp();
+    await app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
+    await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "assets.create",
+        body: JSON.stringify({ id: "a1", code: "A-001", nameAr: "سيارة", categoryId: "cat-1", acquisitionDate: "2025-01-01", acquisitionCost: "12000.00" }),
+      }),
+    );
+    const run1 = (await (
+      await app.fetch(req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-03" }) }))
+    ).json()) as { id: string };
+    await app.fetch(req(`/depreciation/runs/${run1.id}/post`, { method: "POST", permissions: "assets.depreciation.run" }));
+
+    await periods.create({ id: "fp-2026-04", year: 2026, periodNumber: 4, startDate: "2026-04-01", endDate: "2026-04-30", status: "open" });
+    const run2 = (await (
+      await app.fetch(req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-04" }) }))
+    ).json()) as { id: string };
+    await app.fetch(req(`/depreciation/runs/${run2.id}/post`, { method: "POST", permissions: "assets.depreciation.run" }));
+
+    const blocked = await app.fetch(
+      req(`/depreciation/runs/${run1.id}/reverse`, { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({}) }),
+    );
+    expect(blocked.status).toBe(422);
+    const body = (await blocked.json()) as { error: string; messageEn: string };
+    expect(body.error).toBe("LATER_DEPRECIATION_RUN_EXISTS");
+    expect(body.messageEn.length).toBeGreaterThan(0);
+    expect((await runs.findById(run1.id))!.status).toBe("posted");
+
+    // Reverse newest-first: the later run first, then the earlier one, both
+    // succeed. Dated explicitly at run2's own day (2026-04-30) — the
+    // harness's fixed clock reads 2026-03-31, which is legitimately BEFORE
+    // run2's own posting day and would otherwise trip the D275 date-before
+    // check this test is not exercising.
+    const reverse2 = await app.fetch(
+      req(`/depreciation/runs/${run2.id}/reverse`, {
+        method: "POST",
+        permissions: "assets.depreciation.run",
+        body: JSON.stringify({ date: "2026-04-30" }),
+      }),
+    );
+    expect(reverse2.status).toBe(200);
+    const reverse1 = await app.fetch(
+      req(`/depreciation/runs/${run1.id}/reverse`, {
+        method: "POST",
+        permissions: "assets.depreciation.run",
+        body: JSON.stringify({ date: "2026-04-30" }),
+      }),
+    );
+    expect(reverse1.status).toBe(200);
   });
 
   it("rejects POST /depreciation/runs/:id/reverse without assets.depreciation.run", async () => {

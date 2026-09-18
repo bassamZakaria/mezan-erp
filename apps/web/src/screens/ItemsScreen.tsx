@@ -833,14 +833,22 @@ export function ItemsScreen() {
       seededFor.current = null;
       return;
     }
-    if (seededFor.current === formSegment) return;
     if (formSegment === "new") {
-      // NOT before the catalogue has loaded: `nextItemCode(0)` is ITM-000001,
-      // which is already taken, and the guard below would then keep that wrong
-      // code for the life of the form.
+      if (seededFor.current !== "new") {
+        seededFor.current = "new";
+        setDraft(BLANK_DRAFT);
+        setFormError(null);
+      }
+      // The code waits for the catalogue (`nextItemCode(0)` is ITM-000001, which
+      // is taken) and is the ONLY field filled in when it arrives: the form is
+      // already open, and whatever was typed meanwhile must survive.
       if (query.isLoading || catalogueQuery.isLoading) return;
-      setDraft({ ...BLANK_DRAFT, code: nextItemCode(catalogueSize) });
-    } else if (editingItem) {
+      const code = nextItemCode(catalogueSize);
+      setDraft((current) => (current.code === "" ? { ...current, code } : current));
+      return;
+    }
+    if (seededFor.current === formSegment) return;
+    if (editingItem) {
       setDraft(draftFromItem(editingItem));
     } else {
       return;
@@ -1032,7 +1040,7 @@ export function ItemsScreen() {
           <Button type="button" onClick={subPage.close}>
             {t("common.cancel")}
           </Button>
-          <Button type="submit" form="item-form" variant="primary">
+          <Button type="submit" form="item-form" variant="primary" disabled={draft.code === ""}>
             {editingId ? t("common.save") : t("common.add")}
           </Button>
         </>

@@ -611,6 +611,7 @@ async function partyOpenItems(
   const items: AgingOpenItem[] = [];
   const openingByPartyDay = new Map<string, Map<string, bigint>>();
   const openingDocType = kind === "customer" ? CUSTOMER_OPENING_BALANCE_DOC_TYPE : SUPPLIER_OPENING_BALANCE_DOC_TYPE;
+  const realisedByEntry = new Map<string, AgingOpenItem & { scaled: bigint }>();
   for (const line of asOf.controlLines) {
     const amount = sign * (line.debit.scaled - line.credit.scaled);
     // A line naming a party is read as a manual journal fact (D205) UNLESS it
@@ -623,9 +624,15 @@ async function partyOpenItems(
       // voucher it used up and the invoice it relieved (D221). Once that is
       // undone the ladder no longer sees the allocation, so the entry and its
       // reversal stand as items of their own, dated as they posted.
-      const realised = line.sourceDocType === FX_REALISED_DOC_TYPE;
-      if (realised && (await allocationIsActive(deps, line.sourceDocId))) continue;
-      items.push({ partyId: line.partyId, source: realised ? "fx_difference" : "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
+      if (line.sourceDocType === FX_REALISED_DOC_TYPE) {
+        if (await allocationIsActive(deps, line.sourceDocId)) continue;
+        const key = `${line.entryId} ${line.partyId}`;
+        const item = realisedByEntry.get(key) ?? { partyId: line.partyId, source: "fx_difference", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.zero(), branchId: line.branchId, scaled: 0n };
+        item.scaled += amount;
+        realisedByEntry.set(key, item);
+        continue;
+      }
+      items.push({ partyId: line.partyId, source: "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
       continue;
     }
     const partyId = openingPartyOf(line, kind);
@@ -633,6 +640,9 @@ async function partyOpenItems(
     const days = openingByPartyDay.get(partyId) ?? new Map<string, bigint>();
     days.set(line.date, (days.get(line.date) ?? 0n) + amount);
     openingByPartyDay.set(partyId, days);
+  }
+  for (const { scaled, ...item } of realisedByEntry.values()) {
+    if (scaled !== 0n) items.push({ ...item, amount: Money.fromScaled(scaled) });
   }
   for (const party of parties) {
     const posted = openingByPartyDay.get(party.id);
@@ -1525,18 +1535,22 @@ export function createReportsRoutes(
    */
   async function realisedFxEntries(controlId: string, partyId: string, asOfDate: string, sign: 1n | -1n): Promise<PartyStatementEntry[]> {
     const lines = (await deps.ledger.listLines?.({ accountIds: [controlId], toDate: asOfDate })) ?? [];
-    const live: PostedLine[] = [];
+    const byEntry = new Map<string, { line: PostedLine; scaled: bigint }>();
     for (const line of lines) {
       if (line.sourceDocType !== FX_REALISED_DOC_TYPE || line.partyId !== partyId) continue;
-      if (await allocationIsActive(deps, line.sourceDocId)) live.push(line);
+      if (!(await allocationIsActive(deps, line.sourceDocId))) continue;
+      const entry = byEntry.get(line.entryId) ?? { line, scaled: 0n };
+      entry.scaled += line.debit.scaled - line.credit.scaled;
+      byEntry.set(line.entryId, entry);
     }
-    return live
-      .map((line) => ({
+    return [...byEntry.values()]
+      .filter(({ scaled }) => scaled !== 0n)
+      .map(({ line, scaled }) => ({
         key: `fx-${line.entryId}`,
         date: line.date,
         kind: "fx_difference" as const,
         reference: line.entryNo ?? line.entryId,
-        ...statementSides(Money.fromScaled(sign * (line.debit.scaled - line.credit.scaled))),
+        ...statementSides(Money.fromScaled(sign * scaled)),
       }));
   }
 

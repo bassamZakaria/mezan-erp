@@ -58,7 +58,7 @@ import {
   type VoucherAllocation,
 } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
-import { postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingMoney } from "../vouchers/realised-fx.js";
+import { postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingLine, type SettlingMoney } from "../vouchers/realised-fx.js";
 
 export interface CreateChequeCommand {
   readonly id: string;
@@ -179,6 +179,8 @@ export interface ChequeRaisingDocumentPort {
   onBounced(cheque: Cheque, context: { readonly date: string; readonly actor: string }): Promise<void>;
   /** The party control account a replacement cheque must credit; null for a cheque no document raised. */
   partyControlAccountOf(cheque: Cheque): Promise<string | null>;
+  /** The currency and rate the raising document's party line carries; null for a cheque no document raised. */
+  partyLineOf?(cheque: Cheque): Promise<SettlingLine | null>;
 }
 
 export class ChequeService {
@@ -387,7 +389,12 @@ export class ChequeService {
         throw new InvalidChequeCommandError("لا يمكن تخصيص شيك مرتد على فاتورة.");
       }
       const realisedFx = this.deps.realisedFx;
-      const money: SettlingMoney = { currency: cheque.currency, fxRate: null, date: cheque.issueDate };
+      // A standalone cheque credits the party in base; one a voucher raised
+      // settles in whatever the voucher's own party line carried.
+      const raisedLine = (await this.deps.raisedBy?.partyLineOf?.(cheque)) ?? null;
+      const money: SettlingMoney = raisedLine?.fxRate
+        ? { currency: raisedLine.currency, fxRate: raisedLine.fxRate, date: cheque.issueDate }
+        : { currency: cheque.currency, fxRate: null, date: cheque.issueDate };
       const result = await allocateFn(
         {
           allocationId: cmd.allocationId,
@@ -415,7 +422,8 @@ export class ChequeService {
                       invoice,
                       split,
                       currency: booked.currency,
-                      settlementRate: rates.settlementRate,
+                      invoiceRate: booked.fxRate,
+                      money,
                       date: cheque.issueDate,
                       controlAccountId,
                       branchId: cheque.branchId,

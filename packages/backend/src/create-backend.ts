@@ -3117,6 +3117,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const doc = await raisingVoucherOf(cheque);
       return doc ? voucherLine(doc).counterpartyGlAccountId : null;
     },
+    async partyLineOf(cheque) {
+      const doc = await raisingVoucherOf(cheque);
+      if (!doc) return null;
+      const line = voucherLine(doc);
+      return { currency: line.currency, fxRate: line.fxRate ?? null };
+    },
   };
   const voucherChequeRegister = new ChequeService({
     cheques,

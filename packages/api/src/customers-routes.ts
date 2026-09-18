@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
+import { nextMasterCode } from "./master-code.js";
 import {
   AccountNotFoundError,
   createCustomer,
@@ -357,14 +358,16 @@ export function createCustomersRouter(
     if (await repo.findById(parsed.data.id)) {
       return c.json({ error: "ALREADY_EXISTS" }, 409);
     }
-    if (await repo.findByCode(parsed.data.code)) {
-      return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `Customer code "${parsed.data.code}" already exists.` }, 409);
+    const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "C");
+    if (await repo.findByCode(code)) {
+      return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${code}» مستخدم بالفعل.` }, 409);
     }
     if (await priceListMissing(parsed.data.priceListId)) {
       return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة." }, 422);
     }
     try {
-      const { openingBalance, openingBalanceDate, creditLimit, ...rest } = parsed.data;
+      const { openingBalance, openingBalanceDate, creditLimit, ...fields } = parsed.data;
+      const rest = { ...fields, code };
       // A caller scoped to exactly one branch stamps it; a tenant-wide caller
       // leaves the record shared, which is what the all-branch sentinel means.
       const scope = branchScopeOf(c);
@@ -397,7 +400,7 @@ export function createCustomersRouter(
     if (parsed.data.code !== undefined && parsed.data.code !== current.code) {
       const clash = await repo.findByCode(parsed.data.code);
       if (clash) {
-        return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `Customer code "${parsed.data.code}" already exists.` }, 409);
+        return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${parsed.data.code}» مستخدم بالفعل.` }, 409);
       }
     }
     if (await priceListMissing(parsed.data.priceListId)) {

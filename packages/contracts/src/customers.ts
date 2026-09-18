@@ -36,7 +36,8 @@ export const customerSchema = z.object({
 /** POST /customers body — matches the catalog's "Add customer" dialog defaults. */
 export const createCustomerSchema = z.object({
   id: z.string().min(1),
-  code: z.string().min(1),
+  /** Omitted, the server allocates the next free code. */
+  code: z.string().trim().min(1).optional(),
   /** The branch that owns this record; omitted, it is stamped from the creator's own scope (D71). */
   branchId: z.string().min(1).nullish(),
   nameAr: z.string().min(1),

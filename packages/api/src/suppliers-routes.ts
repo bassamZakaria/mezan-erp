@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { createSupplier, updateSupplier, InvalidSupplierError, Money, type AuditSink, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
+import { nextMasterCode } from "./master-code.js";
 import { createSupplierSchema, updateSupplierSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
@@ -192,11 +193,13 @@ export function createSuppliersRouter(
     if (await repo.findById(parsed.data.id)) {
       return c.json({ error: "ALREADY_EXISTS" }, 409);
     }
-    if (await repo.findByCode(parsed.data.code)) {
-      return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `Supplier code "${parsed.data.code}" already exists.` }, 409);
+    const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "S");
+    if (await repo.findByCode(code)) {
+      return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `كود المورد «${code}» مستخدم بالفعل.` }, 409);
     }
     try {
-      const { openingBalance, ...rest } = parsed.data;
+      const { openingBalance, ...fields } = parsed.data;
+      const rest = { ...fields, code };
       const supplier = createSupplier({
         ...rest,
         openingBalance: openingBalance !== undefined ? Money.fromMajor(openingBalance) : undefined,
@@ -222,7 +225,7 @@ export function createSuppliersRouter(
     if (parsed.data.code !== undefined && parsed.data.code !== current.code) {
       const clash = await repo.findByCode(parsed.data.code);
       if (clash) {
-        return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `Supplier code "${parsed.data.code}" already exists.` }, 409);
+        return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `كود المورد «${parsed.data.code}» مستخدم بالفعل.` }, 409);
       }
     }
     try {

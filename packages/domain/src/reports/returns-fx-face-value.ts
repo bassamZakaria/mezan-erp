@@ -166,6 +166,8 @@ export function createReturnsFxFaceValueReport(): ReportDefinition<
     ],
     kpis: [
       { key: "count", labelAr: "مرتجعات تحتاج تصحيحاً", format: "qty", value: (rows) => rows.length, tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "postedBase", labelAr: "المرحَّل بالقيمة الاسمية", format: "money", value: (rows) => sumRows(rows, (r) => r.postedBase) },
+      { key: "correctBase", labelAr: "الصحيح بسعر الفاتورة", format: "money", value: (rows) => sumRows(rows, (r) => r.correctBase) },
       { key: "misstatement", labelAr: "إجمالي فرق التحريف", format: "money", value: (rows) => sumRows(rows, (r) => r.misstatement), tone: (value) => (value === 0 ? "success" : "danger") },
     ],
     run: (params, ctx) => {

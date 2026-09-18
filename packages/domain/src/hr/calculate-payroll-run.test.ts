@@ -4,7 +4,14 @@ import { createEmployeeDirectory } from "./employee.js";
 import { createInMemoryEmployeeRepository, createInMemoryContractRepository } from "./test-helpers/in-memory-hr-repositories.js";
 import { createEmployee } from "./create-employee.js";
 import { createContract } from "./create-contract.js";
-import { requestEmployeeAdvance, approveEmployeeAdvance, markEmployeeAdvanceDisbursed, type EmployeeAdvance, type EmployeeAdvanceRepository } from "./advance.js";
+import {
+  requestEmployeeAdvance,
+  approveEmployeeAdvance,
+  markEmployeeAdvanceDisbursed,
+  applyAdvanceRecovery,
+  type EmployeeAdvance,
+  type EmployeeAdvanceRepository,
+} from "./advance.js";
 import type { PayrollComponentRepository } from "./payroll-component.js";
 import { createPayrollComponent } from "./payroll-component.js";
 import { payrollDayDivisor, type Garnishment, type GarnishmentProvider, type PayrollRun, type PayrollRunRepository, type Payslip, type PayslipRepository, type UnpaidLeaveDaysProvider } from "./payroll-run.js";
@@ -263,9 +270,13 @@ describe("calculatePayrollRun", () => {
     expect(calculated.warnings.some((w) => w.includes("بالتناسب"))).toBe(false);
   });
 
-  it("prorates a mid-month hire EXACTLY via largest-remainder allocation (basic salary and allowances)", async () => {
+  it("prorates a mid-month hire EXACTLY via largest-remainder allocation, on the FIXED_30 default divisor (D185)", async () => {
     const h = await harness();
-    // January has 31 days; hired 2026-01-22 => paid 10 of 31 days.
+    // January has 31 days; hired 2026-01-22 => paid 10 of 31 CALENDAR days —
+    // but D185 puts the WAGE proration on the tenant's day-divisor setting
+    // (FIXED_30 by default, unset here), the same basis unpaid leave already
+    // uses, so the rate is amount/30 for the 10 days actually worked, not
+    // amount/31.
     const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
     await employeeWithContract(h, {
       id: "emp-1",
@@ -278,19 +289,45 @@ describe("calculatePayrollRun", () => {
     const calculated = await calculatePayrollRun(run.id, h.deps);
     const [payslip] = await h.payslips.listByRunId(run.id);
 
-    // allocate(1000.00, [10, 21]): total scaled 1_000_000_000; base 322_580_645 rem 5 / base
-    // 677_419_354 rem 26 -> the single leftover unit goes to the higher remainder (index 1,
-    // the UNPAID portion) so the PAID (index 0) share is exactly 322.580645.
+    // allocate(1000.00, [10, 20]): total scaled 1_000_000_000; numerator0 = 10_000_000_000,
+    // base0 = 333_333_333 rem 10; numerator1 = 20_000_000_000, base1 = 666_666_666 rem 20 ->
+    // the single leftover unit goes to the higher remainder (index 1, the UNPAID portion),
+    // so the PAID (index 0) share is exactly 333.333333.
     const basicLine = payslip!.lines.find((l) => l.source === "contract_basic")!;
-    expect(basicLine.amount.toString()).toBe("322.580645");
+    expect(basicLine.amount.toString()).toBe("333.333333");
 
-    // allocate(310.00, [10, 21]): total scaled 310_000_000; base0 = 100_000_000 (exact, no remainder).
+    // allocate(310.00, [10, 20]): same remainder shape, base0 = 103_333_333.
     const allowanceLine = payslip!.lines.find((l) => l.source === "contract_allowance")!;
-    expect(allowanceLine.amount.toString()).toBe("100.000000");
+    expect(allowanceLine.amount.toString()).toBe("103.333333");
 
     expect(payslip!.paidDays).toBe(10);
-    expect(payslip!.grossEarnings.toString()).toBe("422.580645");
+    expect(payslip!.grossEarnings.toString()).toBe("436.666666");
     expect(calculated.warnings.some((w) => w.includes("احتُسب 10 من 31 يوماً بالتناسب"))).toBe(true);
+  });
+
+  it("D185: a mid-month joiner is prorated by CALENDAR days when the tenant's divisor setting is CALENDAR_DAYS", async () => {
+    const h = await harness();
+    // Same hire as above, but on CALENDAR_DAYS — today's pre-D185 behaviour,
+    // unchanged: the rate is amount/31 for the 10 days actually worked.
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, {
+      id: "emp-1",
+      hireDate: "2026-01-22",
+      contractStart: "2026-01-22",
+      monthlySalary: "1000.00",
+      allowances: [{ name: "بدل مواصلات", amount: "310.00" }],
+    });
+
+    await calculatePayrollRun(run.id, { ...h.deps, dayDivisorBasis: "CALENDAR_DAYS" });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+
+    // allocate(1000.00, [10, 21]): base0 = 322_580_645 rem 5, base1 = 677_419_354 rem 26 ->
+    // the leftover unit goes to index 1, so the PAID share is exactly 322.580645.
+    const basicLine = payslip!.lines.find((l) => l.source === "contract_basic")!;
+    expect(basicLine.amount.toString()).toBe("322.580645");
+    const allowanceLine = payslip!.lines.find((l) => l.source === "contract_allowance")!;
+    expect(allowanceLine.amount.toString()).toBe("100.000000");
+    expect(payslip!.grossEarnings.toString()).toBe("422.580645");
   });
 
   it("does NOT prorate fixed deduction lines — they apply at their full contract amount", async () => {
@@ -450,8 +487,11 @@ describe("calculatePayrollRun", () => {
   it("recovers advances oldest-number first and stops once net pay is exhausted, warning about the partial one", async () => {
     const h = await harness();
     const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
-    // small salary so it cannot cover both full instalments.
-    await employeeWithContract(h, { id: "emp-1", monthlySalary: "400.00" });
+    // D183 caps total advance recovery at 10% of gross (900.00 here) — a
+    // large contract deduction narrows net pay down to 400.00 before the
+    // advances are considered, so net pay (not the statutory cap) is still
+    // what cannot cover both full instalments.
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "9000.00", deductions: [{ name: "قسط قرض", amount: "8600.00" }] });
     await disbursedAdvance(h, { id: "adv-1", employeeId: "emp-1", number: "ADV-000001", amount: "900.00", count: 3, firstDeductionDate: "2026-01-01" }); // instalment due = 300.00
     await disbursedAdvance(h, { id: "adv-2", employeeId: "emp-1", number: "ADV-000002", amount: "600.00", count: 1, firstDeductionDate: "2026-01-01" }); // instalment due = 600.00
 
@@ -461,8 +501,10 @@ describe("calculatePayrollRun", () => {
     expect(recoveryLines).toHaveLength(2);
     expect(recoveryLines[0]!.referenceId).toBe("adv-1"); // oldest number recovered first
     expect(recoveryLines[0]!.amount.toString()).toBe("300.000000"); // full instalment
+    expect(recoveryLines[0]!.capped).toBe(false);
     expect(recoveryLines[1]!.referenceId).toBe("adv-2");
     expect(recoveryLines[1]!.amount.toString()).toBe("100.000000"); // whatever net remains
+    expect(recoveryLines[1]!.capped).toBe(false); // net pay limited it, not the D183 10% cap
     expect(payslip!.netPay.scaled).toBe(0n);
     expect(calculated.warnings.some((w) => w.includes("ADV-000002") && w.includes("جزئياً"))).toBe(true);
   });
@@ -581,17 +623,21 @@ describe("calculatePayrollRun — garnishments ahead of advances", () => {
   it("takes the court order (within its 25% cap) before the employer's advance, and the advance carries the shortfall when net will not stretch", async () => {
     const h = await harness();
     const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
-    // 2,000.00 wage: 25% ceiling is 500.00, comfortably above the order's own
-    // 300.00 instalment, so the cap does not bind here — this test is about
-    // ORDERING against the advance, not the cap itself (see the "D181"
-    // describe block below for the cap).
-    await employeeWithContract(h, { id: "emp-1", monthlySalary: "2000.00" });
+    // 50,000.00 wage: 25% garnishment ceiling is 12,500.00 (comfortably above
+    // the order's own 300.00 instalment) and the D183 10% advance-recovery
+    // ceiling is 5,000.00 (comfortably above what net pay actually leaves) —
+    // neither statutory cap binds here. A large contract deduction narrows
+    // net pay down to 1,700.00 BEFORE the advance is even considered, so this
+    // test still isolates ORDERING + NET-PAY exhaustion, not either cap (see
+    // the "D181" describe block below for the garnishment cap, and the
+    // "D183" describe block for the advance-recovery cap).
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "50000.00", deductions: [{ name: "قسط قرض", amount: "48000.00" }] });
     await advance(h, "adv-1", "ADV-000001", "5000.00", 1); // one instalment due in full: 5,000.00
 
     const calculated = await calculatePayrollRun(run.id, { ...h.deps, garnishments: provider([order()]) });
     const [payslip] = await h.payslips.listByRunId(run.id);
     const sources = payslip!.lines.filter((l) => l.kind === "deduction").map((l) => l.source);
-    expect(sources).toEqual(["garnishment", "advance_recovery"]);
+    expect(sources).toEqual(["garnishment", "contract_deduction", "advance_recovery"]);
 
     const garnishment = payslip!.lines.find((l) => l.source === "garnishment")!;
     expect(garnishment.amount.toString()).toBe("300.000000");
@@ -600,7 +646,8 @@ describe("calculatePayrollRun — garnishments ahead of advances", () => {
     expect(garnishment.capped).toBe(false);
 
     const recovery = payslip!.lines.find((l) => l.source === "advance_recovery")!;
-    expect(recovery.amount.toString()).toBe("1700.000000"); // 2000 - 300, all of what is left
+    expect(recovery.amount.toString()).toBe("1700.000000"); // 50000 - 300 - 48000, all of what is left
+    expect(recovery.capped).toBe(false); // net pay limited it, not the D183 10% cap
     expect(payslip!.netPay.scaled).toBe(0n);
     expect(calculated.warnings.some((w) => w.includes("ADV-000001") && w.includes("جزئياً"))).toBe(true);
   });
@@ -785,6 +832,78 @@ describe("calculatePayrollRun — D182: court orders rank ahead of contract dedu
   });
 });
 
+describe("calculatePayrollRun — D183: advance-recovery instalments are capped at 10% of the wage (Labour Law 12/2003 Art. 43)", () => {
+  async function disbursedAdvance(h: Awaited<ReturnType<typeof harness>>, opts: { id: string; number: string; amount: string; count: number; firstDeductionDate: string }) {
+    const requested = await requestEmployeeAdvance(
+      { id: opts.id, number: opts.number, employeeId: "emp-1", amount: Money.fromMajor(opts.amount), installmentCount: opts.count, firstDeductionDate: opts.firstDeductionDate },
+      h.advances,
+    );
+    const disbursed = markEmployeeAdvanceDisbursed(approveEmployeeAdvance(requested, "user-1"), { voucherId: "cv-1", journalEntryId: null });
+    await h.advances.update(disbursed);
+  }
+
+  it("caps a single instalment at 10% of gross when the instalment itself would take more", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "1000.00" }); // 10% ceiling = 100.00
+    await disbursedAdvance(h, { id: "adv-1", number: "ADV-000001", amount: "900.00", count: 3, firstDeductionDate: "2026-01-01" }); // instalment due = 300.00
+
+    const calculated = await calculatePayrollRun(run.id, h.deps);
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const recovery = payslip!.lines.find((l) => l.source === "advance_recovery")!;
+    expect(recovery.amount.toString()).toBe("100.000000");
+    expect(recovery.capped).toBe(true);
+    expect(payslip!.netPay.toString()).toBe("900.000000"); // 1000 - 100
+    expect(calculated.warnings.some((w) => w.includes("ADV-000001") && w.includes("الحد الأقصى القانوني للاستقطاع"))).toBe(true);
+  });
+
+  it("does not cap an instalment that already falls at or under 10% of the wage", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "3000.00" }); // 10% ceiling = 300.00
+    await disbursedAdvance(h, { id: "adv-1", number: "ADV-000001", amount: "900.00", count: 3, firstDeductionDate: "2026-01-01" }); // instalment due = 300.00, exactly the ceiling
+
+    const calculated = await calculatePayrollRun(run.id, h.deps);
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const recovery = payslip!.lines.find((l) => l.source === "advance_recovery")!;
+    expect(recovery.amount.toString()).toBe("300.000000");
+    expect(recovery.capped).toBe(false);
+    expect(calculated.warnings.some((w) => w.includes("الحد الأقصى القانوني للاستقطاع"))).toBe(false);
+  });
+
+  it("carries the uncapped remainder forward: the SAME instalment is recovered again next period once the capped amount is applied", async () => {
+    const h = await harness();
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "2000.00" }); // 10% ceiling = 200.00 each period
+    await disbursedAdvance(h, { id: "adv-1", number: "ADV-000001", amount: "1000.00", count: 1, firstDeductionDate: "2026-01-01" }); // one instalment, due in full: 1,000.00
+
+    const runJan = await createPayrollRun({ id: "r-jan", year: 2026, month: 1 }, h.deps);
+    await calculatePayrollRun(runJan.id, h.deps);
+    const [januarySlip] = await h.payslips.listByRunId(runJan.id);
+    const januaryRecovery = januarySlip!.lines.find((l) => l.source === "advance_recovery")!;
+    expect(januaryRecovery.amount.toString()).toBe("200.000000");
+    expect(januaryRecovery.capped).toBe(true);
+
+    // Mirrors what post-payroll-run.ts does on approval: only what was
+    // ACTUALLY recovered counts down the balance — never the full scheduled
+    // instalment — so the shortfall remains outstanding for next period.
+    const advanceAfterJan = (await h.advances.listByEmployeeId("emp-1"))[0]!;
+    const updated = applyAdvanceRecovery(advanceAfterJan, januaryRecovery.amount);
+    await h.advances.update(updated);
+    expect(updated.status).toBe("disbursed"); // 800.00 still outstanding, not yet مسددة
+
+    const runFeb = await createPayrollRun({ id: "r-feb", year: 2026, month: 2 }, h.deps);
+    await calculatePayrollRun(runFeb.id, h.deps);
+    const [februarySlip] = await h.payslips.listByRunId(runFeb.id);
+    const februaryRecovery = februarySlip!.lines.find((l) => l.source === "advance_recovery")!;
+    // The SAME instalment (never fully recovered) is picked up again, capped
+    // again at 10% of February's gross — the balance counts down by exactly
+    // what was recovered each period, never by the instalment's full amount.
+    expect(februaryRecovery.referenceId).toBe("adv-1");
+    expect(februaryRecovery.amount.toString()).toBe("200.000000");
+    expect(februaryRecovery.capped).toBe(true);
+  });
+});
+
 describe("calculatePayrollRun — D184: a fully unpaid period nets zero, whatever the ÷30 divisor would otherwise leave", () => {
   const days = (n: number): UnpaidLeaveDaysProvider => ({ unpaidDaysFor: async () => n });
 
@@ -869,10 +988,13 @@ describe("calculatePayrollRun — the day divisor prices a day of unpaid leave",
     await calculatePayrollRun(run.id, { ...h.deps, unpaidLeave: days(2) });
     const [payslip] = await h.payslips.listByRunId(run.id);
     const unpaid = payslip!.lines.find((l) => l.source === "unpaid_leave")!;
-    // Two paid days of 3,000 over a 31-day month earn 193.548387; two unpaid
-    // days at 3,000 / 30 would be 200.00, so the deduction stops at gross.
-    expect(payslip!.grossEarnings.toString()).toBe("193.548387");
-    expect(unpaid.amount.toString()).toBe("193.548387");
+    // D185: the two paid days are now ALSO priced on the FIXED_30 default
+    // divisor (3,000 / 30 × 2 = 200.00 exactly), the same basis unpaid leave
+    // already used — so both figures naturally agree at 200.00; both unpaid
+    // days fall inside those two paid days, so the deduction is the whole
+    // period's contract earnings (D184), which here is that same 200.00.
+    expect(payslip!.grossEarnings.toString()).toBe("200.000000");
+    expect(unpaid.amount.toString()).toBe("200.000000");
     expect(payslip!.netPay.scaled).toBe(0n);
   });
 });
@@ -914,7 +1036,7 @@ describe("calculatePayrollRun — statutory computation is gated by the tenant s
     expect(bySource.get("income_tax")!.referenceId).toBe("EG_SALARY_TAX_2024");
     expect(bySource.get("statutory_levy")!.amount.toString()).toBe("5.000000");
     expect(payslip!.netPay.toString()).toBe("8302.500000");
-    expect(payslip!.totalEmployerCost.toString()).toBe("11875.000000");
+    expect(payslip!.totalEmployerCost?.toString()).toBe("11875.000000");
     expect(calculated.statutoryTableCodes).toContain("EG_SOCIAL_INSURANCE_2026");
   });
 
